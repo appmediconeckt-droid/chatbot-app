@@ -1,4 +1,4 @@
-// CounselorProfile.jsx - React Native Version
+// CounselorProfile.jsx - Fixed React Native Version
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -9,22 +9,25 @@ import {
   Image,
   ActivityIndicator,
   Alert,
-  Modal,
   StyleSheet,
   Platform,
+  Dimensions,
+  KeyboardAvoidingView,
 } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { pick } from '@react-native-documents/picker';
-import { API_BASE_URL } from '../../../../../../axiosConfig';
+import DocumentPicker from '@react-native-documents/picker';
+import Icon from 'react-native-vector-icons/FontAwesome5';
+
+const { width, height } = Dimensions.get('window');
+const API_BASE_URL = 'https://chatbot-backend-js25.onrender.com';
 
 const CounselorProfile = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const [showDocumentPicker, setShowDocumentPicker] = useState(false);
-  const [selectedCertId, setSelectedCertId] = useState(null);
 
   // State for counselor data
   const [counselor, setCounselor] = useState({
@@ -89,6 +92,9 @@ const CounselorProfile = () => {
     documentName: ''
   });
 
+  const isSmall = width <= 768;
+  const PHOTO_SIZE = isSmall ? 100 : 140;
+
   // Fetch profile data on component mount
   useEffect(() => {
     fetchCounselorProfile();
@@ -117,7 +123,7 @@ const CounselorProfile = () => {
       if (response.data.success && response.data.counsellor) {
         const userData = response.data.counsellor;
 
-        let profilePhotoUrl = 'https://via.placeholder.com/150x150?text=Profile';
+        let profilePhotoUrl = '';
         if (userData.profilePhoto) {
           if (typeof userData.profilePhoto === 'string') {
             profilePhotoUrl = userData.profilePhoto;
@@ -253,7 +259,7 @@ const CounselorProfile = () => {
     setEditedData(prev => ({
       ...prev,
       profilePhoto: null,
-      profilePhotoUrl: 'https://via.placeholder.com/150x150?text=Profile'
+      profilePhotoUrl: ''
     }));
   };
 
@@ -310,15 +316,13 @@ const CounselorProfile = () => {
   };
 
   const handleDocumentUpload = async (certId) => {
-    setSelectedCertId(certId);
-    
     try {
-      const [file] = await pick({
-        mode: 'open',
-        allowMultiSelection: false,
-        type: ['application/pdf', 'image/jpeg', 'image/png', 'application/msword'],
+      const result = await DocumentPicker.pick({
+        type: [DocumentPicker.types.pdf, DocumentPicker.types.images],
       });
 
+      // Normalize result (some picker implementations return an array, others a single object)
+      const file = Array.isArray(result) ? result[0] : result;
       const updatedCerts = editedData.certifications.map(cert => {
         if (cert._id === certId) {
           return {
@@ -340,13 +344,13 @@ const CounselorProfile = () => {
         certifications: updatedCerts
       }));
     } catch (err) {
-      if (err.code !== 'CANCELED') {
+      if (err.code !== 'DOCUMENT_PICKER_CANCELED') {
         console.error('Error picking document:', err);
       }
     }
   };
 
-  const handleAddCertification = async () => {
+  const handleAddCertification = () => {
     if (!newCertification.name.trim()) {
       Alert.alert('Error', 'Please enter certification name');
       return;
@@ -380,12 +384,11 @@ const CounselorProfile = () => {
 
   const handleNewDocumentUpload = async () => {
     try {
-      const [file] = await pick({
-        mode: 'open',
-        allowMultiSelection: false,
-        type: ['application/pdf', 'image/jpeg', 'image/png', 'application/msword'],
+      const result = await DocumentPicker.pick({
+        type: [DocumentPicker.types.pdf, DocumentPicker.types.images],
       });
 
+      const file = Array.isArray(result) ? result[0] : result;
       setNewCertification(prev => ({
         ...prev,
         document: {
@@ -396,7 +399,7 @@ const CounselorProfile = () => {
         documentName: file.name
       }));
     } catch (err) {
-      if (err.code !== 'CANCELED') {
+      if (err.code !== 'DOCUMENT_PICKER_CANCELED') {
         console.error('Error picking document:', err);
       }
     }
@@ -584,15 +587,15 @@ const CounselorProfile = () => {
 
       <View style={styles.certificationDetails}>
         <View style={styles.certificationInfo}>
-          <View>
+          <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Issued By:</Text>
             <Text style={styles.infoText}>{cert.issuedBy || 'Not specified'}</Text>
           </View>
-          <View>
+          <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Issue Date:</Text>
             <Text style={styles.infoText}>{cert.issueDate ? formatDate(cert.issueDate) : 'Not specified'}</Text>
           </View>
-          <View>
+          <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Expiry Date:</Text>
             <Text style={styles.infoText}>{cert.expiryDate ? formatDate(cert.expiryDate) : 'Not specified'}</Text>
           </View>
@@ -633,531 +636,564 @@ const CounselorProfile = () => {
   }
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Success/Error Messages */}
-      {successMessage ? (
-        <View style={[styles.alert, styles.successAlert]}>
-          <Text style={styles.successText}>{successMessage}</Text>
-        </View>
-      ) : null}
-      {error ? (
-        <View style={[styles.alert, styles.errorAlert]}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      ) : null}
+    <KeyboardAvoidingView
+      style={styles.keyboardView}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Success/Error Messages */}
+        {successMessage ? (
+          <View style={[styles.alert, styles.successAlert]}>
+            <Text style={styles.successText}>{successMessage}</Text>
+          </View>
+        ) : null}
+        {error ? (
+          <View style={[styles.alert, styles.errorAlert]}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
 
-      {/* Header Section */}
-      <View style={styles.header}>
-        <View style={styles.avatarWrapper}>
-          <View style={styles.profilePhotoContainer}>
-            {editedData?.profilePhotoUrl && editedData.profilePhotoUrl !== 'https://via.placeholder.com/150x150?text=Profile' ? (
-              <Image source={{ uri: editedData.profilePhotoUrl }} style={styles.profilePhoto} />
-            ) : (
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>
-                  {counselor?.fullName?.charAt(0) || 'C'}
-                </Text>
-              </View>
-            )}
+        {/* Header Section */}
+        <View style={[styles.header, isSmall && styles.headerColumn]}>
+          {/* Avatar Section */}
+          <View style={[styles.avatarSection, isSmall && styles.avatarSectionCenter]}>
+            <View style={[styles.profilePhotoContainer, { width: PHOTO_SIZE, height: PHOTO_SIZE }]}>
+              {editedData?.profilePhotoUrl ? (
+                <Image
+                  source={{ uri: editedData.profilePhotoUrl }}
+                  style={[styles.profilePhoto, { width: PHOTO_SIZE, height: PHOTO_SIZE, borderRadius: PHOTO_SIZE / 2 }]}
+                />
+              ) : (
+                <LinearGradient
+                  colors={['#667eea', '#764ba2']}
+                  style={[styles.avatar, { width: PHOTO_SIZE, height: PHOTO_SIZE, borderRadius: PHOTO_SIZE / 2 }]}
+                >
+                  <Text style={[styles.avatarText, { fontSize: PHOTO_SIZE * 0.35 }]}>
+                    {counselor?.fullName?.charAt(0) || 'C'}
+                  </Text>
+                </LinearGradient>
+              )}
 
-            {isEditing && (
-              <View style={styles.photoEditOverlay}>
-                <TouchableOpacity onPress={handleProfilePhotoUpload} style={styles.uploadPhotoBtn}>
-                  <Text style={styles.photoBtnText}>📷</Text>
-                </TouchableOpacity>
-                {editedData.profilePhotoUrl !== 'https://via.placeholder.com/150x150?text=Profile' && (
-                  <TouchableOpacity onPress={handleRemoveProfilePhoto} style={styles.removePhotoBtn}>
-                    <Text style={styles.photoBtnText}>✕</Text>
+              {isEditing && (
+                <View style={styles.photoEditOverlay}>
+                  <TouchableOpacity onPress={handleProfilePhotoUpload} style={styles.uploadPhotoBtn}>
+                    <Text style={styles.photoBtnText}>📷</Text>
                   </TouchableOpacity>
-                )}
-              </View>
-            )}
+                  {editedData.profilePhotoUrl && (
+                    <TouchableOpacity onPress={handleRemoveProfilePhoto} style={styles.removePhotoBtn}>
+                      <Text style={styles.photoBtnText}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </View>
+
+            <View style={styles.uniqueCode}>
+              <Text style={styles.uniqueCodeLabel}>Counselor Code:</Text>
+              <Text style={styles.uniqueCodeValue}>{counselor?.uniqueCode || 'Not assigned'}</Text>
+            </View>
           </View>
 
-          <View style={styles.uniqueCode}>
-            <Text style={styles.uniqueCodeLabel}>Counselor Code:</Text>
-            <Text style={styles.uniqueCodeValue}>{counselor?.uniqueCode || 'Not assigned'}</Text>
+          {/* Info Section */}
+          <View style={[styles.infoSection, isSmall && styles.infoSectionCenter]}>
+            <View style={styles.nameContainer}>
+              {isEditing ? (
+                <TextInput
+                  style={[styles.input, styles.nameInput]}
+                  value={editedData.fullName || ''}
+                  onChangeText={(value) => handleInputChange('fullName', value)}
+                  placeholder="Full Name"
+                />
+              ) : (
+                <Text style={[styles.name, isSmall && styles.nameCenter]}>{counselor?.fullName}</Text>
+              )}
+            </View>
+
+            <View style={styles.specializationContainer}>
+              {isEditing ? (
+                <View>
+                  <View style={styles.tagsList}>
+                    {editedData.specialization.map((spec, index) => (
+                      <View key={index} style={styles.tag}>
+                        <Text style={styles.tagText}>{spec}</Text>
+                        <TouchableOpacity onPress={() => handleRemoveSpecialization(spec)}>
+                          <Text style={styles.removeTagText}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                  <View style={styles.addSection}>
+                    <TextInput
+                      style={[styles.input, styles.flex1]}
+                      value={newSpecialization}
+                      onChangeText={setNewSpecialization}
+                      placeholder="Add new specialization..."
+                      placeholderTextColor="#94a3b8"
+                      onSubmitEditing={handleAddSpecialization}
+                    />
+                    <TouchableOpacity onPress={handleAddSpecialization} style={styles.addBtn}>
+                      <Text style={styles.addBtnText}>+ Add</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <Text style={[styles.specialization, isSmall && styles.specializationCenter]}>
+                  {counselor?.specialization?.join(', ') || 'Not specified'}
+                </Text>
+              )}
+            </View>
+
+            <View style={styles.stats}>
+              <View style={styles.stat}>
+                <Text style={styles.statValue}>{counselor?.rating || 0} ★</Text>
+                <Text style={styles.statLabel}>Rating</Text>
+              </View>
+              <View style={styles.stat}>
+                <Text style={styles.statValue}>{counselor?.totalSessions || 0}</Text>
+                <Text style={styles.statLabel}>Sessions</Text>
+              </View>
+              <View style={styles.stat}>
+                <Text style={styles.statValue}>{counselor?.activeClients || 0}</Text>
+                <Text style={styles.statLabel}>Active Clients</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Actions Section */}
+          <View style={[styles.actionsSection, isSmall && styles.actionsSectionCenter]}>
+            {!isEditing ? (
+              <TouchableOpacity onPress={() => setIsEditing(true)} style={[styles.btn, styles.editBtn]}>
+                <Text style={styles.btnText}>Edit Profile</Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <TouchableOpacity onPress={handleSave} style={[styles.btn, styles.saveBtn]} disabled={loading}>
+                  <Text style={styles.btnText}>{loading ? 'Saving...' : 'Save Changes'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleCancel} style={[styles.btn, styles.cancelBtn]}>
+                  <Text style={styles.btnText}>Cancel</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
 
-        <View style={styles.headerInfo}>
-          <Text style={styles.name}>
-            {isEditing ? (
-              <TextInput
-                style={styles.input}
-                value={editedData.fullName || ''}
-                onChangeText={(value) => handleInputChange('fullName', value)}
-                placeholder="Full Name"
-              />
-            ) : (
-              counselor?.fullName
-            )}
-          </Text>
-          
-          <View style={styles.specializationContainer}>
-            {isEditing ? (
+        {/* Main Content */}
+        <View style={[styles.content, isSmall && styles.contentStack]}>
+          {/* Left Column */}
+          <View style={styles.leftColumn}>
+            {/* Contact Information */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Contact Information</Text>
+              <View style={styles.contactInfo}>
+                <View style={styles.contactItem}>
+                  <Icon name="envelope" size={18} color="#666" style={styles.contactIcon} />
+                  <View style={styles.contactDetail}>
+                    <Text style={styles.contactLabel}>Email</Text>
+                    {isEditing ? (
+                      <TextInput
+                        style={styles.input}
+                        value={editedData.email || ''}
+                        onChangeText={(value) => handleInputChange('email', value)}
+                        placeholder="Email"
+                        keyboardType="email-address"
+                      />
+                    ) : (
+                      <Text style={styles.contactValue}>{counselor?.email || 'Not specified'}</Text>
+                    )}
+                  </View>
+                </View>
+                <View style={styles.contactItem}>
+                  <Icon name="phone" size={18} color="#666" style={styles.contactIcon} />
+                  <View style={styles.contactDetail}>
+                    <Text style={styles.contactLabel}>Phone</Text>
+                    {isEditing ? (
+                      <TextInput
+                        style={styles.input}
+                        value={editedData.phoneNumber || ''}
+                        onChangeText={(value) => handleInputChange('phoneNumber', value)}
+                        placeholder="Phone Number"
+                        keyboardType="phone-pad"
+                      />
+                    ) : (
+                      <Text style={styles.contactValue}>{counselor?.phoneNumber || 'Not specified'}</Text>
+                    )}
+                  </View>
+                </View>
+                <View style={styles.contactItem}>
+                  <Icon name="map-marker-alt" size={18} color="#666" style={styles.contactIcon} />
+                  <View style={styles.contactDetail}>
+                    <Text style={styles.contactLabel}>Location</Text>
+                    {isEditing ? (
+                      <TextInput
+                        style={styles.input}
+                        value={editedData.location || ''}
+                        onChangeText={(value) => handleInputChange('location', value)}
+                        placeholder="Location"
+                      />
+                    ) : (
+                      <Text style={styles.contactValue}>{counselor?.location || 'Not specified'}</Text>
+                    )}
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            {/* Personal Information */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Personal Information</Text>
+              <View style={styles.personalInfo}>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoRowLabel}>Age:</Text>
+                  {isEditing ? (
+                    <TextInput
+                      style={[styles.input, styles.flex1]}
+                      value={editedData.age?.toString() || ''}
+                      onChangeText={(value) => handleInputChange('age', parseInt(value) || 0)}
+                      placeholder="Age"
+                      keyboardType="numeric"
+                    />
+                  ) : (
+                    <Text style={styles.infoRowValue}>{counselor?.age || 'Not specified'}</Text>
+                  )}
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoRowLabel}>Gender:</Text>
+                  {isEditing ? (
+                    <View style={styles.genderOptions}>
+                      {['male', 'female', 'other'].map(option => (
+                        <TouchableOpacity
+                          key={option}
+                          onPress={() => handleInputChange('gender', option)}
+                          style={[
+                            styles.genderOption,
+                            editedData.gender === option && styles.genderOptionActive
+                          ]}
+                        >
+                          <Text style={[
+                            styles.genderOptionText,
+                            editedData.gender === option && styles.genderOptionTextActive
+                          ]}>
+                            {option.charAt(0).toUpperCase() + option.slice(1)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={styles.infoRowValue}>
+                      {counselor?.gender ? counselor.gender.charAt(0).toUpperCase() + counselor.gender.slice(1) : 'Not specified'}
+                    </Text>
+                  )}
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoRowLabel}>Blood Group:</Text>
+                  {isEditing ? (
+                    <TextInput
+                      style={[styles.input, styles.flex1]}
+                      value={editedData.bloodGroup || ''}
+                      onChangeText={(value) => handleInputChange('bloodGroup', value)}
+                      placeholder="e.g., A+, B-, O+"
+                    />
+                  ) : (
+                    <Text style={styles.infoRowValue}>{counselor?.bloodGroup || 'Not specified'}</Text>
+                  )}
+                </View>
+              </View>
+            </View>
+
+            {/* Address */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Address</Text>
+              {isEditing ? (
+                <View style={styles.addressForm}>
+                  <TextInput
+                    style={styles.input}
+                    value={editedData.address?.line1 || ''}
+                    onChangeText={(value) => handleNestedInputChange('address', 'line1', value)}
+                    placeholder="Address Line 1"
+                  />
+                  <TextInput
+                    style={styles.input}
+                    value={editedData.address?.line2 || ''}
+                    onChangeText={(value) => handleNestedInputChange('address', 'line2', value)}
+                    placeholder="Address Line 2"
+                  />
+                  <View style={styles.row}>
+                    <TextInput
+                      style={[styles.input, styles.flex1]}
+                      value={editedData.address?.city || ''}
+                      onChangeText={(value) => handleNestedInputChange('address', 'city', value)}
+                      placeholder="City"
+                    />
+                    <TextInput
+                      style={[styles.input, styles.flex1]}
+                      value={editedData.address?.state || ''}
+                      onChangeText={(value) => handleNestedInputChange('address', 'state', value)}
+                      placeholder="State"
+                    />
+                  </View>
+                  <View style={styles.row}>
+                    <TextInput
+                      style={[styles.input, styles.flex1]}
+                      value={editedData.address?.pincode || ''}
+                      onChangeText={(value) => handleNestedInputChange('address', 'pincode', value)}
+                      placeholder="Pincode"
+                      keyboardType="numeric"
+                    />
+                    <TextInput
+                      style={[styles.input, styles.flex1]}
+                      value={editedData.address?.country || ''}
+                      onChangeText={(value) => handleNestedInputChange('address', 'country', value)}
+                      placeholder="Country"
+                    />
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.addressDisplay}>
+                  {counselor.address?.line1 && <Text style={styles.addressText}>{counselor.address.line1}</Text>}
+                  {counselor.address?.line2 && <Text style={styles.addressText}>{counselor.address.line2}</Text>}
+                  <Text style={styles.addressText}>
+                    {counselor.address?.city && `${counselor.address.city}, `}
+                    {counselor.address?.state && `${counselor.address.state} `}
+                    {counselor.address?.pincode && `- ${counselor.address.pincode}`}
+                  </Text>
+                  {counselor.address?.country && <Text style={styles.addressText}>{counselor.address.country}</Text>}
+                  {!counselor.address?.line1 && !counselor.address?.city && (
+                    <Text style={styles.addressText}>No address provided</Text>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Education */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Education</Text>
+              {isEditing ? (
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={editedData.education || ''}
+                  onChangeText={(value) => handleInputChange('education', value)}
+                  placeholder="Enter your educational qualifications"
+                  multiline
+                  numberOfLines={3}
+                />
+              ) : (
+                <Text style={styles.cardText}>{counselor?.education || counselor?.qualification || 'Not specified'}</Text>
+              )}
+            </View>
+
+            {/* Experience */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Experience</Text>
+              {isEditing ? (
+                <TextInput
+                  style={styles.input}
+                  value={editedData.experience?.toString() || ''}
+                  onChangeText={(value) => handleInputChange('experience', parseInt(value) || 0)}
+                  placeholder="Years of experience"
+                  keyboardType="numeric"
+                />
+              ) : (
+                <Text style={styles.cardText}>{counselor?.experience} years</Text>
+              )}
+            </View>
+
+            {/* Consultation Mode */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Consultation Mode</Text>
               <View>
                 <View style={styles.tagsList}>
-                  {editedData.specialization.map((spec, index) => (
-                    <View key={index} style={styles.tag}>
-                      <Text style={styles.tagText}>{spec}</Text>
-                      <TouchableOpacity onPress={() => handleRemoveSpecialization(spec)}>
-                        <Text style={styles.removeTagText}>✕</Text>
-                      </TouchableOpacity>
+                  {editedData?.consultationMode?.map((mode, index) => (
+                    <View key={index} style={[styles.tag, styles.consultationTag]}>
+                      <Text style={styles.tagText}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</Text>
+                      {isEditing && (
+                        <TouchableOpacity onPress={() => handleRemoveConsultationMode(mode)}>
+                          <Text style={styles.removeTagText}>✕</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   ))}
                 </View>
-                <View style={styles.addSection}>
-                  <TextInput
-                    style={[styles.input, styles.flex1]}
-                    value={newSpecialization}
-                    onChangeText={setNewSpecialization}
-                    placeholder="Add new specialization..." placeholderTextColor="#94a3b8"
-                    onSubmitEditing={handleAddSpecialization}
-                  />
-                  <TouchableOpacity onPress={handleAddSpecialization} style={styles.addBtn}>
-                    <Text style={styles.addBtnText}>+ Add</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ) : (
-              <Text style={styles.specialization}>
-                {counselor?.specialization?.join(', ') || 'Not specified'}
-              </Text>
-            )}
-          </View>
 
-          <View style={styles.stats}>
-            <View style={styles.stat}>
-              <Text style={styles.statValue}>{counselor?.rating || 0} ★</Text>
-              <Text style={styles.statLabel}>Rating</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={styles.statValue}>{counselor?.totalSessions || 0}</Text>
-              <Text style={styles.statLabel}>Sessions</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={styles.statValue}>{counselor?.activeClients || 0}</Text>
-              <Text style={styles.statLabel}>Active Clients</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.actions}>
-          {!isEditing ? (
-            <TouchableOpacity onPress={() => setIsEditing(true)} style={[styles.btn, styles.editBtn]}>
-              <Text style={styles.btnText}>Edit Profile</Text>
-            </TouchableOpacity>
-          ) : (
-            <>
-              <TouchableOpacity onPress={handleSave} style={[styles.btn, styles.saveBtn]} disabled={loading}>
-                <Text style={styles.btnText}>{loading ? 'Saving...' : 'Save Changes'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleCancel} style={[styles.btn, styles.cancelBtn]}>
-                <Text style={styles.btnText}>Cancel</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-      </View>
-
-      {/* Main Content */}
-      <View style={styles.content}>
-        {/* Left Column */}
-        <View style={styles.leftColumn}>
-          {/* Contact Information */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Contact Information</Text>
-            <View style={styles.contactInfo}>
-              <View style={styles.contactItem}>
-                <Text style={styles.contactIcon}>📧</Text>
-                <View style={styles.contactDetail}>
-                  <Text style={styles.contactLabel}>Email</Text>
-                  {isEditing ? (
-                    <TextInput
-                      style={styles.input}
-                      value={editedData.email || ''}
-                      onChangeText={(value) => handleInputChange('email', value)}
-                      placeholder="Email"
-                      keyboardType="email-address"
-                    />
-                  ) : (
-                    <Text style={styles.contactValue}>{counselor?.email || 'Not specified'}</Text>
-                  )}
-                </View>
-              </View>
-              <View style={styles.contactItem}>
-                <Text style={styles.contactIcon}>📱</Text>
-                <View style={styles.contactDetail}>
-                  <Text style={styles.contactLabel}>Phone</Text>
-                  {isEditing ? (
-                    <TextInput
-                      style={styles.input}
-                      value={editedData.phoneNumber || ''}
-                      onChangeText={(value) => handleInputChange('phoneNumber', value)}
-                      placeholder="Phone Number"
-                      keyboardType="phone-pad"
-                    />
-                  ) : (
-                    <Text style={styles.contactValue}>{counselor?.phoneNumber || 'Not specified'}</Text>
-                  )}
-                </View>
-              </View>
-              <View style={styles.contactItem}>
-                <Text style={styles.contactIcon}>📍</Text>
-                <View style={styles.contactDetail}>
-                  <Text style={styles.contactLabel}>Location</Text>
-                  {isEditing ? (
-                    <TextInput
-                      style={styles.input}
-                      value={editedData.location || ''}
-                      onChangeText={(value) => handleInputChange('location', value)}
-                      placeholder="Location"
-                    />
-                  ) : (
-                    <Text style={styles.contactValue}>{counselor?.location || 'Not specified'}</Text>
-                  )}
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Personal Information */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Personal Information</Text>
-            <View style={styles.personalInfo}>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoRowLabel}>Age:</Text>
-                {isEditing ? (
-                  <TextInput
-                    style={[styles.input, styles.flex1]}
-                    value={editedData.age?.toString() || ''}
-                    onChangeText={(value) => handleInputChange('age', parseInt(value) || 0)}
-                    placeholder="Age"
-                    keyboardType="numeric"
-                  />
-                ) : (
-                  <Text style={styles.infoRowValue}>{counselor?.age || 'Not specified'}</Text>
-                )}
-              </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoRowLabel}>Gender:</Text>
-                {isEditing ? (
-                  <View style={styles.pickerContainer}>
-                    {['male', 'female', 'other'].map(option => (
-                      <TouchableOpacity
-                        key={option}
-                        onPress={() => handleInputChange('gender', option)}
-                        style={[
-                          styles.genderOption,
-                          editedData.gender === option && styles.genderOptionActive
-                        ]}
-                      >
-                        <Text style={[
-                          styles.genderOptionText,
-                          editedData.gender === option && styles.genderOptionTextActive
-                        ]}>
-                          {option.charAt(0).toUpperCase() + option.slice(1)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                {isEditing && (
+                  <View style={styles.addSection}>
+                    <View style={styles.modeOptions}>
+                      {['online', 'offline', 'both'].map(mode => (
+                        <TouchableOpacity
+                          key={mode}
+                          onPress={() => setNewConsultationMode(mode)}
+                          style={[
+                            styles.modeOption,
+                            newConsultationMode === mode && styles.modeOptionActive
+                          ]}
+                        >
+                          <Text style={[
+                            styles.modeOptionText,
+                            newConsultationMode === mode && styles.modeOptionTextActive
+                          ]}>
+                            {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <TouchableOpacity onPress={handleAddConsultationMode} style={styles.addBtn}>
+                      <Text style={styles.addBtnText}>+ Add</Text>
+                    </TouchableOpacity>
                   </View>
-                ) : (
-                  <Text style={styles.infoRowValue}>
-                    {counselor?.gender ? counselor.gender.charAt(0).toUpperCase() + counselor.gender.slice(1) : 'Not specified'}
-                  </Text>
-                )}
-              </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoRowLabel}>Blood Group:</Text>
-                {isEditing ? (
-                  <TextInput
-                    style={[styles.input, styles.flex1]}
-                    value={editedData.bloodGroup || ''}
-                    onChangeText={(value) => handleInputChange('bloodGroup', value)}
-                    placeholder="e.g., A+, B-, O+"
-                  />
-                ) : (
-                  <Text style={styles.infoRowValue}>{counselor?.bloodGroup || 'Not specified'}</Text>
                 )}
               </View>
             </View>
-          </View>
 
-          {/* Address */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Address</Text>
-            {isEditing ? (
+            {/* Languages */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Languages</Text>
               <View>
-                <TextInput
-                  style={styles.input}
-                  value={editedData.address?.line1 || ''}
-                  onChangeText={(value) => handleNestedInputChange('address', 'line1', value)}
-                  placeholder="Address Line 1"
-                />
-                <TextInput
-                  style={styles.input}
-                  value={editedData.address?.line2 || ''}
-                  onChangeText={(value) => handleNestedInputChange('address', 'line2', value)}
-                  placeholder="Address Line 2"
-                />
-                <TextInput
-                  style={styles.input}
-                  value={editedData.address?.city || ''}
-                  onChangeText={(value) => handleNestedInputChange('address', 'city', value)}
-                  placeholder="City"
-                />
-                <TextInput
-                  style={styles.input}
-                  value={editedData.address?.state || ''}
-                  onChangeText={(value) => handleNestedInputChange('address', 'state', value)}
-                  placeholder="State"
-                />
-                <TextInput
-                  style={styles.input}
-                  value={editedData.address?.pincode || ''}
-                  onChangeText={(value) => handleNestedInputChange('address', 'pincode', value)}
-                  placeholder="Pincode"
-                  keyboardType="numeric"
-                />
-                <TextInput
-                  style={styles.input}
-                  value={editedData.address?.country || ''}
-                  onChangeText={(value) => handleNestedInputChange('address', 'country', value)}
-                  placeholder="Country"
-                />
-              </View>
-            ) : (
-              <View>
-                {counselor.address?.line1 && <Text style={styles.addressText}>{counselor.address.line1}</Text>}
-                {counselor.address?.line2 && <Text style={styles.addressText}>{counselor.address.line2}</Text>}
-                <Text style={styles.addressText}>
-                  {counselor.address?.city && `${counselor.address.city}, `}
-                  {counselor.address?.state && `${counselor.address.state} `}
-                  {counselor.address?.pincode && `- ${counselor.address.pincode}`}
-                </Text>
-                {counselor.address?.country && <Text style={styles.addressText}>{counselor.address.country}</Text>}
-                {!counselor.address?.line1 && !counselor.address?.city && (
-                  <Text style={styles.addressText}>No address provided</Text>
-                )}
-              </View>
-            )}
-          </View>
-
-          {/* Education */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Education</Text>
-            {isEditing ? (
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                value={editedData.education || ''}
-                onChangeText={(value) => handleInputChange('education', value)}
-                placeholder="Enter your educational qualifications"
-                multiline
-                numberOfLines={3}
-              />
-            ) : (
-              <Text style={styles.cardText}>{counselor?.education || counselor?.qualification || 'Not specified'}</Text>
-            )}
-          </View>
-
-          {/* Experience */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Experience</Text>
-            {isEditing ? (
-              <TextInput
-                style={styles.input}
-                value={editedData.experience?.toString() || ''}
-                onChangeText={(value) => handleInputChange('experience', parseInt(value) || 0)}
-                placeholder="Years of experience"
-                keyboardType="numeric"
-              />
-            ) : (
-              <Text style={styles.cardText}>{counselor?.experience} years</Text>
-            )}
-          </View>
-
-          {/* Consultation Mode */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Consultation Mode</Text>
-            <View>
-              <View style={styles.tagsList}>
-                {editedData?.consultationMode?.map((mode, index) => (
-                  <View key={index} style={[styles.tag, styles.consultationTag]}>
-                    <Text style={styles.tagText}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</Text>
-                    {isEditing && (
-                      <TouchableOpacity onPress={() => handleRemoveConsultationMode(mode)}>
-                        <Text style={styles.removeTagText}>✕</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                ))}
-              </View>
-
-              {isEditing && (
-                <View style={styles.addSection}>
-                  <View style={styles.pickerContainer}>
-                    {['online', 'offline', 'both'].map(mode => (
-                      <TouchableOpacity
-                        key={mode}
-                        onPress={() => setNewConsultationMode(mode)}
-                        style={[
-                          styles.modeOption,
-                          newConsultationMode === mode && styles.modeOptionActive
-                        ]}
-                      >
-                        <Text style={[
-                          styles.modeOptionText,
-                          newConsultationMode === mode && styles.modeOptionTextActive
-                        ]}>
-                          {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                  <TouchableOpacity onPress={handleAddConsultationMode} style={styles.addBtn}>
-                    <Text style={styles.addBtnText}>+ Add</Text>
-                  </TouchableOpacity>
+                <View style={styles.tagsList}>
+                  {editedData?.languages?.map((lang, index) => (
+                    <View key={index} style={styles.tag}>
+                      <Text style={styles.tagText}>{lang}</Text>
+                      {isEditing && (
+                        <TouchableOpacity onPress={() => handleRemoveLanguage(lang)}>
+                          <Text style={styles.removeTagText}>✕</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  ))}
                 </View>
-              )}
-            </View>
-          </View>
 
-          {/* Languages */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Languages</Text>
-            <View>
-              <View style={styles.tagsList}>
-                {editedData?.languages?.map((lang, index) => (
-                  <View key={index} style={styles.tag}>
-                    <Text style={styles.tagText}>{lang}</Text>
-                    {isEditing && (
-                      <TouchableOpacity onPress={() => handleRemoveLanguage(lang)}>
-                        <Text style={styles.removeTagText}>✕</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                ))}
-              </View>
-
-              {isEditing && (
-                <View style={styles.addSection}>
-                  <TextInput
-                    style={[styles.input, styles.flex1]}
-                    value={newLanguage}
-                    onChangeText={setNewLanguage}
-                    placeholder="Add new language..." placeholderTextColor="#94a3b8"
-                    onSubmitEditing={handleAddLanguage}
-                  />
-                  <TouchableOpacity onPress={handleAddLanguage} style={styles.addBtn}>
-                    <Text style={styles.addBtnText}>+ Add</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          </View>
-        </View>
-
-        {/* Right Column */}
-        <View style={styles.rightColumn}>
-          {/* Bio */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Professional Bio</Text>
-            {isEditing ? (
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                value={editedData.aboutMe || ''}
-                onChangeText={(value) => handleInputChange('aboutMe', value)}
-                placeholder="Write about your professional background, expertise, and approach to counseling..."
-                multiline
-                numberOfLines={5}
-              />
-            ) : (
-              <Text style={styles.cardText}>{counselor?.aboutMe || 'No bio provided'}</Text>
-            )}
-          </View>
-
-          {/* Licenses & Certifications */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Licenses & Certifications</Text>
-            <View>
-              <View style={styles.certificationsList}>
-                {editedData?.certifications?.map(renderCertificationCard)}
-              </View>
-
-              {isEditing && (
-                <View style={styles.addCertificationForm}>
-                  <Text style={styles.addCertTitle}>Add New License/Certification</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={newCertification.name}
-                    onChangeText={(value) => setNewCertification(prev => ({ ...prev, name: value }))}
-                    placeholder="Certification/License Name *"
-                  />
-                  <TextInput
-                    style={styles.input}
-                    value={newCertification.issuedBy}
-                    onChangeText={(value) => setNewCertification(prev => ({ ...prev, issuedBy: value }))}
-                    placeholder="Issued By"
-                  />
-                  <View style={styles.dateRow}>
+                {isEditing && (
+                  <View style={styles.addSection}>
                     <TextInput
                       style={[styles.input, styles.flex1]}
-                      value={newCertification.issueDate}
-                      onChangeText={(value) => setNewCertification(prev => ({ ...prev, issueDate: value }))}
-                      placeholder="Issue Date (YYYY-MM-DD)"
+                      value={newLanguage}
+                      onChangeText={setNewLanguage}
+                      placeholder="Add new language..."
+                      placeholderTextColor="#94a3b8"
+                      onSubmitEditing={handleAddLanguage}
+                    />
+                    <TouchableOpacity onPress={handleAddLanguage} style={styles.addBtn}>
+                      <Text style={styles.addBtnText}>+ Add</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            </View>
+          </View>
+
+          {/* Right Column */}
+          <View style={styles.rightColumn}>
+            {/* Bio */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Professional Bio</Text>
+              {isEditing ? (
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={editedData.aboutMe || ''}
+                  onChangeText={(value) => handleInputChange('aboutMe', value)}
+                  placeholder="Write about your professional background, expertise, and approach to counseling..."
+                  multiline
+                  numberOfLines={6}
+                />
+              ) : (
+                <Text style={styles.cardText}>{counselor?.aboutMe || 'No bio provided'}</Text>
+              )}
+            </View>
+
+            {/* Licenses & Certifications */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Licenses & Certifications</Text>
+              <View>
+                <View style={styles.certificationsList}>
+                  {editedData?.certifications?.map(renderCertificationCard)}
+                </View>
+
+                {isEditing && (
+                  <View style={styles.addCertificationForm}>
+                    <Text style={styles.addCertTitle}>Add New License/Certification</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={newCertification.name}
+                      onChangeText={(value) => setNewCertification(prev => ({ ...prev, name: value }))}
+                      placeholder="Certification/License Name *"
                     />
                     <TextInput
-                      style={[styles.input, styles.flex1]}
-                      value={newCertification.expiryDate}
-                      onChangeText={(value) => setNewCertification(prev => ({ ...prev, expiryDate: value }))}
-                      placeholder="Expiry Date (YYYY-MM-DD)"
+                      style={styles.input}
+                      value={newCertification.issuedBy}
+                      onChangeText={(value) => setNewCertification(prev => ({ ...prev, issuedBy: value }))}
+                      placeholder="Issued By"
                     />
+                    <View style={styles.row}>
+                      <TextInput
+                        style={[styles.input, styles.flex1]}
+                        value={newCertification.issueDate}
+                        onChangeText={(value) => setNewCertification(prev => ({ ...prev, issueDate: value }))}
+                        placeholder="Issue Date (YYYY-MM-DD)"
+                      />
+                      <TextInput
+                        style={[styles.input, styles.flex1]}
+                        value={newCertification.expiryDate}
+                        onChangeText={(value) => setNewCertification(prev => ({ ...prev, expiryDate: value }))}
+                        placeholder="Expiry Date (YYYY-MM-DD)"
+                      />
+                    </View>
+                    
+                    <TouchableOpacity onPress={handleNewDocumentUpload} style={styles.documentUploadArea}>
+                      <Text style={styles.documentUploadText}>
+                        {newCertification.documentName ? `📄 ${newCertification.documentName}` : '📁 Click to upload supporting document'}
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      onPress={handleAddCertification}
+                      style={[styles.addCertBtn, !newCertification.name.trim() && styles.addCertBtnDisabled]}
+                      disabled={!newCertification.name.trim()}
+                    >
+                      <Text style={styles.addCertBtnText}>+ Add Certification</Text>
+                    </TouchableOpacity>
                   </View>
-                  
-                  <TouchableOpacity onPress={handleNewDocumentUpload} style={styles.documentUploadArea}>
-                    <Text style={styles.documentUploadText}>
-                      {newCertification.documentName ? `📄 ${newCertification.documentName}` : '📁 Click to upload supporting document'}
-                    </Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    onPress={handleAddCertification}
-                    style={[styles.addCertBtn, !newCertification.name.trim() && styles.addCertBtnDisabled]}
-                    disabled={!newCertification.name.trim()}
-                  >
-                    <Text style={styles.addCertBtnText}>+ Add Certification</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
+                )}
+              </View>
             </View>
           </View>
         </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
+  keyboardView: {
+    flex: 1,
+  },
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f5f7fa',
+  },
+  contentContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 40,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f5f7fa',
   },
   loadingText: {
-    marginTop: 10,
+    marginTop: 12,
     fontSize: 16,
     color: '#666',
   },
   alert: {
-    padding: 12,
-    borderRadius: 8,
-    margin: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginTop: 16,
     marginBottom: 0,
   },
   successAlert: {
@@ -1178,20 +1214,33 @@ const styles = StyleSheet.create({
     color: '#721c24',
     fontSize: 14,
   },
+  // Header Styles
   header: {
     backgroundColor: '#fff',
     borderRadius: 20,
     padding: 20,
-    margin: 16,
-    marginBottom: 16,
+    marginTop: 16,
+    marginBottom: 20,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  avatarWrapper: {
+  headerColumn: {
+    flexDirection: 'column',
     alignItems: 'center',
+  },
+  avatarSection: {
+    alignItems: 'flex-start',
+    marginRight: 20,
+  },
+  avatarSectionCenter: {
+    alignItems: 'center',
+    marginRight: 0,
+    marginBottom: 16,
   },
   profilePhotoContainer: {
     position: 'relative',
@@ -1208,14 +1257,13 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowRadius: 6,
+    elevation: 4,
   },
   avatar: {
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundGradient: { colors: ['#667eea', '#764ba2'] },
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 3,
@@ -1223,13 +1271,13 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowRadius: 6,
+    elevation: 4,
   },
   avatarText: {
     fontSize: 48,
-    color: '#fff',
     fontWeight: 'bold',
+    color: '#fff',
   },
   photoEditOverlay: {
     position: 'absolute',
@@ -1246,10 +1294,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   removePhotoBtn: {
     backgroundColor: '#f56565',
@@ -1259,10 +1307,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   photoBtnText: {
     fontSize: 16,
@@ -1274,6 +1322,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 5,
   },
   uniqueCodeLabel: {
@@ -1287,28 +1336,44 @@ const styles = StyleSheet.create({
     color: '#667eea',
     fontWeight: '600',
   },
-  headerInfo: {
-    marginTop: 16,
+  infoSection: {
+    flex: 1,
+    marginLeft: 20,
+  },
+  infoSectionCenter: {
+    marginLeft: 0,
+    alignItems: 'center',
+  },
+  nameContainer: {
+    marginBottom: 8,
   },
   name: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 8,
+  },
+  nameCenter: {
     textAlign: 'center',
+  },
+  nameInput: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  specializationContainer: {
+    marginBottom: 12,
   },
   specialization: {
     fontSize: 16,
     color: '#667eea',
     fontWeight: '500',
+  },
+  specializationCenter: {
     textAlign: 'center',
-    marginBottom: 12,
   },
   stats: {
     flexDirection: 'row',
-    justifyContent: 'center',
     gap: 24,
-    marginTop: 12,
+    marginTop: 8,
   },
   stat: {
     alignItems: 'center',
@@ -1323,16 +1388,20 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
   },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
+  actionsSection: {
+    alignSelf: 'flex-start',
+    marginLeft: 'auto',
+  },
+  actionsSectionCenter: {
+    alignSelf: 'center',
+    marginLeft: 0,
     marginTop: 16,
   },
   btn: {
-    paddingHorizontal: 20,
     paddingVertical: 10,
+    paddingHorizontal: 24,
     borderRadius: 8,
+    marginLeft: 8,
   },
   editBtn: {
     backgroundColor: '#667eea',
@@ -1348,30 +1417,37 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
+  // Content Layout
   content: {
-    paddingHorizontal: 16,
-    paddingBottom: 20,
+    flexDirection: 'row',
+    gap: 20,
+  },
+  contentStack: {
+    flexDirection: 'column',
   },
   leftColumn: {
-    marginBottom: 16,
+    flex: 1,
   },
-  rightColumn: {},
+  rightColumn: {
+    flex: 2,
+  },
+  // Cards
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    padding: 20,
+    marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowRadius: 8,
     elevation: 2,
   },
   cardTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 12,
+    marginBottom: 16,
     paddingBottom: 8,
     borderBottomWidth: 2,
     borderBottomColor: '#667eea',
@@ -1381,8 +1457,9 @@ const styles = StyleSheet.create({
     color: '#555',
     lineHeight: 20,
   },
+  // Contact Info
   contactInfo: {
-    gap: 12,
+    gap: 16,
   },
   contactItem: {
     flexDirection: 'row',
@@ -1390,8 +1467,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   contactIcon: {
-    fontSize: 18,
-    minWidth: 30,
+    marginTop: 2,
   },
   contactDetail: {
     flex: 1,
@@ -1407,20 +1483,22 @@ const styles = StyleSheet.create({
     color: '#333',
     fontWeight: '500',
   },
+  // Inputs
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     fontSize: 14,
+    backgroundColor: '#f8fafc',
     color: '#333',
-    backgroundColor: '#fff',
   },
   textArea: {
     minHeight: 80,
     textAlignVertical: 'top',
   },
+  // Personal Info
   personalInfo: {
     gap: 12,
   },
@@ -1430,7 +1508,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   infoRowLabel: {
-    minWidth: 100,
+    width: 100,
     fontSize: 14,
     fontWeight: '500',
     color: '#666',
@@ -1440,7 +1518,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
   },
-  pickerContainer: {
+  // Gender Options
+  genderOptions: {
     flexDirection: 'row',
     gap: 8,
     flex: 1,
@@ -1450,7 +1529,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#e2e8f0',
     backgroundColor: '#fff',
   },
   genderOptionActive: {
@@ -1464,30 +1543,24 @@ const styles = StyleSheet.create({
   genderOptionTextActive: {
     color: '#fff',
   },
-  modeOption: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#fff',
+  // Address
+  addressForm: {
+    gap: 10,
   },
-  modeOptionActive: {
-    backgroundColor: '#48bb78',
-    borderColor: '#48bb78',
-  },
-  modeOptionText: {
-    fontSize: 14,
-    color: '#333',
-  },
-  modeOptionTextActive: {
-    color: '#fff',
+  addressDisplay: {
+    gap: 4,
   },
   addressText: {
     fontSize: 14,
     color: '#555',
-    marginBottom: 4,
+    marginBottom: 2,
   },
+  // Row Layout
+  row: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  // Tags
   tagsList: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1507,13 +1580,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#e8f5e9',
   },
   tagText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#1976d2',
   },
   removeTagText: {
     fontSize: 12,
     color: '#1976d2',
   },
+  // Add Section
   addSection: {
     flexDirection: 'row',
     gap: 8,
@@ -1525,7 +1599,7 @@ const styles = StyleSheet.create({
   addBtn: {
     backgroundColor: '#48bb78',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 8,
   },
   addBtnText: {
@@ -1533,7 +1607,32 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 12,
   },
-  // Certification styles
+  // Mode Options
+  modeOptions: {
+    flexDirection: 'row',
+    gap: 8,
+    flex: 1,
+  },
+  modeOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
+  modeOptionActive: {
+    backgroundColor: '#48bb78',
+    borderColor: '#48bb78',
+  },
+  modeOptionText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  modeOptionTextActive: {
+    color: '#fff',
+  },
+  // Certifications
   certificationsList: {
     gap: 12,
   },
@@ -1577,8 +1676,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   certificationInfo: {
-    gap: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
     marginBottom: 12,
+  },
+  infoItem: {
+    flex: 1,
+    minWidth: 100,
   },
   infoLabel: {
     fontSize: 11,
@@ -1593,14 +1698,14 @@ const styles = StyleSheet.create({
   documentSection: {
     borderTopWidth: 1,
     borderTopColor: '#e0e0e0',
-    paddingTop: 8,
+    paddingTop: 12,
     marginTop: 4,
   },
   documentLabel: {
     fontSize: 12,
     color: '#666',
     fontWeight: '600',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   documentPreview: {
     flexDirection: 'row',
@@ -1608,8 +1713,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: '#fff',
     padding: 8,
-    borderRadius: 6,
-    marginBottom: 8,
+    borderRadius: 8,
+    marginBottom: 10,
   },
   documentLink: {
     fontSize: 12,
@@ -1625,7 +1730,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999',
     fontStyle: 'italic',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   uploadBtn: {
     backgroundColor: '#667eea',
@@ -1653,19 +1758,15 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 12,
   },
-  dateRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-  },
   documentUploadArea: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#e2e8f0',
     borderStyle: 'dashed',
     borderRadius: 8,
     padding: 12,
     alignItems: 'center',
     marginBottom: 12,
+    backgroundColor: '#fff',
   },
   documentUploadText: {
     color: '#667eea',
@@ -1684,9 +1785,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 14,
-  },
-  specializationContainer: {
-    width: '100%',
   },
 });
 

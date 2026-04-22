@@ -16,7 +16,7 @@ import { API_BASE_URL } from '../../axiosConfig';
 import OtpCodeInput from './components/OtpCodeInput';
 import { setAccessToken, setUserEmail, updateVerificationStatus } from './authUtils';
 
-const OTPVerification = ({ navigation }) => {
+const OTPVerification = ({ navigation, route }) => {
   const [step, setStep] = useState('email');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
@@ -25,6 +25,28 @@ const OTPVerification = ({ navigation }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [authRole, setAuthRole] = useState('user');
+
+  const normalizeRole = (role) =>
+    String(role || 'user').toLowerCase().replace('counsellor', 'counselor');
+
+  useEffect(() => {
+    const resolveRole = async () => {
+      const routeRole = normalizeRole(route?.params?.role);
+      if (routeRole) {
+        setAuthRole(routeRole);
+        return;
+      }
+
+      const storedRole =
+        normalizeRole(await AsyncStorage.getItem('role')) ||
+        normalizeRole(await AsyncStorage.getItem('userRole'));
+
+      setAuthRole(storedRole || 'user');
+    };
+
+    resolveRole();
+  }, [route?.params?.role]);
 
   // ✅ TIMER (2 MIN)
   useEffect(() => {
@@ -101,19 +123,41 @@ const OTPVerification = ({ navigation }) => {
 
       if (res.data.success) {
         const token = res.data?.token || res.data?.accessToken;
+        const resolvedRole = normalizeRole(
+          res.data?.user?.role || res.data?.role || authRole
+        );
+        const resolvedId = res.data?.user?._id || res.data?.user?.id;
 
         if (token) {
           await setAccessToken(token);
         }
 
         await updateVerificationStatus(true);
-        await AsyncStorage.setItem('userRole', 'user');
+        await AsyncStorage.setItem('userRole', resolvedRole);
         await AsyncStorage.setItem('isAuthenticated', 'true');
         await AsyncStorage.setItem('userEmail', email);
 
+        if (res.data?.user) {
+          await AsyncStorage.setItem('userData', JSON.stringify(res.data.user));
+        }
+
+        if (resolvedId) {
+          if (resolvedRole === 'counselor') {
+            await AsyncStorage.setItem('counsellorId', String(resolvedId));
+          } else {
+            await AsyncStorage.setItem('userId', String(resolvedId));
+          }
+        }
+
         setSuccess('Login successful');
 
-        setTimeout(() => navigation.replace('UserDashboard'), 1500);
+        setTimeout(() => {
+          if (resolvedRole === 'counselor') {
+            navigation.replace('CounselorDashboard');
+          } else {
+            navigation.replace('UserDashboard');
+          }
+        }, 1500);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Invalid OTP');

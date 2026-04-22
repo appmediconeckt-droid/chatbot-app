@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
@@ -6,18 +6,18 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  ScrollView,
-  Image,
-  Alert,
+  FlatList,
   ActivityIndicator,
   Modal,
   Dimensions,
   KeyboardAvoidingView,
   Platform,
-  Linking,
+  StatusBar,
+  InteractionManager,
 } from 'react-native';
 import { io } from 'socket.io-client';
 import axios from 'axios';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import VideoCallModal from '../../../UserDashboard/Tab/CallModal/VideoCallModal';
 import VoiceCallModal from '../../../UserDashboard/Tab/CallModal/VoiceCallModal';
@@ -143,11 +143,12 @@ const IncomingCallModal = ({
 const SMSInput = ({ navigation, route }) => {
   const location = route.params || {};
   const [message, setMessage] = useState("");
-  const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
-  const fileInputRef = useRef(null);
   const chatSocketRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
+  const fallbackChatIdRef = useRef(null);
+  const hasInitialAutoScrollRef = useRef(false);
+  const shouldAutoScrollRef = useRef(true);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [remoteIsTyping, setRemoteIsTyping] = useState(false);
 
   // Call modal states
@@ -182,11 +183,21 @@ const SMSInput = ({ navigation, route }) => {
   const selectedUser = location?.selectedUser;
   const chatId = location?.chatId;
 
+  const getAuthToken = async () => {
+    const accessToken = await AsyncStorage.getItem("accessToken");
+    if (accessToken) return accessToken;
+    return AsyncStorage.getItem("token");
+  };
+
   // FIXED: Converted to async and moved to useEffect
   const loadCounselorData = async () => {
     try {
       let counselorData = null;
-      const storedCounselor = await AsyncStorage.getItem("counselor");
+      const storedCounselor =
+        (await AsyncStorage.getItem("counselor")) ||
+        (await AsyncStorage.getItem("counsellor")) ||
+        (await AsyncStorage.getItem("userData"));
+
       if (storedCounselor) {
         try {
           counselorData = JSON.parse(storedCounselor);
@@ -202,7 +213,9 @@ const SMSInput = ({ navigation, route }) => {
         if (counselorData.id) counselorIdValue = counselorData.id;
       }
       if (!counselorIdValue) {
-        const storedId = await AsyncStorage.getItem("counselorId");
+        const storedId =
+          (await AsyncStorage.getItem("counsellorId")) ||
+          (await AsyncStorage.getItem("counselorId"));
         if (storedId) counselorIdValue = storedId;
       }
       setCounselorId(counselorIdValue);
@@ -214,11 +227,17 @@ const SMSInput = ({ navigation, route }) => {
   };
 
   // FIXED: Get counselor name from state
-  const COUNSELOR_NAME = currentCounselor?.name || "Counselor";
-
   const getSelectedUserId = () => {
     if (!selectedUser) return null;
-    return selectedUser.receiverId || selectedUser._id || selectedUser.id || selectedUser.userId || null;
+    return (
+      selectedUser.receiverId ||
+      selectedUser._id ||
+      selectedUser.id ||
+      selectedUser.userId ||
+      location?.userId ||
+      location?.chatData?.receiverId ||
+      null
+    );
   };
 
   const getUserDetails = () => {
@@ -242,19 +261,70 @@ const SMSInput = ({ navigation, route }) => {
     return "👤";
   };
 
+  const getInitials = (name) => {
+    if (!name) return "?";
+    return name
+      .split(" ")
+      .map((word) => word[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+  };
+
+  const scrollToBottom = useCallback((animated = true) => {
+    InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        if (!messagesContainerRef.current) return;
+        try {
+          messagesContainerRef.current.scrollToEnd({ animated });
+        } catch (scrollError) {
+          // Ignore transient list layout race while list mounts.
+        }
+      });
+    });
+  }, []);
+
+  const handleMessagesScroll = useCallback((event) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    shouldAutoScrollRef.current = distanceFromBottom <= 120;
+  }, []);
+
+  const handleMessagesContentSizeChange = useCallback(() => {
+    if (!messages.length) return;
+
+    if (!hasInitialAutoScrollRef.current) {
+      hasInitialAutoScrollRef.current = true;
+      shouldAutoScrollRef.current = true;
+      scrollToBottom(false);
+      return;
+    }
+
+    if (shouldAutoScrollRef.current) {
+      scrollToBottom(true);
+    }
+  }, [messages.length, scrollToBottom]);
+
   const getChatIdForAPI = () => {
     if (chatId) return chatId;
     if (selectedUser && USER_ID && counselorId) {
       return `chat_${USER_ID}_${counselorId}`;
     }
-    return `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    if (!fallbackChatIdRef.current) {
+      const stableUserId = USER_ID || selectedUser?.receiverId || selectedUser?.id || "user";
+      const stableCounselorId = counselorId || "counsellor";
+      fallbackChatIdRef.current = `chat_${stableUserId}_${stableCounselorId}`;
+    }
+
+    return fallbackChatIdRef.current;
   };
 
   const fetchMessagesFromAPI = async () => {
     if (!selectedUser || !counselorId) return;
     try {
       const apiChatId = getChatIdForAPI();
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       setIsLoadingMessages(true);
       setError(null);
 
@@ -289,6 +359,8 @@ const SMSInput = ({ navigation, route }) => {
           isRead: msg.isRead,
           status: "sent",
         }));
+        hasInitialAutoScrollRef.current = false;
+        shouldAutoScrollRef.current = true;
         setMessages(transformedMessages);
         saveMessagesToLocalStorage(transformedMessages);
       }
@@ -330,6 +402,8 @@ const SMSInput = ({ navigation, route }) => {
       const chatIdToLoad = getChatIdForAPI();
       const savedChat = savedChats.find(chat => chat.chatId === chatIdToLoad);
       if (savedChat && savedChat.messages) {
+        hasInitialAutoScrollRef.current = false;
+        shouldAutoScrollRef.current = true;
         setMessages(savedChat.messages);
         if (savedChat.chatStatus) setChatStatus(savedChat.chatStatus);
       }
@@ -341,7 +415,7 @@ const SMSInput = ({ navigation, route }) => {
   const sendMessageToAPI = async ({ messageContent = "", file = null }) => {
     try {
       const apiChatId = getChatIdForAPI();
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       let response;
       if (file) {
         const formData = new FormData();
@@ -383,6 +457,7 @@ const SMSInput = ({ navigation, route }) => {
       status: "sending",
       isTemporary: true,
     };
+    shouldAutoScrollRef.current = true;
     setMessages(prev => [...prev, tempMessage]);
     setMessage("");
     setIsSending(true);
@@ -434,7 +509,7 @@ const SMSInput = ({ navigation, route }) => {
     setIsInitiatingCall(true);
     setCallError(null);
     try {
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       if (!token) throw new Error("Authentication token not found");
       const requestBody = {
         initiatorId: counselorId,
@@ -490,7 +565,7 @@ const SMSInput = ({ navigation, route }) => {
     setIsInitiatingCall(true);
     setCallError(null);
     try {
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       if (!token) throw new Error("Authentication token not found");
       const requestBody = {
         initiatorId: counselorId,
@@ -531,7 +606,7 @@ const SMSInput = ({ navigation, route }) => {
 
   const handleJoinIncomingCall = async (callId) => {
     try {
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       if (!counselorId) throw new Error("Counselor ID not found");
       const response = await axios.put(
         `${API_BASE_URL}/api/video/calls/${callId}/accept`,
@@ -587,7 +662,7 @@ const SMSInput = ({ navigation, route }) => {
 
   const handleRejectIncomingCall = async (callId) => {
     try {
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       await axios.put(`${API_BASE_URL}/api/video/calls/${callId}/reject`, {
         userId: counselorId,
         reason: "declined",
@@ -601,7 +676,7 @@ const SMSInput = ({ navigation, route }) => {
 
   const handleEndIncomingCall = async (callId) => {
     try {
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       await axios.put(`${API_BASE_URL}/api/video/calls/${callId}/end`, {
         userId: counselorId,
         endedBy: "counsellor",
@@ -626,7 +701,7 @@ const SMSInput = ({ navigation, route }) => {
     
     const fetchIncomingCalls = async () => {
       try {
-        const token = await AsyncStorage.getItem("token");
+        const token = await getAuthToken();
         if (!counselorId || !token || showIncomingModal || isVideoModalOpen || isVoiceModalOpen) return;
         const response = await axios.get(`${API_BASE_URL}/api/video/calls/pending/${counselorId}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -691,21 +766,31 @@ const SMSInput = ({ navigation, route }) => {
     const setupSocket = async () => {
       const apiChatId = getChatIdForAPI();
       if (!apiChatId || !selectedUser || !counselorId) return;
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       if (!token) return;
       
       const socket = io(API_BASE_URL, {
         auth: { token },
-        transports: ["websocket"],
+        transports: ["polling", "websocket"],
+        reconnection: true,
+        reconnectionAttempts: 8,
+        reconnectionDelay: 800,
+        timeout: 20000,
       });
       chatSocketRef.current = socket;
       
       socket.on("connect", () => {
+        setIsSocketConnected(true);
         console.log("Chat socket connected");
         socket.emit("join-chat", { chatId: apiChatId });
       });
+
+      socket.on("disconnect", () => {
+        setIsSocketConnected(false);
+      });
       
       socket.on("new-message", (messageData) => {
+        shouldAutoScrollRef.current = true;
         if (messageData.senderRole === "counsellor" && String(messageData.senderId) === String(counselorId)) {
           setMessages(prev => {
             const withoutTemp = prev.filter(msg => !msg.isTemporary);
@@ -748,6 +833,11 @@ const SMSInput = ({ navigation, route }) => {
       socket.on("user-typing", ({ userRole, isTyping: typing }) => {
         if (userRole === "user") setRemoteIsTyping(typing);
       });
+
+      socket.on("connect_error", (error) => {
+        setIsSocketConnected(false);
+        console.error("Counselor chat socket connect error:", error?.message || error);
+      });
     };
     
     setupSocket();
@@ -757,8 +847,20 @@ const SMSInput = ({ navigation, route }) => {
         chatSocketRef.current.disconnect();
         chatSocketRef.current = null;
       }
+      setIsSocketConnected(false);
     };
-  }, [getChatIdForAPI(), selectedUser, counselorId]);
+  }, [chatId, selectedUser, counselorId, USER_ID]);
+
+  // Poll as fallback only when socket is not connected.
+  useEffect(() => {
+    if (!selectedUser || !counselorId || isSocketConnected) return;
+
+    const intervalId = setInterval(() => {
+      fetchMessagesFromAPI();
+    }, 45000);
+
+    return () => clearInterval(intervalId);
+  }, [selectedUser, counselorId, isSocketConnected]);
 
   useEffect(() => {
     if (callError) {
@@ -767,22 +869,44 @@ const SMSInput = ({ navigation, route }) => {
     }
   }, [callError]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollToEnd({ animated: true });
-  };
-
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (messages.length > 0) {
+      if (!hasInitialAutoScrollRef.current) {
+        hasInitialAutoScrollRef.current = true;
+        shouldAutoScrollRef.current = true;
+        scrollToBottom(false);
+      } else if (shouldAutoScrollRef.current) {
+        scrollToBottom(true);
+      }
+    }
+  }, [messages.length, scrollToBottom]);
 
   const renderMessageStatus = (message) => {
     if (message.sender !== "me") return null;
     switch (message.status) {
-      case "sending": return <Text style={styles.messageStatusSending}>⌛</Text>;
-      case "sent": return <Text style={styles.messageStatusSent}>✓</Text>;
-      case "error": return <Text style={styles.messageStatusError}>⚠️</Text>;
+      case "sending": return <Text style={styles.messageStatusSending}>⌛ Sending...</Text>;
+      case "sent": return <Text style={styles.messageStatusSent}>✓ Sent</Text>;
+      case "error": return <Text style={styles.messageStatusError}>⚠️ Failed</Text>;
       default: return null;
     }
+  };
+
+  const renderMessage = ({ item }) => {
+    const isMe = item.sender === "me";
+
+    return (
+      <View style={[styles.messageBubble, isMe ? styles.messageRight : styles.messageLeft]}>
+        <View style={[styles.messageContent, isMe ? styles.userMessageContent : styles.counselorMessageContent]}>
+          <Text style={[styles.messageText, isMe ? styles.userMessageText : styles.counselorMessageText]}>
+            {item.text}
+          </Text>
+          <View style={styles.messageFooter}>
+            <Text style={styles.messageTime}>{item.time}</Text>
+            {renderMessageStatus(item)}
+          </View>
+        </View>
+      </View>
+    );
   };
 
   if (!selectedUser) {
@@ -806,59 +930,63 @@ const SMSInput = ({ navigation, route }) => {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.userInfo}>
-            <View style={styles.userAvatar}>
-              <Text style={styles.avatarIcon}>{getAvatarByGender(userDetails.gender)}</Text>
-              <View style={[styles.statusDot, { backgroundColor: selectedUser?.status === "online" ? "#22c55e" : "#94a3b8" }]} />
-            </View>
-            <View style={styles.userDetails}>
-              <Text style={styles.userName}>{USER_NAME}</Text>
-              <Text style={styles.userPhone}>{userDetails.phone}</Text>
-              <Text style={styles.userEmail}>{userDetails.email}</Text>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
+      <View style={styles.chatBoxMain}>
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+              <Ionicons name="chevron-back" size={17} color="#0f172a" style={styles.backButtonIcon} />
+            </TouchableOpacity>
+            <View style={styles.userInfo}>
+              <View style={styles.userAvatar}>
+                <Text style={styles.avatarIcon}>{getAvatarByGender(userDetails.gender)}</Text>
+                <View style={[styles.statusDot, { backgroundColor: selectedUser?.status === "online" ? "#22c55e" : "#94a3b8" }]} />
+              </View>
+              <View style={styles.userDetails}>
+                <Text style={styles.userName}>{USER_NAME}</Text>
+                <Text style={styles.profileStatus}>
+                  {remoteIsTyping ? (
+                    <Text style={styles.typingText}>Typing...</Text>
+                  ) : (
+                    <Text style={styles.statusText}>
+                      {selectedUser?.status === "online" ? "Online" : "Offline"}
+                    </Text>
+                  )}
+                </Text>
+              </View>
             </View>
           </View>
+          <View style={styles.callButtons}>
+            <TouchableOpacity
+              style={[styles.callBtn, styles.voiceCallBtn]}
+              onPress={initiateVoiceCall}
+              disabled={isInitiatingCall}
+            >
+              <Text style={styles.callIcon}>📞</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.callBtn, styles.videoCallBtn]}
+              onPress={initiateVideoCall}
+              disabled={isInitiatingCall}
+            >
+              <Text style={styles.callIcon}>📹</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-        <View style={styles.callButtons}>
-          <TouchableOpacity
-            style={[styles.callBtn, styles.voiceCallBtn]}
-            onPress={initiateVoiceCall}
-            disabled={isInitiatingCall}
-          >
-            <Text style={styles.callIcon}>📞</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.callBtn, styles.videoCallBtn]}
-            onPress={initiateVideoCall}
-            disabled={isInitiatingCall}
-          >
-            <Text style={styles.callIcon}>📹</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      {callError && (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorIcon}>⚠️</Text>
-          <Text style={styles.errorText}>{callError}</Text>
-          <TouchableOpacity onPress={() => setCallError(null)}>
-            <Text style={styles.errorClose}>✕</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+        {callError && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorIcon}>⚠️</Text>
+            <Text style={styles.errorText}>{callError}</Text>
+            <TouchableOpacity onPress={() => setCallError(null)}>
+              <Text style={styles.errorClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
-      <ScrollView
-        style={styles.messagesArea}
-        ref={messagesContainerRef}
-        showsVerticalScrollIndicator={false}
-      >
         {isLoadingMessages && messages.length === 0 ? (
-          <View style={styles.loadingMessages}>
-            <ActivityIndicator size="large" color="#2563eb" />
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#6366f1" />
             <Text style={styles.loadingText}>Loading messages...</Text>
           </View>
         ) : error && messages.length === 0 ? (
@@ -869,58 +997,66 @@ const SMSInput = ({ navigation, route }) => {
               <Text style={styles.retryBtn}>Retry</Text>
             </TouchableOpacity>
           </View>
-        ) : messages.length === 0 ? (
-          <View style={styles.emptyMessages}>
-            <Text style={styles.emptyMessagesIcon}>💬</Text>
-            <Text style={styles.emptyMessagesText}>No messages yet</Text>
-            <Text style={styles.emptyMessagesSubtext}>Start a conversation by sending a message</Text>
-          </View>
         ) : (
-          messages.map((msg) => (
-            <View
-              key={msg.id}
-              style={[
-                styles.messageRow,
-                msg.sender === "me" ? styles.sentRow : styles.receivedRow,
-              ]}
-            >
-              <View style={[
-                styles.messageBubble,
-                msg.sender === "me" ? styles.sentBubble : styles.receivedBubble,
-              ]}>
-                <Text style={[
-                  styles.messageText,
-                  msg.sender === "me" ? styles.sentMessageText : styles.receivedMessageText,
-                ]}>{msg.text}</Text>
-                <View style={styles.messageFooter}>
-                  <Text style={styles.messageTime}>{msg.time}</Text>
-                  {renderMessageStatus(msg)}
+          <FlatList
+            ref={messagesContainerRef}
+            style={styles.messagesArea}
+            data={messages}
+            keyExtractor={(item, index) => item.id?.toString() || index.toString()}
+            renderItem={renderMessage}
+            contentContainerStyle={styles.messagesList}
+            onContentSizeChange={handleMessagesContentSizeChange}
+            onScroll={handleMessagesScroll}
+            scrollEventThrottle={16}
+            keyboardShouldPersistTaps="handled"
+            ListHeaderComponent={
+              <View style={styles.welcomeCard}>
+                <View style={styles.welcomeAvatar}>
+                  <Text style={styles.welcomeInitials}>{getInitials(USER_NAME)}</Text>
+                </View>
+                <View style={styles.welcomeMsg}>
+                  <Text style={styles.welcomeTitle}>Chat with {USER_NAME}</Text>
+                  <Text style={styles.welcomeDesc}>
+                    This is a secure counseling chat. Reply in real time and keep the conversation supportive.
+                  </Text>
+                  <Text style={styles.welcomeTime}>
+                    {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString()}
+                  </Text>
                 </View>
               </View>
-            </View>
-          ))
-        )}
-        <View ref={messagesEndRef} />
-      </ScrollView>
-
-      <View style={styles.inputForm}>
-        <View style={styles.inputWrapper}>
-          <TextInput
-            style={styles.input}
-            placeholder={isSending ? "Sending..." : "Type your message..."}
-            placeholderTextColor="#94a3b8"
-            value={message}
-            onChangeText={setMessage}
-            editable={!isSending}
-            multiline
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyMessages}>
+                <Text style={styles.emptyMessagesIcon}>💬</Text>
+                <Text style={styles.emptyMessagesText}>No messages yet</Text>
+                <Text style={styles.emptyMessagesSubtext}>Start a conversation by sending a message</Text>
+              </View>
+            }
           />
-          <TouchableOpacity
-            style={[styles.sendBtn, message.trim() && !isSending && styles.sendBtnActive]}
-            onPress={handleSendMessage}
-            disabled={!message.trim() || isSending}
-          >
-            <Text style={styles.sendBtnText}>{isSending ? "..." : "Send"}</Text>
-          </TouchableOpacity>
+        )}
+
+        <View style={styles.inputForm}>
+          <View style={styles.inputWrapper}>
+            <TextInput
+              style={styles.input}
+              placeholder={isSending ? "Sending..." : "Type your message..."}
+              placeholderTextColor="#94a3b8"
+              value={message}
+              onChangeText={setMessage}
+              editable={!isSending}
+              multiline
+            />
+            <TouchableOpacity
+              style={[
+                styles.sendBtn,
+                message.trim() && !isSending ? styles.sendBtnActive : styles.sendBtnDisabled,
+              ]}
+              onPress={handleSendMessage}
+              disabled={!message.trim() || isSending}
+            >
+              <Text style={styles.sendBtnText}>{isSending ? "⏳" : "➤"}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -936,6 +1072,7 @@ const SMSInput = ({ navigation, route }) => {
         isOpen={isVoiceModalOpen}
         onClose={handleCloseModal}
         callData={selectedCall}
+        currentUser={{ id: counselorId, role: "counsellor" }}
         onEndCall={handleEndIncomingCall}
       />
 
@@ -956,26 +1093,39 @@ const SMSInput = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'white',
+    backgroundColor: '#f5f7fb',
+  },
+  chatBoxMain: {
+    flex: 1,
+    backgroundColor: '#f5f7fb',
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f5f7fb',
   },
   emptyState: {
     alignItems: 'center',
     padding: 40,
+    backgroundColor: 'white',
+    borderRadius: 24,
+    margin: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
   emptyIcon: {
     fontSize: 64,
     marginBottom: 20,
-    opacity: 0.5,
+    opacity: 0.6,
   },
   emptyTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#1e293b',
     marginBottom: 8,
   },
@@ -983,17 +1133,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#64748b',
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
+    lineHeight: 20,
   },
   backToListBtn: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 28,
     paddingVertical: 12,
-    backgroundColor: '#2563eb',
+    backgroundColor: '#6366f1',
     borderRadius: 30,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
   backToListBtnText: {
     color: 'white',
-    fontWeight: '500',
+    fontWeight: '600',
+    fontSize: 14,
   },
   header: {
     flexDirection: 'row',
@@ -1003,7 +1160,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: 'white',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#eef2f6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -1012,11 +1174,17 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   backButton: {
-    padding: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f8fafc',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#eef2f6',
   },
-  backButtonText: {
-    fontSize: 24,
-    color: '#64748b',
+  backButtonIcon: {
+    marginLeft: -2,
   },
   userInfo: {
     flexDirection: 'row',
@@ -1025,59 +1193,77 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   userAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#667eea',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
   },
   avatarIcon: {
-    fontSize: 24,
+    fontSize: 26,
   },
   statusDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     position: 'absolute',
     bottom: 2,
     right: 2,
-    borderWidth: 2,
+    borderWidth: 2.5,
     borderColor: 'white',
   },
   userDetails: {
     flex: 1,
   },
   userName: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     color: '#1e293b',
+    marginBottom: 2,
   },
-  userPhone: {
+  profileStatus: {
     fontSize: 12,
-    color: '#64748b',
   },
-  userEmail: {
-    fontSize: 10,
-    color: '#94a3b8',
+  statusText: {
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  typingText: {
+    color: '#10b981',
+    fontWeight: '600',
   },
   callButtons: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
   callBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   voiceCallBtn: {
-    backgroundColor: '#eef2ff',
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
   },
   videoCallBtn: {
-    backgroundColor: '#2563eb',
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
   },
   callIcon: {
     fontSize: 20,
@@ -1089,239 +1275,367 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 10,
+    marginTop: 12,
+    borderRadius: 12,
     borderLeftWidth: 4,
     borderLeftColor: '#ef4444',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
   errorIcon: {
     fontSize: 16,
-    marginRight: 8,
+    marginRight: 10,
   },
   errorText: {
     flex: 1,
     color: '#991b1b',
     fontSize: 13,
+    fontWeight: '500',
   },
   errorClose: {
-    fontSize: 16,
+    fontSize: 18,
     color: '#991b1b',
     paddingHorizontal: 8,
+    fontWeight: '600',
   },
-  messagesArea: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-    backgroundColor: '#f8fafc',
-  },
-  loadingMessages: {
+  loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 100,
+    gap: 16,
+    backgroundColor: '#f5f7fb',
   },
   loadingText: {
-    marginTop: 12,
+    fontSize: 14,
     color: '#64748b',
+    fontWeight: '500',
+  },
+  messagesArea: {
+    flex: 1,
+    backgroundColor: '#f5f7fb',
+  },
+  messagesList: {
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+    gap: 12,
+    flexGrow: 1,
+  },
+  welcomeCard: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 20,
+    gap: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#f0f2f5',
+  },
+  welcomeAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#6366f1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  welcomeInitials: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#ffffff',
+    textTransform: 'uppercase',
+  },
+  welcomeMsg: {
+    flex: 1,
+  },
+  welcomeTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1e293b',
+    marginBottom: 6,
+  },
+  welcomeDesc: {
+    fontSize: 13,
+    color: '#64748b',
+    marginBottom: 6,
+    lineHeight: 18,
+  },
+  welcomeTime: {
+    fontSize: 11,
+    color: '#94a3b8',
+    fontWeight: '500',
   },
   errorMessage: {
     alignItems: 'center',
     paddingTop: 100,
+    backgroundColor: '#f5f7fb',
   },
   retryBtn: {
-    marginTop: 12,
-    color: '#2563eb',
-    fontWeight: '500',
+    marginTop: 16,
+    color: '#6366f1',
+    fontWeight: '600',
+    fontSize: 14,
   },
   emptyMessages: {
     alignItems: 'center',
-    paddingTop: 100,
+    paddingTop: 80,
+    paddingHorizontal: 40,
   },
   emptyMessagesIcon: {
-    fontSize: 48,
-    marginBottom: 16,
-    opacity: 0.5,
+    fontSize: 56,
+    marginBottom: 20,
+    opacity: 0.4,
   },
   emptyMessagesText: {
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: '600',
     color: '#64748b',
+    marginBottom: 8,
   },
   emptyMessagesSubtext: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#94a3b8',
-    marginTop: 8,
+    marginTop: 4,
+    textAlign: 'center',
   },
-  messageRow: {
-    marginBottom: 12,
-  },
-  sentRow: {
-    alignItems: 'flex-end',
-  },
-  receivedRow: {
-    alignItems: 'flex-start',
-  },
+  // FIXED: Full width message bubbles with professional styling
   messageBubble: {
-    maxWidth: '80%',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    maxWidth: '100%', // Changed from 80% to 100% for full width
+    marginBottom: 4,
+  },
+  messageRight: {
+    alignSelf: 'flex-end',
+  },
+  messageLeft: {
+    alignSelf: 'flex-start',
+  },
+  messageContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderRadius: 20,
+    maxWidth: '85%', // Keep content within reasonable width
   },
-  sentBubble: {
-    backgroundColor: '#2563eb',
+  userMessageContent: {
+    backgroundColor: '#6366f1',
     borderBottomRightRadius: 4,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  receivedBubble: {
+  counselorMessageContent: {
     backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#eef2f6',
     borderBottomLeftRadius: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
     elevation: 1,
   },
   messageText: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '500',
   },
-  sentMessageText: {
+  userMessageText: {
     color: 'white',
   },
-  receivedMessageText: {
+  counselorMessageText: {
     color: '#1e293b',
   },
   messageFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    marginTop: 4,
-    gap: 4,
+    marginTop: 6,
+    gap: 6,
   },
   messageTime: {
     fontSize: 10,
     color: '#94a3b8',
+    fontWeight: '500',
   },
   messageStatusSending: {
     fontSize: 10,
-    color: '#94a3b8',
+    color: '#f59e0b',
+    fontWeight: '500',
   },
   messageStatusSent: {
     fontSize: 10,
-    color: '#22c55e',
+    color: '#10b981',
+    fontWeight: '500',
   },
   messageStatusError: {
     fontSize: 10,
     color: '#ef4444',
+    fontWeight: '500',
   },
   inputForm: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: 'white',
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: '#eef2f6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 4,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#f8fafc',
     borderRadius: 30,
-    paddingHorizontal: 16,
+    paddingHorizontal: 6,
     paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   input: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     color: '#1e293b',
-    paddingVertical: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     maxHeight: 100,
   },
   sendBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 30,
-  },
-  sendBtnActive: {
-    backgroundColor: '#2563eb',
-  },
-  sendBtnText: {
-    color: '#94a3b8',
-    fontWeight: '500',
-  },
-  // Incoming Call Modal Styles
-  incomingCallOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
+    transition: 'all 0.2s ease',
+  },
+  sendBtnActive: {
+    backgroundColor: '#6366f1',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  sendBtnDisabled: {
+    backgroundColor: '#cbd5e1',
+    opacity: 0.7,
+  },
+  sendBtnText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 20,
+  },
+  // Incoming Call Modal Styles - Professional
+  incomingCallOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backdropFilter: 'blur(4px)',
   },
   incomingCallModal: {
     width: screenWidth * 0.85,
+    maxWidth: 380,
     backgroundColor: 'white',
-    borderRadius: 26,
+    borderRadius: 28,
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    elevation: 12,
   },
   videoCallModal: {
     borderTopWidth: 4,
-    borderTopColor: '#2563eb',
+    borderTopColor: '#6366f1',
   },
   voiceCallModal: {
     borderTopWidth: 4,
-    borderTopColor: '#4facfe',
+    borderTopColor: '#10b981',
   },
   incomingCallContent: {
-    padding: 24,
+    padding: 28,
     alignItems: 'center',
   },
   incomingCallerInfo: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
   },
   incomingCallerAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#2563eb',
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: '#6366f1',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
   avatarEmojiLarge: {
-    fontSize: 48,
+    fontSize: 52,
   },
   incomingCallerName: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: 22,
+    fontWeight: '700',
     color: '#1e293b',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   incomingCallType: {
     fontSize: 14,
     color: '#64748b',
-    marginBottom: 8,
+    marginBottom: 10,
+    fontWeight: '500',
   },
   incomingCallMessage: {
-    fontSize: 12,
-    color: '#2563eb',
+    fontSize: 13,
+    color: '#6366f1',
+    fontWeight: '600',
   },
   incomingCallControls: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 14,
     width: '100%',
   },
   incomingCallBtn: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: 30,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   acceptBtn: {
-    backgroundColor: '#22c55e',
+    backgroundColor: '#10b981',
   },
   rejectBtn: {
     backgroundColor: '#ef4444',
   },
   incomingCallBtnText: {
     color: 'white',
-    fontWeight: '600',
+    fontWeight: '700',
+    fontSize: 14,
   },
 });
 

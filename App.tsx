@@ -23,6 +23,7 @@ import OTPVerification from "./src/screens/auth/OTPVerification";
 import UserDashboard from './src/screens/user/Component/UserDashboard/Dashboard/UserDashboard';
 import ChatBox from './src/screens/user/Component/UserDashboard/Tab/ChatBox/ChatBox';
 import CounselorTable from './src/screens/user/Component/UserDashboard/Tab/Counselor/CounselorDirectory';
+import { ToastProvider } from './src/components/common/ToastProvider';
 
 // Counselor Dashboard Screens
 import CounselorDashboard from './src/screens/user/Component/counselor-dashboard/Dashboard/dashboard';
@@ -30,8 +31,16 @@ import SMSInput from './src/screens/user/Component/counselor-dashboard/Tab/SMSIn
 // Define your navigation param list
 export type RootStackParamList = {
   Landing: undefined;
-  UserSignup: undefined;
+  UserSignup: { role?: 'user' | 'counselor' } | undefined;
+  RoleSelector: undefined;
+  Login: { role?: 'user' | 'counselor' } | undefined;
+  CounselorSignup: { role?: 'user' | 'counselor' } | undefined;
+  OTPVerification: undefined;
   UserDashboard: undefined;
+  ChatBox: undefined;
+  CounselorTable: undefined;
+  CounselorDashboard: undefined;
+  SMSInput: undefined;
   // Add other screens
 };
 
@@ -43,26 +52,28 @@ function App() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <NavigationContainer>  {/* ✅ Add NavigationContainer here */}
-        <Stack.Navigator 
-          initialRouteName="RoleSelector"
-          screenOptions={{
-            headerShown: false, 
-          }}
-        >
-          {/* <Stack.Screen name="Landing" component={Landing} /> */}
-          <Stack.Screen name="UserSignup" component={UserSignup} />
-          <Stack.Screen name="RoleSelector" component={RoleSelector} />
-          <Stack.Screen name="Login" component={Login} />
-          <Stack.Screen name='CounselorSignup' component={CounselorSignup} />
-            <Stack.Screen name='OTPVerification' component={OTPVerification} />
-          <Stack.Screen name="UserDashboard" component={UserDashboard} />
-           <Stack.Screen name='ChatBox' component={ChatBox} />
-            <Stack.Screen name='CounselorTable' component={CounselorTable} />
-             <Stack.Screen name='CounselorDashboard' component={CounselorDashboard} />
-              <Stack.Screen name='SMSInput' component={SMSInput} />
-        </Stack.Navigator>
-      </NavigationContainer>
+      <ToastProvider>
+        <NavigationContainer>
+          <Stack.Navigator
+            initialRouteName="RoleSelector"
+            screenOptions={{
+              headerShown: false,
+            }}
+          >
+            {/* <Stack.Screen name="Landing" component={Landing} /> */}
+            <Stack.Screen name="UserSignup" component={UserSignup} />
+            <Stack.Screen name="RoleSelector" component={RoleSelector} />
+            <Stack.Screen name="Login" component={Login} />
+            <Stack.Screen name='CounselorSignup' component={CounselorSignup} />
+              <Stack.Screen name='OTPVerification' component={OTPVerification} />
+            <Stack.Screen name="UserDashboard" component={UserDashboard} />
+             <Stack.Screen name='ChatBox' component={ChatBox} />
+              <Stack.Screen name='CounselorTable' component={CounselorTable} />
+               <Stack.Screen name='CounselorDashboard' component={CounselorDashboard} />
+                <Stack.Screen name='SMSInput' component={SMSInput} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </ToastProvider>
     </SafeAreaProvider>
   );
 }

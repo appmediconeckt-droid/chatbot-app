@@ -34,7 +34,7 @@ import PatientProfile from "../../PatientProfile/PatientProfile";
 
 const { width, height } = Dimensions.get("window");
 
-// ChatPopup Component
+// Improved ChatPopup Component with better AI icon
 const ChatPopup = ({
   messages,
   newMessage,
@@ -46,20 +46,28 @@ const ChatPopup = ({
   <Modal animationType="slide" transparent={true} visible={true}>
     <View style={styles.chatPopupOverlay}>
       <View style={styles.chatPopup}>
-        <View style={styles.chatPopupHeader}>
+        <LinearGradient
+          colors={['#667eea', '#764ba2']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.chatPopupHeader}
+        >
           <View style={styles.chatHeaderInfo}>
-            <View style={styles.chatAvatar}>
-              <MaterialIcons name="smart-toy" size={20} color="white" />
-            </View>
+            <LinearGradient
+              colors={['#ffffff', '#f0f0f0']}
+              style={[styles.chatAvatar, styles.chatAvatarGradient]}
+            >
+              <MaterialIcons name="auto-awesome" size={22} color="#667eea" />
+            </LinearGradient>
             <View>
-              <Text style={styles.chatHeaderTitle}>M-Chatbot AI Assistant</Text>
-              <Text style={styles.chatStatus}>Online • 24/7 Support</Text>
+              <Text style={styles.chatHeaderTitle}>AI Health Assistant</Text>
+              <Text style={styles.chatStatus}>Online • Always Here for You</Text>
             </View>
           </View>
           <TouchableOpacity onPress={onClose} style={styles.chatCloseBtn}>
-            <Text style={styles.chatCloseText}>×</Text>
+            <MaterialIcons name="close" size={20} color="white" />
           </TouchableOpacity>
-        </View>
+        </LinearGradient>
 
         <ScrollView style={styles.chatPopupBody}>
           {messages.map((message) => (
@@ -71,9 +79,12 @@ const ChatPopup = ({
               ]}
             >
               {message.sender === "ai" && (
-                <View style={[styles.chatAvatar, styles.chatAvatarSmall]}>
-                  <MaterialIcons name="smart-toy" size={14} color="white" />
-                </View>
+                <LinearGradient
+                  colors={['#667eea', '#764ba2']}
+                  style={[styles.chatAvatar, styles.chatAvatarSmall]}
+                >
+                  <MaterialIcons name="auto-awesome" size={14} color="white" />
+                </LinearGradient>
               )}
               <View
                 style={[
@@ -91,17 +102,20 @@ const ChatPopup = ({
                 </Text>
               </View>
               {message.sender === "user" && (
-                <View style={[styles.chatAvatar, styles.chatAvatarSmall]}>
-                  <Ionicons name="person-circle" size={14} color="#667eea" />
+                <View style={[styles.chatAvatar, styles.chatAvatarSmall, styles.userAvatar]}>
+                  <Ionicons name="person-circle" size={18} color="#667eea" />
                 </View>
               )}
             </View>
           ))}
           {isLoading && (
             <View style={[styles.chatMessageWrapper, styles.chatMessageWrapperAi]}>
-              <View style={[styles.chatAvatar, styles.chatAvatarSmall]}>
-                <MaterialIcons name="smart-toy" size={14} color="white" />
-              </View>
+              <LinearGradient
+                colors={['#667eea', '#764ba2']}
+                style={[styles.chatAvatar, styles.chatAvatarSmall]}
+              >
+                <MaterialIcons name="auto-awesome" size={14} color="white" />
+              </LinearGradient>
               <View style={styles.chatBubble}>
                 <View style={styles.loadingDots}>
                   <View style={styles.loadingDot} />
@@ -117,6 +131,7 @@ const ChatPopup = ({
           <TextInput
             style={styles.chatInput}
             placeholder="Type your message..."
+            placeholderTextColor="#999"
             value={newMessage}
             onChangeText={setNewMessage}
             onSubmitEditing={sendMessage}
@@ -134,9 +149,22 @@ const ChatPopup = ({
   </Modal>
 );
 
-// ChatButton Component
-const ChatButton = ({ onClick, unreadCount }) => (
-  <TouchableOpacity style={styles.floatingChatBtn} onPress={onClick}>
+// Improved ChatButton Component with better AI icon and professional design
+const ChatButton = ({ onClick, unreadCount, isMobile }) => (
+  <TouchableOpacity
+    style={[styles.floatingChatBtn, isMobile && styles.floatingChatBtnMobile]}
+    onPress={onClick}
+    activeOpacity={0.8}
+  >
+    <LinearGradient
+      colors={['#667eea', '#764ba2']}
+      style={styles.floatingChatGradient}
+    >
+      <View style={styles.floatingChatInner}>
+        <MaterialIcons name="auto-awesome" size={24} color="#fde68a" />
+        <View style={styles.floatingChatPulse} />
+      </View>
+    </LinearGradient>
     <Text style={styles.floatingChatBtnText}>AI</Text>
     {unreadCount > 0 && (
       <View style={styles.unreadBadge}>
@@ -254,7 +282,7 @@ const CallModal = ({
   );
 };
 
-// Video Call Modal Component - FIXED
+// Video Call Modal Component
 const VideoCallModal = ({ isOpen, onClose, callData, onEndCall }) => (
   <Modal transparent={true} visible={isOpen} animationType="slide">
     <View style={styles.videoCallModalOverlay}>
@@ -289,7 +317,7 @@ const VideoCallModal = ({ isOpen, onClose, callData, onEndCall }) => (
   </Modal>
 );
 
-// Voice Call Modal Component - FIXED (no duplicate Modal tags)
+// Voice Call Modal Component
 const VoiceCallModal = ({ isOpen, onClose, callData, onEndCall }) => (
   <Modal transparent={true} visible={isOpen} animationType="slide">
     <View style={styles.voiceCallModalOverlay}>
@@ -315,7 +343,7 @@ const VoiceCallModal = ({ isOpen, onClose, callData, onEndCall }) => (
 
 export default function UserDashboard() {
   const navigation = useNavigation();
-  const [active, setActive] = useState("Home");
+  const [active, setActive] = useState("Chat");
   const [chatOpen, setChatOpen] = useState(false);
   const [newMessage, setNewMessage] = useState("");
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -357,7 +385,7 @@ export default function UserDashboard() {
   const [chatMessages, setChatMessages] = useState([
     {
       id: 1,
-      text: "Hello! I'm your AI assistant. How can I help you today?",
+      text: "Hello! I'm your AI health assistant. How can I help you today?",
       sender: "ai",
     },
   ]);
@@ -423,7 +451,6 @@ export default function UserDashboard() {
       const token = await AsyncStorage.getItem("token");
       const userId = await AsyncStorage.getItem("userId");
 
-      // Fix 401 error by including proper authentication
       const response = await axios.post(
         `${API_BASE_URL}/api/chat/send`,
         {
@@ -446,7 +473,6 @@ export default function UserDashboard() {
         };
         setChatMessages((prev) => [...prev, aiMessage]);
       } else {
-        // Fallback response if API fails
         const fallbackMessage = {
           id: Date.now() + 1,
           text: "I'm here to help. Could you please rephrase that?",
@@ -457,13 +483,10 @@ export default function UserDashboard() {
     } catch (error) {
       console.error("Chat API error:", error);
       
-      // Handle 401 error specifically
       if (error.response && error.response.status === 401) {
         console.log("Authentication failed - token may be expired");
-        // Optional: Redirect to login or refresh token
       }
       
-      // Fallback local response for demo
       const aiResponses = [
         "I understand. Would you like to try some breathing exercises?",
         "Thank you for sharing. How long have you been feeling this way?",
@@ -618,14 +641,12 @@ export default function UserDashboard() {
 
   return (
     <View style={styles.container}>
-      {/* StatusBar with no background - let it be transparent */}
       <StatusBar 
         barStyle="dark-content" 
         backgroundColor="transparent" 
         translucent={true}
       />
       
-      {/* Call Modals */}
       <CallModal
         isOpen={showCallModal}
         onClose={() => setShowCallModal(false)}
@@ -651,7 +672,6 @@ export default function UserDashboard() {
         onEndCall={() => {}}
       />
 
-      {/* Mobile Header - Starts below status bar, no background above WiFi */}
       {isMobile && (
         <Animated.View 
           style={[
@@ -662,37 +682,38 @@ export default function UserDashboard() {
             }
           ]}
         >
-            {/* Improved Professional Header with solid background */}
-            <View style={styles.mobileHeaderBackground}>
-              <View style={styles.mobileHeaderContent}>
-                <View style={styles.mobileHeaderLeft}>
-                  <View style={styles.logoWrapper}>
-                    <Text style={styles.mobileLogo}>
-                      M-<Text style={styles.mobileLogoHighlight}>Chatbot</Text>
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.headerIconsSection}>
-                  <Ionicons name="videocam" size={20} color="white" style={styles.headerIcon} />
-                  <Ionicons name="battery-full" size={20} color="white" style={styles.headerIcon} />
-                  <Ionicons name="phone-portrait" size={20} color="white" style={styles.headerIcon} />
-                  <TouchableOpacity
-                    style={styles.mobileProfileBtn}
-                    onPress={() => setShowProfileMenu(!showProfileMenu)}
-                  >
-                    {userData.profilePhoto ? (
-                      <Image source={{ uri: userData.profilePhoto }} style={styles.mobileUserAvatar} />
-                    ) : (
-                      <View style={styles.profileAvatarPlaceholder}>
-                        <Text style={styles.profileAvatarText}>
-                          {userData.name?.charAt(0) || 'U'}
-                        </Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
+          <LinearGradient
+            colors={['#1E293B', '#1E293B']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.mobileHeaderGradient}
+          >
+            <View style={styles.mobileHeaderContent}>
+              <View style={styles.mobileHeaderLeft}>
+                <View style={styles.logoWrapper}>
+                  <Text style={styles.mobileLogo}>
+                    M-<Text style={styles.mobileLogoHighlight}>Chatbot</Text>
+                  </Text>
                 </View>
               </View>
+              <View style={styles.mobileHeaderRight}>
+                <TouchableOpacity
+                  style={styles.mobileProfileBtn}
+                  onPress={() => setShowProfileMenu(!showProfileMenu)}
+                >
+                  {userData.profilePhoto ? (
+                    <Image source={{ uri: userData.profilePhoto }} style={styles.mobileUserAvatar} />
+                  ) : (
+                    <View style={styles.profileAvatarPlaceholder}>
+                      <Text style={styles.profileAvatarText}>
+                        {userData.name?.charAt(0) || 'U'}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
+          </LinearGradient>
 
           {showProfileMenu && (
             <Animated.View style={[styles.profileDropdownMenu, { opacity: headerAnim }]}>
@@ -713,13 +734,10 @@ export default function UserDashboard() {
               </View>
               <View style={styles.profileDropdownItems}>
                 <TouchableOpacity style={styles.dropdownItem} onPress={handleProfileClick}>
-                  <MaterialIcons name="person" size={18} color="#667eea" />
+                  <MaterialIcons name="person" size={18} color="#3B82F6" />
                   <Text style={styles.dropdownItemText}>My Profile</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.dropdownItem}>
-                  <MaterialIcons name="settings" size={18} color="#667eea" />
-                  <Text style={styles.dropdownItemText}>Settings</Text>
-                </TouchableOpacity>
+                {/* Settings option removed */}
                 <View style={styles.dropdownDivider} />
                 <TouchableOpacity
                   style={[styles.dropdownItem, styles.logoutItem]}
@@ -734,87 +752,70 @@ export default function UserDashboard() {
         </Animated.View>
       )}
 
-      {/* Dashboard Container */}
       <View style={styles.dashboardContainer}>
-        {/* Desktop Sidebar */}
         {!isMobile && (
           <View style={styles.userSidebar}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.sidebarContent}>
-                <View style={styles.sidebarHeader}>
-                  <View style={styles.profileSection}>
-                    <View style={styles.profileImage}>
-                      {userData.profilePhoto ? (
-                        <Image source={{ uri: userData.profilePhoto }} style={styles.profileImageImg} />
-                      ) : (
-                        <View style={styles.profileImagePlaceholder}>
-                          <Text style={styles.profileImagePlaceholderText}>
-                            {userData.name?.charAt(0) || 'U'}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                    <View style={styles.profileInfo}>
-                      <Text style={styles.sidebarTitle}>
-                        {userData.name}
-                      </Text>
-                      <Text style={styles.sidebarSubtitle}>
-                        {userData.email}
-                      </Text>
-                      <View style={styles.memberBadge}>
-                        <MaterialIcons name="verified" size={14} color="#667eea" />
-                        <Text style={styles.memberBadgeText}>Premium Member</Text>
+            <View style={styles.sidebarContent}>
+              <View style={styles.sidebarHeader}>
+                <View style={styles.profileSection}>
+                  <View style={styles.profileImage}>
+                    {userData.profilePhoto ? (
+                      <Image source={{ uri: userData.profilePhoto }} style={styles.profileImageImg} />
+                    ) : (
+                      <View style={styles.profileImagePlaceholder}>
+                        <Text style={styles.profileImagePlaceholderText}>
+                          {userData.name?.charAt(0) || 'U'}
+                        </Text>
                       </View>
+                    )}
+                  </View>
+                  <View style={styles.profileInfo}>
+                    <Text style={styles.sidebarTitle}>
+                      {userData.name}
+                    </Text>
+                    <Text style={styles.sidebarSubtitle}>
+                      {userData.email}
+                    </Text>
+                    <View style={styles.memberBadge}>
+                      <MaterialIcons name="verified" size={14} color="#667eea" />
+                      <Text style={styles.memberBadgeText}>Premium Member</Text>
                     </View>
                   </View>
                 </View>
-
-                <View style={styles.sidebarMenu}>
-                  {allMenuItems.map((item) => (
-                    <TouchableOpacity
-                      key={item.id}
-                      onPress={() => handleMenuItemClick(item.id)}
-                      style={[styles.sidebarItem, active === item.id && styles.sidebarItemActive]}
-                    >
-                      <View style={[styles.sidebarIcon, active === item.id && styles.sidebarIconActive]}>
-                        {renderIcon(item, active === item.id ? "white" : "#667eea")}
-                      </View>
-                      <Text style={[styles.sidebarText, active === item.id && styles.sidebarTextActive]}>
-                        {item.label}
-                      </Text>
-                      {active === item.id && <View style={styles.activeIndicator} />}
-                    </TouchableOpacity>
-                  ))}
-                  <View style={styles.sidebarDivider} />
-                  <TouchableOpacity
-                    style={[styles.sidebarItem, styles.logoutSidebarItem]}
-                    onPress={() => setShowLogoutConfirm(true)}
-                  >
-                    <View style={styles.sidebarIcon}>
-                      <MaterialIcons name="logout" size={18} color="#dc2626" />
-                    </View>
-                    <Text style={[styles.sidebarText, styles.logoutSidebarText]}>
-                      Logout
-                    </Text>
-                  </TouchableOpacity>
-                </View>
               </View>
-            </ScrollView>
+
+              <View style={styles.sidebarMenu}>
+                {allMenuItems.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    onPress={() => handleMenuItemClick(item.id)}
+                    style={[styles.sidebarItem, active === item.id && styles.sidebarItemActive]}
+                  >
+                    <View style={[styles.sidebarIcon, active === item.id && styles.sidebarIconActive]}>
+                      {renderIcon(item, active === item.id ? "white" : "#667eea")}
+                    </View>
+                    <Text style={[styles.sidebarText, active === item.id && styles.sidebarTextActive]}>
+                      {item.label}
+                    </Text>
+                    {active === item.id && <View style={styles.activeIndicator} />}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
           </View>
         )}
 
-        {/* Dashboard Content */}
         <View style={[styles.dashboardContent, isMobile && styles.dashboardContentMobile]}>
           {renderContent()}
         </View>
       </View>
 
-      {/* Chat Button */}
-      {!isMobile && (
-        <ChatButton onClick={() => setChatOpen(true)} unreadCount={unreadCount} />
-      )}
+      <ChatButton
+        onClick={() => setChatOpen(true)}
+        unreadCount={unreadCount}
+        isMobile={isMobile}
+      />
 
-      {/* Chat Popup */}
       {chatOpen && (
         <ChatPopup
           messages={chatMessages}
@@ -826,7 +827,6 @@ export default function UserDashboard() {
         />
       )}
 
-      {/* Mobile Bottom Navigation */}
       {isMobile && (
         <View style={styles.mobileBottomNav}>
           {bottomMenuItems.map((item) => (
@@ -836,7 +836,7 @@ export default function UserDashboard() {
               onPress={() => handleMenuItemClick(item.id)}
             >
               <View style={[styles.navIconWrapper, active === item.id && styles.navIconWrapperActive]}>
-                {renderIcon(item, active === item.id ? "#667eea" : "#888")}
+                {renderIcon(item, active === item.id ? "#3B82F6" : "#94A3B8")}
               </View>
               <Text style={[styles.navLabel, active === item.id && styles.navLabelActive]}>
                 {item.label}
@@ -845,14 +845,13 @@ export default function UserDashboard() {
           ))}
           <TouchableOpacity style={styles.mobileNavBtn} onPress={() => setShowMoreModal(true)}>
             <View style={styles.navIconWrapper}>
-              <MaterialIcons name="more-horiz" size={20} color="#888" />
+              <MaterialIcons name="more-horiz" size={20} color="#94A3B8" />
             </View>
             <Text style={styles.navLabel}>More</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Modals */}
       <Modal transparent={true} visible={showMoreModal} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
@@ -971,14 +970,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f5f7fa",
-    marginTop:40
+    marginTop: 40
   },
   dashboardContainer: {
     flex: 1,
     flexDirection: "row",
-   
   },
-  // Sidebar Styles
   userSidebar: {
     width: 280,
     backgroundColor: "white",
@@ -1099,19 +1096,17 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: "white",
   },
-  // Dashboard Content
   dashboardContent: {
     flex: 1,
     backgroundColor: "#f8fafc",
   },
   dashboardContentMobile: {
-    marginTop: 70,
-    marginBottom: 70,
+    marginTop: 80,
+    marginBottom: 84, // Increased bottom margin for better spacing
   },
   contentScrollable: {
     flex: 1,
   },
-  // Content Sections
   contentSection: {
     backgroundColor: "white",
     borderRadius: 15,
@@ -1136,7 +1131,6 @@ const styles = StyleSheet.create({
     color: "#666",
     fontSize: 14,
   },
-  // Help & Support
   helpContent: {
     gap: 16,
   },
@@ -1161,7 +1155,6 @@ const styles = StyleSheet.create({
     color: "#666",
     textAlign: "center",
   },
-  // Privacy
   privacyContent: {
     gap: 16,
   },
@@ -1196,38 +1189,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
   },
-  // Mobile Header - No background above, starts below status bar
   mobileHeader: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     zIndex: 1000,
-    backgroundColor: "#4a69bd", // Solid professional background
-  },
-  mobileHeaderBackground: {
-    backgroundColor: "#4a69bd",
-    width: "100%",
-    paddingTop: Platform.OS === "ios" ? 50 : StatusBar.currentHeight || 40,
-    paddingBottom: 15,
-    paddingHorizontal: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
     elevation: 8,
   },
-  headerIconsSection: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 15,
-  },
-  headerIcon: {
-    opacity: 0.9,
+  mobileHeaderGradient: {
+    paddingTop: Platform.OS === "ios" ? 40 : (StatusBar.currentHeight || 20),
+    paddingBottom: 10,
+    paddingHorizontal: 16,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
   },
   mobileHeaderContent: {
     flexDirection: "row",
-    
     justifyContent: "space-between",
     alignItems: "center",
   },
@@ -1299,7 +1281,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "white",
   },
-  // Profile Dropdown
   profileDropdownMenu: {
     position: "absolute",
     top: Platform.OS === "ios" ? 100 : 80,
@@ -1317,7 +1298,7 @@ const styles = StyleSheet.create({
   },
   profileDropdownHeader: {
     padding: 20,
-    backgroundColor: "#667eea",
+    backgroundColor: "#1E293B",
     flexDirection: "row",
     alignItems: "center",
     gap: 16,
@@ -1382,7 +1363,6 @@ const styles = StyleSheet.create({
   logoutText: {
     color: "#dc2626",
   },
-  // Mobile Bottom Nav
   mobileBottomNav: {
     position: "absolute",
     bottom: 0,
@@ -1391,11 +1371,12 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     flexDirection: "row",
     justifyContent: "space-around",
-    paddingVertical: 10,
-    paddingBottom: Platform.OS === "ios" ? 30 : 10,
+    paddingVertical: 12,
+    paddingBottom: Platform.OS === "ios" ? 24 : 12, // Extra padding for iOS
     borderTopWidth: 1,
-    borderTopColor: "#eee",
+    borderTopColor: "#334155",
     zIndex: 998,
+    backgroundColor: "#1E293B",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.05,
@@ -1409,7 +1390,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   mobileNavBtnActive: {
-    backgroundColor: "#f0f0f0",
+    backgroundColor: "transparent",
   },
   navIconWrapper: {
     width: 40,
@@ -1420,70 +1401,86 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   navIconWrapperActive: {
-    backgroundColor: "#f0f0f0",
+    backgroundColor: "rgba(59, 130, 246, 0.15)",
   },
   navLabel: {
     fontSize: 11,
     fontWeight: "500",
-    color: "#888",
+    color: "#94A3B8",
   },
   navLabelActive: {
-    color: "#667eea",
+    color: "#3B82F6",
     fontWeight: "600",
   },
-  // Chat Components
+  // Improved Chat Components with professional AI design
   floatingChatBtn: {
     position: "absolute",
     bottom: 20,
     right: 20,
-    width: 56,
-    height: 56,
-    backgroundColor: "#667eea",
-    borderRadius: 28,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#667eea",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.3,
     shadowRadius: 12,
-    elevation: 8,
+    elevation: 10,
     zIndex: 999,
   },
+  floatingChatBtnMobile: {
+    bottom: 84,
+    right: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  floatingChatGradient: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 32,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  floatingChatInner: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  floatingChatPulse: {
+    position: "absolute",
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "rgba(102, 126, 234, 0.4)",
+    opacity: 0.5,
+  },
   floatingChatBtnText: {
-    color: "white",
-    fontSize: 20,
-    fontWeight: "bold",
+    position: "absolute",
+    bottom: -20,
+    color: "#667eea",
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.8,
   },
   unreadBadge: {
     position: "absolute",
     top: -5,
     right: -5,
     backgroundColor: "#ff4757",
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 5,
     borderWidth: 2,
     borderColor: "white",
   },
-  logoutSidebarItem: {
-    marginTop: 20,
-    backgroundColor: "#fff5f5",
-  },
-  logoutSidebarText: {
-    color: "#dc2626",
-  },
-  sidebarDivider: {
-    height: 1,
-    backgroundColor: "#eee",
-    marginVertical: 10,
-    marginHorizontal: 15,
-  },
   unreadBadgeText: {
     color: "white",
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "600",
   },
   chatPopupOverlay: {
@@ -1495,18 +1492,17 @@ const styles = StyleSheet.create({
   },
   chatPopup: {
     backgroundColor: "white",
-    borderRadius: 16,
-    height: 450,
+    borderRadius: 20,
+    height: 480,
     overflow: "hidden",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowRadius: 16,
+    elevation: 12,
   },
   chatPopupHeader: {
-    padding: 15,
-    backgroundColor: "#667eea",
+    padding: 16,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -1514,23 +1510,32 @@ const styles = StyleSheet.create({
   chatHeaderInfo: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   chatAvatar: {
-    width: 40,
-    height: 40,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
   },
+  chatAvatarGradient: {
+    shadowColor: "#667eea",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 3,
+  },
   chatAvatarSmall: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
+  },
+  userAvatar: {
+    backgroundColor: "transparent",
   },
   chatHeaderTitle: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 16,
+    fontWeight: "700",
     color: "white",
   },
   chatStatus: {
@@ -1546,13 +1551,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  chatCloseText: {
-    fontSize: 24,
-    color: "white",
-  },
   chatPopupBody: {
     flex: 1,
-    padding: 15,
+    padding: 16,
     backgroundColor: "#f8f9fa",
   },
   chatMessageWrapper: {
@@ -1570,8 +1571,8 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   chatBubble: {
-    padding: 8,
-    borderRadius: 16,
+    padding: 10,
+    borderRadius: 18,
     backgroundColor: "white",
     borderWidth: 1,
     borderColor: "#eaeaea",
@@ -1582,8 +1583,9 @@ const styles = StyleSheet.create({
     borderColor: "#667eea",
   },
   chatBubbleText: {
-    fontSize: 13,
+    fontSize: 14,
     color: "#333",
+    lineHeight: 20,
   },
   chatBubbleTextUser: {
     color: "white",
@@ -1598,17 +1600,18 @@ const styles = StyleSheet.create({
   },
   chatInput: {
     flex: 1,
-    padding: 10,
+    padding: 12,
     borderWidth: 1,
     borderColor: "#ddd",
-    borderRadius: 20,
-    fontSize: 13,
+    borderRadius: 24,
+    fontSize: 14,
+    backgroundColor: "#f8f9fa",
   },
   sendBtn: {
-    width: 38,
-    height: 38,
+    width: 44,
+    height: 44,
     backgroundColor: "#667eea",
-    borderRadius: 19,
+    borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1617,15 +1620,15 @@ const styles = StyleSheet.create({
   },
   loadingDots: {
     flexDirection: "row",
-    gap: 4,
+    gap: 6,
   },
   loadingDot: {
-    width: 6,
-    height: 6,
+    width: 8,
+    height: 8,
     backgroundColor: "#667eea",
-    borderRadius: 3,
+    borderRadius: 4,
+    animation: "pulse 1s infinite",
   },
-  // Call Modal Styles
   callModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.85)",
@@ -1695,7 +1698,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-  // Video Call Modal
   videoCallModalOverlay: {
     flex: 1,
     backgroundColor: "black",
@@ -1772,7 +1774,6 @@ const styles = StyleSheet.create({
   endCallBtn: {
     backgroundColor: "#ef4444",
   },
-  // Voice Call Modal
   voiceCallModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.95)",
@@ -1821,7 +1822,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -1898,7 +1898,6 @@ const styles = StyleSheet.create({
   successTitle: {
     color: "#10b981",
   },
-  // More Options Modal
   moreOptionsList: {
     paddingVertical: 8,
   },

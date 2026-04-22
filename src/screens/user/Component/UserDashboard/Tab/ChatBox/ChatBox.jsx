@@ -11,16 +11,18 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   StatusBar,
   Dimensions,
   StyleSheet,
+  InteractionManager,
 } from "react-native";
 import { io } from "socket.io-client";
 import axios from "axios";
 import { API_BASE_URL } from "../../../../../../axiosConfig";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, useRoute } from "@react-navigation/native";
+import { launchImageLibrary } from "react-native-image-picker";
+import Ionicons from "react-native-vector-icons/Ionicons";
 import VideoCallModal from "../CallModal/VideoCallModal";
 import VoiceCallModal from "../CallModal/VoiceCallModal";
 
@@ -198,11 +200,18 @@ const ChatBox = () => {
   const [remoteIsTyping, setRemoteIsTyping] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [pendingAttachment, setPendingAttachment] = useState(null);
+  const [counselorAvatarFailed, setCounselorAvatarFailed] = useState(false);
   const [chatStatus, setChatStatus] = useState(null);
 
   const flatListRef = useRef(null);
+  const messageInputRef = useRef(null);
   const chatSocketRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const fallbackChatIdRef = useRef(chatId || null);
+  const hasInitialAutoScrollRef = useRef(false);
+  const shouldAutoScrollRef = useRef(true);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
 
   // Get current user from AsyncStorage
   const getCurrentUser = async () => {
@@ -227,6 +236,20 @@ const ChatBox = () => {
   const getProfilePhotoUrl = (counselor) => {
     if (!counselor) return null;
     if (counselor?.profilePhoto?.url) return counselor.profilePhoto.url;
+    if (
+      counselor?.profilePhoto &&
+      typeof counselor.profilePhoto === "string" &&
+      counselor.profilePhoto.startsWith("http")
+    ) {
+      return counselor.profilePhoto;
+    }
+    if (
+      counselor?.avatar &&
+      typeof counselor.avatar === "string" &&
+      counselor.avatar.startsWith("http")
+    ) {
+      return counselor.avatar;
+    }
     if (counselor?.avatar && counselor.avatarType === "image") return counselor.avatar;
     return null;
   };
@@ -236,16 +259,51 @@ const ChatBox = () => {
     return name.split(" ").map(word => word[0]).join("").toUpperCase().slice(0, 2);
   };
 
-  const scrollToBottom = () => {
-    if (flatListRef.current && messages.length > 0) {
-      flatListRef.current.scrollToEnd({ animated: true });
+  const scrollToBottom = useCallback((animated = true) => {
+    InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        if (!flatListRef.current) return;
+        try {
+          flatListRef.current.scrollToEnd({ animated });
+        } catch (error) {
+          // FlatList can throw if content is not laid out yet; ignore transient race.
+        }
+      });
+    });
+  }, []);
+
+  const handleMessagesScroll = useCallback((event) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    shouldAutoScrollRef.current = distanceFromBottom <= 120;
+  }, []);
+
+  const handleMessagesContentSizeChange = useCallback(() => {
+    if (!messages.length) return;
+
+    if (!hasInitialAutoScrollRef.current) {
+      hasInitialAutoScrollRef.current = true;
+      shouldAutoScrollRef.current = true;
+      scrollToBottom(false);
+      return;
     }
-  };
+
+    if (shouldAutoScrollRef.current) {
+      scrollToBottom(true);
+    }
+  }, [messages.length, scrollToBottom]);
 
   const getChatIdForAPI = () => {
     if (chatId) return chatId;
     if (currentChat?.chatId) return currentChat.chatId;
-    return `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    if (!fallbackChatIdRef.current) {
+      const stableUserId = resolveCurrentUserId() || "user";
+      const stableCounselorId = resolveCounselorId() || "counselor";
+      fallbackChatIdRef.current = `chat_${stableUserId}_${stableCounselorId}`.replace(/\s+/g, "_");
+    }
+
+    return fallbackChatIdRef.current;
   };
 
   // Call API actions
@@ -408,6 +466,8 @@ const ChatBox = () => {
           status: "sent",
         }));
 
+        hasInitialAutoScrollRef.current = false;
+        shouldAutoScrollRef.current = true;
         setMessages(transformedMessages);
         setTimeout(scrollToBottom, 100);
         return transformedMessages;
@@ -424,7 +484,11 @@ const ChatBox = () => {
     try {
       const savedChats = JSON.parse(await AsyncStorage.getItem("activeChats") || "[]");
       const chat = savedChats.find(c => c.id === currentChat?.id || c.chatId === getChatIdForAPI());
-      if (chat && chat.messages) setMessages(chat.messages);
+      if (chat && chat.messages) {
+        hasInitialAutoScrollRef.current = false;
+        shouldAutoScrollRef.current = true;
+        setMessages(chat.messages);
+      }
     } catch (error) {
       console.error("Error loading messages from localStorage:", error);
     }
@@ -436,12 +500,36 @@ const ChatBox = () => {
       const token = await AsyncStorage.getItem("token");
       let response;
 
+      const inferMimeType = (name = "") => {
+        const lowerName = String(name).toLowerCase();
+        if (lowerName.endsWith(".png")) return "image/png";
+        if (lowerName.endsWith(".webp")) return "image/webp";
+        if (lowerName.endsWith(".gif")) return "image/gif";
+        if (lowerName.endsWith(".heic")) return "image/heic";
+        if (lowerName.endsWith(".heif")) return "image/heif";
+        return "image/jpeg";
+      };
+
       if (file) {
         const formData = new FormData();
+        const attachmentName =
+          file.name || file.fileName || `attachment_${Date.now()}.jpg`;
+        const attachmentType =
+          file.type && file.type !== "application/octet-stream"
+            ? file.type
+            : inferMimeType(attachmentName);
+
         if (messageContent.trim()) formData.append("content", messageContent.trim());
-        formData.append("attachment", file);
+        formData.append("attachment", {
+          uri: file.uri,
+          name: attachmentName,
+          type: attachmentType,
+        });
         response = await axios.post(`${API_BASE_URL}/api/chat/chat/${apiChatId}/message`, formData, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "multipart/form-data",
+          },
         });
       } else {
         response = await axios.post(`${API_BASE_URL}/api/chat/chat/${apiChatId}/message`, {
@@ -453,33 +541,43 @@ const ChatBox = () => {
       else throw new Error("Invalid API response");
     } catch (error) {
       console.error("Error sending message to API:", error);
-      throw error;
+      const backendError =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to send message";
+      throw new Error(backendError);
     }
   };
 
   const handleSendMessage = async () => {
-    if (newMessage.trim() === "" || isSending) return;
+    if ((newMessage.trim() === "" && !pendingAttachment) || isSending) return;
 
     const messageText = newMessage.trim();
+    const attachmentToSend = pendingAttachment;
     const tempUserMessage = {
       id: `temp_${Date.now()}`,
-      text: messageText,
+      text: messageText || `📎 ${attachmentToSend?.name || "Attachment"}`,
       sender: "user",
       senderRole: "user",
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       createdAt: new Date().toISOString(),
       status: "sending",
       isTemporary: true,
+      attachmentName: attachmentToSend?.name || null,
+      attachmentUrl: attachmentToSend?.uri || null,
     };
 
+    shouldAutoScrollRef.current = true;
     setMessages(prev => [...prev, tempUserMessage]);
     setNewMessage("");
+    setPendingAttachment(null);
     setShowEmojiPicker(false);
     setIsSending(true);
     setTimeout(scrollToBottom, 50);
 
     try {
-      const sentMsg = await sendMessageToAPI({ messageContent: messageText });
+      const sentMsg = await sendMessageToAPI({ messageContent: messageText, file: attachmentToSend });
       setMessages(prev => {
         const withoutTemp = prev.filter(m => !m.isTemporary);
         if (!sentMsg) return withoutTemp;
@@ -494,6 +592,8 @@ const ChatBox = () => {
           time: new Date(sentMsg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           fullTime: sentMsg.createdAt,
           contentType: sentMsg.contentType,
+          attachmentUrl: sentMsg.attachmentUrl || null,
+          attachmentName: sentMsg.attachmentName || null,
           isRead: sentMsg.isRead,
           status: "sent",
         }];
@@ -504,7 +604,7 @@ const ChatBox = () => {
       setMessages(prev => prev.map(msg => msg.id === tempUserMessage.id ? { ...msg, status: "error", error: "Failed to send message" } : msg));
       const errorMessage = {
         id: `error_${Date.now()}`,
-        text: "⚠️ Failed to send message. Please check your internet connection and try again.",
+        text: `⚠️ ${err?.message || "Failed to send message. Please try again."}`,
         sender: "counselor",
         senderRole: "counsellor",
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -515,8 +615,41 @@ const ChatBox = () => {
       setTimeout(scrollToBottom, 50);
     } finally {
       setIsSending(false);
+      if (Platform.OS === "android") {
+        setTimeout(() => messageInputRef.current?.focus(), 80);
+      }
     }
   };
+
+  const handlePickAttachment = useCallback(async () => {
+    if (isSending) return;
+
+    try {
+      const result = await launchImageLibrary({
+        mediaType: "photo",
+        selectionLimit: 1,
+        quality: 0.9,
+      });
+
+      if (result.didCancel) return;
+
+      const picked = result?.assets?.[0];
+      if (!picked?.uri) {
+        Alert.alert("Attachment", "Unable to read selected file.");
+        return;
+      }
+
+      setPendingAttachment({
+        uri: picked.uri,
+        name: picked.fileName || `photo_${Date.now()}.jpg`,
+        type: picked.type || "image/jpeg",
+        size: picked.fileSize || 0,
+      });
+    } catch (error) {
+      console.error("Attachment pick error:", error);
+      Alert.alert("Attachment", "Failed to pick file. Please try again.");
+    }
+  }, [isSending]);
 
   const initiateVideoCall = async () => {
     if (!currentCounselor) {
@@ -719,13 +852,22 @@ const ChatBox = () => {
 
       const socket = io(API_BASE_URL, {
         auth: { token },
-        transports: ["websocket", "polling"],
+        transports: ["polling", "websocket"],
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        timeout: 20000,
       });
       chatSocketRef.current = socket;
 
       socket.on("connect", () => {
+        setIsSocketConnected(true);
         console.log("💬 Chat socket connected");
         socket.emit("join-chat", { chatId: apiChatId });
+      });
+
+      socket.on("disconnect", () => {
+        setIsSocketConnected(false);
       });
 
       socket.on("new-message", (messageData) => {
@@ -745,10 +887,13 @@ const ChatBox = () => {
           time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           fullTime: messageData.createdAt,
           contentType: messageData.contentType,
+          attachmentUrl: messageData.attachmentUrl || null,
+          attachmentName: messageData.attachmentName || null,
           isRead: messageData.isRead,
           status: "sent",
         };
 
+        shouldAutoScrollRef.current = true;
         setMessages(prev => {
           const isDuplicate = prev.some(msg => msg.messageId && messageData.messageId && msg.messageId === messageData.messageId);
           if (isDuplicate) return prev;
@@ -772,6 +917,7 @@ const ChatBox = () => {
       });
 
       socket.on("connect_error", (err) => {
+        setIsSocketConnected(false);
         console.error("Chat socket connection error:", err.message);
       });
     };
@@ -783,8 +929,9 @@ const ChatBox = () => {
         chatSocketRef.current.disconnect();
         chatSocketRef.current = null;
       }
+      setIsSocketConnected(false);
     };
-  }, [chatId, currentChat?.chatId]);
+  }, [chatId, currentChat?.chatId, scrollToBottom]);
 
   const handleTypingIndicator = useCallback(() => {
     const apiChatId = chatId || currentChat?.chatId;
@@ -802,10 +949,22 @@ const ChatBox = () => {
   // Fallback polling
   useEffect(() => {
     const interval = setInterval(() => {
-      if (currentChat) fetchMessagesFromAPI();
-    }, 30000);
+      if (!isSocketConnected && currentChat) fetchMessagesFromAPI();
+    }, 45000);
     return () => clearInterval(interval);
-  }, [currentChat]);
+  }, [currentChat, isSocketConnected]);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      if (!hasInitialAutoScrollRef.current) {
+        hasInitialAutoScrollRef.current = true;
+        shouldAutoScrollRef.current = true;
+        scrollToBottom(false);
+      } else if (shouldAutoScrollRef.current) {
+        scrollToBottom(true);
+      }
+    }
+  }, [messages.length, scrollToBottom]);
 
   const handleInputChange = (text) => {
     setNewMessage(text);
@@ -817,9 +976,21 @@ const ChatBox = () => {
     return (
       <View style={[styles.messageBubble, isUser ? styles.messageRight : styles.messageLeft]}>
         <View style={[styles.messageContent, isUser ? styles.userMessageContent : styles.counselorMessageContent]}>
-          <Text style={[styles.messageText, isUser ? styles.userMessageText : styles.counselorMessageText]}>
-            {item.text}
-          </Text>
+          {!!item.text && (
+            <Text style={[styles.messageText, isUser ? styles.userMessageText : styles.counselorMessageText]}>
+              {item.text}
+            </Text>
+          )}
+          {(item.attachmentName || item.attachmentUrl) && (
+            <View style={[styles.attachmentBubble, isUser ? styles.userAttachmentBubble : styles.counselorAttachmentBubble]}>
+              <Text
+                style={[styles.attachmentBubbleText, isUser ? styles.userAttachmentBubbleText : styles.counselorAttachmentBubbleText]}
+                numberOfLines={1}
+              >
+                📎 {item.attachmentName || "Attachment"}
+              </Text>
+            </View>
+          )}
           <View style={styles.messageFooter}>
             <Text style={styles.messageTime}>{item.time}</Text>
             {isUser && item.status === "sending" && <Text style={styles.messageStatusSending}>⌛ Sending...</Text>}
@@ -833,19 +1004,18 @@ const ChatBox = () => {
 
   const renderChatStatusBanner = () => {
     if (!chatStatus) return null;
+
+    if (chatStatus === "accepted") return null;
+
     let statusText = "";
     let statusStyle = {};
     switch (chatStatus) {
-      case "accepted":
-        statusText = "✓ Chat session active";
-        statusStyle = styles.statusAccepted;
-        break;
       case "pending":
         statusText = "⏳ Waiting for counselor to accept...";
         statusStyle = styles.statusPending;
         break;
       case "ended":
-        statusText = "🔒 Chat session ended";
+        statusText = "🔒 vended";
         statusStyle = styles.statusEnded;
         break;
       default: return null;
@@ -859,22 +1029,35 @@ const ChatBox = () => {
 
   const counselorName = currentCounselor?.name || "Counselor";
   const counselorOnline = currentCounselor?.online || false;
+  const counselorProfilePhoto = getProfilePhotoUrl(currentCounselor);
+
+  useEffect(() => {
+    setCounselorAvatarFailed(false);
+  }, [counselorProfilePhoto]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardAvoid}>
         <View style={styles.chatBoxMain}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                <Text style={styles.backBtnText}>←</Text>
+                <Ionicons name="chevron-back" size={17} color="#0f172a" style={styles.backBtnIcon} />
               </TouchableOpacity>
               <View style={styles.userDetails}>
                 <View style={styles.profilePic}>
                   <View style={styles.profileAvatar}>
-                    <Text style={styles.profileInitials}>{getInitials(counselorName)}</Text>
+                    {counselorProfilePhoto && !counselorAvatarFailed ? (
+                      <Image
+                        source={{ uri: counselorProfilePhoto }}
+                        style={styles.profileAvatarImage}
+                        onError={() => setCounselorAvatarFailed(true)}
+                      />
+                    ) : (
+                      <Text style={styles.profileInitials}>{getInitials(counselorName)}</Text>
+                    )}
                   </View>
                   <View style={[styles.activeDot, counselorOnline ? styles.onlineDot : styles.offlineDot]} />
                 </View>
@@ -952,8 +1135,10 @@ const ChatBox = () => {
               keyExtractor={(item, index) => item.id?.toString() || index.toString()}
               renderItem={renderMessage}
               contentContainerStyle={styles.messagesList}
-              onContentSizeChange={scrollToBottom}
-              onLayout={scrollToBottom}
+              onContentSizeChange={handleMessagesContentSizeChange}
+              onScroll={handleMessagesScroll}
+              scrollEventThrottle={16}
+              keyboardShouldPersistTaps="handled"
               ListHeaderComponent={
                 <View style={styles.welcomeCard}>
                   <View style={styles.welcomeAvatar}>
@@ -999,18 +1184,30 @@ const ChatBox = () => {
 
           {/* Input Area */}
           <View style={styles.inputArea}>
+            {pendingAttachment && (
+              <View style={styles.attachmentPreview}>
+                <Text style={styles.attachmentPreviewText} numberOfLines={1}>
+                  📎 {pendingAttachment.name}
+                </Text>
+                <TouchableOpacity onPress={() => setPendingAttachment(null)}>
+                  <Text style={styles.attachmentPreviewRemove}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             <View style={styles.inputGroup}>
-              <TouchableOpacity style={styles.attachBtn} onPress={() => Alert.alert("Attach File", "File attachment coming soon")} disabled={isSending}>
+              <TouchableOpacity style={styles.attachBtn} onPress={handlePickAttachment} disabled={isSending}>
                 <Text style={styles.attachIcon}>📎</Text>
               </TouchableOpacity>
               <View style={styles.inputWrapper}>
                 <TextInput
+                  ref={messageInputRef}
                   style={styles.textInput}
                   value={newMessage}
                   onChangeText={handleInputChange}
                   placeholder={`Message ${counselorName}...`}
                   placeholderTextColor="#94a3b8"
                   multiline
+                  blurOnSubmit={false}
                   editable={!isSending}
                 />
                 <TouchableOpacity style={styles.emojiBtn} onPress={() => setShowEmojiPicker(true)} disabled={isSending}>
@@ -1018,9 +1215,12 @@ const ChatBox = () => {
                 </TouchableOpacity>
               </View>
               <TouchableOpacity
-                style={[styles.sendBtn, (!newMessage.trim() || isSending) && styles.sendBtnDisabled]}
+                style={[
+                  styles.sendBtn,
+                  ((newMessage.trim() === "" && !pendingAttachment) || isSending) && styles.sendBtnDisabled,
+                ]}
                 onPress={handleSendMessage}
-                disabled={!newMessage.trim() || isSending}
+                disabled={(newMessage.trim() === "" && !pendingAttachment) || isSending}
               >
                 <Text style={styles.sendIcon}>{isSending ? "⏳" : "➤"}</Text>
               </TouchableOpacity>
@@ -1056,7 +1256,7 @@ const ChatBox = () => {
         onAcceptCall={handleAcceptCall}
         onRejectCall={handleRejectCall}
       />
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -1072,6 +1272,7 @@ const styles = StyleSheet.create({
   chatBoxMain: {
     flex: 1,
     backgroundColor: "#ffffff",
+    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0,
   },
   // Header Styles
   header: {
@@ -1079,7 +1280,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: "#eef2f6",
     backgroundColor: "#ffffff",
@@ -1090,14 +1291,22 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#eef2f6",
-    backgroundColor: "#ffffff",
+    borderColor: "#dbe4ef",
+    backgroundColor: "#f8fbff",
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  backBtnIcon: {
+    marginLeft: -2,
   },
   backBtnText: {
     fontSize: 20,
@@ -1124,6 +1333,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#6366f1",
+  },
+  profileAvatarImage: {
+    width: "100%",
+    height: "100%",
   },
   profileInitials: {
     fontSize: 18,
@@ -1377,6 +1590,31 @@ const styles = StyleSheet.create({
   counselorMessageText: {
     color: "#0f172a",
   },
+  attachmentBubble: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  userAttachmentBubble: {
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderColor: "rgba(255,255,255,0.35)",
+  },
+  counselorAttachmentBubble: {
+    backgroundColor: "#f8fafc",
+    borderColor: "#e2e8f0",
+  },
+  attachmentBubbleText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  userAttachmentBubbleText: {
+    color: "#ffffff",
+  },
+  counselorAttachmentBubbleText: {
+    color: "#334155",
+  },
   messageFooter: {
     flexDirection: "row",
     alignItems: "center",
@@ -1407,6 +1645,31 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#eef2f6",
     backgroundColor: "#ffffff",
+  },
+  attachmentPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#eef2ff",
+    borderWidth: 1,
+    borderColor: "#c7d2fe",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 8,
+    gap: 8,
+  },
+  attachmentPreviewText: {
+    flex: 1,
+    color: "#3730a3",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  attachmentPreviewRemove: {
+    color: "#3730a3",
+    fontSize: 14,
+    fontWeight: "700",
+    paddingHorizontal: 6,
   },
   inputGroup: {
     flexDirection: "row",

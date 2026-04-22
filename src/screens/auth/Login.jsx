@@ -1,567 +1,755 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
+  Alert,
+  ActivityIndicator,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
-  Dimensions,
-  SafeAreaView,
   Modal,
-  StatusBar,
-  Animated,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo from '@react-native-community/netinfo';
-import LinearGradient from 'react-native-linear-gradient';
-import Icon from 'react-native-vector-icons/FontAwesome5';
-import axiosInstance from '../../axiosConfig';
-import safeVibrate from '../../utils/safeVibrate';
-import { Colors, Spacing, Typography } from '../../styles/globalStyles';
+import axios from 'axios';
+import { API_BASE_URL } from '../config';
 
-const { width, height } = Dimensions.get('window');
-
-const Login = ({ navigation }) => {
-  // Animations
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
-  
-  // State for login credentials
-  const [userId, setUserId] = useState('');
+const Login = ({ navigation, route }) => {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   
-  // Error Queue System
-  const [errorQueue, setErrorQueue] = useState([]);
-  const [currentError, setCurrentError] = useState(null);
-  const [showErrorModal, setShowErrorModal] = useState(false);
+  // Conflict modal states - MATCHING WEB VERSION EXACTLY
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const [isConnected, setIsConnected] = useState(true);
 
-  const passwordInputRef = useRef(null);
+  const normalizeRole = (role) => {
+    const value = String(role || '').trim().toLowerCase();
+    if (!value) return '';
+    return value === 'counsellor' ? 'counselor' : value;
+  };
+
+  const mapRoleForBackend = (role) => {
+    return role === 'counselor' ? 'counsellor' : role;
+  };
+
+  const buildBackendRoleCandidates = (role) => {
+    if (!role) return [];
+    return role === 'counselor'
+      ? ['counsellor', 'counselor']
+      : [mapRoleForBackend(role)];
+  };
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    
-    // Check network
-    const unsubscribe = NetInfo.addEventListener(state => {
-      setIsConnected(state.isConnected);
-    });
-
-    // Load remembered user
     loadRememberedUser();
-
-    return () => unsubscribe();
   }, []);
 
   const loadRememberedUser = async () => {
     try {
-      const savedId = await AsyncStorage.getItem('rememberedUserId');
-      if (savedId) {
-        setUserId(savedId);
+      const rememberedUserId = await AsyncStorage.getItem('rememberedUserId');
+      if (rememberedUserId) {
+        setEmail(rememberedUserId);
         setRememberMe(true);
       }
-    } catch (e) {}
-  };
-
-  const ErrorTypes = {
-    VALIDATION: 'validation',
-    NETWORK: 'network',
-    AUTH: 'authentication',
-    SERVER: 'server',
-    UNKNOWN: 'unknown'
-  };
-
-  const addErrorToQueue = (errorMessage, errorType = ErrorTypes.UNKNOWN, field = null) => {
-    const newError = {
-      id: Date.now().toString(),
-      message: errorMessage,
-      type: errorType,
-      field: field,
-    };
-    setErrorQueue(prev => [...prev, newError]);
-    safeVibrate(100);
-  };
-
-  useEffect(() => {
-    if (errorQueue.length > 0 && !currentError && !showErrorModal) {
-      const nextError = errorQueue[0];
-      setCurrentError(nextError);
-      setShowErrorModal(true);
+    } catch (error) {
+      console.error('Error loading remembered user:', error);
     }
-  }, [errorQueue, currentError, showErrorModal]);
+  };
 
-  const handleErrorDismiss = () => {
-    setErrorQueue(prev => prev.slice(1));
-    setCurrentError(null);
-    setShowErrorModal(false);
+  const validateEmail = () => {
+    if (!email) {
+      setErrorMessage('Please enter your email');
+      return false;
+    }
+    const emailRegex = /\S+@\S+\.\S+/;
+    if (!emailRegex.test(email)) {
+      setErrorMessage('Please enter a valid email address');
+      return false;
+    }
+    return true;
   };
 
   const handleLogin = async () => {
-    if (!isConnected) {
-      addErrorToQueue('No internet connection', ErrorTypes.NETWORK);
+    if (!validateEmail()) return;
+    if (!password) {
+      setErrorMessage('Please enter your password');
       return;
     }
 
-    if (!userId || !password) {
-      addErrorToQueue('Please fill in all fields', ErrorTypes.VALIDATION);
-      return;
-    }
-
+    setErrorMessage('');
+    setSuccessMessage('');
     setIsLoading(true);
+
     try {
-      const response = await axiosInstance.post('/api/auth/login', {
-        email: userId.trim(),
-        password: password,
-      });
+      const roleFromRoute = normalizeRole(route?.params?.role);
+      const storedRoleRaw = normalizeRole(await AsyncStorage.getItem('role'));
+      const selectedRole = roleFromRoute || storedRoleRaw;
+      const roleCandidates = buildBackendRoleCandidates(selectedRole);
 
-      const data = response.data;
-      const token = data.token || data.accessToken;
-      const normalizedRole = String(
-        data.user?.role || data.role || data.userRole || 'user'
-      )
-        .toLowerCase()
-        .replace('counsellor', 'counselor');
+      let response;
+      for (let index = 0; index < Math.max(roleCandidates.length, 1); index += 1) {
+        const candidateRole = roleCandidates[index];
+        try {
+          response = await axios.post(
+            `${API_BASE_URL}/api/auth/login`,
+            {
+              email,
+              password,
+              ...(candidateRole ? { role: candidateRole } : {}),
+            },
+            { withCredentials: true }
+          );
+          break;
+        } catch (error) {
+          const message = String(error?.response?.data?.message || '').toLowerCase();
+          const isRoleMismatch =
+            error?.response?.status === 403 ||
+            message.includes('role mismatch') ||
+            message.includes('role');
+          const isLastAttempt = index === Math.max(roleCandidates.length, 1) - 1;
+          if (!isRoleMismatch || isLastAttempt) {
+            throw error;
+          }
+        }
+      }
 
+      // FIRST: Get the role from response
+      const userRoleRaw =
+        response.data?.role || response.data?.user?.role || 'user';
+      const normalizedUserRole = normalizeRole(userRoleRaw) || 'user';
+      const isCounselor = normalizedUserRole === 'counselor';
+
+      // SECOND: Read the role the user selected in RoleSelector.
+      const selectedAsCounselor = selectedRole === 'counselor';
+
+      // THIRD: Validate — if a role was explicitly selected, enforce it.
+      if (selectedRole) {
+        if (selectedAsCounselor && !isCounselor) {
+          setErrorMessage(
+            "Access denied: You selected the Counsellor login but your account is registered as a User. Please go back and select the correct role."
+          );
+          setIsLoading(false);
+          return;
+        }
+
+        if (!selectedAsCounselor && isCounselor) {
+          setErrorMessage(
+            "Access denied: You selected the User login but your account is registered as a Counsellor. Please go back and select the correct role."
+          );
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      const token = response.data?.accessToken || response.data?.token;
       if (token) {
-        setSuccessMessage('Login successful!');
-        
-        // Token and storage
-        await AsyncStorage.multiRemove(['userData', 'userId', 'counsellorId', 'userRole']);
         await AsyncStorage.setItem('accessToken', token);
         await AsyncStorage.setItem('token', token);
-        if (data.refreshToken) await AsyncStorage.setItem('refreshToken', data.refreshToken);
-        
-        if (data.user) {
-          await AsyncStorage.setItem('userData', JSON.stringify(data.user));
-          await AsyncStorage.setItem('userRole', normalizedRole);
-          await AsyncStorage.setItem('userEmail', data.user.email);
-
-          if (normalizedRole === 'counselor' && data.user._id) {
-            await AsyncStorage.setItem('counsellorId', data.user._id);
-          } else if (data.user._id) {
-            await AsyncStorage.setItem('userId', data.user._id);
-          }
-          
-          if (rememberMe) {
-            await AsyncStorage.setItem('rememberedUserId', userId);
-          } else {
-            await AsyncStorage.removeItem('rememberedUserId');
-          }
-
-          // Navigation based on role
-          setTimeout(() => {
-            if (normalizedRole === 'counselor') {
-              navigation.replace('CounselorDashboard');
-            } else {
-              navigation.replace('UserDashboard');
-            }
-          }, 800);
-        } else {
-          setIsLoading(false);
-          addErrorToQueue('Login response is missing user details', ErrorTypes.SERVER);
-        }
-      } else {
-        setIsLoading(false);
-        addErrorToQueue(data.message || 'Login failed', ErrorTypes.AUTH);
       }
-    } catch (error) {
+      if (response.data?.refreshToken) {
+        await AsyncStorage.setItem('refreshToken', response.data.refreshToken);
+      }
+
+      await AsyncStorage.setItem('userRole', normalizedUserRole);
+      await AsyncStorage.setItem('isAuthenticated', 'true');
+      await AsyncStorage.setItem('userEmail', email);
+
+      const user = response.data?.user || response.data;
+      if (user) {
+        await AsyncStorage.setItem('userData', JSON.stringify(user));
+        const id = user._id || user.id;
+        if (id) {
+          await AsyncStorage.setItem('userId', id);
+          if (isCounselor) {
+            await AsyncStorage.setItem('counsellorId', id);
+            await AsyncStorage.setItem('counselorId', id);
+          }
+        }
+      }
+
+      // Remove temporary selected role
+      await AsyncStorage.removeItem('role');
+
+      if (rememberMe) {
+        await AsyncStorage.setItem('rememberedUserId', email);
+      } else {
+        await AsyncStorage.removeItem('rememberedUserId');
+      }
+
+      setSuccessMessage('Login successful! Redirecting...');
+
+      setTimeout(() => {
+        if (isCounselor) {
+          navigation.replace('CounselorDashboard');
+        } else {
+          navigation.replace('UserDashboard');
+        }
+      }, 1200);
+    } catch (err) {
+      // CRITICAL: Check for both conditions exactly like web version
+      if (
+        err?.isOneDeviceConflict ||
+        (err?.response?.status === 409 && err?.response?.data?.needLogout)
+      ) {
+        setShowConflictModal(true);
+        setOtpSent(false);
+        setOtp('');
+        return;
+      }
+
+      const msg = err?.response?.data?.message || err?.message || 'Login failed';
+      setErrorMessage(msg);
+      
+      // Auto-clear error message after 3 seconds
+      setTimeout(() => setErrorMessage(''), 3000);
+    } finally {
       setIsLoading(false);
-      const message = error.response?.data?.message || 'Server Error. Please try again.';
-      addErrorToQueue(message, ErrorTypes.SERVER);
-      console.error('Login error:', error);
+    }
+  };
+
+  const handleLogoutOtherDevices = async () => {
+    setLogoutLoading(true);
+    setErrorMessage('');
+
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/logout-other-devices`,
+        { email },
+        { withCredentials: true }
+      );
+
+      if (response.data?.success) {
+        setOtpSent(true);
+        setSuccessMessage('OTP sent to your email.');
+        // Auto-clear success message
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        setErrorMessage(response.data?.message || 'Failed to send OTP');
+        setTimeout(() => setErrorMessage(''), 3000);
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to send OTP';
+      setErrorMessage(msg);
+      setTimeout(() => setErrorMessage(''), 3000);
+    } finally {
+      setLogoutLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!otp || otp.length !== 6) {
+      setErrorMessage('Please enter a valid 6-digit OTP');
+      setTimeout(() => setErrorMessage(''), 3000);
+      return;
+    }
+
+    setOtpLoading(true);
+    setErrorMessage('');
+
+    try {
+      const roleFromRoute = normalizeRole(route?.params?.role);
+      const storedRole = normalizeRole(await AsyncStorage.getItem('role'));
+      const selectedRole = roleFromRoute || storedRole || 'user';
+
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/verify-login-otp`,
+        { email, otp },
+        { withCredentials: true }
+      );
+
+      const token = response.data?.accessToken || response.data?.token;
+      if (token) {
+        await AsyncStorage.setItem('accessToken', token);
+        await AsyncStorage.setItem('token', token);
+      }
+      if (response.data?.refreshToken) {
+        await AsyncStorage.setItem('refreshToken', response.data.refreshToken);
+      }
+
+      const resolvedRole =
+        normalizeRole(response.data?.role || response.data?.user?.role) ||
+        selectedRole;
+      await AsyncStorage.setItem('userRole', resolvedRole);
+      await AsyncStorage.setItem('isAuthenticated', 'true');
+      await AsyncStorage.setItem('userEmail', email);
+
+      const user = response.data?.user || response.data;
+      if (user) {
+        await AsyncStorage.setItem('userData', JSON.stringify(user));
+        const id = user._id || user.id;
+        if (id) {
+          await AsyncStorage.setItem('userId', id);
+          if (resolvedRole === 'counselor') {
+            await AsyncStorage.setItem('counsellorId', id);
+            await AsyncStorage.setItem('counselorId', id);
+          }
+        }
+      }
+
+      await AsyncStorage.removeItem('role');
+
+      setShowConflictModal(false);
+      setSuccessMessage('OTP verified! Redirecting...');
+      
+      // Navigate after success message
+      setTimeout(() => {
+        if (resolvedRole === 'counselor') {
+          navigation.replace('CounselorDashboard');
+        } else {
+          navigation.replace('UserDashboard');
+        }
+      }, 1200);
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || 'OTP verification failed';
+      setErrorMessage(msg);
+      setTimeout(() => setErrorMessage(''), 3000);
+    } finally {
+      setOtpLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      <LinearGradient
-        colors={[Colors.primaryDark, Colors.primary, Colors.background]}
-        style={styles.background}
-      >
-        <SafeAreaView style={styles.safeArea}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.keyboardView}
-          >
-            <ScrollView 
-              contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-                {/* Brand Header */}
-                <View style={styles.header}>
-                  <LinearGradient
-                    colors={[Colors.secondary, Colors.accent]}
-                    style={styles.logoIcon}
-                  >
-                    <Icon name="heartbeat" size={30} color={Colors.white} />
-                  </LinearGradient>
-                  <Text style={styles.logoText}>
-                    Medi<Text style={styles.logoHighlight}>Coneckt</Text>
-                  </Text>
-                  <Text style={styles.welcomeText}>Welcome Back</Text>
-                  <Text style={styles.subtext}>Please login to your account</Text>
-                </View>
-
-                {/* Login Card */}
-                <View style={styles.card}>
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.label}>User ID</Text>
-                    <View style={styles.inputWrapper}>
-                      <Icon name="user" size={18} color={Colors.primary} style={styles.inputIcon} />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Enter your ID"
-                        placeholderTextColor="#000000"
-                        value={userId}
-                        onChangeText={setUserId}
-                        autoCapitalize="none"
-                        returnKeyType="next"
-                        onSubmitEditing={() => passwordInputRef.current?.focus()}
-                      />
-                    </View>
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Password</Text>
-                    <View style={styles.inputWrapper}>
-                      <Icon name="lock" size={18} color={Colors.primary} style={styles.inputIcon} />
-                      <TextInput
-                        ref={passwordInputRef}
-                        style={styles.input}
-                        placeholder="••••••••"
-                        placeholderTextColor="#000000"
-                        secureTextEntry={!showPassword}
-                        value={password}
-                        onChangeText={setPassword}
-                        returnKeyType="done"
-                        onSubmitEditing={handleLogin}
-                      />
-                      <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                        <Icon 
-                          name={showPassword ? "eye-slash" : "eye"} 
-                          size={18} 
-                          color={Colors.textLight} 
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  <View style={styles.optionsRow}>
-                    <TouchableOpacity 
-                      style={styles.rememberRow}
-                      onPress={() => setRememberMe(!rememberMe)}
-                    >
-                      <View style={[styles.checkbox, rememberMe && styles.checkboxActive]}>
-                        {rememberMe && <Icon name="check" size={12} color={Colors.white} />}
-                      </View>
-                      <Text style={styles.rememberText}>Remember me</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity>
-                      <Text style={styles.forgotText}>Forgot Password?</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {successMessage ? (
-                    <View style={styles.successBox}>
-                      <Text style={styles.successText}>{successMessage}</Text>
-                    </View>
-                  ) : null}
-
-                  <TouchableOpacity 
-                    style={[styles.loginBtn, isLoading && styles.loginBtnDisabled]}
-                    onPress={handleLogin}
-                    disabled={isLoading}
-                  >
-                    <LinearGradient
-                      colors={[Colors.primary, Colors.primaryDark]}
-                      style={styles.loginBtnGradient}
-                    >
-                      {isLoading ? (
-                        <ActivityIndicator color={Colors.white} />
-                      ) : (
-                        <Text style={styles.loginBtnText}>Login Now</Text>
-                      )}
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Footer */}
-                <View style={styles.footer}>
-                  <Text style={styles.footerText}>Don't have an account?</Text>
-                  <TouchableOpacity onPress={() => navigation.navigate('RoleSelector')}>
-                    <Text style={styles.signupLink}>Sign Up</Text>
-                  </TouchableOpacity>
-                </View>
-              </Animated.View>
-            </ScrollView>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </LinearGradient>
-
-      {/* Error Modal */}
-      <Modal
-        visible={showErrorModal}
-        transparent={true}
-        animationType="fade"
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalIconBox}>
-              <Icon name="exclamation-circle" size={40} color={Colors.error} />
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView contentContainerStyle={styles.scrollContainer}>
+        <View style={styles.loginCard}>
+          {/* Header Section */}
+          <View style={styles.headerSection}>
+            <View style={styles.logoContainer}>
+              <Text style={styles.logoText}>Mediconect</Text>
             </View>
-            <Text style={styles.modalTitle}>Error</Text>
-            <Text style={styles.modalMessage}>{currentError?.message}</Text>
-            <TouchableOpacity style={styles.modalBtn} onPress={handleErrorDismiss}>
-              <Text style={styles.modalBtnText}>Dismiss</Text>
+            <Text style={styles.title}>Welcome Back</Text>
+            <Text style={styles.subtitle}>Login with your email and password</Text>
+          </View>
+
+          {/* Form Section */}
+          <View style={styles.formContainer}>
+            {/* Email Input */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email</Text>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your email"
+                  value={email}
+                  onChangeText={(text) => {
+                    setEmail(text);
+                    setErrorMessage('');
+                  }}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  editable={!isLoading}
+                />
+              </View>
+            </View>
+
+            {/* Password Input */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Password</Text>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={[styles.input, styles.passwordInput]}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChangeText={(text) => {
+                    setPassword(text);
+                    setErrorMessage('');
+                  }}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  editable={!isLoading}
+                />
+                <TouchableOpacity
+                  style={styles.eyeIcon}
+                  onPress={() => setShowPassword(!showPassword)}
+                >
+                  <Text>{showPassword ? '👁️' : '👁️‍🗨️'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Options */}
+            <View style={styles.optionsContainer}>
+              <TouchableOpacity
+                style={styles.checkboxContainer}
+                onPress={() => setRememberMe(!rememberMe)}
+              >
+                <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                  {rememberMe && <Text style={styles.checkmark}>✓</Text>}
+                </View>
+                <Text style={styles.checkboxLabel}>Remember me</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
+                <Text style={styles.forgotPassword}>Forgot Password?</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Login Button */}
+            <TouchableOpacity
+              style={[styles.loginButton, (!email || !password || isLoading) && styles.loginButtonDisabled]}
+              onPress={handleLogin}
+              disabled={!email || !password || isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.loginButtonText}>Login</Text>
+              )}
             </TouchableOpacity>
+
+            {/* Error Message */}
+            {errorMessage ? (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{errorMessage}</Text>
+              </View>
+            ) : null}
+
+            {/* Success Message */}
+            {successMessage ? (
+              <View style={styles.successContainer}>
+                <Text style={styles.successText}>{successMessage}</Text>
+              </View>
+            ) : null}
+
+            {/* Sign Up Link */}
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Don't have an account? </Text>
+              <TouchableOpacity onPress={() => navigation.navigate('RoleSelector')}>
+                <Text style={styles.signUpLink}> Sign Up</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </Modal>
-    </View>
+
+        {/* Conflict Resolution Modal - EXACT MATCH TO WEB VERSION */}
+        <Modal
+          visible={showConflictModal}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowConflictModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <Text style={styles.modalTitle}>Session Conflict Detected</Text>
+              <Text style={styles.modalText}>
+                You are already logged in on another device.
+              </Text>
+
+              {/* Logout Other Devices Button */}
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={handleLogoutOtherDevices}
+                disabled={logoutLoading}
+              >
+                {logoutLoading ? (
+                  <View style={styles.buttonLoadingContainer}>
+                    <ActivityIndicator color="#fff" size="small" />
+                    <Text style={styles.modalButtonText}> Sending OTP...</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.modalButtonText}>
+                    Logout Other Devices & Send OTP
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              {/* OTP Section - Only shows after OTP is sent */}
+              {otpSent && (
+                <View style={styles.otpSection}>
+                  <Text style={styles.otpLabel}>Enter OTP:</Text>
+                  <TextInput
+                    style={styles.otpInput}
+                    value={otp}
+                    onChangeText={(text) => {
+                      const cleaned = text.replace(/\D/g, '').slice(0, 6);
+                      setOtp(cleaned);
+                      setErrorMessage(''); // Clear error when typing
+                    }}
+                    placeholder="6-digit code"
+                    keyboardType="number-pad"
+                    maxLength={6}
+                  />
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.verifyButton]}
+                    onPress={handleVerifyOtp}
+                    disabled={otpLoading}
+                  >
+                    {otpLoading ? (
+                      <View style={styles.buttonLoadingContainer}>
+                        <ActivityIndicator color="#fff" size="small" />
+                        <Text style={styles.modalButtonText}> Verifying...</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.modalButtonText}>Verify OTP</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+        </Modal>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#f5f5f5',
   },
-  background: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContent: {
+  scrollContainer: {
     flexGrow: 1,
-    paddingHorizontal: Spacing.lg,
-    paddingTop: height * 0.05,
-    paddingBottom: Spacing.xl,
+    justifyContent: 'center',
+    padding: 20,
   },
-  content: {
-    flex: 1,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: Spacing.xl,
-  },
-  logoIcon: {
-    width: 70,
-    height: 70,
+  loginCard: {
+    backgroundColor: '#fff',
     borderRadius: 20,
+    padding: 25,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  headerSection: {
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  logoContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#007AFF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: Spacing.md,
-    elevation: 10,
-    shadowColor: Colors.black,
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
+    marginBottom: 20,
   },
   logoText: {
-    fontSize: 32,
+    color: '#fff',
+    fontSize: 18,
     fontWeight: 'bold',
-    color: Colors.white,
-    marginBottom: Spacing.sm,
   },
-  logoHighlight: {
-    color: Colors.accent,
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
   },
-  welcomeText: {
-    ...Typography.h1,
-    color: Colors.white,
-    marginTop: Spacing.md,
+  subtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
   },
-  subtext: {
-    ...Typography.body,
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginTop: Spacing.xs,
-  },
-  card: {
-    backgroundColor: Colors.white,
-    borderRadius: 30,
-    padding: Spacing.lg,
-    elevation: 20,
-    shadowColor: Colors.black,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    marginTop: Spacing.md,
+  formContainer: {
+    marginTop: 10,
   },
   inputGroup: {
-    marginBottom: Spacing.lg,
+    marginBottom: 20,
   },
   label: {
-    ...Typography.bodySmall,
-    color: Colors.text,
+    fontSize: 14,
     fontWeight: '600',
-    marginBottom: Spacing.sm,
+    color: '#333',
+    marginBottom: 8,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 15,
-    paddingHorizontal: Spacing.md,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  inputIcon: {
-    marginRight: Spacing.sm,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    backgroundColor: '#f9f9f9',
   },
   input: {
     flex: 1,
-    height: 55,
+    padding: 12,
     fontSize: 16,
-    color: '#1A202C',
-    fontWeight: '500',
+    color: '#333',
   },
-  optionsRow: {
+  passwordInput: {
+    paddingRight: 40,
+  },
+  eyeIcon: {
+    padding: 10,
+    position: 'absolute',
+    right: 0,
+  },
+  optionsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.xl,
+    marginBottom: 25,
   },
-  rememberRow: {
+  checkboxContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   checkbox: {
     width: 20,
     height: 20,
-    borderRadius: 6,
     borderWidth: 2,
-    borderColor: Colors.primary,
-    marginRight: Spacing.xs,
+    borderColor: '#007AFF',
+    borderRadius: 4,
+    marginRight: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  checkboxActive: {
-    backgroundColor: Colors.primary,
+  checkboxChecked: {
+    backgroundColor: '#007AFF',
   },
-  rememberText: {
-    fontSize: 14,
-    color: '#4A5568',
-  },
-  forgotText: {
-    fontSize: 14,
-    color: Colors.primary,
+  checkmark: {
+    color: '#fff',
+    fontSize: 12,
     fontWeight: 'bold',
   },
-  loginBtn: {
-    height: 55,
-    borderRadius: 15,
-    overflow: 'hidden',
-    marginTop: Spacing.md,
+  checkboxLabel: {
+    fontSize: 14,
+    color: '#666',
   },
-  loginBtnDisabled: {
-    opacity: 0.7,
+  forgotPassword: {
+    fontSize: 14,
+    color: '#007AFF',
   },
-  loginBtnGradient: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loginBtnText: {
-    fontSize: 18,
-    color: Colors.white,
-    fontWeight: 'bold',
-  },
-  successBox: {
-    backgroundColor: '#DCFCE7',
-    padding: Spacing.sm,
+  loginButton: {
+    backgroundColor: '#007AFF',
+    padding: 15,
     borderRadius: 10,
-    marginBottom: Spacing.md,
     alignItems: 'center',
+    marginBottom: 20,
+  },
+  loginButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
+  loginButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  errorContainer: {
+    backgroundColor: '#ffebee',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#ffcdd2',
+  },
+  errorText: {
+    color: '#c62828',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  successContainer: {
+    backgroundColor: '#e8f5e9',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#c8e6c9',
   },
   successText: {
+    color: '#2e7d32',
     fontSize: 14,
-    color: Colors.success,
-    fontWeight: 'bold',
+    textAlign: 'center',
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: Spacing.xl,
+    marginTop: 20,
   },
   footerText: {
-    fontSize: 16,
-    color: '#2D3748',
+    fontSize: 14,
+    color: '#666',
   },
-  signupLink: {
-    fontSize: 16,
-    color: Colors.secondary,
+  signUpLink: {
+    fontSize: 14,
+    color: '#007AFF',
     fontWeight: 'bold',
-    marginLeft: Spacing.xs,
   },
-  // Modal Styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: Spacing.xl,
   },
-  modalContent: {
-    backgroundColor: Colors.white,
-    borderRadius: 25,
-    padding: Spacing.xl,
-    alignItems: 'center',
-    width: '100%',
-    elevation: 25,
-  },
-  modalIconBox: {
-    marginBottom: Spacing.md,
+  modalContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 25,
+    width: '85%',
+    maxWidth: 400,
   },
   modalTitle: {
-    fontSize: 24,
-    color: Colors.error,
-    marginBottom: Spacing.sm,
-  },
-  modalMessage: {
-    fontSize: 16,
-    color: Colors.text,
-    textAlign: 'center',
-    marginBottom: Spacing.xl,
-  },
-  modalBtn: {
-    backgroundColor: '#F1F5F9',
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.xxl,
-    borderRadius: 12,
-  },
-  modalBtnText: {
-    fontSize: 16,
-    color: Colors.text,
+    fontSize: 20,
     fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  modalText: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  modalButton: {
+    backgroundColor: '#007AFF',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  verifyButton: {
+    backgroundColor: '#4CAF50',
+  },
+  otpSection: {
+    marginTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    paddingTop: 15,
+  },
+  otpLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  otpInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    textAlign: 'center',
+    letterSpacing: 2,
+    marginBottom: 12,
+  },
+  buttonLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

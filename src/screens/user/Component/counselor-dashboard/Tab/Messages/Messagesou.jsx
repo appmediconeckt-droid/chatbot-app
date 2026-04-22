@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,42 +7,100 @@ import {
   FlatList,
   ActivityIndicator,
   StyleSheet,
-  ScrollView,
-  RefreshControl,
+  Dimensions,
+  Platform,
+  StatusBar,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { API_BASE_URL } from '../../../../../axiosConfig';
+const { width, height } = Dimensions.get('window');
+const API_BASE_URL = 'https://chatbot-backend-js25.onrender.com';
 
 const SMSList = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [users, setUsers] = useState([]);
+  const [selectedChatId, setSelectedChatId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [refreshing, setRefreshing] = useState(false);
   const navigation = useNavigation();
 
-  // Format time difference from createdAt
-  const formatTimeAgo = (dateString) => {
-    if (!dateString) return 'Just now';
+  const handleSessionExpired = useCallback(() => {
+    AsyncStorage.multiRemove(['token', 'accessToken', 'userData']);
+    navigation.replace('RoleSelector', {
+      reason: 'session-expired',
+      message: 'You were logged out because your account was used on another device.',
+    });
+  }, [navigation]);
+
+  const getInitials = (name) => {
+    if (!name) return 'US';
+    return name
+      .split(' ')
+      .map((part) => part[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
+  };
+
+  const getAvatarColor = (name) => {
+    const colors = [
+      '#4f46e5', '#0891b2', '#059669', '#b45309', '#c2410c',
+      '#7e22ce', '#be123c', '#1e40af', '#0f766e', '#6b21a8',
+    ];
+    if (!name) return colors[0];
+    let hash = 0;
+    for (let i = 0; i < name.length; i += 1) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+  };
+
+  const formatTime = (timeString) => {
+    if (!timeString) return '';
+    const messageTime = new Date(timeString);
+    if (isNaN(messageTime.getTime())) return '';
     const now = new Date();
-    const past = new Date(dateString);
-    const diffInSeconds = Math.floor((now - past) / 1000);
-    
-    if (diffInSeconds < 60) return `${diffInSeconds} sec ago`;
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} min ago`;
-    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
-    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)} days ago`;
-    return past.toLocaleDateString();
+    const diffMs = now - messageTime;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) return 'Just now';
+    if (diffHours < 1) return `${diffMins}m ago`;
+    if (diffDays === 0) {
+      return messageTime.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7)
+      return messageTime.toLocaleDateString([], { weekday: 'short' });
+    return messageTime.toLocaleDateString([], {
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  const formatFullDateTime = (timeString) => {
+    if (!timeString) return '';
+    const date = new Date(timeString);
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleString([], {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   // Fetch chats from API
-  const fetchChats = async () => {
-    const token = await AsyncStorage.getItem('token');
+  const fetchChats = useCallback(async () => {
+    const token = await AsyncStorage.getItem('token') || await AsyncStorage.getItem('accessToken');
     if (!token) {
-      setError('No access token found. Please log in.');
-      setLoading(false);
+      handleSessionExpired();
       return;
     }
     try {
@@ -52,19 +110,35 @@ const SMSList = () => {
           Authorization: `Bearer ${token}`,
         },
       });
-      
+
+      if (response.status === 401) {
+        handleSessionExpired();
+        return;
+      }
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
-      // Transform API data to match component structure
-      const transformedUsers = data.chats.map(chat => {
+
+      const transformedUsers = (data.chats || []).map((chat) => {
         const otherParty = chat.otherParty || {};
         const displayName = otherParty.anonymous || otherParty.name || 'Anonymous User';
-        const gender = otherParty.gender || 'neutral';
-        const actualUserId = otherParty.id || otherParty._id || otherParty.userId || otherParty.user_id;
+        const actualUserId = otherParty.id ||
+          otherParty._id ||
+          otherParty.userId ||
+          otherParty.user_id ||
+          chat.userId;
+
+        const lastMessageTime = chat.lastMessage?.createdAt || chat.updatedAt || chat.startedAt;
+        const chatStatus = String(chat.status || 'pending').toLowerCase();
+        let specialization = 'Patient';
+        if (Array.isArray(otherParty.specialization) && otherParty.specialization[0]) {
+          specialization = otherParty.specialization[0];
+        } else if (typeof otherParty.specialization === 'string') {
+          specialization = otherParty.specialization;
+        }
 
         return {
           id: chat.chatId,
@@ -74,13 +148,15 @@ const SMSList = () => {
           chatId: chat.chatId,
           name: displayName,
           lastMessage: chat.lastMessage?.content || 'No messages yet',
-          time: formatTimeAgo(chat.lastMessage?.createdAt || chat.updatedAt),
+          time: formatTime(lastMessageTime),
+          fullDateTime: formatFullDateTime(lastMessageTime),
+          lastActivityAt: lastMessageTime,
           unread: chat.unreadCount || 0,
-          gender: gender,
-          status: chat.status === 'pending' ? 'offline' : 'online',
+          status: chatStatus,
+          online: chatStatus === 'accepted' && !chat.isExpired,
           phone: otherParty.phone || 'Not available',
           email: otherParty.email || 'Not available',
-          specialization: otherParty.specialization,
+          specialization,
           rating: otherParty.rating,
           isExpired: chat.isExpired,
           expiresAt: chat.expiresAt,
@@ -90,7 +166,13 @@ const SMSList = () => {
           cancelledAt: chat.cancelledAt,
         };
       });
-      
+
+      transformedUsers.sort((a, b) => {
+        const aTime = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
+        const bTime = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
+        return bTime - aTime;
+      });
+
       setUsers(transformedUsers);
       setLoading(false);
     } catch (err) {
@@ -98,134 +180,152 @@ const SMSList = () => {
       setError(err.message);
       setLoading(false);
     }
-  };
+  }, [handleSessionExpired]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchChats();
+    }, [fetchChats])
+  );
 
   useEffect(() => {
     fetchChats();
   }, []);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await fetchChats();
-    setRefreshing(false);
-  };
-
-  // Filter users based on the displayed (anonymous) name
-  const filteredUsers = users.filter(user =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredUsers = users.filter(
+    (user) =>
+      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.specialization.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleUserClick = (user) => {
-    navigation.navigate('SmsInput', { 
+    setSelectedChatId(user.chatId);
+    navigation.navigate('SMSInput', {
       selectedUser: user,
       chatId: user.chatId,
-      chatData: user
+      chatData: user,
     });
   };
 
   const totalUnread = users.reduce((acc, user) => acc + user.unread, 0);
 
-  // Get gender-based avatar icon
-  const getAvatarIcon = (gender) => {
-    if (gender === 'male') return '👨';
-    if (gender === 'female') return '👩';
-    return '👤';
+  const getStatusBadgeText = (status) => {
+    if (status === 'accepted') return 'Accepted';
+    if (status === 'pending') return 'Pending';
+    if (status === 'rejected') return 'Rejected';
+    if (status === 'ended') return 'Ended';
+    return 'Active';
   };
 
-  const renderUserItem = ({ item: user }) => (
-    <TouchableOpacity
-      style={[styles.userItem, user.isExpired && styles.expiredChat]}
-      onPress={() => handleUserClick(user)}
-      activeOpacity={0.7}
-    >
-      {/* Avatar with Status */}
-      <View style={styles.userAvatar}>
-        <View style={styles.avatarIconContainer}>
-          <Text style={styles.avatarIcon}>{getAvatarIcon(user.gender)}</Text>
-        </View>
-        <View style={[styles.statusDot, styles[user.status]]} />
-      </View>
+  const getStatusBadgeStyle = (status) => {
+    if (status === 'accepted') return styles.statusAccepted;
+    if (status === 'pending') return styles.statusPending;
+    if (status === 'rejected') return styles.statusRejected;
+    if (status === 'ended') return styles.statusRejected;
+    return styles.statusAccepted;
+  };
 
-      {/* User Info */}
-      <View style={styles.userInfo}>
-        <View style={styles.userRow}>
-          <Text style={styles.userName} numberOfLines={1}>
-            {user.name}
-          </Text>
-          <Text style={styles.timeText}>{user.time}</Text>
-        </View>
-        
-        <View style={styles.lastMessageContainer}>
-          <Text style={styles.messagePreview} numberOfLines={1}>
-            {user.lastMessage}
-          </Text>
-          {user.unread > 0 && (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadText}>{user.unread}</Text>
-            </View>
-          )}
+  const renderUserItem = ({ item: user }) => {
+    const statusBadgeText = getStatusBadgeText(user.status);
+    const statusBadgeStyle = getStatusBadgeStyle(user.status);
+    
+    return (
+      <TouchableOpacity
+        style={[
+          styles.userItem,
+          selectedChatId === user.chatId && styles.userItemSelected,
+          user.isExpired && styles.expiredChat,
+        ]}
+        onPress={() => handleUserClick(user)}
+        activeOpacity={0.7}
+      >
+        {/* Avatar with status indicator */}
+        <View style={styles.userAvatar}>
+          <View
+            style={[styles.avatarInitials, { backgroundColor: getAvatarColor(user.name) }]}
+          >
+            <Text style={styles.avatarText}>{getInitials(user.name)}</Text>
+          </View>
+          <View style={[styles.statusDot, user.online ? styles.statusOnline : styles.statusOffline]} />
         </View>
 
-        <View style={styles.userDetails}>
-          {user.specialization && user.specialization.length > 0 && (
+        {/* User Info */}
+        <View style={styles.userInfo}>
+          <View style={styles.userRow}>
+            <Text style={styles.userName} numberOfLines={1}>
+              {user.name}
+            </Text>
+            <Text style={styles.timeText}>
+              {user.time}
+            </Text>
+          </View>
+
+          <View style={styles.lastMessageContainer}>
+            <Text style={styles.messagePreview} numberOfLines={1}>
+              {user.lastMessage}
+            </Text>
+            {user.unread > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadText}>{user.unread}</Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.userDetails}>
             <View style={styles.specializationBadge}>
-              <Text style={styles.specializationText}>
-                {user.specialization[0]}
+              <Text style={styles.specializationText} numberOfLines={1}>
+                {user.specialization}
               </Text>
             </View>
-          )}
-          <Text style={[styles.statusText, styles[user.status]]}>
-            {user.status === 'online' ? '🟢 Active' : '⚪ Inactive'}
-          </Text>
-        </View>
-
-        {user.isExpired && (
-          <View style={styles.expiredBadge}>
-            <Text style={styles.expiredText}>⚠️ Expired</Text>
+            <View style={[styles.statusBadge, statusBadgeStyle]}>
+              <Text style={styles.statusText}>{statusBadgeText}</Text>
+            </View>
           </View>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
 
-  const renderEmptyState = () => (
-    <View style={styles.emptyContainer}>
-      <Text style={styles.emptyIcon}>🔍</Text>
-      <Text style={styles.emptyTitle}>No conversations found</Text>
-      <Text style={styles.emptyText}>
-        Try searching with a different anonymous name
-      </Text>
-    </View>
-  );
+          {user.isExpired && (
+            <View style={styles.expiredBadge}>
+              <Text style={styles.expiredText}>⚠️ Expired</Text>
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
-  if (loading && !refreshing) {
+  if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4a90e2" />
-        <Text style={styles.loadingText}>Loading conversations...</Text>
+      <View style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#6366f1" />
+          <Text style={styles.loadingText}>Loading conversations...</Text>
+        </View>
       </View>
     );
   }
 
   if (error) {
     return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorIcon}>⚠️</Text>
-        <Text style={styles.errorTitle}>Error loading chats</Text>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchChats}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
+      <View style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorIcon}>⚠️</Text>
+          <Text style={styles.errorTitle}>Error loading chats</Text>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchChats}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.titleSection}>
-          <Text style={styles.title}>SMS List</Text>
+          <Text style={styles.title}>Messages</Text>
           <View style={styles.totalBadge}>
             <Text style={styles.totalText}>{users.length} conversations</Text>
           </View>
@@ -239,13 +339,12 @@ const SMSList = () => {
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
-        <Text style={styles.searchIcon}>🔍</Text>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search by anonymous name..."
+          placeholder="Search chats..."
+          placeholderTextColor="#94a3b8"
           value={searchTerm}
           onChangeText={setSearchTerm}
-          placeholderTextColor="#6c757d"
         />
         {searchTerm !== '' && (
           <TouchableOpacity style={styles.searchClear} onPress={() => setSearchTerm('')}>
@@ -259,12 +358,17 @@ const SMSList = () => {
         data={filteredUsers}
         keyExtractor={(item) => item.id}
         renderItem={renderUserItem}
-        ListEmptyComponent={renderEmptyState}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyIcon}>🔍</Text>
+            <Text style={styles.emptyTitle}>No conversations found</Text>
+            <Text style={styles.emptyText}>
+              Try searching with a different name
+            </Text>
+          </View>
+        }
       />
     </View>
   );
@@ -273,14 +377,19 @@ const SMSList = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f7fa',
+    backgroundColor: '#ffffff',
+    marginTop:-40,
+    marginLeft:-12,
+    marginRight:-12
   },
-  // Header Styles
+  // Header Styles - Consistent padding
   header: {
-    backgroundColor: 'white',
-    padding: 20,
+    paddingTop: Platform.OS === 'ios' ? 50 : 40,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e1e4e8',
+    borderBottomColor: '#eef2f6',
+    backgroundColor: '#ffffff',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -292,265 +401,292 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontWeight: '600',
-    color: '#1a1a2e',
+    fontWeight: '700',
+    color: '#0f172a',
   },
   totalBadge: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#f1f5f9',
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 20,
+    borderRadius: 999,
   },
   totalText: {
     fontSize: 12,
-    color: '#6c757d',
-  },
-  unreadBadgeHeader: {
-    backgroundColor: '#dc3545',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-  },
-  unreadBadgeHeaderText: {
-    color: 'white',
-    fontSize: 12,
+    color: '#64748b',
     fontWeight: '500',
   },
-  // Search Bar Styles
-  searchContainer: {
-    backgroundColor: 'white',
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e1e4e8',
-    position: 'relative',
+  unreadBadgeHeader: {
+    backgroundColor: '#ef4444',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
   },
-  searchIcon: {
-    position: 'absolute',
-    left: 28,
-    top: 26,
-    fontSize: 16,
-    color: '#6c757d',
-    zIndex: 1,
+  unreadBadgeHeaderText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  // Search Bar Styles - Consistent padding
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef2f6',
+    backgroundColor: '#ffffff',
   },
   searchInput: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 40,
-    borderWidth: 1,
-    borderColor: '#e1e4e8',
-    borderRadius: 25,
-    fontSize: 14,
-    backgroundColor: 'white',
     width: '100%',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    color: '#0f172a',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    fontSize: 15,
   },
   searchClear: {
     position: 'absolute',
-    right: 28,
-    top: 22,
-    padding: 4,
+    right: 24,
+    top: 20,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   searchClearText: {
     fontSize: 16,
-    color: '#6c757d',
+    color: '#64748b',
+    fontWeight: '500',
   },
-  // User Item Styles
+  // List Content - No extra margins
   listContent: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     flexGrow: 1,
   },
+  // User Item Styles - Full width, consistent border
   userItem: {
     flexDirection: 'row',
-    padding: 15,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    position: 'relative',
+    gap: 12,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#eef2f6',
+    marginBottom: 8,
+    backgroundColor: '#ffffff',
+    width: '100%',
+  },
+  userItemSelected: {
+    borderColor: '#6366f1',
+    borderWidth: 1,
+    backgroundColor: '#f8faff',
   },
   expiredChat: {
     opacity: 0.7,
-    backgroundColor: '#fef5e7',
   },
   // Avatar Styles
   userAvatar: {
     position: 'relative',
-    marginRight: 15,
+    width: 52,
+    height: 52,
+    flexShrink: 0,
   },
-  avatarIconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#667eea',
+  avatarInitials: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  avatarIcon: {
-    fontSize: 24,
+  avatarText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 16,
+    textTransform: 'uppercase',
   },
   statusDot: {
     position: 'absolute',
-    bottom: 2,
     right: 2,
+    bottom: 2,
     width: 12,
     height: 12,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: 'white',
+    borderColor: '#ffffff',
   },
-  online: {
-    backgroundColor: '#4caf50',
+  statusOnline: {
+    backgroundColor: '#10b981',
   },
-  offline: {
-    backgroundColor: '#9e9e9e',
+  statusOffline: {
+    backgroundColor: '#94a3b8',
   },
   // User Info Styles
   userInfo: {
     flex: 1,
+    minWidth: 0,
   },
   userRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginBottom: 4,
+    alignItems: 'center',
+    marginBottom: 6,
   },
   userName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#1a1a2e',
+    color: '#0f172a',
     flex: 1,
     marginRight: 8,
   },
   timeText: {
     fontSize: 11,
-    color: '#6c757d',
+    color: '#94a3b8',
   },
   lastMessageContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    justifyContent: 'space-between',
+    marginBottom: 6,
   },
   messagePreview: {
     fontSize: 13,
-    color: '#6c757d',
+    color: '#64748b',
     flex: 1,
     marginRight: 8,
   },
   unreadBadge: {
-    backgroundColor: '#dc3545',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
     minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    backgroundColor: '#ef4444',
+    justifyContent: 'center',
     alignItems: 'center',
   },
   unreadText: {
-    color: 'white',
+    color: '#ffffff',
     fontSize: 10,
-    fontWeight: '500',
+    fontWeight: '700',
   },
   userDetails: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
     alignItems: 'center',
+    flexWrap: 'wrap',
   },
   specializationBadge: {
-    backgroundColor: '#f0f0f0',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    backgroundColor: '#eef2ff',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
   },
   specializationText: {
     fontSize: 10,
-    color: '#6c757d',
+    color: '#4f46e5',
+    fontWeight: '600',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  statusAccepted: {
+    backgroundColor: '#dcfce7',
+  },
+  statusPending: {
+    backgroundColor: '#fef3c7',
+  },
+  statusRejected: {
+    backgroundColor: '#fee2e2',
   },
   statusText: {
-    fontSize: 11,
-  },
-  statusTextOnline: {
-    color: '#4caf50',
-  },
-  statusTextOffline: {
-    color: '#9e9e9e',
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#1e293b',
   },
   expiredBadge: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: '#ff9800',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    marginTop: 6,
   },
   expiredText: {
-    color: 'white',
+    backgroundColor: '#fff7ed',
+    color: '#c2410c',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
     fontSize: 10,
-    fontWeight: '500',
+    fontWeight: '700',
+    alignSelf: 'flex-start',
   },
-  // Empty State Styles
+  // Empty State
   emptyContainer: {
-    alignItems: 'center',
+    minHeight: 400,
     justifyContent: 'center',
-    paddingVertical: 60,
-    paddingHorizontal: 20,
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    gap: 8,
   },
   emptyIcon: {
     fontSize: 48,
-    marginBottom: 16,
-    opacity: 0.3,
+    opacity: 0.5,
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#1a1a2e',
-    marginBottom: 8,
+    color: '#0f172a',
+    marginTop: 8,
   },
   emptyText: {
     fontSize: 14,
-    color: '#6c757d',
+    color: '#64748b',
     textAlign: 'center',
   },
-  // Loading State Styles
+  // Loading State
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 20,
+    gap: 12,
   },
   loadingText: {
     fontSize: 14,
-    color: '#6c757d',
+    color: '#64748b',
   },
-  // Error State Styles
+  // Error State
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 16,
-    padding: 20,
+    paddingHorizontal: 24,
+    gap: 8,
   },
   errorIcon: {
     fontSize: 48,
   },
   errorTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#dc3545',
+    color: '#0f172a',
+    marginTop: 8,
   },
   errorText: {
     fontSize: 14,
-    color: '#6c757d',
+    color: '#64748b',
     textAlign: 'center',
   },
   retryButton: {
-    marginTop: 16,
-    paddingVertical: 10,
+    marginTop: 12,
     paddingHorizontal: 20,
-    backgroundColor: '#4a90e2',
-    borderRadius: 6,
+    paddingVertical: 10,
+    backgroundColor: '#6366f1',
+    borderRadius: 10,
   },
   retryButtonText: {
-    color: 'white',
+    color: '#ffffff',
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
   },
 });
 

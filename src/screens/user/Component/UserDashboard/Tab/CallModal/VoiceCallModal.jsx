@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,58 +6,102 @@ import {
   Modal,
   StyleSheet,
   Dimensions,
-  Animated,
-  AppState,
+  StatusBar,
   Platform,
   ActivityIndicator,
-} from "react-native";
-import axios from "axios";
-import { io } from "socket.io-client";
-import { API_BASE_URL } from "../../../../../../axiosConfig";
-import { RTC_CONFIGURATION } from "../../../../rtcConfig";
-import safeVibrate from "../../../../../../utils/safeVibrate";
-import Ionicons from "react-native-vector-icons/Ionicons";
-import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-import FontAwesome from "react-native-vector-icons/FontAwesome";
+  ScrollView,
+  PermissionsAndroid,
+  Animated,
+} from 'react-native';
+import Slider from '@react-native-community/slider';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { io } from 'socket.io-client';
+import { RTCPeerConnection, mediaDevices } from 'react-native-webrtc';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from '../../../../../../axiosConfig';
+import { RTC_CONFIGURATION } from '../../../../rtcConfig';
 
-const { width, height } = Dimensions.get("window");
+const { width, height } = Dimensions.get('window');
+const isCompactScreen = width < 380;
+const isTablet = width >= 768;
 
-const ACTIVE_STATUSES = new Set(["active", "connected"]);
-const TERMINAL_STATUSES = new Set([
-  "ended",
-  "completed",
-  "rejected",
-  "cancelled",
-  "missed",
-  "failed",
-  "microphone_error",
+const ACTIVE = new Set(['active', 'connected']);
+const TERMINAL = new Set([
+  'ended', 'completed', 'rejected', 'cancelled', 'missed', 'failed',
+  'microphone_error', 'no_microphone',
 ]);
 
 const MAX_RECONNECT_ATTEMPTS = 4;
 const RECONNECT_BASE_DELAY_MS = 1500;
 
-const normalizeUserType = (userType) => {
-  if (!userType) return "user";
-  const normalized = String(userType).toLowerCase();
-  if (normalized === "counselor" || normalized === "counsellor") {
-    return "counsellor";
-  }
-  return normalized;
-};
-
-const normalizeCallStatus = (status) => {
-  if (!status) return "pending";
+const normalizeStatus = (status) => {
+  if (!status) return 'connecting';
   const normalized = String(status).toLowerCase();
-  if (normalized === "accepted") return "active";
-  if (normalized === "completed") return "ended";
+  if (normalized === 'accepted') return 'active';
+  if (normalized === 'completed') return 'ended';
   return normalized;
 };
 
-const isConnectedStatus = (status) =>
-  ACTIVE_STATUSES.has(normalizeCallStatus(status));
-const isTerminalStatus = (status) =>
-  TERMINAL_STATUSES.has(normalizeCallStatus(status));
+const isConnectedStatus = (status) => ACTIVE.has(normalizeStatus(status));
+const isTerminalStatus = (status) => TERMINAL.has(normalizeStatus(status));
 
+// ─── Pulsing Ring Component ───────────────────────────────────────────────────
+const PulseRing = ({ size, delay, color = '#3b82f6' }) => {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(anim, {
+          toValue: 1,
+          duration: 1800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(anim, {
+          toValue: 0,
+          duration: 1800,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [anim, delay]);
+
+  const scale = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] });
+  const opacity = anim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.35, 0.12, 0.35] });
+
+  return (
+    <Animated.View
+      style={{
+        position: 'absolute',
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        borderWidth: 1.5,
+        borderColor: color,
+        transform: [{ scale }],
+        opacity,
+      }}
+    />
+  );
+};
+
+// ─── Animated Dots ────────────────────────────────────────────────────────────
+const AnimatedDots = () => {
+  const [dots, setDots] = useState('');
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+  return <Text style={styles.dotsText}>{dots}</Text>;
+};
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 const VoiceCallModal = ({
   isOpen,
   onClose,
@@ -65,118 +109,44 @@ const VoiceCallModal = ({
   currentUser,
   onEndCall,
 }) => {
+  const insets = useSafeAreaInsets();
+
+  // UI state
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
-  const [callDuration, setCallDuration] = useState(0);
   const [isCallActive, setIsCallActive] = useState(true);
-  const [isRecording, setIsRecording] = useState(false);
-  const [connectionQuality, setConnectionQuality] = useState("good");
   const [showSettings, setShowSettings] = useState(false);
   const [volumeLevel, setVolumeLevel] = useState(70);
-  const [audioLevel, setAudioLevel] = useState(0);
+  const [callDuration, setCallDuration] = useState(0);
+
+  // Call state
+  const [callerName, setCallerName] = useState('Counselor');
+  const [callerProfilePic, setCallerProfilePic] = useState('C');
+  const [callerPhoneNumber, setCallerPhoneNumber] = useState('');
+  const [callStatus, setCallStatus] = useState('connecting');
+  const [callId, setCallId] = useState('');
+  const [roomId, setRoomId] = useState('');
+  const [callStartTime, setCallStartTime] = useState(null);
+  const [apiCallData, setApiCallData] = useState(null);
   const [isConnecting, setIsConnecting] = useState(true);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isRemoteAudioReady, setIsRemoteAudioReady] = useState(false);
-  const [webrtcError, setWebrtcError] = useState("");
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [webrtcError, setWebrtcError] = useState('');
 
-  const [callerInfo, setCallerInfo] = useState({
-    name: "",
-    id: "",
-    email: "",
-    phone: "",
-    specialization: "",
-    profilePic: "",
-  });
-
-  const [userInfo, setUserInfo] = useState({
-    name: "",
-    id: "",
-    email: "",
-    phone: "",
-    role: "",
-  });
-
-  const [callMetadata, setCallMetadata] = useState({
-    callId: "",
-    roomId: "",
-    type: "voice",
-    status: "connecting",
-    startTime: null,
-    chatId: "",
-    apiCallData: null,
-    isFallback: false,
-  });
-
-  const audioContextRef = useRef(null);
-  const mediaStreamRef = useRef(null);
-  const sourceNodeRef = useRef(null);
-  const animationFrameRef = useRef(null);
-
+  // Refs
   const socketRef = useRef(null);
-  const peerConnectionRef = useRef(null);
-  const remoteStreamRef = useRef(null);
-  const localUserIdRef = useRef("");
-  const remoteUserIdRef = useRef("");
-  const hasStartedConnectionRef = useRef(false);
+  const peerRef = useRef(null);
+  const pendingIceRef = useRef([]);
+  const startedRef = useRef(false);
+  const localUserIdRef = useRef('');
+  const remoteUserIdRef = useRef('');
   const hasEverConnectedRef = useRef(false);
-  const pendingIceCandidatesRef = useRef([]);
-  const offerRetryTimerRef = useRef(null);
+  const isManualCloseRef = useRef(false);
   const reconnectTimeoutRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
-  const isManualCloseRef = useRef(false);
-  const establishVoiceConnectionRef = useRef(null);
-  const appStateRef = useRef(AppState.currentState);
-  const animationValue = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (isOpen && isCallActive && isConnectedStatus(callMetadata.status)) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(animationValue, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(animationValue, {
-            toValue: 0,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-    } else {
-      animationValue.setValue(0);
-    }
-  }, [isOpen, isCallActive, callMetadata.status]);
-
-  const stopVisualizer = useCallback(() => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-
-    if (sourceNodeRef.current) {
-      try {
-        sourceNodeRef.current.disconnect();
-      } catch (error) {
-        console.warn("Visualizer source disconnect failed:", error);
-      }
-      sourceNodeRef.current = null;
-    }
-
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
-    }
-  }, []);
-
-  const clearOfferRetryTimer = useCallback(() => {
-    if (offerRetryTimerRef.current) {
-      clearInterval(offerRetryTimerRef.current);
-      offerRetryTimerRef.current = null;
-    }
-  }, []);
+  const establishConnectionRef = useRef(null);
+  const localStreamRef = useRef(null);
+  const remoteStreamRef = useRef(null);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -191,912 +161,813 @@ const VoiceCallModal = ({
     setIsReconnecting(false);
   }, [clearReconnectTimer]);
 
-  const updateRemoteAudioState = useCallback(
-    ({ forceReady = false } = {}) => {
-      const remoteAudioTracks =
-        remoteStreamRef.current?.getAudioTracks?.() || [];
-      const hasRemoteAudioTrack = remoteAudioTracks.length > 0;
-      const hasLiveAudio = remoteAudioTracks.some(
-        (track) => track.readyState === "live"
-      );
-      const shouldMarkReady =
-        forceReady || hasRemoteAudioTrack || hasLiveAudio;
+  const updateRemoteState = useCallback(() => {
+    const hasLiveAudio = remoteStreamRef.current !== null;
+    const shouldMarkReady = hasLiveAudio || (peerRef.current?.connectionState === 'connected');
+    setIsRemoteAudioReady(shouldMarkReady);
+    if (shouldMarkReady) {
+      hasEverConnectedRef.current = true;
+      setIsConnecting(false);
+      setIsReconnecting(false);
+      resetReconnectState();
+      setWebrtcError('');
+    }
+  }, [resetReconnectState]);
 
-      setIsRemoteAudioReady(shouldMarkReady);
+  const cleanupRealtime = useCallback(
+    async ({ emitLeave = true } = {}) => {
+      if (peerRef.current) {
+        peerRef.current.onicecandidate = null;
+        peerRef.current.ontrack = null;
+        peerRef.current.onconnectionstatechange = null;
+        peerRef.current.close();
+        peerRef.current = null;
+      }
+      if (socketRef.current) {
+        try {
+          if (emitLeave && callId && localUserIdRef.current) {
+            socketRef.current.emit('leave-call', { callId, userId: localUserIdRef.current });
+          }
+        } catch (_) {}
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      if (remoteStreamRef.current) {
+        remoteStreamRef.current.getTracks().forEach(track => track.stop());
+        remoteStreamRef.current = null;
+      }
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+        localStreamRef.current = null;
+      }
+      pendingIceRef.current = [];
+      startedRef.current = false;
+      setIsRemoteAudioReady(false);
+    },
+    [callId],
+  );
 
-      if (shouldMarkReady) {
+  const replaceOutgoingTracks = useCallback((stream) => {
+    if (!peerRef.current || !stream) return;
+    const tracksByKind = stream.getTracks().reduce((acc, track) => {
+      acc[track.kind] = track;
+      return acc;
+    }, {});
+    peerRef.current.getSenders().forEach((sender) => {
+      const kind = sender.track?.kind;
+      if (!kind) return;
+      sender.replaceTrack(tracksByKind[kind] || null).catch(() => {});
+    });
+  }, []);
+
+  const requestAudioPermissions = useCallback(async () => {
+    if (Platform.OS !== 'android') return true;
+    try {
+      const result = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+      ]);
+      const hasMic = result[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
+      if (!hasMic) {
+        setCallStatus('microphone_error');
+        setIsConnecting(false);
+        setWebrtcError('Permission denied. Please allow Microphone access.');
+        return false;
+      }
+      return true;
+    } catch (_) {
+      setCallStatus('microphone_error');
+      setIsConnecting(false);
+      setWebrtcError('Unable to request microphone permissions.');
+      return false;
+    }
+  }, []);
+
+  const initializeMicrophone = useCallback(async () => {
+    try {
+      const hasPermission = await requestAudioPermissions();
+      if (!hasPermission) return null;
+      const constraints = { audio: true, video: false };
+      const stream = await mediaDevices.getUserMedia(constraints);
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      localStreamRef.current = stream;
+      stream.getAudioTracks().forEach((t) => { t.enabled = !isMuted; });
+      if (peerRef.current) replaceOutgoingTracks(stream);
+      return stream;
+    } catch (error) {
+      const msg = String(error?.message || '').toLowerCase();
+      const isPerm = msg.includes('permission') || msg.includes('security') || msg.includes('denied');
+      setCallStatus('microphone_error');
+      setIsConnecting(false);
+      setWebrtcError(isPerm
+        ? 'Permission denied. Please allow Microphone access.'
+        : 'Unable to access microphone. Please check your device microphone.');
+      return null;
+    }
+  }, [isMuted, replaceOutgoingTracks, requestAudioPermissions]);
+
+  const scheduleReconnect = useCallback(
+    (reason = 'Network issue') => {
+      if (isManualCloseRef.current || !isOpen || !isCallActive) return;
+      if (!hasEverConnectedRef.current) return;
+      if (!callId || !isConnectedStatus(callStatus) || isTerminalStatus(callStatus)) return;
+      if (reconnectTimeoutRef.current) return;
+      const nextAttempt = reconnectAttemptsRef.current + 1;
+      if (nextAttempt > MAX_RECONNECT_ATTEMPTS) {
+        setIsReconnecting(false);
+        setWebrtcError('Voice call connection lost. Please call again.');
+        return;
+      }
+      reconnectAttemptsRef.current = nextAttempt;
+      setIsReconnecting(true);
+      setIsConnecting(true);
+      setIsRemoteAudioReady(false);
+      setWebrtcError(`${reason}. Reconnecting... (${nextAttempt}/${MAX_RECONNECT_ATTEMPTS})`);
+      const delay = Math.min(RECONNECT_BASE_DELAY_MS * nextAttempt, 7000);
+      reconnectTimeoutRef.current = setTimeout(() => {
+        reconnectTimeoutRef.current = null;
+        startedRef.current = false;
+        cleanupRealtime({ emitLeave: false });
+        if (typeof establishConnectionRef.current === 'function') {
+          establishConnectionRef.current();
+        }
+      }, delay);
+    },
+    [cleanupRealtime, isCallActive, isOpen, callId, callStatus],
+  );
+
+  const establishConnection = useCallback(async () => {
+    if (startedRef.current || !callId || !isConnectedStatus(callStatus)) return;
+    const localUserId =
+      currentUser?.id || currentUser?._id || callData?.currentUserId ||
+      (await AsyncStorage.getItem('userId')) ||
+      (await AsyncStorage.getItem('counsellorId')) ||
+      (await AsyncStorage.getItem('counselorId'));
+    if (!localUserId) return;
+    const serverCall = apiCallData || callData?.apiCallData || {};
+    const initiatorId = serverCall?.initiator?.id || callData?.initiator?.id || callData?.initiatorId;
+    const receiverId = serverCall?.receiver?.id || callData?.receiver?.id || callData?.receiverId;
+    if (!initiatorId || !receiverId) return;
+    localUserIdRef.current = String(localUserId);
+    remoteUserIdRef.current =
+      String(initiatorId) === String(localUserId) ? String(receiverId) : String(initiatorId);
+    startedRef.current = true;
+    const localStream = localStreamRef.current || (await initializeMicrophone());
+    if (!localStream) { startedRef.current = false; return; }
+    const token =
+      (await AsyncStorage.getItem('token')) || (await AsyncStorage.getItem('accessToken'));
+    if (!token) {
+      setWebrtcError('Authentication expired. Please login again.');
+      setIsConnecting(false);
+      startedRef.current = false;
+      return;
+    }
+    const socket = io(API_BASE_URL, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
+      reconnectionDelay: RECONNECT_BASE_DELAY_MS,
+      timeout: 20000,
+      auth: { token },
+    });
+    socketRef.current = socket;
+    const peer = new RTCPeerConnection(RTC_CONFIGURATION);
+    peerRef.current = peer;
+    localStream.getTracks().forEach((track) => peer.addTrack(track, localStream));
+    const flushIceQueue = async () => {
+      if (!peerRef.current?.remoteDescription) return;
+      const queue = [...pendingIceRef.current];
+      pendingIceRef.current = [];
+      for (const candidate of queue) {
+        try { await peerRef.current.addIceCandidate(candidate); } catch (_) {}
+      }
+    };
+    const sendOffer = async () => {
+      if (!peerRef.current || peerRef.current.signalingState !== 'stable') return;
+      const offer = await peerRef.current.createOffer();
+      await peerRef.current.setLocalDescription(offer);
+      socket.emit('call-offer', { callId, offer, to: remoteUserIdRef.current });
+    };
+    peer.onicecandidate = (event) => {
+      if (!event.candidate) return;
+      socket.emit('ice-candidate', {
+        callId,
+        candidate: event.candidate,
+        userId: localUserIdRef.current,
+        to: remoteUserIdRef.current,
+      });
+    };
+    peer.ontrack = (event) => {
+      const [incomingStream] = event.streams;
+      if (incomingStream) {
+        remoteStreamRef.current = incomingStream;
+      }
+      updateRemoteState();
+    };
+    peer.onconnectionstatechange = () => {
+      const state = peer.connectionState;
+      if (state === 'connected') {
         hasEverConnectedRef.current = true;
         setIsConnecting(false);
         setIsReconnecting(false);
         resetReconnectState();
-        setWebrtcError("");
+        setWebrtcError('');
+        updateRemoteState();
       }
-    },
-    [resetReconnectState]
-  );
-
-  const cleanupRealtimeConnection = useCallback(
-    ({ emitLeave = true } = {}) => {
-      clearOfferRetryTimer();
-
-      if (peerConnectionRef.current) {
-        peerConnectionRef.current.onicecandidate = null;
-        peerConnectionRef.current.ontrack = null;
-        peerConnectionRef.current.onconnectionstatechange = null;
-        peerConnectionRef.current.onnegotiationneeded = null;
-        try {
-          peerConnectionRef.current.close();
-        } catch (error) {
-          console.warn("Peer connection close failed:", error);
-        }
-        peerConnectionRef.current = null;
+      if (state === 'failed' || state === 'disconnected') {
+        setWebrtcError('Voice connection interrupted.');
+        scheduleReconnect('Voice connection interrupted');
       }
-
-      if (socketRef.current) {
-        try {
-          if (emitLeave && callMetadata.callId && localUserIdRef.current) {
-            socketRef.current.emit("leave-call", {
-              callId: callMetadata.callId,
-              userId: localUserIdRef.current,
-            });
-          }
-        } catch (error) {
-          console.warn("Socket leave-call failed:", error);
-        }
-
-        socketRef.current.off("connect");
-        socketRef.current.off("offer");
-        socketRef.current.off("answer");
-        socketRef.current.off("call-offer");
-        socketRef.current.off("call-answer");
-        socketRef.current.off("ice-candidate");
-        socketRef.current.off("user-joined");
-        socketRef.current.off("user-left");
-        socketRef.current.off("user-left-call");
-        socketRef.current.off("call_ended");
-        socketRef.current.off("call-ended");
-        socketRef.current.off("call-status-update");
-        socketRef.current.off("connect_error");
-        socketRef.current.off("disconnect");
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
-
-      if (remoteStreamRef.current) {
-        remoteStreamRef.current.getTracks().forEach((track) => track.stop());
-        remoteStreamRef.current = null;
-      }
-
-      setIsRemoteAudioReady(false);
-      pendingIceCandidatesRef.current = [];
-      hasStartedConnectionRef.current = false;
-    },
-    [callMetadata.callId, clearOfferRetryTimer]
-  );
-
-  // Process callData when modal opens
-  useEffect(() => {
-    if (isOpen && callData) {
-      setCallerInfo({
-        name: callData.counselorName || callData.name || "Counselor",
-        id: callData.counselorId || callData.id,
-        email: callData.counselorEmail || callData.email,
-        phone: callData.counselorPhone || callData.phoneNumber,
-        specialization:
-          callData.counselorSpecialization || "Mental Health Professional",
-        profilePic: callData.profilePic || callData.avatar,
-      });
-
-      if (currentUser) {
-        setUserInfo({
-          name: currentUser.name || currentUser.fullName || "User",
-          id: currentUser.id || currentUser._id,
-          email: currentUser.email,
-          phone: currentUser.phoneNumber || currentUser.phone,
-          role: currentUser.role || "user",
-        });
-      } else if (callData.userName) {
-        setUserInfo({
-          name: callData.userName,
-          id: callData.userId,
-          email: callData.userEmail,
-          phone: callData.userPhone,
-          role: "user",
-        });
-      }
-
-      const normalizedStatus = normalizeCallStatus(callData.status);
-
-      setCallMetadata({
-        callId: callData.callId || callData.id || "",
-        roomId: callData.roomId || "",
-        type: callData.type || "voice",
-        status: normalizedStatus,
-        startTime: callData.startTime || new Date().toISOString(),
-        chatId: callData.chatId,
-        apiCallData: callData.apiCallData || null,
-        isFallback: callData.isFallback || false,
-      });
-
-      setCallDuration(0);
-      setIsConnecting(
-        !isConnectedStatus(normalizedStatus) &&
-          !isTerminalStatus(normalizedStatus)
-      );
-      setIsReconnecting(false);
-      setWebrtcError("");
-      isManualCloseRef.current = false;
-      reconnectAttemptsRef.current = 0;
-      clearReconnectTimer();
-      hasStartedConnectionRef.current = false;
-      hasEverConnectedRef.current = false;
-    }
-  }, [isOpen, callData, currentUser, clearReconnectTimer]);
-
-  // Call duration timer
-  useEffect(() => {
-    let timer;
-    if (
-      isOpen &&
-      isCallActive &&
-      callMetadata.startTime &&
-      isConnectedStatus(callMetadata.status)
-    ) {
-      timer = setInterval(() => {
-        setCallDuration((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
     };
-  }, [isOpen, isCallActive, callMetadata.startTime, callMetadata.status]);
-
-  // Simulate audio level for visualizer
-  useEffect(() => {
-    if (!isOpen || !isCallActive || !isConnectedStatus(callMetadata.status)) {
-      setAudioLevel(0);
-      return;
-    }
-
-    const interval = setInterval(() => {
-      if (!isMuted) {
-        const level = Math.random() * 100;
-        setAudioLevel(level);
-      } else {
-        setAudioLevel(0);
-      }
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [isOpen, isCallActive, callMetadata.status, isMuted]);
-
-  // App state change handler
-  useEffect(() => {
-    const subscription = AppState.addEventListener("change", (nextAppState) => {
-      if (
-        appStateRef.current.match(/inactive|background/) &&
-        nextAppState === "active" &&
-        isOpen &&
-        isCallActive
-      ) {
-        safeVibrate(500);
-      }
-      appStateRef.current = nextAppState;
+    socket.on('connect', () => {
+      resetReconnectState();
+      setWebrtcError('');
+      setIsConnecting(true);
+      socket.emit('join-call', { callId, userId: localUserIdRef.current });
     });
-
-    return () => subscription.remove();
-  }, [isOpen, isCallActive]);
-
-  useEffect(() => {
-    if (!isOpen) {
+    socket.on('connect_error', (error) => {
+      setWebrtcError(error?.message || 'Socket connection error.');
+      scheduleReconnect('Socket connection error');
+    });
+    socket.on('user-joined', async ({ userId }) => {
+      if (String(userId) === localUserIdRef.current) return;
+      if (peerRef.current?.connectionState === 'connected') return;
+      if (String(initiatorId) === String(localUserIdRef.current)) await sendOffer();
+    });
+    const onOffer = async ({ offer, userId, from }) => {
+      const senderId = String(userId || from || '');
+      if (!offer || senderId === localUserIdRef.current || !peerRef.current) return;
+      try {
+        await peerRef.current.setRemoteDescription(offer);
+        await flushIceQueue();
+        const answer = await peerRef.current.createAnswer();
+        await peerRef.current.setLocalDescription(answer);
+        socket.emit('call-answer', { callId, answer, to: remoteUserIdRef.current });
+      } catch (_) { setWebrtcError('Failed to process call offer.'); }
+    };
+    const onAnswer = async ({ answer, userId, from }) => {
+      const senderId = String(userId || from || '');
+      if (!answer || senderId === localUserIdRef.current || !peerRef.current) return;
+      try {
+        if (!peerRef.current.currentRemoteDescription) {
+          await peerRef.current.setRemoteDescription(answer);
+          await flushIceQueue();
+        }
+      } catch (_) { setWebrtcError('Failed to process call answer.'); }
+    };
+    const handleRemoteCallEnded = ({ callId: endedCallId, endedBy } = {}) => {
+      if (endedCallId && String(endedCallId) !== String(callId)) return;
       isManualCloseRef.current = true;
       resetReconnectState();
-      setIsMuted(false);
-      setIsSpeakerOn(true);
-      setCallDuration(0);
-      setIsCallActive(true);
-      setIsRecording(false);
-      setShowSettings(false);
-      setIsConnecting(true);
-      setIsReconnecting(false);
-      setCallMetadata((prev) => ({ ...prev, status: "ended" }));
-      setWebrtcError("");
       hasEverConnectedRef.current = false;
+      setIsCallActive(false);
+      setCallStatus('ended');
+      setIsConnecting(false);
+      setIsRemoteAudioReady(false);
+      setWebrtcError(endedBy ? `Call ended by ${endedBy}.` : 'Call ended by other participant.');
+      cleanupRealtime();
+      setTimeout(() => onClose(), 500);
+    };
+    socket.on('call-offer', onOffer);
+    socket.on('offer', onOffer);
+    socket.on('call-answer', onAnswer);
+    socket.on('answer', onAnswer);
+    socket.on('call_ended', handleRemoteCallEnded);
+    socket.on('call-ended', handleRemoteCallEnded);
+    socket.on('ice-candidate', async ({ candidate, userId, from }) => {
+      const senderId = String(userId || from || '');
+      if (!candidate || senderId === localUserIdRef.current || !peerRef.current) return;
+      try {
+        if (!peerRef.current.remoteDescription) { pendingIceRef.current.push(candidate); return; }
+        await peerRef.current.addIceCandidate(candidate);
+      } catch (_) { pendingIceRef.current.push(candidate); }
+    });
+  }, [apiCallData, callData, callId, callStatus, cleanupRealtime, currentUser,
+    initializeMicrophone, onClose, resetReconnectState, scheduleReconnect, updateRemoteState]);
 
-      cleanupRealtimeConnection();
+  useEffect(() => { establishConnectionRef.current = establishConnection; }, [establishConnection]);
 
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-        mediaStreamRef.current = null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const status = normalizeStatus(callData?.status || 'connecting');
+    setCallerName(callData?.counselorName || callData?.name || 'Counselor');
+    setCallerProfilePic(callData?.profilePic || 'C');
+    setCallerPhoneNumber(callData?.counselorPhone || callData?.phoneNumber || '');
+    setCallStatus(status);
+    setCallId(callData?.callId || callData?.id || '');
+    setRoomId(callData?.roomId || '');
+    setApiCallData(callData?.apiCallData || null);
+    setCallStartTime(callData?.startTime || new Date());
+    setCallDuration(0);
+    setIsConnecting(!isConnectedStatus(status) && !isTerminalStatus(status));
+    setIsRemoteAudioReady(false);
+    setIsReconnecting(false);
+    setWebrtcError('');
+    startedRef.current = false;
+    isManualCloseRef.current = false;
+    hasEverConnectedRef.current = false;
+    reconnectAttemptsRef.current = 0;
+    clearReconnectTimer();
+  }, [isOpen, callData, clearReconnectTimer]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const setup = async () => {
+      const ok = await requestAudioPermissions();
+      if (!ok) return;
+      await initializeMicrophone();
+    };
+    setup();
+    return () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+        localStreamRef.current = null;
       }
+    };
+  }, [isOpen, initializeMicrophone, requestAudioPermissions]);
 
-      stopVisualizer();
-      setAudioLevel(0);
+  useEffect(() => {
+    if (isOpen && isCallActive && isConnectedStatus(callStatus) && !isTerminalStatus(callStatus)) {
+      establishConnection();
     }
-  }, [isOpen, cleanupRealtimeConnection, stopVisualizer, resetReconnectState]);
+  }, [isOpen, isCallActive, callStatus, establishConnection]);
+
+  useEffect(() => {
+    if (!isOpen || !isCallActive || !callStartTime || !isConnectedStatus(callStatus)) return;
+    const timer = setInterval(() => setCallDuration((p) => p + 1), 1000);
+    return () => clearInterval(timer);
+  }, [isOpen, isCallActive, callStartTime, callStatus]);
+
+  useEffect(() => {
+    localStreamRef.current?.getAudioTracks().forEach((t) => { t.enabled = !isMuted; });
+  }, [isMuted]);
+
+  useEffect(() => {
+    if (isOpen) return;
+    isManualCloseRef.current = true;
+    resetReconnectState();
+    cleanupRealtime();
+    setIsMuted(false);
+    setIsSpeakerOn(true);
+    setIsCallActive(true);
+    setShowSettings(false);
+    setCallStatus('ended');
+    setCallId('');
+    setRoomId('');
+    setApiCallData(null);
+    setIsReconnecting(false);
+    setWebrtcError('');
+    hasEverConnectedRef.current = false;
+  }, [cleanupRealtime, isOpen, resetReconnectState]);
 
   const handleEndCall = async () => {
     isManualCloseRef.current = true;
     resetReconnectState();
     hasEverConnectedRef.current = false;
     setIsCallActive(false);
-    setIsReconnecting(false);
-    setCallMetadata((prev) => ({ ...prev, status: "ended" }));
-
-    cleanupRealtimeConnection();
-
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
+    setCallStatus('ended');
+    cleanupRealtime();
+    if (typeof onEndCall === 'function' && callId) {
+      try { await onEndCall(callId); } catch (_) {}
     }
-
-    stopVisualizer();
-
-    if (onEndCall && callMetadata.callId) {
-      try {
-        await onEndCall(callMetadata.callId);
-      } catch (error) {
-        console.error("Error ending voice call:", error);
-      }
-    }
-
-    setTimeout(() => {
-      onClose();
-    }, 500);
-  };
-
-  const toggleRecording = () => {
-    setIsRecording(!isRecording);
-    if (!isRecording) {
-      setTimeout(() => {
-        setIsRecording(false);
-      }, 30000);
-    }
+    setTimeout(() => onClose(), 500);
   };
 
   const formatTime = (seconds) => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-
-    if (hrs > 0) {
-      return `${hrs.toString().padStart(2, "0")}:${mins
-        .toString()
-        .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-    }
-    return `${mins.toString().padStart(2, "0")}:${secs
-      .toString()
-      .padStart(2, "0")}`;
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0)
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  const getQualityIcon = () => {
-    switch (connectionQuality) {
-      case "good":
-        return "signal";
-      case "medium":
-        return "signal-cellular-alt";
-      case "poor":
-        return "warning";
-      default:
-        return "signal";
-    }
+  const getStatusText = () => {
+    if (webrtcError) return webrtcError;
+    if (isReconnecting) return 'Reconnecting voice call...';
+    if (isConnecting) return 'Connecting...';
+    if (isConnectedStatus(callStatus) && !isRemoteAudioReady) return 'Waiting for audio...';
+    if (isConnectedStatus(callStatus)) return 'Connected';
+    if (callStatus === 'ringing' || callStatus === 'pending') return 'Ringing';
+    if (callStatus === 'ended') return 'Call Ended';
+    return callStatus;
   };
 
-  const getQualityColor = () => {
-    switch (connectionQuality) {
-      case "good":
-        return "#4ade80";
-      case "medium":
-        return "#fbbf24";
-      case "poor":
-        return "#f87171";
-      default:
-        return "#4ade80";
-    }
-  };
-
-  const getCallStatusDisplay = () => {
-    if (webrtcError) {
-      return webrtcError;
-    }
-
-    if (isReconnecting) {
-      return "Reconnecting call...";
-    }
-
-    if (isConnectedStatus(callMetadata.status) && !isRemoteAudioReady) {
-      return "Connected. Waiting for audio...";
-    }
-
-    if (isConnecting) {
-      return callMetadata.status === "pending" || callMetadata.status === "ringing"
-        ? "Waiting for counselor to accept..."
-        : "Connecting...";
-    }
-
-    switch (callMetadata.status) {
-      case "active":
-      case "connected":
-        return "Connected";
-      case "pending":
-      case "ringing":
-        return "Waiting for counselor to accept...";
-      case "rejected":
-        return "Call Declined";
-      case "cancelled":
-        return "Call Cancelled";
-      case "ended":
-        return "Call Ended";
-      case "microphone_error":
-        return "Microphone Error";
-      default:
-        return callMetadata.status;
-    }
-  };
-
-  const getStatusColor = () => {
-    if (webrtcError) return "#f87171";
-    if (isReconnecting) return "#fbbf24";
-    if (isConnectedStatus(callMetadata.status)) return "#4ade80";
-    if (isConnecting) return "#fbbf24";
-    return "#f87171";
-  };
-
-  const scaleInterpolate = animationValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.05],
-  });
-
-  const renderVisualizer = () => {
-    const bars = [];
-    for (let i = 0; i < 20; i++) {
-      const height = Math.max(5, Math.min(50, (audioLevel * (i + 1)) / 20));
-      bars.push(
-        <View
-          key={i}
-          style={[
-            styles.visualizerBar,
-            {
-              height: height,
-              opacity: isMuted ? 0.3 : 1,
-            },
-          ]}
-        />
-      );
-    }
-    return bars;
-  };
+  const isRinging = callStatus === 'ringing' || callStatus === 'pending' || callStatus === 'connecting';
+  const displayInitial = (callerProfilePic?.charAt(0) || callerName?.charAt(0) || 'C').toUpperCase();
 
   if (!isOpen) return null;
 
   return (
-    <Modal
-      visible={isOpen}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={handleEndCall}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <MaterialIcons name="call" size={24} color="white" />
-              <View style={styles.callInfo}>
-                <Text style={styles.headerTitle}>Voice Call with {callerInfo.name}</Text>
-                {callerInfo.specialization && (
-                  <Text style={styles.callerSpecialization}>
-                    {callerInfo.specialization}
-                  </Text>
-                )}
-                <View style={styles.qualityContainer}>
-                  <Ionicons
-                    name={getQualityIcon()}
-                    size={12}
-                    color={getQualityColor()}
-                  />
-                  <Text style={[styles.qualityText, { color: getQualityColor() }]}>
-                    {connectionQuality}
-                  </Text>
-                </View>
-              </View>
-            </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
-            </TouchableOpacity>
-          </View>
+    <Modal visible={isOpen} animationType="slide" transparent={false} onRequestClose={onClose}>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0d1117" />
 
-          <View style={styles.content}>
-            {/* Caller Profile */}
-            <View style={styles.callerProfile}>
-              <Animated.View
-                style={[
-                  styles.callerAvatar,
-                  {
-                    transform: [
-                      {
-                        scale:
-                          isConnectedStatus(callMetadata.status) &&
-                          !isConnecting
-                            ? scaleInterpolate
-                            : 1,
-                      },
-                    ],
-                  },
-                ]}
-              >
-                {callerInfo.profilePic ? (
-                  <Text style={styles.avatarText}>
-                    {callerInfo.name.charAt(0)}
-                  </Text>
-                ) : (
-                  <Text style={styles.avatarText}>
-                    {callerInfo.name.charAt(0)}
-                  </Text>
-                )}
-              </Animated.View>
-              <Text style={styles.callerName}>{callerInfo.name}</Text>
-              {callerInfo.specialization && (
-                <Text style={styles.callerSpecializationText}>
-                  {callerInfo.specialization}
-                </Text>
-              )}
-              <View style={styles.callStatus}>
-                {isConnectedStatus(callMetadata.status) && (
-                  <View style={styles.pulseDot} />
-                )}
-                <Text style={[styles.statusText, { color: getStatusColor() }]}>
-                  {getCallStatusDisplay()}
-                </Text>
-              </View>
-
-              {isCallActive && isConnectedStatus(callMetadata.status) && (
-                <View style={styles.callDuration}>
-                  <Text style={styles.durationIcon}>⏱️</Text>
-                  <Text style={styles.durationText}>
-                    {formatTime(callDuration)}
-                  </Text>
-                </View>
-              )}
-
-              {callMetadata.isFallback && (
-                <Text style={styles.fallbackWarning}>
-                  ⚠️ Using fallback connection
-                </Text>
-              )}
-            </View>
-
-            {/* Audio Visualizer */}
-            {!isConnecting && isConnectedStatus(callMetadata.status) && (
-              <View style={styles.audioVisualizer}>
-                <View style={styles.visualizerBars}>{renderVisualizer()}</View>
-                {isMuted && (
-                  <View style={styles.mutedBadge}>
-                    <Text style={styles.mutedBadgeText}>🔇 Microphone Muted</Text>
-                  </View>
-                )}
-                {isRecording && (
-                  <View style={styles.recordingBadge}>
-                    <View style={styles.recordingDot} />
-                    <Text style={styles.recordingBadgeText}>Recording</Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Settings Panel */}
-            {showSettings && (
-              <View style={styles.settingsPanel}>
-                <Text style={styles.settingsTitle}>Call Settings</Text>
-                <View style={styles.settingItem}>
-                  <Text style={styles.settingLabel}>Volume</Text>
-                  <View style={styles.volumeContainer}>
-                    <Text style={styles.volumeValue}>{volumeLevel}%</Text>
-                  </View>
-                </View>
-                <View style={styles.settingItem}>
-                  <Text style={styles.settingLabel}>Call Information</Text>
-                  <View style={styles.callerInfoDisplay}>
-                    <Text style={styles.infoText}>
-                      <Text style={styles.infoLabel}>Counselor:</Text> {callerInfo.name}
-                    </Text>
-                    {callerInfo.specialization && (
-                      <Text style={styles.infoText}>
-                        <Text style={styles.infoLabel}>Specialization:</Text>{" "}
-                        {callerInfo.specialization}
-                      </Text>
-                    )}
-                    <Text style={styles.infoText}>
-                      <Text style={styles.infoLabel}>User:</Text> {userInfo.name}
-                    </Text>
-                    <Text style={styles.infoText}>
-                      <Text style={styles.infoLabel}>Call Type:</Text> 📞 Voice Call
-                    </Text>
-                    <Text style={styles.infoText}>
-                      <Text style={styles.infoLabel}>Duration:</Text> {formatTime(callDuration)}
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={styles.closeSettingsBtn}
-                  onPress={() => setShowSettings(false)}
-                >
-                  <Text style={styles.closeSettingsText}>Close</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Call Controls */}
-            <View style={styles.callControls}>
-              <TouchableOpacity
-                style={[styles.controlBtn, isMuted && styles.controlBtnActive]}
-                onPress={() => setIsMuted(!isMuted)}
-              >
-                <MaterialIcons
-                  name={isMuted ? "mic-off" : "mic"}
-                  size={24}
-                  color="white"
-                />
-                <Text style={styles.controlBtnLabel}>
-                  {isMuted ? "Unmute" : "Mute"}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.controlBtn, isSpeakerOn && styles.controlBtnActive]}
-                onPress={() => setIsSpeakerOn(!isSpeakerOn)}
-              >
-                <Ionicons
-                  name={isSpeakerOn ? "volume-high" : "volume-off"}
-                  size={24}
-                  color="white"
-                />
-                <Text style={styles.controlBtnLabel}>
-                  {isSpeakerOn ? "Speaker" : "Earpiece"}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.controlBtn, isRecording && styles.controlBtnActive]}
-                onPress={toggleRecording}
-              >
-                <MaterialIcons
-                  name={isRecording ? "stop" : "fiber-manual-record"}
-                  size={24}
-                  color={isRecording ? "#ef4444" : "white"}
-                />
-                <Text style={styles.controlBtnLabel}>
-                  {isRecording ? "Stop" : "Record"}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.controlBtn}
-                onPress={() => setShowSettings(!showSettings)}
-              >
-                <Ionicons name="settings-outline" size={24} color="white" />
-                <Text style={styles.controlBtnLabel}>Settings</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.controlBtn, styles.endCallBtn]}
-                onPress={handleEndCall}
-              >
-                <MaterialIcons name="call-end" size={24} color="white" />
-                <Text style={styles.controlBtnLabel}>End</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+        {/* ── Header ─────────────────────────────────────── */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Voice Call</Text>
         </View>
-      </View>
+
+        {/* ── Main content ────────────────────────────────── */}
+        <View style={styles.content}>
+          {/* Ringing / connecting placeholder */}
+          <View style={styles.placeholderWrap}>
+            {/* Pulsing rings */}
+            <View style={styles.ringsContainer}>
+              <PulseRing size={220} delay={0} />
+              <PulseRing size={175} delay={200} />
+              <PulseRing size={132} delay={400} />
+
+              {/* Avatar circle */}
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarText}>{displayInitial}</Text>
+              </View>
+            </View>
+
+            {/* Name */}
+            <Text style={styles.callerName}>{callerName}</Text>
+
+            {/* Status row */}
+            <View style={styles.statusRow}>
+              <Text style={styles.statusText}>{getStatusText()}</Text>
+              {isRinging && <AnimatedDots />}
+            </View>
+
+            {isConnecting && !isRinging && (
+              <ActivityIndicator size="small" color="#4a9eff" style={{ marginTop: 12 }} />
+            )}
+          </View>
+
+          {/* Duration badge (only when connected) */}
+          {isRemoteAudioReady && (
+            <View style={styles.durationBadge}>
+              <Ionicons name="time-outline" size={13} color="#fff" />
+              <Text style={styles.durationText}>{formatTime(callDuration)}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* ── Bottom Controls (3 buttons: Mute, Speaker, End Call) ───────────── */}
+        <View style={[styles.controlsBar, { paddingBottom: Math.max(18, insets.bottom + 8) }]}>
+
+          {/* Mute */}
+          <TouchableOpacity
+            style={[styles.ctrlBtn, isMuted && styles.ctrlBtnActive]}
+            onPress={() => setIsMuted((v) => !v)}
+          >
+            <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={24} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Speaker */}
+          <TouchableOpacity
+            style={[styles.ctrlBtn, isSpeakerOn && styles.ctrlBtnActive]}
+            onPress={() => setIsSpeakerOn((v) => !v)}
+          >
+            <Ionicons name={isSpeakerOn ? 'volume-high' : 'volume-off'} size={24} color="#fff" />
+          </TouchableOpacity>
+
+          {/* End Call */}
+          <TouchableOpacity style={[styles.ctrlBtn, styles.endBtn]} onPress={handleEndCall}>
+            <Ionicons name="call" size={24} color="#fff" style={{ transform: [{ rotate: '135deg' }] }} />
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Settings Bottom Sheet ────────────────────────── */}
+        <Modal
+          visible={showSettings}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowSettings(false)}
+        >
+          <View style={styles.settingsOverlay}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={() => setShowSettings(false)}
+            />
+            <View style={[styles.settingsPanel, { paddingBottom: insets.bottom + 20 }]}>
+              <View style={styles.settingsHandle}>
+                <View style={styles.settingsHandleBar} />
+              </View>
+              <Text style={styles.settingsTitle}>Call Settings</Text>
+              <ScrollView showsVerticalScrollIndicator={false}>
+
+                {/* Volume */}
+                <View style={styles.settingItem}>
+                  <View style={styles.settingRow}>
+                    <Ionicons name="volume-high" size={22} color="#3b82f6" />
+                    <Text style={styles.settingLabel}>Volume</Text>
+                    <Text style={styles.settingValue}>{Math.round(volumeLevel)}%</Text>
+                  </View>
+                  <Slider
+                    style={styles.slider}
+                    minimumValue={0}
+                    maximumValue={100}
+                    value={volumeLevel}
+                    onValueChange={setVolumeLevel}
+                    minimumTrackTintColor="#3b82f6"
+                    maximumTrackTintColor="#334155"
+                    thumbTintColor="#3b82f6"
+                  />
+                </View>
+
+                {/* Microphone toggle */}
+                <View style={styles.settingItem}>
+                  <View style={styles.settingRow}>
+                    <Ionicons name="mic" size={22} color="#3b82f6" />
+                    <Text style={styles.settingLabel}>Microphone</Text>
+                  </View>
+                  <TouchableOpacity style={styles.audioOption} onPress={() => setIsMuted((v) => !v)}>
+                    <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={20} color={isMuted ? '#ef4444' : '#3b82f6'} />
+                    <Text style={[styles.audioOptionText, isMuted && { color: '#ef4444' }]}>
+                      {isMuted ? 'Muted' : 'Active'}
+                    </Text>
+                    <Text style={styles.audioHint}>{isMuted ? 'Tap to unmute' : 'Tap to mute'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Speaker toggle */}
+                <View style={styles.settingItem}>
+                  <View style={styles.settingRow}>
+                    <Ionicons name="volume-high" size={22} color="#3b82f6" />
+                    <Text style={styles.settingLabel}>Speaker</Text>
+                  </View>
+                  <TouchableOpacity style={styles.audioOption} onPress={() => setIsSpeakerOn((v) => !v)}>
+                    <Ionicons name={isSpeakerOn ? 'volume-high' : 'volume-off'} size={20} color={isSpeakerOn ? '#3b82f6' : '#ef4444'} />
+                    <Text style={[styles.audioOptionText, !isSpeakerOn && { color: '#ef4444' }]}>
+                      {isSpeakerOn ? 'Speaker On' : 'Earpiece'}
+                    </Text>
+                    <Text style={styles.audioHint}>{isSpeakerOn ? 'Tap to use earpiece' : 'Tap to use speaker'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Phone number */}
+                {!!callerPhoneNumber && (
+                  <View style={styles.settingItem}>
+                    <View style={styles.settingRow}>
+                      <Ionicons name="call-outline" size={22} color="#3b82f6" />
+                      <Text style={styles.settingLabel}>Phone Number</Text>
+                    </View>
+                    <View style={styles.infoCard}>
+                      <Ionicons name="call" size={15} color="#94a3b8" />
+                      <Text style={styles.phoneText}>{callerPhoneNumber}</Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Call ID */}
+                {!!callId && (
+                  <View style={styles.settingItem}>
+                    <View style={styles.settingRow}>
+                      <Ionicons name="information-circle" size={22} color="#3b82f6" />
+                      <Text style={styles.settingLabel}>Call Info</Text>
+                    </View>
+                    <View style={styles.infoCard}>
+                      <Text style={styles.infoText}>Call ID: {callId}</Text>
+                    </View>
+                  </View>
+                )}
+              </ScrollView>
+
+              <TouchableOpacity style={styles.doneBtn} onPress={() => setShowSettings(false)}>
+                <Text style={styles.doneBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </SafeAreaView>
     </Modal>
   );
 };
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  modalOverlay: {
+  container: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.95)",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: '#0d1117',
   },
-  modalContainer: {
-    width: width,
-    height: height,
-    backgroundColor: "#0f1f2f",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
-  },
+
   // Header
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    backgroundColor: '#111827',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === "ios" ? 50 : 20,
-    paddingBottom: 16,
-    backgroundColor: "rgba(0, 0, 0, 0.25)",
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.08)",
-  },
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  callInfo: {
-    marginLeft: 8,
+    borderBottomColor: '#1e2535',
   },
   headerTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "white",
+    color: '#ffffff',
+    fontSize: 17,
+    fontWeight: '600',
   },
-  callerSpecialization: {
-    fontSize: 12,
-    color: "#a0aec0",
-    marginTop: 2,
-  },
-  qualityContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 4,
-  },
-  qualityText: {
-    fontSize: 11,
-  },
-  closeBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  closeBtnText: {
-    fontSize: 22,
-    color: "white",
-  },
+
   // Content
   content: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 30,
+    backgroundColor: '#0d1117',
+    position: 'relative',
   },
-  // Caller Profile
-  callerProfile: {
-    alignItems: "center",
-    marginBottom: 20,
+
+  // Placeholder (ringing state)
+  placeholderWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: 40,
   },
-  callerAvatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: "#3b82f6",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 16,
-    shadowColor: "#3b82f6",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
+  ringsContainer: {
+    width: 220,
+    height: 220,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 36,
+  },
+  avatarCircle: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
   },
   avatarText: {
-    fontSize: 56,
-    fontWeight: "bold",
-    color: "white",
+    color: '#ffffff',
+    fontSize: 38,
+    fontWeight: '700',
   },
   callerName: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "white",
-    marginBottom: 4,
-  },
-  callerSpecializationText: {
-    fontSize: 14,
-    color: "#a0aec0",
+    color: '#ffffff',
+    fontSize: 26,
+    fontWeight: '600',
     marginBottom: 8,
+    letterSpacing: 0.3,
   },
-  callStatus: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12,
-  },
-  pulseDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#4ade80",
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   statusText: {
-    fontSize: 14,
+    color: '#4a9eff',
+    fontSize: 15,
+    fontWeight: '400',
   },
-  callDuration: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 40,
-    marginTop: 8,
+  dotsText: {
+    color: '#4a9eff',
+    fontSize: 15,
+    width: 20,
   },
-  durationIcon: {
-    fontSize: 16,
+
+  // Duration badge
+  durationBadge: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
   durationText: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "white",
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+    color: '#f8fafc',
+    fontSize: 13,
+    fontWeight: '600',
   },
-  fallbackWarning: {
-    fontSize: 12,
-    color: "#fbbf24",
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginTop: 8,
+
+  // Bottom controls bar (3 buttons centered)
+  controlsBar: {
+    backgroundColor: '#111827',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 20,
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#1e2535',
   },
-  // Audio Visualizer
-  audioVisualizer: {
-    width: "100%",
-    padding: 20,
-    backgroundColor: "rgba(0, 0, 0, 0.2)",
-    borderRadius: 60,
-    marginBottom: 16,
-    position: "relative",
-  },
-  visualizerBars: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
+  ctrlBtn: {
+    width: 60,
     height: 60,
-    gap: 4,
+    borderRadius: 30,
+    backgroundColor: '#1e2535',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  visualizerBar: {
-    width: 4,
-    backgroundColor: "#3b82f6",
-    borderRadius: 4,
+  ctrlBtnActive: {
+    backgroundColor: '#3b82f6',
   },
-  mutedBadge: {
-    position: "absolute",
-    top: -12,
-    left: "50%",
-    transform: [{ translateX: -50 }],
-    backgroundColor: "#ef4444",
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 20,
+  endBtn: {
+    backgroundColor: '#ef4444',
   },
-  mutedBadgeText: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "white",
+
+  // Settings panel
+  settingsOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
-  recordingBadge: {
-    position: "absolute",
-    bottom: -12,
-    left: "50%",
-    transform: [{ translateX: -50 }],
-    backgroundColor: "#dc2626",
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  recordingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#ef4444",
-  },
-  recordingBadgeText: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "white",
-  },
-  // Settings Panel
   settingsPanel: {
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
-    borderRadius: 24,
-    padding: 20,
-    marginBottom: 16,
+    backgroundColor: '#1e293b',
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    maxHeight: height * 0.85,
+  },
+  settingsHandle: {
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  settingsHandleBar: {
+    width: 38,
+    height: 4,
+    backgroundColor: '#334155',
+    borderRadius: 2,
   },
   settingsTitle: {
+    color: '#f8fafc',
     fontSize: 18,
-    fontWeight: "600",
-    color: "white",
-    marginBottom: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 20,
   },
   settingItem: {
-    marginBottom: 16,
+    marginBottom: 22,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
   },
   settingLabel: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#a0aec0",
-    marginBottom: 8,
+    color: '#f8fafc',
+    fontSize: 15,
+    fontWeight: '500',
+    flex: 1,
   },
-  volumeContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  volumeValue: {
+  settingValue: {
+    color: '#3b82f6',
     fontSize: 14,
-    color: "white",
+    fontWeight: '600',
   },
-  callerInfoDisplay: {
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
-    padding: 12,
-    borderRadius: 12,
+  slider: {
+    width: '100%',
+    height: 38,
+  },
+  audioOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    paddingVertical: 11,
+    paddingHorizontal: 15,
+    backgroundColor: '#334155',
+    borderRadius: 14,
+  },
+  audioOptionText: {
+    flex: 1,
+    color: '#f8fafc',
+    fontSize: 14,
+  },
+  audioHint: {
+    color: '#94a3b8',
+    fontSize: 12,
+  },
+  infoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingVertical: 11,
+    paddingHorizontal: 15,
+    backgroundColor: '#334155',
+    borderRadius: 14,
+  },
+  phoneText: {
+    color: '#3b82f6',
+    fontSize: 14,
+    fontWeight: '500',
   },
   infoText: {
-    fontSize: 13,
-    color: "#e2e8f0",
-    marginVertical: 2,
+    color: '#94a3b8',
+    fontSize: 12,
   },
-  infoLabel: {
-    fontWeight: "600",
-    color: "white",
-  },
-  closeSettingsBtn: {
-    width: "100%",
-    padding: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 12,
-    alignItems: "center",
+  doneBtn: {
+    backgroundColor: '#3b82f6',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
     marginTop: 8,
+    marginBottom: 8,
   },
-  closeSettingsText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "white",
-  },
-  // Call Controls
-  callControls: {
-    flexDirection: "row",
-    justifyContent: "center",
-    flexWrap: "wrap",
-    gap: 12,
-    marginTop: 8,
-  },
-  controlBtn: {
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 24,
-    minWidth: 70,
-  },
-  controlBtnActive: {
-    backgroundColor: "#2563eb",
-  },
-  controlBtnLabel: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: "white",
-  },
-  endCallBtn: {
-    backgroundColor: "#ef4444",
+  doneBtnText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

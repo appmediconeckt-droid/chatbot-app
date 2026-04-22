@@ -1,48 +1,33 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from 'react';
 import {
   View,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  StyleSheet,
   ScrollView,
-  Modal,
-  ActivityIndicator,
-  Alert,
-  Platform,
   KeyboardAvoidingView,
-  Dimensions,
-  SafeAreaView,
-  StatusBar,
-  Animated,
-} from "react-native";
-import { useNavigation } from "@react-navigation/native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import Icon from "react-native-vector-icons/FontAwesome5";
-import LinearGradient from "react-native-linear-gradient";
-import { Picker } from "@react-native-picker/picker";
-import axiosInstance from "../../axiosConfig";
-import OtpCodeInput from "./components/OtpCodeInput";
-import { Colors, Spacing, Typography } from "../../styles/globalStyles";
+  Platform,
+  Modal,
+  Alert,
+  ActivityIndicator,
+  Image,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import { API_BASE_URL } from '../../axiosConfig';
+import { launchImageLibrary } from 'react-native-image-picker';
 
-const { width, height } = Dimensions.get("window");
-
-const UserSignup = () => {
-  const navigation = useNavigation();
-  // Animations
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
-
-  const [isLogin, setIsLogin] = useState(false);
+const UserSignup = ({ navigation, route }) => {
+  const [isLogin, setIsLogin] = useState(true);
   const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-    fullName: "",
-    anonymous: "",
-    phoneNumber: "",
-    age: "",
-    gender: "",
-    confirmPassword: "",
+    email: '',
+    password: '',
+    fullName: '',
+    phoneNumber: '',
+    age: '',
+    gender: '',
+    confirmPassword: '',
   });
 
   // Verification states
@@ -50,14 +35,14 @@ const UserSignup = () => {
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
   const [showPhoneOtpModal, setShowPhoneOtpModal] = useState(false);
-  const [emailOtp, setEmailOtp] = useState("");
-  const [phoneOtp, setPhoneOtp] = useState("");
+  const [emailOtp, setEmailOtp] = useState('');
+  const [phoneOtp, setPhoneOtp] = useState('');
   const [isSendingEmailOtp, setIsSendingEmailOtp] = useState(false);
   const [isSendingPhoneOtp, setIsSendingPhoneOtp] = useState(false);
   const [isVerifyingEmailOtp, setIsVerifyingEmailOtp] = useState(false);
   const [isVerifyingPhoneOtp, setIsVerifyingPhoneOtp] = useState(false);
-  const [emailOtpError, setEmailOtpError] = useState("");
-  const [phoneOtpError, setPhoneOtpError] = useState("");
+  const [emailOtpError, setEmailOtpError] = useState('');
+  const [phoneOtpError, setPhoneOtpError] = useState('');
   const [emailOtpSuccess, setEmailOtpSuccess] = useState(false);
   const [phoneOtpSuccess, setPhoneOtpSuccess] = useState(false);
   const [emailResendTimer, setEmailResendTimer] = useState(0);
@@ -67,30 +52,35 @@ const UserSignup = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [apiError, setApiError] = useState("");
-  const [showVerifyButton, setShowVerifyButton] = useState(false);
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [verifySuccess, setVerifySuccess] = useState(false);
   const [notification, setNotification] = useState({
     show: false,
-    message: "",
-    type: "",
+    message: '',
+    type: '',
   });
+  const [showDeviceConflict, setShowDeviceConflict] = useState(false);
+  const [deviceOtp, setDeviceOtp] = useState('');
+  const [deviceOtpSent, setDeviceOtpSent] = useState(false);
+  const [isSendingDeviceOtp, setIsSendingDeviceOtp] = useState(false);
+  const [isVerifyingDeviceOtp, setIsVerifyingDeviceOtp] = useState(false);
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
+  const genderOptions = ['Male', 'Female', 'Other'];
+
+  const normalizeRole = (role) => {
+    const value = String(role || '').trim().toLowerCase();
+    if (!value) return '';
+    return value === 'counsellor' ? 'counselor' : value;
+  };
+
+  const mapRoleForBackend = (role) => {
+    return role === 'counselor' ? 'counsellor' : role;
+  };
+
+  const buildBackendRoleCandidates = (role) => {
+    if (!role) return [];
+    return role === 'counselor'
+      ? ['counsellor', 'counselor']
+      : [mapRoleForBackend(role)];
+  };
 
   useEffect(() => {
     let interval;
@@ -112,48 +102,32 @@ const UserSignup = () => {
     return () => clearInterval(interval);
   }, [phoneResendTimer]);
 
-  // ✅ FIX: Send email OTP automatically when modal opens
+  // Persist role from navigation params (match web behavior)
   useEffect(() => {
-    if (showEmailOtpModal) {
-      handleSendEmailOtp();
+    const roleFromRoute = normalizeRole(route?.params?.role);
+    if (roleFromRoute) {
+      AsyncStorage.setItem('role', roleFromRoute);
     }
-  }, [showEmailOtpModal]);
-
-  // ✅ FIX: Send phone OTP automatically when modal opens
-  useEffect(() => {
-    if (showPhoneOtpModal) {
-      handleSendPhoneOtp();
-    }
-  }, [showPhoneOtpModal]);
+  }, [route?.params?.role]);
 
   useEffect(() => {
-    checkToken();
+    checkExistingSession();
   }, []);
 
-  const checkToken = async () => {
-    try {
-      const token =
-        (await AsyncStorage.getItem("accessToken")) ||
-        (await AsyncStorage.getItem("token"));
-      const userRole = await AsyncStorage.getItem("userRole");
-
-      if (token && userRole === "user") {
-        navigation.replace("UserDashboard");
-      }
-    } catch (error) {
-      console.error("Error checking saved user session:", error);
+  const checkExistingSession = async () => {
+    const token = await AsyncStorage.getItem('accessToken');
+    const userRole = normalizeRole(await AsyncStorage.getItem('userRole'));
+    if (token && userRole === 'user') {
+      navigation.replace('UserDashboard');
+    } else if (token && userRole === 'counselor') {
+      navigation.replace('CounselorDashboard');
     }
   };
 
-  const showNotification = (message, type = "success") => {
-    Alert.alert(
-      type === "success" ? "Success" : type === "error" ? "Error" : "Info",
-      message,
-      [{ text: "OK" }]
-    );
+  const showNotification = (message, type = 'success') => {
     setNotification({ show: true, message, type });
     setTimeout(() => {
-      setNotification({ show: false, message: "", type: "" });
+      setNotification({ show: false, message: '', type: '' });
     }, 3000);
   };
 
@@ -161,118 +135,142 @@ const UserSignup = () => {
     setFormData({ ...formData, [name]: value });
 
     if (errors[name]) {
-      setErrors({ ...errors, [name]: "" });
-    }
-    if (apiError) {
-      setApiError("");
+      setErrors({ ...errors, [name]: '' });
     }
 
-    if (name === "email") setEmailVerified(false);
-    if (name === "phoneNumber") setPhoneVerified(false);
+    if (name === 'email') setEmailVerified(false);
+    if (name === 'phoneNumber') setPhoneVerified(false);
   };
 
   const validateLogin = () => {
     const newErrors = {};
     if (!formData.email) {
-      newErrors.email = "Email is required";
+      newErrors.email = 'Email is required';
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = "Email is invalid";
+      newErrors.email = 'Email is invalid';
     }
     if (!formData.password) {
-      newErrors.password = "Password is required";
+      newErrors.password = 'Password is required';
     }
     return newErrors;
   };
 
-  const validateSignup = () => {
-    const newErrors = {};
-
-    if (!formData.fullName) newErrors.fullName = "Full name is required";
-    if (!formData.anonymous) newErrors.anonymous = "Anonymous name is required";
-
-    if (!formData.email) {
-      newErrors.email = "Email is required";
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = "Email is invalid";
-    } else if (!emailVerified) {
-      newErrors.email = "Please verify your email first";
-    }
-
-    if (!formData.phoneNumber) {
-      newErrors.phoneNumber = "Phone number is required";
-    } else if (!/^\d{10}$/.test(formData.phoneNumber)) {
-      newErrors.phoneNumber = "Phone number must be 10 digits";
-    } else if (!phoneVerified) {
-      newErrors.phoneNumber = "Please verify your phone number first";
-    }
-
-    if (!formData.age) {
-      newErrors.age = "Age is required";
-    } else if (formData.age < 13 || formData.age > 120) {
-      newErrors.age = "Age must be between 13 and 120";
-    }
-
-    if (!formData.gender) newErrors.gender = "Gender is required";
-
-    if (!formData.password) {
-      newErrors.password = "Password is required";
-    } else if (formData.password.length < 3) {
-      newErrors.password = "Password must be at least 3 characters";
-    }
-
-    if (!formData.confirmPassword) {
-      newErrors.confirmPassword = "Please confirm password";
-    } else if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = "Passwords do not match";
-    }
-
-    return newErrors;
-  };
-
-  const resetEmailOtpState = () => {
-    setEmailOtp("");
-    setEmailOtpError("");
-    setEmailOtpSuccess(false);
-    setEmailResendTimer(0);
-  };
-
-  const resetPhoneOtpState = () => {
-    setPhoneOtp("");
-    setPhoneOtpError("");
-    setPhoneOtpSuccess(false);
-    setPhoneResendTimer(0);
-  };
-
-  const handleSendEmailOtp = async () => {
-    if (!formData.email) {
-      setEmailOtpError("Please enter email first");
+  const handleForgotPassword = async () => {
+    const emailFromForm = String(formData.email || '').trim().toLowerCase();
+    
+    if (!emailFromForm) {
+      showNotification('Please enter your registered email in the email field', 'error');
       return;
     }
-    if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      setEmailOtpError("Please enter a valid email address");
+
+    if (!/\S+@\S+\.\S+/.test(emailFromForm)) {
+      showNotification('Please enter a valid email address', 'error');
       return;
     }
 
     try {
-      setIsSendingEmailOtp(true);
-      setEmailOtpError("");
+      setIsLoading(true);
+      const endpoints = ['forgot-password', 'forgotPassword'];
+      let sent = false;
 
-      const response = await axiosInstance.post(
-        `/api/auth/send-email-otp`,
-        {
-          email: formData.email,
-        },
+      for (const endpoint of endpoints) {
+        try {
+          await axios.post(
+            `${API_BASE_URL}/api/auth/${endpoint}`,
+            { email: emailFromForm },
+            { withCredentials: true }
+          );
+          sent = true;
+          break;
+        } catch (error) {
+          if (error?.response?.status !== 404) {
+            throw error;
+          }
+        }
+      }
+
+      if (!sent) {
+        throw new Error('Unable to reach forgot password API');
+      }
+
+      showNotification('Reset link sent to your email', 'success');
+    } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Unable to send reset link right now';
+      showNotification(message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const validateSignup = () => {
+    const newErrors = {};
+    if (!formData.fullName) newErrors.fullName = 'Full name is required';
+    if (!formData.email) {
+      newErrors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      newErrors.email = 'Email is invalid';
+    } else if (!emailVerified) {
+      newErrors.email = 'Please verify your email first';
+    }
+    if (!formData.phoneNumber) {
+      newErrors.phoneNumber = 'Phone number is required';
+    } else if (!/^\d{10}$/.test(formData.phoneNumber)) {
+      newErrors.phoneNumber = 'Phone number must be 10 digits';
+    } else if (!phoneVerified) {
+      newErrors.phoneNumber = 'Please verify your phone number first';
+    }
+    if (!formData.age) {
+      newErrors.age = 'Age is required';
+    } else if (formData.age < 18 || formData.age > 100) {
+      newErrors.age = 'Age must be between 18 and 100';
+    }
+    if (!formData.gender) newErrors.gender = 'Gender is required';
+    if (!formData.password) {
+      newErrors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+    if (!formData.confirmPassword) {
+      newErrors.confirmPassword = 'Please confirm password';
+    } else if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match';
+    }
+    return newErrors;
+  };
+
+  const handleSendEmailOtp = async () => {
+    if (!formData.email) {
+      setEmailOtpError('Please enter email address first');
+      return;
+    }
+    if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      setEmailOtpError('Please enter a valid email address');
+      return;
+    }
+
+    setIsSendingEmailOtp(true);
+    setEmailOtpError('');
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/send-email-otp`,
+        { email: formData.email }
       );
 
       if (response.data.success) {
-        showNotification("OTP sent to email successfully!", "success");
+        showNotification('OTP sent to your email!', 'success');
         setEmailResendTimer(60);
+        setEmailOtpSuccess(false);
+        setEmailOtp('');
       } else {
-        setEmailOtpError(response.data.message || "Failed to send OTP");
+        setEmailOtpError(response.data.message || 'Failed to send OTP');
       }
     } catch (error) {
-      console.error("Send email OTP error:", error);
-      setEmailOtpError(error.response?.data?.message || "Failed to send OTP. Please try again.");
+      setEmailOtpError(
+        error.response?.data?.message || 'Failed to send OTP. Please try again.'
+      );
     } finally {
       setIsSendingEmailOtp(false);
     }
@@ -280,72 +278,75 @@ const UserSignup = () => {
 
   const handleVerifyEmailOtp = async () => {
     if (!emailOtp || emailOtp.length !== 6) {
-      setEmailOtpError("Please enter 6-digit OTP");
+      setEmailOtpError('Please enter 6-digit OTP');
       return;
     }
 
+    setIsVerifyingEmailOtp(true);
+    setEmailOtpError('');
     try {
-      setIsVerifyingEmailOtp(true);
-      setEmailOtpError("");
-
-      const response = await axiosInstance.post(
-        `/api/auth/verify-email-otp`,
-        {
-          email: formData.email,
-          otp: emailOtp,
-        },
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/verify-email-otp`,
+        { email: formData.email, otp: emailOtp }
       );
 
       if (response.data.success) {
-        setEmailOtpSuccess(true);
         setEmailVerified(true);
-        showNotification("Email verified successfully!", "success");
+        setEmailOtpSuccess(true);
+        showNotification('Email verified successfully!', 'success');
         setTimeout(() => {
           setShowEmailOtpModal(false);
           resetEmailOtpState();
         }, 1500);
       } else {
-        setEmailOtpError(response.data.message || "Invalid OTP");
+        setEmailOtpError(response.data.message || 'Invalid OTP');
       }
     } catch (error) {
-      console.error("Verify email OTP error:", error);
-      setEmailOtpError(error.response?.data?.message || "Verification failed. Please try again.");
+      setEmailOtpError(
+        error.response?.data?.message || 'Verification failed. Please try again.'
+      );
     } finally {
       setIsVerifyingEmailOtp(false);
     }
   };
 
+  const resetEmailOtpState = () => {
+    setEmailOtp('');
+    setEmailOtpError('');
+    setEmailOtpSuccess(false);
+    setEmailResendTimer(0);
+  };
+
   const handleSendPhoneOtp = async () => {
     if (!formData.phoneNumber) {
-      setPhoneOtpError("Please enter phone number first");
+      setPhoneOtpError('Please enter phone number first');
       return;
     }
     if (!/^\d{10}$/.test(formData.phoneNumber)) {
-      setPhoneOtpError("Please enter a valid 10-digit phone number");
+      setPhoneOtpError('Please enter a valid 10-digit phone number');
       return;
     }
 
+    setIsSendingPhoneOtp(true);
+    setPhoneOtpError('');
     try {
-      setIsSendingPhoneOtp(true);
-      setPhoneOtpError("");
-
-      const response = await axiosInstance.post(
-        `/api/auth/send-phone-otp`,
-        {
-          phoneNumber: formData.phoneNumber,
-          email: formData.email,
-        },
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/send-phone-otp`,
+        { phoneNumber: formData.phoneNumber, email: formData.email }
       );
 
       if (response.data.success) {
-        showNotification("OTP sent to phone successfully!", "success");
+        showNotification('OTP sent to your phone!', 'success');
         setPhoneResendTimer(60);
+        setPhoneOtpSuccess(false);
+        setPhoneOtp('');
       } else {
-        setPhoneOtpError(response.data.message || "Failed to send OTP");
+        setPhoneOtpError(response.data.message || 'Failed to send OTP');
       }
     } catch (error) {
-      console.error("Send phone OTP error:", error);
-      setPhoneOtpError(error.response?.data?.message || "Failed to send OTP. Please try again.");
+      setPhoneOtpError(
+        error.response?.data?.message || 'Failed to send OTP. Please try again.'
+      );
     } finally {
       setIsSendingPhoneOtp(false);
     }
@@ -353,1344 +354,1255 @@ const UserSignup = () => {
 
   const handleVerifyPhoneOtp = async () => {
     if (!phoneOtp || phoneOtp.length !== 6) {
-      setPhoneOtpError("Please enter 6-digit OTP");
+      setPhoneOtpError('Please enter 6-digit OTP');
       return;
     }
 
+    setIsVerifyingPhoneOtp(true);
+    setPhoneOtpError('');
     try {
-      setIsVerifyingPhoneOtp(true);
-      setPhoneOtpError("");
-
-      const response = await axiosInstance.post(
-        `/api/auth/verify-phone-otp`,
-        {
-          phoneNumber: formData.phoneNumber,
-          otp: phoneOtp,
-          email: formData.email,
-        },
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/verify-phone-otp`,
+        { phoneNumber: formData.phoneNumber, otp: phoneOtp }
       );
 
       if (response.data.success) {
         setPhoneVerified(true);
         setPhoneOtpSuccess(true);
-        showNotification("Phone verified successfully!", "success");
+        showNotification('Phone number verified successfully!', 'success');
         setTimeout(() => {
           setShowPhoneOtpModal(false);
           resetPhoneOtpState();
         }, 1500);
       } else {
-        setPhoneOtpError(response.data.message || "Invalid OTP");
+        setPhoneOtpError(response.data.message || 'Invalid OTP');
       }
     } catch (error) {
-      console.error("Verify phone OTP error:", error);
-      setPhoneOtpError(error.response?.data?.message || "Verification failed. Please try again.");
+      setPhoneOtpError(
+        error.response?.data?.message || 'Verification failed. Please try again.'
+      );
     } finally {
       setIsVerifyingPhoneOtp(false);
     }
   };
 
+  const resetPhoneOtpState = () => {
+    setPhoneOtp('');
+    setPhoneOtpError('');
+    setPhoneOtpSuccess(false);
+    setPhoneResendTimer(0);
+  };
+
+  const persistUserSession = async (data) => {
+    const token = data?.token || data?.accessToken;
+    if (!token) return false;
+
+    const decodeUserIdFromToken = (jwtToken) => {
+      try {
+        const payloadBase64 = jwtToken.split('.')[1];
+        const normalized = payloadBase64.replace(/-/g, '+').replace(/_/g, '/');
+        const payload = JSON.parse(atob(normalized));
+        return payload?.userId || payload?.id || '';
+      } catch {
+        return '';
+      }
+    };
+
+    await AsyncStorage.setItem('accessToken', token);
+    await AsyncStorage.setItem('token', token);
+    if (data.refreshToken) await AsyncStorage.setItem('refreshToken', data.refreshToken);
+    
+    const resolvedUserId = data?.user?._id || decodeUserIdFromToken(token) || '';
+    if (resolvedUserId) {
+      await AsyncStorage.setItem('userId', resolvedUserId);
+    }
+
+    if (data.user) {
+      const normalizedUserRole = normalizeRole(data.user.role) || 'user';
+      await AsyncStorage.setItem('userData', JSON.stringify(data.user));
+      await AsyncStorage.setItem('userRole', normalizedUserRole);
+    } else {
+      await AsyncStorage.setItem('userRole', 'user');
+    }
+    await AsyncStorage.setItem('userEmail', formData.email);
+    await AsyncStorage.setItem('isAuthenticated', 'true');
+    return true;
+  };
+
   const handleLogin = async () => {
-    const doLogin = async (forceLogin = false) =>
-      axiosInstance.post(
-        `/api/auth/login`,
-        {
-          email: formData.email,
-          password: formData.password,
-          role: "user",
-          forceLogin,
-        },
+    try {
+      const roleFromRoute = normalizeRole(route?.params?.role);
+      const storedRole = normalizeRole(await AsyncStorage.getItem('role'));
+      const role = roleFromRoute || storedRole || 'user';
+      const roleCandidates = buildBackendRoleCandidates(role);
+
+      let response;
+      for (let index = 0; index < roleCandidates.length; index += 1) {
+        const candidateRole = roleCandidates[index];
+        try {
+          response = await axios.post(
+            `${API_BASE_URL}/api/auth/login`,
+            {
+              email: formData.email,
+              password: formData.password,
+              role: candidateRole,
+            },
+            { withCredentials: true }
+          );
+          break;
+        } catch (error) {
+          const message = String(error?.response?.data?.message || '').toLowerCase();
+          const isRoleMismatch =
+            error?.response?.status === 403 ||
+            message.includes('role mismatch') ||
+            message.includes('role');
+          const isLastAttempt = index === roleCandidates.length - 1;
+          if (!isRoleMismatch || isLastAttempt) {
+            throw error;
+          }
+        }
+      }
+
+      // Enforce role: only "user" accounts can login here
+      const returnedRole = (
+        response.data?.role ||
+        response.data?.user?.role ||
+        "user"
+      );
+      const isCounselor = normalizeRole(returnedRole) === 'counselor';
+
+      if (isCounselor) {
+        showNotification(
+          "Access denied: Please use the Counsellor login page.",
+          "error"
+        );
+        return;
+      }
+
+      if (await persistUserSession(response.data)) {
+        showNotification('Login successful! Redirecting to dashboard...', 'success');
+        setTimeout(() => navigation.replace('UserDashboard'), 1200);
+      } else {
+        showNotification(response.data?.message || 'Login failed', 'error');
+      }
+    } catch (err) {
+      // Check for device conflict
+      if (
+        err?.isOneDeviceConflict ||
+        (err?.response?.status === 409 && err?.response?.data?.needLogout)
+      ) {
+        setShowDeviceConflict(true);
+        setDeviceOtpSent(false);
+        setDeviceOtp('');
+        showNotification('Already login detected. Continue with email OTP verification.', 'info');
+        return;
+      }
+
+      const errorMessage = err?.response?.data?.message || 'Something went wrong';
+      showNotification(errorMessage, 'error');
+    }
+  };
+
+  const handleSendDeviceOtp = async () => {
+    setIsSendingDeviceOtp(true);
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/logout-other-devices`,
+        { email: formData.email },
+        { withCredentials: true }
+      );
+      if (response.data?.success) {
+        setDeviceOtpSent(true);
+        showNotification('OTP sent to your email. Enter it below.', 'success');
+      } else {
+        showNotification(response.data?.message || 'Failed to send OTP', 'error');
+      }
+    } catch (error) {
+      showNotification(error.response?.data?.message || 'Failed to send OTP', 'error');
+    } finally {
+      setIsSendingDeviceOtp(false);
+    }
+  };
+
+  const handleVerifyDeviceOtp = async () => {
+    if (!deviceOtp || deviceOtp.length !== 6) {
+      showNotification('Please enter a valid 6-digit OTP', 'error');
+      return;
+    }
+    setIsVerifyingDeviceOtp(true);
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/verify-login-otp`,
+        { email: formData.email, otp: deviceOtp },
+        { withCredentials: true }
       );
 
-    try {
-      const response = await doLogin(false);
-
-      const token =
-        response.data?.token ||
-        response.data?.accessToken ||
-        response.data?.data?.token ||
-        response.data?.data?.accessToken;
-      const refreshToken =
-        response.data?.refreshToken || response.data?.data?.refreshToken;
-
-      if (response.data?.message === "User already logged in") {
-        setApiError("User already logged in");
-        setShowVerifyButton(true);
-        return;
+      if (await persistUserSession(response.data)) {
+        setShowDeviceConflict(false);
+        showNotification('OTP verified! Redirecting to dashboard...', 'success');
+        setTimeout(() => navigation.replace('UserDashboard'), 1200);
+      } else {
+        showNotification(response.data?.message || 'OTP verification failed', 'error');
       }
-
-      if (token) {
-        await AsyncStorage.setItem("isAuthenticated", "true");
-        await AsyncStorage.setItem("userRole", "user");
-        await AsyncStorage.setItem("refreshToken", response?.data?.refreshToken || "");
-        await AsyncStorage.setItem("userEmail", formData.email);
-        await AsyncStorage.setItem("token", token);
-        await AsyncStorage.setItem("accessToken", token);
-
-        if (refreshToken) await AsyncStorage.setItem("refreshToken", refreshToken);
-
-        if (response.data.user) {
-          await AsyncStorage.setItem("userData", JSON.stringify(response.data.user));
-        }
-
-        if (response.data.user?._id) {
-          await AsyncStorage.setItem("userId", response.data.user._id);
-        }
-
-        showNotification("Login successful!", "success");
-        setTimeout(() => navigation.replace("UserDashboard"), 1500);
-
-        return;
-      }
-
-      if (response.data?.message) {
-        setApiError(response.data.message);
-        showNotification(response.data.message, "error");
-        return;
-      }
-
-      setApiError("Login failed");
-      showNotification("Login failed", "error");
     } catch (error) {
-      console.error("Login error:", error);
-
-      const isAlreadyLoggedIn =
-        error.response?.status === 409 && error.response?.data?.canForceLogin;
-
-      if (isAlreadyLoggedIn) {
-        try {
-          const response = await doLogin(true);
-
-          const token =
-            response.data?.token ||
-            response.data?.accessToken ||
-            response.data?.data?.token ||
-            response.data?.data?.accessToken;
-          const refreshToken =
-            response.data?.refreshToken || response.data?.data?.refreshToken;
-
-          if (token) {
-            await AsyncStorage.setItem("isAuthenticated", "true");
-            await AsyncStorage.setItem("userRole", "user");
-            await AsyncStorage.setItem("userEmail", formData.email);
-            await AsyncStorage.setItem("token", token);
-            await AsyncStorage.setItem("accessToken", token);
-            if (refreshToken) await AsyncStorage.setItem("refreshToken", refreshToken);
-
-            if (response.data.user) {
-              await AsyncStorage.setItem("userData", JSON.stringify(response.data.user));
-            }
-
-            if (response.data.user?._id) {
-              await AsyncStorage.setItem("userId", response.data.user._id);
-            }
-
-            showNotification(
-              "Logged in and previous device session was ended.",
-              "success",
-            );
-            setTimeout(() => navigation.replace("UserDashboard"), 1500);
-            return;
-          }
-        } catch (forceError) {
-          const msg =
-            forceError.response?.data?.message || "Unable to force login";
-          setApiError(msg);
-          showNotification(msg, "error");
-          return;
-        }
-      }
-
-      let errorMessage = "Something went wrong";
-      if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      } else if (error.response?.status === 401) {
-        errorMessage = "Invalid email or password";
-      } else if (error.request) {
-        errorMessage = "Network error. Please check your connection.";
-      }
-      setApiError(errorMessage);
-      showNotification(errorMessage, "error");
+      showNotification(error.response?.data?.message || 'OTP verification failed', 'error');
+    } finally {
+      setIsVerifyingDeviceOtp(false);
     }
   };
 
   const handleSignup = async () => {
     if (!emailVerified) {
-      setErrors((prev) => ({
-        ...prev,
-        email: "Please verify your email first",
-      }));
-      showNotification("Please verify your email first", "error");
+      setErrors((prev) => ({ ...prev, email: 'Please verify your email first' }));
+      showNotification('Please verify your email first', 'error');
       return;
     }
     if (!phoneVerified) {
-      setErrors((prev) => ({
-        ...prev,
-        phoneNumber: "Please verify your phone number first",
-      }));
-      showNotification("Please verify your phone number first", "error");
+      setErrors((prev) => ({ ...prev, phoneNumber: 'Please verify your phone number first' }));
+      showNotification('Please verify your phone number first', 'error');
       return;
     }
 
     try {
-      const signupData = {
+      const storedRole = await AsyncStorage.getItem('role');
+      const payload = {
         fullName: formData.fullName.trim(),
         email: formData.email.trim(),
-        anonymous: formData.anonymous.trim(),
         phoneNumber: formData.phoneNumber.trim(),
+        age: Number(formData.age),
+        gender: formData.gender.toLowerCase(),
         password: formData.password,
         confirmPassword: formData.confirmPassword,
-        age: parseInt(formData.age),
-        gender: formData.gender,
-        role: "user",
-        isEmailVerified: true,
-        isPhoneVerified: true,
+        role: storedRole || 'user',
       };
 
-      console.log("Sending signup data:", signupData);
-
-      const response = await axiosInstance.post(
-        `/api/auth/complete-registration`,
-        signupData,
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/register`,
+        payload
       );
 
-      if (
-        response.data &&
-        (response.data.message?.includes("success") || response.data.success)
-      ) {
+      if (response.data.success) {
+        showNotification('User registered successfully! Redirecting to dashboard...', 'success');
+
         const token = response.data?.token || response.data?.accessToken;
-
         if (token) {
-          await AsyncStorage.setItem("isAuthenticated", "true");
-          await AsyncStorage.setItem("userRole", "user");
-          await AsyncStorage.setItem("userEmail", formData.email);
-          await AsyncStorage.setItem("token", token);
-          await AsyncStorage.setItem("accessToken", token);
+          await AsyncStorage.setItem('accessToken', token);
+          await AsyncStorage.setItem('token', token);
+          await AsyncStorage.setItem('userRole', 'user');
+          await AsyncStorage.setItem('userEmail', formData.email);
+          await AsyncStorage.setItem('isAuthenticated', 'true');
+          if (response.data.user) {
+            await AsyncStorage.setItem('userData', JSON.stringify(response.data.user));
+            await AsyncStorage.setItem('userId', response.data.user._id);
+          }
         }
 
-        if (response.data.user?._id) {
-          await AsyncStorage.setItem("userId", response.data.user._id);
-        }
-
-        if (response.data.user) {
-          await AsyncStorage.setItem("userData", JSON.stringify(response.data.user));
-        }
-
-        showNotification("Account created successfully!", "success");
+        // cleanup temporary role marker
+        await AsyncStorage.removeItem('role');
 
         setTimeout(() => {
-          navigation.replace("UserDashboard");
+          navigation.replace('UserDashboard');
         }, 1500);
       } else {
-        showNotification(
-          "Account created successfully! Redirecting to dashboard...",
-          "success",
-        );
-        setTimeout(() => {
-          navigation.replace("UserDashboard");
-        }, 1500);
+        showNotification(response.data.message || 'Registration failed', 'error');
       }
     } catch (error) {
-      console.error("Signup error:", error);
-
       if (error.response) {
         if (error.response.status === 400) {
-          if (error.response.data.errors) {
+          if (error.response.data.message && error.response.data.message.includes('duplicate key error')) {
+            showNotification('This email or phone number is already registered.', 'error');
+          } else if (error.response.data.errors) {
             const serverErrors = {};
             Object.keys(error.response.data.errors).forEach((key) => {
               serverErrors[key] = error.response.data.errors[key][0];
             });
             setErrors(serverErrors);
-            showNotification("Please check the form for errors", "error");
+            showNotification('Please check the form for errors', 'error');
           } else if (error.response.data.message) {
-            setApiError(error.response.data.message);
-            showNotification(error.response.data.message, "error");
+            showNotification(error.response.data.message, 'error');
           } else {
-            setApiError("Registration failed. Please check your information.");
-            showNotification(
-              "Registration failed. Please check your information.",
-              "error",
-            );
+            showNotification('Registration failed. Please check your information.', 'error');
           }
         } else if (error.response.status === 409) {
-          setApiError("User with this email already exists");
-          showNotification("User with this email already exists", "error");
+          showNotification('User with this email or phone already exists', 'error');
         } else {
-          setApiError("Registration failed. Please try again.");
-          showNotification("Registration failed. Please try again.", "error");
+          showNotification('Registration failed. Please try again.', 'error');
         }
       } else if (error.request) {
-        setApiError("Network error. Please check your connection.");
-        showNotification(
-          "Network error. Please check your connection.",
-          "error",
-        );
+        showNotification('Network error. Please check your connection.', 'error');
       } else {
-        setApiError("An error occurred. Please try again.");
-        showNotification("An error occurred. Please try again.", "error");
+        showNotification('An error occurred. Please try again.', 'error');
       }
     }
   };
 
   const handleSubmit = async () => {
     setIsLoading(true);
-    setApiError("");
 
     if (isLogin) {
       const loginErrors = validateLogin();
-      if (Object.keys(loginErrors).length === 0) {
-        await handleLogin();
-      } else {
+      if (Object.keys(loginErrors).length > 0) {
         setErrors(loginErrors);
-        showNotification("Please fill in all required fields", "error");
+        setIsLoading(false);
+        showNotification('Please fill in all required fields', 'error');
+        return;
       }
+      await handleLogin();
     } else {
       const signupErrors = validateSignup();
-      if (Object.keys(signupErrors).length === 0) {
-        await handleSignup();
-      } else {
+      if (Object.keys(signupErrors).length > 0) {
         setErrors(signupErrors);
-        showNotification(
-          "Please fill in all required fields correctly",
-          "error",
-        );
+        setIsLoading(false);
+        showNotification('Please fill in all required fields correctly', 'error');
+        return;
       }
+      await handleSignup();
     }
 
     setIsLoading(false);
   };
 
-  const handleVerify = async () => {
-    try {
-      setIsVerifying(true);
-      setVerifySuccess(false);
-      const verifyResponse = await axiosInstance.post(
-        `/api/auth/send-verification-email`,
-        { email: formData.email },
-      );
-      if (verifyResponse.data?.success || verifyResponse.data?.message) {
-        setVerifySuccess(true);
-        showNotification(
-          "Verification email sent successfully! Check your inbox.",
-          "success",
-        );
-        setTimeout(() => setVerifySuccess(false), 3000);
-      }
-    } catch (error) {
-      console.error("Verification error:", error);
-      const errorMessage =
-        error.response?.data?.message ||
-        "Failed to send verification email. Please try again.";
-      setApiError(errorMessage);
-      showNotification(errorMessage, "error");
-    } finally {
-      setIsVerifying(false);
-    }
-  };
-
   const toggleMode = () => {
     setIsLogin(!isLogin);
     setErrors({});
-    setApiError("");
-    setShowVerifyButton(false);
-    setVerifySuccess(false);
+    setShowDeviceConflict(false);
+    setDeviceOtpSent(false);
+    setDeviceOtp('');
     setEmailVerified(false);
     setPhoneVerified(false);
     setFormData({
-      email: "",
-      password: "",
-      fullName: "",
-      anonymous: "",
-      phoneNumber: "",
-      age: "",
-      gender: "",
-      confirmPassword: "",
+      email: '',
+      password: '',
+      fullName: '',
+      phoneNumber: '',
+      age: '',
+      gender: '',
+      confirmPassword: '',
     });
+    setNotification({ show: false, message: '', type: '' });
   };
 
-  const renderLoginForm = () => (
-    <>
-      <View style={styles.field}>
-        <Text style={styles.label}>
-          <Icon name="envelope" size={14} color="#666" /> Email Address <Text style={styles.required}>*</Text>
-        </Text>
-        <TextInput
-          style={[styles.input, errors.email && styles.inputError]}
-          placeholder="Enter your email"
-          placeholderTextColor="#999"
-          value={formData.email}
-          onChangeText={(text) => handleChange("email", text)}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          editable={!isLoading}
-        />
-        {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
-      </View>
+  const EmailOtpModal = () => (
+    <Modal
+      visible={showEmailOtpModal}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => {
+        if (!emailOtpSuccess) {
+          setShowEmailOtpModal(false);
+          resetEmailOtpState();
+        }
+      }}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalIconWrapper}>
+              <Text style={styles.modalIcon}>✉️</Text>
+            </View>
+            <Text style={styles.modalTitle}>Verify Email Address</Text>
+            <TouchableOpacity
+              style={styles.modalClose}
+              onPress={() => {
+                setShowEmailOtpModal(false);
+                resetEmailOtpState();
+              }}
+              disabled={isVerifyingEmailOtp}
+            >
+              <Text style={styles.modalCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.modalBody}>
+            <Text style={styles.modalText}>Enter the verification code sent to</Text>
+            <Text style={styles.modalRecipient}>{formData.email}</Text>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>
-          <Icon name="lock" size={14} color="#666" /> Password <Text style={styles.required}>*</Text>
-        </Text>
-        <View style={styles.passwordWrapper}>
-          <TextInput
-            style={[styles.input, styles.passwordInput, errors.password && styles.inputError]}
-            placeholder="Enter your password"
-            placeholderTextColor="#999"
-            value={formData.password}
-            onChangeText={(text) => handleChange("password", text)}
-            secureTextEntry={!showPassword}
-            editable={!isLoading}
-          />
-          <TouchableOpacity
-            onPress={() => setShowPassword(!showPassword)}
-            style={styles.passwordToggle}
-            disabled={isLoading}
-          >
-            <Text style={styles.toggleText}>{showPassword ? "Hide" : "Show"}</Text>
-          </TouchableOpacity>
+            <TextInput
+              style={[styles.otpInput, emailOtpSuccess && styles.otpInputSuccess]}
+              placeholder="000000"
+              placeholderTextColor="#999"
+              value={emailOtp}
+              onChangeText={(text) => setEmailOtp(text.replace(/\D/g, '').slice(0, 6))}
+              maxLength={6}
+              keyboardType="number-pad"
+              editable={!isVerifyingEmailOtp && !emailOtpSuccess}
+              autoFocus
+            />
+
+            {emailOtpError ? <Text style={styles.errorText}>{emailOtpError}</Text> : null}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.verifyButton]}
+                onPress={handleVerifyEmailOtp}
+                disabled={isVerifyingEmailOtp || emailOtpSuccess || !emailOtp}
+              >
+                {isVerifyingEmailOtp ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalButtonText}>Verify</Text>
+                )}
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.modalButton, styles.resendButton]}
+                onPress={handleSendEmailOtp}
+                disabled={isSendingEmailOtp || emailResendTimer > 0 || emailOtpSuccess}
+              >
+                {isSendingEmailOtp ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : emailResendTimer > 0 ? (
+                  <Text style={styles.modalButtonText}>Resend in {emailResendTimer}s</Text>
+                ) : (
+                  <Text style={styles.modalButtonText}>Resend Code</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {emailOtpSuccess && (
+              <View style={styles.successContainer}>
+                <Text style={styles.successText}>✓ Email verified successfully!</Text>
+              </View>
+            )}
+          </View>
         </View>
-        {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
       </View>
-
-      <View style={styles.options}>
-        <TouchableOpacity style={styles.checkboxContainer}>
-          <Text style={styles.checkboxLabel}>Remember me</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.navigate("OtpVerification")}>
-          <Text style={styles.forgotText}>Forgot Password?</Text>
-        </TouchableOpacity>
-      </View>
-    </>
+    </Modal>
   );
 
-  const renderSignupForm = () => (
-    <>
-      <View style={styles.field}>
-        <Text style={styles.label}>
-          <Icon name="user" size={14} color="#666" /> Full Name <Text style={styles.required}>*</Text>
-        </Text>
-        <TextInput
-          style={[styles.input, errors.fullName && styles.inputError]}
-          placeholder="Enter your full name"
-          placeholderTextColor="#999"
-          value={formData.fullName}
-          onChangeText={(text) => handleChange("fullName", text)}
-          editable={!isLoading}
-        />
-        {errors.fullName && <Text style={styles.errorText}>{errors.fullName}</Text>}
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.label}>
-          <Icon name="user" size={14} color="#666" /> Anonymous Name <Text style={styles.required}>*</Text>
-        </Text>
-        <TextInput
-          style={[styles.input, errors.anonymous && styles.inputError]}
-          placeholder="Choose an anonymous name"
-          placeholderTextColor="#999"
-          value={formData.anonymous}
-          onChangeText={(text) => handleChange("anonymous", text)}
-          editable={!isLoading}
-        />
-        {errors.anonymous && <Text style={styles.errorText}>{errors.anonymous}</Text>}
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.label}>
-          <Icon name="envelope" size={14} color="#666" /> Email <Text style={styles.required}>*</Text>
-        </Text>
-        <View style={styles.verifyGroup}>
-          <TextInput
-            style={[
-              styles.input,
-              styles.verifyInput,
-              errors.email && styles.inputError,
-              emailVerified && styles.verifiedInput
-            ]}
-            placeholder="Enter your email"
-            placeholderTextColor="#999"
-            value={formData.email}
-            onChangeText={(text) => handleChange("email", text)}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            editable={!isLoading && !emailVerified}
-          />
-          {!emailVerified && formData.email && /\S+@\S+\.\S+/.test(formData.email) && (
-            <TouchableOpacity
-              style={styles.verifyButtonSm}
-              onPress={() => {
-                resetEmailOtpState();
-                setShowEmailOtpModal(true);
-                // ✅ FIX: Removed manual handleSendEmailOtp() call - useEffect will handle it
-              }}
-              disabled={isLoading}
-            >
-              <Text style={styles.verifyButtonSmText}>Verify</Text>
-            </TouchableOpacity>
-          )}
-          {emailVerified && (
-            <View style={styles.verifiedBadge}>
-              <Icon name="check-circle" size={16} color="#4CAF50" />
-              <Text style={styles.verifiedText}>Verified</Text>
+  const PhoneOtpModal = () => (
+    <Modal
+      visible={showPhoneOtpModal}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => {
+        if (!phoneOtpSuccess) {
+          setShowPhoneOtpModal(false);
+          resetPhoneOtpState();
+        }
+      }}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalIconWrapper}>
+              <Text style={styles.modalIcon}>📱</Text>
             </View>
-          )}
-        </View>
-        {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.label}>
-          <Icon name="phone" size={14} color="#666" /> Phone Number <Text style={styles.required}>*</Text>
-        </Text>
-        <View style={styles.verifyGroup}>
-          <TextInput
-            style={[
-              styles.input,
-              styles.verifyInput,
-              errors.phoneNumber && styles.inputError,
-              phoneVerified && styles.verifiedInput
-            ]}
-            placeholder="10 digit mobile number"
-            placeholderTextColor="#999"
-            value={formData.phoneNumber}
-            onChangeText={(text) => handleChange("phoneNumber", text)}
-            keyboardType="phone-pad"
-            maxLength={10}
-            editable={!isLoading && !phoneVerified}
-          />
-          {!phoneVerified && formData.phoneNumber && /^\d{10}$/.test(formData.phoneNumber) && (
+            <Text style={styles.modalTitle}>Verify Phone Number</Text>
             <TouchableOpacity
-              style={styles.verifyButtonSm}
+              style={styles.modalClose}
               onPress={() => {
+                setShowPhoneOtpModal(false);
                 resetPhoneOtpState();
-                setShowPhoneOtpModal(true);
-                // ✅ FIX: Removed manual handleSendPhoneOtp() call - useEffect will handle it
               }}
-              disabled={isLoading}
+              disabled={isVerifyingPhoneOtp}
             >
-              <Text style={styles.verifyButtonSmText}>Verify</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
-          )}
-          {phoneVerified && (
-            <View style={styles.verifiedBadge}>
-              <Icon name="check-circle" size={16} color="#4CAF50" />
-              <Text style={styles.verifiedText}>Verified</Text>
+          </View>
+          <View style={styles.modalBody}>
+            <Text style={styles.modalText}>Enter the verification code sent to</Text>
+            <Text style={styles.modalRecipient}>{formData.phoneNumber}</Text>
+
+            <TextInput
+              style={[styles.otpInput, phoneOtpSuccess && styles.otpInputSuccess]}
+              placeholder="000000"
+              placeholderTextColor="#999"
+              value={phoneOtp}
+              onChangeText={(text) => setPhoneOtp(text.replace(/\D/g, '').slice(0, 6))}
+              maxLength={6}
+              keyboardType="number-pad"
+              editable={!isVerifyingPhoneOtp && !phoneOtpSuccess}
+              autoFocus
+            />
+
+            {phoneOtpError ? <Text style={styles.errorText}>{phoneOtpError}</Text> : null}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.verifyButton]}
+                onPress={handleVerifyPhoneOtp}
+                disabled={isVerifyingPhoneOtp || phoneOtpSuccess || !phoneOtp}
+              >
+                {isVerifyingPhoneOtp ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalButtonText}>Verify</Text>
+                )}
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.modalButton, styles.resendButton]}
+                onPress={handleSendPhoneOtp}
+                disabled={isSendingPhoneOtp || phoneResendTimer > 0 || phoneOtpSuccess}
+              >
+                {isSendingPhoneOtp ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : phoneResendTimer > 0 ? (
+                  <Text style={styles.modalButtonText}>Resend in {phoneResendTimer}s</Text>
+                ) : (
+                  <Text style={styles.modalButtonText}>Resend Code</Text>
+                )}
+              </TouchableOpacity>
             </View>
-          )}
+
+            {phoneOtpSuccess && (
+              <View style={styles.successContainer}>
+                <Text style={styles.successText}>✓ Phone verified successfully!</Text>
+              </View>
+            )}
+          </View>
         </View>
-        {errors.phoneNumber && <Text style={styles.errorText}>{errors.phoneNumber}</Text>}
       </View>
-
-      <View style={styles.field}>
-        <Text style={styles.label}>
-          <Icon name="calendar" size={14} color="#666" /> Age <Text style={styles.required}>*</Text>
-        </Text>
-        <TextInput
-          style={[styles.input, errors.age && styles.inputError]}
-          placeholder="Your age"
-          placeholderTextColor="#999"
-          value={formData.age}
-          onChangeText={(text) => handleChange("age", text)}
-          keyboardType="number-pad"
-          editable={!isLoading}
-        />
-        {errors.age && <Text style={styles.errorText}>{errors.age}</Text>}
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.label}>
-          <Icon name="venus-mars" size={14} color="#666" /> Gender <Text style={styles.required}>*</Text>
-        </Text>
-        <View style={styles.genderPickerContainer}>
-          <Picker
-            selectedValue={formData.gender}
-            onValueChange={(itemValue) => handleChange("gender", itemValue)}
-            enabled={!isLoading}
-            style={styles.picker}
-            dropdownIconColor="#667eea"
-          >
-            <Picker.Item label="Select Gender" value="" color="#1a202c" />
-            <Picker.Item label="Male" value="male" color="#1a202c" />
-            <Picker.Item label="Female" value="female" color="#1a202c" />
-            <Picker.Item label="Other" value="other" color="#1a202c" />
-            <Picker.Item label="Prefer not to say" value="prefer-not-to-say" color="#1a202c" />
-          </Picker>
-        </View>
-        {errors.gender && <Text style={styles.errorText}>{errors.gender}</Text>}
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.label}>
-          <Icon name="lock" size={14} color="#666" /> Password <Text style={styles.required}>*</Text>
-        </Text>
-        <View style={styles.passwordWrapper}>
-          <TextInput
-            style={[styles.input, styles.passwordInput, errors.password && styles.inputError]}
-            placeholder="Create a password"
-            placeholderTextColor="#999"
-            value={formData.password}
-            onChangeText={(text) => handleChange("password", text)}
-            secureTextEntry={!showPassword}
-            editable={!isLoading}
-          />
-          <TouchableOpacity
-            onPress={() => setShowPassword(!showPassword)}
-            style={styles.passwordToggle}
-            disabled={isLoading}
-          >
-            <Text style={styles.toggleText}>{showPassword ? "Hide" : "Show"}</Text>
-          </TouchableOpacity>
-        </View>
-        {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.label}>
-          <Icon name="lock" size={14} color="#666" /> Confirm Password <Text style={styles.required}>*</Text>
-        </Text>
-        <View style={styles.passwordWrapper}>
-          <TextInput
-            style={[styles.input, styles.passwordInput, errors.confirmPassword && styles.inputError]}
-            placeholder="Confirm your password"
-            placeholderTextColor="#999"
-            value={formData.confirmPassword}
-            onChangeText={(text) => handleChange("confirmPassword", text)}
-            secureTextEntry={!showConfirmPassword}
-            editable={!isLoading}
-          />
-          <TouchableOpacity
-            onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-            style={styles.passwordToggle}
-            disabled={isLoading}
-          >
-            <Text style={styles.toggleText}>{showConfirmPassword ? "Hide" : "Show"}</Text>
-          </TouchableOpacity>
-        </View>
-        {errors.confirmPassword && <Text style={styles.errorText}>{errors.confirmPassword}</Text>}
-      </View>
-
-      <Text style={styles.termsText}>
-        By signing up, you agree to our{" "}
-        <Text style={styles.termsLink}>Terms of Service</Text> and{" "}
-        <Text style={styles.termsLink}>Privacy Policy</Text>
-      </Text>
-    </>
+    </Modal>
   );
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      <LinearGradient
-        colors={[Colors.primaryDark, Colors.primary, Colors.background]}
-        style={styles.container}
-      >
-        <SafeAreaView style={styles.safeArea}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={styles.keyboardView}
-          >
-            <ScrollView
-              contentContainerStyle={styles.scrollView}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-            >
-              <Animated.View style={[styles.brandSection, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-                <View style={styles.logoContainer}>
-                  <LinearGradient
-                    colors={[Colors.secondary, Colors.accent]}
-                    style={styles.logoIconSmall}
-                  >
-                    <Icon name="heartbeat" size={18} color={Colors.white} />
-                  </LinearGradient>
-                  <Text style={styles.logoText}>
-                    Medi<Text style={styles.logoHighlight}>Coneckt</Text>
-                  </Text>
-                </View>
-                <Text style={styles.brandTitle}>
-                  {isLogin ? "Welcome Back!" : "Begin Your Journey"}
-                </Text>
-                <Text style={styles.brandSubtitle}>
-                  {isLogin
-                    ? "Connect with professional counselors and start your healing journey."
-                    : "Join thousands of people who have found peace and clarity."}
-                </Text>
-              </Animated.View>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView contentContainerStyle={styles.scrollContainer}>
+        {/* Notification */}
+        {notification.show && (
+          <View style={[styles.notification, styles[`notification${notification.type}`]]}>
+            <Text style={styles.notificationText}>{notification.message}</Text>
+          </View>
+        )}
 
-              <Animated.View style={[styles.formSection, { opacity: fadeAnim }]}>
-                <View style={styles.formHeader}>
-                  <Text style={styles.formTitle}>
-                    {isLogin ? "Login to Account" : "Create Account"}
-                  </Text>
-                  <Text style={styles.formSubtitle}>
-                    {isLogin ? "Don't have an account? " : "Already have an account? "}
-                    <Text onPress={toggleMode} style={styles.toggleLink}>
-                      {isLogin ? "Sign Up" : "Login"}
-                    </Text>
-                  </Text>
-                </View>
+        {showEmailOtpModal && <EmailOtpModal />}
+        {showPhoneOtpModal && <PhoneOtpModal />}
 
-                {apiError ? (
-                  <View style={styles.apiError}>
-                    <Text style={styles.apiErrorText}>{apiError}</Text>
-                  </View>
-                ) : null}
+        <View style={styles.brandSection}>
+          <View style={styles.logoContainer}>
+            <Text style={styles.logoText}>Mediconect</Text>
+            <Text style={styles.logoSubtext}>Users</Text>
+          </View>
+          <Text style={styles.brandTitle}>
+            {isLogin ? 'Welcome Back!' : 'Join Our Community'}
+          </Text>
+          <Text style={styles.brandSubtitle}>
+            {isLogin
+              ? 'Connect with expert counselors and find the support you need.'
+              : 'Start your journey towards better mental health.'}
+          </Text>
+          <View style={styles.features}>
+            <Text style={styles.feature}>✓ Expert Counselors</Text>
+            <Text style={styles.feature}>✓ 24/7 Support</Text>
+            <Text style={styles.feature}>✓ Confidential Sessions</Text>
+          </View>
+        </View>
 
-                {showVerifyButton ? (
-                  <View style={styles.verifySection}>
-                    {verifySuccess ? (
-                      <View style={styles.verifySuccess}>
-                        <Text style={styles.verifySuccessText}>
-                          Verification email sent successfully! Check your inbox.
-                        </Text>
-                      </View>
-                    ) : (
-                      <>
-                        <Text style={styles.verifyMessage}>
-                          Your account is already logged in on another device.
-                        </Text>
-                        <TouchableOpacity
-                          style={styles.verifyBtn}
-                          onPress={handleVerify}
-                          disabled={isVerifying || isLoading}
-                        >
-                          {isVerifying ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                          ) : (
-                            <Text style={styles.verifyBtnText}>📧 Verify Mail</Text>
-                          )}
-                        </TouchableOpacity>
-                      </>
-                    )}
-                  </View>
-                ) : null}
+        <View style={styles.formSection}>
+          <View style={styles.formHeader}>
+            <Text style={styles.formTitle}>{isLogin ? 'Login to Account' : 'Create Account'}</Text>
+            <View style={styles.toggleContainer}>
+              <Text style={styles.toggleText}>
+                {isLogin ? "Don't have an account? " : 'Already have an account? '}
+              </Text>
+              <TouchableOpacity onPress={toggleMode} disabled={isLoading}>
+                <Text style={styles.toggleLink}>{isLogin ? 'Sign Up' : 'Login'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
 
-                <View style={styles.form}>
-                  {isLogin ? renderLoginForm() : renderSignupForm()}
+          {isLogin && showDeviceConflict && (
+            <View style={styles.deviceConflictBox}>
+              <Text style={styles.deviceConflictText}>Already login detected on another device.</Text>
+              <TouchableOpacity
+                style={styles.deviceActionButton}
+                onPress={handleSendDeviceOtp}
+                disabled={isSendingDeviceOtp}
+              >
+                {isSendingDeviceOtp ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.deviceActionText}>Logout Other Devices & Send OTP</Text>
+                )}
+              </TouchableOpacity>
 
+              {deviceOtpSent && (
+                <View style={styles.deviceOtpRow}>
+                  <TextInput
+                    style={styles.deviceOtpInput}
+                    value={deviceOtp}
+                    onChangeText={(text) => setDeviceOtp(text.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="Enter 6-digit OTP"
+                    placeholderTextColor="#999"
+                    maxLength={6}
+                    keyboardType="number-pad"
+                  />
                   <TouchableOpacity
-                    style={[styles.submitButton, isLoading && styles.submitButtonLoading]}
-                    onPress={handleSubmit}
-                    disabled={isLoading}
+                    style={[styles.deviceActionButton, styles.deviceVerifyButton]}
+                    onPress={handleVerifyDeviceOtp}
+                    disabled={isVerifyingDeviceOtp}
                   >
-                    <LinearGradient
-                      colors={[Colors.primary, Colors.primaryDark]}
-                      style={styles.submitBtnGradient}
-                    >
-                      {isLoading ? (
-                        <>
-                          <ActivityIndicator size="small" color="#fff" />
-                          <Text style={styles.submitText}>
-                            {isLogin ? " Logging in..." : " Creating Account..."}
-                          </Text>
-                        </>
-                      ) : (
-                        <Text style={styles.submitText}>
-                          {isLogin ? "Login Now" : "Create Account"}
-                        </Text>
-                      )}
-                    </LinearGradient>
+                    {isVerifyingDeviceOtp ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.deviceActionText}>Verify OTP</Text>
+                    )}
                   </TouchableOpacity>
                 </View>
-              </Animated.View>
-            </ScrollView>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </LinearGradient>
-
-      {/* EMAIL OTP MODAL */}
-      <Modal
-        visible={showEmailOtpModal}
-        transparent={true}
-        animationType="fade"
-        statusBarTranslucent={true}
-        onRequestClose={() => {
-          if (!emailOtpSuccess) {
-            setShowEmailOtpModal(false);
-            resetEmailOtpState();
-          }
-        }}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => {
-            if (!emailOtpSuccess) {
-              setShowEmailOtpModal(false);
-              resetEmailOtpState();
-            }
-          }}
-        >
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
-            <View style={styles.modalHeader}>
-              <View style={styles.modalIcon}>
-                <Icon name="envelope" size={24} color="#4A90E2" />
-              </View>
-              <Text style={styles.modalTitle}>Verify Email Address</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowEmailOtpModal(false);
-                  resetEmailOtpState();
-                }}
-                disabled={isVerifyingEmailOtp}
-              >
-                <Icon name="times" size={24} color="#999" />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.modalBody}>
-              <Text style={styles.modalText}>Enter the verification code sent to</Text>
-              <Text style={styles.modalRecipient}>{formData.email}</Text>
-
-              <OtpCodeInput
-                value={emailOtp}
-                onChangeText={setEmailOtp}
-                editable={!isVerifyingEmailOtp && !emailOtpSuccess}
-                autoFocus={true}
-                success={emailOtpSuccess}
-                containerStyle={styles.otpInput}
-                boxStyle={styles.otpDigitBox}
-                focusedBoxStyle={styles.otpDigitBoxFocused}
-                successBoxStyle={styles.otpDigitBoxSuccess}
-                textStyle={styles.otpDigitText}
-              />
-
-              {emailOtpError ? (
-                <Text style={styles.otpError}>{emailOtpError}</Text>
-              ) : null}
-
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={[styles.verifyButton, (!emailOtp || emailOtpSuccess) && styles.disabledButton]}
-                  onPress={handleVerifyEmailOtp}
-                  disabled={isVerifyingEmailOtp || emailOtpSuccess || !emailOtp}
-                >
-                  {isVerifyingEmailOtp ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={styles.verifyButtonText}>Verify</Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.resendButton, (isSendingEmailOtp || emailResendTimer > 0 || emailOtpSuccess) && styles.disabledButton]}
-                  onPress={handleSendEmailOtp}
-                  disabled={isSendingEmailOtp || emailResendTimer > 0 || emailOtpSuccess}
-                >
-                  <Text style={styles.resendButtonText}>
-                    {isSendingEmailOtp ? "Sending..." : emailResendTimer > 0 ? `Resend in ${emailResendTimer}s` : "Resend Code"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {emailOtpSuccess && (
-                <View style={styles.successContainer}>
-                  <Icon name="check-circle" size={20} color="#4CAF50" />
-                  <Text style={styles.successText}>Email verified successfully!</Text>
-                </View>
               )}
             </View>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+          )}
 
-      {/* PHONE OTP MODAL */}
-      <Modal
-        visible={showPhoneOtpModal}
-        transparent={true}
-        animationType="fade"
-        statusBarTranslucent={true}
-        onRequestClose={() => {
-          if (!phoneOtpSuccess) {
-            setShowPhoneOtpModal(false);
-            resetPhoneOtpState();
-          }
-        }}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => {
-            if (!phoneOtpSuccess) {
-              setShowPhoneOtpModal(false);
-              resetPhoneOtpState();
-            }
-          }}
-        >
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
-            <View style={styles.modalHeader}>
-              <View style={styles.modalIcon}>
-                <Icon name="phone" size={24} color="#4A90E2" />
-              </View>
-              <Text style={styles.modalTitle}>Verify Phone Number</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowPhoneOtpModal(false);
-                  resetPhoneOtpState();
-                }}
-                disabled={isVerifyingPhoneOtp}
-              >
-                <Icon name="times" size={24} color="#999" />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.modalBody}>
-              <Text style={styles.modalText}>Enter the verification code sent to</Text>
-              <Text style={styles.modalRecipient}>{formData.phoneNumber}</Text>
-
-              <OtpCodeInput
-                value={phoneOtp}
-                onChangeText={setPhoneOtp}
-                editable={!isVerifyingPhoneOtp && !phoneOtpSuccess}
-                autoFocus={true}
-                success={phoneOtpSuccess}
-                containerStyle={styles.otpInput}
-                boxStyle={styles.otpDigitBox}
-                focusedBoxStyle={styles.otpDigitBoxFocused}
-                successBoxStyle={styles.otpDigitBoxSuccess}
-                textStyle={styles.otpDigitText}
-              />
-
-              {phoneOtpError ? (
-                <Text style={styles.otpError}>{phoneOtpError}</Text>
-              ) : null}
-
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={[styles.verifyButton, (!phoneOtp || phoneOtpSuccess) && styles.disabledButton]}
-                  onPress={handleVerifyPhoneOtp}
-                  disabled={isVerifyingPhoneOtp || phoneOtpSuccess || !phoneOtp}
-                >
-                  {isVerifyingPhoneOtp ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={styles.verifyButtonText}>Verify</Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.resendButton, (isSendingPhoneOtp || phoneResendTimer > 0 || phoneOtpSuccess) && styles.disabledButton]}
-                  onPress={handleSendPhoneOtp}
-                  disabled={isSendingPhoneOtp || phoneResendTimer > 0 || phoneOtpSuccess}
-                >
-                  <Text style={styles.resendButtonText}>
-                    {isSendingPhoneOtp ? "Sending..." : phoneResendTimer > 0 ? `Resend in ${phoneResendTimer}s` : "Resend Code"}
-                  </Text>
-                </TouchableOpacity>
+          {isLogin ? (
+            // Login Form
+            <View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Email Address *</Text>
+                <TextInput
+                  style={[styles.input, errors.email && styles.inputError]}
+                  value={formData.email}
+                  onChangeText={(text) => handleChange('email', text)}
+                  placeholder="Enter your email"
+                  placeholderTextColor="#999"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  editable={!isLoading}
+                />
+                {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
               </View>
 
-              {phoneOtpSuccess && (
-                <View style={styles.successContainer}>
-                  <Icon name="check-circle" size={20} color="#4CAF50" />
-                  <Text style={styles.successText}>Phone verified successfully!</Text>
+              <View style={styles.field}>
+                <Text style={styles.label}>Password *</Text>
+                <View style={styles.passwordWrapper}>
+                  <TextInput
+                    style={[styles.input, styles.passwordInput, errors.password && styles.inputError]}
+                    value={formData.password}
+                    onChangeText={(text) => handleChange('password', text)}
+                    placeholder="Enter your password"
+                    placeholderTextColor="#999"
+                    secureTextEntry={!showPassword}
+                    editable={!isLoading}
+                  />
+                  <TouchableOpacity
+                    style={styles.passwordToggle}
+                    onPress={() => setShowPassword(!showPassword)}
+                  >
+                    <Text style={styles.passwordToggleText}>{showPassword ? 'Hide' : 'Show'}</Text>
+                  </TouchableOpacity>
                 </View>
-              )}
+                {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
+              </View>
+
+              <View style={styles.options}>
+                <View style={styles.checkboxContainer}>
+                  <View style={styles.checkbox} />
+                  <Text style={styles.checkboxLabel}>Remember me</Text>
+                </View>
+                <TouchableOpacity onPress={handleForgotPassword} disabled={isLoading}>
+                  <Text style={styles.forgotLink}>Forgot password?</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    </View>
+          ) : (
+            // Signup Form
+            <View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Full Name *</Text>
+                <TextInput
+                  style={[styles.input, errors.fullName && styles.inputError]}
+                  value={formData.fullName}
+                  onChangeText={(text) => handleChange('fullName', text)}
+                  placeholder="Enter your full name"
+                  placeholderTextColor="#999"
+                  editable={!isLoading}
+                />
+                {errors.fullName && <Text style={styles.errorText}>{errors.fullName}</Text>}
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Email *</Text>
+                <View style={styles.verifyGroup}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      styles.verifyInput,
+                      errors.email && styles.inputError,
+                      emailVerified && styles.verifiedInput,
+                    ]}
+                    value={formData.email}
+                    onChangeText={(text) => handleChange('email', text)}
+                    placeholder="Enter your email"
+                    placeholderTextColor="#999"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    editable={!isLoading && !emailVerified}
+                  />
+                  {!emailVerified && formData.email && /\S+@\S+\.\S+/.test(formData.email) && (
+                    <TouchableOpacity
+                      style={styles.verifyButton}
+                      onPress={() => {
+                        resetEmailOtpState();
+                        setShowEmailOtpModal(true);
+                        handleSendEmailOtp();
+                      }}
+                      disabled={isLoading}
+                    >
+                      <Text style={styles.verifyButtonText}>Verify</Text>
+                    </TouchableOpacity>
+                  )}
+                  {emailVerified && (
+                    <View style={styles.verifiedBadge}>
+                      <Text style={styles.verifiedText}>✓ Verified</Text>
+                    </View>
+                  )}
+                </View>
+                {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Phone Number *</Text>
+                <View style={styles.verifyGroup}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      styles.verifyInput,
+                      errors.phoneNumber && styles.inputError,
+                      phoneVerified && styles.verifiedInput,
+                    ]}
+                    value={formData.phoneNumber}
+                    onChangeText={(text) => handleChange('phoneNumber', text)}
+                    placeholder="10 digit mobile number"
+                    placeholderTextColor="#999"
+                    maxLength={10}
+                    keyboardType="phone-pad"
+                    editable={!isLoading && !phoneVerified}
+                  />
+                  {!phoneVerified && formData.phoneNumber && /^\d{10}$/.test(formData.phoneNumber) && (
+                    <TouchableOpacity
+                      style={styles.verifyButton}
+                      onPress={() => {
+                        resetPhoneOtpState();
+                        setShowPhoneOtpModal(true);
+                        handleSendPhoneOtp();
+                      }}
+                      disabled={isLoading}
+                    >
+                      <Text style={styles.verifyButtonText}>Verify</Text>
+                    </TouchableOpacity>
+                  )}
+                  {phoneVerified && (
+                    <View style={styles.verifiedBadge}>
+                      <Text style={styles.verifiedText}>✓ Verified</Text>
+                    </View>
+                  )}
+                </View>
+                {errors.phoneNumber && <Text style={styles.errorText}>{errors.phoneNumber}</Text>}
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Age *</Text>
+                <TextInput
+                  style={[styles.input, errors.age && styles.inputError]}
+                  value={formData.age}
+                  onChangeText={(text) => handleChange('age', text)}
+                  placeholder="Your age"
+                  placeholderTextColor="#999"
+                  keyboardType="numeric"
+                  editable={!isLoading}
+                />
+                {errors.age && <Text style={styles.errorText}>{errors.age}</Text>}
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Gender *</Text>
+                <View style={styles.pickerContainer}>
+                  {genderOptions.map((gender) => (
+                    <TouchableOpacity
+                      key={gender}
+                      style={[
+                        styles.genderOption,
+                        formData.gender === gender && styles.genderOptionSelected,
+                      ]}
+                      onPress={() => handleChange('gender', gender)}
+                    >
+                      <Text
+                        style={[
+                          styles.genderOptionText,
+                          formData.gender === gender && styles.genderOptionTextSelected,
+                        ]}
+                      >
+                        {gender}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {errors.gender && <Text style={styles.errorText}>{errors.gender}</Text>}
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Password *</Text>
+                <View style={styles.passwordWrapper}>
+                  <TextInput
+                    style={[styles.input, styles.passwordInput, errors.password && styles.inputError]}
+                    value={formData.password}
+                    onChangeText={(text) => handleChange('password', text)}
+                    placeholder="Create a password"
+                    placeholderTextColor="#999"
+                    secureTextEntry={!showPassword}
+                    editable={!isLoading}
+                  />
+                  <TouchableOpacity
+                    style={styles.passwordToggle}
+                    onPress={() => setShowPassword(!showPassword)}
+                  >
+                    <Text style={styles.passwordToggleText}>{showPassword ? 'Hide' : 'Show'}</Text>
+                  </TouchableOpacity>
+                </View>
+                {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Confirm Password *</Text>
+                <View style={styles.passwordWrapper}>
+                  <TextInput
+                    style={[styles.input, styles.passwordInput, errors.confirmPassword && styles.inputError]}
+                    value={formData.confirmPassword}
+                    onChangeText={(text) => handleChange('confirmPassword', text)}
+                    placeholder="Confirm your password"
+                    placeholderTextColor="#999"
+                    secureTextEntry={!showConfirmPassword}
+                    editable={!isLoading}
+                  />
+                  <TouchableOpacity
+                    style={styles.passwordToggle}
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  >
+                    <Text style={styles.passwordToggleText}>{showConfirmPassword ? 'Hide' : 'Show'}</Text>
+                  </TouchableOpacity>
+                </View>
+                {errors.confirmPassword && <Text style={styles.errorText}>{errors.confirmPassword}</Text>}
+              </View>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[styles.submitButton, isLoading && styles.submitButtonLoading]}
+            onPress={handleSubmit}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.submitButtonText}>
+                {isLogin ? 'Login' : 'Create Account'}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          {!isLogin && (
+            <Text style={styles.termsText}>
+              By signing up, you agree to our{' '}
+              <Text style={styles.termsLink}>Terms of Service</Text> and{' '}
+              <Text style={styles.termsLink}>Privacy Policy</Text>
+            </Text>
+          )}
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#f5f5f5',
   },
-  safeArea: {
-    flex: 1,
+  scrollContainer: {
+    padding: 20,
   },
-  keyboardView: {
-    flex: 1,
+  notification: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    right: 20,
+    padding: 15,
+    borderRadius: 8,
+    zIndex: 1000,
   },
-  scrollView: {
-    flexGrow: 1,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: height * 0.05,
+  notificationsuccess: {
+    backgroundColor: '#4caf50',
+  },
+  notificationerror: {
+    backgroundColor: '#f44336',
+  },
+  notificationinfo: {
+    backgroundColor: '#2196f3',
+  },
+  notificationText: {
+    color: '#fff',
+    textAlign: 'center',
   },
   brandSection: {
-    alignItems: "center",
-    marginBottom: Spacing.xl,
+    alignItems: 'center',
+    marginBottom: 30,
   },
   logoContainer: {
-    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.md,
-  },
-  logoIconSmall: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: Spacing.sm,
-    elevation: 5,
-    shadowColor: Colors.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
+    marginBottom: 20,
   },
   logoText: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: Colors.white,
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#007AFF',
   },
-  logoHighlight: {
-    color: Colors.accent,
+  logoSubtext: {
+    fontSize: 14,
+    color: '#666',
   },
   brandTitle: {
-    ...Typography.h1,
-    color: Colors.white,
-    marginBottom: Spacing.xs,
-    textAlign: "center",
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+    textAlign: 'center',
   },
   brandSubtitle: {
-    ...Typography.body,
-    color: "rgba(255,255,255,0.8)",
-    textAlign: "center",
-    marginBottom: Spacing.md,
-    paddingHorizontal: Spacing.lg,
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
   },
   features: {
-    alignItems: "flex-start",
-    backgroundColor: "rgba(255,255,255,0.1)",
-    padding: Spacing.md,
-    borderRadius: 16,
-    width: "100%",
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
   },
   feature: {
-    color: "#fff",
-    fontSize: 14,
-    marginVertical: 4,
+    fontSize: 12,
+    color: '#666',
+    marginHorizontal: 10,
   },
   formSection: {
-    backgroundColor: Colors.white,
-    borderRadius: 30,
-    padding: Spacing.lg,
-    elevation: 20,
-    shadowColor: Colors.black,
-    shadowOffset: { width: 0, height: 10 },
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 20,
+    shadowRadius: 8,
+    elevation: 5,
   },
   formHeader: {
-    alignItems: "center",
-    marginBottom: Spacing.lg,
+    alignItems: 'center',
+    marginBottom: 20,
   },
   formTitle: {
-    ...Typography.h2,
-    color: Colors.text,
-    marginBottom: Spacing.xs,
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
   },
-  formSubtitle: {
-    ...Typography.bodySmall,
-    color: Colors.textLight,
+  toggleContainer: {
+    flexDirection: 'row',
+  },
+  toggleText: {
+    fontSize: 14,
+    color: '#666',
   },
   toggleLink: {
-    color: Colors.primary,
-    fontWeight: "bold",
-  },
-  apiError: {
-    backgroundColor: "#ffebee",
-    padding: Spacing.sm,
-    borderRadius: 10,
-    marginBottom: Spacing.md,
-  },
-  apiErrorText: {
-    color: Colors.error,
     fontSize: 14,
-    textAlign: "center",
-  },
-  verifySection: {
-    backgroundColor: "#fff3e0",
-    padding: Spacing.md,
-    borderRadius: 12,
-    marginBottom: Spacing.md,
-    alignItems: "center",
-  },
-  verifyMessage: {
-    color: "#e65100",
-    fontSize: 14,
-    marginBottom: 10,
-    textAlign: "center",
-  },
-  verifyBtn: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  verifyBtnText: {
-    color: Colors.white,
-    fontWeight: "bold",
-  },
-  verifySuccess: {
-    alignItems: "center",
-  },
-  verifySuccessText: {
-    color: Colors.success,
-    fontSize: 14,
-  },
-  form: {
-    width: "100%",
+    color: '#007AFF',
+    fontWeight: 'bold',
   },
   field: {
-    marginBottom: Spacing.md,
+    marginBottom: 15,
   },
   label: {
     fontSize: 14,
-    fontWeight: "600",
-    color: Colors.text,
-    marginBottom: Spacing.xs,
-  },
-  required: {
-    color: Colors.error,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 5,
   },
   input: {
     borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
     fontSize: 16,
-    backgroundColor: "#F8FAFC",
-    color: "#1a202c",
+    backgroundColor: '#f9f9f9',
+    color: '#333',
   },
   inputError: {
-    borderColor: Colors.error,
+    borderColor: '#f44336',
   },
   verifiedInput: {
-    borderColor: Colors.success,
-    backgroundColor: "#F0FDF4",
-  },
-  errorText: {
-    color: Colors.error,
-    fontSize: 12,
-    marginTop: 4,
+    borderColor: '#4caf50',
+    backgroundColor: '#f0fff0',
   },
   passwordWrapper: {
-    position: "relative",
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
   },
   passwordInput: {
+    flex: 1,
     paddingRight: 60,
   },
   passwordToggle: {
-    position: "absolute",
-    right: 15,
-    top: 15,
+    position: 'absolute',
+    right: 10,
+    padding: 5,
   },
-  toggleText: {
-    color: Colors.primary,
-    fontSize: 14,
-    fontWeight: "bold",
-  },
-  options: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  checkboxContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  checkboxLabel: {
-    fontSize: 14,
-    color: Colors.textLight,
-  },
-  forgotText: {
-    color: Colors.primary,
-    fontSize: 14,
-    fontWeight: "500",
+  passwordToggleText: {
+    color: '#007AFF',
+    fontWeight: '600',
   },
   verifyGroup: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   verifyInput: {
     flex: 1,
+    marginRight: 10,
   },
-  verifyButtonSm: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    minWidth: 80,
-    alignItems: "center",
-  },
-  verifyButtonSmText: {
-    color: Colors.white,
-    fontSize: 14,
-    fontWeight: "bold",
-  },
-  verifiedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F0FDF4",
+  verifyButton: {
+    backgroundColor: '#007AFF',
     paddingHorizontal: 15,
     paddingVertical: 10,
-    borderRadius: 12,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: Colors.success,
+    borderRadius: 8,
+  },
+  verifyButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  verifiedBadge: {
+    backgroundColor: '#4caf50',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 5,
   },
   verifiedText: {
-    color: Colors.success,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  genderPickerContainer: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 12,
-    backgroundColor: "#F8FAFC",
-    overflow: "hidden",
-  },
-  picker: {
-    height: 55,
-    marginLeft: 8,
-    width: "100%",
-    color: "#1a202c",
-  },
-  termsText: {
+    color: '#fff',
     fontSize: 12,
-    color: Colors.textLight,
-    textAlign: "center",
-    marginTop: Spacing.md,
   },
-  termsLink: {
-    color: Colors.primary,
-    fontWeight: "bold",
-  },
-  submitButton: {
-    height: 55,
-    borderRadius: 15,
-    overflow: "hidden",
-    marginTop: Spacing.xl,
-  },
-  submitBtnGradient: {
-    flex: 1,
+  pickerContainer: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  genderOption: {
+    flex: 1,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    marginHorizontal: 5,
+    alignItems: 'center',
+    backgroundColor: '#f9f9f9',
+  },
+  genderOptionSelected: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF',
+  },
+  genderOptionText: {
+    color: '#333',
+  },
+  genderOptionTextSelected: {
+    color: '#fff',
+  },
+  options: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: '#007AFF',
+    borderRadius: 4,
+    marginRight: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 10,
+  },
+  checkboxLabel: {
+    marginLeft: 5,
+    fontSize: 14,
+    color: '#666',
+  },
+  forgotLink: {
+    fontSize: 14,
+    color: '#007AFF',
+  },
+  submitButton: {
+    backgroundColor: '#007AFF',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 10,
   },
   submitButtonLoading: {
     opacity: 0.7,
   },
-  submitText: {
-    color: Colors.white,
+  submitButtonText: {
+    color: '#fff',
     fontSize: 16,
-    fontWeight: "bold",
+    fontWeight: 'bold',
+  },
+  termsText: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 15,
+  },
+  termsLink: {
+    color: '#007AFF',
+  },
+  errorText: {
+    color: '#f44336',
+    fontSize: 12,
+    marginTop: 5,
+  },
+  deviceConflictBox: {
+    backgroundColor: '#e3f2fd',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#007AFF',
+  },
+  deviceConflictText: {
+    color: '#007AFF',
+    marginBottom: 10,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  deviceActionButton: {
+    backgroundColor: '#007AFF',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  deviceActionText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  deviceVerifyButton: {
+    backgroundColor: '#4caf50',
+  },
+  deviceOtpRow: {
+    marginTop: 10,
+  },
+  deviceOtpInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 10,
+    backgroundColor: '#f9f9f9',
+    color: '#333',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  modalContent: {
-    backgroundColor: Colors.white,
-    borderRadius: 25,
-    width: width * 0.9,
-    padding: Spacing.lg,
-    elevation: 25,
+  modalContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    width: '85%',
+    maxWidth: 400,
+    overflow: 'hidden',
   },
   modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: Spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalIconWrapper: {
+    marginRight: 10,
   },
   modalIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#F1F5F9",
-    alignItems: "center",
-    justifyContent: "center",
+    fontSize: 24,
   },
   modalTitle: {
-    ...Typography.h3,
-    color: Colors.text,
     flex: 1,
-    textAlign: "center",
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  modalClose: {
+    padding: 5,
+  },
+  modalCloseText: {
+    fontSize: 20,
+    color: '#999',
   },
   modalBody: {
-    alignItems: "center",
+    padding: 20,
   },
   modalText: {
-    ...Typography.bodySmall,
-    color: Colors.textLight,
-    marginBottom: 4,
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 10,
   },
   modalRecipient: {
-    ...Typography.h3,
-    color: Colors.primary,
-    marginBottom: Spacing.lg,
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 20,
   },
   otpInput: {
-    width: "100%",
-    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 20,
+    textAlign: 'center',
+    letterSpacing: 4,
+    marginBottom: 15,
+    backgroundColor: '#f9f9f9',
+    color: '#333',
   },
-  otpDigitBox: {
-    minHeight: 58,
-    borderColor: Colors.border,
-    backgroundColor: "#F8FAFC",
-  },
-  otpDigitBoxFocused: {
-    borderColor: Colors.primary,
-  },
-  otpDigitBoxSuccess: {
-    borderColor: Colors.success,
-    backgroundColor: "#F0FDF4",
-  },
-  otpDigitText: {
-    color: Colors.text,
-  },
-  otpError: {
-    color: Colors.error,
-    fontSize: 12,
-    marginBottom: Spacing.md,
+  otpInputSuccess: {
+    borderColor: '#4caf50',
+    backgroundColor: '#f0fff0',
   },
   modalActions: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    width: "100%",
-    marginBottom: Spacing.md,
-    gap: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 15,
+  },
+  modalButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 5,
   },
   verifyButton: {
-    backgroundColor: Colors.primary,
-    paddingVertical: 12,
-    borderRadius: 12,
-    flex: 1,
-    alignItems: "center",
-  },
-  verifyButtonText: {
-    color: Colors.white,
-    fontWeight: "bold",
+    backgroundColor: '#007AFF',
   },
   resendButton: {
-    backgroundColor: "#F1F5F9",
-    paddingVertical: 12,
-    borderRadius: 12,
-    flex: 1,
-    alignItems: "center",
+    backgroundColor: '#4caf50',
   },
-  resendButtonText: {
-    color: Colors.text,
-  },
-  disabledButton: {
-    opacity: 0.5,
+  modalButtonText: {
+    color: '#fff',
+    fontWeight: '600',
   },
   successContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: Spacing.sm,
-    gap: 6,
+    alignItems: 'center',
+    marginTop: 10,
   },
   successText: {
-    color: Colors.success,
+    color: '#4caf50',
     fontSize: 14,
-    fontWeight: "600",
   },
 });
 

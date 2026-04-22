@@ -22,9 +22,21 @@ export const setAccessToken = async (token) => {
 };
 
 export const getAccessToken = async () => {
-  return AsyncStorage.getItem("accessToken");
+  let token = await AsyncStorage.getItem("accessToken");
+  if (!token) token = await AsyncStorage.getItem("token");
+  return token;
 };
 
 export const clearAuthData = async () => {
-  await AsyncStorage.multiRemove(["userEmail", "isVerified", "accessToken", "token"]);
+  await AsyncStorage.multiRemove([
+    "userEmail",
+    "isVerified",
+    "accessToken",
+    "token",
+    "refreshToken",
+    "userData",
+    "userRole",
+    "userId",
+    "counsellorId",
+  ]);
 };

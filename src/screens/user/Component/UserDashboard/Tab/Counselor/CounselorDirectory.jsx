@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   ScrollView,
   TouchableOpacity,
   FlatList,
+  ActivityIndicator,
+  Image,
   StyleSheet,
   Dimensions,
   Platform,
@@ -13,140 +15,173 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
+import { useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import { API_BASE_URL } from '../../../../../../axiosConfig';
+import { useToast } from '../../../../../../components/common/ToastProvider';
 
 const { width, height } = Dimensions.get('window');
+const isSmallScreen = width < 380;
 
 const CounselorTable = () => {
+  const navigation = useNavigation();
+  const { showToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [sortBy, setSortBy] = useState('name');
+  const [counselorsData, setCounselorsData] = useState([]);
+  const [isFetching, setIsFetching] = useState(true);
+  const [fetchError, setFetchError] = useState('');
+  const [bookingCounselorId, setBookingCounselorId] = useState(null);
+  const [imageLoadFailures, setImageLoadFailures] = useState({});
+  const [acceptedChatsByCounselorId, setAcceptedChatsByCounselorId] = useState({});
 
-  // Enhanced sample data with more fields for richness
-  const counselorsData = [
-    {
-      id: 1,
-      name: "Dr. Priya Sharma",
-      specialization: "Clinical Psychologist",
-      treatmentTypes: ["Depression", "Anxiety", "Stress", "Trauma"],
-      experience: "12 yrs",
-      languages: ["Hindi", "English"],
-      rating: 4.8,
-      fee: "₹1200",
-      availability: "Today",
-      patients: 1240,
-      avatar: "PS"
-    },
-    {
-      id: 2,
-      name: "Dr. Rajesh Kumar",
-      specialization: "Psychiatrist",
-      treatmentTypes: ["Bipolar", "Schizophrenia", "OCD", "ADHD"],
-      experience: "15 yrs",
-      languages: ["Hindi", "English", "Urdu"],
-      rating: 4.9,
-      fee: "₹1500",
-      availability: "Tomorrow",
-      patients: 2350,
-      avatar: "RK"
-    },
-    {
-      id: 3,
-      name: "Dr. Sneha Patel",
-      specialization: "Child Psychologist",
-      treatmentTypes: ["Autism", "ADHD", "Learning", "Behavioral"],
-      experience: "8 yrs",
-      languages: ["Gujarati", "Hindi", "English"],
-      rating: 4.7,
-      fee: "₹1000",
-      availability: "Today",
-      patients: 890,
-      avatar: "SP"
-    },
-    {
-      id: 4,
-      name: "Dr. Amit Verma",
-      specialization: "Marriage Counselor",
-      treatmentTypes: ["Relationship", "Couple", "Divorce", "Family"],
-      experience: "10 yrs",
-      languages: ["Hindi", "English", "Bengali"],
-      rating: 4.6,
-      fee: "₹1100",
-      availability: "Now",
-      patients: 1560,
-      avatar: "AV"
-    },
-    {
-      id: 5,
-      name: "Dr. Neha Gupta",
-      specialization: "Addiction Counselor",
-      treatmentTypes: ["Substance", "Alcohol", "Gambling", "Recovery"],
-      experience: "9 yrs",
-      languages: ["Hindi", "English", "Marathi"],
-      rating: 4.9,
-      fee: "₹1300",
-      availability: "Today",
-      patients: 980,
-      avatar: "NG"
-    },
-    {
-      id: 6,
-      name: "Dr. Vikram Singh",
-      specialization: "Trauma Specialist",
-      treatmentTypes: ["PTSD", "Childhood Trauma", "Abuse", "Grief"],
-      experience: "14 yrs",
-      languages: ["Hindi", "English", "Punjabi"],
-      rating: 4.8,
-      fee: "₹1400",
-      availability: "Tomorrow",
-      patients: 1870,
-      avatar: "VS"
-    },
-    {
-      id: 7,
-      name: "Dr. Anjali Mehta",
-      specialization: "Cognitive Therapist",
-      treatmentTypes: ["Anxiety", "Depression", "Phobias", "Panic"],
-      experience: "11 yrs",
-      languages: ["Hindi", "English", "Sanskrit"],
-      rating: 4.8,
-      fee: "₹1250",
-      availability: "Today",
-      patients: 1430,
-      avatar: "AM"
-    },
-    {
-      id: 8,
-      name: "Dr. Suresh Reddy",
-      specialization: "Neuro Psychologist",
-      treatmentTypes: ["Memory Issues", "Brain Injury", "Dementia", "Stroke"],
-      experience: "16 yrs",
-      languages: ["Telugu", "Hindi", "English"],
-      rating: 4.9,
-      fee: "₹1600",
-      availability: "Now",
-      patients: 2120,
-      avatar: "SR"
+  const getStoredToken = useCallback(async () => {
+    const accessToken = await AsyncStorage.getItem('accessToken');
+    const token = await AsyncStorage.getItem('token');
+    return accessToken || token;
+  }, []);
+
+  const getStoredUserRole = useCallback(async () => {
+    const explicitRole = await AsyncStorage.getItem('userRole');
+    if (explicitRole) return String(explicitRole).toLowerCase();
+
+    const userDataRaw = await AsyncStorage.getItem('userData');
+    if (!userDataRaw) return '';
+
+    try {
+      const parsed = JSON.parse(userDataRaw);
+      return String(parsed?.role || '').toLowerCase();
+    } catch (parseError) {
+      console.warn('Unable to parse stored userData role:', parseError);
+      return '';
     }
-  ];
+  }, []);
 
-  // All treatment types (used for filter chips)
-  const allTreatments = [
-    "Depression", "Anxiety", "Stress", "Trauma", "Bipolar", 
-    "Schizophrenia", "OCD", "ADHD", "Autism", "Learning",
-    "Relationship", "Couple", "Divorce", "Family", "Substance",
-    "Alcohol", "PTSD", "Abuse", "Grief", "Phobias", "Dementia"
-  ];
+  const getInitials = (name) => {
+    if (!name) return 'CN';
+    return name
+      .split(' ')
+      .map((word) => word?.[0] || '')
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
+
+  const normalizeCounselor = useCallback((c, index) => {
+    const specializationList = Array.isArray(c?.specialization)
+      ? c.specialization
+      : c?.specialization
+        ? [c.specialization]
+        : ['General'];
+
+    const experienceYears = Number.isFinite(Number(c?.experience))
+      ? Number(c.experience)
+      : 0;
+
+    const sessionFeeRaw = Number(c?.sessionFee || c?.fee || 0);
+    const sessionFee = Number.isFinite(sessionFeeRaw) && sessionFeeRaw > 0 ? sessionFeeRaw : 0;
+
+    return {
+      id: c?._id || c?.id || `c-${index}`,
+      name: c?.fullName || c?.name || 'Counselor',
+      specialization: specializationList.join(', '),
+      treatmentTypes: specializationList,
+      experience: `${experienceYears} yrs`,
+      languages: Array.isArray(c?.languages) && c.languages.length > 0 ? c.languages : ['English'],
+      rating: Number(c?.rating) || 4.5,
+      fee: sessionFee > 0 ? `₹${sessionFee}` : '₹0',
+      availability: c?.isActive ? 'Now' : 'Today',
+      patients: Number(c?.totalSessions) || 0,
+      avatar: getInitials(c?.fullName || c?.name),
+      profilePhoto: c?.profilePhoto?.url || c?.profilePhoto || c?.avatar || null,
+      isActive: Boolean(c?.isActive),
+    };
+  }, []);
+
+  const fetchCounselors = useCallback(async () => {
+    try {
+      setIsFetching(true);
+      setFetchError('');
+
+      const token = await getStoredToken();
+      const response = await axios.get(`${API_BASE_URL}/api/auth/counsellors`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      const list = response?.data?.counsellors;
+      if (!Array.isArray(list)) {
+        throw new Error('Invalid counselors response');
+      }
+
+      setCounselorsData(list.map(normalizeCounselor));
+    } catch (error) {
+      console.error('Error fetching counselors:', error);
+      setCounselorsData([]);
+      setFetchError(error?.response?.data?.message || error?.message || 'Failed to load counselors');
+    } finally {
+      setIsFetching(false);
+    }
+  }, [getStoredToken, normalizeCounselor]);
+
+  const fetchAcceptedChats = useCallback(async () => {
+    try {
+      const token = await getStoredToken();
+      if (!token) {
+        setAcceptedChatsByCounselorId({});
+        return;
+      }
+
+      const response = await axios.get(`${API_BASE_URL}/api/chat/chats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const chats = Array.isArray(response?.data?.chats) ? response.data.chats : [];
+      const nextMap = {};
+
+      chats.forEach((chat) => {
+        const status = String(chat?.status || '').toLowerCase();
+        const counselorId = chat?.otherParty?.id;
+        const chatId = chat?.chatId || chat?.id;
+
+        if ((status === 'accepted' || status === 'active') && counselorId && chatId) {
+          nextMap[String(counselorId)] = {
+            chatId: String(chatId),
+            status,
+          };
+        }
+      });
+
+      setAcceptedChatsByCounselorId(nextMap);
+    } catch (error) {
+      console.error('Error fetching active chats:', error);
+      setAcceptedChatsByCounselorId({});
+    }
+  }, [getStoredToken]);
+
+  useEffect(() => {
+    fetchCounselors();
+    fetchAcceptedChats();
+  }, [fetchCounselors, fetchAcceptedChats]);
+
+  // Build treatment chips from real API results
+  const allTreatments = Array.from(
+    new Set(counselorsData.flatMap((counselor) => counselor.treatmentTypes || []))
+  );
 
   // Filter counselors based on search and category
   const filteredCounselors = counselorsData.filter(counselor => {
+    const treatmentTypes = counselor.treatmentTypes || [];
+    const languages = counselor.languages || [];
     const matchesSearch = 
       counselor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       counselor.specialization.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      counselor.treatmentTypes.some(t => t.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      counselor.languages.some(l => l.toLowerCase().includes(searchTerm.toLowerCase()));
+      treatmentTypes.some(t => t.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      languages.some(l => l.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const matchesCategory = selectedCategory === 'all' || 
-      counselor.treatmentTypes.some(t => t.toLowerCase() === selectedCategory.toLowerCase());
+      treatmentTypes.some(t => t.toLowerCase() === selectedCategory.toLowerCase());
 
     return matchesSearch && matchesCategory;
   });
@@ -154,8 +189,10 @@ const CounselorTable = () => {
   // Sort counselors
   const sortedCounselors = [...filteredCounselors].sort((a, b) => {
     if (sortBy === 'rating') return b.rating - a.rating;
-    if (sortBy === 'fee') return parseInt(a.fee.replace('₹', '')) - parseInt(b.fee.replace('₹', ''));
-    if (sortBy === 'experience') return parseInt(b.experience) - parseInt(a.experience);
+    if (sortBy === 'fee') {
+      return parseInt(String(a.fee || '0').replace('₹', ''), 10) - parseInt(String(b.fee || '0').replace('₹', ''), 10);
+    }
+    if (sortBy === 'experience') return parseInt(String(b.experience || '0'), 10) - parseInt(String(a.experience || '0'), 10);
     return a.name.localeCompare(b.name);
   });
 
@@ -177,17 +214,177 @@ const CounselorTable = () => {
     return stars;
   };
 
-  const renderCounselorCard = ({ item }) => (
+  const handleBookSession = useCallback(async (counselor) => {
+    const counselorId = counselor?.id;
+    if (!counselorId) {
+      showToast({
+        type: 'error',
+        title: 'Invalid Counselor',
+        message: 'Counselor ID is missing',
+      });
+      return;
+    }
+
+    try {
+      setBookingCounselorId(String(counselorId));
+      const token = await getStoredToken();
+      const role = await getStoredUserRole();
+      const existingAcceptedChat = acceptedChatsByCounselorId[String(counselorId)];
+
+      if (!token) {
+        showToast({
+          type: 'warning',
+          title: 'Login Required',
+          message: 'Please login to book a session.',
+        });
+        return;
+      }
+
+      if (existingAcceptedChat?.chatId) {
+        navigation.navigate('ChatBox', {
+          chatId: existingAcceptedChat.chatId,
+          counselor: {
+            id: counselor.id,
+            name: counselor.name,
+            specialization: counselor.specialization,
+            online: counselor.isActive,
+          },
+        });
+        return;
+      }
+
+      if (role && role !== 'user') {
+        showToast({
+          type: 'error',
+          title: 'Access Denied',
+          message: 'Only user accounts can book counselor sessions.',
+        });
+        return;
+      }
+
+      const response = await axios.post(
+        `${API_BASE_URL}/api/chat/start`,
+        { counselorId },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const chatId = response?.data?.chat?.chatId || response?.data?.chatId || null;
+      const chatStatus = String(response?.data?.chat?.status || '').toLowerCase();
+
+      if (chatStatus === 'accepted' || chatStatus === 'active') {
+        setAcceptedChatsByCounselorId((prev) => ({
+          ...prev,
+          [String(counselorId)]: {
+            chatId: String(chatId),
+            status: chatStatus,
+          },
+        }));
+
+        navigation.navigate('ChatBox', {
+          chatId,
+          counselor: {
+            id: counselor.id,
+            name: counselor.name,
+            specialization: counselor.specialization,
+            online: counselor.isActive,
+          },
+        });
+        return;
+      }
+
+      showToast({
+        type: 'success',
+        title: 'Request Sent',
+        message:
+          response?.data?.message ||
+          `Session request sent to ${counselor.name}. Please wait for counselor acceptance.`,
+      });
+    } catch (error) {
+      console.error('Error booking session:', error);
+
+      const statusCode = error?.response?.status;
+      const apiErrorMessage = error?.response?.data?.error || error?.response?.data?.message || 'Failed to book session';
+      const existingChatId = error?.response?.data?.chatId || null;
+      const lowerMessage = String(apiErrorMessage).toLowerCase();
+
+      if (
+        statusCode === 400 &&
+        existingChatId &&
+        (lowerMessage.includes('already active') || lowerMessage.includes('continue your conversation'))
+      ) {
+        setAcceptedChatsByCounselorId((prev) => ({
+          ...prev,
+          [String(counselorId)]: {
+            chatId: String(existingChatId),
+            status: 'accepted',
+          },
+        }));
+
+        navigation.navigate('ChatBox', {
+          chatId: existingChatId,
+          counselor: {
+            id: counselor.id,
+            name: counselor.name,
+            specialization: counselor.specialization,
+            online: counselor.isActive,
+          },
+        });
+        return;
+      }
+
+      if (statusCode === 403) {
+        showToast({
+          type: 'error',
+          title: 'Access Denied',
+          message: 'Only user accounts can request counselor chats. Please login with a user account.',
+        });
+        return;
+      }
+
+      showToast({
+        type: 'error',
+        title: 'Request Failed',
+        message: apiErrorMessage,
+      });
+    } finally {
+      setBookingCounselorId(null);
+    }
+  }, [acceptedChatsByCounselorId, getStoredToken, getStoredUserRole, navigation, showToast]);
+
+  const renderCounselorCard = ({ item }) => {
+    const acceptedChat = acceptedChatsByCounselorId[String(item.id)];
+    const isAccepted = Boolean(acceptedChat?.chatId);
+
+    return (
     <View style={styles.counselorCard}>
       {/* Card header with avatar and availability */}
       <View style={styles.cardHeader}>
         <View style={styles.counselorAvatar}>
-          <Text style={styles.avatarText}>{item.avatar}</Text>
+          {item.profilePhoto && !imageLoadFailures[item.id] ? (
+            <Image
+              source={{ uri: item.profilePhoto }}
+              style={styles.counselorAvatarImage}
+              onError={() => {
+                setImageLoadFailures((prev) => ({ ...prev, [item.id]: true }));
+              }}
+            />
+          ) : (
+            <Text style={styles.avatarText}>{item.avatar}</Text>
+          )}
         </View>
         <View style={styles.counselorBasic}>
-          <Text style={styles.counselorName}>{item.name}</Text>
+          <Text style={styles.counselorName} numberOfLines={1}>
+            {item.name}
+          </Text>
           <View style={styles.specializationBadge}>
-            <Text style={styles.counselorSpecialization}>{item.specialization}</Text>
+            <Text style={styles.counselorSpecialization} numberOfLines={1}>
+              {item.specialization}
+            </Text>
           </View>
         </View>
         <View style={[styles.availabilityBadge, item.availability === 'Now' && styles.availabilityNow]}>
@@ -243,12 +440,30 @@ const CounselorTable = () => {
             </View>
           ))}
         </View>
-        <TouchableOpacity style={styles.bookBtn}>
-          <Text style={styles.bookBtnText}>Book session</Text>
+        <View style={styles.actionRow}>
+        <TouchableOpacity
+          style={[
+            styles.bookBtn,
+            isSmallScreen && styles.bookBtnSmall,
+            isAccepted && styles.bookBtnAccepted,
+            bookingCounselorId === String(item.id) && styles.bookBtnDisabled,
+          ]}
+          onPress={() => handleBookSession(item)}
+          disabled={bookingCounselorId === String(item.id)}
+        >
+          <Text style={styles.bookBtnText}>
+            {bookingCounselorId === String(item.id)
+              ? 'Booking...'
+              : isAccepted
+                ? 'Accepted'
+                : 'Book session'}
+          </Text>
         </TouchableOpacity>
+        </View>
       </View>
     </View>
-  );
+    );
+  };
 
   const renderFilterChip = (treatment, index) => (
     <TouchableOpacity
@@ -341,16 +556,32 @@ const CounselorTable = () => {
               <Text style={[styles.sortBtnText, sortBy === 'experience' && styles.sortBtnTextActive]}>Experience</Text>
             </TouchableOpacity>
           </ScrollView>
-          <View style={styles.resultCount}>
-            <Text style={styles.resultCountText}>
-              {sortedCounselors.length} {sortedCounselors.length === 1 ? 'counselor' : 'counselors'} found
-            </Text>
+          <View style={styles.resultCountRow}>
+            <View style={styles.resultCount}>
+              <Text style={styles.resultCountText}>
+                {sortedCounselors.length} {sortedCounselors.length === 1 ? 'counselor' : 'counselors'} found
+              </Text>
+            </View>
           </View>
         </View>
 
         {/* Cards Grid */}
         <View style={styles.counselorGrid}>
-          {sortedCounselors.length > 0 ? (
+          {isFetching ? (
+            <View style={styles.centerState}>
+              <ActivityIndicator size="large" color="#2563eb" />
+              <Text style={styles.centerStateText}>Loading counselors...</Text>
+            </View>
+          ) : fetchError ? (
+            <View style={styles.centerState}>
+              <MaterialIcons name="error-outline" size={46} color="#dc2626" />
+              <Text style={styles.errorTitle}>Unable to load counselors</Text>
+              <Text style={styles.errorSubtitle}>{fetchError}</Text>
+              <TouchableOpacity style={styles.retryBtn} onPress={fetchCounselors}>
+                <Text style={styles.retryBtnText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : sortedCounselors.length > 0 ? (
             <FlatList
               data={sortedCounselors}
               renderItem={renderCounselorCard}
@@ -479,14 +710,13 @@ const styles = StyleSheet.create({
   },
   // Sort Bar
   sortBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap',
+    flexDirection: 'column',
+    alignItems: 'stretch',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
+    paddingBottom: 10,
     backgroundColor: 'white',
-    borderRadius: 60,
+    borderRadius: 20,
     marginHorizontal: 16,
     marginBottom: 20,
     shadowColor: '#002040',
@@ -499,6 +729,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    paddingRight: 8,
+    minHeight: 38,
   },
   sortLabel: {
     color: '#62748e',
@@ -531,6 +763,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 30,
+  },
+  resultCountRow: {
+    marginTop: 10,
+    alignItems: 'flex-end',
   },
   resultCountText: {
     fontSize: 12,
@@ -574,6 +810,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
+    overflow: 'hidden',
+  },
+  counselorAvatarImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
   },
   avatarText: {
     fontSize: 18,
@@ -582,12 +824,14 @@ const styles = StyleSheet.create({
   },
   counselorBasic: {
     flex: 1,
+    marginRight: 8,
   },
   counselorName: {
     fontSize: 16,
     fontWeight: '700',
     color: '#14253d',
     marginBottom: 4,
+    lineHeight: 20,
   },
   specializationBadge: {
     backgroundColor: '#e9f0ff',
@@ -681,16 +925,14 @@ const styles = StyleSheet.create({
   },
   // Card Footer
   cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
+    marginTop: 2,
+    gap: 10,
   },
   languages: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
+    minHeight: 24,
   },
   language: {
     backgroundColor: '#ebf3ff',
@@ -705,16 +947,32 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#3a5f8b',
   },
+  actionRow: {
+    width: '100%',
+    alignItems: 'stretch',
+  },
   bookBtn: {
     backgroundColor: '#1a3f6e',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 40,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: '#0b1e33',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 6,
     elevation: 3,
+  },
+  bookBtnSmall: {
+    paddingVertical: 9,
+  },
+  bookBtnAccepted: {
+    backgroundColor: '#0f766e',
+  },
+  bookBtnDisabled: {
+    opacity: 0.7,
   },
   bookBtnText: {
     fontSize: 13,
@@ -741,6 +999,46 @@ const styles = StyleSheet.create({
   noResultsSubtitle: {
     fontSize: 14,
     color: '#6f8bb0',
+  },
+  centerState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'white',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#d7e3f7',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  centerStateText: {
+    marginTop: 12,
+    color: '#3f5680',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  errorTitle: {
+    marginTop: 10,
+    color: '#8f1239',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  errorSubtitle: {
+    marginTop: 6,
+    color: '#7f1d1d',
+    textAlign: 'center',
+    fontSize: 13,
+  },
+  retryBtn: {
+    marginTop: 14,
+    backgroundColor: '#1d4ed8',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  retryBtnText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
 

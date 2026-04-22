@@ -66,22 +66,23 @@ const RoleSelector = () => {
   };
   
   const handleRoleSelect = async (role) => {
-    setSelectedRole(role);
+    const normalizedRole = role === 'counsellor' ? 'counselor' : role;
+    setSelectedRole(normalizedRole);
     setIsLoading(true);
     
     try {
       await AsyncStorage.removeItem('userRole');
       await AsyncStorage.removeItem('userType');
-      await AsyncStorage.setItem('role', role);
+      await AsyncStorage.setItem('role', normalizedRole);
       
-      console.log(role + " selected");
+      console.log(normalizedRole + " selected");
       
       setTimeout(() => {
         setIsLoading(false);
-        if (role === 'user') {
-          navigation.replace('UserSignup');
-        } else if (role === 'counselor') {
-          navigation.replace('CounselorSignup');
+        if (normalizedRole === 'user') {
+          navigation.replace('UserSignup', { role: 'user' });
+        } else if (normalizedRole === 'counselor') {
+          navigation.replace('CounselorSignup', { role: 'counselor' });
         }
       }, 600);
     } catch (error) {
@@ -141,11 +142,11 @@ const RoleSelector = () => {
                   <Text style={styles.roleHint}>personal dashboard</Text>
                   <View style={styles.microDivider} />
                   <Text style={styles.footerNote}>explore</Text>
-                  {selectedRole === 'user' && isLoading && (
+                  {selectedRole === 'user' && isLoading ? (
                     <View style={styles.loadingOverlay}>
                       <ActivityIndicator size="large" color="#667eea" />
                     </View>
-                  )}
+                  ) : null}
                 </Animated.View>
               </TouchableOpacity>
               
@@ -173,11 +174,11 @@ const RoleSelector = () => {
                   <Text style={styles.roleHint}>professional toolkit</Text>
                   <View style={styles.microDivider} />
                   <Text style={styles.footerNote}>guide</Text>
-                  {selectedRole === 'counselor' && isLoading && (
+                  {selectedRole === 'counselor' && isLoading ? (
                     <View style={styles.loadingOverlay}>
                       <ActivityIndicator size="large" color="#f5576c" />
                     </View>
-                  )}
+                  ) : null}
                 </Animated.View>
               </TouchableOpacity>
             </View>

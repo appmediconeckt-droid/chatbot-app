@@ -36,6 +36,7 @@ import CounselorProfile from "../Tab/Profile-Con/CounselorProfile";
 import VideoCallModal from "../../UserDashboard/Tab/CallModal/VideoCallModal";
 import VoiceCallModal from "../../UserDashboard/Tab/CallModal/VoiceCallModal";
 import safeVibrate from "../../../../../utils/safeVibrate";
+import { useToast } from "../../../../../components/common/ToastProvider";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -124,9 +125,9 @@ const IncomingCallModal = ({
             <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
               <View style={styles.incomingCallAvatar}>
                 {callerImage &&
-                (callerImage === "👨" ||
-                  callerImage === "👩" ||
-                  callerImage === "👤") ? (
+                  (callerImage === "👨" ||
+                    callerImage === "👩" ||
+                    callerImage === "👤") ? (
                   <Text style={styles.avatarEmojiLarge}>{callerImage}</Text>
                 ) : callerImage ? (
                   <Image source={{ uri: callerImage }} style={styles.avatarImage} />
@@ -174,33 +175,6 @@ const IncomingCallModal = ({
   );
 };
 
-// Toast Component
-const ToastMessage = ({ visible, message, type, onHide }) => {
-  useEffect(() => {
-    if (visible) {
-      const timer = setTimeout(() => {
-        onHide();
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [visible]);
-
-  if (!visible) return null;
-
-  return (
-    <Animated.View
-      style={[
-        styles.toastContainer,
-        type === "success" && styles.toastSuccess,
-        type === "error" && styles.toastError,
-        type === "info" && styles.toastInfo,
-      ]}
-    >
-      <Text style={styles.toastText}>{message}</Text>
-    </Animated.View>
-  );
-};
-
 // Main Component
 export default function CounselorDashboard() {
   const [activeTab, setActiveTab] = useState("messages");
@@ -221,13 +195,14 @@ export default function CounselorDashboard() {
   const [waitingCalls, setWaitingCalls] = useState([]);
   const [isPolling, setIsPolling] = useState(true);
   const [counselorData, setCounselorData] = useState(null);
+  const [counsellorId, setCounsellorId] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState({ visible: false, message: "", type: "info" });
   const [refreshing, setRefreshing] = useState(false);
   const [pollingInterval, setPollingInterval] = useState(null);
 
   const navigation = useNavigation();
   const { vibrate } = useVibration();
+  const { showToast: showAppToast } = useToast();
 
   // Check mobile screen
   useEffect(() => {
@@ -663,7 +638,11 @@ export default function CounselorDashboard() {
   };
 
   const showToast = (message, type = "info") => {
-    setToast({ visible: true, message, type });
+    showAppToast({
+      message,
+      type,
+      duration: 3200,
+    });
   };
 
   // Poll for pending requests every 10 seconds
@@ -704,19 +683,24 @@ export default function CounselorDashboard() {
   useEffect(() => {
     const fetchCounsellor = async () => {
       try {
-        const counsellorId = await AsyncStorage.getItem("counsellorId");
-        const token = await AsyncStorage.getItem("token");
+        // Support both possible AsyncStorage keys (counsellorId or counselorId)
+        const storedCounsellorId = (await AsyncStorage.getItem("counsellorId")) || (await AsyncStorage.getItem("counselorId"));
 
-        if (!counsellorId) {
+        if (!storedCounsellorId) {
           setLoading(false);
           return;
         }
 
-        const res = await axios.get(`${API_BASE_URL}/api/auth/counsellors/${counsellorId}`, {
-          headers: { Authorization: `Bearer ${token}` },
+        setCounsellorId(storedCounsellorId);
+
+        // Read access token (support both 'accessToken' and legacy 'token')
+        const token = (await AsyncStorage.getItem("accessToken")) || (await AsyncStorage.getItem("token"));
+
+        const res = await axios.get(`${API_BASE_URL}/api/auth/counsellors/${storedCounsellorId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
 
-        const data = res.data.counsellor;
+        const data = res.data?.counsellor;
         let profilePhotoUrl = null;
         if (data.profilePhoto) {
           if (typeof data.profilePhoto === "string") profilePhotoUrl = data.profilePhoto;
@@ -868,7 +852,7 @@ export default function CounselorDashboard() {
           isOpen={isVideoModalOpen}
           onClose={handleCloseVideoModal}
           callData={selectedCall}
-          currentUser={{ id: AsyncStorage.getItem("counsellorId"), role: "counsellor" }}
+          currentUser={{ id: counsellorId, role: "counsellor" }}
           onEndCall={handleEndCall}
         />
 
@@ -877,51 +861,32 @@ export default function CounselorDashboard() {
           isOpen={isVoiceModalOpen}
           onClose={handleCloseVideoModal}
           callData={selectedCall}
+          currentUser={{ id: counsellorId, role: "counsellor" }}
           onEndCall={handleEndCall}
-        />
-
-        {/* Toast Message */}
-        <ToastMessage
-          visible={toast.visible}
-          message={toast.message}
-          type={toast.type}
-          onHide={() => setToast({ ...toast, visible: false })}
         />
 
         {/* Desktop Sidebar */}
         {!isMobile && (
           <View style={styles.sidebar}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.sidebarHeader}>
-                <View style={styles.profileContainer}>
-                  {counselorData?.profilePhoto ? (
-                    <Image source={{ uri: counselorData.profilePhoto }} style={styles.profileAvatar} />
-                  ) : (
-                    <View style={styles.profileAvatarPlaceholder}>
-                      <Icon name="user-circle" size={50} color="#6B46C1" />
-                    </View>
-                  )}
-                  <Text style={styles.profileName}>{counselorData?.name || "Counselor"}</Text>
-                  <Text style={styles.profileSpecialization}>
-                    {counselorData?.specialization || "Not specified"}
-                  </Text>
-                  <View style={styles.profileMetaInfo}>
-                    <View style={styles.metaItem}>
-                      <Icon name="envelope" size={12} color="#718096" />
-                      <Text style={styles.profileEmail}>{counselorData?.email || "Not specified"}</Text>
-                    </View>
-                    <View style={styles.metaItem}>
-                      <Icon name="phone" size={12} color="#718096" />
-                      <Text style={styles.profilePhone}>{counselorData?.phoneNumber || "Not specified"}</Text>
-                    </View>
-                    <View style={styles.metaItem}>
-                      <Icon name="briefcase" size={12} color="#718096" />
-                      <Text style={styles.profileExperience}>{counselorData?.experience || "0 years"}</Text>
-                    </View>
-                  </View>
+            <View style={styles.sidebarHeader}>
+              <View style={styles.profileContainer}>
+                {counselorData?.profilePhoto ? (
+                  <Image source={{ uri: counselorData.profilePhoto }} style={styles.profileAvatar} />
+                ) : (
+                  <Icon name="user-circle" size={80} color="#6B46C1" />
+                )}
+                <Text style={styles.profileName}>{counselorData?.name || "Counselor"}</Text>
+                <Text style={styles.profileSpecialization}>
+                  {counselorData?.specialization || "Not specified"}
+                </Text>
+                <View style={[styles.ratingBadge, { marginTop: 4 }]}>
+                  <Icon name="star" size={14} color="#FBBF24" />
+                  <Text style={styles.ratingText}>{counselorData?.rating || 0}</Text>
                 </View>
               </View>
+            </View>
 
+            <ScrollView style={styles.sidebarNavScrollView} showsVerticalScrollIndicator={false}>
               <View style={styles.sidebarNav}>
                 {navItems.map((item) => (
                   <TouchableOpacity
@@ -929,7 +894,7 @@ export default function CounselorDashboard() {
                     style={[styles.navItem, activeTab === item.id && styles.navItemActive]}
                     onPress={() => handleTabChange(item.id)}
                   >
-                    <Icon name={item.icon} size={20} color={activeTab === item.id ? "#fff" : "#718096"} />
+                    <Icon name={item.icon} size={20} color={activeTab === item.id ? "#fff" : "#94A3B8"} />
                     <Text style={[styles.navLabel, activeTab === item.id && styles.navLabelActive]}>
                       {item.label}
                     </Text>
@@ -940,29 +905,31 @@ export default function CounselorDashboard() {
                     )}
                   </TouchableOpacity>
                 ))}
-                <TouchableOpacity style={[styles.navItem, styles.navItemLogout]} onPress={() => setShowLogoutConfirm(true)}>
-                  <Icon name="sign-out-alt" size={20} color="#E53E3E" />
-                  <Text style={[styles.navLabel, styles.navLabelLogout]}>Logout</Text>
-                </TouchableOpacity>
               </View>
             </ScrollView>
+            <View style={styles.sidebarFooter}>
+              <TouchableOpacity style={[styles.navItem, styles.navItemLogout]} onPress={() => setShowLogoutConfirm(true)}>
+                <Icon name="sign-out-alt" size={20} color="#E53E3E" />
+                <Text style={[styles.navLabel, styles.navLabelLogout]}>Logout</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
-        {/* Mobile Header - Improved with Icons and Background */}
+        {/* Mobile Header - Transparent, No Background Color */}
         {isMobile && (
           <View style={styles.mobileHeader}>
             <TouchableOpacity style={styles.menuToggle} onPress={() => setShowMobileMenu(!showMobileMenu)}>
-              <Icon name={showMobileMenu ? "times" : "bars"} size={22} color="white" />
+              <Icon name={showMobileMenu ? "times" : "bars"} size={24} color="#FFFFFF" />
             </TouchableOpacity>
             <View style={styles.mobileTitle}>
               <Text style={styles.mobileTitleText}>Counselor Dashboard</Text>
-            </View>
-            <View style={styles.headerIcons}>
-              <Icon name="camera" size={18} color="white" style={styles.headerIcon} />
-              <Icon name="battery-full" size={18} color="white" style={styles.headerIcon} />
-              <Icon name="mobile-screen" size={18} color="white" style={styles.headerIcon} />
-            </View>
+              <Text style={styles.mobileDate}>
+                {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              </Text>
+            </View>;''
+            {/* Notification icon removed as requested */}
+            <View style={styles.mobilePlaceholder} />
           </View>
         )}
 
@@ -981,35 +948,36 @@ export default function CounselorDashboard() {
                   <Text style={styles.profileSpecialization}>
                     {counselorData?.specialization || "Not specified"}
                   </Text>
-                  <View style={styles.ratingBadge}>
+                  <View style={[styles.ratingBadge, { marginTop: 4 }]}>
                     <Icon name="star" size={14} color="#FBBF24" />
                     <Text style={styles.ratingText}>{counselorData?.rating || 0}</Text>
                   </View>
-                  <Text style={styles.profileEmail}>{counselorData?.email || "Not specified"}</Text>
-                  <Text style={styles.profilePhone}>{counselorData?.phoneNumber || "Not specified"}</Text>
-                  <Text style={styles.profileExperience}>{counselorData?.experience || "0 years"}</Text>
                 </View>
               </View>
 
-              <View style={styles.mobileNav}>
-                {navItems.map((item) => (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={[styles.mobileNavItem, activeTab === item.id && styles.mobileNavItemActive]}
-                    onPress={() => handleTabChange(item.id)}
-                  >
-                    <Icon name={item.icon} size={20} color={activeTab === item.id ? "#fff" : "#718096"} />
-                    <Text style={[styles.mobileNavLabel, activeTab === item.id && styles.mobileNavLabelActive]}>
-                      {item.label}
-                    </Text>
-                    {item.badge > 0 && (
-                      <View style={styles.mobileNavBadge}>
-                        <Text style={styles.mobileNavBadgeText}>{item.badge}</Text>
-                      </View>
-                    )}
-                    <Icon name="arrow-right" size={16} color="#A0AEC0" />
-                  </TouchableOpacity>
-                ))}
+              <ScrollView style={styles.sidebarNavScrollView} showsVerticalScrollIndicator={false}>
+                <View style={styles.mobileNav}>
+                  {navItems.map((item) => (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[styles.mobileNavItem, activeTab === item.id && styles.mobileNavItemActive]}
+                      onPress={() => handleTabChange(item.id)}
+                    >
+                      <Icon name={item.icon} size={20} color={activeTab === item.id ? "#fff" : "#94A3B8"} />
+                      <Text style={[styles.mobileNavLabel, activeTab === item.id && styles.mobileNavLabelActive]}>
+                        {item.label}
+                      </Text>
+                      {item.badge > 0 && (
+                        <View style={styles.mobileNavBadge}>
+                          <Text style={styles.mobileNavBadgeText}>{item.badge}</Text>
+                        </View>
+                      )}
+                      <Icon name="arrow-right" size={16} color="#A0AEC0" />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+              <View style={styles.sidebarFooter}>
                 <TouchableOpacity
                   style={[styles.mobileNavItem, styles.mobileNavItemLogout]}
                   onPress={() => {
@@ -1035,7 +1003,7 @@ export default function CounselorDashboard() {
                 style={[styles.bottomNavItem, activeTab === item.id && styles.bottomNavItemActive]}
                 onPress={() => handleTabChange(item.id)}
               >
-                <Icon name={item.icon} size={20} color={activeTab === item.id ? "#6B46C1" : "#718096"} />
+                <Icon name={item.icon} size={20} color={activeTab === item.id ? "#3B82F6" : "#94A3B8"} />
                 <Text style={[styles.bottomNavLabel, activeTab === item.id && styles.bottomNavLabelActive]}>
                   {item.label}
                 </Text>
@@ -1049,7 +1017,7 @@ export default function CounselorDashboard() {
           </View>
         )}
 
-        {/* Main Content - Fixed VirtualizedList Error by removing outer ScrollView */}
+        {/* Main Content */}
         <View style={[styles.mainContent, isMobile && styles.mainContentMobile]}>
           {renderTabContent()}
         </View>
@@ -1155,14 +1123,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#F7FAFC",
   },
-  // Sidebar
   sidebar: {
     width: 280,
-    backgroundColor: "#fff",
-    height: "100%",
+    backgroundColor: "#1E293B",
     position: "absolute",
     left: 0,
     top: 0,
+    bottom: 0,
     zIndex: 999,
     shadowColor: "#000",
     shadowOffset: { width: 2, height: 0 },
@@ -1173,7 +1140,7 @@ const styles = StyleSheet.create({
   sidebarHeader: {
     padding: 24,
     borderBottomWidth: 1,
-    borderBottomColor: "#E2E8F0",
+    borderBottomColor: "#334155",
   },
   profileContainer: {
     alignItems: "center",
@@ -1187,29 +1154,16 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#2D3748",
+    color: "#FFFFFF",
     marginBottom: 4,
   },
   profileSpecialization: {
     fontSize: 14,
-    color: "#718096",
+    color: "#94A3B8",
     marginBottom: 8,
     textAlign: "center",
   },
-  profileEmail: {
-    fontSize: 12,
-    color: "#718096",
-    marginBottom: 4,
-  },
-  profilePhone: {
-    fontSize: 12,
-    color: "#718096",
-    marginBottom: 4,
-  },
-  profileExperience: {
-    fontSize: 12,
-    color: "#718096",
-  },
+
   ratingBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -1225,6 +1179,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#DD6B20",
   },
+  sidebarNavScrollView: {
+    flex: 1,
+  },
   sidebarNav: {
     padding: 16,
     gap: 8,
@@ -1238,12 +1195,12 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   navItemActive: {
-    backgroundColor: "#6B46C1",
+    backgroundColor: "#3B82F6",
   },
   navLabel: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#718096",
+    color: "#94A3B8",
     flex: 1,
   },
   navLabelActive: {
@@ -1251,9 +1208,18 @@ const styles = StyleSheet.create({
   },
   navLabelLogout: {
     color: "#E53E3E",
+    fontWeight: "700",
+  },
+  sidebarFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#334155",
+    backgroundColor: "#1E293B",
   },
   navItemLogout: {
-    marginTop: 16,
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.2)",
   },
   navBadge: {
     position: "absolute",
@@ -1271,41 +1237,46 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
   },
-  // Mobile Header - Improved Professional Style
+  // Mobile Header - Premium Solid White Header
   mobileHeader: {
     position: "absolute",
-    top: 0,
+    top: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
     left: 0,
     right: 0,
-    backgroundColor: "#6B46C1", // Professional Header Color
+    backgroundColor: "#1E293B",
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 40,
-    paddingBottom: 15,
+    paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     zIndex: 998,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#334155",
   },
   menuToggle: {
-    padding: 4,
+    padding: 8,
   },
   mobileTitle: {
+    alignItems: "center",
     flex: 1,
-    marginLeft: 15,
   },
   mobileTitleText: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
   },
-  headerIcons: {
-    flexDirection: "row",
-    gap: 10,
+  mobileDate: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 2,
+  },
+  mobilePlaceholder: {
+    width: 40,
   },
   // Mobile Menu
   mobileMenuOverlay: {
@@ -1323,7 +1294,7 @@ const styles = StyleSheet.create({
     left: 0,
     bottom: 0,
     width: 280,
-    backgroundColor: "#fff",
+    backgroundColor: "#1E293B",
     shadowColor: "#000",
     shadowOffset: { width: 2, height: 0 },
     shadowOpacity: 0.1,
@@ -1342,12 +1313,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   mobileNavItemActive: {
-    backgroundColor: "#6B46C1",
+    backgroundColor: "#3B82F6",
   },
   mobileNavLabel: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#718096",
+    color: "#94A3B8",
     flex: 1,
   },
   mobileNavLabelActive: {
@@ -1358,9 +1329,10 @@ const styles = StyleSheet.create({
   },
   mobileNavItemLogout: {
     marginTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#E2E8F0",
-    borderRadius: 0,
+    borderRadius: 8,
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.2)",
   },
   mobileNavBadge: {
     backgroundColor: "#E53E3E",
@@ -1383,13 +1355,13 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "#fff",
+    backgroundColor: "#1E293B",
     flexDirection: "row",
     justifyContent: "space-around",
     paddingVertical: 8,
     paddingHorizontal: 4,
     borderTopWidth: 1,
-    borderTopColor: "#E2E8F0",
+    borderTopColor: "#334155",
     zIndex: 996,
   },
   bottomNavItem: {
@@ -1400,10 +1372,10 @@ const styles = StyleSheet.create({
   },
   bottomNavLabel: {
     fontSize: 11,
-    color: "#718096",
+    color: "#94A3B8",
   },
   bottomNavLabelActive: {
-    color: "#6B46C1",
+    color: "#3B82F6",
     fontWeight: "500",
   },
   bottomNavBadge: {
@@ -1431,35 +1403,13 @@ const styles = StyleSheet.create({
   },
   mainContentMobile: {
     marginLeft: 0,
-    marginTop: 60,
+    marginTop: 100,
     marginBottom: 70,
+    paddingHorizontal: 16,
   },
-  headerIcons: {
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "center",
-  },
-  headerIcon: {
-    marginLeft: 4,
-  },
-  profileAvatarPlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#E2E8F0",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  profileMetaInfo: {
-    width: "100%",
-    gap: 6,
-    marginTop: 10,
-  },
-  metaItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  mainContentContainer: {
+    padding: 20,
+    paddingBottom: 40,
   },
   // Coming Soon
   comingSoon: {
@@ -1783,29 +1733,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#fff",
-  },
-  // Toast
-  toastContainer: {
-    position: "absolute",
-    bottom: 30,
-    left: 20,
-    right: 20,
-    padding: 14,
-    borderRadius: 12,
-    zIndex: 10000,
-  },
-  toastSuccess: {
-    backgroundColor: "#38A169",
-  },
-  toastError: {
-    backgroundColor: "#E53E3E",
-  },
-  toastInfo: {
-    backgroundColor: "#3182CE",
-  },
-  toastText: {
-    color: "#fff",
-    fontSize: 14,
-    textAlign: "center",
   },
 });

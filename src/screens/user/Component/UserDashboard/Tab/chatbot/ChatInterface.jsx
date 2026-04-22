@@ -176,6 +176,24 @@ const ChatInterface = ({ setActiveTab }) => {
 
   // Fetch chats from API
   const fetchChats = useCallback(async () => {
+    const resolveLastPrompt = (chat) => {
+      const latestFromArray = Array.isArray(chat?.messages) && chat.messages.length > 0
+        ? chat.messages[chat.messages.length - 1]
+        : null;
+
+      return (
+        chat?.lastMessage?.content ||
+        chat?.lastMessage?.message ||
+        chat?.lastMessage?.text ||
+        chat?.lastMessage?.prompt ||
+        latestFromArray?.content ||
+        latestFromArray?.message ||
+        latestFromArray?.text ||
+        latestFromArray?.prompt ||
+        'No messages yet'
+      );
+    };
+
     try {
       setLoading(true);
       setError(null);
@@ -201,7 +219,7 @@ const ChatInterface = ({ setActiveTab }) => {
         if (data && data.chats && Array.isArray(data.chats)) {
           const counselorList = data.chats.map((chat) => {
             const otherParty = chat.otherParty || {};
-            const lastMessage = chat.lastMessage?.content || 'No messages yet';
+            const lastMessage = resolveLastPrompt(chat);
             const lastMessageTime =
               chat.lastMessage?.createdAt || chat.updatedAt || chat.startedAt;
 
@@ -274,7 +292,7 @@ const ChatInterface = ({ setActiveTab }) => {
           if (Array.isArray(chats) && chats.length > 0) {
             const counselorList = chats.map((chat) => {
               const otherParty = chat.otherParty || {};
-              const lastMessage = chat.lastMessage?.content || 'No messages yet';
+              const lastMessage = resolveLastPrompt(chat);
               const lastMessageTime =
                 chat.lastMessage?.createdAt || chat.updatedAt || chat.startedAt;
 
