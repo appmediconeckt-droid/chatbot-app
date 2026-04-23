@@ -29,6 +29,9 @@ import { ToastProvider } from './src/components/common/ToastProvider';
 import CounselorDashboard from './src/screens/user/Component/counselor-dashboard/Dashboard/dashboard';
 import SMSInput from './src/screens/user/Component/counselor-dashboard/Tab/SMSInput/SMSInput';
 // Define your navigation param list
+import { LogBox } from 'react-native';
+LogBox.ignoreAllLogs(true);
+
 export type RootStackParamList = {
   Landing: undefined;
   UserSignup: { role?: 'user' | 'counselor' } | undefined;
