@@ -14,7 +14,6 @@ import {
   Platform,
   StatusBar,
   InteractionManager,
-  Keyboard,
 } from 'react-native';
 import { io } from 'socket.io-client';
 import axios from 'axios';
@@ -25,7 +24,7 @@ import VoiceCallModal from '../../../UserDashboard/Tab/CallModal/VoiceCallModal'
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-// Incoming Call Modal Component (unchanged)
+// Incoming Call Modal Component
 const IncomingCallModal = ({
   isOpen,
   onClose,
@@ -141,40 +140,6 @@ const IncomingCallModal = ({
   );
 };
 
-// Improved Message Bubble with Status Indicator
-const MessageBubble = ({ message, isMe }) => {
-  const getStatusIcon = () => {
-    switch (message.status) {
-      case 'sending':
-        return <ActivityIndicator size={10} color="#94a3b8" style={styles.statusIcon} />;
-      case 'sent':
-        return <Ionicons name="checkmark" size={14} color="#94a3b8" />;
-      case 'delivered':
-        return <Ionicons name="checkmark-done" size={14} color="#10b981" />;
-      case 'read':
-        return <Ionicons name="checkmark-done" size={14} color="#6366f1" />;
-      case 'error':
-        return <Ionicons name="alert-circle" size={14} color="#ef4444" />;
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <View style={[styles.messageBubble, isMe ? styles.messageRight : styles.messageLeft]}>
-      <View style={[styles.messageContent, isMe ? styles.userMessageContent : styles.counselorMessageContent]}>
-        <Text style={[styles.messageText, isMe ? styles.userMessageText : styles.counselorMessageText]}>
-          {message.text}
-        </Text>
-        <View style={styles.messageFooter}>
-          <Text style={styles.messageTime}>{message.time}</Text>
-          {isMe && getStatusIcon()}
-        </View>
-      </View>
-    </View>
-  );
-};
-
 const SMSInput = ({ navigation, route }) => {
   const location = route.params || {};
   const [message, setMessage] = useState("");
@@ -185,8 +150,6 @@ const SMSInput = ({ navigation, route }) => {
   const shouldAutoScrollRef = useRef(true);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [remoteIsTyping, setRemoteIsTyping] = useState(false);
-  const [localTypingTimeout, setLocalTypingTimeout] = useState(null);
-  const [isUserTyping, setIsUserTyping] = useState(false);
 
   // Call modal states
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
@@ -226,6 +189,7 @@ const SMSInput = ({ navigation, route }) => {
     return AsyncStorage.getItem("token");
   };
 
+  // FIXED: Converted to async and moved to useEffect
   const loadCounselorData = async () => {
     try {
       let counselorData = null;
@@ -262,6 +226,7 @@ const SMSInput = ({ navigation, route }) => {
     }
   };
 
+  // FIXED: Get counselor name from state
   const getSelectedUserId = () => {
     if (!selectedUser) return null;
     return (
@@ -355,7 +320,6 @@ const SMSInput = ({ navigation, route }) => {
     return fallbackChatIdRef.current;
   };
 
-  // IMPROVED: Fetch messages with better loading state
   const fetchMessagesFromAPI = async () => {
     if (!selectedUser || !counselorId) return;
     try {
@@ -393,7 +357,7 @@ const SMSInput = ({ navigation, route }) => {
           attachmentUrl: msg.attachmentUrl || null,
           attachmentName: msg.attachmentName || null,
           isRead: msg.isRead,
-          status: "delivered",
+          status: "sent",
         }));
         hasInitialAutoScrollRef.current = false;
         shouldAutoScrollRef.current = true;
@@ -448,13 +412,11 @@ const SMSInput = ({ navigation, route }) => {
     }
   };
 
-  // IMPROVED: Send message with optimistic update and better status tracking
-  const sendMessageToAPI = async ({ messageContent = "", file = null, tempId }) => {
+  const sendMessageToAPI = async ({ messageContent = "", file = null }) => {
     try {
       const apiChatId = getChatIdForAPI();
       const token = await getAuthToken();
       let response;
-      
       if (file) {
         const formData = new FormData();
         if (messageContent.trim()) formData.append("content", messageContent.trim());
@@ -471,199 +433,65 @@ const SMSInput = ({ navigation, route }) => {
           { headers: { "Content-Type": "application/json", Authorization: token ? `Bearer ${token}` : "" } }
         );
       }
-      
       if (response.data && response.data.success) {
-        return { success: true, message: response.data.message, tempId };
+        return response.data.message;
       } else {
         throw new Error("Invalid API response");
       }
     } catch (error) {
       console.error("Error sending message:", error);
-      return { success: false, error: error.message, tempId };
+      throw error;
     }
   };
 
-  // IMPROVED: Handle send with optimistic update and proper status flow
   const handleSendMessage = async () => {
     if (!message.trim() || !selectedUser || isSending) return;
-    
     const messageText = message.trim();
-    const tempId = `temp_${Date.now()}_${Math.random()}`;
-    const currentTime = new Date();
-    
-    // Optimistic update - message appears instantly
-    const optimisticMessage = {
-      id: tempId,
+    const tempMessage = {
+      id: `temp_${Date.now()}`,
       text: messageText,
       sender: "me",
       senderRole: "counsellor",
-      time: currentTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      fullTime: currentTime.toISOString(),
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      createdAt: new Date().toISOString(),
       status: "sending",
       isTemporary: true,
     };
-    
     shouldAutoScrollRef.current = true;
-    setMessages(prev => [...prev, optimisticMessage]);
+    setMessages(prev => [...prev, tempMessage]);
     setMessage("");
     setIsSending(true);
     setError(null);
-    
-    // Hide keyboard for better UX
-    Keyboard.dismiss();
-    
     try {
-      const result = await sendMessageToAPI({ messageContent: messageText, tempId });
-      
-      if (result.success && result.message) {
-        // Update the temporary message with real data
-        setMessages(prev => prev.map(msg => {
-          if (msg.id === tempId) {
-            return {
-              id: result.message.id || result.message._id,
-              messageId: result.message.messageId,
-              text: result.message.content,
-              sender: "me",
-              senderRole: "counsellor",
-              time: new Date(result.message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-              fullTime: result.message.createdAt,
-              contentType: result.message.contentType,
-              isRead: result.message.isRead,
-              status: "sent",
-              isTemporary: false,
-            };
-          }
-          return msg;
-        }));
-        
-        // Emit via socket for real-time delivery
-        if (chatSocketRef.current && isSocketConnected) {
-          chatSocketRef.current.emit('send-message', {
-            chatId: getChatIdForAPI(),
-            message: result.message,
-            tempId,
-          });
-        }
-        
-        // Update status to delivered after a short delay (simulate delivery)
-        setTimeout(() => {
-          setMessages(prev => prev.map(msg => {
-            if (msg.id === (result.message.id || result.message._id)) {
-              return { ...msg, status: "delivered" };
-            }
-            return msg;
-          }));
-        }, 500);
-        
-      } else {
-        throw new Error(result.error || "Failed to send message");
-      }
+      const sentMsg = await sendMessageToAPI({ messageContent: messageText });
+      setMessages(prev => {
+        const withoutTemp = prev.filter(m => !m.isTemporary);
+        if (!sentMsg) return withoutTemp;
+        return [...withoutTemp, {
+          id: sentMsg.id || sentMsg._id,
+          messageId: sentMsg.messageId,
+          text: sentMsg.content,
+          sender: "me",
+          senderRole: "counsellor",
+          time: new Date(sentMsg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          fullTime: sentMsg.createdAt,
+          contentType: sentMsg.contentType,
+          isRead: sentMsg.isRead,
+          status: "sent",
+        }];
+      });
     } catch (err) {
       console.error("Error sending message:", err);
-      // Mark message as failed
-      setMessages(prev => prev.map(msg => {
-        if (msg.id === tempId) {
-          return { ...msg, status: "error", isTemporary: false };
-        }
-        return msg;
-      }));
-      setError("Failed to send message. Tap to retry.");
-      
-      // Auto-remove error message after 5 seconds
+      setMessages(prev => prev.map(msg => msg.id === tempMessage.id ? { ...msg, status: "error" } : msg));
+      setError("Failed to send message. Please try again.");
       setTimeout(() => {
-        setMessages(prev => prev.filter(msg => msg.id !== tempId));
-      }, 5000);
+        setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+      }, 3000);
     } finally {
       setIsSending(false);
     }
   };
 
-  // IMPROVED: Retry failed message
-  const retryFailedMessage = async (failedMessage) => {
-    if (!failedMessage.text || isSending) return;
-    
-    const tempId = `retry_${Date.now()}_${Math.random()}`;
-    const newMessage = {
-      ...failedMessage,
-      id: tempId,
-      status: "sending",
-      isTemporary: true,
-    };
-    
-    setMessages(prev => prev.filter(msg => msg.id !== failedMessage.id));
-    setMessages(prev => [...prev, newMessage]);
-    
-    setIsSending(true);
-    
-    try {
-      const result = await sendMessageToAPI({ messageContent: failedMessage.text, tempId });
-      
-      if (result.success && result.message) {
-        setMessages(prev => prev.map(msg => {
-          if (msg.id === tempId) {
-            return {
-              id: result.message.id || result.message._id,
-              messageId: result.message.messageId,
-              text: result.message.content,
-              sender: "me",
-              senderRole: "counsellor",
-              time: new Date(result.message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-              fullTime: result.message.createdAt,
-              status: "sent",
-              isTemporary: false,
-            };
-          }
-          return msg;
-        }));
-      } else {
-        throw new Error("Retry failed");
-      }
-    } catch (err) {
-      setMessages(prev => prev.map(msg => {
-        if (msg.id === tempId) {
-          return { ...msg, status: "error" };
-        }
-        return msg;
-      }));
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  // IMPROVED: Typing indicator with debounce
-  const handleTyping = useCallback((text) => {
-    setMessage(text);
-    
-    if (!isSocketConnected || !chatSocketRef.current) return;
-    
-    if (!isUserTyping && text.length > 0) {
-      setIsUserTyping(true);
-      chatSocketRef.current.emit('typing', {
-        chatId: getChatIdForAPI(),
-        userRole: 'counsellor',
-        isTyping: true,
-      });
-    }
-    
-    if (localTypingTimeout) {
-      clearTimeout(localTypingTimeout);
-    }
-    
-    const timeout = setTimeout(() => {
-      if (isUserTyping) {
-        setIsUserTyping(false);
-        chatSocketRef.current.emit('typing', {
-          chatId: getChatIdForAPI(),
-          userRole: 'counsellor',
-          isTyping: false,
-        });
-      }
-    }, 1000);
-    
-    setLocalTypingTimeout(timeout);
-  }, [isSocketConnected, isUserTyping, localTypingTimeout]);
-
-  // Call functions (unchanged)
   const initiateVideoCall = async () => {
     if (!selectedUser) {
       setCallError("No user selected for call");
@@ -861,17 +689,6 @@ const SMSInput = ({ navigation, route }) => {
     }
   };
 
-  const handleCloseModal = () => {
-    setIsVideoModalOpen(false);
-    setIsVoiceModalOpen(false);
-    setSelectedCall(null);
-    setCallError(null);
-  };
-
-  const handleBack = () => {
-    navigation.goBack();
-  };
-
   // Load counselor data on mount
   useEffect(() => {
     loadCounselorData();
@@ -926,6 +743,17 @@ const SMSInput = ({ navigation, route }) => {
     };
   }, [showIncomingModal, counselorId, isVideoModalOpen, isVoiceModalOpen]);
 
+  const handleCloseModal = () => {
+    setIsVideoModalOpen(false);
+    setIsVoiceModalOpen(false);
+    setSelectedCall(null);
+    setCallError(null);
+  };
+
+  const handleBack = () => {
+    navigation.goBack();
+  };
+
   // Fetch messages when counselor data is loaded
   useEffect(() => {
     if (selectedUser && counselorId) {
@@ -933,7 +761,7 @@ const SMSInput = ({ navigation, route }) => {
     }
   }, [selectedUser, chatId, counselorId]);
 
-  // IMPROVED: Socket connection with better real-time handling
+  // Socket connection
   useEffect(() => {
     const setupSocket = async () => {
       const apiChatId = getChatIdForAPI();
@@ -961,89 +789,49 @@ const SMSInput = ({ navigation, route }) => {
         setIsSocketConnected(false);
       });
       
-      // IMPROVED: Handle new messages in real-time
       socket.on("new-message", (messageData) => {
         shouldAutoScrollRef.current = true;
-        
-        // Check if message is from current user (already sent)
         if (messageData.senderRole === "counsellor" && String(messageData.senderId) === String(counselorId)) {
-          // Update message status from sending to delivered
-          setMessages(prev => prev.map(msg => {
-            if (msg.messageId === messageData.messageId || 
-                (msg.isTemporary && msg.text === messageData.content)) {
-              return {
-                id: messageData.id || messageData.messageId,
-                messageId: messageData.messageId,
-                text: messageData.content,
-                sender: "me",
-                senderRole: "counsellor",
-                time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                fullTime: messageData.createdAt,
-                contentType: messageData.contentType,
-                isRead: messageData.isRead,
-                status: "delivered",
-                isTemporary: false,
-              };
-            }
-            return msg;
-          }));
+          setMessages(prev => {
+            const withoutTemp = prev.filter(msg => !msg.isTemporary);
+            const alreadyHas = withoutTemp.some(msg => msg.messageId && messageData.messageId && msg.messageId === messageData.messageId);
+            if (alreadyHas) return withoutTemp;
+            return [...withoutTemp, {
+              id: messageData.id || messageData.messageId,
+              messageId: messageData.messageId,
+              text: messageData.content,
+              sender: "me",
+              senderRole: "counsellor",
+              time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              fullTime: messageData.createdAt,
+              contentType: messageData.contentType,
+              isRead: messageData.isRead,
+              status: "sent",
+            }];
+          });
           return;
         }
-        
-        // Add new message from other user
         const transformedMessage = {
           id: messageData.id || messageData.messageId,
           messageId: messageData.messageId,
           text: messageData.content,
-          sender: "user",
-          senderRole: "user",
+          sender: messageData.senderRole === "counsellor" ? "me" : "user",
+          senderRole: messageData.senderRole,
           time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           fullTime: messageData.createdAt,
           contentType: messageData.contentType,
           isRead: messageData.isRead,
-          status: "delivered",
+          status: "sent",
         };
-        
         setMessages(prev => {
-          const isDuplicate = prev.some(msg => 
-            msg.messageId && messageData.messageId && msg.messageId === messageData.messageId
-          );
+          const isDuplicate = prev.some(msg => msg.messageId && messageData.messageId && msg.messageId === messageData.messageId);
           if (isDuplicate) return prev;
           return [...prev, transformedMessage];
         });
-        
-        // Mark message as read
-        if (chatSocketRef.current && isSocketConnected) {
-          chatSocketRef.current.emit('mark-read', {
-            chatId: apiChatId,
-            messageId: messageData.messageId,
-          });
-        }
-      });
-      
-      // Handle message status updates
-      socket.on("message-delivered", ({ messageId }) => {
-        setMessages(prev => prev.map(msg => {
-          if (msg.messageId === messageId && msg.sender === "me") {
-            return { ...msg, status: "delivered" };
-          }
-          return msg;
-        }));
-      });
-      
-      socket.on("message-read", ({ messageId }) => {
-        setMessages(prev => prev.map(msg => {
-          if (msg.messageId === messageId && msg.sender === "me") {
-            return { ...msg, status: "read" };
-          }
-          return msg;
-        }));
       });
       
       socket.on("user-typing", ({ userRole, isTyping: typing }) => {
-        if (userRole === "user") {
-          setRemoteIsTyping(typing);
-        }
+        if (userRole === "user") setRemoteIsTyping(typing);
       });
 
       socket.on("connect_error", (error) => {
@@ -1060,13 +848,10 @@ const SMSInput = ({ navigation, route }) => {
         chatSocketRef.current = null;
       }
       setIsSocketConnected(false);
-      if (localTypingTimeout) {
-        clearTimeout(localTypingTimeout);
-      }
     };
   }, [chatId, selectedUser, counselorId, USER_ID]);
 
-  // Poll as fallback only when socket is not connected
+  // Poll as fallback only when socket is not connected.
   useEffect(() => {
     if (!selectedUser || !counselorId || isSocketConnected) return;
 
@@ -1096,30 +881,32 @@ const SMSInput = ({ navigation, route }) => {
     }
   }, [messages.length, scrollToBottom]);
 
-  // IMPROVED: Render message with retry functionality
+  const renderMessageStatus = (message) => {
+    if (message.sender !== "me") return null;
+    switch (message.status) {
+      case "sending": return <Text style={styles.messageStatusSending}>⌛ Sending...</Text>;
+      case "sent": return <Text style={styles.messageStatusSent}>✓ Sent</Text>;
+      case "error": return <Text style={styles.messageStatusError}>⚠️ Failed</Text>;
+      default: return null;
+    }
+  };
+
   const renderMessage = ({ item }) => {
     const isMe = item.sender === "me";
-    
-    if (item.status === "error") {
-      return (
-        <TouchableOpacity onPress={() => retryFailedMessage(item)}>
-          <View style={[styles.messageBubble, isMe ? styles.messageRight : styles.messageLeft]}>
-            <View style={[styles.messageContent, isMe ? styles.userMessageContent : styles.counselorMessageContent]}>
-              <Text style={[styles.messageText, isMe ? styles.userMessageText : styles.counselorMessageText]}>
-                {item.text}
-              </Text>
-              <View style={styles.messageFooter}>
-                <Text style={styles.messageTime}>{item.time}</Text>
-                <Ionicons name="alert-circle" size={14} color="#ef4444" />
-                <Text style={styles.retryText}>Tap to retry</Text>
-              </View>
-            </View>
+
+    return (
+      <View style={[styles.messageBubble, isMe ? styles.messageRight : styles.messageLeft]}>
+        <View style={[styles.messageContent, isMe ? styles.userMessageContent : styles.counselorMessageContent]}>
+          <Text style={[styles.messageText, isMe ? styles.userMessageText : styles.counselorMessageText]}>
+            {item.text}
+          </Text>
+          <View style={styles.messageFooter}>
+            <Text style={styles.messageTime}>{item.time}</Text>
+            {renderMessageStatus(item)}
           </View>
-        </TouchableOpacity>
-      );
-    }
-    
-    return <MessageBubble message={item} isMe={isMe} />;
+        </View>
+      </View>
+    );
   };
 
   if (!selectedUser) {
@@ -1248,15 +1035,6 @@ const SMSInput = ({ navigation, route }) => {
           />
         )}
 
-        {/* Connection status indicator */}
-        {!isSocketConnected && messages.length > 0 && (
-          <View style={styles.connectionStatus}>
-            <Text style={styles.connectionStatusText}>
-              ⚡ Connecting to real-time...
-            </Text>
-          </View>
-        )}
-
         <View style={styles.inputForm}>
           <View style={styles.inputWrapper}>
             <TextInput
@@ -1264,7 +1042,7 @@ const SMSInput = ({ navigation, route }) => {
               placeholder={isSending ? "Sending..." : "Type your message..."}
               placeholderTextColor="#94a3b8"
               value={message}
-              onChangeText={handleTyping}
+              onChangeText={setMessage}
               editable={!isSending}
               multiline
             />
@@ -1418,13 +1196,15 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#eef2ff',
+    backgroundColor: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    overflow: 'hidden',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
   },
   avatarIcon: {
     fontSize: 26,
@@ -1565,9 +1345,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#6366f1',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#c7d2fe',
-    overflow: 'hidden',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 3,
   },
   welcomeInitials: {
     fontSize: 26,
@@ -1628,23 +1410,22 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: 'center',
   },
+  // FIXED: Full width message bubbles with professional styling
   messageBubble: {
-    maxWidth: '100%',
+    maxWidth: '100%', // Changed from 80% to 100% for full width
     marginBottom: 4,
   },
   messageRight: {
     alignSelf: 'flex-end',
-    marginLeft: 30,
   },
   messageLeft: {
     alignSelf: 'flex-start',
-    marginRight: 30,
   },
   messageContent: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 20,
-    maxWidth: '85%',
+    maxWidth: '85%', // Keep content within reasonable width
   },
   userMessageContent: {
     backgroundColor: '#6366f1',
@@ -1689,26 +1470,19 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontWeight: '500',
   },
-  statusIcon: {
-    marginLeft: 4,
-  },
-  retryText: {
+  messageStatusSending: {
     fontSize: 10,
-    color: '#ef4444',
+    color: '#f59e0b',
     fontWeight: '500',
   },
-  connectionStatus: {
-    backgroundColor: '#fef3c7',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#fde68a',
+  messageStatusSent: {
+    fontSize: 10,
+    color: '#10b981',
+    fontWeight: '500',
   },
-  connectionStatusText: {
-    fontSize: 11,
-    color: '#92400e',
+  messageStatusError: {
+    fontSize: 10,
+    color: '#ef4444',
     fontWeight: '500',
   },
   inputForm: {
@@ -1766,11 +1540,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 20,
   },
+  // Incoming Call Modal Styles - Professional
   incomingCallOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
+    backdropFilter: 'blur(4px)',
   },
   incomingCallModal: {
     width: screenWidth * 0.85,
@@ -1804,13 +1580,15 @@ const styles = StyleSheet.create({
     width: 88,
     height: 88,
     borderRadius: 44,
-    backgroundColor: '#eef2ff',
+    backgroundColor: '#6366f1',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    overflow: 'hidden',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
   avatarEmojiLarge: {
     fontSize: 52,

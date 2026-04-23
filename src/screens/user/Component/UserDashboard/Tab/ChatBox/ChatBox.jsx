@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -20,7 +20,7 @@ import { io } from "socket.io-client";
 import axios from "axios";
 import { API_BASE_URL } from "../../../../../../axiosConfig";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { launchImageLibrary } from "react-native-image-picker";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import VideoCallModal from "../CallModal/VideoCallModal";
@@ -150,37 +150,6 @@ const IncomingCallModal = ({
   );
 };
 
-// Performance Optimized Message Component
-const MessageItem = memo(({ item, isUser }) => {
-  return (
-    <View style={[styles.messageBubble, isUser ? styles.messageRight : styles.messageLeft]}>
-      <View style={[styles.messageContent, isUser ? styles.userMessageContent : styles.counselorMessageContent]}>
-        {!!item.text && (
-          <Text style={[styles.messageText, isUser ? styles.userMessageText : styles.counselorMessageText]}>
-            {item.text}
-          </Text>
-        )}
-        {(item.attachmentName || item.attachmentUrl) && (
-          <View style={[styles.attachmentBubble, isUser ? styles.userAttachmentBubble : styles.counselorAttachmentBubble]}>
-            <Text
-              style={[styles.attachmentBubbleText, isUser ? styles.userAttachmentBubbleText : styles.counselorAttachmentBubbleText]}
-              numberOfLines={1}
-            >
-              📎 {item.attachmentName || "Attachment"}
-            </Text>
-          </View>
-        )}
-        <View style={styles.messageFooter}>
-          <Text style={styles.messageTime}>{item.time}</Text>
-          {isUser && item.status === "sending" && <Text style={styles.messageStatusSending}>⌛ Sending...</Text>}
-          {isUser && item.status === "sent" && <Text style={styles.messageStatusSent}>✓ Sent</Text>}
-          {isUser && item.status === "error" && <Text style={styles.messageStatusError}>⚠️ Failed</Text>}
-        </View>
-      </View>
-    </View>
-  );
-});
-
 const ChatBox = () => {
   const navigation = useNavigation();
   const route = useRoute();
@@ -242,7 +211,6 @@ const ChatBox = () => {
   const fallbackChatIdRef = useRef(chatId || null);
   const hasInitialAutoScrollRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
-  const initialScrollRetryTimeoutRef = useRef(null);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
 
   // Get current user from AsyncStorage
@@ -304,21 +272,6 @@ const ChatBox = () => {
     });
   }, []);
 
-  const jumpToLatestMessage = useCallback(() => {
-    if (initialScrollRetryTimeoutRef.current) {
-      clearTimeout(initialScrollRetryTimeoutRef.current);
-    }
-
-    shouldAutoScrollRef.current = true;
-    scrollToBottom(false);
-
-    // Retry once after layout settles so the screen opens on the latest message.
-    initialScrollRetryTimeoutRef.current = setTimeout(() => {
-      scrollToBottom(false);
-      initialScrollRetryTimeoutRef.current = null;
-    }, 180);
-  }, [scrollToBottom]);
-
   const handleMessagesScroll = useCallback((event) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
@@ -330,14 +283,15 @@ const ChatBox = () => {
 
     if (!hasInitialAutoScrollRef.current) {
       hasInitialAutoScrollRef.current = true;
-      jumpToLatestMessage();
+      shouldAutoScrollRef.current = true;
+      scrollToBottom(false);
       return;
     }
 
     if (shouldAutoScrollRef.current) {
       scrollToBottom(true);
     }
-  }, [jumpToLatestMessage, messages.length, scrollToBottom]);
+  }, [messages.length, scrollToBottom]);
 
   const getChatIdForAPI = () => {
     if (chatId) return chatId;
@@ -515,7 +469,7 @@ const ChatBox = () => {
         hasInitialAutoScrollRef.current = false;
         shouldAutoScrollRef.current = true;
         setMessages(transformedMessages);
-        setTimeout(jumpToLatestMessage, 100);
+        setTimeout(scrollToBottom, 100);
         return transformedMessages;
       }
     } catch (error) {
@@ -526,7 +480,7 @@ const ChatBox = () => {
     }
   };
 
-  const loadMessagesFromLocalStorage = useCallback(async () => {
+  const loadMessagesFromLocalStorage = async () => {
     try {
       const savedChats = JSON.parse(await AsyncStorage.getItem("activeChats") || "[]");
       const chat = savedChats.find(c => c.id === currentChat?.id || c.chatId === getChatIdForAPI());
@@ -534,12 +488,11 @@ const ChatBox = () => {
         hasInitialAutoScrollRef.current = false;
         shouldAutoScrollRef.current = true;
         setMessages(chat.messages);
-        setTimeout(jumpToLatestMessage, 100);
       }
     } catch (error) {
       console.error("Error loading messages from localStorage:", error);
     }
-  }, [currentChat?.id, jumpToLatestMessage]);
+  };
 
   const sendMessageToAPI = async ({ messageContent = "", file = null }) => {
     try {
@@ -860,24 +813,6 @@ const ChatBox = () => {
     initializeChat();
   }, [counselorId, chatId]);
 
-  useFocusEffect(
-    useCallback(() => {
-      hasInitialAutoScrollRef.current = false;
-      shouldAutoScrollRef.current = true;
-
-      if (messages.length > 0) {
-        jumpToLatestMessage();
-      }
-
-      return () => {
-        if (initialScrollRetryTimeoutRef.current) {
-          clearTimeout(initialScrollRetryTimeoutRef.current);
-          initialScrollRetryTimeoutRef.current = null;
-        }
-      };
-    }, [jumpToLatestMessage, messages.length])
-  );
-
   // Save messages to AsyncStorage
   useEffect(() => {
     const saveMessages = async () => {
@@ -928,12 +863,6 @@ const ChatBox = () => {
       socket.on("connect", () => {
         setIsSocketConnected(true);
         console.log("💬 Chat socket connected");
-        socket.emit("join-chat", { chatId: apiChatId });
-      });
-
-      socket.on("reconnect", () => {
-        setIsSocketConnected(true);
-        console.log("💬 Chat socket reconnected - rejoining room");
         socket.emit("join-chat", { chatId: apiChatId });
       });
 
@@ -1029,28 +958,49 @@ const ChatBox = () => {
     if (messages.length > 0) {
       if (!hasInitialAutoScrollRef.current) {
         hasInitialAutoScrollRef.current = true;
-        jumpToLatestMessage();
+        shouldAutoScrollRef.current = true;
+        scrollToBottom(false);
       } else if (shouldAutoScrollRef.current) {
         scrollToBottom(true);
       }
     }
-  }, [jumpToLatestMessage, messages.length, scrollToBottom]);
-
-  useEffect(() => () => {
-    if (initialScrollRetryTimeoutRef.current) {
-      clearTimeout(initialScrollRetryTimeoutRef.current);
-    }
-  }, []);
+  }, [messages.length, scrollToBottom]);
 
   const handleInputChange = (text) => {
     setNewMessage(text);
     if (text.trim() !== "") handleTypingIndicator();
   };
 
-  const renderMessage = useCallback(({ item }) => {
+  const renderMessage = ({ item }) => {
     const isUser = item.sender === "user";
-    return <MessageItem item={item} isUser={isUser} />;
-  }, []);
+    return (
+      <View style={[styles.messageBubble, isUser ? styles.messageRight : styles.messageLeft]}>
+        <View style={[styles.messageContent, isUser ? styles.userMessageContent : styles.counselorMessageContent]}>
+          {!!item.text && (
+            <Text style={[styles.messageText, isUser ? styles.userMessageText : styles.counselorMessageText]}>
+              {item.text}
+            </Text>
+          )}
+          {(item.attachmentName || item.attachmentUrl) && (
+            <View style={[styles.attachmentBubble, isUser ? styles.userAttachmentBubble : styles.counselorAttachmentBubble]}>
+              <Text
+                style={[styles.attachmentBubbleText, isUser ? styles.userAttachmentBubbleText : styles.counselorAttachmentBubbleText]}
+                numberOfLines={1}
+              >
+                📎 {item.attachmentName || "Attachment"}
+              </Text>
+            </View>
+          )}
+          <View style={styles.messageFooter}>
+            <Text style={styles.messageTime}>{item.time}</Text>
+            {isUser && item.status === "sending" && <Text style={styles.messageStatusSending}>⌛ Sending...</Text>}
+            {isUser && item.status === "sent" && <Text style={styles.messageStatusSent}>✓ Sent</Text>}
+            {isUser && item.status === "error" && <Text style={styles.messageStatusError}>⚠️ Failed</Text>}
+          </View>
+        </View>
+      </View>
+    );
+  };
 
   const renderChatStatusBanner = () => {
     if (!chatStatus) return null;
@@ -1182,18 +1132,9 @@ const ChatBox = () => {
             <FlatList
               ref={flatListRef}
               data={messages}
-              keyExtractor={(item, index) => item.id?.toString() || item.messageId?.toString() || index.toString()}
+              keyExtractor={(item, index) => item.id?.toString() || index.toString()}
               renderItem={renderMessage}
               contentContainerStyle={styles.messagesList}
-              initialNumToRender={15}
-              maxToRenderPerBatch={10}
-              windowSize={10}
-              removeClippedSubviews={Platform.OS === 'android'}
-              onLayout={() => {
-                if (messages.length > 0 && !hasInitialAutoScrollRef.current) {
-                  jumpToLatestMessage();
-                }
-              }}
               onContentSizeChange={handleMessagesContentSizeChange}
               onScroll={handleMessagesScroll}
               scrollEventThrottle={16}

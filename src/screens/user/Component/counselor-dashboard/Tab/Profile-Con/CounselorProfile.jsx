@@ -18,11 +18,11 @@ import LinearGradient from 'react-native-linear-gradient';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
-import DocumentPicker from '@react-native-documents/picker';
+import DocumentPicker from 'react-native-document-picker';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 
 const { width, height } = Dimensions.get('window');
-const API_BASE_URL = 'https://chatbot-backend-js25.onrender.com';
+const API_BASE_URL = 'http://your-api-url.com';
 
 const CounselorProfile = () => {
   const [loading, setLoading] = useState(false);
@@ -93,7 +93,6 @@ const CounselorProfile = () => {
   });
 
   const isSmall = width <= 768;
-  const PHOTO_SIZE = isSmall ? 100 : 140;
 
   // Fetch profile data on component mount
   useEffect(() => {
@@ -321,8 +320,7 @@ const CounselorProfile = () => {
         type: [DocumentPicker.types.pdf, DocumentPicker.types.images],
       });
 
-      // Normalize result (some picker implementations return an array, others a single object)
-      const file = Array.isArray(result) ? result[0] : result;
+      const file = result[0];
       const updatedCerts = editedData.certifications.map(cert => {
         if (cert._id === certId) {
           return {
@@ -388,7 +386,7 @@ const CounselorProfile = () => {
         type: [DocumentPicker.types.pdf, DocumentPicker.types.images],
       });
 
-      const file = Array.isArray(result) ? result[0] : result;
+      const file = result[0];
       setNewCertification(prev => ({
         ...prev,
         document: {
@@ -662,18 +660,15 @@ const CounselorProfile = () => {
         <View style={[styles.header, isSmall && styles.headerColumn]}>
           {/* Avatar Section */}
           <View style={[styles.avatarSection, isSmall && styles.avatarSectionCenter]}>
-            <View style={[styles.profilePhotoContainer, { width: PHOTO_SIZE, height: PHOTO_SIZE }]}>
+            <View style={styles.profilePhotoContainer}>
               {editedData?.profilePhotoUrl ? (
-                <Image
-                  source={{ uri: editedData.profilePhotoUrl }}
-                  style={[styles.profilePhoto, { width: PHOTO_SIZE, height: PHOTO_SIZE, borderRadius: PHOTO_SIZE / 2 }]}
-                />
+                <Image source={{ uri: editedData.profilePhotoUrl }} style={styles.profilePhoto} />
               ) : (
                 <LinearGradient
                   colors={['#667eea', '#764ba2']}
-                  style={[styles.avatar, { width: PHOTO_SIZE, height: PHOTO_SIZE, borderRadius: PHOTO_SIZE / 2 }]}
+                  style={styles.avatar}
                 >
-                  <Text style={[styles.avatarText, { fontSize: PHOTO_SIZE * 0.35 }]}>
+                  <Text style={styles.avatarText}>
                     {counselor?.fullName?.charAt(0) || 'C'}
                   </Text>
                 </LinearGradient>
@@ -1141,13 +1136,13 @@ const CounselorProfile = () => {
                         placeholder="Expiry Date (YYYY-MM-DD)"
                       />
                     </View>
-
+                    
                     <TouchableOpacity onPress={handleNewDocumentUpload} style={styles.documentUploadArea}>
                       <Text style={styles.documentUploadText}>
                         {newCertification.documentName ? `📄 ${newCertification.documentName}` : '📁 Click to upload supporting document'}
                       </Text>
                     </TouchableOpacity>
-
+                    
                     <TouchableOpacity
                       onPress={handleAddCertification}
                       style={[styles.addCertBtn, !newCertification.name.trim() && styles.addCertBtnDisabled]}
@@ -1382,7 +1377,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
-    marginLeft: 40
   },
   statLabel: {
     fontSize: 12,
@@ -1392,7 +1386,6 @@ const styles = StyleSheet.create({
   actionsSection: {
     alignSelf: 'flex-start',
     marginLeft: 'auto',
-
   },
   actionsSectionCenter: {
     alignSelf: 'center',

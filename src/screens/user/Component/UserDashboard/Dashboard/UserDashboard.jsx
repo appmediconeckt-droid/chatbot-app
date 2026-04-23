@@ -31,8 +31,6 @@ import CounselorTable from "../Tab/Counselor/CounselorDirectory";
 import WalletDashboard from "../Tab/Wallet/WalletDashboard";
 import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
-import RealVideoCallModal from "../Tab/CallModal/VideoCallModal";
-import RealVoiceCallModal from "../Tab/CallModal/VoiceCallModal";
 
 const { width, height } = Dimensions.get("window");
 
@@ -418,7 +416,6 @@ export default function UserDashboard() {
       const token = await AsyncStorage.getItem("token");
 
       if (!storedUserId) return;
-      setUserId(storedUserId);
 
       const response = await axios.get(`${API_BASE_URL}/api/auth/getUser/${storedUserId}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -560,32 +557,6 @@ export default function UserDashboard() {
     setShowCallModal(false);
   };
 
-  const normalizedSelectedCall = selectedCall
-    ? {
-        ...selectedCall,
-        callId: selectedCall.callId || selectedCall.id || "",
-        roomId: selectedCall.roomId || "",
-        name:
-          selectedCall.userName ||
-          selectedCall.name ||
-          selectedCall?.from?.fullName ||
-          "Counselor",
-        profilePic:
-          selectedCall.image ||
-          selectedCall.profilePic ||
-          selectedCall?.from?.profilePhoto ||
-          null,
-        status: selectedCall.status || "active",
-        currentUserId: selectedCall.currentUserId || userId || "",
-      }
-    : null;
-
-  const closeActiveCallModal = () => {
-    setIsVideoModalOpen(false);
-    setIsVoiceModalOpen(false);
-    setSelectedCall(null);
-  };
-
   const allMenuItems = [
     { id: "Chat", icon: "comment", label: "Chat", type: "fontawesome5" },
     { id: "Counselor", icon: "user-md", label: "Counselor", type: "fontawesome5" },
@@ -687,20 +658,18 @@ export default function UserDashboard() {
         onRejectCall={handleRejectCall}
       />
 
-      <RealVideoCallModal
+      <VideoCallModal
         isOpen={isVideoModalOpen}
-        onClose={closeActiveCallModal}
-        callData={normalizedSelectedCall}
-        currentUser={{ id: userId }}
-        onEndCall={async () => true}
+        onClose={() => setIsVideoModalOpen(false)}
+        callData={selectedCall}
+        onEndCall={() => {}}
       />
 
-      <RealVoiceCallModal
+      <VoiceCallModal
         isOpen={isVoiceModalOpen}
-        onClose={closeActiveCallModal}
-        callData={normalizedSelectedCall}
-        currentUser={{ id: userId }}
-        onEndCall={async () => true}
+        onClose={() => setIsVoiceModalOpen(false)}
+        callData={selectedCall}
+        onEndCall={() => {}}
       />
 
       {isMobile && (
@@ -1513,11 +1482,10 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 11,
     fontWeight: "600",
-    
   },
   chatPopupOverlay: {
     position: "absolute",
-    bottom: 200, 
+    bottom: 90,
     right: 20,
     left: 20,
     zIndex: 1000,
@@ -1532,14 +1500,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 16,
     elevation: 12,
-   
   },
   chatPopupHeader: {
     padding: 16,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    
   },
   chatHeaderInfo: {
     flexDirection: "row",
@@ -1552,7 +1518,6 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
-    
   },
   chatAvatarGradient: {
     shadowColor: "#667eea",
@@ -1589,7 +1554,6 @@ const styles = StyleSheet.create({
   chatPopupBody: {
     flex: 1,
     padding: 16,
-    
     backgroundColor: "#f8f9fa",
   },
   chatMessageWrapper: {

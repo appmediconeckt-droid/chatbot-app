@@ -5,12 +5,15 @@ import {
   TouchableOpacity,
   Modal,
   StyleSheet,
+  Dimensions,
   StatusBar,
   Platform,
   ActivityIndicator,
+  ScrollView,
   PermissionsAndroid,
   Animated,
 } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { io } from 'socket.io-client';
@@ -18,6 +21,10 @@ import { RTCPeerConnection, mediaDevices } from 'react-native-webrtc';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import { RTC_CONFIGURATION } from '../../../../rtcConfig';
+
+const { width, height } = Dimensions.get('window');
+const isCompactScreen = width < 380;
+const isTablet = width >= 768;
 
 const ACTIVE = new Set(['active', 'connected']);
 const TERMINAL = new Set([
@@ -108,11 +115,14 @@ const VoiceCallModal = ({
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [isCallActive, setIsCallActive] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
+  const [volumeLevel, setVolumeLevel] = useState(70);
   const [callDuration, setCallDuration] = useState(0);
 
   // Call state
   const [callerName, setCallerName] = useState('Counselor');
   const [callerProfilePic, setCallerProfilePic] = useState('C');
+  const [callerPhoneNumber, setCallerPhoneNumber] = useState('');
   const [callStatus, setCallStatus] = useState('connecting');
   const [callId, setCallId] = useState('');
   const [roomId, setRoomId] = useState('');
@@ -288,7 +298,7 @@ const VoiceCallModal = ({
   );
 
   const establishConnection = useCallback(async () => {
-    if (startedRef.current || !callId || isTerminalStatus(callStatus)) return;
+    if (startedRef.current || !callId || !isConnectedStatus(callStatus)) return;
     const localUserId =
       currentUser?.id || currentUser?._id || callData?.currentUserId ||
       (await AsyncStorage.getItem('userId')) ||
@@ -305,9 +315,8 @@ const VoiceCallModal = ({
     startedRef.current = true;
     const localStream = localStreamRef.current || (await initializeMicrophone());
     if (!localStream) { startedRef.current = false; return; }
-    const rawToken =
-      (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
-    const token = String(rawToken || '').replace(/^Bearer\s+/i, '').trim();
+    const token =
+      (await AsyncStorage.getItem('token')) || (await AsyncStorage.getItem('accessToken'));
     if (!token) {
       setWebrtcError('Authentication expired. Please login again.');
       setIsConnecting(false);
@@ -321,7 +330,6 @@ const VoiceCallModal = ({
       reconnectionDelay: RECONNECT_BASE_DELAY_MS,
       timeout: 20000,
       auth: { token },
-      query: { token },
     });
     socketRef.current = socket;
     const peer = new RTCPeerConnection(RTC_CONFIGURATION);
@@ -445,6 +453,7 @@ const VoiceCallModal = ({
     const status = normalizeStatus(callData?.status || 'connecting');
     setCallerName(callData?.counselorName || callData?.name || 'Counselor');
     setCallerProfilePic(callData?.profilePic || 'C');
+    setCallerPhoneNumber(callData?.counselorPhone || callData?.phoneNumber || '');
     setCallStatus(status);
     setCallId(callData?.callId || callData?.id || '');
     setRoomId(callData?.roomId || '');
@@ -502,6 +511,7 @@ const VoiceCallModal = ({
     setIsMuted(false);
     setIsSpeakerOn(true);
     setIsCallActive(true);
+    setShowSettings(false);
     setCallStatus('ended');
     setCallId('');
     setRoomId('');
@@ -598,7 +608,7 @@ const VoiceCallModal = ({
           )}
         </View>
 
-        {/* ── Bottom Controls ─────────────────────────────────────────────────── */}
+        {/* ── Bottom Controls (3 buttons: Mute, Speaker, End Call) ───────────── */}
         <View style={[styles.controlsBar, { paddingBottom: Math.max(18, insets.bottom + 8) }]}>
 
           {/* Mute */}
@@ -624,6 +634,108 @@ const VoiceCallModal = ({
         </View>
 
         {/* ── Settings Bottom Sheet ────────────────────────── */}
+        <Modal
+          visible={showSettings}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowSettings(false)}
+        >
+          <View style={styles.settingsOverlay}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={() => setShowSettings(false)}
+            />
+            <View style={[styles.settingsPanel, { paddingBottom: insets.bottom + 20 }]}>
+              <View style={styles.settingsHandle}>
+                <View style={styles.settingsHandleBar} />
+              </View>
+              <Text style={styles.settingsTitle}>Call Settings</Text>
+              <ScrollView showsVerticalScrollIndicator={false}>
+
+                {/* Volume */}
+                <View style={styles.settingItem}>
+                  <View style={styles.settingRow}>
+                    <Ionicons name="volume-high" size={22} color="#3b82f6" />
+                    <Text style={styles.settingLabel}>Volume</Text>
+                    <Text style={styles.settingValue}>{Math.round(volumeLevel)}%</Text>
+                  </View>
+                  <Slider
+                    style={styles.slider}
+                    minimumValue={0}
+                    maximumValue={100}
+                    value={volumeLevel}
+                    onValueChange={setVolumeLevel}
+                    minimumTrackTintColor="#3b82f6"
+                    maximumTrackTintColor="#334155"
+                    thumbTintColor="#3b82f6"
+                  />
+                </View>
+
+                {/* Microphone toggle */}
+                <View style={styles.settingItem}>
+                  <View style={styles.settingRow}>
+                    <Ionicons name="mic" size={22} color="#3b82f6" />
+                    <Text style={styles.settingLabel}>Microphone</Text>
+                  </View>
+                  <TouchableOpacity style={styles.audioOption} onPress={() => setIsMuted((v) => !v)}>
+                    <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={20} color={isMuted ? '#ef4444' : '#3b82f6'} />
+                    <Text style={[styles.audioOptionText, isMuted && { color: '#ef4444' }]}>
+                      {isMuted ? 'Muted' : 'Active'}
+                    </Text>
+                    <Text style={styles.audioHint}>{isMuted ? 'Tap to unmute' : 'Tap to mute'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Speaker toggle */}
+                <View style={styles.settingItem}>
+                  <View style={styles.settingRow}>
+                    <Ionicons name="volume-high" size={22} color="#3b82f6" />
+                    <Text style={styles.settingLabel}>Speaker</Text>
+                  </View>
+                  <TouchableOpacity style={styles.audioOption} onPress={() => setIsSpeakerOn((v) => !v)}>
+                    <Ionicons name={isSpeakerOn ? 'volume-high' : 'volume-off'} size={20} color={isSpeakerOn ? '#3b82f6' : '#ef4444'} />
+                    <Text style={[styles.audioOptionText, !isSpeakerOn && { color: '#ef4444' }]}>
+                      {isSpeakerOn ? 'Speaker On' : 'Earpiece'}
+                    </Text>
+                    <Text style={styles.audioHint}>{isSpeakerOn ? 'Tap to use earpiece' : 'Tap to use speaker'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Phone number */}
+                {!!callerPhoneNumber && (
+                  <View style={styles.settingItem}>
+                    <View style={styles.settingRow}>
+                      <Ionicons name="call-outline" size={22} color="#3b82f6" />
+                      <Text style={styles.settingLabel}>Phone Number</Text>
+                    </View>
+                    <View style={styles.infoCard}>
+                      <Ionicons name="call" size={15} color="#94a3b8" />
+                      <Text style={styles.phoneText}>{callerPhoneNumber}</Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Call ID */}
+                {!!callId && (
+                  <View style={styles.settingItem}>
+                    <View style={styles.settingRow}>
+                      <Ionicons name="information-circle" size={22} color="#3b82f6" />
+                      <Text style={styles.settingLabel}>Call Info</Text>
+                    </View>
+                    <View style={styles.infoCard}>
+                      <Text style={styles.infoText}>Call ID: {callId}</Text>
+                    </View>
+                  </View>
+                )}
+              </ScrollView>
+
+              <TouchableOpacity style={styles.doneBtn} onPress={() => setShowSettings(false)}>
+                <Text style={styles.doneBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </Modal>
   );
@@ -751,6 +863,111 @@ const styles = StyleSheet.create({
   },
   endBtn: {
     backgroundColor: '#ef4444',
+  },
+
+  // Settings panel
+  settingsOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  settingsPanel: {
+    backgroundColor: '#1e293b',
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    maxHeight: height * 0.85,
+  },
+  settingsHandle: {
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  settingsHandleBar: {
+    width: 38,
+    height: 4,
+    backgroundColor: '#334155',
+    borderRadius: 2,
+  },
+  settingsTitle: {
+    color: '#f8fafc',
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  settingItem: {
+    marginBottom: 22,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  settingLabel: {
+    color: '#f8fafc',
+    fontSize: 15,
+    fontWeight: '500',
+    flex: 1,
+  },
+  settingValue: {
+    color: '#3b82f6',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  slider: {
+    width: '100%',
+    height: 38,
+  },
+  audioOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    paddingVertical: 11,
+    paddingHorizontal: 15,
+    backgroundColor: '#334155',
+    borderRadius: 14,
+  },
+  audioOptionText: {
+    flex: 1,
+    color: '#f8fafc',
+    fontSize: 14,
+  },
+  audioHint: {
+    color: '#94a3b8',
+    fontSize: 12,
+  },
+  infoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingVertical: 11,
+    paddingHorizontal: 15,
+    backgroundColor: '#334155',
+    borderRadius: 14,
+  },
+  phoneText: {
+    color: '#3b82f6',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  infoText: {
+    color: '#94a3b8',
+    fontSize: 12,
+  },
+  doneBtn: {
+    backgroundColor: '#3b82f6',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  doneBtnText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

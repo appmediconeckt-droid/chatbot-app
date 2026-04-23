@@ -1,3 +1,8 @@
+<<<<<<< HEAD
 {
     "postman.settings.dotenv-detection-notification-visibility": false
+=======
+{
+    "postman.settings.dotenv-detection-notification-visibility": false
+>>>>>>> 18f0a5d7b10999a6471dad398966af9437103129
 }
