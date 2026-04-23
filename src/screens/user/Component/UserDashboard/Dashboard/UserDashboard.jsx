@@ -523,16 +523,53 @@ export default function UserDashboard() {
       setShowProfileMenu(false);
     }
   };
-
-  const handleLogout = async () => {
-    try {
-      await AsyncStorage.clear();
-      navigation.navigate("RoleSelector");
-    } catch (error) {
-      console.error("Logout error:", error);
-      navigation.navigate("RoleSelector");
+const handleLogout = async () => {
+  try {
+    // Get tokens
+    const accessToken = await AsyncStorage.getItem("accessToken");
+    const refreshToken = await AsyncStorage.getItem("refreshToken");
+    const token = await AsyncStorage.getItem("token"); // Fallback for older token key
+    
+    // Make backend logout API call
+    if (accessToken || token) {
+      try {
+        await axios.post(
+          `${API_BASE_URL}/api/auth/logout`,
+          { refreshToken },
+          { 
+            headers: { 
+              Authorization: `Bearer ${accessToken || token}`, 
+              "Content-Type": "application/json" 
+            } 
+          }
+        );
+      } catch (apiError) {
+        console.error("Backend logout error:", apiError);
+        // Continue with local cleanup even if backend call fails
+      }
     }
-  };
+    
+    // Clear all local storage
+    await AsyncStorage.clear();
+    
+    // Navigate to role selector
+    navigation.replace("RoleSelector");
+  } catch (error) {
+    console.error("Logout error:", error);
+    // Force clear and navigate even if there's an error
+    await AsyncStorage.clear();
+    navigation.replace("RoleSelector");
+  }
+};
+  // const handleLogout = async () => {
+  //   try {
+  //     await AsyncStorage.clear();
+  //     navigation.navigate("RoleSelector");
+  //   } catch (error) {
+  //     console.error("Logout error:", error);
+  //     navigation.navigate("RoleSelector");
+  //   }
+  // };
 
   const handleDeleteConfirm = () => {
     safeVibrate([100, 50, 100]);
