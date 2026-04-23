@@ -1141,13 +1141,13 @@ const CounselorProfile = () => {
                         placeholder="Expiry Date (YYYY-MM-DD)"
                       />
                     </View>
-                    
+
                     <TouchableOpacity onPress={handleNewDocumentUpload} style={styles.documentUploadArea}>
                       <Text style={styles.documentUploadText}>
                         {newCertification.documentName ? `📄 ${newCertification.documentName}` : '📁 Click to upload supporting document'}
                       </Text>
                     </TouchableOpacity>
-                    
+
                     <TouchableOpacity
                       onPress={handleAddCertification}
                       style={[styles.addCertBtn, !newCertification.name.trim() && styles.addCertBtnDisabled]}
@@ -1382,6 +1382,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+    marginLeft: 40
   },
   statLabel: {
     fontSize: 12,
@@ -1391,6 +1392,7 @@ const styles = StyleSheet.create({
   actionsSection: {
     alignSelf: 'flex-start',
     marginLeft: 'auto',
+
   },
   actionsSectionCenter: {
     alignSelf: 'center',

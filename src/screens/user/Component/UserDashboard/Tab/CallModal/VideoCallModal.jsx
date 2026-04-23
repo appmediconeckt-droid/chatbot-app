@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,18 +12,69 @@ import {
   ScrollView,
   PermissionsAndroid,
   Animated,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { io } from 'socket.io-client';
-import { RTCPeerConnection, RTCView, mediaDevices } from 'react-native-webrtc';
+import { RTCPeerConnection, RTCView, mediaDevices, RTCSessionDescription } from 'react-native-webrtc';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import { RTC_CONFIGURATION } from '../../../../rtcConfig';
 
+// Improved Emoji Picker Component
+const EmojiPickerModal = ({ visible, onClose, onEmojiSelect }) => {
+  const emojis = [
+    '😊', '😂', '❤️', '👍', '🎉', '🔥', '✨', '🌟',
+    '💯', '🤝', '💪', '🎯', '✅', '🙏', '👏', '😮',
+    '😢', '😡', '🥳', '😎', '🤔', '😍', '🥰', '😘'
+  ];
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={styles.emojiOverlay}>
+          <TouchableWithoutFeedback>
+            <View style={styles.emojiPanel}>
+              <View style={styles.emojiHandle}>
+                <View style={styles.emojiHandleBar} />
+              </View>
+              <Text style={styles.emojiTitle}>Send Reaction</Text>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.emojiGrid}
+              >
+                {emojis.map((emoji, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.emojiItem}
+                    onPress={() => {
+                      onEmojiSelect(emoji);
+                      onClose();
+                    }}
+                  >
+                    <Text style={styles.emojiText}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.emojiCloseBtn} onPress={onClose}>
+                <Text style={styles.emojiCloseText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+};
+
 const { width, height } = Dimensions.get('window');
-const isCompactScreen = width < 380;
 const isTablet = width >= 768;
 const localPreviewWidth = isTablet ? 200 : Math.min(150, Math.max(100, Math.round(width * 0.3)));
 const localPreviewHeight = Math.round(localPreviewWidth * 1.42);
@@ -33,9 +84,6 @@ const TERMINAL = new Set([
   'ended', 'completed', 'rejected', 'cancelled', 'missed', 'failed',
   'camera_error', 'no_camera',
 ]);
-
-const MAX_RECONNECT_ATTEMPTS = 4;
-const RECONNECT_BASE_DELAY_MS = 1500;
 
 const normalizeStatus = (status) => {
   if (!status) return 'connecting';
@@ -48,7 +96,7 @@ const normalizeStatus = (status) => {
 const isConnectedStatus = (status) => ACTIVE.has(normalizeStatus(status));
 const isTerminalStatus = (status) => TERMINAL.has(normalizeStatus(status));
 
-// ─── Pulsing Ring Component ───────────────────────────────────────────────────
+// Pulse Ring Component
 const PulseRing = ({ size, delay, color = '#3b82f6' }) => {
   const anim = useRef(new Animated.Value(0)).current;
 
@@ -91,7 +139,51 @@ const PulseRing = ({ size, delay, color = '#3b82f6' }) => {
   );
 };
 
-// ─── Animated Dots ────────────────────────────────────────────────────────────
+// Floating Emoji Animation
+const FloatingEmoji = ({ emoji, onComplete }) => {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const randomX = (Math.random() - 0.5) * 50;
+    translateX.setValue(randomX);
+    
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: -150,
+        duration: 2000,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: 2000,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateX, {
+        toValue: randomX + (Math.random() - 0.5) * 30,
+        duration: 2000,
+        useNativeDriver: true,
+      }),
+    ]).start(() => onComplete());
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        styles.floatingEmoji,
+        {
+          transform: [{ translateY }, { translateX }],
+          opacity,
+        },
+      ]}
+    >
+      <Text style={styles.floatingEmojiText}>{emoji}</Text>
+    </Animated.View>
+  );
+};
+
+// Animated Dots
 const AnimatedDots = () => {
   const [dots, setDots] = useState('');
   useEffect(() => {
@@ -103,7 +195,7 @@ const AnimatedDots = () => {
   return <Text style={styles.dotsText}>{dots}</Text>;
 };
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// Main Component
 const VideoCallModal = ({
   isOpen,
   onClose,
@@ -118,12 +210,15 @@ const VideoCallModal = ({
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isCameraSwitched, setIsCameraSwitched] = useState(false);
-  const [isCallActive, setIsCallActive] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [volumeLevel, setVolumeLevel] = useState(70);
   const [callDuration, setCallDuration] = useState(0);
   const [availableCameras, setAvailableCameras] = useState([]);
   const [currentCamera, setCurrentCamera] = useState('');
+  const [floatingEmojis, setFloatingEmojis] = useState([]);
+  const [isSharingScreen, setIsSharingScreen] = useState(false);
+  const [notification, setNotification] = useState({ show: false, message: '', type: 'info' });
 
   // Call state
   const [callerName, setCallerName] = useState('Counselor');
@@ -140,6 +235,7 @@ const VideoCallModal = ({
   const [webrtcError, setWebrtcError] = useState('');
   const [localStreamURL, setLocalStreamURL] = useState(null);
   const [remoteStreamURL, setRemoteStreamURL] = useState(null);
+  const [socketConnected, setSocketConnected] = useState(false);
 
   // Refs
   const socketRef = useRef(null);
@@ -155,6 +251,21 @@ const VideoCallModal = ({
   const establishConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
+  const screenStreamRef = useRef(null);
+  const connectionTimeoutRef = useRef(null);
+
+  const showNotification = useCallback((message, type = 'info') => {
+    setNotification({ show: true, message, type });
+    setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 3000);
+  }, []);
+
+  const addFloatingEmoji = useCallback((emoji) => {
+    const id = Date.now() + Math.random();
+    setFloatingEmojis(prev => [...prev, { id, emoji }]);
+    setTimeout(() => {
+      setFloatingEmojis(prev => prev.filter(e => e.id !== id));
+    }, 2000);
+  }, []);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -183,38 +294,54 @@ const VideoCallModal = ({
   }, [resetReconnectState]);
 
   const cleanupRealtime = useCallback(
-    async ({ emitLeave = true } = {}) => {
+    ({ emitLeave = true } = {}) => {
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
       if (peerRef.current) {
         peerRef.current.onicecandidate = null;
         peerRef.current.ontrack = null;
         peerRef.current.onconnectionstatechange = null;
-        peerRef.current.close();
+        peerRef.current.oniceconnectionstatechange = null;
+        peerRef.current.onsignalingstatechange = null;
+        try { peerRef.current.close(); } catch (_) {}
         peerRef.current = null;
       }
       if (socketRef.current) {
         try {
-          if (emitLeave && callId && localUserIdRef.current) {
+          if (emitLeave && callId && localUserIdRef.current && socketConnected) {
             socketRef.current.emit('leave-call', { callId, userId: localUserIdRef.current });
           }
         } catch (_) {}
-        socketRef.current.disconnect();
+        try { 
+          if (socketRef.current) {
+            socketRef.current.disconnect();
+          }
+        } catch (_) {}
         socketRef.current = null;
+        setSocketConnected(false);
       }
       if (remoteStreamRef.current) {
-        remoteStreamRef.current.release();
+        try { remoteStreamRef.current.release(); } catch (_) {}
         remoteStreamRef.current = null;
       }
       if (localStreamRef.current) {
-        localStreamRef.current.release();
+        try { localStreamRef.current.release(); } catch (_) {}
         localStreamRef.current = null;
+      }
+      if (screenStreamRef.current) {
+        try { screenStreamRef.current.getTracks().forEach(track => track.stop()); } catch (_) {}
+        screenStreamRef.current = null;
       }
       setRemoteStreamURL(null);
       setLocalStreamURL(null);
       pendingIceRef.current = [];
       startedRef.current = false;
       setIsRemoteVideoReady(false);
+      setIsSharingScreen(false);
     },
-    [callId],
+    [callId, socketConnected],
   );
 
   const replaceOutgoingTracks = useCallback((stream) => {
@@ -231,7 +358,7 @@ const VideoCallModal = ({
   }, []);
 
   const requestMediaPermissions = useCallback(async () => {
-    if (Platform.OS !== 'android') return true;
+    if (Platform.OS === 'ios') return true;
     try {
       const result = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.CAMERA,
@@ -277,6 +404,7 @@ const VideoCallModal = ({
         if (peerRef.current) replaceOutgoingTracks(stream);
         return stream;
       } catch (error) {
+        console.error('Camera initialization error:', error);
         const msg = String(error?.message || '').toLowerCase();
         const isPerm = msg.includes('permission') || msg.includes('security') || msg.includes('denied');
         setCallStatus('camera_error');
@@ -290,6 +418,71 @@ const VideoCallModal = ({
     [isMuted, isVideoEnabled, replaceOutgoingTracks, requestMediaPermissions],
   );
 
+  const toggleScreenShare = useCallback(async () => {
+    if (!peerRef.current) {
+      showNotification('Call not connected');
+      return;
+    }
+
+    try {
+      if (!isSharingScreen) {
+        let screenStream;
+        
+        if (Platform.OS === 'android') {
+          screenStream = await mediaDevices.getDisplayMedia({
+            video: true,
+            audio: true,
+          });
+        } else {
+          showNotification('Screen sharing on iOS requires additional setup');
+          return;
+        }
+        
+        screenStreamRef.current = screenStream;
+        const videoTrack = screenStream.getVideoTracks()[0];
+        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
+        
+        if (sender) {
+          await sender.replaceTrack(videoTrack);
+          setIsSharingScreen(true);
+          showNotification('Screen sharing started');
+          
+          if (socketRef.current && socketConnected) {
+            socketRef.current.emit('screen-share-started', {
+              callId,
+              userId: localUserIdRef.current
+            });
+          }
+        }
+      } else {
+        const cameraStream = await initializeCamera(isCameraSwitched);
+        const videoTrack = cameraStream.getVideoTracks()[0];
+        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
+        
+        if (sender) {
+          await sender.replaceTrack(videoTrack);
+          setIsSharingScreen(false);
+          showNotification('Screen sharing stopped');
+          
+          if (socketRef.current && socketConnected) {
+            socketRef.current.emit('screen-share-stopped', {
+              callId,
+              userId: localUserIdRef.current
+            });
+          }
+        }
+        
+        if (screenStreamRef.current) {
+          screenStreamRef.current.getTracks().forEach(track => track.stop());
+          screenStreamRef.current = null;
+        }
+      }
+    } catch (error) {
+      console.error('Screen share error:', error);
+      showNotification('Screen sharing not available on this device');
+    }
+  }, [isSharingScreen, initializeCamera, isCameraSwitched, callId, showNotification, socketConnected]);
+
   const getAvailableCameras = useCallback(async () => {
     try {
       const devices = await mediaDevices.enumerateDevices();
@@ -301,7 +494,7 @@ const VideoCallModal = ({
 
   const scheduleReconnect = useCallback(
     (reason = 'Network issue') => {
-      if (isManualCloseRef.current || !isOpen || !isCallActive) return;
+      if (isManualCloseRef.current || !isOpen) return;
       if (!hasEverConnectedRef.current) return;
       if (!callId || !isConnectedStatus(callStatus) || isTerminalStatus(callStatus)) return;
       if (reconnectTimeoutRef.current) return;
@@ -326,80 +519,167 @@ const VideoCallModal = ({
         }
       }, delay);
     },
-    [cleanupRealtime, isCallActive, isOpen, callId, callStatus],
+    [cleanupRealtime, isOpen, callId, callStatus],
   );
 
   const establishConnection = useCallback(async () => {
-    if (startedRef.current || !callId || !isConnectedStatus(callStatus)) return;
+    if (startedRef.current || !callId || isTerminalStatus(callStatus)) return;
+    
     const localUserId =
       currentUser?.id || currentUser?._id || callData?.currentUserId ||
       (await AsyncStorage.getItem('userId')) ||
       (await AsyncStorage.getItem('counsellorId')) ||
       (await AsyncStorage.getItem('counselorId'));
-    if (!localUserId) return;
+    
+    if (!localUserId) {
+      console.error('No user ID found');
+      return;
+    }
+    
     const serverCall = apiCallData || callData?.apiCallData || {};
     const initiatorId = serverCall?.initiator?.id || callData?.initiator?.id || callData?.initiatorId;
     const receiverId = serverCall?.receiver?.id || callData?.receiver?.id || callData?.receiverId;
-    if (!initiatorId || !receiverId) return;
+    
+    if (!initiatorId || !receiverId) {
+      console.error('No initiator/receiver found');
+      return;
+    }
+    
     localUserIdRef.current = String(localUserId);
     remoteUserIdRef.current =
       String(initiatorId) === String(localUserId) ? String(receiverId) : String(initiatorId);
+    
     startedRef.current = true;
-    const localStream = localStreamRef.current || (await initializeCamera(isCameraSwitched));
-    if (!localStream) { startedRef.current = false; return; }
+    
+    let localStream = localStreamRef.current;
+    if (!localStream) {
+      localStream = await initializeCamera(isCameraSwitched);
+      if (!localStream) {
+        startedRef.current = false;
+        return;
+      }
+    }
+    
     const token =
-      (await AsyncStorage.getItem('token')) || (await AsyncStorage.getItem('accessToken'));
+      (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
+    
     if (!token) {
       setWebrtcError('Authentication expired. Please login again.');
       setIsConnecting(false);
       startedRef.current = false;
       return;
     }
+    
+    if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
+    connectionTimeoutRef.current = setTimeout(() => {
+      if (!hasEverConnectedRef.current && !isTerminalStatus(callStatus)) {
+        setWebrtcError('Connection timeout. Please try again.');
+        setIsConnecting(false);
+      }
+    }, 30000);
+    
+    // Create socket connection with better error handling
     const socket = io(API_BASE_URL, {
-      transports: ['websocket', 'polling'],
+      transports: ['websocket', 'polling'], // Allow polling as fallback for better connectivity
+      forceNew: true,
       reconnection: true,
-      reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-      reconnectionDelay: RECONNECT_BASE_DELAY_MS,
-      timeout: 20000,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000, // Increased timeout for slower mobile connections
       auth: { token },
+      query: { token }, // Redundant but safer for some middleware
     });
     socketRef.current = socket;
+    
     const peer = new RTCPeerConnection(RTC_CONFIGURATION);
     peerRef.current = peer;
-    localStream.getTracks().forEach((track) => peer.addTrack(track, localStream));
+    
+    localStream.getTracks().forEach((track) => {
+      peer.addTrack(track, localStream);
+    });
+    
     const flushIceQueue = async () => {
       if (!peerRef.current?.remoteDescription) return;
       const queue = [...pendingIceRef.current];
       pendingIceRef.current = [];
       for (const candidate of queue) {
-        try { await peerRef.current.addIceCandidate(candidate); } catch (_) {}
+        try { 
+          await peerRef.current.addIceCandidate(candidate);
+        } catch (err) {
+          console.log('Error adding ICE candidate:', err);
+        }
       }
     };
+    
     const sendOffer = async () => {
       if (!peerRef.current || peerRef.current.signalingState !== 'stable') return;
-      const offer = await peerRef.current.createOffer();
-      await peerRef.current.setLocalDescription(offer);
-      socket.emit('call-offer', { callId, offer, to: remoteUserIdRef.current });
+      try {
+        const offer = await peerRef.current.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        });
+        await peerRef.current.setLocalDescription(offer);
+        if (socketRef.current && socketConnected) {
+          socketRef.current.emit('call-offer', { 
+            callId, 
+            offer, 
+            to: remoteUserIdRef.current,
+            from: localUserIdRef.current
+          });
+        }
+      } catch (err) {
+        console.error('Error creating offer:', err);
+      }
     };
+    
     peer.onicecandidate = (event) => {
       if (!event.candidate) return;
-      socket.emit('ice-candidate', {
-        callId,
-        candidate: event.candidate,
-        userId: localUserIdRef.current,
-        to: remoteUserIdRef.current,
-      });
+      if (socketRef.current && socketConnected) {
+        socketRef.current.emit('ice-candidate', {
+          callId,
+          candidate: event.candidate,
+          userId: localUserIdRef.current,
+          to: remoteUserIdRef.current,
+        });
+      }
     };
+    
+    peer.oniceconnectionstatechange = () => {
+      const state = peer.iceConnectionState;
+      console.log('ICE Connection State:', state);
+      if (state === 'connected' || state === 'completed') {
+        hasEverConnectedRef.current = true;
+        setIsConnecting(false);
+        setIsReconnecting(false);
+        resetReconnectState();
+        setWebrtcError('');
+        updateRemoteState();
+        if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
+      } else if (state === 'failed') {
+        scheduleReconnect('ICE connection failed');
+      }
+    };
+    
+    peer.onsignalingstatechange = () => {
+      console.log('Signaling State:', peer.signalingState);
+    };
+    
     peer.ontrack = (event) => {
       const [incomingStream] = event.streams;
       if (incomingStream) {
         remoteStreamRef.current = incomingStream;
         setRemoteStreamURL(incomingStream.toURL());
+        setIsRemoteVideoReady(true);
+        setIsConnecting(false);
+        hasEverConnectedRef.current = true;
       }
       updateRemoteState();
     };
+    
     peer.onconnectionstatechange = () => {
       const state = peer.connectionState;
+      console.log('Connection State:', state);
       if (state === 'connected') {
         hasEverConnectedRef.current = true;
         setIsConnecting(false);
@@ -407,54 +687,138 @@ const VideoCallModal = ({
         resetReconnectState();
         setWebrtcError('');
         updateRemoteState();
+        if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
       }
       if (state === 'failed' || state === 'disconnected') {
         setWebrtcError('Video connection interrupted.');
         scheduleReconnect('Video connection interrupted');
       }
     };
+    
+    // Socket event handlers with better connection tracking
     socket.on('connect', () => {
+      console.log('Socket connected');
+      setSocketConnected(true);
       resetReconnectState();
       setWebrtcError('');
       setIsConnecting(true);
       socket.emit('join-call', { callId, userId: localUserIdRef.current });
     });
+    
     socket.on('connect_error', (error) => {
+      console.error('Socket connect error:', error);
+      setSocketConnected(false);
       setWebrtcError(error?.message || 'Socket connection error.');
       scheduleReconnect('Socket connection error');
     });
+    
+    socket.on('reconnect_attempt', (attempt) => {
+      console.log(`Reconnection attempt ${attempt}`);
+      setWebrtcError(`Reconnecting... (${attempt}/5)`);
+    });
+    
+    socket.on('reconnect', () => {
+      console.log('Socket reconnected');
+      setSocketConnected(true);
+      setWebrtcError('');
+      socket.emit('join-call', { callId, userId: localUserIdRef.current });
+    });
+    
+    socket.on('disconnect', (reason) => {
+      console.log('Socket disconnected:', reason);
+      setSocketConnected(false);
+      if (reason === 'io server disconnect') {
+        socket.connect();
+      }
+    });
+    
     socket.on('user-joined', async ({ userId }) => {
       if (String(userId) === localUserIdRef.current) return;
       if (peerRef.current?.connectionState === 'connected') return;
-      if (String(initiatorId) === String(localUserIdRef.current)) await sendOffer();
+      if (String(initiatorId) === String(localUserIdRef.current)) {
+        setTimeout(async () => {
+          await sendOffer();
+        }, 500);
+      }
     });
-    const onOffer = async ({ offer, userId, from }) => {
+    
+    socket.on('call-offer', async ({ offer, userId, from }) => {
       const senderId = String(userId || from || '');
       if (!offer || senderId === localUserIdRef.current || !peerRef.current) return;
       try {
-        await peerRef.current.setRemoteDescription(offer);
+        await peerRef.current.setRemoteDescription(new RTCSessionDescription(offer));
         await flushIceQueue();
         const answer = await peerRef.current.createAnswer();
         await peerRef.current.setLocalDescription(answer);
-        socket.emit('call-answer', { callId, answer, to: remoteUserIdRef.current });
-      } catch (_) { setWebrtcError('Failed to process call offer.'); }
-    };
-    const onAnswer = async ({ answer, userId, from }) => {
+        if (socketRef.current && socketConnected) {
+          socketRef.current.emit('call-answer', { 
+            callId, 
+            answer, 
+            to: remoteUserIdRef.current,
+            from: localUserIdRef.current
+          });
+        }
+      } catch (err) {
+        console.error('Error handling call-offer:', err);
+        setWebrtcError('Failed to process call offer.');
+      }
+    });
+    
+    socket.on('call-answer', async ({ answer, userId, from }) => {
       const senderId = String(userId || from || '');
       if (!answer || senderId === localUserIdRef.current || !peerRef.current) return;
       try {
         if (!peerRef.current.currentRemoteDescription) {
-          await peerRef.current.setRemoteDescription(answer);
+          await peerRef.current.setRemoteDescription(new RTCSessionDescription(answer));
           await flushIceQueue();
         }
-      } catch (_) { setWebrtcError('Failed to process call answer.'); }
-    };
+      } catch (err) {
+        console.error('Error handling call-answer:', err);
+        setWebrtcError('Failed to process call answer.');
+      }
+    });
+    
+    socket.on('ice-candidate', async ({ candidate, userId, from }) => {
+      const senderId = String(userId || from || '');
+      if (!candidate || senderId === localUserIdRef.current || !peerRef.current) return;
+      try {
+        if (!peerRef.current.remoteDescription) { 
+          pendingIceRef.current.push(candidate); 
+          return; 
+        }
+        await peerRef.current.addIceCandidate(candidate);
+      } catch (err) {
+        console.log('Error adding ICE candidate:', err);
+        pendingIceRef.current.push(candidate);
+      }
+    });
+    
+    socket.on('emoji-received', ({ emoji, userId, from }) => {
+      // Logic to check sender to avoid loops
+      const senderId = from || userId;
+      if (String(senderId) !== localUserIdRef.current) {
+        addFloatingEmoji(emoji);
+        showNotification(`Other user sent ${emoji}`);
+      }
+    });
+    
+    socket.on('screen-share-started', ({ userId }) => {
+      if (String(userId) !== localUserIdRef.current) {
+        showNotification('Screen sharing started by other participant');
+      }
+    });
+    
+    socket.on('screen-share-stopped', ({ userId }) => {
+      if (String(userId) !== localUserIdRef.current) {
+        showNotification('Screen sharing stopped by other participant');
+      }
+    });
+    
     const handleRemoteCallEnded = ({ callId: endedCallId, endedBy } = {}) => {
       if (endedCallId && String(endedCallId) !== String(callId)) return;
       isManualCloseRef.current = true;
       resetReconnectState();
       hasEverConnectedRef.current = false;
-      setIsCallActive(false);
       setCallStatus('ended');
       setIsConnecting(false);
       setIsRemoteVideoReady(false);
@@ -462,24 +826,25 @@ const VideoCallModal = ({
       cleanupRealtime();
       setTimeout(() => onClose(), 500);
     };
-    socket.on('call-offer', onOffer);
-    socket.on('offer', onOffer);
-    socket.on('call-answer', onAnswer);
-    socket.on('answer', onAnswer);
+    
     socket.on('call_ended', handleRemoteCallEnded);
     socket.on('call-ended', handleRemoteCallEnded);
-    socket.on('ice-candidate', async ({ candidate, userId, from }) => {
-      const senderId = String(userId || from || '');
-      if (!candidate || senderId === localUserIdRef.current || !peerRef.current) return;
-      try {
-        if (!peerRef.current.remoteDescription) { pendingIceRef.current.push(candidate); return; }
-        await peerRef.current.addIceCandidate(candidate);
-      } catch (_) { pendingIceRef.current.push(candidate); }
-    });
+    
+    // Send initial offer if initiator
+    if (String(initiatorId) === String(localUserIdRef.current)) {
+      setTimeout(async () => {
+        if (peerRef.current && peerRef.current.signalingState === 'stable' && socketConnected) {
+          await sendOffer();
+        }
+      }, 1000);
+    }
   }, [apiCallData, callData, callId, callStatus, cleanupRealtime, currentUser,
-    initializeCamera, isCameraSwitched, onClose, resetReconnectState, scheduleReconnect, updateRemoteState]);
+    initializeCamera, isCameraSwitched, onClose, resetReconnectState, scheduleReconnect, 
+    updateRemoteState, addFloatingEmoji, showNotification, socketConnected]);
 
-  useEffect(() => { establishConnectionRef.current = establishConnection; }, [establishConnection]);
+  useEffect(() => { 
+    establishConnectionRef.current = establishConnection; 
+  }, [establishConnection]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -514,28 +879,35 @@ const VideoCallModal = ({
     };
     setup();
     return () => {
-      if (localStreamRef.current) { localStreamRef.current.release(); localStreamRef.current = null; }
+      if (localStreamRef.current) { 
+        localStreamRef.current.release(); 
+        localStreamRef.current = null; 
+      }
     };
   }, [isOpen, getAvailableCameras, initializeCamera, requestMediaPermissions]);
 
   useEffect(() => {
-    if (isOpen && isCallActive && isConnectedStatus(callStatus) && !isTerminalStatus(callStatus)) {
+    if (isOpen && !isTerminalStatus(callStatus)) {
       establishConnection();
     }
-  }, [isOpen, isCallActive, callStatus, establishConnection]);
+  }, [isOpen, callStatus, establishConnection]);
 
   useEffect(() => {
-    if (!isOpen || !isCallActive || !callStartTime || !isConnectedStatus(callStatus)) return;
+    if (!isOpen || !callStartTime || !isConnectedStatus(callStatus)) return;
     const timer = setInterval(() => setCallDuration((p) => p + 1), 1000);
     return () => clearInterval(timer);
-  }, [isOpen, isCallActive, callStartTime, callStatus]);
+  }, [isOpen, callStartTime, callStatus]);
 
   useEffect(() => {
-    localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = isVideoEnabled; });
+    if (localStreamRef.current) {
+      localStreamRef.current.getVideoTracks().forEach((t) => { t.enabled = isVideoEnabled; });
+    }
   }, [isVideoEnabled]);
 
   useEffect(() => {
-    localStreamRef.current?.getAudioTracks().forEach((t) => { t.enabled = !isMuted; });
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach((t) => { t.enabled = !isMuted; });
+    }
   }, [isMuted]);
 
   useEffect(() => {
@@ -549,8 +921,8 @@ const VideoCallModal = ({
     setIsSpeakerOn(true);
     setIsVideoEnabled(true);
     setIsCameraSwitched(false);
-    setIsCallActive(true);
     setShowSettings(false);
+    setShowEmojiPicker(false);
     setCallStatus('ended');
     setCallId('');
     setRoomId('');
@@ -558,18 +930,35 @@ const VideoCallModal = ({
     setIsReconnecting(false);
     setWebrtcError('');
     hasEverConnectedRef.current = false;
+    setSocketConnected(false);
   }, [cleanupRealtime, isOpen, resetReconnectState]);
 
   const handleEndCall = async () => {
     isManualCloseRef.current = true;
     resetReconnectState();
     hasEverConnectedRef.current = false;
-    setIsCallActive(false);
     setCallStatus('ended');
+    setIsConnecting(false);
+    setIsRemoteVideoReady(false);
+    
+    // Notify server about call end
+    if (socketRef.current && socketConnected && callId) {
+      try {
+        socketRef.current.emit('end-call', { 
+          callId, 
+          userId: localUserIdRef.current 
+        });
+      } catch (err) {
+        console.error('Error ending call:', err);
+      }
+    }
+    
     cleanupRealtime();
+    
     if (typeof onEndCall === 'function' && callId) {
       try { await onEndCall(callId); } catch (_) {}
     }
+    
     setTimeout(() => onClose(), 500);
   };
 
@@ -583,6 +972,22 @@ const VideoCallModal = ({
     const stream = await initializeCamera(isCameraSwitched, deviceId);
     if (stream) setCurrentCamera(deviceId);
   };
+
+  const sendEmoji = useCallback((emoji) => {
+    if (socketRef.current && socketConnected && callId) {
+      socketRef.current.emit('send-emoji', {
+        callId,
+        emoji,
+        userId: localUserIdRef.current
+      });
+      addFloatingEmoji(emoji);
+      showNotification(`Sent ${emoji}`);
+    } else {
+      // Still show emoji locally even if socket not connected
+      addFloatingEmoji(emoji);
+      showNotification(`Sent ${emoji} (local only)`);
+    }
+  }, [callId, addFloatingEmoji, showNotification, socketConnected]);
 
   const formatTime = (seconds) => {
     const h = Math.floor(seconds / 3600);
@@ -610,19 +1015,43 @@ const VideoCallModal = ({
   if (!isOpen) return null;
 
   return (
-    <Modal visible={isOpen} animationType="slide" transparent={false} onRequestClose={onClose}>
+    <Modal visible={isOpen} animationType="slide" transparent={false} onRequestClose={handleEndCall}>
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0d1117" />
 
-        {/* ── Header ─────────────────────────────────────── */}
+        {/* Notification */}
+        {notification.show && (
+          <View style={[
+            styles.notification, 
+            notification.type === 'error' && styles.notificationError
+          ]}>
+            <Text style={styles.notificationText}>{notification.message}</Text>
+          </View>
+        )}
+
+        {/* Floating Emojis */}
+        {floatingEmojis.map(({ id, emoji }) => (
+          <FloatingEmoji
+            key={id}
+            emoji={emoji}
+            onComplete={() => setFloatingEmojis(prev => prev.filter(e => e.id !== id))}
+          />
+        ))}
+
+        {/* Header */}
         <View style={styles.header}>
+          <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.headerButton}>
+            <Ionicons name="settings-outline" size={24} color="#fff" />
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Video Call</Text>
+          <TouchableOpacity onPress={handleEndCall} style={styles.headerButton}>
+            <Ionicons name="close" size={24} color="#fff" />
+          </TouchableOpacity>
         </View>
 
-        {/* ── Main content ────────────────────────────────── */}
+        {/* Main content */}
         <View style={styles.content}>
-
-          {/* Remote video (when connected) */}
+          {/* Remote video */}
           {remoteStreamURL && isRemoteVideoReady ? (
             <RTCView
               streamURL={remoteStreamURL}
@@ -630,30 +1059,20 @@ const VideoCallModal = ({
               objectFit="cover"
             />
           ) : (
-            /* Ringing / connecting placeholder */
             <View style={styles.placeholderWrap}>
-
-              {/* Pulsing rings */}
               <View style={styles.ringsContainer}>
                 <PulseRing size={220} delay={0} />
                 <PulseRing size={175} delay={200} />
                 <PulseRing size={132} delay={400} />
-
-                {/* Avatar circle */}
                 <View style={styles.avatarCircle}>
                   <Text style={styles.avatarText}>{displayInitial}</Text>
                 </View>
               </View>
-
-              {/* Name */}
               <Text style={styles.callerName}>{callerName}</Text>
-
-              {/* Status row */}
               <View style={styles.statusRow}>
                 <Text style={styles.statusText}>{getStatusText()}</Text>
                 {isRinging && <AnimatedDots />}
               </View>
-
               {isConnecting && !isRinging && (
                 <ActivityIndicator size="small" color="#4a9eff" style={{ marginTop: 12 }} />
               )}
@@ -671,7 +1090,7 @@ const VideoCallModal = ({
               />
               <View style={styles.localVideoLabel}>
                 <Text style={styles.localVideoLabelText}>
-                  You ({isCameraSwitched ? 'Back' : 'Front'})
+                  {isSharingScreen ? 'Screen' : (isCameraSwitched ? 'Back' : 'Front')}
                 </Text>
               </View>
               {isMuted && (
@@ -682,7 +1101,7 @@ const VideoCallModal = ({
             </View>
           )}
 
-          {/* Duration badge (only when connected) */}
+          {/* Duration badge */}
           {isRemoteVideoReady && (
             <View style={styles.durationBadge}>
               <Ionicons name="time-outline" size={13} color="#fff" />
@@ -691,13 +1110,22 @@ const VideoCallModal = ({
           )}
         </View>
 
-        {/* ── Bottom Controls ──────────────────────────────── */}
+        {/* Bottom Controls */}
         <View style={[styles.controlsBar, { paddingBottom: Math.max(18, insets.bottom + 8) }]}>
 
           {/* Mute */}
           <TouchableOpacity
             style={[styles.ctrlBtn, isMuted && styles.ctrlBtnActive]}
-            onPress={() => setIsMuted((v) => !v)}
+            onPress={() => {
+              const newValue = !isMuted;
+              setIsMuted(newValue);
+              if (localStreamRef.current) {
+                localStreamRef.current.getAudioTracks().forEach((t) => { 
+                  t.enabled = !newValue; 
+                });
+              }
+              showNotification(newValue ? 'Microphone Muted' : 'Microphone Unmuted');
+            }}
           >
             <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={24} color="#fff" />
           </TouchableOpacity>
@@ -705,18 +1133,38 @@ const VideoCallModal = ({
           {/* Video */}
           <TouchableOpacity
             style={[styles.ctrlBtn, !isVideoEnabled && styles.ctrlBtnActive]}
-            onPress={() => setIsVideoEnabled((v) => !v)}
+            onPress={() => {
+              const newValue = !isVideoEnabled;
+              setIsVideoEnabled(newValue);
+              if (localStreamRef.current) {
+                localStreamRef.current.getVideoTracks().forEach((t) => { 
+                  t.enabled = newValue; 
+                });
+              }
+              showNotification(newValue ? 'Camera On' : 'Camera Off');
+            }}
           >
             <Ionicons name={isVideoEnabled ? 'videocam' : 'videocam-off'} size={24} color="#fff" />
           </TouchableOpacity>
 
-          {/* Screen share (placeholder) */}
-          <TouchableOpacity style={styles.ctrlBtn} onPress={() => setShowSettings(true)}>
-            <Ionicons name="desktop-outline" size={24} color="#fff" />
+          {/* Switch Camera */}
+          <TouchableOpacity
+            style={styles.ctrlBtn}
+            onPress={switchCamera}
+          >
+            <Ionicons name="camera-reverse" size={24} color="#fff" />
           </TouchableOpacity>
 
-          {/* Settings / Emoji */}
-          <TouchableOpacity style={styles.ctrlBtn} onPress={() => setShowSettings(true)}>
+          {/* Screen Share */}
+          <TouchableOpacity
+            style={[styles.ctrlBtn, isSharingScreen && styles.ctrlBtnActive]}
+            onPress={toggleScreenShare}
+          >
+            <Ionicons name={isSharingScreen ? 'desktop' : 'desktop-outline'} size={24} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Emoji */}
+          <TouchableOpacity style={styles.ctrlBtn} onPress={() => setShowEmojiPicker(true)}>
             <Ionicons name="happy-outline" size={24} color="#fff" />
           </TouchableOpacity>
 
@@ -726,7 +1174,7 @@ const VideoCallModal = ({
           </TouchableOpacity>
         </View>
 
-        {/* ── Settings Bottom Sheet ────────────────────────── */}
+        {/* Settings Bottom Sheet */}
         <Modal
           visible={showSettings}
           transparent
@@ -857,40 +1305,51 @@ const VideoCallModal = ({
             </View>
           </View>
         </Modal>
+
+        {/* Emoji Picker Modal - Fixed */}
+        <EmojiPickerModal
+          visible={showEmojiPicker}
+          onClose={() => setShowEmojiPicker(false)}
+          onEmojiSelect={sendEmoji}
+        />
       </SafeAreaView>
     </Modal>
   );
 };
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// Styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0d1117',
   },
-
-  // Header
   header: {
     backgroundColor: '#111827',
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#1e2535',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
     color: '#ffffff',
     fontSize: 17,
     fontWeight: '600',
   },
-
-  // Content
   content: {
     flex: 1,
     backgroundColor: '#0d1117',
     position: 'relative',
   },
-
-  // Placeholder (ringing state)
   placeholderWrap: {
     flex: 1,
     alignItems: 'center',
@@ -939,8 +1398,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     width: 20,
   },
-
-  // Local PiP
   localVideoContainer: {
     position: 'absolute',
     right: 16,
@@ -976,8 +1433,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  // Duration badge
   durationBadge: {
     position: 'absolute',
     top: 14,
@@ -995,8 +1450,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
-
-  // Bottom controls bar
   controlsBar: {
     backgroundColor: '#111827',
     flexDirection: 'row',
@@ -1021,8 +1474,6 @@ const styles = StyleSheet.create({
   endBtn: {
     backgroundColor: '#ef4444',
   },
-
-  // Settings panel
   settingsOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -1148,6 +1599,97 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Emoji Picker Styles - Fixed
+  emojiOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+  },
+  emojiPanel: {
+    backgroundColor: '#1e293b',
+    borderTopLeftRadius: 25,
+    borderTopRightRadius: 25,
+    paddingHorizontal: 20,
+    paddingTop: 15,
+    paddingBottom: 25,
+    maxHeight: height * 0.7,
+  },
+  emojiHandle: {
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  emojiHandleBar: {
+    width: 45,
+    height: 4,
+    backgroundColor: '#475569',
+    borderRadius: 2,
+  },
+  emojiTitle: {
+    color: '#f8fafc',
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  emojiGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingBottom: 15,
+  },
+  emojiItem: {
+    width: '20%',
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#334155',
+    margin: 5,
+    borderRadius: 50,
+  },
+  emojiText: {
+    fontSize: 32,
+  },
+  emojiCloseBtn: {
+    backgroundColor: '#22c55e',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 15,
+  },
+  emojiCloseText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  notification: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    padding: 12,
+    borderRadius: 10,
+    zIndex: 1000,
+    borderWidth: 1,
+    borderColor: '#22c55e',
+  },
+  notificationError: {
+    borderColor: '#ef4444',
+  },
+  notificationText: {
+    color: '#fff',
+    textAlign: 'center',
+    fontSize: 14,
+  },
+  floatingEmoji: {
+    position: 'absolute',
+    alignSelf: 'center',
+    bottom: 120,
+    zIndex: 1000,
+  },
+  floatingEmojiText: {
+    fontSize: 45,
   },
 });
 

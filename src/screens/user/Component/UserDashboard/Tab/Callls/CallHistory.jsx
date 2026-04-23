@@ -1,322 +1,377 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
-  FlatList,
   SectionList,
   StyleSheet,
-  Modal,
-  Dimensions,
   StatusBar,
-  Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
-const { width, height } = Dimensions.get('window');
+import RealVideoCallModal from '../CallModal/VideoCallModal';
+import RealVoiceCallModal from '../CallModal/VoiceCallModal';
+import { API_BASE_URL } from '../../../../../../axiosConfig';
 
-// Modal Components (simplified versions)
-const VideoCallModal = ({ isOpen, onClose, callData }) => {
-  const [callActive, setCallActive] = useState(true);
-  const [callDuration, setCallDuration] = useState(0);
-
-  useEffect(() => {
-    let interval;
-    if (callActive) {
-      interval = setInterval(() => {
-        setCallDuration(prev => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [callActive]);
-
-  const formatDuration = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const endCall = () => {
-    setCallActive(false);
-    onClose();
-  };
-
-  return (
-    <Modal
-      visible={isOpen}
-      animationType="slide"
-      transparent={false}
-      onRequestClose={onClose}
-    >
-      <View style={styles.videoCallUI}>
-        <View style={styles.videoMain}>
-          <View style={styles.remoteVideo}>
-            <View style={styles.videoPlaceholder}>
-              <Text style={styles.remoteAvatar}>
-                {callData?.profilePic || '👨‍⚕️'}
-              </Text>
-              <Text style={styles.videoPlaceholderName}>
-                {callData?.name || 'Dr. John Doe'}
-              </Text>
-              <Text style={styles.callStatus}>
-                {callActive ? 'Call in progress...' : 'Call ended'}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.localVideo}>
-            <View style={styles.localVideoPlaceholder}>
-              <Text style={{ fontSize: 24 }}>👤</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.callControls}>
-          {callActive && (
-            <Text style={styles.callTimer}>
-              {formatDuration(callDuration)}
-            </Text>
-          )}
-          <View style={styles.controlButtons}>
-            <TouchableOpacity style={styles.controlBtn} onPress={() => {}}>
-              <Text style={styles.controlBtnText}>🎤</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.controlBtn} onPress={() => {}}>
-              <Text style={styles.controlBtnText}>📹</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.controlBtn, styles.endCall]} onPress={endCall}>
-              <Text style={styles.controlBtnText}>📞</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
+const normalizeRole = (role) => {
+  const normalized = String(role || '').trim().toLowerCase();
+  if (normalized === 'counselor') return 'counsellor';
+  return normalized || 'user';
 };
 
-const VoiceCallModal = ({ isOpen, onClose, callData }) => {
-  const [callActive, setCallActive] = useState(true);
-  const [callDuration, setCallDuration] = useState(0);
-  const [micMuted, setMicMuted] = useState(false);
-  const [speakerOn, setSpeakerOn] = useState(false);
-
-  useEffect(() => {
-    let interval;
-    if (callActive) {
-      interval = setInterval(() => {
-        setCallDuration(prev => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [callActive]);
-
-  const formatDuration = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const endCall = () => {
-    setCallActive(false);
-    onClose();
-  };
-
-  return (
-    <Modal
-      visible={isOpen}
-      animationType="slide"
-      transparent={false}
-      onRequestClose={onClose}
-    >
-      <View style={styles.voiceCallUI}>
-        <View style={styles.callerInfo}>
-          <View style={styles.callerAvatarLarge}>
-            <Text style={{ fontSize: 80 }}>
-              {callData?.profilePic || '👨‍⚕️'}
-            </Text>
-          </View>
-          <Text style={styles.callerName}>{callData?.name || 'Dr. John Doe'}</Text>
-          <Text style={styles.callStatusText}>
-            {callActive ? 'Call in progress...' : 'Call ended'}
-          </Text>
-        </View>
-
-        {callActive && (
-          <Text style={styles.callTimerLarge}>
-            {formatDuration(callDuration)}
-          </Text>
-        )}
-
-        <View style={styles.callActions}>
-          <TouchableOpacity 
-            style={[styles.actionBtn, micMuted && styles.actionBtnActive]} 
-            onPress={() => setMicMuted(!micMuted)}
-          >
-            <Text style={styles.actionBtnText}>{micMuted ? '🎤❌' : '🎤'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.actionBtn, speakerOn && styles.actionBtnActive]} 
-            onPress={() => setSpeakerOn(!speakerOn)}
-          >
-            <Text style={styles.actionBtnText}>{speakerOn ? '🔊' : '🔈'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, styles.endCallBtn]} onPress={endCall}>
-            <Text style={styles.actionBtnText}>📞</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
+const normalizeCallType = (value) => {
+  const normalized = String(value || 'video').trim().toLowerCase();
+  if (normalized === 'audio' || normalized === 'voice') return 'voice';
+  return 'video';
 };
+
+const formatDateLabel = (value) => {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return 'Unknown';
+
+  const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const startOfInput = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.floor((startOfToday - startOfInput) / 86400000);
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+
+  return date.toLocaleDateString([], { day: '2-digit', month: 'short' });
+};
+
+const formatCallDuration = (seconds) => {
+  const total = Math.max(0, Number(seconds) || 0);
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+
+  if (hrs > 0) {
+    return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+};
+
+const getCallDirection = (call) => {
+  const role = String(call?.role || '').trim().toLowerCase();
+  return role === 'receiver' ? 'incoming' : 'outgoing';
+};
+
+const isMissedCall = (call) => {
+  const status = String(call?.status || '').trim().toLowerCase();
+  return status === 'missed' || status === 'rejected' || status === 'cancelled';
+};
+
+const statusIconName = (status) => {
+  if (status === 'incoming') return 'arrow-down-circle-outline';
+  if (status === 'missed') return 'close-circle-outline';
+  return 'arrow-up-circle-outline';
+};
+
+const callIconName = (type) => (type === 'video' ? 'videocam-outline' : 'call-outline');
 
 const CallHistory = () => {
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+  const [activeCallMode, setActiveCallMode] = useState('video');
   const [selectedCall, setSelectedCall] = useState(null);
+  const [callsData, setCallsData] = useState([]);
+  const [isLoadingCalls, setIsLoadingCalls] = useState(false);
+  const [callError, setCallError] = useState('');
+  const [currentUserId, setCurrentUserId] = useState('');
+  const [currentUserType, setCurrentUserType] = useState('user');
 
-  // Call Data
-  const callsData = [
-    {
-      id: 1,
-      name: "Dr. Priya Sharma",
-      type: "video",
-      status: "outgoing",
-      date: "Today",
-      time: "10:30 AM",
-      duration: "25:30",
-      profilePic: "👩‍⚕️",
-      phoneNumber: "+91 98765 43210",
-      missed: false
-    },
-    {
-      id: 2,
-      name: "Dr. Rajesh Kumar",
-      type: "voice",
-      status: "incoming",
-      date: "Today",
-      time: "09:15 AM",
-      duration: "15:20",
-      profilePic: "👨‍⚕️",
-      phoneNumber: "+91 98765 43211",
-      missed: false
-    },
-    {
-      id: 3,
-      name: "Dr. Sneha Patel",
-      type: "video",
-      status: "missed",
-      date: "Yesterday",
-      time: "06:45 PM",
-      duration: null,
-      profilePic: "👩‍⚕️",
-      phoneNumber: "+91 98765 43212",
-      missed: true
-    },
-    {
-      id: 4,
-      name: "Dr. Amit Verma",
-      type: "voice",
-      status: "outgoing",
-      date: "Yesterday",
-      time: "03:20 PM",
-      duration: "12:15",
-      profilePic: "👨‍⚕️",
-      phoneNumber: "+91 98765 43213",
-      missed: false
-    },
-    {
-      id: 5,
-      name: "Dr. Neha Gupta",
-      type: "video",
-      status: "incoming",
-      date: "19 Feb",
-      time: "11:00 AM",
-      duration: "32:10",
-      profilePic: "👩‍⚕️",
-      phoneNumber: "+91 98765 43214",
-      missed: false
+  useEffect(() => {
+    const loadSession = async () => {
+      const userId =
+        (await AsyncStorage.getItem('userId')) ||
+        (await AsyncStorage.getItem('counsellorId')) ||
+        (await AsyncStorage.getItem('counselorId')) ||
+        '';
+      const userRole =
+        (await AsyncStorage.getItem('userRole')) ||
+        (await AsyncStorage.getItem('role')) ||
+        'user';
+      setCurrentUserId(String(userId).trim());
+      setCurrentUserType(normalizeRole(userRole));
+    };
+
+    loadSession().catch(() => {});
+  }, []);
+
+  const fetchCallHistory = useCallback(async () => {
+    if (!currentUserId) {
+      setCallsData([]);
+      setCallError('Unable to load call history. User not found.');
+      return;
     }
-  ];
 
-  // Filter calls
-  const filteredCalls = callsData.filter(call => {
-    if (activeFilter === 'all') return true;
-    if (activeFilter === 'missed') return call.missed;
-    if (activeFilter === 'video') return call.type === 'video';
-    if (activeFilter === 'voice') return call.type === 'voice';
-    return true;
-  }).filter(call => 
-    call.name.toLowerCase().includes(searchTerm.toLowerCase())
+    setIsLoadingCalls(true);
+    setCallError('');
+
+    try {
+      const token =
+        (await AsyncStorage.getItem('token')) ||
+        (await AsyncStorage.getItem('accessToken'));
+
+      const response = await axios.get(
+        `${API_BASE_URL}/api/video/calls/history/${currentUserId}`,
+        {
+          params: { page: 1, limit: 100 },
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        },
+      );
+
+      const historyItems = Array.isArray(response.data?.history)
+        ? response.data.history
+        : [];
+
+      const normalizedCalls = historyItems
+        .map((call, index) => {
+          const timestamp = call.timestamp || call.createdAt;
+          const dateValue = timestamp ? new Date(timestamp) : null;
+          const normalizedType = normalizeCallType(call.type);
+          const direction = getCallDirection(call);
+          const missed = isMissedCall(call);
+          const readableName =
+            call.with || call.withName || call.withDisplayName || 'Participant';
+          const avatarLabel = String(readableName || 'P').trim().charAt(0).toUpperCase() || 'P';
+
+          return {
+            id: call.id || `${timestamp || 'call'}_${index}`,
+            callId: call.id,
+            roomId: call.roomId,
+            name: readableName,
+            type: normalizedType,
+            status: missed ? 'missed' : direction,
+            rawStatus: String(call.status || '').toLowerCase(),
+            date: formatDateLabel(timestamp),
+            time:
+              dateValue && !Number.isNaN(dateValue.getTime())
+                ? dateValue.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : '--:--',
+            duration: Number(call.duration) > 0 ? formatCallDuration(call.duration) : null,
+            profilePic: avatarLabel,
+            missed,
+            counterPartyId: call.withId,
+            counterPartyType: normalizeRole(call.withType),
+            role: call.role,
+            timestamp,
+            apiCallData: call,
+          };
+        })
+        .sort((a, b) => {
+          const left = new Date(b.timestamp || 0).getTime();
+          const right = new Date(a.timestamp || 0).getTime();
+          return left - right;
+        });
+
+      setCallsData(normalizedCalls);
+    } catch (error) {
+      setCallError(
+        error?.response?.data?.error ||
+          'Failed to load call history. Please try again.',
+      );
+      setCallsData([]);
+    } finally {
+      setIsLoadingCalls(false);
+    }
+  }, [currentUserId]);
+
+  useEffect(() => {
+    fetchCallHistory().catch(() => {});
+  }, [fetchCallHistory]);
+
+  const startCallFromHistory = useCallback(
+    async (callMode, callEntry = null) => {
+      const resolvedCallMode = normalizeCallType(callMode);
+      const receiverId = String(callEntry?.counterPartyId || '').trim();
+      const receiverType = normalizeRole(callEntry?.counterPartyType || '');
+
+      if (!currentUserId) {
+        setCallError('Unable to start call. User not found.');
+        return;
+      }
+
+      if (!receiverId) {
+        setCallError('Select a previous call entry to start a new call.');
+        return;
+      }
+
+      try {
+        setCallError('');
+        const token =
+          (await AsyncStorage.getItem('token')) ||
+          (await AsyncStorage.getItem('accessToken'));
+
+        const response = await axios.post(
+          `${API_BASE_URL}/api/video/calls/initiate`,
+          {
+            initiatorId: currentUserId,
+            initiatorType: currentUserType,
+            receiverId,
+            receiverType: receiverType || 'counsellor',
+            callType: resolvedCallMode === 'voice' ? 'audio' : 'video',
+          },
+          {
+            headers: token
+              ? { Authorization: `Bearer ${token}` }
+              : { 'Content-Type': 'application/json' },
+          },
+        );
+
+        if (!response.data?.success) {
+          throw new Error(response.data?.error || 'Failed to start call.');
+        }
+
+        const callData = response.data.callData || {};
+        const receiverData = callData.receiver || {};
+
+        setSelectedCall({
+          id: callData.id || response.data.callId,
+          callId: response.data.callId,
+          roomId: response.data.roomId,
+          name:
+            receiverData.displayName ||
+            receiverData.fullName ||
+            callEntry?.name ||
+            'Participant',
+          type: resolvedCallMode,
+          callType: resolvedCallMode,
+          profilePic:
+            receiverData.profilePhoto ||
+            String(
+              receiverData.displayName ||
+                receiverData.fullName ||
+                callEntry?.name ||
+                'P',
+            )
+              .trim()
+              .charAt(0)
+              .toUpperCase(),
+          status: response.data.status || 'ringing',
+          apiCallData: callData,
+          initiator: callData.initiator,
+          receiver: callData.receiver,
+          currentUserId,
+        });
+
+        setActiveCallMode(resolvedCallMode);
+        if (resolvedCallMode === 'voice') setIsVoiceModalOpen(true);
+        else setIsVideoModalOpen(true);
+      } catch (error) {
+        setCallError(
+          error?.response?.data?.error ||
+            error?.message ||
+            'Unable to start call. Please try again.',
+        );
+      }
+    },
+    [currentUserId, currentUserType],
   );
 
-  // Group calls by date for SectionList
-  const groupedCalls = () => {
-    const groups = {};
-    filteredCalls.forEach(call => {
-      const date = call.date;
-      if (!groups[date]) {
-        groups[date] = [];
-      }
-      groups[date].push(call);
-    });
-    return Object.keys(groups).map(date => ({
+  const filteredCalls = useMemo(
+    () =>
+      callsData
+        .filter((call) => {
+          if (activeFilter === 'all') return true;
+          if (activeFilter === 'missed') return call.missed;
+          if (activeFilter === 'video') return call.type === 'video';
+          if (activeFilter === 'voice') return call.type === 'voice';
+          return true;
+        })
+        .filter((call) =>
+          String(call.name || '').toLowerCase().includes(searchTerm.toLowerCase()),
+        ),
+    [activeFilter, callsData, searchTerm],
+  );
+
+  const groupedCalls = useMemo(() => {
+    const groups = filteredCalls.reduce((acc, call) => {
+      const key = call.date;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(call);
+      return acc;
+    }, {});
+
+    return Object.keys(groups).map((date) => ({
       title: date,
-      data: groups[date]
+      data: groups[date],
     }));
-  };
+  }, [filteredCalls]);
 
-  // Open appropriate modal based on call type
-  const openCallModal = (call) => {
-    setSelectedCall(call);
-    if (call.type === 'video') {
-      setIsVideoModalOpen(true);
-    } else {
-      setIsVoiceModalOpen(true);
+  const openCallModal = useCallback(
+    (call) => {
+      startCallFromHistory(call.type, call).catch(() => {});
+    },
+    [startCallFromHistory],
+  );
+
+  const openNewVideoCall = useCallback(() => {
+    if (!callsData.length) {
+      setCallError('No recent contacts found. Start a chat first.');
+      return;
     }
-  };
+    startCallFromHistory('video', callsData[0]).catch(() => {});
+  }, [callsData, startCallFromHistory]);
 
-  // Open video call modal with default data
-  const openNewVideoCall = () => {
-    setSelectedCall(null);
-    setIsVideoModalOpen(true);
-  };
-
-  // Open voice call modal with default data
-  const openNewVoiceCall = () => {
-    setSelectedCall(null);
-    setIsVoiceModalOpen(true);
-  };
-
-  // Get icon for call type
-  const getCallIcon = (type, status) => {
-    if (type === 'video') return '📹';
-    return '📞';
-  };
-
-  // Get status icon
-  const getStatusIcon = (status) => {
-    switch(status) {
-      case 'incoming': return '⬇️';
-      case 'outgoing': return '⬆️';
-      case 'missed': return '❌';
-      default: return '⬆️';
+  const openNewVoiceCall = useCallback(() => {
+    if (!callsData.length) {
+      setCallError('No recent contacts found. Start a chat first.');
+      return;
     }
-  };
+    startCallFromHistory('voice', callsData[0]).catch(() => {});
+  }, [callsData, startCallFromHistory]);
+
+  const closeCallModals = useCallback(() => {
+    setIsVideoModalOpen(false);
+    setIsVoiceModalOpen(false);
+    setSelectedCall(null);
+    fetchCallHistory().catch(() => {});
+  }, [fetchCallHistory]);
+
+  const handleEndCall = useCallback(
+    async (callId) => {
+      try {
+        if (!callId || !currentUserId) return false;
+        const token =
+          (await AsyncStorage.getItem('token')) ||
+          (await AsyncStorage.getItem('accessToken'));
+
+        await axios.put(
+          `${API_BASE_URL}/api/video/calls/${callId}/end`,
+          {
+            userId: currentUserId,
+            endedBy: currentUserType === 'counsellor' ? 'counsellor' : 'user',
+          },
+          { headers: token ? { Authorization: `Bearer ${token}` } : undefined },
+        );
+        return true;
+      } catch (_) {
+        return false;
+      }
+    },
+    [currentUserId, currentUserType],
+  );
 
   const renderCallItem = ({ item: call }) => (
-    <TouchableOpacity 
+    <TouchableOpacity
       style={[styles.callItem, call.missed && styles.missedCall]}
       onPress={() => openCallModal(call)}
       activeOpacity={0.7}
     >
-      {/* Profile Picture */}
       <View style={styles.callAvatar}>
-        <Text style={styles.callAvatarEmoji}>{call.profilePic}</Text>
+        <Text style={styles.callAvatarText}>{call.profilePic}</Text>
       </View>
 
-      {/* Call Info */}
       <View style={styles.callInfo}>
         <View style={styles.callNameRow}>
           <Text style={styles.callName} numberOfLines={1}>
@@ -324,35 +379,40 @@ const CallHistory = () => {
           </Text>
           <Text style={styles.callTime}>{call.time}</Text>
         </View>
-        
+
         <View style={styles.callDetails}>
-          <Text style={styles.callStatusIcon}>{getStatusIcon(call.status)}</Text>
-          <Text style={styles.callTypeIcon}>{getCallIcon(call.type, call.status)}</Text>
+          <Ionicons
+            name={statusIconName(call.status)}
+            size={14}
+            color={call.status === 'missed' ? '#d32f2f' : '#64748b'}
+          />
+          <Ionicons name={callIconName(call.type)} size={14} color="#64748b" />
           <Text style={styles.callType}>
             {call.type === 'video' ? 'Video Call' : 'Voice Call'}
           </Text>
-          {call.duration && (
-            <>
-              <Text style={styles.callDot}>•</Text>
-              <Text style={styles.callDuration}>{call.duration}</Text>
-            </>
-          )}
-          {call.missed && (
+          {call.duration ? (
+            <Text style={styles.callDuration}>{call.duration}</Text>
+          ) : null}
+          {call.missed ? (
             <View style={styles.callMissedTag}>
               <Text style={styles.callMissedTagText}>Missed</Text>
             </View>
-          )}
+          ) : null}
         </View>
       </View>
 
-      {/* Call Action Button */}
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.callActionBtn}
-        onPress={() => openCallModal(call)}
+        onPress={(event) => {
+          event?.stopPropagation?.();
+          openCallModal(call);
+        }}
       >
-        <Text style={styles.callActionBtnText}>
-          {call.type === 'video' ? '📹' : '📞'}
-        </Text>
+        <Ionicons
+          name={call.type === 'video' ? 'videocam' : 'call'}
+          size={18}
+          color="#3b4a54"
+        />
       </TouchableOpacity>
     </TouchableOpacity>
   );
@@ -363,15 +423,24 @@ const CallHistory = () => {
     </View>
   );
 
-  const renderEmptyState = () => (
-    <View style={styles.callNoResults}>
-      <Text style={styles.callNoResultsIcon}>📞</Text>
-      <Text style={styles.callNoResultsTitle}>No calls found</Text>
-      <Text style={styles.callNoResultsSubtitle}>
-        Try changing your search or filter
-      </Text>
-    </View>
-  );
+  const renderEmptyState = () => {
+    if (isLoadingCalls) {
+      return (
+        <View style={styles.callNoResults}>
+          <ActivityIndicator size="large" color="#667eea" />
+          <Text style={styles.callNoResultsTitle}>Loading call history...</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.callNoResults}>
+        <Ionicons name="call-outline" size={56} color="#94a3b8" />
+        <Text style={styles.callNoResultsTitle}>No calls found</Text>
+        <Text style={styles.callNoResultsSubtitle}>Try changing your search or filter</Text>
+      </View>
+    );
+  };
 
   const filterButtons = [
     { key: 'all', label: 'All' },
@@ -383,31 +452,22 @@ const CallHistory = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor="#667eea" />
-      
-      {/* Fixed Header Section */}
+
       <View style={styles.headerFixed}>
-        {/* Header */}
         <View style={styles.callHeader}>
           <Text style={styles.callTitle}>Call History</Text>
           <View style={styles.callHeaderActions}>
-            <TouchableOpacity 
-              style={styles.callIconBtn} 
-              onPress={openNewVoiceCall}
-            >
-              <Text style={styles.callIconBtnText}>📞</Text>
+            <TouchableOpacity style={styles.callIconBtn} onPress={openNewVoiceCall}>
+              <Ionicons name="call" size={20} color="#1a1a2e" />
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.callIconBtn} 
-              onPress={openNewVideoCall}
-            >
-              <Text style={styles.callIconBtnText}>📹</Text>
+            <TouchableOpacity style={styles.callIconBtn} onPress={openNewVideoCall}>
+              <Ionicons name="videocam" size={20} color="#1a1a2e" />
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Search Bar */}
         <View style={styles.callSearch}>
-          <Text style={styles.callSearchIcon}>🔍</Text>
+          <Ionicons name="search-outline" size={18} color="#6b7c85" />
           <TextInput
             style={styles.callSearchInput}
             placeholder="Search calls..."
@@ -415,39 +475,46 @@ const CallHistory = () => {
             value={searchTerm}
             onChangeText={setSearchTerm}
           />
-          {searchTerm !== '' && (
+          {searchTerm ? (
             <TouchableOpacity style={styles.callClearBtn} onPress={() => setSearchTerm('')}>
-              <Text style={styles.callClearBtnText}>✕</Text>
+              <Ionicons name="close" size={16} color="#8696a0" />
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
 
-        {/* Filter Tabs */}
         <View style={styles.callFilters}>
-          {filterButtons.map(filter => (
+          {filterButtons.map((filter) => (
             <TouchableOpacity
               key={filter.key}
               style={[
                 styles.callFilterBtn,
-                activeFilter === filter.key && styles.callFilterBtnActive
+                activeFilter === filter.key && styles.callFilterBtnActive,
               ]}
               onPress={() => setActiveFilter(filter.key)}
             >
-              <Text style={[
-                styles.callFilterBtnText,
-                activeFilter === filter.key && styles.callFilterBtnTextActive
-              ]}>
+              <Text
+                style={[
+                  styles.callFilterBtnText,
+                  activeFilter === filter.key && styles.callFilterBtnTextActive,
+                ]}
+              >
                 {filter.label}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
+
+        {callError ? (
+          <View style={styles.callErrorBanner}>
+            <Ionicons name="alert-circle-outline" size={16} color="#b91c1c" />
+            <Text style={styles.callErrorText}>{callError}</Text>
+          </View>
+        ) : null}
       </View>
 
-      {/* Scrollable Calls List */}
       <SectionList
-        sections={groupedCalls()}
-        keyExtractor={(item) => item.id.toString()}
+        sections={groupedCalls}
+        keyExtractor={(item) => String(item.id)}
         renderItem={renderCallItem}
         renderSectionHeader={renderSectionHeader}
         ListEmptyComponent={renderEmptyState}
@@ -456,17 +523,21 @@ const CallHistory = () => {
         stickySectionHeadersEnabled={false}
       />
 
-      {/* Modals */}
-      <VideoCallModal
+      <RealVideoCallModal
         isOpen={isVideoModalOpen}
-        onClose={() => setIsVideoModalOpen(false)}
+        onClose={closeCallModals}
         callData={selectedCall}
+        currentUser={{ id: currentUserId, role: currentUserType }}
+        onEndCall={handleEndCall}
+        callMode={activeCallMode}
       />
 
-      <VoiceCallModal
+      <RealVoiceCallModal
         isOpen={isVoiceModalOpen}
-        onClose={() => setIsVoiceModalOpen(false)}
+        onClose={closeCallModals}
         callData={selectedCall}
+        currentUser={{ id: currentUserId, role: currentUserType }}
+        onEndCall={handleEndCall}
       />
     </SafeAreaView>
   );
@@ -477,13 +548,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#ffffff',
   },
-  // Fixed Header Section
   headerFixed: {
-    backgroundColor: 'white',
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#f0f2f5',
   },
-  // Header
   callHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -491,7 +560,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 12,
-    backgroundColor: 'transparent',
+    marginTop:-20
   },
   callTitle: {
     fontSize: 24,
@@ -500,15 +569,11 @@ const styles = StyleSheet.create({
   },
   callHeaderActions: {
     flexDirection: 'row',
-    gap: 20,
+    gap: 16,
   },
   callIconBtn: {
-    padding: 5,
+    padding: 6,
   },
-  callIconBtnText: {
-    fontSize: 22,
-  },
-  // Search Bar
   callSearch: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -520,26 +585,18 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     borderWidth: 1,
     borderColor: '#e0e0e0',
-  },
-  callSearchIcon: {
-    fontSize: 18,
-    color: '#6b7c85',
-    marginRight: 10,
+    gap: 8,
   },
   callSearchInput: {
     flex: 1,
     fontSize: 15,
-    padding: 5,
+    paddingVertical: 5,
     color: '#111b21',
   },
   callClearBtn: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
-  callClearBtnText: {
-    fontSize: 18,
-    color: '#8696a0',
-  },
-  // Filter Tabs
   callFilters: {
     flexDirection: 'row',
     paddingHorizontal: 16,
@@ -548,17 +605,12 @@ const styles = StyleSheet.create({
   },
   callFilterBtn: {
     paddingVertical: 8,
-    paddingHorizontal: 22,
+    paddingHorizontal: 20,
     borderRadius: 24,
     backgroundColor: '#f0f2f5',
   },
   callFilterBtnActive: {
     backgroundColor: '#667eea',
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 5,
   },
   callFilterBtnText: {
     fontSize: 14,
@@ -566,18 +618,31 @@ const styles = StyleSheet.create({
     color: '#3b4a54',
   },
   callFilterBtnTextActive: {
-    color: 'white',
+    color: '#ffffff',
   },
-  // Calls List
+  callErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#fee2e2',
+  },
+  callErrorText: {
+    flex: 1,
+    color: '#b91c1c',
+    fontSize: 13,
+  },
   callsList: {
     paddingHorizontal: 16,
     paddingBottom: 20,
     flexGrow: 1,
   },
-  // Date Group
   callDateHeader: {
     paddingVertical: 12,
-    paddingHorizontal: 0,
   },
   callDate: {
     fontSize: 13,
@@ -586,7 +651,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  // Call Item
   callItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -594,28 +658,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f2f5',
   },
-  missedCall: {
-    // Style for missed calls
-  },
-  // Avatar
+  missedCall: {},
   callAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: '#667eea',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    marginRight: 14,
   },
-  callAvatarEmoji: {
-    fontSize: 26,
+  callAvatarText: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#ffffff',
   },
-  // Call Info
   callInfo: {
     flex: 1,
   },
@@ -642,23 +699,14 @@ const styles = StyleSheet.create({
     gap: 6,
     flexWrap: 'wrap',
   },
-  callStatusIcon: {
-    fontSize: 12,
-  },
-  callTypeIcon: {
-    fontSize: 12,
-  },
   callType: {
     fontSize: 13,
     color: '#667781',
   },
-  callDot: {
-    color: '#8696a0',
-    fontWeight: 'bold',
-  },
   callDuration: {
     fontSize: 13,
     color: '#667781',
+    marginLeft: 2,
   },
   callMissedTag: {
     backgroundColor: '#ffebee',
@@ -672,7 +720,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#d32f2f',
   },
-  // Call Action Button
   callActionBtn: {
     width: 42,
     height: 42,
@@ -682,183 +729,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: 10,
   },
-  callActionBtnText: {
-    fontSize: 20,
-  },
-  // No Results
   callNoResults: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 60,
-  },
-  callNoResultsIcon: {
-    fontSize: 58,
-    marginBottom: 15,
-    opacity: 0.5,
+    gap: 12,
   },
   callNoResultsTitle: {
     fontSize: 18,
     fontWeight: '500',
     color: '#3b4a54',
-    marginBottom: 5,
+    marginTop: 4,
   },
   callNoResultsSubtitle: {
     fontSize: 14,
     color: '#8696a0',
   },
-  // Video Call UI
-  videoCallUI: {
-    flex: 1,
-    backgroundColor: '#0b0e14',
-  },
-  videoMain: {
-    flex: 1,
-    position: 'relative',
-    backgroundColor: '#000',
-  },
-  remoteVideo: {
-    flex: 1,
-  },
-  videoPlaceholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#2a3f5e',
-  },
-  remoteAvatar: {
-    fontSize: 120,
-    marginBottom: 20,
-  },
-  videoPlaceholderName: {
-    fontSize: 28,
-    fontWeight: '600',
-    color: 'white',
-    marginBottom: 10,
-  },
-  callStatus: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
-  },
-  localVideo: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    width: 120,
-    height: 160,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: 'white',
-    backgroundColor: '#2a3f5e',
-  },
-  localVideoPlaceholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // Voice Call UI
-  voiceCallUI: {
-    flex: 1,
-    backgroundColor: '#1e3c5f',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 50,
-  },
-  callerInfo: {
-    alignItems: 'center',
-  },
-  callerAvatarLarge: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: '#667eea',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  callerName: {
-    fontSize: 32,
-    fontWeight: '600',
-    color: 'white',
-    marginBottom: 10,
-  },
-  callStatusText: {
-    fontSize: 18,
-    color: 'rgba(255,255,255,0.8)',
-  },
-  callTimerLarge: {
-    fontSize: 28,
-    fontWeight: '600',
-    color: 'white',
-    textAlign: 'center',
-    marginVertical: 20,
-  },
-  // Call Controls
-  callControls: {
-    padding: 30,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-  },
-  callTimer: {
-    textAlign: 'center',
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 20,
-    color: 'white',
-  },
-  controlButtons: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 20,
-  },
-  controlBtn: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  controlBtnText: {
-    fontSize: 24,
-  },
-  endCall: {
-    backgroundColor: '#ef4444',
-  },
-  // Call Actions
-  callActions: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 30,
-    paddingHorizontal: 20,
-    paddingBottom: 30,
-  },
-  actionBtn: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  actionBtnActive: {
-    backgroundColor: '#3b82f6',
-  },
-  actionBtnText: {
-    fontSize: 24,
-  },
-  endCallBtn: {
-    backgroundColor: '#ef4444',
-  },
 });
-
-// Helper to add animation pulse effect (you'll need to use Animated API for actual animations)
-const pulseAnimation = {
-  // Implement with Animated API if needed
-};
 
 export default CallHistory;
