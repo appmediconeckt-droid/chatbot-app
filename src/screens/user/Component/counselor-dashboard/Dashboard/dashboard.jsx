@@ -451,7 +451,7 @@ export default function CounselorDashboard() {
           });
 
           setShowIncomingCallModal(true);
-          safeVibrate([200, 100, 200]);
+          safeVibrate([320, 160, 320]);
         }
       } else {
         setWaitingCalls([]);
@@ -548,7 +548,7 @@ export default function CounselorDashboard() {
   const handleAcceptRequest = async () => {
     if (!currentRequest) return;
 
-    vibrate([50, 30, 50]);
+    vibrate([120, 60, 120]);
 
     try {
       const token = await AsyncStorage.getItem("token");
@@ -580,7 +580,7 @@ export default function CounselorDashboard() {
   const handleRejectRequest = async () => {
     if (!currentRequest) return;
 
-    vibrate([50]);
+    vibrate([120]);
 
     try {
       const token = await AsyncStorage.getItem("token");
@@ -655,7 +655,7 @@ export default function CounselorDashboard() {
   // Handle Logout
   const handleLogout = async () => {
     try {
-      vibrate([50, 30, 50]);
+      vibrate([120, 60, 120]);
 
       const accessToken = await AsyncStorage.getItem("accessToken");
       const refreshToken = await AsyncStorage.getItem("refreshToken");
@@ -683,7 +683,6 @@ export default function CounselorDashboard() {
   useEffect(() => {
     const fetchCounsellor = async () => {
       try {
-        // Support both possible AsyncStorage keys (counsellorId or counselorId)
         const storedCounsellorId = (await AsyncStorage.getItem("counsellorId")) || (await AsyncStorage.getItem("counselorId"));
 
         if (!storedCounsellorId) {
@@ -693,7 +692,6 @@ export default function CounselorDashboard() {
 
         setCounsellorId(storedCounsellorId);
 
-        // Read access token (support both 'accessToken' and legacy 'token')
         const token = (await AsyncStorage.getItem("accessToken")) || (await AsyncStorage.getItem("token"));
 
         const res = await axios.get(`${API_BASE_URL}/api/auth/counsellors/${storedCounsellorId}`, {
@@ -757,7 +755,7 @@ export default function CounselorDashboard() {
   ];
 
   const handleTabChange = (tabId) => {
-    vibrate(20);
+    vibrate(80);
     setActiveTab(tabId);
     setShowMobileMenu(false);
   };
@@ -765,7 +763,7 @@ export default function CounselorDashboard() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6B46C1" />
+        <ActivityIndicator size="large" color="#2c50cd" />
       </View>
     );
   }
@@ -777,7 +775,7 @@ export default function CounselorDashboard() {
       case "appointments":
         return (
           <View style={styles.comingSoon}>
-            <Icon name="calendar-alt" size={64} color="#9F7AEA" />
+            <Icon name="calendar-alt" size={64} color="#526071" />
             <Text style={styles.comingSoonTitle}>Coming Soon</Text>
             <Text style={styles.comingSoonText}>Your appointments will appear here</Text>
           </View>
@@ -785,7 +783,7 @@ export default function CounselorDashboard() {
       case "sessions":
         return (
           <View style={styles.comingSoon}>
-            <Icon name="video" size={64} color="#9F7AEA" />
+            <Icon name="video" size={64} color="#526071" />
             <Text style={styles.comingSoonTitle}>No Sessions Today</Text>
             <Text style={styles.comingSoonText}>Your scheduled sessions will appear here</Text>
           </View>
@@ -821,7 +819,7 @@ export default function CounselorDashboard() {
       case "settings":
         return (
           <View style={styles.comingSoon}>
-            <Icon name="cog" size={64} color="#9F7AEA" />
+            <Icon name="cog" size={64} color="#526071" />
             <Text style={styles.comingSoonTitle}>Coming Soon</Text>
             <Text style={styles.comingSoonText}>Profile settings will be available here</Text>
           </View>
@@ -833,7 +831,7 @@ export default function CounselorDashboard() {
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={Platform.OS === 'android'} />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <View style={styles.container}>
         {/* Incoming Call Modal */}
         <IncomingCallModal
@@ -873,14 +871,14 @@ export default function CounselorDashboard() {
                 {counselorData?.profilePhoto ? (
                   <Image source={{ uri: counselorData.profilePhoto }} style={styles.profileAvatar} />
                 ) : (
-                  <Icon name="user-circle" size={80} color="#6B46C1" />
+                  <Icon name="user-circle" size={80} color="#8492a5" />
                 )}
                 <Text style={styles.profileName}>{counselorData?.name || "Counselor"}</Text>
                 <Text style={styles.profileSpecialization}>
                   {counselorData?.specialization || "Not specified"}
                 </Text>
                 <View style={[styles.ratingBadge, { marginTop: 4 }]}>
-                  <Icon name="star" size={14} color="#FBBF24" />
+                  <Icon name="star" size={14} color="#f5a623" />
                   <Text style={styles.ratingText}>{counselorData?.rating || 0}</Text>
                 </View>
               </View>
@@ -894,7 +892,7 @@ export default function CounselorDashboard() {
                     style={[styles.navItem, activeTab === item.id && styles.navItemActive]}
                     onPress={() => handleTabChange(item.id)}
                   >
-                    <Icon name={item.icon} size={20} color={activeTab === item.id ? "#fff" : "#94A3B8"} />
+                    <Icon name={item.icon} size={20} color={activeTab === item.id ? "#ffffff" : "#8492a5"} />
                     <Text style={[styles.navLabel, activeTab === item.id && styles.navLabelActive]}>
                       {item.label}
                     </Text>
@@ -909,26 +907,27 @@ export default function CounselorDashboard() {
             </ScrollView>
             <View style={styles.sidebarFooter}>
               <TouchableOpacity style={[styles.navItem, styles.navItemLogout]} onPress={() => setShowLogoutConfirm(true)}>
-                <Icon name="sign-out-alt" size={20} color="#E53E3E" />
+                <Icon name="sign-out-alt" size={20} color="#ba1a1a" />
                 <Text style={[styles.navLabel, styles.navLabelLogout]}>Logout</Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
 
-        {/* Mobile Header - Transparent, No Background Color */}
+        {/* Mobile Header - White background matching screenshot */}
         {isMobile && (
           <View style={styles.mobileHeader}>
             <TouchableOpacity style={styles.menuToggle} onPress={() => setShowMobileMenu(!showMobileMenu)}>
-              <Icon name={showMobileMenu ? "times" : "bars"} size={24} color="#FFFFFF" />
+              <Icon name={showMobileMenu ? "times" : "bars"} size={22} color="#1A1A1A" />
             </TouchableOpacity>
             <View style={styles.mobileTitle}>
-              <Text style={styles.mobileTitleText}>Counselor Dashboard</Text>
-              <Text style={styles.mobileDate}>
-                {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-              </Text>
-            </View>;''
-            {/* Notification icon removed as requested */}
+              <Image 
+                source={require("../../../../../image/Mediconect Logo-3.png")} 
+                style={styles.mobileHeaderLogo} 
+                resizeMode="contain" 
+              />
+              <Text style={styles.mobileTitleText}>Mediconeckt</Text>
+            </View>
             <View style={styles.mobilePlaceholder} />
           </View>
         )}
@@ -942,14 +941,14 @@ export default function CounselorDashboard() {
                   {counselorData?.profilePhoto ? (
                     <Image source={{ uri: counselorData.profilePhoto }} style={styles.profileAvatar} />
                   ) : (
-                    <Icon name="user-circle" size={80} color="#6B46C1" />
+                    <Icon name="user-circle" size={80} color="#8492a5" />
                   )}
                   <Text style={styles.profileName}>{counselorData?.name || "Counselor"}</Text>
                   <Text style={styles.profileSpecialization}>
                     {counselorData?.specialization || "Not specified"}
                   </Text>
                   <View style={[styles.ratingBadge, { marginTop: 4 }]}>
-                    <Icon name="star" size={14} color="#FBBF24" />
+                    <Icon name="star" size={14} color="#f5a623" />
                     <Text style={styles.ratingText}>{counselorData?.rating || 0}</Text>
                   </View>
                 </View>
@@ -963,7 +962,7 @@ export default function CounselorDashboard() {
                       style={[styles.mobileNavItem, activeTab === item.id && styles.mobileNavItemActive]}
                       onPress={() => handleTabChange(item.id)}
                     >
-                      <Icon name={item.icon} size={20} color={activeTab === item.id ? "#fff" : "#94A3B8"} />
+                      <Icon name={item.icon} size={20} color={activeTab === item.id ? "#ffffff" : "#8492a5"} />
                       <Text style={[styles.mobileNavLabel, activeTab === item.id && styles.mobileNavLabelActive]}>
                         {item.label}
                       </Text>
@@ -972,7 +971,7 @@ export default function CounselorDashboard() {
                           <Text style={styles.mobileNavBadgeText}>{item.badge}</Text>
                         </View>
                       )}
-                      <Icon name="arrow-right" size={16} color="#A0AEC0" />
+                      <Icon name="arrow-right" size={16} color="#74777c" />
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -985,16 +984,16 @@ export default function CounselorDashboard() {
                     setShowLogoutConfirm(true);
                   }}
                 >
-                  <Icon name="sign-out-alt" size={20} color="#E53E3E" />
+                  <Icon name="sign-out-alt" size={20} color="#ba1a1a" />
                   <Text style={[styles.mobileNavLabel, styles.mobileNavLabelLogout]}>Logout</Text>
-                  <Icon name="arrow-right" size={16} color="#A0AEC0" />
+                  <Icon name="arrow-right" size={16} color="#74777c" />
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         )}
 
-        {/* Mobile Bottom Navigation */}
+        {/* Mobile Bottom Navigation - Dark navy footer (original design) */}
         {isMobile && !showMobileMenu && (
           <View style={styles.mobileBottomNav}>
             {navItems.slice(0, 5).map((item) => (
@@ -1003,7 +1002,7 @@ export default function CounselorDashboard() {
                 style={[styles.bottomNavItem, activeTab === item.id && styles.bottomNavItemActive]}
                 onPress={() => handleTabChange(item.id)}
               >
-                <Icon name={item.icon} size={20} color={activeTab === item.id ? "#3B82F6" : "#94A3B8"} />
+                <Icon name={item.icon} size={20} color={activeTab === item.id ? "#ffffff" : "#94A3B8"} />
                 <Text style={[styles.bottomNavLabel, activeTab === item.id && styles.bottomNavLabelActive]}>
                   {item.label}
                 </Text>
@@ -1029,7 +1028,7 @@ export default function CounselorDashboard() {
               <View style={styles.requestModalHeader}>
                 <View style={styles.requestHeaderLeft}>
                   <View style={styles.requestIcon}>
-                    <Icon name="users" size={20} color="#fff" />
+                    <Icon name="users" size={20} color="#ffffff" />
                   </View>
                   <View>
                     <Text style={styles.requestModalTitle}>New Chat Request</Text>
@@ -1065,7 +1064,7 @@ export default function CounselorDashboard() {
                   onPress={handleRejectRequest}
                   disabled={loadingRequests}
                 >
-                  <Icon name="times" size={16} color="#E53E3E" />
+                  <Icon name="times" size={16} color="#ba1a1a" />
                   <Text style={styles.requestBtnText}>Reject</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1073,7 +1072,7 @@ export default function CounselorDashboard() {
                   onPress={handleAcceptRequest}
                   disabled={loadingRequests}
                 >
-                  <Icon name="check" size={16} color="#fff" />
+                  <Icon name="check" size={16} color="#ffffff" />
                   <Text style={[styles.requestBtnText, styles.requestAcceptText]}>Accept</Text>
                 </TouchableOpacity>
               </View>
@@ -1090,7 +1089,7 @@ export default function CounselorDashboard() {
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.logoutModal}>
-                <Icon name="triangle-exclamation" size={48} color="#DD6B20" />
+                <Icon name="triangle-exclamation" size={48} color="#f5a623" />
                 <Text style={styles.logoutTitle}>Confirm Logout</Text>
                 <Text style={styles.logoutText}>Are you sure you want to logout?</Text>
                 <View style={styles.modalActions}>
@@ -1113,7 +1112,7 @@ export default function CounselorDashboard() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F7FAFC",
+    backgroundColor: "#f7f9fb",
     flexDirection: "row",
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
@@ -1121,26 +1120,26 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F7FAFC",
+    backgroundColor: "#f7f9fb",
   },
   sidebar: {
     width: 280,
-    backgroundColor: "#1E293B",
+    backgroundColor: "#081625",
     position: "absolute",
     left: 0,
     top: 0,
     bottom: 0,
     zIndex: 999,
-    shadowColor: "#000",
+    shadowColor: "#0e1d2b",
     shadowOffset: { width: 2, height: 0 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 5,
   },
   sidebarHeader: {
     padding: 24,
     borderBottomWidth: 1,
-    borderBottomColor: "#334155",
+    borderBottomColor: "#1d2b3a",
   },
   profileContainer: {
     alignItems: "center",
@@ -1152,14 +1151,16 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   profileName: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "600",
-    color: "#FFFFFF",
+    fontFamily: "Manrope",
+    color: "#ffffff",
     marginBottom: 4,
   },
   profileSpecialization: {
     fontSize: 14,
-    color: "#94A3B8",
+    fontFamily: "Manrope",
+    color: "#8492a5",
     marginBottom: 8,
     textAlign: "center",
   },
@@ -1168,16 +1169,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "#FEF3C7",
+    backgroundColor: "rgba(255,255,255,0.1)",
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 20,
+    borderRadius: 9999,
     marginBottom: 12,
   },
   ratingText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#DD6B20",
+    fontFamily: "Manrope",
+    color: "#f5a623",
   },
   sidebarNavScrollView: {
     flex: 1,
@@ -1190,41 +1192,42 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     gap: 12,
     position: "relative",
   },
   navItemActive: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#2c50cd",
   },
   navLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#94A3B8",
+    fontSize: 15,
+    fontWeight: "600",
+    fontFamily: "Manrope",
+    color: "#8492a5",
     flex: 1,
   },
   navLabelActive: {
-    color: "#fff",
+    color: "#ffffff",
   },
   navLabelLogout: {
-    color: "#E53E3E",
+    color: "#ba1a1a",
     fontWeight: "700",
   },
   sidebarFooter: {
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: "#334155",
-    backgroundColor: "#1E293B",
+    borderTopColor: "#1d2b3a",
+    backgroundColor: "#081625",
   },
   navItemLogout: {
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    backgroundColor: "rgba(186, 26, 26, 0.1)",
     borderWidth: 1,
-    borderColor: "rgba(239, 68, 68, 0.2)",
+    borderColor: "rgba(186, 26, 26, 0.2)",
   },
   navBadge: {
     position: "absolute",
     right: 12,
-    backgroundColor: "#E53E3E",
+    backgroundColor: "#ba1a1a",
     minWidth: 20,
     height: 20,
     borderRadius: 10,
@@ -1233,55 +1236,61 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   navBadgeText: {
-    color: "#fff",
+    color: "#ffffff",
     fontSize: 11,
     fontWeight: "600",
+    fontFamily: "Manrope",
   },
-  // Mobile Header - Premium Solid White Header
+  // Mobile Header - White background matching screenshot
   mobileHeader: {
     position: "absolute",
     top: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
     left: 0,
     right: 0,
-    backgroundColor: "#1E293B",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     zIndex: 998,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 4,
     borderBottomWidth: 1,
-    borderBottomColor: "#334155",
+    borderBottomColor: "#F0F0F0",
   },
   menuToggle: {
-    padding: 8,
+    width: 50,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
-  mobileTitle: {
-    alignItems: "center",
-    flex: 1,
-  },
+
   mobileTitleText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "700",
+    fontFamily: "Manrope",
+    color: "#1A1A1A",
+    letterSpacing: -0.3,
+   
   },
-  mobileDate: {
+  mobileSubtitle: {
     fontSize: 11,
-    color: "#94A3B8",
+    fontWeight: "500",
+    fontFamily: "Manrope",
+    color: "#2c50cd",
     marginTop: 2,
+    letterSpacing: 0.5,
   },
   mobilePlaceholder: {
-    width: 40,
+    width: 50,
   },
   // Mobile Menu
   mobileMenuOverlay: {
     position: "absolute",
-    top: Platform.OS === 'android' ? 60 + (StatusBar.currentHeight || 0) : 60,
+    top:60,
     left: 0,
     right: 0,
     bottom: 0,
@@ -1294,8 +1303,8 @@ const styles = StyleSheet.create({
     left: 0,
     bottom: 0,
     width: 280,
-    backgroundColor: "#1E293B",
-    shadowColor: "#000",
+    backgroundColor: "#081625",
+    shadowColor: "#0e1d2b",
     shadowOffset: { width: 2, height: 0 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
@@ -1309,33 +1318,34 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     gap: 12,
   },
   mobileNavItemActive: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#2c50cd",
   },
   mobileNavLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#94A3B8",
+    fontSize: 15,
+    fontWeight: "600",
+    fontFamily: "Manrope",
+    color: "#8492a5",
     flex: 1,
   },
   mobileNavLabelActive: {
-    color: "#fff",
+    color: "#ffffff",
   },
   mobileNavLabelLogout: {
-    color: "#E53E3E",
+    color: "#ba1a1a",
   },
   mobileNavItemLogout: {
     marginTop: 8,
-    borderRadius: 8,
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderRadius: 12,
+    backgroundColor: "rgba(186, 26, 26, 0.1)",
     borderWidth: 1,
-    borderColor: "rgba(239, 68, 68, 0.2)",
+    borderColor: "rgba(186, 26, 26, 0.2)",
   },
   mobileNavBadge: {
-    backgroundColor: "#E53E3E",
+    backgroundColor: "#ba1a1a",
     minWidth: 18,
     height: 18,
     borderRadius: 9,
@@ -1345,17 +1355,18 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   mobileNavBadgeText: {
-    color: "#fff",
+    color: "#ffffff",
     fontSize: 11,
     fontWeight: "600",
+    fontFamily: "Manrope",
   },
-  // Mobile Bottom Nav
+  // Mobile Bottom Nav - Dark navy footer (original design)
   mobileBottomNav: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "#1E293B",
+    backgroundColor: "#081625",
     flexDirection: "row",
     justifyContent: "space-around",
     paddingVertical: 8,
@@ -1372,14 +1383,17 @@ const styles = StyleSheet.create({
   },
   bottomNavLabel: {
     fontSize: 11,
+    fontFamily: "Manrope",
+    fontWeight: "500",
     color: "#94A3B8",
   },
   bottomNavLabelActive: {
-    color: "#3B82F6",
-    fontWeight: "500",
+    color: "#ffffff",
+    fontWeight: "600",
   },
   bottomNavBadge: {
     position: "absolute",
+    
     top: 4,
     right: "30%",
     backgroundColor: "#E53E3E",
@@ -1391,21 +1405,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
   },
   bottomNavBadgeText: {
-    color: "#fff",
+    color: "#ffffff",
     fontSize: 10,
     fontWeight: "600",
+    fontFamily: "Manrope",
   },
   // Main Content
   mainContent: {
     flex: 1,
     marginLeft: 280,
-    backgroundColor: "#F7FAFC",
+    backgroundColor: "#f7f9fb",
   },
   mainContentMobile: {
     marginLeft: 0,
     marginTop: 100,
     marginBottom: 70,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
   mainContentContainer: {
     padding: 20,
@@ -1413,11 +1428,11 @@ const styles = StyleSheet.create({
   },
   // Coming Soon
   comingSoon: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
     padding: 48,
     alignItems: "center",
-    shadowColor: "#000",
+    shadowColor: "#0e1d2b",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
@@ -1426,13 +1441,15 @@ const styles = StyleSheet.create({
   comingSoonTitle: {
     fontSize: 20,
     fontWeight: "600",
-    color: "#2D3748",
+    fontFamily: "Manrope",
+    color: "#191c1e",
     marginTop: 16,
     marginBottom: 8,
   },
   comingSoonText: {
     fontSize: 14,
-    color: "#718096",
+    fontFamily: "Manrope",
+    color: "#44474c",
     textAlign: "center",
   },
   // Earnings
@@ -1440,35 +1457,38 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   earningsCard: {
-    backgroundColor: "#fff",
+    backgroundColor: "#ffffff",
     borderRadius: 16,
     padding: 20,
-    shadowColor: "#000",
+    shadowColor: "#0e1d2b",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2,
   },
   earningsCardPending: {
-    backgroundColor: "#FFFBEB",
+    backgroundColor: "#fef3c7",
   },
   earningsCardTitle: {
     fontSize: 14,
-    color: "#718096",
+    fontFamily: "Manrope",
+    color: "#44474c",
     marginBottom: 8,
   },
   earningsAmount: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#2D3748",
+    fontFamily: "Manrope",
+    color: "#191c1e",
     marginBottom: 8,
   },
   earningsBadge: {
     fontSize: 12,
-    color: "#38A169",
+    fontFamily: "Manrope",
+    color: "#2e7d32",
   },
   earningsBadgeWarning: {
-    color: "#DD6B20",
+    color: "#ed6c02",
   },
   // Request Modal
   requestModalOverlay: {
@@ -1483,11 +1503,11 @@ const styles = StyleSheet.create({
     right: 16,
     width: SCREEN_WIDTH - 32,
     maxWidth: 380,
-    backgroundColor: "#fff",
-    borderRadius: 20,
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
+    shadowColor: "#0e1d2b",
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 20,
     elevation: 10,
@@ -1498,7 +1518,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: "#6B46C1",
+    backgroundColor: "#2c50cd",
   },
   requestHeaderLeft: {
     flexDirection: "row",
@@ -1516,10 +1536,12 @@ const styles = StyleSheet.create({
   requestModalTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#fff",
+    fontFamily: "Manrope",
+    color: "#ffffff",
   },
   requestTimer: {
     fontSize: 12,
+    fontFamily: "Manrope",
     color: "rgba(255,255,255,0.8)",
     marginTop: 2,
   },
@@ -1535,10 +1557,11 @@ const styles = StyleSheet.create({
   requestPatientName: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#2D3748",
+    fontFamily: "Manrope",
+    color: "#191c1e",
   },
   requestTypeBadge: {
-    backgroundColor: "#E2E8F0",
+    backgroundColor: "#e0e3e5",
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 20,
@@ -1546,22 +1569,25 @@ const styles = StyleSheet.create({
   requestTypeText: {
     fontSize: 11,
     fontWeight: "500",
-    color: "#4A5568",
+    fontFamily: "Manrope",
+    color: "#44474c",
   },
   requestMessage: {
-    backgroundColor: "#F7FAFC",
+    backgroundColor: "#f2f4f6",
     padding: 12,
     borderRadius: 12,
     marginBottom: 12,
   },
   requestMessageText: {
     fontSize: 13,
-    color: "#4A5568",
+    fontFamily: "Manrope",
+    color: "#44474c",
     lineHeight: 18,
   },
   requestTime: {
     fontSize: 11,
-    color: "#A0AEC0",
+    fontFamily: "Manrope",
+    color: "#74777c",
     textAlign: "right",
   },
   requestModalFooter: {
@@ -1570,7 +1596,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 20,
     borderTopWidth: 1,
-    borderTopColor: "#E2E8F0",
+    borderTopColor: "#e0e3e5",
     paddingTop: 16,
   },
   requestBtn: {
@@ -1583,25 +1609,26 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   requestReject: {
-    backgroundColor: "#FEE2E2",
+    backgroundColor: "#fee2e2",
   },
   requestAccept: {
-    backgroundColor: "#6B46C1",
+    backgroundColor: "#2c50cd",
   },
   requestBtnText: {
     fontSize: 14,
     fontWeight: "600",
+    fontFamily: "Manrope",
   },
   requestAcceptText: {
-    color: "#fff",
+    color: "#ffffff",
   },
   requestProgress: {
     height: 4,
-    backgroundColor: "#E2E8F0",
+    backgroundColor: "#e0e3e5",
   },
   requestProgressBar: {
     height: "100%",
-    backgroundColor: "#6B46C1",
+    backgroundColor: "#2c50cd",
   },
   // Modal Overlay
   modalOverlay: {
@@ -1612,10 +1639,22 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContent: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
     width: "100%",
     maxWidth: 400,
+  },
+  mobileTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    marginRight: 40,
+  },
+  mobileHeaderLogo: {
+    width: 24,
+    height: 24,
+    marginRight: 8,
   },
   logoutModal: {
     padding: 24,
@@ -1624,13 +1663,15 @@ const styles = StyleSheet.create({
   logoutTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#2D3748",
+    fontFamily: "Manrope",
+    color: "#191c1e",
     marginTop: 16,
     marginBottom: 8,
   },
   logoutText: {
     fontSize: 14,
-    color: "#718096",
+    fontFamily: "Manrope",
+    color: "#44474c",
     marginBottom: 24,
     textAlign: "center",
   },
@@ -1641,27 +1682,29 @@ const styles = StyleSheet.create({
   },
   cancelBtn: {
     flex: 1,
-    backgroundColor: "#E2E8F0",
+    backgroundColor: "#e0e3e5",
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     alignItems: "center",
   },
   cancelBtnText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#2D3748",
+    fontFamily: "Manrope",
+    color: "#191c1e",
   },
   confirmBtn: {
     flex: 1,
-    backgroundColor: "#E53E3E",
+    backgroundColor: "#ba1a1a",
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     alignItems: "center",
   },
   confirmBtnText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#fff",
+    fontFamily: "Manrope",
+    color: "#ffffff",
   },
   // Incoming Call Modal
   incomingCallOverlay: {
@@ -1672,7 +1715,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   incomingCallModal: {
-    backgroundColor: "#6B46C1",
+    backgroundColor: "#2c50cd",
     borderRadius: 24,
     padding: 32,
     width: "100%",
@@ -1690,7 +1733,7 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 40,
     borderWidth: 3,
-    borderColor: "#fff",
+    borderColor: "#ffffff",
   },
   avatarEmojiLarge: {
     fontSize: 80,
@@ -1698,16 +1741,19 @@ const styles = StyleSheet.create({
   incomingCallerName: {
     fontSize: 24,
     fontWeight: "600",
-    color: "#fff",
+    fontFamily: "Manrope",
+    color: "#ffffff",
     marginBottom: 8,
   },
   incomingCallType: {
     fontSize: 16,
+    fontFamily: "Manrope",
     color: "rgba(255,255,255,0.9)",
     marginBottom: 4,
   },
   incomingCallStatus: {
     fontSize: 14,
+    fontFamily: "Manrope",
     color: "rgba(255,255,255,0.8)",
   },
   incomingCallActions: {
@@ -1724,14 +1770,16 @@ const styles = StyleSheet.create({
     borderRadius: 40,
   },
   rejectBtn: {
-    backgroundColor: "#DC2626",
+    backgroundColor: "#ba1a1a",
   },
   acceptBtn: {
-    backgroundColor: "#10B981",
+    backgroundColor: "#2e7d32",
   },
   incomingCallBtnText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#fff",
+    fontFamily: "Manrope",
+    color: "#ffffff",
   },
 });
+

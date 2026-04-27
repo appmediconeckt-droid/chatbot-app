@@ -1,15 +1,20 @@
 // services/VideoCallService.js
 import { API_BASE_URL } from "../../../../../../axiosConfig";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 /**
- * Helper to build the Authorization header from localStorage.
+ * Helper to build the Authorization header from AsyncStorage.
  */
-const getAuthHeaders = () => {
-  const token =
-    localStorage.getItem("token") || localStorage.getItem("accessToken");
+const getAuthHeaders = async () => {
+  const [token, accessToken] = await Promise.all([
+    AsyncStorage.getItem("token"),
+    AsyncStorage.getItem("accessToken"),
+  ]);
+
+  const resolvedToken = token || accessToken;
   const headers = { "Content-Type": "application/json" };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  if (resolvedToken) {
+    headers["Authorization"] = `Bearer ${resolvedToken}`;
   }
   return headers;
 };
@@ -25,9 +30,10 @@ class VideoCallService {
   // POST: Initiate video call
   async initiateCall(userId, userName, counsellorId, counsellorName) {
     try {
+      const headers = await getAuthHeaders();
       const response = await fetch(`${this.baseURL}/initiate`, {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers,
         body: JSON.stringify({
           userId,
           userName,
@@ -59,9 +65,10 @@ class VideoCallService {
   // GET: Get waiting calls for counsellor
   async getWaitingCalls(counsellorId) {
     try {
+      const headers = await getAuthHeaders();
       const response = await fetch(
         `${this.baseURL}/waiting/${counsellorId}`,
-        { headers: getAuthHeaders() },
+        { headers },
       );
 
       if (!response.ok) {
@@ -79,9 +86,10 @@ class VideoCallService {
   // POST: Accept call
   async acceptCall(callId) {
     try {
+      const headers = await getAuthHeaders();
       const response = await fetch(`${this.baseURL}/accept/${callId}`, {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers,
       });
 
       if (!response.ok) {
@@ -99,9 +107,10 @@ class VideoCallService {
   // POST: Reject call
   async rejectCall(callId) {
     try {
+      const headers = await getAuthHeaders();
       const response = await fetch(`${this.baseURL}/reject/${callId}`, {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers,
       });
 
       if (!response.ok) {
@@ -119,9 +128,10 @@ class VideoCallService {
   // POST: End call
   async endCall(callId) {
     try {
+      const headers = await getAuthHeaders();
       const response = await fetch(`${this.baseURL}/end/${callId}`, {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers,
       });
 
       if (!response.ok) {

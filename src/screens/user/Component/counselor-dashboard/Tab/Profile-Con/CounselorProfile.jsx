@@ -1,4 +1,4 @@
-// CounselorProfile.jsx - Fixed React Native Version
+// CounselorProfile.jsx - Premium Professional UI
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -19,15 +19,23 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
 import DocumentPicker from '@react-native-documents/picker';
-import Icon from 'react-native-vector-icons/FontAwesome5';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import safeVibrate from '../../../../../../utils/safeVibrate';
 
 const { width, height } = Dimensions.get('window');
+
+// Responsive helpers
+const scale = (size) => (width / 375) * size;
+const isSmall = width <= 768;
+const isTablet = width > 768 && width <= 1024;
+
 const API_BASE_URL = 'https://chatbot-backend-js25.onrender.com';
 
 const CounselorProfile = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [activeTab, setActiveTab] = useState('professional');
 
   // State for counselor data
   const [counselor, setCounselor] = useState({
@@ -92,10 +100,8 @@ const CounselorProfile = () => {
     documentName: ''
   });
 
-  const isSmall = width <= 768;
-  const PHOTO_SIZE = isSmall ? 100 : 140;
+  const AVATAR_SIZE = isSmall ? 110 : 130;
 
-  // Fetch profile data on component mount
   useEffect(() => {
     fetchCounselorProfile();
   }, []);
@@ -115,9 +121,7 @@ const CounselorProfile = () => {
       }
 
       const response = await axios.get(`${API_BASE_URL}/api/auth/counsellors/${counsellorId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
       if (response.data.success && response.data.counsellor) {
@@ -159,24 +163,11 @@ const CounselorProfile = () => {
           dateOfBirth: userData.dateOfBirth || null,
           bloodGroup: userData.bloodGroup || '',
           address: userData.address || {
-            line1: '',
-            line2: '',
-            city: '',
-            state: '',
-            pincode: '',
-            country: 'India'
+            line1: '', line2: '', city: '', state: '', pincode: '', country: 'India'
           },
-          emergencyContact: userData.emergencyContact || {
-            name: '',
-            relation: '',
-            phone: ''
-          },
+          emergencyContact: userData.emergencyContact || { name: '', relation: '', phone: '' },
           medicalInfo: userData.medicalInfo || {
-            height: '',
-            weight: '',
-            allergies: [],
-            chronicConditions: [],
-            currentMedications: []
+            height: '', weight: '', allergies: [], chronicConditions: [], currentMedications: []
           }
         };
 
@@ -197,14 +188,12 @@ const CounselorProfile = () => {
     try {
       const counsellorId = await AsyncStorage.getItem('counsellorId');
       const accessToken = await AsyncStorage.getItem('accessToken');
-
       const response = await axios.patch(`${API_BASE_URL}/api/auth/update/${counsellorId}`, formData, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'multipart/form-data'
         }
       });
-
       return response;
     } catch (error) {
       throw error;
@@ -212,107 +201,70 @@ const CounselorProfile = () => {
   };
 
   const handleInputChange = (field, value) => {
-    setEditedData(prev => ({
-      ...prev,
-      [field]: value
-    }));
+    setEditedData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleTabPress = (tabKey) => {
+    if (activeTab === tabKey) return;
+    safeVibrate(80);
+    setActiveTab(tabKey);
   };
 
   const handleNestedInputChange = (parentField, field, value) => {
     setEditedData(prev => ({
       ...prev,
-      [parentField]: {
-        ...prev[parentField],
-        [field]: value
-      }
+      [parentField]: { ...prev[parentField], [field]: value }
     }));
   };
 
   const handleProfilePhotoUpload = async () => {
-    const options = {
-      mediaType: 'photo',
-      includeBase64: false,
-      quality: 0.8,
-    };
-
+    const options = { mediaType: 'photo', includeBase64: false, quality: 0.8 };
     launchImageLibrary(options, (response) => {
-      if (response.didCancel) {
-        console.log('User cancelled image picker');
-      } else if (response.errorCode) {
-        console.log('ImagePicker Error: ', response.errorMessage);
-      } else if (response.assets && response.assets[0]) {
+      if (response.didCancel) return;
+      if (response.errorCode) return;
+      if (response.assets && response.assets[0]) {
         const asset = response.assets[0];
         setEditedData(prev => ({
           ...prev,
-          profilePhoto: {
-            uri: asset.uri,
-            type: asset.type,
-            name: asset.fileName
-          },
+          profilePhoto: { uri: asset.uri, type: asset.type, name: asset.fileName },
           profilePhotoUrl: asset.uri
         }));
       }
     });
   };
 
-  const handleRemoveProfilePhoto = () => {
-    setEditedData(prev => ({
-      ...prev,
-      profilePhoto: null,
-      profilePhotoUrl: ''
-    }));
-  };
-
   const handleAddLanguage = () => {
     if (newLanguage.trim() && !editedData.languages.includes(newLanguage.trim())) {
-      setEditedData(prev => ({
-        ...prev,
-        languages: [...prev.languages, newLanguage.trim()]
-      }));
+      setEditedData(prev => ({ ...prev, languages: [...prev.languages, newLanguage.trim()] }));
       setNewLanguage('');
     }
   };
 
-  const handleRemoveLanguage = (languageToRemove) => {
-    setEditedData(prev => ({
-      ...prev,
-      languages: prev.languages.filter(lang => lang !== languageToRemove)
-    }));
+  const handleRemoveLanguage = (lang) => {
+    setEditedData(prev => ({ ...prev, languages: prev.languages.filter(l => l !== lang) }));
   };
 
   const handleAddSpecialization = () => {
     if (newSpecialization.trim() && !editedData.specialization.includes(newSpecialization.trim())) {
-      setEditedData(prev => ({
-        ...prev,
-        specialization: [...prev.specialization, newSpecialization.trim()]
-      }));
+      setEditedData(prev => ({ ...prev, specialization: [...prev.specialization, newSpecialization.trim()] }));
       setNewSpecialization('');
     }
   };
 
-  const handleRemoveSpecialization = (specToRemove) => {
-    setEditedData(prev => ({
-      ...prev,
-      specialization: prev.specialization.filter(spec => spec !== specToRemove)
-    }));
+  const handleRemoveSpecialization = (spec) => {
+    setEditedData(prev => ({ ...prev, specialization: prev.specialization.filter(s => s !== spec) }));
   };
 
   const handleAddConsultationMode = () => {
     const modes = ['online', 'offline', 'both'];
     if (newConsultationMode && modes.includes(newConsultationMode) && !editedData.consultationMode.includes(newConsultationMode)) {
-      setEditedData(prev => ({
-        ...prev,
-        consultationMode: [...prev.consultationMode, newConsultationMode]
-      }));
+      setEditedData(prev => ({ ...prev, consultationMode: [...prev.consultationMode, newConsultationMode] }));
       setNewConsultationMode('');
     }
   };
 
-  const handleRemoveConsultationMode = (modeToRemove) => {
-    setEditedData(prev => ({
-      ...prev,
-      consultationMode: prev.consultationMode.filter(mode => mode !== modeToRemove)
-    }));
+  const handleRemoveConsultationMode = (mode) => {
+    setEditedData(prev => ({ ...prev, consultationMode: prev.consultationMode.filter(m => m !== mode) }));
   };
 
   const handleDocumentUpload = async (certId) => {
@@ -320,33 +272,21 @@ const CounselorProfile = () => {
       const result = await DocumentPicker.pick({
         type: [DocumentPicker.types.pdf, DocumentPicker.types.images],
       });
-
-      // Normalize result (some picker implementations return an array, others a single object)
       const file = Array.isArray(result) ? result[0] : result;
       const updatedCerts = editedData.certifications.map(cert => {
         if (cert._id === certId) {
           return {
             ...cert,
-            document: {
-              uri: file.uri,
-              type: file.type,
-              name: file.name
-            },
+            document: { uri: file.uri, type: file.type, name: file.name },
             documentName: file.name,
             documentUrl: file.uri
           };
         }
         return cert;
       });
-
-      setEditedData(prev => ({
-        ...prev,
-        certifications: updatedCerts
-      }));
+      setEditedData(prev => ({ ...prev, certifications: updatedCerts }));
     } catch (err) {
-      if (err.code !== 'DOCUMENT_PICKER_CANCELED') {
-        console.error('Error picking document:', err);
-      }
+      if (err.code !== 'DOCUMENT_PICKER_CANCELED') console.error('Error picking document:', err);
     }
   };
 
@@ -355,7 +295,6 @@ const CounselorProfile = () => {
       Alert.alert('Error', 'Please enter certification name');
       return;
     }
-
     const newCert = {
       _id: `temp_${Date.now()}`,
       name: newCertification.name,
@@ -366,20 +305,12 @@ const CounselorProfile = () => {
       expiryDate: newCertification.expiryDate,
       issuedBy: newCertification.issuedBy
     };
+    setEditedData(prev => ({ ...prev, certifications: [...prev.certifications, newCert] }));
+    setNewCertification({ name: '', issueDate: '', expiryDate: '', issuedBy: '', document: null, documentName: '' });
+  };
 
-    setEditedData(prev => ({
-      ...prev,
-      certifications: [...prev.certifications, newCert]
-    }));
-
-    setNewCertification({
-      name: '',
-      issueDate: '',
-      expiryDate: '',
-      issuedBy: '',
-      document: null,
-      documentName: ''
-    });
+  const handleRemoveCertification = (certId) => {
+    setEditedData(prev => ({ ...prev, certifications: prev.certifications.filter(cert => cert._id !== certId) }));
   };
 
   const handleNewDocumentUpload = async () => {
@@ -387,48 +318,15 @@ const CounselorProfile = () => {
       const result = await DocumentPicker.pick({
         type: [DocumentPicker.types.pdf, DocumentPicker.types.images],
       });
-
       const file = Array.isArray(result) ? result[0] : result;
       setNewCertification(prev => ({
         ...prev,
-        document: {
-          uri: file.uri,
-          type: file.type,
-          name: file.name
-        },
+        document: { uri: file.uri, type: file.type, name: file.name },
         documentName: file.name
       }));
     } catch (err) {
-      if (err.code !== 'DOCUMENT_PICKER_CANCELED') {
-        console.error('Error picking document:', err);
-      }
+      if (err.code !== 'DOCUMENT_PICKER_CANCELED') console.error('Error picking document:', err);
     }
-  };
-
-  const handleRemoveCertification = (certId) => {
-    setEditedData(prev => ({
-      ...prev,
-      certifications: prev.certifications.filter(cert => cert._id !== certId)
-    }));
-  };
-
-  const handleRemoveDocument = (certId) => {
-    const updatedCerts = editedData.certifications.map(cert => {
-      if (cert._id === certId) {
-        return {
-          ...cert,
-          document: null,
-          documentName: '',
-          documentUrl: ''
-        };
-      }
-      return cert;
-    });
-
-    setEditedData(prev => ({
-      ...prev,
-      certifications: updatedCerts
-    }));
   };
 
   const handleSave = async () => {
@@ -438,7 +336,6 @@ const CounselorProfile = () => {
       setSuccessMessage('');
 
       const formData = new FormData();
-
       formData.append('fullName', editedData.fullName);
       formData.append('email', editedData.email);
       formData.append('phoneNumber', editedData.phoneNumber);
@@ -461,28 +358,14 @@ const CounselorProfile = () => {
         formData.append('address[country]', editedData.address.country || 'India');
       }
 
-      if (editedData.emergencyContact) {
-        formData.append('emergencyContact[name]', editedData.emergencyContact.name || '');
-        formData.append('emergencyContact[relation]', editedData.emergencyContact.relation || '');
-        formData.append('emergencyContact[phone]', editedData.emergencyContact.phone || '');
-      }
-
       if (editedData.languages && editedData.languages.length > 0) {
-        editedData.languages.forEach((lang, index) => {
-          formData.append(`languages[${index}]`, lang);
-        });
+        editedData.languages.forEach((lang, index) => formData.append(`languages[${index}]`, lang));
       }
-
       if (editedData.specialization && editedData.specialization.length > 0) {
-        editedData.specialization.forEach((spec, index) => {
-          formData.append(`specialization[${index}]`, spec);
-        });
+        editedData.specialization.forEach((spec, index) => formData.append(`specialization[${index}]`, spec));
       }
-
       if (editedData.consultationMode && editedData.consultationMode.length > 0) {
-        editedData.consultationMode.forEach((mode, index) => {
-          formData.append(`consultationMode[${index}]`, mode);
-        });
+        editedData.consultationMode.forEach((mode, index) => formData.append(`consultationMode[${index}]`, mode));
       }
 
       if (editedData.profilePhoto && editedData.profilePhoto.uri) {
@@ -493,52 +376,19 @@ const CounselorProfile = () => {
         });
       }
 
-      if (editedData.certifications && editedData.certifications.length > 0) {
-        editedData.certifications.forEach((cert, index) => {
-          formData.append(`certifications[${index}][name]`, cert.name || '');
-          formData.append(`certifications[${index}][issuedBy]`, cert.issuedBy || '');
-
-          if (cert.issueDate) {
-            formData.append(`certifications[${index}][issueDate]`, cert.issueDate);
-          }
-          if (cert.expiryDate) {
-            formData.append(`certifications[${index}][expiryDate]`, cert.expiryDate);
-          }
-
-          if (cert._id && !cert._id.toString().startsWith('temp_')) {
-            formData.append(`certifications[${index}][_id]`, cert._id);
-          }
-
-          if (cert.document && cert.document.uri) {
-            formData.append(`certifications[${index}][document]`, {
-              uri: cert.document.uri,
-              type: cert.document.type,
-              name: cert.document.name
-            });
-          }
-        });
-      }
-
       const response = await updateCounselorProfile(formData);
-
       if (response.data.success) {
         setSuccessMessage('Profile updated successfully!');
         await fetchCounselorProfile();
         setIsEditing(false);
-
-        setTimeout(() => {
-          setSuccessMessage('');
-        }, 3000);
+        setTimeout(() => setSuccessMessage(''), 3000);
       } else {
         setError(response.data.message || 'Failed to update profile');
       }
     } catch (err) {
       console.error('Error updating profile:', err);
-      setError(err.response?.data?.message || err.response?.data?.error || 'Failed to update profile');
-
-      setTimeout(() => {
-        setError('');
-      }, 3000);
+      setError(err.response?.data?.message || 'Failed to update profile');
+      setTimeout(() => setError(''), 3000);
     } finally {
       setLoading(false);
     }
@@ -549,14 +399,7 @@ const CounselorProfile = () => {
     setNewLanguage('');
     setNewSpecialization('');
     setNewConsultationMode('');
-    setNewCertification({
-      name: '',
-      issueDate: '',
-      expiryDate: '',
-      issuedBy: '',
-      document: null,
-      documentName: ''
-    });
+    setNewCertification({ name: '', issueDate: '', expiryDate: '', issuedBy: '', document: null, documentName: '' });
     setIsEditing(false);
     setError('');
     setSuccessMessage('');
@@ -565,1228 +408,1114 @@ const CounselorProfile = () => {
   const formatDate = (dateString) => {
     if (!dateString) return 'Not specified';
     return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
+      year: 'numeric', month: 'long', day: 'numeric'
     });
   };
 
-  const renderCertificationCard = (cert) => (
-    <View key={cert._id} style={styles.certificationCard}>
-      <View style={styles.certificationHeader}>
-        <View style={styles.certificationTitle}>
-          <Text style={styles.certificationIcon}>📜</Text>
-          <Text style={styles.certificationName}>{cert.name}</Text>
-        </View>
-        {isEditing && (
-          <TouchableOpacity onPress={() => handleRemoveCertification(cert._id)} style={styles.removeCertBtn}>
-            <Text style={styles.removeBtnText}>✕</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      <View style={styles.certificationDetails}>
-        <View style={styles.certificationInfo}>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Issued By:</Text>
-            <Text style={styles.infoText}>{cert.issuedBy || 'Not specified'}</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Issue Date:</Text>
-            <Text style={styles.infoText}>{cert.issueDate ? formatDate(cert.issueDate) : 'Not specified'}</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Expiry Date:</Text>
-            <Text style={styles.infoText}>{cert.expiryDate ? formatDate(cert.expiryDate) : 'Not specified'}</Text>
-          </View>
-        </View>
-
-        <View style={styles.documentSection}>
-          <Text style={styles.documentLabel}>Supporting Document:</Text>
-          {cert.documentUrl || cert.document ? (
-            <View style={styles.documentPreview}>
-              <Text style={styles.documentLink}>📄 {cert.documentName || 'View Document'}</Text>
-              {isEditing && (
-                <TouchableOpacity onPress={() => handleRemoveDocument(cert._id)} style={styles.removeDocumentBtn}>
-                  <Text style={styles.removeBtnText}>Remove</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : (
-            <Text style={styles.noDocument}>No document uploaded</Text>
-          )}
-
-          {isEditing && (
-            <TouchableOpacity onPress={() => handleDocumentUpload(cert._id)} style={styles.uploadBtn}>
-              <Text style={styles.uploadBtnText}>📁 Upload Document</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-    </View>
-  );
+  // Star Rating Component
+  const StarRating = ({ rating, size = 14 }) => {
+    const stars = [];
+    for (let i = 1; i <= 5; i++) {
+      stars.push(
+        <Icon
+          key={i}
+          name={i <= Math.round(rating) ? 'star' : 'star-border'}
+          size={size}
+          color={i <= Math.round(rating) ? '#FFB800' : '#E2E8F0'}
+        />
+      );
+    }
+    return <View style={styles.starRating}>{stars}</View>;
+  };
 
   if (loading && !counselor._id) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#667eea" />
-        <Text style={styles.loadingText}>Loading profile...</Text>
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator size="large" color="#4F46E5" />
+        <Text style={styles.loadingText}>Loading your profile...</Text>
       </View>
     );
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.keyboardView}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.contentContainer}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Success/Error Messages */}
-        {successMessage ? (
-          <View style={[styles.alert, styles.successAlert]}>
-            <Text style={styles.successText}>{successMessage}</Text>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        
+        {/* Notification Banner */}
+        {(successMessage || error) && (
+          <View style={[styles.banner, successMessage ? styles.successBanner : styles.errorBanner]}>
+            <Icon name={successMessage ? 'check-circle' : 'error'} size={20} color="#fff" />
+            <Text style={styles.bannerText}>{successMessage || error}</Text>
           </View>
-        ) : null}
-        {error ? (
-          <View style={[styles.alert, styles.errorAlert]}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : null}
+        )}
 
-        {/* Header Section */}
-        <View style={[styles.header, isSmall && styles.headerColumn]}>
-          {/* Avatar Section */}
-          <View style={[styles.avatarSection, isSmall && styles.avatarSectionCenter]}>
-            <View style={[styles.profilePhotoContainer, { width: PHOTO_SIZE, height: PHOTO_SIZE }]}>
-              {editedData?.profilePhotoUrl ? (
-                <Image
-                  source={{ uri: editedData.profilePhotoUrl }}
-                  style={[styles.profilePhoto, { width: PHOTO_SIZE, height: PHOTO_SIZE, borderRadius: PHOTO_SIZE / 2 }]}
-                />
-              ) : (
-                <LinearGradient
-                  colors={['#667eea', '#764ba2']}
-                  style={[styles.avatar, { width: PHOTO_SIZE, height: PHOTO_SIZE, borderRadius: PHOTO_SIZE / 2 }]}
-                >
-                  <Text style={[styles.avatarText, { fontSize: PHOTO_SIZE * 0.35 }]}>
-                    {counselor?.fullName?.charAt(0) || 'C'}
-                  </Text>
-                </LinearGradient>
-              )}
-
-              {isEditing && (
-                <View style={styles.photoEditOverlay}>
-                  <TouchableOpacity onPress={handleProfilePhotoUpload} style={styles.uploadPhotoBtn}>
-                    <Text style={styles.photoBtnText}>📷</Text>
-                  </TouchableOpacity>
-                  {editedData.profilePhotoUrl && (
-                    <TouchableOpacity onPress={handleRemoveProfilePhoto} style={styles.removePhotoBtn}>
-                      <Text style={styles.photoBtnText}>✕</Text>
+        {/* Profile Header Card */}
+        <View style={styles.profileHeaderCard}>
+          <LinearGradient colors={['#4F46E5', '#7C3AED']} style={styles.headerGradient}>
+            <View style={styles.headerTop}>
+              <View style={styles.avatarSection}>
+                <View style={[styles.avatarContainer, { width: AVATAR_SIZE, height: AVATAR_SIZE }]}>
+                  {editedData?.profilePhotoUrl ? (
+                    <Image
+                      source={{ uri: editedData.profilePhotoUrl }}
+                      style={[styles.avatarImage, { width: AVATAR_SIZE, height: AVATAR_SIZE }]}
+                    />
+                  ) : (
+                    <View style={[styles.avatarPlaceholder, { width: AVATAR_SIZE, height: AVATAR_SIZE }]}>
+                      <Text style={[styles.avatarLetter, { fontSize: AVATAR_SIZE * 0.38 }]}>
+                        {counselor?.fullName?.charAt(0)?.toUpperCase() || 'C'}
+                      </Text>
+                    </View>
+                  )}
+                  {isEditing && (
+                    <TouchableOpacity onPress={handleProfilePhotoUpload} style={styles.editPhotoBtn}>
+                      <Icon name="camera-alt" size={18} color="#fff" />
                     </TouchableOpacity>
                   )}
                 </View>
-              )}
-            </View>
-
-            <View style={styles.uniqueCode}>
-              <Text style={styles.uniqueCodeLabel}>Counselor Code:</Text>
-              <Text style={styles.uniqueCodeValue}>{counselor?.uniqueCode || 'Not assigned'}</Text>
-            </View>
-          </View>
-
-          {/* Info Section */}
-          <View style={[styles.infoSection, isSmall && styles.infoSectionCenter]}>
-            <View style={styles.nameContainer}>
-              {isEditing ? (
-                <TextInput
-                  style={[styles.input, styles.nameInput]}
-                  value={editedData.fullName || ''}
-                  onChangeText={(value) => handleInputChange('fullName', value)}
-                  placeholder="Full Name"
-                />
-              ) : (
-                <Text style={[styles.name, isSmall && styles.nameCenter]}>{counselor?.fullName}</Text>
-              )}
-            </View>
-
-            <View style={styles.specializationContainer}>
-              {isEditing ? (
-                <View>
-                  <View style={styles.tagsList}>
-                    {editedData.specialization.map((spec, index) => (
-                      <View key={index} style={styles.tag}>
-                        <Text style={styles.tagText}>{spec}</Text>
-                        <TouchableOpacity onPress={() => handleRemoveSpecialization(spec)}>
-                          <Text style={styles.removeTagText}>✕</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </View>
-                  <View style={styles.addSection}>
-                    <TextInput
-                      style={[styles.input, styles.flex1]}
-                      value={newSpecialization}
-                      onChangeText={setNewSpecialization}
-                      placeholder="Add new specialization..."
-                      placeholderTextColor="#94a3b8"
-                      onSubmitEditing={handleAddSpecialization}
-                    />
-                    <TouchableOpacity onPress={handleAddSpecialization} style={styles.addBtn}>
-                      <Text style={styles.addBtnText}>+ Add</Text>
-                    </TouchableOpacity>
-                  </View>
+                <View style={styles.statusBadge}>
+                  <View style={[styles.statusDot, counselor.isActive ? styles.activeDot : styles.inactiveDot]} />
+                  <Text style={styles.statusText}>{counselor.isActive ? 'Active' : 'Inactive'}</Text>
                 </View>
-              ) : (
-                <Text style={[styles.specialization, isSmall && styles.specializationCenter]}>
-                  {counselor?.specialization?.join(', ') || 'Not specified'}
-                </Text>
-              )}
+              </View>
+
+              <View style={styles.headerInfo}>
+                {isEditing ? (
+                  <TextInput
+                    style={styles.nameInput}
+                    value={editedData.fullName || ''}
+                    onChangeText={(value) => handleInputChange('fullName', value)}
+                    placeholder="Your Full Name"
+                    placeholderTextColor="rgba(255,255,255,0.6)"
+                  />
+                ) : (
+                  <Text style={styles.counselorName}>{counselor.fullName || 'Your Name'}</Text>
+                )}
+                <Text style={styles.counselorCode}>{counselor.uniqueCode}</Text>
+                
+                <View style={styles.specializationRow}>
+                  {counselor.specialization.slice(0, 3).map((spec, i) => (
+                    <View key={i} style={styles.specBadge}>
+                      <Text style={styles.specBadgeText}>{spec}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
             </View>
 
-            <View style={styles.stats}>
-              <View style={styles.stat}>
-                <Text style={styles.statValue}>{counselor?.rating || 0} ★</Text>
+            {/* Stats Row */}
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{counselor.rating?.toFixed(1) || '0.0'}</Text>
+                <StarRating rating={counselor.rating || 0} size={12} />
                 <Text style={styles.statLabel}>Rating</Text>
               </View>
-              <View style={styles.stat}>
-                <Text style={styles.statValue}>{counselor?.totalSessions || 0}</Text>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{counselor.totalSessions || 0}</Text>
+                <Icon name="video-call" size={14} color="rgba(255,255,255,0.7)" />
                 <Text style={styles.statLabel}>Sessions</Text>
               </View>
-              <View style={styles.stat}>
-                <Text style={styles.statValue}>{counselor?.activeClients || 0}</Text>
-                <Text style={styles.statLabel}>Active Clients</Text>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{counselor.activeClients || 0}</Text>
+                <Icon name="people" size={14} color="rgba(255,255,255,0.7)" />
+                <Text style={styles.statLabel}>Clients</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{counselor.experience || 0}+</Text>
+                <Icon name="work" size={14} color="rgba(255,255,255,0.7)" />
+                <Text style={styles.statLabel}>Years</Text>
               </View>
             </View>
-          </View>
 
-          {/* Actions Section */}
-          <View style={[styles.actionsSection, isSmall && styles.actionsSectionCenter]}>
-            {!isEditing ? (
-              <TouchableOpacity onPress={() => setIsEditing(true)} style={[styles.btn, styles.editBtn]}>
-                <Text style={styles.btnText}>Edit Profile</Text>
-              </TouchableOpacity>
-            ) : (
-              <>
-                <TouchableOpacity onPress={handleSave} style={[styles.btn, styles.saveBtn]} disabled={loading}>
-                  <Text style={styles.btnText}>{loading ? 'Saving...' : 'Save Changes'}</Text>
+            {/* Edit Button */}
+            <View style={styles.headerActions}>
+              {!isEditing ? (
+                <TouchableOpacity onPress={() => setIsEditing(true)} style={styles.editProfileBtn}>
+                  <Icon name="edit" size={18} color="#4F46E5" />
+                  <Text style={styles.editProfileBtnText}>Edit Profile</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={handleCancel} style={[styles.btn, styles.cancelBtn]}>
-                  <Text style={styles.btnText}>Cancel</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
+              ) : (
+                <View style={styles.editActions}>
+                  <TouchableOpacity onPress={handleSave} style={styles.saveBtn} disabled={loading}>
+                    <Text style={styles.saveBtnText}>{loading ? 'Saving...' : 'Save Changes'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handleCancel} style={styles.cancelBtn}>
+                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </LinearGradient>
         </View>
 
-        {/* Main Content */}
-        <View style={[styles.content, isSmall && styles.contentStack]}>
-          {/* Left Column */}
-          <View style={styles.leftColumn}>
-            {/* Contact Information */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Contact Information</Text>
-              <View style={styles.contactInfo}>
-                <View style={styles.contactItem}>
-                  <Icon name="envelope" size={18} color="#666" style={styles.contactIcon} />
-                  <View style={styles.contactDetail}>
-                    <Text style={styles.contactLabel}>Email</Text>
-                    {isEditing ? (
-                      <TextInput
-                        style={styles.input}
-                        value={editedData.email || ''}
-                        onChangeText={(value) => handleInputChange('email', value)}
-                        placeholder="Email"
-                        keyboardType="email-address"
-                      />
-                    ) : (
-                      <Text style={styles.contactValue}>{counselor?.email || 'Not specified'}</Text>
-                    )}
-                  </View>
-                </View>
-                <View style={styles.contactItem}>
-                  <Icon name="phone" size={18} color="#666" style={styles.contactIcon} />
-                  <View style={styles.contactDetail}>
-                    <Text style={styles.contactLabel}>Phone</Text>
-                    {isEditing ? (
-                      <TextInput
-                        style={styles.input}
-                        value={editedData.phoneNumber || ''}
-                        onChangeText={(value) => handleInputChange('phoneNumber', value)}
-                        placeholder="Phone Number"
-                        keyboardType="phone-pad"
-                      />
-                    ) : (
-                      <Text style={styles.contactValue}>{counselor?.phoneNumber || 'Not specified'}</Text>
-                    )}
-                  </View>
-                </View>
-                <View style={styles.contactItem}>
-                  <Icon name="map-marker-alt" size={18} color="#666" style={styles.contactIcon} />
-                  <View style={styles.contactDetail}>
-                    <Text style={styles.contactLabel}>Location</Text>
-                    {isEditing ? (
-                      <TextInput
-                        style={styles.input}
-                        value={editedData.location || ''}
-                        onChangeText={(value) => handleInputChange('location', value)}
-                        placeholder="Location"
-                      />
-                    ) : (
-                      <Text style={styles.contactValue}>{counselor?.location || 'Not specified'}</Text>
-                    )}
-                  </View>
-                </View>
+        {/* Tab Navigation */}
+        <View style={styles.tabBar}>
+          {[
+            { key: 'professional', icon: 'business-center', label: 'Professional' },
+            { key: 'personal', icon: 'person', label: 'Personal' },
+            { key: 'contact', icon: 'contacts', label: 'Contact' },
+          ].map(tab => (
+            <TouchableOpacity
+              key={tab.key}
+              style={[styles.tab, activeTab === tab.key && styles.activeTab]}
+              onPress={() => handleTabPress(tab.key)}
+            >
+              <Icon
+                name={tab.icon}
+                size={20}
+                color={activeTab === tab.key ? '#4F46E5' : '#94A3B8'}
+              />
+              <Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Tab Content */}
+        {activeTab === 'professional' && (
+          <View style={styles.tabContent}>
+            {/* Bio */}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <Icon name="description" size={20} color="#4F46E5" />
+                <Text style={styles.sectionTitle}>Professional Bio</Text>
               </View>
+              {isEditing ? (
+                <TextInput
+                  style={[styles.textInput, styles.textArea]}
+                  value={editedData.aboutMe || ''}
+                  onChangeText={(value) => handleInputChange('aboutMe', value)}
+                  placeholder="Describe your professional background and approach..."
+                  placeholderTextColor="#94A3B8"
+                  multiline
+                  numberOfLines={5}
+                />
+              ) : (
+                <Text style={styles.bodyText}>{counselor.aboutMe || 'No bio added yet.'}</Text>
+              )}
             </View>
 
-            {/* Personal Information */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Personal Information</Text>
-              <View style={styles.personalInfo}>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoRowLabel}>Age:</Text>
+            {/* Specializations */}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <Icon name="psychology" size={20} color="#4F46E5" />
+                <Text style={styles.sectionTitle}>Specializations</Text>
+              </View>
+              <View style={styles.chipContainer}>
+                {(isEditing ? editedData.specialization : counselor.specialization).map((spec, i) => (
+                  <View key={i} style={styles.chip}>
+                    <Text style={styles.chipText}>{spec}</Text>
+                    {isEditing && (
+                      <TouchableOpacity onPress={() => handleRemoveSpecialization(spec)}>
+                        <Icon name="close" size={14} color="#4F46E5" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+              </View>
+              {isEditing && (
+                <View style={styles.addRow}>
+                  <TextInput
+                    style={[styles.textInput, { flex: 1 }]}
+                    value={newSpecialization}
+                    onChangeText={setNewSpecialization}
+                    placeholder="Add specialization..."
+                    placeholderTextColor="#94A3B8"
+                    onSubmitEditing={handleAddSpecialization}
+                  />
+                  <TouchableOpacity onPress={handleAddSpecialization} style={styles.addBtn}>
+                    <Icon name="add" size={20} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            {/* Education & Experience */}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <Icon name="school" size={20} color="#4F46E5" />
+                <Text style={styles.sectionTitle}>Education & Experience</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Icon name="book" size={16} color="#64748B" />
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Education</Text>
                   {isEditing ? (
                     <TextInput
-                      style={[styles.input, styles.flex1]}
-                      value={editedData.age?.toString() || ''}
-                      onChangeText={(value) => handleInputChange('age', parseInt(value) || 0)}
-                      placeholder="Age"
+                      style={styles.textInput}
+                      value={editedData.education || ''}
+                      onChangeText={(value) => handleInputChange('education', value)}
+                      placeholder="Your educational qualifications"
+                      placeholderTextColor="#94A3B8"
+                    />
+                  ) : (
+                    <Text style={styles.infoValue}>{counselor.education || 'Not specified'}</Text>
+                  )}
+                </View>
+              </View>
+              <View style={styles.infoRow}>
+                <Icon name="work-history" size={16} color="#64748B" />
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Experience</Text>
+                  {isEditing ? (
+                    <TextInput
+                      style={styles.textInput}
+                      value={editedData.experience?.toString() || ''}
+                      onChangeText={(value) => handleInputChange('experience', parseInt(value) || 0)}
+                      placeholder="Years of experience"
+                      placeholderTextColor="#94A3B8"
                       keyboardType="numeric"
                     />
                   ) : (
-                    <Text style={styles.infoRowValue}>{counselor?.age || 'Not specified'}</Text>
+                    <Text style={styles.infoValue}>{counselor.experience} years</Text>
                   )}
                 </View>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoRowLabel}>Gender:</Text>
+              </View>
+            </View>
+
+            {/* Consultation Mode */}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <Icon name="videocam" size={20} color="#4F46E5" />
+                <Text style={styles.sectionTitle}>Consultation Mode</Text>
+              </View>
+              <View style={styles.chipContainer}>
+                {(isEditing ? editedData.consultationMode : counselor.consultationMode).map((mode, i) => (
+                  <View key={i} style={[styles.chip, styles.modeChip]}>
+                    <Icon
+                      name={mode === 'online' ? 'wifi' : mode === 'offline' ? 'location-on' : 'settings'}
+                      size={14}
+                      color="#059669"
+                    />
+                    <Text style={styles.modeChipText}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</Text>
+                    {isEditing && (
+                      <TouchableOpacity onPress={() => handleRemoveConsultationMode(mode)}>
+                        <Icon name="close" size={14} color="#059669" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+              </View>
+              {isEditing && (
+                <View style={styles.modeSelector}>
+                  {['online', 'offline', 'both'].map(mode => (
+                    <TouchableOpacity
+                      key={mode}
+                      onPress={() => setNewConsultationMode(mode)}
+                      style={[styles.modeOption, newConsultationMode === mode && styles.modeOptionActive]}
+                    >
+                      <Text style={[styles.modeOptionText, newConsultationMode === mode && styles.modeOptionTextActive]}>
+                        {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity onPress={handleAddConsultationMode} style={styles.addBtn}>
+                    <Icon name="add" size={20} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            {/* Languages */}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <Icon name="language" size={20} color="#4F46E5" />
+                <Text style={styles.sectionTitle}>Languages</Text>
+              </View>
+              <View style={styles.chipContainer}>
+                {(isEditing ? editedData.languages : counselor.languages).map((lang, i) => (
+                  <View key={i} style={[styles.chip, styles.langChip]}>
+                    <Text style={styles.langChipText}>{lang}</Text>
+                    {isEditing && (
+                      <TouchableOpacity onPress={() => handleRemoveLanguage(lang)}>
+                        <Icon name="close" size={14} color="#7C3AED" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+              </View>
+              {isEditing && (
+                <View style={styles.addRow}>
+                  <TextInput
+                    style={[styles.textInput, { flex: 1 }]}
+                    value={newLanguage}
+                    onChangeText={setNewLanguage}
+                    placeholder="Add language..."
+                    placeholderTextColor="#94A3B8"
+                    onSubmitEditing={handleAddLanguage}
+                  />
+                  <TouchableOpacity onPress={handleAddLanguage} style={styles.addBtn}>
+                    <Icon name="add" size={20} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            {/* Certifications */}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <Icon name="verified" size={20} color="#4F46E5" />
+                <Text style={styles.sectionTitle}>Certifications</Text>
+              </View>
+              {(isEditing ? editedData.certifications : counselor.certifications).map((cert, i) => (
+                <View key={cert._id || i} style={styles.certCard}>
+                  <View style={styles.certHeader}>
+                    <Icon name="workspace-premium" size={18} color="#4F46E5" />
+                    <Text style={styles.certName}>{cert.name}</Text>
+                    {isEditing && (
+                      <TouchableOpacity onPress={() => handleRemoveCertification(cert._id)}>
+                        <Icon name="delete" size={18} color="#EF4444" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <View style={styles.certDetails}>
+                    <Text style={styles.certDetail}>Issued by: {cert.issuedBy || 'N/A'}</Text>
+                    <Text style={styles.certDetail}>Issue: {cert.issueDate ? formatDate(cert.issueDate) : 'N/A'}</Text>
+                    <Text style={styles.certDetail}>Expiry: {cert.expiryDate ? formatDate(cert.expiryDate) : 'N/A'}</Text>
+                  </View>
+                </View>
+              ))}
+              {isEditing && (
+                <View style={styles.addCertForm}>
+                  <TextInput
+                    style={styles.textInput}
+                    value={newCertification.name}
+                    onChangeText={(value) => setNewCertification(prev => ({ ...prev, name: value }))}
+                    placeholder="Certification name *"
+                    placeholderTextColor="#94A3B8"
+                  />
+                  <TextInput
+                    style={styles.textInput}
+                    value={newCertification.issuedBy}
+                    onChangeText={(value) => setNewCertification(prev => ({ ...prev, issuedBy: value }))}
+                    placeholder="Issued by"
+                    placeholderTextColor="#94A3B8"
+                  />
+                  <View style={styles.dateRow}>
+                    <TextInput
+                      style={[styles.textInput, { flex: 1 }]}
+                      value={newCertification.issueDate}
+                      onChangeText={(value) => setNewCertification(prev => ({ ...prev, issueDate: value }))}
+                      placeholder="Issue date (YYYY-MM-DD)"
+                      placeholderTextColor="#94A3B8"
+                    />
+                    <TextInput
+                      style={[styles.textInput, { flex: 1 }]}
+                      value={newCertification.expiryDate}
+                      onChangeText={(value) => setNewCertification(prev => ({ ...prev, expiryDate: value }))}
+                      placeholder="Expiry date (YYYY-MM-DD)"
+                      placeholderTextColor="#94A3B8"
+                    />
+                  </View>
+                  <TouchableOpacity onPress={handleAddCertification} style={styles.addCertBtn}>
+                    <Text style={styles.addCertBtnText}>Add Certification</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
+        {activeTab === 'personal' && (
+          <View style={styles.tabContent}>
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <Icon name="person" size={20} color="#4F46E5" />
+                <Text style={styles.sectionTitle}>Personal Details</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Icon name="cake" size={16} color="#64748B" />
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Age</Text>
                   {isEditing ? (
-                    <View style={styles.genderOptions}>
-                      {['male', 'female', 'other'].map(option => (
+                    <TextInput
+                      style={styles.textInput}
+                      value={editedData.age?.toString() || ''}
+                      onChangeText={(value) => handleInputChange('age', parseInt(value) || 0)}
+                      placeholder="Your age"
+                      keyboardType="numeric"
+                    />
+                  ) : (
+                    <Text style={styles.infoValue}>{counselor.age || 'Not specified'}</Text>
+                  )}
+                </View>
+              </View>
+              <View style={styles.infoRow}>
+                <Icon name="wc" size={16} color="#64748B" />
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Gender</Text>
+                  {isEditing ? (
+                    <View style={styles.genderSelector}>
+                      {['male', 'female', 'other'].map(g => (
                         <TouchableOpacity
-                          key={option}
-                          onPress={() => handleInputChange('gender', option)}
-                          style={[
-                            styles.genderOption,
-                            editedData.gender === option && styles.genderOptionActive
-                          ]}
+                          key={g}
+                          onPress={() => handleInputChange('gender', g)}
+                          style={[styles.genderOption, editedData.gender === g && styles.genderOptionActive]}
                         >
-                          <Text style={[
-                            styles.genderOptionText,
-                            editedData.gender === option && styles.genderOptionTextActive
-                          ]}>
-                            {option.charAt(0).toUpperCase() + option.slice(1)}
+                          <Text style={[styles.genderText, editedData.gender === g && styles.genderTextActive]}>
+                            {g.charAt(0).toUpperCase() + g.slice(1)}
                           </Text>
                         </TouchableOpacity>
                       ))}
                     </View>
                   ) : (
-                    <Text style={styles.infoRowValue}>
-                      {counselor?.gender ? counselor.gender.charAt(0).toUpperCase() + counselor.gender.slice(1) : 'Not specified'}
+                    <Text style={styles.infoValue}>
+                      {counselor.gender ? counselor.gender.charAt(0).toUpperCase() + counselor.gender.slice(1) : 'Not specified'}
                     </Text>
                   )}
                 </View>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoRowLabel}>Blood Group:</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Icon name="bloodtype" size={16} color="#64748B" />
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Blood Group</Text>
                   {isEditing ? (
                     <TextInput
-                      style={[styles.input, styles.flex1]}
+                      style={styles.textInput}
                       value={editedData.bloodGroup || ''}
                       onChangeText={(value) => handleInputChange('bloodGroup', value)}
-                      placeholder="e.g., A+, B-, O+"
+                      placeholder="e.g., A+"
                     />
                   ) : (
-                    <Text style={styles.infoRowValue}>{counselor?.bloodGroup || 'Not specified'}</Text>
+                    <Text style={styles.infoValue}>{counselor.bloodGroup || 'Not specified'}</Text>
                   )}
                 </View>
               </View>
             </View>
 
-            {/* Address */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Address</Text>
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <Icon name="location-on" size={20} color="#4F46E5" />
+                <Text style={styles.sectionTitle}>Address</Text>
+              </View>
               {isEditing ? (
                 <View style={styles.addressForm}>
                   <TextInput
-                    style={styles.input}
+                    style={styles.textInput}
                     value={editedData.address?.line1 || ''}
                     onChangeText={(value) => handleNestedInputChange('address', 'line1', value)}
                     placeholder="Address Line 1"
                   />
                   <TextInput
-                    style={styles.input}
+                    style={styles.textInput}
                     value={editedData.address?.line2 || ''}
                     onChangeText={(value) => handleNestedInputChange('address', 'line2', value)}
                     placeholder="Address Line 2"
                   />
-                  <View style={styles.row}>
-                    <TextInput
-                      style={[styles.input, styles.flex1]}
-                      value={editedData.address?.city || ''}
-                      onChangeText={(value) => handleNestedInputChange('address', 'city', value)}
-                      placeholder="City"
-                    />
-                    <TextInput
-                      style={[styles.input, styles.flex1]}
-                      value={editedData.address?.state || ''}
-                      onChangeText={(value) => handleNestedInputChange('address', 'state', value)}
-                      placeholder="State"
-                    />
+                  <View style={styles.dateRow}>
+                    <TextInput style={[styles.textInput, { flex: 1 }]} value={editedData.address?.city || ''} onChangeText={(value) => handleNestedInputChange('address', 'city', value)} placeholder="City" />
+                    <TextInput style={[styles.textInput, { flex: 1 }]} value={editedData.address?.state || ''} onChangeText={(value) => handleNestedInputChange('address', 'state', value)} placeholder="State" />
                   </View>
-                  <View style={styles.row}>
-                    <TextInput
-                      style={[styles.input, styles.flex1]}
-                      value={editedData.address?.pincode || ''}
-                      onChangeText={(value) => handleNestedInputChange('address', 'pincode', value)}
-                      placeholder="Pincode"
-                      keyboardType="numeric"
-                    />
-                    <TextInput
-                      style={[styles.input, styles.flex1]}
-                      value={editedData.address?.country || ''}
-                      onChangeText={(value) => handleNestedInputChange('address', 'country', value)}
-                      placeholder="Country"
-                    />
+                  <View style={styles.dateRow}>
+                    <TextInput style={[styles.textInput, { flex: 1 }]} value={editedData.address?.pincode || ''} onChangeText={(value) => handleNestedInputChange('address', 'pincode', value)} placeholder="Pincode" keyboardType="numeric" />
+                    <TextInput style={[styles.textInput, { flex: 1 }]} value={editedData.address?.country || ''} onChangeText={(value) => handleNestedInputChange('address', 'country', value)} placeholder="Country" />
                   </View>
                 </View>
               ) : (
-                <View style={styles.addressDisplay}>
-                  {counselor.address?.line1 && <Text style={styles.addressText}>{counselor.address.line1}</Text>}
-                  {counselor.address?.line2 && <Text style={styles.addressText}>{counselor.address.line2}</Text>}
-                  <Text style={styles.addressText}>
-                    {counselor.address?.city && `${counselor.address.city}, `}
-                    {counselor.address?.state && `${counselor.address.state} `}
-                    {counselor.address?.pincode && `- ${counselor.address.pincode}`}
-                  </Text>
-                  {counselor.address?.country && <Text style={styles.addressText}>{counselor.address.country}</Text>}
-                  {!counselor.address?.line1 && !counselor.address?.city && (
-                    <Text style={styles.addressText}>No address provided</Text>
+                <View>
+                  {counselor.address?.line1 ? (
+                    <>
+                      <Text style={styles.addressLine}>{counselor.address.line1}</Text>
+                      {counselor.address.line2 && <Text style={styles.addressLine}>{counselor.address.line2}</Text>}
+                      <Text style={styles.addressLine}>
+                        {[counselor.address.city, counselor.address.state, counselor.address.pincode].filter(Boolean).join(', ')}
+                      </Text>
+                      <Text style={styles.addressLine}>{counselor.address.country}</Text>
+                    </>
+                  ) : (
+                    <Text style={styles.bodyText}>No address provided</Text>
                   )}
                 </View>
               )}
             </View>
+          </View>
+        )}
 
-            {/* Education */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Education</Text>
-              {isEditing ? (
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  value={editedData.education || ''}
-                  onChangeText={(value) => handleInputChange('education', value)}
-                  placeholder="Enter your educational qualifications"
-                  multiline
-                  numberOfLines={3}
-                />
-              ) : (
-                <Text style={styles.cardText}>{counselor?.education || counselor?.qualification || 'Not specified'}</Text>
-              )}
-            </View>
-
-            {/* Experience */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Experience</Text>
-              {isEditing ? (
-                <TextInput
-                  style={styles.input}
-                  value={editedData.experience?.toString() || ''}
-                  onChangeText={(value) => handleInputChange('experience', parseInt(value) || 0)}
-                  placeholder="Years of experience"
-                  keyboardType="numeric"
-                />
-              ) : (
-                <Text style={styles.cardText}>{counselor?.experience} years</Text>
-              )}
-            </View>
-
-            {/* Consultation Mode */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Consultation Mode</Text>
-              <View>
-                <View style={styles.tagsList}>
-                  {editedData?.consultationMode?.map((mode, index) => (
-                    <View key={index} style={[styles.tag, styles.consultationTag]}>
-                      <Text style={styles.tagText}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</Text>
-                      {isEditing && (
-                        <TouchableOpacity onPress={() => handleRemoveConsultationMode(mode)}>
-                          <Text style={styles.removeTagText}>✕</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  ))}
-                </View>
-
-                {isEditing && (
-                  <View style={styles.addSection}>
-                    <View style={styles.modeOptions}>
-                      {['online', 'offline', 'both'].map(mode => (
-                        <TouchableOpacity
-                          key={mode}
-                          onPress={() => setNewConsultationMode(mode)}
-                          style={[
-                            styles.modeOption,
-                            newConsultationMode === mode && styles.modeOptionActive
-                          ]}
-                        >
-                          <Text style={[
-                            styles.modeOptionText,
-                            newConsultationMode === mode && styles.modeOptionTextActive
-                          ]}>
-                            {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                    <TouchableOpacity onPress={handleAddConsultationMode} style={styles.addBtn}>
-                      <Text style={styles.addBtnText}>+ Add</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
+        {activeTab === 'contact' && (
+          <View style={styles.tabContent}>
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <Icon name="contact-phone" size={20} color="#4F46E5" />
+                <Text style={styles.sectionTitle}>Contact Information</Text>
               </View>
-            </View>
-
-            {/* Languages */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Languages</Text>
-              <View>
-                <View style={styles.tagsList}>
-                  {editedData?.languages?.map((lang, index) => (
-                    <View key={index} style={styles.tag}>
-                      <Text style={styles.tagText}>{lang}</Text>
-                      {isEditing && (
-                        <TouchableOpacity onPress={() => handleRemoveLanguage(lang)}>
-                          <Text style={styles.removeTagText}>✕</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  ))}
+              <View style={styles.infoRow}>
+                <Icon name="email" size={16} color="#64748B" />
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Email</Text>
+                  {isEditing ? (
+                    <TextInput style={styles.textInput} value={editedData.email || ''} onChangeText={(value) => handleInputChange('email', value)} placeholder="Your email" keyboardType="email-address" />
+                  ) : (
+                    <Text style={styles.infoValue}>{counselor.email || 'Not specified'}</Text>
+                  )}
                 </View>
-
-                {isEditing && (
-                  <View style={styles.addSection}>
-                    <TextInput
-                      style={[styles.input, styles.flex1]}
-                      value={newLanguage}
-                      onChangeText={setNewLanguage}
-                      placeholder="Add new language..."
-                      placeholderTextColor="#94a3b8"
-                      onSubmitEditing={handleAddLanguage}
-                    />
-                    <TouchableOpacity onPress={handleAddLanguage} style={styles.addBtn}>
-                      <Text style={styles.addBtnText}>+ Add</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
+              </View>
+              <View style={styles.infoRow}>
+                <Icon name="phone" size={16} color="#64748B" />
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Phone</Text>
+                  {isEditing ? (
+                    <TextInput style={styles.textInput} value={editedData.phoneNumber || ''} onChangeText={(value) => handleInputChange('phoneNumber', value)} placeholder="Phone number" keyboardType="phone-pad" />
+                  ) : (
+                    <Text style={styles.infoValue}>{counselor.phoneNumber || 'Not specified'}</Text>
+                  )}
+                </View>
+              </View>
+              <View style={styles.infoRow}>
+                <Icon name="location-on" size={16} color="#64748B" />
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Location</Text>
+                  {isEditing ? (
+                    <TextInput style={styles.textInput} value={editedData.location || ''} onChangeText={(value) => handleInputChange('location', value)} placeholder="Your location" />
+                  ) : (
+                    <Text style={styles.infoValue}>{counselor.location || 'Not specified'}</Text>
+                  )}
+                </View>
               </View>
             </View>
           </View>
-
-          {/* Right Column */}
-          <View style={styles.rightColumn}>
-            {/* Bio */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Professional Bio</Text>
-              {isEditing ? (
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  value={editedData.aboutMe || ''}
-                  onChangeText={(value) => handleInputChange('aboutMe', value)}
-                  placeholder="Write about your professional background, expertise, and approach to counseling..."
-                  multiline
-                  numberOfLines={6}
-                />
-              ) : (
-                <Text style={styles.cardText}>{counselor?.aboutMe || 'No bio provided'}</Text>
-              )}
-            </View>
-
-            {/* Licenses & Certifications */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Licenses & Certifications</Text>
-              <View>
-                <View style={styles.certificationsList}>
-                  {editedData?.certifications?.map(renderCertificationCard)}
-                </View>
-
-                {isEditing && (
-                  <View style={styles.addCertificationForm}>
-                    <Text style={styles.addCertTitle}>Add New License/Certification</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={newCertification.name}
-                      onChangeText={(value) => setNewCertification(prev => ({ ...prev, name: value }))}
-                      placeholder="Certification/License Name *"
-                    />
-                    <TextInput
-                      style={styles.input}
-                      value={newCertification.issuedBy}
-                      onChangeText={(value) => setNewCertification(prev => ({ ...prev, issuedBy: value }))}
-                      placeholder="Issued By"
-                    />
-                    <View style={styles.row}>
-                      <TextInput
-                        style={[styles.input, styles.flex1]}
-                        value={newCertification.issueDate}
-                        onChangeText={(value) => setNewCertification(prev => ({ ...prev, issueDate: value }))}
-                        placeholder="Issue Date (YYYY-MM-DD)"
-                      />
-                      <TextInput
-                        style={[styles.input, styles.flex1]}
-                        value={newCertification.expiryDate}
-                        onChangeText={(value) => setNewCertification(prev => ({ ...prev, expiryDate: value }))}
-                        placeholder="Expiry Date (YYYY-MM-DD)"
-                      />
-                    </View>
-
-                    <TouchableOpacity onPress={handleNewDocumentUpload} style={styles.documentUploadArea}>
-                      <Text style={styles.documentUploadText}>
-                        {newCertification.documentName ? `📄 ${newCertification.documentName}` : '📁 Click to upload supporting document'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      onPress={handleAddCertification}
-                      style={[styles.addCertBtn, !newCertification.name.trim() && styles.addCertBtnDisabled]}
-                      disabled={!newCertification.name.trim()}
-                    >
-                      <Text style={styles.addCertBtnText}>+ Add Certification</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            </View>
-          </View>
-        </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
-  keyboardView: {
-    flex: 1,
-  },
   container: {
     flex: 1,
-    backgroundColor: '#f5f7fa',
+    backgroundColor: '#F1F5F9',
   },
-  contentContainer: {
-    paddingHorizontal: 16,
+  scrollContent: {
     paddingBottom: 40,
   },
-  loadingContainer: {
+  loadingScreen: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f7fa',
+    backgroundColor: '#F1F5F9',
   },
   loadingText: {
     marginTop: 12,
-    fontSize: 16,
-    color: '#666',
+    fontSize: 15,
+    color: '#64748B',
   },
-  alert: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    marginTop: 16,
-    marginBottom: 0,
-  },
-  successAlert: {
-    backgroundColor: '#d4edda',
-    borderWidth: 1,
-    borderColor: '#c3e6cb',
-  },
-  errorAlert: {
-    backgroundColor: '#f8d7da',
-    borderWidth: 1,
-    borderColor: '#f5c6cb',
-  },
-  successText: {
-    color: '#155724',
-    fontSize: 14,
-  },
-  errorText: {
-    color: '#721c24',
-    fontSize: 14,
-  },
-  // Header Styles
-  header: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 20,
-    marginTop: 16,
-    marginBottom: 20,
+
+  // Banner
+  banner: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  headerColumn: {
-    flexDirection: 'column',
     alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 12,
+  },
+  successBanner: {
+    backgroundColor: '#059669',
+  },
+  errorBanner: {
+    backgroundColor: '#EF4444',
+  },
+  bannerText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  // Profile Header
+  profileHeaderCard: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  headerGradient: {
+    padding: 20,
+  },
+  headerTop: {
+    flexDirection: isSmall ? 'column' : 'row',
+    alignItems: isSmall ? 'center' : 'flex-start',
+    gap: 20,
   },
   avatarSection: {
-    alignItems: 'flex-start',
-    marginRight: 20,
-  },
-  avatarSectionCenter: {
     alignItems: 'center',
-    marginRight: 0,
-    marginBottom: 16,
   },
-  profilePhotoContainer: {
+  avatarContainer: {
+    borderRadius: 999,
+    overflow: 'hidden',
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.3)',
     position: 'relative',
-    width: 120,
-    height: 120,
-    marginBottom: 12,
   },
-  profilePhoto: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 3,
-    borderColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
+  avatarImage: {
+    borderRadius: 999,
   },
-  avatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+  avatarPlaceholder: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
+    borderRadius: 999,
   },
-  avatarText: {
-    fontSize: 48,
-    fontWeight: 'bold',
+  avatarLetter: {
     color: '#fff',
+    fontWeight: '700',
   },
-  photoEditOverlay: {
+  editPhotoBtn: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
+    bottom: 4,
+    right: 4,
+    backgroundColor: '#4F46E5',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#fff',
+  },
+  statusBadge: {
     flexDirection: 'row',
-    gap: 5,
-  },
-  uploadPhotoBtn: {
-    backgroundColor: '#667eea',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  removePhotoBtn: {
-    backgroundColor: '#f56565',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  photoBtnText: {
-    fontSize: 16,
-    color: '#fff',
-  },
-  uniqueCode: {
-    backgroundColor: '#f0f0f0',
+    gap: 6,
+    marginTop: 10,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
   },
-  uniqueCodeLabel: {
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  activeDot: {
+    backgroundColor: '#10B981',
+  },
+  inactiveDot: {
+    backgroundColor: '#F59E0B',
+  },
+  statusText: {
+    color: '#fff',
     fontSize: 12,
     fontWeight: '600',
-    color: '#666',
   },
-  uniqueCodeValue: {
-    fontSize: 12,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: '#667eea',
-    fontWeight: '600',
-  },
-  infoSection: {
+
+  // Header Info
+  headerInfo: {
     flex: 1,
-    marginLeft: 20,
+    alignItems: isSmall ? 'center' : 'flex-start',
   },
-  infoSectionCenter: {
-    marginLeft: 0,
-    alignItems: 'center',
-  },
-  nameContainer: {
-    marginBottom: 8,
-  },
-  name: {
+  counselorName: {
     fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  nameCenter: {
-    textAlign: 'center',
+    fontWeight: '800',
+    color: '#fff',
   },
   nameInput: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    color: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.4)',
+    paddingVertical: 4,
+    marginBottom: 4,
   },
-  specializationContainer: {
-    marginBottom: 12,
+  counselorCode: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    marginTop: 2,
   },
-  specialization: {
-    fontSize: 16,
-    color: '#667eea',
-    fontWeight: '500',
-  },
-  specializationCenter: {
-    textAlign: 'center',
-  },
-  stats: {
+  specializationRow: {
     flexDirection: 'row',
-    gap: 24,
+    flexWrap: 'wrap',
+    gap: 6,
     marginTop: 8,
   },
-  stat: {
+  specBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  specBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+
+  // Stats Row
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.2)',
+  },
+  statItem: {
     alignItems: 'center',
+    gap: 4,
   },
   statValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginLeft: 40
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#fff',
   },
   statLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.7)',
+    fontWeight: '500',
+    marginTop: 2,
   },
-  actionsSection: {
-    alignSelf: 'flex-start',
-    marginLeft: 'auto',
+  statDivider: {
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
 
+  // Star Rating
+  starRating: {
+    flexDirection: 'row',
+    gap: 2,
   },
-  actionsSectionCenter: {
-    alignSelf: 'center',
-    marginLeft: 0,
+
+  // Header Actions
+  headerActions: {
+    alignItems: 'center',
     marginTop: 16,
   },
-  btn: {
-    paddingVertical: 10,
+  editProfileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fff',
     paddingHorizontal: 24,
-    borderRadius: 8,
-    marginLeft: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  editBtn: {
-    backgroundColor: '#667eea',
+  editProfileBtnText: {
+    color: '#4F46E5',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  editActions: {
+    flexDirection: 'row',
+    gap: 12,
   },
   saveBtn: {
-    backgroundColor: '#48bb78',
+    backgroundColor: '#10B981',
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  saveBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
   cancelBtn: {
-    backgroundColor: '#f56565',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
-  btnText: {
+  cancelBtnText: {
     color: '#fff',
+    fontSize: 15,
     fontWeight: '600',
-    fontSize: 14,
   },
-  // Content Layout
-  content: {
+
+  // Tabs
+  tabBar: {
     flexDirection: 'row',
-    gap: 20,
-  },
-  contentStack: {
-    flexDirection: 'column',
-  },
-  leftColumn: {
-    flex: 1,
-  },
-  rightColumn: {
-    flex: 2,
-  },
-  // Cards
-  card: {
+    marginHorizontal: 16,
+    marginTop: 20,
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
+    padding: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2,
   },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 16,
-    paddingBottom: 8,
-    borderBottomWidth: 2,
-    borderBottomColor: '#667eea',
-  },
-  cardText: {
-    fontSize: 14,
-    color: '#555',
-    lineHeight: 20,
-  },
-  // Contact Info
-  contactInfo: {
-    gap: 16,
-  },
-  contactItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  contactIcon: {
-    marginTop: 2,
-  },
-  contactDetail: {
+  tab: {
     flex: 1,
-  },
-  contactLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-    fontWeight: '500',
-  },
-  contactValue: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
-  },
-  // Inputs
-  input: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    backgroundColor: '#f8fafc',
-    color: '#333',
-  },
-  textArea: {
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-  // Personal Info
-  personalInfo: {
-    gap: 12,
-  },
-  infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
-  infoRowLabel: {
-    width: 100,
+  activeTab: {
+    backgroundColor: '#EEF2FF',
+  },
+  tabText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
+    fontWeight: '600',
+    color: '#94A3B8',
   },
-  infoRowValue: {
-    flex: 1,
-    fontSize: 14,
-    color: '#333',
+  activeTabText: {
+    color: '#4F46E5',
   },
-  // Gender Options
-  genderOptions: {
-    flexDirection: 'row',
-    gap: 8,
-    flex: 1,
-  },
-  genderOption: {
+
+  // Tab Content
+  tabContent: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    paddingTop: 16,
+  },
+
+  // Section Card
+  sectionCard: {
     backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  genderOptionActive: {
-    backgroundColor: '#667eea',
-    borderColor: '#667eea',
-  },
-  genderOptionText: {
-    fontSize: 14,
-    color: '#333',
-  },
-  genderOptionTextActive: {
-    color: '#fff',
-  },
-  // Address
-  addressForm: {
-    gap: 10,
-  },
-  addressDisplay: {
-    gap: 4,
-  },
-  addressText: {
-    fontSize: 14,
-    color: '#555',
-    marginBottom: 2,
-  },
-  // Row Layout
-  row: {
+  sectionHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
+    marginBottom: 14,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
-  // Tags
-  tagsList: {
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+
+  // Typography
+  bodyText: {
+    fontSize: 14,
+    color: '#64748B',
+    lineHeight: 22,
+  },
+
+  // Chips
+  chipContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 12,
   },
-  tag: {
+  chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#e3f2fd',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
     gap: 6,
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
   },
-  consultationTag: {
-    backgroundColor: '#e8f5e9',
-  },
-  tagText: {
+  chipText: {
     fontSize: 13,
-    color: '#1976d2',
+    color: '#4F46E5',
+    fontWeight: '500',
   },
-  removeTagText: {
-    fontSize: 12,
-    color: '#1976d2',
+  modeChip: {
+    backgroundColor: '#ECFDF5',
   },
-  // Add Section
-  addSection: {
+  modeChipText: {
+    fontSize: 13,
+    color: '#059669',
+    fontWeight: '500',
+  },
+  langChip: {
+    backgroundColor: '#F5F3FF',
+  },
+  langChipText: {
+    fontSize: 13,
+    color: '#7C3AED',
+    fontWeight: '500',
+  },
+
+  // Add Row
+  addRow: {
     flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-  },
-  flex1: {
-    flex: 1,
+    gap: 10,
+    marginTop: 12,
   },
   addBtn: {
-    backgroundColor: '#48bb78',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
+    backgroundColor: '#4F46E5',
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  addBtnText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 12,
-  },
-  // Mode Options
-  modeOptions: {
+
+  // Info Row
+  infoRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 12,
+    marginBottom: 16,
+  },
+  infoContent: {
     flex: 1,
   },
-  modeOption: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+  infoLabel: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  infoValue: {
+    fontSize: 15,
+    color: '#0F172A',
+    fontWeight: '500',
+  },
+
+  // Text Input
+  textInput: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    backgroundColor: '#F8FAFC',
+    color: '#0F172A',
+  },
+  textArea: {
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+
+  // Mode Selector
+  modeSelector: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  modeOption: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     backgroundColor: '#fff',
   },
   modeOptionActive: {
-    backgroundColor: '#48bb78',
-    borderColor: '#48bb78',
+    backgroundColor: '#4F46E5',
+    borderColor: '#4F46E5',
   },
   modeOptionText: {
-    fontSize: 14,
-    color: '#333',
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
   },
   modeOptionTextActive: {
     color: '#fff',
   },
-  // Certifications
-  certificationsList: {
-    gap: 12,
-  },
-  certificationCard: {
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    padding: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#667eea',
-  },
-  certificationHeader: {
+
+  // Gender Selector
+  genderSelector: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+    gap: 8,
   },
-  certificationTitle: {
+  genderOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  genderOptionActive: {
+    backgroundColor: '#4F46E5',
+    borderColor: '#4F46E5',
+  },
+  genderText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  genderTextActive: {
+    color: '#fff',
+  },
+
+  // Address
+  addressForm: {
+    gap: 10,
+  },
+  addressLine: {
+    fontSize: 14,
+    color: '#475569',
+    marginBottom: 2,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  // Certifications
+  certCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4F46E5',
+  },
+  certHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  certificationIcon: {
-    fontSize: 16,
-  },
-  certificationName: {
-    fontSize: 16,
+  certName: {
+    fontSize: 15,
     fontWeight: '600',
-    color: '#333',
-  },
-  removeCertBtn: {
-    backgroundColor: '#f56565',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  removeBtnText: {
-    color: '#fff',
-    fontSize: 12,
-  },
-  certificationDetails: {
-    marginTop: 4,
-  },
-  certificationInfo: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 12,
-  },
-  infoItem: {
+    color: '#0F172A',
     flex: 1,
-    minWidth: 100,
   },
-  infoLabel: {
-    fontSize: 11,
-    color: '#666',
-    fontWeight: '600',
-    marginBottom: 2,
+  certDetails: {
+    marginTop: 8,
+    gap: 3,
+    paddingLeft: 26,
   },
-  infoText: {
+  certDetail: {
     fontSize: 12,
-    color: '#333',
+    color: '#64748B',
   },
-  documentSection: {
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    paddingTop: 12,
-    marginTop: 4,
-  },
-  documentLabel: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  documentPreview: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#fff',
-    padding: 8,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  documentLink: {
-    fontSize: 12,
-    color: '#667eea',
-  },
-  removeDocumentBtn: {
-    backgroundColor: '#f56565',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  noDocument: {
-    fontSize: 12,
-    color: '#999',
-    fontStyle: 'italic',
-    marginBottom: 10,
-  },
-  uploadBtn: {
-    backgroundColor: '#667eea',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  uploadBtnText: {
-    color: '#fff',
-    fontSize: 12,
-  },
-  addCertificationForm: {
-    backgroundColor: '#f8f9fa',
+  addCertForm: {
+    gap: 10,
+    marginTop: 12,
+    padding: 14,
+    backgroundColor: '#F8FAFC',
     borderRadius: 12,
-    padding: 16,
-    marginTop: 16,
-    borderWidth: 2,
-    borderColor: '#667eea',
-    borderStyle: 'dashed',
-  },
-  addCertTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 12,
-  },
-  documentUploadArea: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
     borderStyle: 'dashed',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-    marginBottom: 12,
-    backgroundColor: '#fff',
-  },
-  documentUploadText: {
-    color: '#667eea',
-    fontSize: 14,
+    borderColor: '#4F46E5',
   },
   addCertBtn: {
-    backgroundColor: '#48bb78',
+    backgroundColor: '#4F46E5',
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
-  },
-  addCertBtnDisabled: {
-    backgroundColor: '#ccc',
   },
   addCertBtnText: {
     color: '#fff',
-    fontWeight: '600',
     fontSize: 14,
+    fontWeight: '600',
   },
 });
 

@@ -24,7 +24,7 @@ import VoiceCallModal from '../../../UserDashboard/Tab/CallModal/VoiceCallModal'
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-// Incoming Call Modal Component
+// Incoming Call Modal Component - Serenity Design
 const IncomingCallModal = ({
   isOpen,
   onClose,
@@ -117,7 +117,7 @@ const IncomingCallModal = ({
                 {isRejecting ? (
                   <ActivityIndicator size="small" color="white" />
                 ) : (
-                  <Text style={styles.incomingCallBtnText}>📞 Decline</Text>
+                  <Text style={styles.incomingCallBtnText}>Decline</Text>
                 )}
               </TouchableOpacity>
 
@@ -129,7 +129,7 @@ const IncomingCallModal = ({
                 {isJoining ? (
                   <ActivityIndicator size="small" color="white" />
                 ) : (
-                  <Text style={styles.incomingCallBtnText}>📞 Accept</Text>
+                  <Text style={styles.incomingCallBtnText}>Accept</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -189,7 +189,6 @@ const SMSInput = ({ navigation, route }) => {
     return AsyncStorage.getItem("token");
   };
 
-  // FIXED: Converted to async and moved to useEffect
   const loadCounselorData = async () => {
     try {
       let counselorData = null;
@@ -226,7 +225,6 @@ const SMSInput = ({ navigation, route }) => {
     }
   };
 
-  // FIXED: Get counselor name from state
   const getSelectedUserId = () => {
     if (!selectedUser) return null;
     return (
@@ -930,17 +928,18 @@ const SMSInput = ({ navigation, route }) => {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
+      <StatusBar barStyle="dark-content" backgroundColor="#f7f9fb" translucent={false} />
       <View style={styles.chatBoxMain}>
+        {/* Header - Serenity Trust Design */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-              <Ionicons name="chevron-back" size={17} color="#0f172a" style={styles.backButtonIcon} />
+              <Ionicons name="arrow-back" size={22} color="#081625" />
             </TouchableOpacity>
             <View style={styles.userInfo}>
               <View style={styles.userAvatar}>
                 <Text style={styles.avatarIcon}>{getAvatarByGender(userDetails.gender)}</Text>
-                <View style={[styles.statusDot, { backgroundColor: selectedUser?.status === "online" ? "#22c55e" : "#94a3b8" }]} />
+                <View style={[styles.activeDot, { backgroundColor: selectedUser?.status === "online" ? "#4caf50" : "#94a3b8" }]} />
               </View>
               <View style={styles.userDetails}>
                 <Text style={styles.userName}>{USER_NAME}</Text>
@@ -958,35 +957,35 @@ const SMSInput = ({ navigation, route }) => {
           </View>
           <View style={styles.callButtons}>
             <TouchableOpacity
-              style={[styles.callBtn, styles.voiceCallBtn]}
+              style={[styles.actionBtn, styles.voiceCallBtn]}
               onPress={initiateVoiceCall}
               disabled={isInitiatingCall}
             >
-              <Text style={styles.callIcon}>📞</Text>
+              <Ionicons name="call" size={22} color="#2c50cd" />
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.callBtn, styles.videoCallBtn]}
+              style={[styles.actionBtn, styles.videoCallBtn]}
               onPress={initiateVideoCall}
               disabled={isInitiatingCall}
             >
-              <Text style={styles.callIcon}>📹</Text>
+              <Ionicons name="videocam" size={22} color="#2c50cd" />
             </TouchableOpacity>
           </View>
         </View>
 
         {callError && (
           <View style={styles.errorBanner}>
-            <Text style={styles.errorIcon}>⚠️</Text>
+            <Ionicons name="alert-circle" size={20} color="#ba1a1a" />
             <Text style={styles.errorText}>{callError}</Text>
             <TouchableOpacity onPress={() => setCallError(null)}>
-              <Text style={styles.errorClose}>✕</Text>
+              <Ionicons name="close" size={20} color="#ba1a1a" />
             </TouchableOpacity>
           </View>
         )}
 
         {isLoadingMessages && messages.length === 0 ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#6366f1" />
+            <ActivityIndicator size="large" color="#2c50cd" />
             <Text style={styles.loadingText}>Loading messages...</Text>
           </View>
         ) : error && messages.length === 0 ? (
@@ -1020,7 +1019,7 @@ const SMSInput = ({ navigation, route }) => {
                     This is a secure counseling chat. Reply in real time and keep the conversation supportive.
                   </Text>
                   <Text style={styles.welcomeTime}>
-                    {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString()}
+                    {new Date().toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' })} at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </Text>
                 </View>
               </View>
@@ -1032,20 +1031,35 @@ const SMSInput = ({ navigation, route }) => {
                 <Text style={styles.emptyMessagesSubtext}>Start a conversation by sending a message</Text>
               </View>
             }
+            ListFooterComponent={
+              remoteIsTyping ? (
+                <View style={styles.typingContainer}>
+                  <View style={styles.typingDots}>
+                    <View style={styles.typingDot} />
+                    <View style={[styles.typingDot, styles.typingDotDelay1]} />
+                    <View style={[styles.typingDot, styles.typingDotDelay2]} />
+                  </View>
+                  <Text style={styles.typingLabel}>{USER_NAME} is typing...</Text>
+                </View>
+              ) : null
+            }
           />
         )}
 
-        <View style={styles.inputForm}>
-          <View style={styles.inputWrapper}>
-            <TextInput
-              style={styles.input}
-              placeholder={isSending ? "Sending..." : "Type your message..."}
-              placeholderTextColor="#94a3b8"
-              value={message}
-              onChangeText={setMessage}
-              editable={!isSending}
-              multiline
-            />
+        {/* Input Area - Serenity Design */}
+        <View style={styles.inputArea}>
+          <View style={styles.inputGroup}>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.textInput}
+                placeholder={isSending ? "Sending..." : `Message ${USER_NAME}...`}
+                placeholderTextColor="#8492a5"
+                value={message}
+                onChangeText={setMessage}
+                editable={!isSending}
+                multiline
+              />
+            </View>
             <TouchableOpacity
               style={[
                 styles.sendBtn,
@@ -1054,7 +1068,7 @@ const SMSInput = ({ navigation, route }) => {
               onPress={handleSendMessage}
               disabled={!message.trim() || isSending}
             >
-              <Text style={styles.sendBtnText}>{isSending ? "⏳" : "➤"}</Text>
+              <Ionicons name="send" size={20} color="#ffffff" />
             </TouchableOpacity>
           </View>
         </View>
@@ -1093,28 +1107,28 @@ const SMSInput = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f7fb',
+    backgroundColor: '#f7f9fb',
   },
   chatBoxMain: {
     flex: 1,
-    backgroundColor: '#f5f7fb',
+    backgroundColor: '#f7f9fb',
     paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f7fb',
+    backgroundColor: '#f7f9fb',
   },
   emptyState: {
     alignItems: 'center',
     padding: 40,
-    backgroundColor: 'white',
+    backgroundColor: '#ffffff',
     borderRadius: 24,
     margin: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.06,
     shadowRadius: 12,
     elevation: 4,
   },
@@ -1126,12 +1140,12 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#1e293b',
+    color: '#081625',
     marginBottom: 8,
   },
   emptyText: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#526071',
     textAlign: 'center',
     marginBottom: 24,
     lineHeight: 20,
@@ -1139,16 +1153,16 @@ const styles = StyleSheet.create({
   backToListBtn: {
     paddingHorizontal: 28,
     paddingVertical: 12,
-    backgroundColor: '#6366f1',
+    backgroundColor: '#2c50cd',
     borderRadius: 30,
-    shadowColor: '#6366f1',
+    shadowColor: '#2c50cd',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 6,
     elevation: 3,
   },
   backToListBtnText: {
-    color: 'white',
+    color: '#ffffff',
     fontWeight: '600',
     fontSize: 14,
   },
@@ -1157,14 +1171,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'white',
+    paddingVertical: 8,
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#eef2f6',
+    borderBottomColor: '#e6e8ea',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
-    shadowRadius: 8,
+    shadowRadius: 4,
     elevation: 2,
   },
   headerLeft: {
@@ -1177,14 +1191,9 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f2f4f6',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#eef2f6',
-  },
-  backButtonIcon: {
-    marginLeft: -2,
   },
   userInfo: {
     flexDirection: 'row',
@@ -1193,14 +1202,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   userAvatar: {
-    width: 52,
-    height: 52,
+     width: 44,  // Changed from 52 to 44 (smaller)
+  height: 44, 
     borderRadius: 26,
-    backgroundColor: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+    backgroundColor: '#d5e4f8',
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
-    shadowColor: '#6366f1',
+    shadowColor: '#b9c8db',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 6,
@@ -1209,81 +1218,65 @@ const styles = StyleSheet.create({
   avatarIcon: {
     fontSize: 26,
   },
-  statusDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+  activeDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     position: 'absolute',
     bottom: 2,
     right: 2,
-    borderWidth: 2.5,
-    borderColor: 'white',
+    borderWidth: 2,
+    borderColor: '#ffffff',
   },
   userDetails: {
     flex: 1,
   },
   userName: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#1e293b',
+    color: '#081625',
     marginBottom: 2,
   },
   profileStatus: {
-    fontSize: 12,
+    fontSize: 10,
   },
   statusText: {
-    color: '#64748b',
+    color: '#74777c',
     fontWeight: '500',
   },
   typingText: {
-    color: '#10b981',
+    color: '#2c50cd',
     fontWeight: '600',
   },
   callButtons: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
-  callBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+  actionBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f2f4f6',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
   },
   voiceCallBtn: {
-    backgroundColor: '#f0fdf4',
-    borderWidth: 1,
-    borderColor: '#bbf7d0',
+    backgroundColor: '#f2f4f6',
   },
   videoCallBtn: {
-    backgroundColor: '#eef2ff',
-    borderWidth: 1,
-    borderColor: '#c7d2fe',
-  },
-  callIcon: {
-    fontSize: 20,
+    backgroundColor: '#f2f4f6',
   },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fef2f2',
+    backgroundColor: '#ffdad6',
     paddingHorizontal: 16,
     paddingVertical: 12,
     marginHorizontal: 16,
     marginTop: 12,
+    marginBottom: 4,
     borderRadius: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ef4444',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
+    gap: 10,
   },
   errorIcon: {
     fontSize: 16,
@@ -1291,13 +1284,13 @@ const styles = StyleSheet.create({
   },
   errorText: {
     flex: 1,
-    color: '#991b1b',
+    color: '#93000a',
     fontSize: 13,
     fontWeight: '500',
   },
   errorClose: {
     fontSize: 18,
-    color: '#991b1b',
+    color: '#93000a',
     paddingHorizontal: 8,
     fontWeight: '600',
   },
@@ -1306,16 +1299,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 16,
-    backgroundColor: '#f5f7fb',
+    backgroundColor: '#f7f9fb',
   },
   loadingText: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#74777c',
     fontWeight: '500',
   },
   messagesArea: {
     flex: 1,
-    backgroundColor: '#f5f7fb',
+    backgroundColor: '#f7f9fb',
   },
   messagesList: {
     paddingHorizontal: 16,
@@ -1325,36 +1318,24 @@ const styles = StyleSheet.create({
   },
   welcomeCard: {
     flexDirection: 'row',
-    backgroundColor: 'white',
+    backgroundColor: '#eceef0',
     borderRadius: 24,
     padding: 20,
     marginBottom: 20,
     gap: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: '#f0f2f5',
   },
   welcomeAvatar: {
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#6366f1',
+    backgroundColor: '#b9c8db',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#6366f1',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 3,
   },
   welcomeInitials: {
     fontSize: 26,
     fontWeight: '700',
-    color: '#ffffff',
+    color: '#081625',
     textTransform: 'uppercase',
   },
   welcomeMsg: {
@@ -1363,28 +1344,28 @@ const styles = StyleSheet.create({
   welcomeTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1e293b',
+    color: '#081625',
     marginBottom: 6,
   },
   welcomeDesc: {
     fontSize: 13,
-    color: '#64748b',
+    color: '#44474c',
     marginBottom: 6,
     lineHeight: 18,
   },
   welcomeTime: {
     fontSize: 11,
-    color: '#94a3b8',
+    color: '#8492a5',
     fontWeight: '500',
   },
   errorMessage: {
     alignItems: 'center',
     paddingTop: 100,
-    backgroundColor: '#f5f7fb',
+    backgroundColor: '#f7f9fb',
   },
   retryBtn: {
     marginTop: 16,
-    color: '#6366f1',
+    color: '#2c50cd',
     fontWeight: '600',
     fontSize: 14,
   },
@@ -1401,18 +1382,52 @@ const styles = StyleSheet.create({
   emptyMessagesText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#64748b',
+    color: '#74777c',
     marginBottom: 8,
   },
   emptyMessagesSubtext: {
     fontSize: 13,
-    color: '#94a3b8',
+    color: '#8492a5',
     marginTop: 4,
     textAlign: 'center',
   },
-  // FIXED: Full width message bubbles with professional styling
+  typingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#eceef0',
+    alignSelf: 'flex-start',
+    borderRadius: 20,
+  },
+  typingDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  typingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#8492a5',
+    opacity: 0.6,
+  },
+  typingDotDelay1: {
+    opacity: 0.4,
+  },
+  typingDotDelay2: {
+    opacity: 0.2,
+  },
+  typingLabel: {
+    fontSize: 12,
+    color: '#526071',
+    fontStyle: 'italic',
+  },
   messageBubble: {
-    maxWidth: '100%', // Changed from 80% to 100% for full width
+    maxWidth: '100%',
     marginBottom: 4,
   },
   messageRight: {
@@ -1424,22 +1439,22 @@ const styles = StyleSheet.create({
   messageContent: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 20,
-    maxWidth: '85%', // Keep content within reasonable width
+    borderRadius: 24,
+    maxWidth: '85%',
   },
   userMessageContent: {
-    backgroundColor: '#6366f1',
+    backgroundColor: '#2c50cd',
     borderBottomRightRadius: 4,
-    shadowColor: '#6366f1',
+    shadowColor: '#2c50cd',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
     elevation: 2,
   },
   counselorMessageContent: {
-    backgroundColor: 'white',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: '#eef2f6',
+    borderColor: '#e6e8ea',
     borderBottomLeftRadius: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -1453,10 +1468,10 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   userMessageText: {
-    color: 'white',
+    color: '#ffffff',
   },
   counselorMessageText: {
-    color: '#1e293b',
+    color: '#081625',
   },
   messageFooter: {
     flexDirection: 'row',
@@ -1467,7 +1482,7 @@ const styles = StyleSheet.create({
   },
   messageTime: {
     fontSize: 10,
-    color: '#94a3b8',
+    color: '#8492a5',
     fontWeight: '500',
   },
   messageStatusSending: {
@@ -1477,42 +1492,41 @@ const styles = StyleSheet.create({
   },
   messageStatusSent: {
     fontSize: 10,
-    color: '#10b981',
+    color: '#4caf50',
     fontWeight: '500',
   },
   messageStatusError: {
     fontSize: 10,
-    color: '#ef4444',
+    color: '#f44336',
     fontWeight: '500',
   },
-  inputForm: {
+  inputArea: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: 'white',
     borderTopWidth: 1,
-    borderTopColor: '#eef2f6',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 4,
+    borderTopColor: '#e6e8ea',
+    backgroundColor: '#ffffff',
   },
-  inputWrapper: {
+  inputGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    borderRadius: 30,
-    paddingHorizontal: 6,
+    gap: 10,
+    backgroundColor: '#f2f4f6',
+    borderRadius: 28,
+    paddingHorizontal: 8,
     paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
   },
-  input: {
+  inputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  textInput: {
     flex: 1,
     fontSize: 15,
-    color: '#1e293b',
+    color: '#081625',
     paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     maxHeight: 100,
   },
   sendBtn: {
@@ -1521,37 +1535,30 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    transition: 'all 0.2s ease',
   },
   sendBtnActive: {
-    backgroundColor: '#6366f1',
-    shadowColor: '#6366f1',
+    backgroundColor: '#2c50cd',
+    shadowColor: '#2c50cd',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 4,
   },
   sendBtnDisabled: {
-    backgroundColor: '#cbd5e1',
+    backgroundColor: '#b9c8db',
     opacity: 0.7,
   },
-  sendBtnText: {
-    color: '#ffffff',
-    fontWeight: '700',
-    fontSize: 20,
-  },
-  // Incoming Call Modal Styles - Professional
+  // Incoming Call Modal Styles - Professional Serenity
   incomingCallOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
-    backdropFilter: 'blur(4px)',
   },
   incomingCallModal: {
     width: screenWidth * 0.85,
     maxWidth: 380,
-    backgroundColor: 'white',
+    backgroundColor: '#ffffff',
     borderRadius: 28,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -1562,11 +1569,11 @@ const styles = StyleSheet.create({
   },
   videoCallModal: {
     borderTopWidth: 4,
-    borderTopColor: '#6366f1',
+    borderTopColor: '#2c50cd',
   },
   voiceCallModal: {
     borderTopWidth: 4,
-    borderTopColor: '#10b981',
+    borderTopColor: '#4caf50',
   },
   incomingCallContent: {
     padding: 28,
@@ -1580,11 +1587,11 @@ const styles = StyleSheet.create({
     width: 88,
     height: 88,
     borderRadius: 44,
-    backgroundColor: '#6366f1',
+    backgroundColor: '#d5e4f8',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
-    shadowColor: '#6366f1',
+    shadowColor: '#b9c8db',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -1596,18 +1603,18 @@ const styles = StyleSheet.create({
   incomingCallerName: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#1e293b',
+    color: '#081625',
     marginBottom: 6,
   },
   incomingCallType: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#526071',
     marginBottom: 10,
     fontWeight: '500',
   },
   incomingCallMessage: {
     fontSize: 13,
-    color: '#6366f1',
+    color: '#2c50cd',
     fontWeight: '600',
   },
   incomingCallControls: {
@@ -1627,13 +1634,13 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   acceptBtn: {
-    backgroundColor: '#10b981',
+    backgroundColor: '#2c50cd',
   },
   rejectBtn: {
-    backgroundColor: '#ef4444',
+    backgroundColor: '#ba1a1a',
   },
   incomingCallBtnText: {
-    color: 'white',
+    color: '#ffffff',
     fontWeight: '700',
     fontSize: 14,
   },
