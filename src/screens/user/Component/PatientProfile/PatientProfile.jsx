@@ -11,11 +11,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
-  Dimensions
+  Dimensions,
+  StatusBar
 } from "react-native";
 import * as ImagePicker from "react-native-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
+import Ionicons from "react-native-vector-icons/Ionicons";
 import { API_BASE_URL } from "../../../../axiosConfig";
 
 const { width, height } = Dimensions.get("window");
@@ -504,55 +506,50 @@ const PatientProfile = () => {
 
   const renderProfileHeader = () => (
     <View style={styles.header}>
-      <View style={styles.avatarWrapper}>
-        <View style={styles.avatar}>
-          {patientData.personalInfo.profilePhoto ? (
-            <Image
-              source={{ uri: patientData.personalInfo.profilePhoto }}
-              style={styles.avatarImage}
-            />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarPlaceholderText}>
-                {getInitials(patientData.personalInfo.name)}
-              </Text>
-            </View>
-          )}
+      <View style={styles.headerTop}>
+        <View style={styles.avatarWrapper}>
+          <View style={styles.avatar}>
+            {patientData.personalInfo.profilePhoto ? (
+              <Image
+                source={{ uri: patientData.personalInfo.profilePhoto }}
+                style={styles.avatarImage}
+              />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarPlaceholderText}>
+                  {getInitials(patientData.personalInfo.name)}
+                </Text>
+              </View>
+            )}
+          </View>
+          <TouchableOpacity style={styles.editBadge} onPress={openEditModal}>
+            <Ionicons name="pencil" size={16} color="white" />
+          </TouchableOpacity>
         </View>
-      </View>
 
-      <View style={styles.profileInfo}>
-        <Text style={styles.name}>{patientData.personalInfo.name}</Text>
-        <Text style={styles.patientId}>
-          Patient ID: {patientData.personalInfo.id}
-        </Text>
-        <View style={styles.badgeGroup}>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              {patientData.personalInfo.bloodGroup || "Blood Group"}
-            </Text>
-          </View>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              {patientData.personalInfo.age || "--"} years
-            </Text>
-          </View>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              {patientData.personalInfo.gender || "Gender"}
-            </Text>
+        <View style={styles.profileMeta}>
+          <Text style={styles.name}>{patientData.personalInfo.name}</Text>
+          <View style={styles.idBadge}>
+            <Text style={styles.patientId}>#{patientData.personalInfo.id.slice(-8).toUpperCase()}</Text>
           </View>
         </View>
       </View>
 
-      <View style={styles.headerActions}>
-        <TouchableOpacity
-          style={styles.btnPrimary}
-          onPress={openEditModal}
-          disabled={loading}
-        >
-          <Text style={styles.btnPrimaryText}>✏️ Edit Profile</Text>
-        </TouchableOpacity>
+      <View style={styles.statsRow}>
+        <View style={styles.statItem}>
+          <Text style={styles.statLabel}>Blood</Text>
+          <Text style={styles.statValue}>{patientData.personalInfo.bloodGroup || "O+"}</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={styles.statLabel}>Age</Text>
+          <Text style={styles.statValue}>{patientData.personalInfo.age || "--"}y</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={styles.statLabel}>Gender</Text>
+          <Text style={styles.statValue}>{patientData.personalInfo.gender || "M"}</Text>
+        </View>
       </View>
     </View>
   );
@@ -560,7 +557,10 @@ const PatientProfile = () => {
   const renderPersonalInfo = () => (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>Personal Information</Text>
+        <View style={styles.cardTitleRow}>
+          <Ionicons name="person-outline" size={20} color="#6366f1" />
+          <Text style={styles.cardTitle}>Personal Details</Text>
+        </View>
       </View>
       <View style={styles.infoGrid}>
         <View style={styles.infoItem}>
@@ -600,7 +600,10 @@ const PatientProfile = () => {
   const renderAddress = () => (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>Address</Text>
+        <View style={styles.cardTitleRow}>
+          <Ionicons name="location-outline" size={20} color="#6366f1" />
+          <Text style={styles.cardTitle}>Address</Text>
+        </View>
       </View>
       <View style={styles.addressDisplay}>
         <Text style={styles.addressText}>
@@ -631,7 +634,10 @@ const PatientProfile = () => {
   const renderEmergencyContact = () => (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>Emergency Contact</Text>
+        <View style={styles.cardTitleRow}>
+          <Ionicons name="alert-circle-outline" size={20} color="#f97316" />
+          <Text style={styles.cardTitle}>Emergency Contact</Text>
+        </View>
       </View>
       <View style={styles.emergencyDisplay}>
         <Text style={styles.emergencyIcon}>🆘</Text>
@@ -653,7 +659,10 @@ const PatientProfile = () => {
   const renderMedicalInfo = () => (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>Medical Information</Text>
+        <View style={styles.cardTitleRow}>
+          <Ionicons name="medical-outline" size={20} color="#10b981" />
+          <Text style={styles.cardTitle}>Medical History</Text>
+        </View>
       </View>
       <View style={styles.medicalGrid}>
         <View style={styles.vitalStats}>
@@ -721,7 +730,10 @@ const PatientProfile = () => {
   const renderInsuranceInfo = () => (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>Insurance Information</Text>
+        <View style={styles.cardTitleRow}>
+          <Ionicons name="shield-checkmark-outline" size={20} color="#3b82f6" />
+          <Text style={styles.cardTitle}>Insurance Plans</Text>
+        </View>
       </View>
       {patientData.insuranceInfo?.provider ? (
         <View style={styles.insuranceDisplay}>
@@ -1241,9 +1253,14 @@ const PatientProfile = () => {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        style={{ flex: 1 }}
+      >
         {renderNotification()}
         {renderProfileHeader()}
         <View style={styles.content}>
@@ -1253,8 +1270,8 @@ const PatientProfile = () => {
           {renderMedicalInfo()}
           {renderInsuranceInfo()}
         </View>
-        {renderEditModal()}
       </ScrollView>
+      {renderEditModal()}
     </KeyboardAvoidingView>
   );
 };
@@ -1262,13 +1279,17 @@ const PatientProfile = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f7fb",
+    backgroundColor: "#f8fafc",
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 100, // Increased padding to ensure full visibility
   },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f5f7fb",
+    backgroundColor: "#f8fafc",
   },
   loadingText: {
     marginTop: 12,
@@ -1277,153 +1298,156 @@ const styles = StyleSheet.create({
   },
   notification: {
     position: "absolute",
-    top: 60,
+    top: 40,
     left: 16,
     right: 16,
     padding: 14,
     borderRadius: 12,
     zIndex: 1000,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
+    elevation: 10,
   },
-  success: {
-    backgroundColor: "#10b981",
-  },
-  error: {
-    backgroundColor: "#ef4444",
-  },
+  success: { backgroundColor: "#10b981" },
+  error: { backgroundColor: "#ef4444" },
   notificationText: {
     color: "white",
-    fontWeight: "600",
+    fontWeight: "700",
     fontSize: 14,
     textAlign: "center",
   },
   header: {
     backgroundColor: "white",
-    borderRadius: 28,
     padding: 24,
-    margin: 16,
-    marginBottom: 20,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowRadius: 20,
+    elevation: 5,
+    marginBottom: 20,
+  },
+  headerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 20,
+    marginBottom: 24,
   },
   avatarWrapper: {
-    alignItems: "center",
-    marginBottom: 16,
+    position: "relative",
   },
   avatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     overflow: "hidden",
-    backgroundColor: "#667eea",
-    shadowColor: "#667eea",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 6,
+    backgroundColor: "#6366f1",
   },
   avatarImage: {
     width: "100%",
     height: "100%",
-    resizeMode: "cover",
   },
   avatarPlaceholder: {
-    width: "100%",
-    height: "100%",
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#667eea",
   },
   avatarPlaceholderText: {
-    fontSize: 48,
-    fontWeight: "bold",
+    fontSize: 32,
+    fontWeight: "800",
     color: "white",
   },
-  profileInfo: {
+  editBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    backgroundColor: "#6366f1",
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: "white",
+    justifyContent: "center",
     alignItems: "center",
+  },
+  profileMeta: {
+    flex: 1,
   },
   name: {
-    fontSize: 28,
-    fontWeight: "700",
+    fontSize: 24,
+    fontWeight: "800",
     color: "#1e293b",
-    marginBottom: 4,
+    marginBottom: 6,
+  },
+  idBadge: {
+    backgroundColor: "#f1f5f9",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: "flex-start",
   },
   patientId: {
-    fontSize: 14,
+    fontSize: 12,
+    fontWeight: "700",
     color: "#64748b",
-    marginBottom: 12,
   },
-  badgeGroup: {
+  statsRow: {
     flexDirection: "row",
-    gap: 8,
-    flexWrap: "wrap",
-    justifyContent: "center",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#f8fafc",
+    borderRadius: 20,
+    padding: 16,
   },
-  badge: {
-    backgroundColor: "#f1f5f9",
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 40,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  badgeText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#475569",
-  },
-  headerActions: {
-    marginTop: 16,
+  statItem: {
+    flex: 1,
     alignItems: "center",
   },
-  btnPrimary: {
-    backgroundColor: "#667eea",
-    paddingHorizontal: 28,
-    paddingVertical: 12,
-    borderRadius: 40,
-    shadowColor: "#667eea",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  btnPrimaryText: {
-    color: "white",
+  statLabel: {
+    fontSize: 12,
+    color: "#94a3b8",
     fontWeight: "600",
-    fontSize: 15,
+    marginBottom: 4,
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1e293b",
+  },
+  statDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: "#e2e8f0",
   },
   content: {
     paddingHorizontal: 16,
-    paddingBottom: 20,
     gap: 16,
   },
   card: {
     backgroundColor: "white",
     borderRadius: 24,
     padding: 20,
-    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#f1f5f9",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.02,
+    shadowRadius: 10,
     elevation: 2,
   },
   cardHeader: {
     marginBottom: 16,
     paddingBottom: 12,
-    borderBottomWidth: 2,
+    borderBottomWidth: 1,
     borderBottomColor: "#f1f5f9",
   },
+  cardTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   cardTitle: {
-    fontSize: 20,
-    fontWeight: "600",
+    fontSize: 18,
+    fontWeight: "700",
     color: "#1e293b",
   },
   infoGrid: {
@@ -1433,91 +1457,90 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   infoLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#64748b",
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#94a3b8",
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 1,
   },
   infoValue: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
-    color: "#1e293b",
+    color: "#334155",
   },
   addressDisplay: {
-    gap: 4,
+    gap: 6,
   },
   addressText: {
     fontSize: 15,
-    color: "#334155",
+    color: "#475569",
     lineHeight: 22,
   },
   emergencyDisplay: {
     flexDirection: "row",
     gap: 16,
     alignItems: "center",
-    backgroundColor: "#fef2e8",
+    backgroundColor: "#fff7ed",
     padding: 16,
-    borderRadius: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: "#f97316",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#ffedd5",
   },
   emergencyIcon: {
-    fontSize: 40,
+    fontSize: 32,
   },
   emergencyDetails: {
     flex: 1,
   },
   emergencyName: {
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "700",
     color: "#1e293b",
-    marginBottom: 4,
   },
   emergencyRelation: {
-    fontSize: 14,
-    color: "#64748b",
-    marginBottom: 4,
+    fontSize: 13,
+    color: "#9a3412",
+    fontWeight: "600",
+    marginTop: 2,
   },
   emergencyPhone: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#f97316",
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#ea580c",
+    marginTop: 4,
   },
   medicalGrid: {
-    gap: 16,
+    gap: 20,
   },
   vitalStats: {
-    backgroundColor: "#f8fafc",
-    padding: 16,
-    borderRadius: 20,
-  },
-  vitalTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1e293b",
-    marginBottom: 12,
-  },
-  vitalRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
+    gap: 12,
+  },
+  vitalBox: {
+    flex: 1,
+    backgroundColor: "#f0fdf4",
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#dcfce7",
   },
   vitalLabel: {
-    color: "#64748b",
+    fontSize: 12,
+    color: "#166534",
+    fontWeight: "600",
+    marginBottom: 4,
   },
   vitalValue: {
-    fontWeight: "600",
-    color: "#1e293b",
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#14532d",
   },
   conditionsList: {
-    gap: 12,
+    gap: 16,
   },
   conditionsTitle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#475569",
     marginBottom: 8,
   },
@@ -1530,228 +1553,187 @@ const styles = StyleSheet.create({
     backgroundColor: "#eef2ff",
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 30,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e0e7ff",
   },
   tagText: {
     fontSize: 13,
-    fontWeight: "500",
+    fontWeight: "600",
     color: "#4f46e5",
   },
   noData: {
     color: "#94a3b8",
     textAlign: "center",
-    paddingVertical: 16,
+    paddingVertical: 20,
+    fontSize: 14,
   },
   insuranceDisplay: {
-    backgroundColor: "#f8fafc",
-    padding: 16,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
+    gap: 16,
   },
   insuranceHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
   },
   insuranceProvider: {
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "700",
     color: "#1e293b",
   },
   insuranceBadge: {
-    backgroundColor: "#dbeafe",
-    paddingHorizontal: 12,
+    backgroundColor: "#eff6ff",
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 30,
+    borderRadius: 8,
   },
   insuranceBadgeText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#4f46e5",
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#2563eb",
   },
-  insuranceDetails: {
-    gap: 12,
+  insuranceGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 16,
   },
-  insuranceLabel: {
-    fontSize: 12,
-    color: "#64748b",
-    marginBottom: 2,
-  },
-  insuranceValue: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1e293b",
+  insuranceItem: {
+    width: "45%",
+    gap: 4,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: "rgba(15, 23, 42, 0.8)",
+    justifyContent: "flex-end",
   },
   modalContainer: {
     backgroundColor: "white",
-    borderRadius: 32,
-    width: width - 32,
-    maxHeight: height - 40,
-    overflow: "hidden",
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    height: height * 0.9,
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 20,
+    padding: 24,
     borderBottomWidth: 1,
-    borderBottomColor: "#eef2f6",
+    borderBottomColor: "#f1f5f9",
   },
   modalTitle: {
-    fontSize: 22,
-    fontWeight: "600",
+    fontSize: 20,
+    fontWeight: "800",
     color: "#1e293b",
   },
   closeModal: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#f1f5f9",
     justifyContent: "center",
     alignItems: "center",
   },
   closeModalText: {
-    fontSize: 32,
-    color: "#94a3b8",
+    fontSize: 24,
+    color: "#64748b",
   },
   modalBody: {
-    padding: 20,
+    padding: 24,
   },
   modalFooter: {
     flexDirection: "row",
-    justifyContent: "flex-end",
     gap: 12,
-    padding: 20,
+    padding: 24,
     borderTopWidth: 1,
-    borderTopColor: "#eef2f6",
+    borderTopColor: "#f1f5f9",
+    backgroundColor: "white",
   },
   formSection: {
-    marginBottom: 24,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eef2f6",
+    marginBottom: 32,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#1e293b",
-    marginBottom: 16,
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#6366f1",
+    marginBottom: 20,
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
   formRow: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 12,
+    gap: 16,
   },
   formGroup: {
     flex: 1,
-    gap: 6,
-    marginBottom: 12,
+    marginBottom: 16,
   },
   formLabel: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#475569",
+    marginBottom: 8,
   },
   input: {
-    borderWidth: 1.5,
-    borderColor: "#e2e8f0",
-    borderRadius: 14,
-    padding: 12,
-    fontSize: 14,
-    backgroundColor: "white",
-  },
-  readonly: {
     backgroundColor: "#f8fafc",
-    color: "#64748b",
-  },
-  selectContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  selectOption: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 30,
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 15,
+    color: "#1e293b",
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    backgroundColor: "white",
   },
-  selectOptionActive: {
-    backgroundColor: "#667eea",
-    borderColor: "#667eea",
+  btnPrimary: {
+    flex: 1,
+    backgroundColor: "#6366f1",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
   },
-  selectOptionText: {
-    fontSize: 14,
-    color: "#64748b",
-  },
-  selectOptionTextActive: {
+  btnPrimaryText: {
     color: "white",
+    fontWeight: "700",
+    fontSize: 16,
   },
-  scrollPicker: {
-    marginTop: 4,
-    flexDirection: "row",
+  btnSecondary: {
+    flex: 1,
+    backgroundColor: "#f1f5f9",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
   },
-  pickerOption: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 30,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    backgroundColor: "white",
-    marginRight: 8,
-  },
-  pickerOptionActive: {
-    backgroundColor: "#667eea",
-    borderColor: "#667eea",
-  },
-  pickerOptionText: {
-    fontSize: 14,
-    color: "#64748b",
-  },
-  pickerOptionTextActive: {
-    color: "white",
+  btnSecondaryText: {
+    color: "#475569",
+    fontWeight: "700",
+    fontSize: 16,
   },
   profilePictureEdit: {
     alignItems: "center",
-    gap: 12,
-    padding: 16,
     backgroundColor: "#f8fafc",
-    borderRadius: 24,
+    padding: 20,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
   avatarPreview: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    overflow: "hidden",
-    backgroundColor: "#667eea",
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "#6366f1",
+    marginBottom: 16,
   },
   avatarPreviewImage: {
     width: "100%",
     height: "100%",
-    resizeMode: "cover",
+    borderRadius: 50,
   },
   avatarPreviewPlaceholder: {
-    width: "100%",
-    height: "100%",
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
   avatarPreviewText: {
-    fontSize: 42,
-    fontWeight: "bold",
+    fontSize: 36,
+    fontWeight: "800",
     color: "white",
   },
   uploadActions: {
@@ -1759,43 +1741,45 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   uploadBtn: {
-    backgroundColor: "#667eea",
-    paddingHorizontal: 20,
+    backgroundColor: "#eef2ff",
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 40,
+    borderRadius: 8,
   },
   uploadBtnText: {
-    color: "white",
-    fontSize: 14,
-    fontWeight: "500",
+    color: "#6366f1",
+    fontWeight: "700",
   },
   removeBtn: {
-    backgroundColor: "#ef4444",
-    paddingHorizontal: 20,
+    backgroundColor: "#fef2f2",
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 40,
+    borderRadius: 8,
   },
   removeBtnText: {
-    color: "white",
-    fontSize: 14,
-    fontWeight: "500",
+    color: "#ef4444",
+    fontWeight: "700",
   },
-  uploadHint: {
-    fontSize: 12,
-    color: "#94a3b8",
+  scrollPicker: {
+    marginVertical: 4,
   },
-  btnSecondary: {
-    backgroundColor: "white",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: "#667eea",
+  pickerOption: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: "#f1f5f9",
+    marginRight: 8,
   },
-  btnSecondaryText: {
-    color: "#667eea",
+  pickerOptionActive: {
+    backgroundColor: "#6366f1",
+  },
+  pickerOptionText: {
+    fontSize: 13,
     fontWeight: "600",
-    fontSize: 15,
+    color: "#64748b",
+  },
+  pickerOptionTextActive: {
+    color: "white",
   },
 });
 

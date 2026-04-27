@@ -28,7 +28,7 @@ import VoiceCallModal from "../CallModal/VoiceCallModal";
 
 const { width: screenWidth } = Dimensions.get("window");
 
-// Professional Incoming Call Modal Component
+// Professional Incoming Call Modal Component with Serenity design
 const IncomingCallModal = ({
   isOpen,
   onClose,
@@ -166,8 +166,8 @@ const ChatBox = () => {
     }
     return {
       id: counselorId || null,
-      name: "Dr. Suresh Reddy",
-      specialization: "Clinical Psychologist",
+      name: "Dr. Sarah Mitchell",
+      specialization: "Cognitive Behavioral Therapist",
       online: true,
       avatar: null,
       avatarType: "text",
@@ -233,24 +233,27 @@ const ChatBox = () => {
   const resolveCurrentUserId = () => currentUser?.id || currentUser?._id || null;
   const resolveCounselorId = () => currentCounselor?.id?.toString() || currentCounselor?._id?.toString() || counselorId || currentChat?.counselorId?.toString() || null;
 
-  const getProfilePhotoUrl = (counselor) => {
-    if (!counselor) return null;
-    if (counselor?.profilePhoto?.url) return counselor.profilePhoto.url;
-    if (
-      counselor?.profilePhoto &&
-      typeof counselor.profilePhoto === "string" &&
-      counselor.profilePhoto.startsWith("http")
-    ) {
-      return counselor.profilePhoto;
+  const getProfilePhotoUrl = (person) => {
+    if (!person) return null;
+    
+    // Check all possible fields the backend might use
+    const photo = person.profilePhoto || person.avatar || person.profilePic || person.photo;
+    
+    if (!photo) return null;
+    
+    if (photo.url) return photo.url;
+    
+    if (typeof photo === "string") {
+      if (photo.startsWith("http")) return photo;
+      if (photo.startsWith("data:")) return photo;
+      
+      // If it's a filename or relative path, try to construct URL
+      if (photo.length > 0) {
+        if (photo.startsWith("/")) return `${API_BASE_URL}${photo}`;
+        return `${API_BASE_URL}/${photo}`;
+      }
     }
-    if (
-      counselor?.avatar &&
-      typeof counselor.avatar === "string" &&
-      counselor.avatar.startsWith("http")
-    ) {
-      return counselor.avatar;
-    }
-    if (counselor?.avatar && counselor.avatarType === "image") return counselor.avatar;
+    
     return null;
   };
 
@@ -438,11 +441,13 @@ const ChatBox = () => {
   }, [showIncomingModal, currentUser, isVideoModalOpen, isVoiceModalOpen]);
 
   // Fetch messages from API
-  const fetchMessagesFromAPI = async () => {
+  const fetchMessagesFromAPI = async (silent = false) => {
     try {
       const apiChatId = getChatIdForAPI();
       const token = await AsyncStorage.getItem("token");
-      setIsLoadingMessages(true);
+      
+      // Only show loader if we have absolutely no messages to show
+      if (!silent && messages.length === 0) setIsLoadingMessages(true);
 
       const response = await axios.get(`${API_BASE_URL}/api/chat/chat/${apiChatId}/messages`, {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -452,7 +457,7 @@ const ChatBox = () => {
         if (response.data.chatStatus) setChatStatus(response.data.chatStatus);
 
         const transformedMessages = response.data.messages.map((msg, index) => ({
-          id: msg.id || index,
+          id: msg.id || msg._id || index,
           messageId: msg.messageId,
           text: msg.content,
           sender: msg.senderRole === "user" ? "user" : "counselor",
@@ -466,15 +471,19 @@ const ChatBox = () => {
           status: "sent",
         }));
 
-        hasInitialAutoScrollRef.current = false;
-        shouldAutoScrollRef.current = true;
+        // Use a functional update to ensure we don't overwrite real-time messages that might have arrived
         setMessages(transformedMessages);
-        setTimeout(scrollToBottom, 100);
+        
+        if (!hasInitialAutoScrollRef.current) {
+          hasInitialAutoScrollRef.current = true;
+          setTimeout(() => scrollToBottom(false), 50);
+        }
+        
         return transformedMessages;
       }
     } catch (error) {
       console.error("Error fetching messages from API:", error);
-      loadMessagesFromLocalStorage();
+      if (messages.length === 0) loadMessagesFromLocalStorage();
     } finally {
       setIsLoadingMessages(false);
     }
@@ -615,8 +624,9 @@ const ChatBox = () => {
       setTimeout(scrollToBottom, 50);
     } finally {
       setIsSending(false);
-      if (Platform.OS === "android") {
-        setTimeout(() => messageInputRef.current?.focus(), 80);
+      // Ensure the keyboard stays open and focus is returned immediately
+      if (messageInputRef.current) {
+        messageInputRef.current.focus();
       }
     }
   };
@@ -779,11 +789,17 @@ const ChatBox = () => {
     const initializeChat = async () => {
       try {
         const savedChats = JSON.parse(await AsyncStorage.getItem("activeChats") || "[]");
-        let chat = savedChats.find(c => c.id === chatId) || savedChats.find(c => c.counselorId === counselorId);
+        let chat = savedChats.find(c => c.chatId === chatId) || savedChats.find(c => c.counselorId === counselorId);
 
         if (chat) {
           setCurrentChat(chat);
           if (chat.counselor) setCurrentCounselor(chat.counselor);
+          if (chat.messages && chat.messages.length > 0) {
+            setMessages(chat.messages);
+            // Scroll to bottom immediately since we have local messages
+            setTimeout(() => scrollToBottom(false), 50);
+          }
+          
           if (chat.unread) {
             const updatedChats = savedChats.map(c => c.id === chat.id ? { ...c, unread: false } : c);
             await AsyncStorage.setItem("activeChats", JSON.stringify(updatedChats));
@@ -804,7 +820,14 @@ const ChatBox = () => {
           await AsyncStorage.setItem("activeChats", JSON.stringify(updatedChats));
         }
 
-        await fetchMessagesFromAPI();
+        // Fetch from API silently if we already have messages, otherwise show loader
+        const silentFetch = messages.length > 0 || (chat && chat.messages && chat.messages.length > 0);
+        await fetchMessagesFromAPI(silentFetch);
+        
+        // Auto focus keyboard after loading
+        setTimeout(() => {
+          if (messageInputRef.current) messageInputRef.current.focus();
+        }, 500);
       } catch (error) {
         console.error("Error loading chat:", error);
       }
@@ -971,31 +994,55 @@ const ChatBox = () => {
     if (text.trim() !== "") handleTypingIndicator();
   };
 
-  const renderMessage = ({ item }) => {
+  const renderMessage = ({ item, index }) => {
     const isUser = item.sender === "user";
+    const showAvatar = !isUser && (index === 0 || messages[index - 1]?.sender === "user");
+    
     return (
-      <View style={[styles.messageBubble, isUser ? styles.messageRight : styles.messageLeft]}>
-        <View style={[styles.messageContent, isUser ? styles.userMessageContent : styles.counselorMessageContent]}>
-          {!!item.text && (
-            <Text style={[styles.messageText, isUser ? styles.userMessageText : styles.counselorMessageText]}>
-              {item.text}
-            </Text>
-          )}
-          {(item.attachmentName || item.attachmentUrl) && (
-            <View style={[styles.attachmentBubble, isUser ? styles.userAttachmentBubble : styles.counselorAttachmentBubble]}>
-              <Text
-                style={[styles.attachmentBubbleText, isUser ? styles.userAttachmentBubbleText : styles.counselorAttachmentBubbleText]}
-                numberOfLines={1}
-              >
-                📎 {item.attachmentName || "Attachment"}
+      <View style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}>
+        {!isUser && (
+          <View style={styles.messageAvatarContainer}>
+            {showAvatar ? (
+              counselorProfilePhoto && !counselorAvatarFailed ? (
+                <Image
+                  source={{ uri: counselorProfilePhoto }}
+                  style={styles.messageAvatar}
+                  onError={() => setCounselorAvatarFailed(true)}
+                />
+              ) : (
+                <View style={styles.messageAvatarPlaceholder}>
+                  <Text style={styles.messageAvatarInitials}>{getInitials(counselorName)}</Text>
+                </View>
+              )
+            ) : (
+              <View style={styles.messageAvatarSpacer} />
+            )}
+          </View>
+        )}
+        
+        <View style={[styles.messageBubble, isUser ? styles.messageRight : styles.messageLeft]}>
+          <View style={[styles.messageContent, isUser ? styles.userMessageContent : styles.counselorMessageContent]}>
+            {!!item.text && (
+              <Text style={[styles.messageText, isUser ? styles.userMessageText : styles.counselorMessageText]}>
+                {item.text}
               </Text>
+            )}
+            {(item.attachmentName || item.attachmentUrl) && (
+              <View style={[styles.attachmentBubble, isUser ? styles.userAttachmentBubble : styles.counselorAttachmentBubble]}>
+                <Text
+                  style={[styles.attachmentBubbleText, isUser ? styles.userAttachmentBubbleText : styles.counselorAttachmentBubbleText]}
+                  numberOfLines={1}
+                >
+                  📎 {item.attachmentName || "Attachment"}
+                </Text>
+              </View>
+            )}
+            <View style={styles.messageFooter}>
+              <Text style={styles.messageTime}>{item.time}</Text>
+              {isUser && item.status === "sending" && <Text style={styles.messageStatusSending}>⌛ Sending...</Text>}
+              {isUser && item.status === "sent" && <Text style={styles.messageStatusSent}>✓ Sent</Text>}
+              {isUser && item.status === "error" && <Text style={styles.messageStatusError}>⚠️ Failed</Text>}
             </View>
-          )}
-          <View style={styles.messageFooter}>
-            <Text style={styles.messageTime}>{item.time}</Text>
-            {isUser && item.status === "sending" && <Text style={styles.messageStatusSending}>⌛ Sending...</Text>}
-            {isUser && item.status === "sent" && <Text style={styles.messageStatusSent}>✓ Sent</Text>}
-            {isUser && item.status === "error" && <Text style={styles.messageStatusError}>⚠️ Failed</Text>}
           </View>
         </View>
       </View>
@@ -1015,7 +1062,7 @@ const ChatBox = () => {
         statusStyle = styles.statusPending;
         break;
       case "ended":
-        statusText = "🔒 vended";
+        statusText = "🔒 Session ended";
         statusStyle = styles.statusEnded;
         break;
       default: return null;
@@ -1027,7 +1074,8 @@ const ChatBox = () => {
     );
   };
 
-  const counselorName = currentCounselor?.name || "Counselor";
+  const counselorName = currentCounselor?.displayName || currentCounselor?.name || "Counselor";
+  const counselorSpecialization = currentCounselor?.specialization || "Cognitive Behavioral Therapist";
   const counselorOnline = currentCounselor?.online || false;
   const counselorProfilePhoto = getProfilePhotoUrl(currentCounselor);
 
@@ -1037,49 +1085,59 @@ const ChatBox = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardAvoid}>
+      <StatusBar barStyle="dark-content" backgroundColor="#f7f9fb" translucent={false} />
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : undefined} 
+        style={styles.keyboardAvoid}
+      >
         <View style={styles.chatBoxMain}>
-          {/* Header */}
+          {/* Header - Serenity & Trust Design */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                <Ionicons name="chevron-back" size={17} color="#0f172a" style={styles.backBtnIcon} />
+                <Ionicons name="arrow-back" size={22} color="#081625" />
               </TouchableOpacity>
               <View style={styles.userDetails}>
                 <View style={styles.profilePic}>
-                  <View style={styles.profileAvatar}>
-                    {counselorProfilePhoto && !counselorAvatarFailed ? (
-                      <Image
-                        source={{ uri: counselorProfilePhoto }}
-                        style={styles.profileAvatarImage}
-                        onError={() => setCounselorAvatarFailed(true)}
-                      />
-                    ) : (
+                  {counselorProfilePhoto && !counselorAvatarFailed ? (
+                    <Image
+                      source={{ uri: counselorProfilePhoto }}
+                      style={styles.profileAvatarImage}
+                      onError={() => setCounselorAvatarFailed(true)}
+                    />
+                  ) : (
+                    <View style={styles.profileAvatar}>
                       <Text style={styles.profileInitials}>{getInitials(counselorName)}</Text>
-                    )}
-                  </View>
+                    </View>
+                  )}
                   <View style={[styles.activeDot, counselorOnline ? styles.onlineDot : styles.offlineDot]} />
                 </View>
                 <View style={styles.profileInfo}>
                   <Text style={styles.profileName}>{counselorName}</Text>
-                  <Text style={styles.profileStatus}>
-                    {remoteIsTyping ? <Text style={styles.typingText}>Typing...</Text> : 
-                    <Text style={styles.statusText}>{counselorOnline ? "Online" : "Offline"}</Text>}
-                  </Text>
+                  {/* <Text style={styles.profileSpecialization}>{counselorSpecialization}</Text> */}
+                  <View style={styles.profileStatusRow}>
+                    {remoteIsTyping ? (
+                      <Text style={styles.typingText}>Typing...</Text>
+                    ) : (
+                      <>
+                        <View style={[styles.statusDot, counselorOnline ? styles.statusDotOnline : styles.statusDotOffline]} />
+                        <Text style={styles.statusText}>{counselorOnline ? "Online" : "Offline"}</Text>
+                      </>
+                    )}
+                  </View>
                 </View>
               </View>
             </View>
 
             <View style={styles.headerRight}>
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.disabledBtn]} onPress={handleVideoCall} disabled={isInitiatingCall}>
-                <Text style={styles.actionBtnIcon}>📹</Text>
+                <Ionicons name="videocam" size={22} color="#2c50cd" />
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.disabledBtn]} onPress={handleVoiceCall} disabled={isInitiatingCall}>
-                <Text style={styles.actionBtnIcon}>📞</Text>
+                <Ionicons name="call" size={22} color="#2c50cd" />
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(!showOptions)}>
-                <Text style={styles.actionBtnIcon}>⋮</Text>
+                <Ionicons name="ellipsis-vertical" size={20} color="#526071" />
               </TouchableOpacity>
             </View>
           </View>
@@ -1089,19 +1147,19 @@ const ChatBox = () => {
             <TouchableOpacity style={styles.optionsOverlay} activeOpacity={1} onPress={() => setShowOptions(false)}>
               <View style={styles.optionsMenu}>
                 <TouchableOpacity style={styles.optionItem} onPress={() => { fetchMessagesFromAPI(); setShowOptions(false); }}>
-                  <Text style={styles.optionIcon}>🔄</Text>
+                  <Ionicons name="refresh" size={18} color="#526071" />
                   <Text style={styles.optionText}>Refresh Messages</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.optionItem} onPress={() => { setMessages([]); setShowOptions(false); }}>
-                  <Text style={styles.optionIcon}>🗑️</Text>
+                  <Ionicons name="trash-outline" size={18} color="#526071" />
                   <Text style={styles.optionText}>Clear Chat</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.optionItem} onPress={() => { Alert.alert("Report Issue", "Feature coming soon"); setShowOptions(false); }}>
-                  <Text style={styles.optionIcon}>⚠️</Text>
+                  <Ionicons name="warning-outline" size={18} color="#526071" />
                   <Text style={styles.optionText}>Report Issue</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.optionItem} onPress={() => { Alert.alert("Chat Details", "Feature coming soon"); setShowOptions(false); }}>
-                  <Text style={styles.optionIcon}>📋</Text>
+                  <Ionicons name="information-circle-outline" size={18} color="#526071" />
                   <Text style={styles.optionText}>Chat Details</Text>
                 </TouchableOpacity>
               </View>
@@ -1114,10 +1172,10 @@ const ChatBox = () => {
           {/* Call Error Banner */}
           {callError && (
             <View style={styles.errorBanner}>
-              <Text style={styles.errorIcon}>⚠️</Text>
+              <Ionicons name="alert-circle" size={20} color="#ba1a1a" />
               <Text style={styles.errorText}>{callError}</Text>
               <TouchableOpacity onPress={() => setCallError(null)}>
-                <Text style={styles.errorClose}>✕</Text>
+                <Ionicons name="close" size={20} color="#ba1a1a" />
               </TouchableOpacity>
             </View>
           )}
@@ -1125,7 +1183,7 @@ const ChatBox = () => {
           {/* Messages Area */}
           {isLoadingMessages && messages.length === 0 ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#6366f1" />
+              <ActivityIndicator size="large" color="#2c50cd" />
               <Text style={styles.loadingText}>Loading messages...</Text>
             </View>
           ) : (
@@ -1138,7 +1196,12 @@ const ChatBox = () => {
               onContentSizeChange={handleMessagesContentSizeChange}
               onScroll={handleMessagesScroll}
               scrollEventThrottle={16}
-              keyboardShouldPersistTaps="handled"
+              keyboardShouldPersistTaps="always"
+              keyboardDismissMode="none"
+              initialNumToRender={15}
+              maxToRenderPerBatch={10}
+              windowSize={10}
+              removeClippedSubviews={Platform.OS === "android"}
               ListHeaderComponent={
                 <View style={styles.welcomeCard}>
                   <View style={styles.welcomeAvatar}>
@@ -1150,10 +1213,22 @@ const ChatBox = () => {
                       This is a safe space to share your thoughts and feelings. Everything discussed here is confidential.
                     </Text>
                     <Text style={styles.welcomeTime}>
-                      {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString()}
+                      {new Date().toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' })} at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </Text>
                   </View>
                 </View>
+              }
+              ListFooterComponent={
+                remoteIsTyping ? (
+                  <View style={styles.typingContainer}>
+                    <View style={styles.typingDots}>
+                      <View style={styles.typingDot} />
+                      <View style={[styles.typingDot, styles.typingDotDelay1]} />
+                      <View style={[styles.typingDot, styles.typingDotDelay2]} />
+                    </View>
+                    <Text style={styles.typingLabel}>{counselorName} is typing...</Text>
+                  </View>
+                ) : null
               }
             />
           )}
@@ -1163,16 +1238,17 @@ const ChatBox = () => {
             <TouchableOpacity style={styles.emojiOverlay} activeOpacity={1} onPress={() => setShowEmojiPicker(false)}>
               <View style={styles.emojiPicker}>
                 <View style={styles.emojiHeader}>
-                  <Text style={styles.emojiTitle}>Emoji</Text>
+                  <Text style={styles.emojiTitle}>Emojis</Text>
                   <TouchableOpacity onPress={() => setShowEmojiPicker(false)}>
-                    <Text style={styles.emojiClose}>×</Text>
+                    <Ionicons name="close" size={24} color="#74777c" />
                   </TouchableOpacity>
                 </View>
                 <View style={styles.emojiGrid}>
-                  {["😊", "😂", "🥰", "😎", "😢", "😡", "👍", "👋", "❤️", "🎉", "🙏", "💪"].map((emoji, index) => (
+                  {["😊", "😂", "🥰", "😎", "😢", "😡", "👍", "👋", "❤️", "🎉", "🙏", "💪", "🌟", "💡", "🤗", "🙌"].map((emoji, index) => (
                     <TouchableOpacity key={index} style={styles.emojiItem} onPress={() => {
                       setNewMessage(prev => prev + emoji);
                       setShowEmojiPicker(false);
+                      messageInputRef.current?.focus();
                     }}>
                       <Text style={styles.emojiText}>{emoji}</Text>
                     </TouchableOpacity>
@@ -1182,21 +1258,22 @@ const ChatBox = () => {
             </TouchableOpacity>
           </Modal>
 
-          {/* Input Area */}
+          {/* Input Area - Serenity Design */}
           <View style={styles.inputArea}>
             {pendingAttachment && (
               <View style={styles.attachmentPreview}>
+                <Ionicons name="attach" size={16} color="#2c50cd" />
                 <Text style={styles.attachmentPreviewText} numberOfLines={1}>
-                  📎 {pendingAttachment.name}
+                  {pendingAttachment.name}
                 </Text>
                 <TouchableOpacity onPress={() => setPendingAttachment(null)}>
-                  <Text style={styles.attachmentPreviewRemove}>✕</Text>
+                  <Ionicons name="close-circle" size={18} color="#74777c" />
                 </TouchableOpacity>
               </View>
             )}
-            <View style={styles.inputGroup}>
+            <View style={[styles.inputGroup, isSending && styles.inputGroupDisabled]}>
               <TouchableOpacity style={styles.attachBtn} onPress={handlePickAttachment} disabled={isSending}>
-                <Text style={styles.attachIcon}>📎</Text>
+                <Ionicons name="add" size={24} color="#526071" />
               </TouchableOpacity>
               <View style={styles.inputWrapper}>
                 <TextInput
@@ -1205,13 +1282,14 @@ const ChatBox = () => {
                   value={newMessage}
                   onChangeText={handleInputChange}
                   placeholder={`Message ${counselorName}...`}
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor="#8492a5"
                   multiline
                   blurOnSubmit={false}
                   editable={!isSending}
+                  enablesReturnKeyAutomatically
                 />
                 <TouchableOpacity style={styles.emojiBtn} onPress={() => setShowEmojiPicker(true)} disabled={isSending}>
-                  <Text style={styles.emojiIcon}>😊</Text>
+                  <Ionicons name="happy-outline" size={22} color="#8492a5" />
                 </TouchableOpacity>
               </View>
               <TouchableOpacity
@@ -1221,8 +1299,13 @@ const ChatBox = () => {
                 ]}
                 onPress={handleSendMessage}
                 disabled={(newMessage.trim() === "" && !pendingAttachment) || isSending}
+                activeOpacity={0.8}
               >
-                <Text style={styles.sendIcon}>{isSending ? "⏳" : "➤"}</Text>
+                {isSending ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Ionicons name="send" size={20} color="#ffffff" />
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -1263,27 +1346,31 @@ const ChatBox = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-   
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#f7f9fb",
   },
   keyboardAvoid: {
     flex: 1,
   },
   chatBoxMain: {
     flex: 1,
-    backgroundColor: "#ffffff",
-    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0,
+    backgroundColor: "#f7f9fb",
   },
-  // Header Styles
+  // Header Styles - Serenity Trust Design
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eef2f6",
     backgroundColor: "#ffffff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e6e8ea",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+    marginTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
   },
   headerLeft: {
     flexDirection: "row",
@@ -1291,93 +1378,92 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#dbe4ef",
-    backgroundColor: "#f8fbff",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#f2f4f6",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  backBtnIcon: {
-    marginLeft: -2,
-  },
-  backBtnText: {
-    fontSize: 20,
-    color: "#1e293b",
   },
   userDetails: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
-  profilePic: {
-    position: "relative",
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#6366f1",
-    justifyContent: "center",
-    alignItems: "center",
-    overflow: "hidden",
+// Updated styles for header - replace the existing style definitions:
+
+profilePic: {
+  position: "relative",
+  width: 44,  // Changed from 52 to 44 (smaller)
+  height: 44, // Changed from 52 to 44 (smaller)
+  borderRadius: 22, // Changed from 26 to 22
+  backgroundColor: "#d5e4f8",
+  justifyContent: "center",
+  alignItems: "center",
+  overflow: "hidden",
+},
+profileAvatar: {
+  width: "100%",
+  height: "100%",
+  justifyContent: "center",
+  alignItems: "center",
+  backgroundColor: "#d5e4f8",
+},
+profileAvatarImage: {
+  width: "100%",
+  height: "100%",
+},
+profileInitials: {
+  fontSize: 16, // Changed from 20 to 16 (smaller text for smaller avatar)
+  fontWeight: "600",
+  color: "#081625",
+  textTransform: "uppercase",
+},
+activeDot: {
+  position: "absolute",
+  bottom: 1,  // Adjusted for smaller avatar
+  right: 1,   // Adjusted for smaller avatar
+  width: 10,  // Changed from 12 to 10
+  height: 10, // Changed from 12 to 10
+  borderRadius: 5, // Changed from 6 to 5
+  borderWidth: 2,
+  borderColor: "#ffffff",
+},
+profileInfo: {
+  flexDirection: "column",
+},
+profileName: {
+  fontSize: 16,
+  fontWeight: "700",
+  color: "#081625",
+  fontFamily: Platform.OS === "ios" ? "Manrope" : "System",
+},
+// REMOVED profileSpecialization style entirely
+profileStatusRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 4,
+  marginTop: 2,
+},
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
-  profileAvatar: {
-    width: "100%",
-    height: "100%",
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#6366f1",
+  statusDotOnline: {
+    backgroundColor: "#4caf50",
   },
-  profileAvatarImage: {
-    width: "100%",
-    height: "100%",
-  },
-  profileInitials: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#ffffff",
-    textTransform: "uppercase",
-  },
-  activeDot: {
-    position: "absolute",
-    bottom: 2,
-    right: 2,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: "#ffffff",
-  },
-  onlineDot: {
-    backgroundColor: "#10b981",
-  },
-  offlineDot: {
+  statusDotOffline: {
     backgroundColor: "#94a3b8",
   },
-  profileInfo: {
-    flexDirection: "column",
-  },
-  profileName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#0f172a",
-  },
-  profileStatus: {
-    fontSize: 12,
-    marginTop: 2,
-  },
   statusText: {
-    color: "#64748b",
+    fontSize: 11,
+    color: "#74777c",
     fontWeight: "500",
   },
   typingText: {
-    color: "#10b981",
+    fontSize: 11,
+    color: "#2c50cd",
     fontWeight: "600",
   },
   headerRight: {
@@ -1388,24 +1474,18 @@ const styles = StyleSheet.create({
   actionBtn: {
     width: 44,
     height: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#eef2f6",
-    backgroundColor: "#ffffff",
+    borderRadius: 22,
+    backgroundColor: "#f2f4f6",
     justifyContent: "center",
     alignItems: "center",
   },
   disabledBtn: {
-    opacity: 0.6,
-  },
-  actionBtnIcon: {
-    fontSize: 20,
-    color: "#334155",
+    opacity: 0.5,
   },
   // Options Modal
   optionsOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "flex-start",
     alignItems: "flex-end",
     paddingTop: 80,
@@ -1418,7 +1498,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.1,
     shadowRadius: 12,
     elevation: 8,
   },
@@ -1426,114 +1506,94 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     gap: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
-  },
-  optionIcon: {
-    fontSize: 16,
+    borderBottomColor: "#f2f4f6",
   },
   optionText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#1e293b",
+    color: "#191c1e",
   },
   // Chat Status Banner
   chatStatusBanner: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
     alignItems: "center",
+    backgroundColor: "#fff3e0",
     borderBottomWidth: 1,
-  },
-  statusAccepted: {
-    backgroundColor: "#e8f5e9",
-    borderBottomColor: "#81c784",
+    borderBottomColor: "#ffe0b2",
   },
   statusPending: {
-    backgroundColor: "#fff3e0",
-    borderBottomColor: "#ffb74d",
+    backgroundColor: "#fff8e1",
+    borderBottomColor: "#ffecb3",
   },
   statusEnded: {
     backgroundColor: "#ffebee",
-    borderBottomColor: "#ef9a9a",
+    borderBottomColor: "#ffcdd2",
   },
   chatStatusText: {
     fontSize: 12,
-    fontWeight: "500",
+    fontWeight: "600",
+    color: "#e65100",
   },
   // Error Banner
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fef2f2",
-    borderLeftWidth: 4,
-    borderLeftColor: "#ef4444",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    backgroundColor: "#ffdad6",
     marginHorizontal: 16,
-    marginVertical: 12,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderRadius: 12,
-  },
-  errorIcon: {
-    fontSize: 20,
-    marginRight: 12,
+    gap: 10,
   },
   errorText: {
     flex: 1,
-    color: "#991b1b",
-    fontSize: 14,
+    color: "#93000a",
+    fontSize: 13,
     fontWeight: "500",
-  },
-  errorClose: {
-    fontSize: 18,
-    color: "#991b1b",
-    paddingHorizontal: 8,
   },
   // Loading
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    gap: 16,
+    gap: 12,
   },
   loadingText: {
     fontSize: 14,
-    color: "#64748b",
+    color: "#74777c",
   },
   // Messages List
   messagesList: {
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 20,
     gap: 12,
   },
   welcomeCard: {
     flexDirection: "row",
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#eef2f6",
+    backgroundColor: "#eceef0",
     borderRadius: 24,
     padding: 16,
-    marginBottom: 16,
-    gap: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    marginBottom: 20,
+    gap: 14,
   },
   welcomeAvatar: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#6366f1",
+    backgroundColor: "#b9c8db",
     justifyContent: "center",
     alignItems: "center",
   },
   welcomeInitials: {
     fontSize: 24,
-    fontWeight: "600",
-    color: "#ffffff",
+    fontWeight: "700",
+    color: "#081625",
     textTransform: "uppercase",
   },
   welcomeMsg: {
@@ -1541,23 +1601,65 @@ const styles = StyleSheet.create({
   },
   welcomeTitle: {
     fontSize: 14,
-    fontWeight: "600",
-    color: "#0f172a",
+    fontWeight: "700",
+    color: "#081625",
     marginBottom: 4,
   },
   welcomeDesc: {
     fontSize: 12,
-    color: "#475569",
-    marginBottom: 4,
+    color: "#44474c",
+    marginBottom: 6,
     lineHeight: 16,
   },
   welcomeTime: {
     fontSize: 10,
-    color: "#94a3b8",
+    color: "#74777c",
   },
-  // Message Bubbles
+  // Message Bubbles - Serenity Design
+  messageRow: {
+    flexDirection: "row",
+    marginBottom: 4,
+    width: "100%",
+  },
+  messageRowLeft: {
+    justifyContent: "flex-start",
+    paddingRight: 40,
+  },
+  messageRowRight: {
+    justifyContent: "flex-end",
+    paddingLeft: 40,
+  },
+  messageAvatarContainer: {
+    width: 36,
+    height: 36,
+    marginRight: 8,
+    alignSelf: "flex-end", // Align avatar to bottom of the message group
+  },
+  messageAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#d5e4f8",
+  },
+  messageAvatarPlaceholder: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#d5e4f8",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  messageAvatarInitials: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#081625",
+  },
+  messageAvatarSpacer: {
+    width: 32,
+    height: 32,
+  },
   messageBubble: {
-    maxWidth: "80%",
+    maxWidth: "85%",
   },
   messageRight: {
     alignSelf: "flex-end",
@@ -1566,44 +1668,50 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   messageContent: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 24,
   },
   userMessageContent: {
-    backgroundColor: "#6366f1",
+    backgroundColor: "#2c50cd",
     borderBottomRightRadius: 4,
   },
   counselorMessageContent: {
     backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: "#eef2f6",
+    borderColor: "#e6e8ea",
     borderBottomLeftRadius: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   messageText: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 22,
+    fontFamily: Platform.OS === "ios" ? "Manrope" : "System",
   },
   userMessageText: {
     color: "#ffffff",
   },
   counselorMessageText: {
-    color: "#0f172a",
+    color: "#081625",
   },
   attachmentBubble: {
-    marginTop: 6,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    marginTop: 8,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   userAttachmentBubble: {
-    backgroundColor: "rgba(255,255,255,0.16)",
-    borderColor: "rgba(255,255,255,0.35)",
+    backgroundColor: "rgba(255,255,255,0.15)",
   },
   counselorAttachmentBubble: {
-    backgroundColor: "#f8fafc",
-    borderColor: "#e2e8f0",
+    backgroundColor: "#f2f4f6",
   },
   attachmentBubbleText: {
     fontSize: 12,
@@ -1613,18 +1721,18 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   counselorAttachmentBubbleText: {
-    color: "#334155",
+    color: "#526071",
   },
   messageFooter: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 6,
-    marginTop: 4,
+    marginTop: 6,
   },
   messageTime: {
     fontSize: 10,
-    color: "#94a3b8",
+    color: "#8492a5",
   },
   messageStatusSending: {
     fontSize: 10,
@@ -1638,49 +1746,79 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#f44336",
   },
-  // Input Area
+  // Typing Indicator
+  typingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    backgroundColor: "#eceef0",
+    alignSelf: "flex-start",
+    borderRadius: 20,
+  },
+  typingDots: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  typingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#8492a5",
+    opacity: 0.6,
+  },
+  typingDotDelay1: {
+    opacity: 0.4,
+  },
+  typingDotDelay2: {
+    opacity: 0.2,
+  },
+  typingLabel: {
+    fontSize: 12,
+    color: "#526071",
+    fontStyle: "italic",
+  },
+  // Input Area - Serenity Design
   inputArea: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === "ios" ? 30 : 0, // Removed bottom padding for Android to eliminate 'margin'
     borderTopWidth: 1,
-    borderTopColor: "#eef2f6",
+    borderTopColor: "#e6e8ea",
     backgroundColor: "#ffffff",
+  },
+  inputGroupDisabled: {
+    opacity: 0.8,
+    backgroundColor: "#f8f9fa",
   },
   attachmentPreview: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#eef2ff",
-    borderWidth: 1,
-    borderColor: "#c7d2fe",
-    borderRadius: 12,
-    paddingHorizontal: 10,
+    backgroundColor: "#f2f4f6",
+    borderRadius: 20,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    marginBottom: 8,
+    marginBottom: 10,
     gap: 8,
   },
   attachmentPreviewText: {
     flex: 1,
-    color: "#3730a3",
+    color: "#081625",
     fontSize: 12,
-    fontWeight: "600",
-  },
-  attachmentPreviewRemove: {
-    color: "#3730a3",
-    fontSize: 14,
-    fontWeight: "700",
-    paddingHorizontal: 6,
+    fontWeight: "500",
   },
   inputGroup: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    backgroundColor: "#f8fafc",
-    borderRadius: 40,
+    gap: 10,
+    backgroundColor: "#f2f4f6",
+    borderRadius: 28,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: "#eef2f6",
   },
   attachBtn: {
     width: 40,
@@ -1688,10 +1826,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
-  },
-  attachIcon: {
-    fontSize: 20,
-    color: "#64748b",
   },
   inputWrapper: {
     flex: 1,
@@ -1703,9 +1837,9 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 10,
     paddingRight: 40,
-    paddingLeft: 12,
+    paddingLeft: 8,
     fontSize: 15,
-    color: "#0f172a",
+    color: "#081625",
     maxHeight: 100,
   },
   emojiBtn: {
@@ -1717,30 +1851,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  emojiIcon: {
-    fontSize: 20,
-    color: "#64748b",
-  },
   sendBtn: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#6366f1",
+    backgroundColor: "#2c50cd",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#6366f1",
+    shadowColor: "#2c50cd",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
-    shadowRadius: 4,
+    shadowRadius: 6,
     elevation: 4,
   },
   sendBtnDisabled: {
     opacity: 0.5,
-    backgroundColor: "#94a3b8",
-  },
-  sendIcon: {
-    fontSize: 20,
-    color: "#ffffff",
+    backgroundColor: "#b9c8db",
   },
   // Emoji Picker Modal
   emojiOverlay: {
@@ -1750,68 +1876,63 @@ const styles = StyleSheet.create({
   },
   emojiPicker: {
     backgroundColor: "#ffffff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingBottom: Platform.OS === "ios" ? 34 : 16,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
   },
   emojiHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
+    borderBottomColor: "#f2f4f6",
   },
   emojiTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#1e293b",
-  },
-  emojiClose: {
-    fontSize: 24,
-    color: "#64748b",
-    paddingHorizontal: 8,
+    color: "#081625",
   },
   emojiGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 8,
+    paddingVertical: 16,
+    gap: 10,
   },
   emojiItem: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: "#f8fafc",
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#f2f4f6",
     justifyContent: "center",
     alignItems: "center",
   },
   emojiText: {
-    fontSize: 24,
+    fontSize: 28,
   },
   // Incoming Call Modal Styles
   incomingModalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
+    backgroundColor: "rgba(0,0,0,0.75)",
     justifyContent: "center",
     alignItems: "center",
   },
   incomingModal: {
-    width: screenWidth * 0.9,
-    maxWidth: 400,
+    width: screenWidth * 0.88,
+    maxWidth: 380,
     backgroundColor: "#ffffff",
-    borderRadius: 20,
+    borderRadius: 28,
     overflow: "hidden",
   },
   videoCallModal: {
     borderTopWidth: 4,
-    borderTopColor: "#4a90e2",
+    borderTopColor: "#2c50cd",
   },
   voiceCallModal: {
     borderTopWidth: 4,
-    borderTopColor: "#34c759",
+    borderTopColor: "#4caf50",
   },
   incomingModalContent: {
     padding: 24,
@@ -1824,7 +1945,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: "#6366f1",
+    backgroundColor: "#d5e4f8",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 16,
@@ -1845,42 +1966,41 @@ const styles = StyleSheet.create({
   },
   incomingCallerName: {
     fontSize: 22,
-    fontWeight: "600",
-    color: "#333",
+    fontWeight: "700",
+    color: "#081625",
     marginBottom: 4,
   },
   incomingCallType: {
     fontSize: 14,
-    color: "#666",
+    color: "#526071",
     marginBottom: 4,
   },
   incomingCallTime: {
     fontSize: 12,
-    color: "#999",
-    marginBottom: 4,
+    color: "#8492a5",
+    marginBottom: 8,
   },
   incomingCallMessage: {
-    fontSize: 12,
-    color: "#888",
+    fontSize: 13,
+    color: "#74777c",
     fontStyle: "italic",
-    marginTop: 8,
   },
   incomingCallControls: {
     flexDirection: "row",
     justifyContent: "center",
-    gap: 16,
+    gap: 14,
   },
   incomingCallBtn: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: 40,
     alignItems: "center",
   },
   acceptCallBtn: {
-    backgroundColor: "#34c759",
+    backgroundColor: "#2c50cd",
   },
   rejectCallBtn: {
-    backgroundColor: "#ff3b30",
+    backgroundColor: "#ba1a1a",
   },
   incomingCallBtnText: {
     color: "#ffffff",

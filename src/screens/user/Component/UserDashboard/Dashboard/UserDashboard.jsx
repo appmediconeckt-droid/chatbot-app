@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
+  TouchableWithoutFeedback,
   Platform,
   StyleSheet,
   Dimensions,
@@ -27,14 +28,14 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import LinearGradient from 'react-native-linear-gradient';
 import safeVibrate from "../../../../../utils/safeVibrate";
 import ChatInterface from "../Tab/chatbot/ChatInterface";
-import CounselorTable from "../Tab/Counselor/CounselorDirectory";
+import CounselorTable from "../Tab/Appointment/BookAppointment";
 import WalletDashboard from "../Tab/Wallet/WalletDashboard";
 import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
 
 const { width, height } = Dimensions.get("window");
 
-// Improved ChatPopup Component with better AI icon
+// Improved ChatPopup Component
 const ChatPopup = ({
   messages,
   newMessage,
@@ -147,31 +148,6 @@ const ChatPopup = ({
       </View>
     </View>
   </Modal>
-);
-
-// Improved ChatButton Component with better AI icon and professional design
-const ChatButton = ({ onClick, unreadCount, isMobile }) => (
-  <TouchableOpacity
-    style={[styles.floatingChatBtn, isMobile && styles.floatingChatBtnMobile]}
-    onPress={onClick}
-    activeOpacity={0.8}
-  >
-    <LinearGradient
-      colors={['#667eea', '#764ba2']}
-      style={styles.floatingChatGradient}
-    >
-      <View style={styles.floatingChatInner}>
-        <MaterialIcons name="auto-awesome" size={24} color="#fde68a" />
-        <View style={styles.floatingChatPulse} />
-      </View>
-    </LinearGradient>
-    <Text style={styles.floatingChatBtnText}>AI</Text>
-    {unreadCount > 0 && (
-      <View style={styles.unreadBadge}>
-        <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
-      </View>
-    )}
-  </TouchableOpacity>
 );
 
 // Call Modal Component
@@ -341,6 +317,214 @@ const VoiceCallModal = ({ isOpen, onClose, callData, onEndCall }) => (
   </Modal>
 );
 
+const MyAppointmentsPanel = ({ onBookPress }) => {
+  const [appointments, setAppointments] = useState([]);
+  const [loadingAppointments, setLoadingAppointments] = useState(true);
+  const [activeTab, setActiveTab] = useState("Upcoming");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [selectedApt, setSelectedApt] = useState(null);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+
+  useEffect(() => {
+    const fetchAppointments = async () => {
+      try {
+        setLoadingAppointments(true);
+        const token =
+          (await AsyncStorage.getItem("token")) ||
+          (await AsyncStorage.getItem("accessToken"));
+
+        const response = await axios.get(`${API_BASE_URL}/api/appointments`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        setAppointments(Array.isArray(response.data) ? response.data : []);
+      } catch (err) {
+        console.error("Error fetching appointments:", err);
+        setAppointments([]);
+      } finally {
+        setLoadingAppointments(false);
+      }
+    };
+
+    fetchAppointments();
+  }, []);
+
+  const upcomingApts = appointments.filter(
+    (apt) => apt.status !== "completed" && apt.status !== "canceled"
+  );
+  const pastApts = appointments.filter(
+    (apt) => apt.status === "completed" || apt.status === "canceled"
+  );
+
+  let displayApts = activeTab === "Upcoming" ? upcomingApts : pastApts;
+
+  if (statusFilter === "Pending") {
+    displayApts = displayApts.filter((apt) => apt.status === "pending");
+  }
+  if (statusFilter === "Confirmed") {
+    displayApts = displayApts.filter((apt) => apt.status === "confirmed");
+  }
+
+  const getStatusStyle = (status) => {
+    if (status === "confirmed") return styles.aptStatusConfirmed;
+    if (status === "completed") return styles.aptStatusCompleted;
+    if (status === "canceled") return styles.aptStatusCanceled;
+    return styles.aptStatusPending;
+  };
+
+  const getAvatarSrc = (apt) => {
+    const photo = apt?.counselor?.profilePhoto;
+    if (photo) {
+      return typeof photo === "string" ? photo : photo.url;
+    }
+
+    const name = apt?.counselor?.fullName || "Counselor";
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0f172a&color=ffffff&bold=true`;
+  };
+
+  return (
+    <View style={styles.appointmentsRoot}>
+      <LinearGradient colors={["#0f172a", "#1e293b"]} style={styles.appointmentsHero}>
+        <Text style={styles.appointmentsHeroTitle}>My Appointments</Text>
+        <Text style={styles.appointmentsHeroSubtitle}>
+          Track upcoming sessions and review previous consultations.
+        </Text>
+
+        <View style={styles.appointmentsHeroTabs}>
+          <TouchableOpacity
+            onPress={() => setActiveTab("Upcoming")}
+            style={[styles.heroTabBtn, activeTab === "Upcoming" && styles.heroTabBtnActive]}
+          >
+            <Text style={[styles.heroTabText, activeTab === "Upcoming" && styles.heroTabTextActive]}>Upcoming</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setActiveTab("Past")}
+            style={[styles.heroTabBtn, activeTab === "Past" && styles.heroTabBtnActive]}
+          >
+            <Text style={[styles.heroTabText, activeTab === "Past" && styles.heroTabTextActive]}>Past</Text>
+          </TouchableOpacity>
+        </View>
+      </LinearGradient>
+
+      <View style={styles.appointmentFilterRow}>
+        {[
+          { key: "All", label: "All" },
+          { key: "Pending", label: "Pending" },
+          { key: "Confirmed", label: "Confirmed" },
+        ].map((chip) => (
+          <TouchableOpacity
+            key={chip.key}
+            style={[styles.filterChip, statusFilter === chip.key && styles.filterChipActive]}
+            onPress={() => setStatusFilter(chip.key)}
+          >
+            <Text style={[styles.filterChipText, statusFilter === chip.key && styles.filterChipTextActive]}>
+              {chip.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <ScrollView contentContainerStyle={styles.appointmentsList} showsVerticalScrollIndicator={false}>
+        {loadingAppointments ? (
+          <View style={styles.appointmentLoaderWrap}>
+            <ActivityIndicator size="large" color="#4f46e5" />
+            <Text style={styles.appointmentLoaderText}>Loading appointments...</Text>
+          </View>
+        ) : displayApts.length === 0 ? (
+          <View style={styles.appointmentEmptyCard}>
+            <MaterialIcons name="event-busy" size={30} color="#94a3b8" />
+            <Text style={styles.appointmentEmptyTitle}>No appointments found</Text>
+            <Text style={styles.appointmentEmptySubtitle}>
+              Try changing filters or book a new session with a counselor.
+            </Text>
+          </View>
+        ) : (
+          displayApts.map((apt) => (
+            <View key={apt._id} style={styles.appointmentCard}>
+              <View style={styles.appointmentCardHeader}>
+                <Image source={{ uri: getAvatarSrc(apt) }} style={styles.appointmentAvatar} />
+                <View style={styles.appointmentMetaColumn}>
+                  <Text style={styles.appointmentDoctorName} numberOfLines={1}>
+                    Dr. {apt?.counselor?.fullName || "Counselor"}
+                  </Text>
+                  <Text style={styles.appointmentSpecialization} numberOfLines={1}>
+                    {apt?.counselor?.specialization || "Mental Wellness Specialist"}
+                  </Text>
+                </View>
+                <View style={[styles.aptStatusPill, getStatusStyle(apt.status)]}>
+                  <Text style={styles.aptStatusText}>{apt.status || "pending"}</Text>
+                </View>
+              </View>
+
+              <View style={styles.appointmentDateRow}>
+                <MaterialIcons name="event" size={16} color="#4f46e5" />
+                <Text style={styles.appointmentDateText}>
+                  {new Date(apt.date).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                  {"  •  "}
+                  {new Date(apt.date).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </Text>
+              </View>
+
+              <View style={styles.appointmentActionRow}>
+                <TouchableOpacity
+                  style={styles.appointmentDetailsBtn}
+                  onPress={() => {
+                    setSelectedApt(apt);
+                    setShowDetailsModal(true);
+                  }}
+                >
+                  <MaterialIcons name="visibility" size={15} color="#334155" />
+                  <Text style={styles.appointmentDetailsText}>View Details</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.appointmentBookBtn} onPress={onBookPress}>
+                  <MaterialIcons name="add-circle-outline" size={15} color="#ffffff" />
+                  <Text style={styles.appointmentBookText}>Book New</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))
+        )}
+      </ScrollView>
+
+      <Modal
+        transparent={true}
+        visible={showDetailsModal}
+        animationType="fade"
+        onRequestClose={() => setShowDetailsModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.appointmentDetailsModal}>
+            <TouchableOpacity
+              onPress={() => setShowDetailsModal(false)}
+              style={styles.detailsCloseBtn}
+            >
+              <MaterialIcons name="close" size={20} color="#64748b" />
+            </TouchableOpacity>
+
+            <Text style={styles.appointmentDetailsTitle}>Appointment Details</Text>
+            <Text style={styles.appointmentDetailsLine}>
+              Date: {selectedApt ? new Date(selectedApt.date).toLocaleDateString("en-US") : "-"}
+            </Text>
+            <Text style={styles.appointmentDetailsLine}>
+              Time: {selectedApt ? new Date(selectedApt.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-"}
+            </Text>
+            <Text style={styles.appointmentDetailsLine}>Status: {selectedApt?.status || "pending"}</Text>
+            <Text style={styles.appointmentDetailsLine}>Notes: {selectedApt?.notes || "N/A"}</Text>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
 export default function UserDashboard() {
   const navigation = useNavigation();
   const [active, setActive] = useState("Chat");
@@ -458,7 +642,7 @@ export default function UserDashboard() {
           message: newMessage,
         },
         {
-          headers: { 
+          headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
@@ -482,11 +666,11 @@ export default function UserDashboard() {
       }
     } catch (error) {
       console.error("Chat API error:", error);
-      
+
       if (error.response && error.response.status === 401) {
         console.log("Authentication failed - token may be expired");
       }
-      
+
       const aiResponses = [
         "I understand. Would you like to try some breathing exercises?",
         "Thank you for sharing. How long have you been feeling this way?",
@@ -508,8 +692,7 @@ export default function UserDashboard() {
   };
 
   const handleMenuItemClick = (id) => {
-    safeVibrate(30);
-    setActive(id);
+    switchDashboardTab(id);
     if (isMobile) {
       setShowMoreModal(false);
       setShowProfileMenu(false);
@@ -517,62 +700,52 @@ export default function UserDashboard() {
   };
 
   const handleProfileClick = () => {
-    safeVibrate(30);
-    setActive("profile");
+    switchDashboardTab("profile");
     if (isMobile) {
       setShowProfileMenu(false);
     }
   };
-const handleLogout = async () => {
-  try {
-    // Get tokens
-    const accessToken = await AsyncStorage.getItem("accessToken");
-    const refreshToken = await AsyncStorage.getItem("refreshToken");
-    const token = await AsyncStorage.getItem("token"); // Fallback for older token key
-    
-    // Make backend logout API call
-    if (accessToken || token) {
-      try {
-        await axios.post(
-          `${API_BASE_URL}/api/auth/logout`,
-          { refreshToken },
-          { 
-            headers: { 
-              Authorization: `Bearer ${accessToken || token}`, 
-              "Content-Type": "application/json" 
-            } 
-          }
-        );
-      } catch (apiError) {
-        console.error("Backend logout error:", apiError);
-        // Continue with local cleanup even if backend call fails
+
+  const switchDashboardTab = (tabId) => {
+    if (active === tabId) return;
+    safeVibrate(100);
+    setActive(tabId);
+  };
+
+  const handleLogout = async () => {
+    try {
+      const accessToken = await AsyncStorage.getItem("accessToken");
+      const refreshToken = await AsyncStorage.getItem("refreshToken");
+      const token = await AsyncStorage.getItem("token");
+
+      if (accessToken || token) {
+        try {
+          await axios.post(
+            `${API_BASE_URL}/api/auth/logout`,
+            { refreshToken },
+            {
+              headers: {
+                Authorization: `Bearer ${accessToken || token}`,
+                "Content-Type": "application/json"
+              }
+            }
+          );
+        } catch (apiError) {
+          console.error("Backend logout error:", apiError);
+        }
       }
+
+      await AsyncStorage.clear();
+      navigation.replace("RoleSelector");
+    } catch (error) {
+      console.error("Logout error:", error);
+      await AsyncStorage.clear();
+      navigation.replace("RoleSelector");
     }
-    
-    // Clear all local storage
-    await AsyncStorage.clear();
-    
-    // Navigate to role selector
-    navigation.replace("RoleSelector");
-  } catch (error) {
-    console.error("Logout error:", error);
-    // Force clear and navigate even if there's an error
-    await AsyncStorage.clear();
-    navigation.replace("RoleSelector");
-  }
-};
-  // const handleLogout = async () => {
-  //   try {
-  //     await AsyncStorage.clear();
-  //     navigation.navigate("RoleSelector");
-  //   } catch (error) {
-  //     console.error("Logout error:", error);
-  //     navigation.navigate("RoleSelector");
-  //   }
-  // };
+  };
 
   const handleDeleteConfirm = () => {
-    safeVibrate([100, 50, 100]);
+    safeVibrate([220, 100, 220]);
     setShowDeleteConfirm(false);
     setDeleteSuccess(true);
     setTimeout(() => {
@@ -595,95 +768,40 @@ const handleLogout = async () => {
   };
 
   const allMenuItems = [
-    { id: "Chat", icon: "comment", label: "Chat", type: "fontawesome5" },
-    { id: "Counselor", icon: "user-md", label: "Counselor", type: "fontawesome5" },
-    { id: "Wallet", icon: "wallet", label: "Wallet", type: "fontawesome5" },
-    { id: "Video", icon: "video", label: "Call History", type: "fontawesome5" },
-    { id: "help", icon: "question-circle", label: "Help & Support", type: "fontawesome5" },
-    { id: "privacy", icon: "lock", label: "Privacy", type: "fontawesome5" },
+    { id: "Chat", icon: "chat", label: "Chat", type: "material" },
+    { id: "Counselor", icon: "psychology", label: "Counselor", type: "material" },
+    { id: "Appointment", icon: "event-available", label: "My Appointment", type: "material" },
+    { id: "Wallet", icon: "account-balance-wallet", label: "Wallet", type: "material" },
+    { id: "Video", icon: "history", label: "Call History", type: "material" },
   ];
-
-  const bottomMenuItems = allMenuItems.slice(0, 4);
-
-  const renderIcon = (item, color = "#667eea") => {
-    const size = 18;
-    return <Icon name={item.icon} size={size} color={color} />;
-  };
 
   const renderContent = () => {
     switch (active) {
       case "Chat":
-        return <ChatInterface setActiveTab={setActive} />;
+        return <ChatInterface setActiveTab={switchDashboardTab} />;
       case "Counselor":
         return <CounselorTable />;
+      case "Appointment":
+        return <MyAppointmentsPanel onBookPress={() => setActive("Counselor")} />;
       case "Wallet":
         return <WalletDashboard />;
       case "Video":
         return <CallHistory />;
       case "profile":
         return <PatientProfile />;
-      case "help":
-        return (
-          <ScrollView style={styles.contentScrollable} showsVerticalScrollIndicator={false}>
-            <View style={styles.contentSection}>
-              <Text style={styles.sectionTitle}>Help & Support</Text>
-              <View style={styles.helpContent}>
-                <TouchableOpacity style={styles.supportCard}>
-                  <MaterialIcons name="help" size={32} color="#667eea" />
-                  <Text style={styles.supportCardTitle}>FAQ</Text>
-                  <Text style={styles.supportCardText}>Find answers to frequently asked questions</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.supportCard}>
-                  <MaterialIcons name="email" size={32} color="#667eea" />
-                  <Text style={styles.supportCardTitle}>Contact Support</Text>
-                  <Text style={styles.supportCardText}>Email us at support@example.com</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </ScrollView>
-        );
-      case "privacy":
-        return (
-          <ScrollView style={styles.contentScrollable} showsVerticalScrollIndicator={false}>
-            <View style={styles.contentSection}>
-              <Text style={styles.sectionTitle}>Privacy Settings</Text>
-              <View style={styles.privacyContent}>
-                <View style={styles.privacyOption}>
-                  <Text style={styles.privacyOptionTitle}>Data Privacy</Text>
-                  <Text style={styles.privacyOptionText}>Control how your data is used and shared</Text>
-                  <TouchableOpacity style={styles.privacyBtn}>
-                    <Text style={styles.privacyBtnText}>Manage Settings</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.privacyOption}>
-                  <Text style={styles.privacyOptionTitle}>Session Privacy</Text>
-                  <Text style={styles.privacyOptionText}>Configure privacy settings for your sessions</Text>
-                  <TouchableOpacity style={styles.privacyBtn}>
-                    <Text style={styles.privacyBtnText}>Configure</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </ScrollView>
-        );
       default:
-        return (
-          <View style={styles.contentSection}>
-            <Text style={styles.sectionTitle}>Welcome, {userData.name}!</Text>
-            <Text style={styles.placeholderText}>Select an option from the menu to get started.</Text>
-          </View>
-        );
+        return <ChatInterface />;
     }
   };
 
   return (
     <View style={styles.container}>
-      <StatusBar 
-        barStyle="dark-content" 
-        backgroundColor="transparent" 
-        translucent={true}
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="#ffffff"
+        translucent={false}
       />
-      
+
       <CallModal
         isOpen={showCallModal}
         onClose={() => setShowCallModal(false)}
@@ -699,160 +817,105 @@ const handleLogout = async () => {
         isOpen={isVideoModalOpen}
         onClose={() => setIsVideoModalOpen(false)}
         callData={selectedCall}
-        onEndCall={() => {}}
+        onEndCall={() => { }}
       />
 
       <VoiceCallModal
         isOpen={isVoiceModalOpen}
         onClose={() => setIsVoiceModalOpen(false)}
         callData={selectedCall}
-        onEndCall={() => {}}
+        onEndCall={() => { }}
       />
 
-      {isMobile && (
-        <Animated.View 
-          style={[
-            styles.mobileHeader,
-            {
-              opacity: headerAnim,
-              transform: [{ translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }]
-            }
-          ]}
+      {/* HEADER - Exactly matching screen.png */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <Image
+            source={require("../../../../../image/Mediconect Logo-3.png")}
+            style={styles.headerLogo}
+            resizeMode="contain"
+          />
+          <Text style={styles.headerTitle}>Mediconecket</Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.profileImageWrapper}
+          onPress={() => setShowProfileMenu(!showProfileMenu)}
+          activeOpacity={0.7}
         >
-          <LinearGradient
-            colors={['#1E293B', '#1E293B']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.mobileHeaderGradient}
-          >
-            <View style={styles.mobileHeaderContent}>
-              <View style={styles.mobileHeaderLeft}>
-                <View style={styles.logoWrapper}>
-                  <Text style={styles.mobileLogo}>
-                    M-<Text style={styles.mobileLogoHighlight}>Chatbot</Text>
+          {userData.profilePhoto ? (
+            <Image source={{ uri: userData.profilePhoto }} style={styles.profileImageHeader} />
+          ) : (
+            <View style={styles.profileImagePlaceholderHeader}>
+              <Text style={styles.profileInitialsHeader}>
+                {userData.name?.charAt(0) || 'U'}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Profile Dropdown Menu */}
+        {showProfileMenu && (
+          <Animated.View style={[styles.profileDropdown, { opacity: headerAnim }]}>
+            <View style={styles.dropdownHeader}>
+              {userData.profilePhoto ? (
+                <Image source={{ uri: userData.profilePhoto }} style={styles.dropdownAvatar} />
+              ) : (
+                <View style={styles.dropdownAvatarPlaceholder}>
+                  <Text style={styles.dropdownAvatarText}>
+                    {userData.name?.charAt(0) || 'U'}
                   </Text>
                 </View>
-              </View>
-              <View style={styles.mobileHeaderRight}>
-                <TouchableOpacity
-                  style={styles.mobileProfileBtn}
-                  onPress={() => setShowProfileMenu(!showProfileMenu)}
-                >
-                  {userData.profilePhoto ? (
-                    <Image source={{ uri: userData.profilePhoto }} style={styles.mobileUserAvatar} />
-                  ) : (
-                    <View style={styles.profileAvatarPlaceholder}>
-                      <Text style={styles.profileAvatarText}>
-                        {userData.name?.charAt(0) || 'U'}
-                      </Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
+              )}
+              <View style={styles.dropdownUserInfo}>
+                <Text style={styles.dropdownUserName}>{userData.name}</Text>
+                <Text style={styles.dropdownUserEmail}>{userData.email}</Text>
               </View>
             </View>
-          </LinearGradient>
-
-          {showProfileMenu && (
-            <Animated.View style={[styles.profileDropdownMenu, { opacity: headerAnim }]}>
-              <View style={styles.profileDropdownHeader}>
-                {userData.profilePhoto ? (
-                  <Image source={{ uri: userData.profilePhoto }} style={styles.dropdownAvatar} />
-                ) : (
-                  <View style={styles.dropdownAvatarPlaceholder}>
-                    <Text style={styles.dropdownAvatarText}>
-                      {userData.name?.charAt(0) || 'U'}
-                    </Text>
-                  </View>
-                )}
-                <View style={styles.dropdownUserInfo}>
-                  <Text style={styles.dropdownUserName}>{userData.name}</Text>
-                  <Text style={styles.dropdownUserEmail}>{userData.email}</Text>
-                </View>
-              </View>
-              <View style={styles.profileDropdownItems}>
-                <TouchableOpacity style={styles.dropdownItem} onPress={handleProfileClick}>
-                  <MaterialIcons name="person" size={18} color="#3B82F6" />
-                  <Text style={styles.dropdownItemText}>My Profile</Text>
-                </TouchableOpacity>
-                {/* Settings option removed */}
-                <View style={styles.dropdownDivider} />
-                <TouchableOpacity
-                  style={[styles.dropdownItem, styles.logoutItem]}
-                  onPress={() => setShowLogoutConfirm(true)}
-                >
-                  <MaterialIcons name="logout" size={18} color="#dc2626" />
-                  <Text style={[styles.dropdownItemText, styles.logoutText]}>Logout</Text>
-                </TouchableOpacity>
-              </View>
-            </Animated.View>
-          )}
-        </Animated.View>
-      )}
-
-      <View style={styles.dashboardContainer}>
-        {!isMobile && (
-          <View style={styles.userSidebar}>
-            <View style={styles.sidebarContent}>
-              <View style={styles.sidebarHeader}>
-                <View style={styles.profileSection}>
-                  <View style={styles.profileImage}>
-                    {userData.profilePhoto ? (
-                      <Image source={{ uri: userData.profilePhoto }} style={styles.profileImageImg} />
-                    ) : (
-                      <View style={styles.profileImagePlaceholder}>
-                        <Text style={styles.profileImagePlaceholderText}>
-                          {userData.name?.charAt(0) || 'U'}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.profileInfo}>
-                    <Text style={styles.sidebarTitle}>
-                      {userData.name}
-                    </Text>
-                    <Text style={styles.sidebarSubtitle}>
-                      {userData.email}
-                    </Text>
-                    <View style={styles.memberBadge}>
-                      <MaterialIcons name="verified" size={14} color="#667eea" />
-                      <Text style={styles.memberBadgeText}>Premium Member</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.sidebarMenu}>
-                {allMenuItems.map((item) => (
-                  <TouchableOpacity
-                    key={item.id}
-                    onPress={() => handleMenuItemClick(item.id)}
-                    style={[styles.sidebarItem, active === item.id && styles.sidebarItemActive]}
-                  >
-                    <View style={[styles.sidebarIcon, active === item.id && styles.sidebarIconActive]}>
-                      {renderIcon(item, active === item.id ? "white" : "#667eea")}
-                    </View>
-                    <Text style={[styles.sidebarText, active === item.id && styles.sidebarTextActive]}>
-                      {item.label}
-                    </Text>
-                    {active === item.id && <View style={styles.activeIndicator} />}
-                  </TouchableOpacity>
-                ))}
-              </View>
+            <View style={styles.dropdownItems}>
+              <TouchableOpacity style={styles.dropdownItem} onPress={handleProfileClick}>
+                <MaterialIcons name="person" size={18} color="#3B82F6" />
+                <Text style={styles.dropdownItemText}>My Profile</Text>
+              </TouchableOpacity>
+              <View style={styles.dropdownDivider} />
+              <TouchableOpacity
+                style={[styles.dropdownItem, styles.logoutDropdownItem]}
+                onPress={() => setShowLogoutConfirm(true)}
+              >
+                <MaterialIcons name="logout" size={18} color="#dc2626" />
+                <Text style={[styles.dropdownItemText, styles.logoutText]}>Logout</Text>
+              </TouchableOpacity>
             </View>
-          </View>
+          </Animated.View>
         )}
-
-        <View style={[styles.dashboardContent, isMobile && styles.dashboardContentMobile]}>
-          {renderContent()}
-        </View>
       </View>
 
-      <ChatButton
-        onClick={() => setChatOpen(true)}
-        unreadCount={unreadCount}
-        isMobile={isMobile}
-      />
+      {/* MAIN CONTENT */}
+      <View style={styles.contentContainer}>
+        {renderContent()}
+      </View>
 
+      {/* AI FLOATING BUTTON - Exactly matching screen.png */}
+      <TouchableOpacity
+        style={styles.aiButton}
+        onPress={() => setChatOpen(true)}
+        activeOpacity={0.8}
+      >
+        <LinearGradient
+          colors={['#7c83fd', '#4e56cc']}
+          style={styles.aiButtonGradient}
+        >
+          <MaterialIcons name="auto-awesome" size={24} color="white" />
+          <Text style={styles.aiButtonText}>AI</Text>
+        </LinearGradient>
+        {unreadCount > 0 && !chatOpen && (
+          <View style={styles.aiUnreadBadge}>
+            <Text style={styles.aiUnreadBadgeText}>{unreadCount}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+
+      {/* CHAT POPUP */}
       {chatOpen && (
         <ChatPopup
           messages={chatMessages}
@@ -864,137 +927,262 @@ const handleLogout = async () => {
         />
       )}
 
-      {isMobile && (
-        <View style={styles.mobileBottomNav}>
-          {bottomMenuItems.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={[styles.mobileNavBtn, active === item.id && styles.mobileNavBtnActive]}
-              onPress={() => handleMenuItemClick(item.id)}
-            >
-              <View style={[styles.navIconWrapper, active === item.id && styles.navIconWrapperActive]}>
-                {renderIcon(item, active === item.id ? "#3B82F6" : "#94A3B8")}
-              </View>
-              <Text style={[styles.navLabel, active === item.id && styles.navLabelActive]}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity style={styles.mobileNavBtn} onPress={() => setShowMoreModal(true)}>
-            <View style={styles.navIconWrapper}>
-              <MaterialIcons name="more-horiz" size={20} color="#94A3B8" />
-            </View>
-            <Text style={styles.navLabel}>More</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      <Modal transparent={true} visible={showMoreModal} animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Menu Options</Text>
-              <TouchableOpacity onPress={() => setShowMoreModal(false)}>
-                <Text style={styles.closeModalText}>×</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.modalBody}>
-              <View style={styles.moreOptionsList}>
-                {allMenuItems.map((item) => (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={[styles.moreOptionItem, active === item.id && styles.moreOptionItemActive]}
-                    onPress={() => handleMenuItemClick(item.id)}
-                  >
-                    <View style={styles.moreOptionIcon}>
-                      {renderIcon(item, active === item.id ? "#667eea" : "#555")}
-                    </View>
-                    <Text style={styles.moreOptionText}>{item.label}</Text>
-                    <MaterialIcons name="arrow-forward" size={14} color="#ccc" />
-                  </TouchableOpacity>
-                ))}
-                <View style={styles.moreActions}>
-                  <TouchableOpacity
-                    style={styles.moreActionBtn}
-                    onPress={() => {
-                      setShowMoreModal(false);
-                      setShowLogoutConfirm(true);
-                    }}
-                  >
-                    <MaterialIcons name="logout" size={16} color="#dc2626" />
-                    <Text style={styles.moreActionBtnText}>Logout</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
+      {/* BOTTOM NAVIGATION - Exactly matching screen.png */}
+      {/* BOTTOM NAVIGATION - Exactly matching screen.png */}
+      <View style={styles.bottomNav}>
+        <TouchableOpacity
+          style={[styles.navItem, active === "Chat" && styles.navItemActive]}
+          onPress={() => handleMenuItemClick("Chat")}
+        >
+          <View style={[styles.navIconWrapper, active === "Chat" && styles.navIconWrapperActive]}>
+            <MaterialIcons
+              name="chat"
+              size={26}
+              color={active === "Chat" ? "#ffffff" : "#94a3b8"}
+            />
           </View>
-        </View>
+          <Text style={[styles.navLabel, active === "Chat" && styles.navLabelActive]}>Chat</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.navItem, active === "Counselor" && styles.navItemActive]}
+          onPress={() => handleMenuItemClick("Counselor")}
+        >
+          <View style={[styles.navIconWrapper, active === "Counselor" && styles.navIconWrapperActive]}>
+            <MaterialIcons
+              name="psychology"
+              size={26}
+              color={active === "Counselor" ? "#ffffff" : "#94a3b8"}
+            />
+          </View>
+          <Text style={[styles.navLabel, active === "Counselor" && styles.navLabelActive]}>Counselor</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.navItem, active === "Appointment" && styles.navItemActive]}
+          onPress={() => handleMenuItemClick("Appointment")}
+        >
+          <View style={[styles.navIconWrapper, active === "Appointment" && styles.navIconWrapperActive]}>
+            <MaterialIcons
+              name="event-available"
+              size={26}
+              color={active === "Appointment" ? "#ffffff" : "#94a3b8"}
+            />
+          </View>
+          <Text style={[styles.navLabel, active === "Appointment" && styles.navLabelActive]}>Appointment</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.navItem, active === "Wallet" && styles.navItemActive]}
+          onPress={() => handleMenuItemClick("Wallet")}
+        >
+          <View style={[styles.navIconWrapper, active === "Wallet" && styles.navIconWrapperActive]}>
+            <MaterialIcons
+              name="account-balance-wallet"
+              size={26}
+              color={active === "Wallet" ? "#ffffff" : "#94a3b8"}
+            />
+          </View>
+          <Text style={[styles.navLabel, active === "Wallet" && styles.navLabelActive]}>Wallet</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => setShowMoreModal(true)}
+        >
+          <View style={styles.navIconWrapper}>
+            <MaterialIcons name="more-horiz" size={26} color="#94a3b8" />
+          </View>
+          <Text style={styles.navLabel}>More</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* MORE MODAL - Premium Redesign */}
+      <Modal transparent={true} visible={showMoreModal} animationType="slide">
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setShowMoreModal(false)}
+        >
+            <TouchableWithoutFeedback>
+              <Animated.View style={[styles.premiumMoreModal, { transform: [{ translateY: 0 }] }]}>
+                <LinearGradient
+                  colors={['#1e293b', '#0f172a']}
+                  style={styles.premiumMoreHeader}
+                >
+                  <View style={styles.premiumHeaderLine} />
+                  <View style={styles.premiumHeaderTitleRow}>
+                    <Text style={styles.premiumMoreTitle}>Settings & More</Text>
+                    <TouchableOpacity 
+                      onPress={() => setShowMoreModal(false)}
+                      style={styles.premiumCloseBtn}
+                    >
+                      <MaterialIcons name="close" size={24} color="#ffffff" />
+                    </TouchableOpacity>
+                  </View>
+                </LinearGradient>
+
+                <ScrollView 
+                  style={styles.premiumMoreBody}
+                  contentContainerStyle={{ paddingBottom: 40 }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <View style={styles.premiumMoreSection}>
+                    <Text style={styles.premiumSectionTitle}>Dashboard Services</Text>
+                    {allMenuItems.map((item) => (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={styles.premiumListItem}
+                        onPress={() => handleMenuItemClick(item.id)}
+                      >
+                        <View style={[
+                          styles.premiumListIcon, 
+                          { backgroundColor: active === item.id ? '#eff6ff' : '#f8fafc' }
+                        ]}>
+                          <MaterialIcons 
+                            name={item.icon} 
+                            size={20} 
+                            color={active === item.id ? "#3b82f6" : "#64748b"} 
+                          />
+                        </View>
+                        <Text style={[
+                          styles.premiumListText,
+                          active === item.id && { color: '#3b82f6' }
+                        ]}>
+                          {item.label}
+                        </Text>
+                        <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <View style={styles.premiumMoreSection}>
+                    <Text style={styles.premiumSectionTitle}>Account Settings</Text>
+                    <TouchableOpacity 
+                      style={styles.premiumListItem}
+                      onPress={() => {
+                        setShowMoreModal(false);
+                        switchDashboardTab("profile");
+                      }}
+                    >
+                      <View style={[styles.premiumListIcon, { backgroundColor: '#eff6ff' }]}>
+                        <MaterialIcons name="person" size={20} color="#3b82f6" />
+                      </View>
+                      <Text style={styles.premiumListText}>My Profile</Text>
+                      <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={styles.premiumListItem}
+                      onPress={() => Alert.alert("Support", "Support feature coming soon!")}
+                    >
+                      <View style={[styles.premiumListIcon, { backgroundColor: '#f0fdf4' }]}>
+                        <MaterialIcons name="help-outline" size={20} color="#22c55e" />
+                      </View>
+                      <Text style={styles.premiumListText}>Help & Support</Text>
+                      <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={styles.premiumListItem}
+                      onPress={() => Alert.alert("Privacy", "Privacy Policy coming soon!")}
+                    >
+                      <View style={[styles.premiumListIcon, { backgroundColor: '#faf5ff' }]}>
+                        <MaterialIcons name="security" size={20} color="#a855f7" />
+                      </View>
+                      <Text style={styles.premiumListText}>Privacy Policy</Text>
+                      <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={[styles.premiumMoreSection, { marginBottom: 10 }]}>
+                    <TouchableOpacity
+                      style={styles.premiumLogoutBtn}
+                      onPress={() => {
+                        setShowMoreModal(false);
+                        setShowLogoutConfirm(true);
+                      }}
+                    >
+                      <MaterialIcons name="logout" size={20} color="#ffffff" />
+                      <Text style={styles.premiumLogoutText}>Logout Account</Text>
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+              </Animated.View>
+            </TouchableWithoutFeedback>
+        </TouchableOpacity>
       </Modal>
 
+      {/* LOGOUT CONFIRM MODAL */}
       <Modal transparent={true} visible={showLogoutConfirm} animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Confirm Logout</Text>
+          <View style={styles.confirmModal}>
+            <View style={styles.confirmModalHeader}>
+              <Text style={styles.confirmModalTitle}>Confirm Logout</Text>
             </View>
-            <View style={styles.modalBody}>
-              <Text style={styles.modalBodyText}>Are you sure you want to logout?</Text>
+            <View style={styles.confirmModalBody}>
+              <Text style={styles.confirmModalText}>Are you sure you want to logout?</Text>
             </View>
-            <View style={styles.modalFooter}>
+            <View style={styles.confirmModalFooter}>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnSecondary]}
+                style={[styles.modalBtn, styles.cancelBtn]}
                 onPress={() => setShowLogoutConfirm(false)}
               >
-                <Text style={styles.modalBtnSecondaryText}>Cancel</Text>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnDanger]} onPress={handleLogout}>
-                <Text style={styles.modalBtnDangerText}>Logout</Text>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.confirmLogoutBtn]}
+                onPress={handleLogout}
+              >
+                <Text style={styles.confirmLogoutBtnText}>Logout</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
+      {/* DELETE CONFIRM MODAL */}
       <Modal transparent={true} visible={showDeleteConfirm} animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Delete Account</Text>
+          <View style={styles.confirmModal}>
+            <View style={styles.confirmModalHeader}>
+              <Text style={styles.confirmModalTitle}>Delete Account</Text>
             </View>
-            <View style={styles.modalBody}>
-              <Text style={styles.modalBodyText}>
+            <View style={styles.confirmModalBody}>
+              <Text style={styles.confirmModalText}>
                 This action cannot be undone. All your data will be permanently deleted.
               </Text>
             </View>
-            <View style={styles.modalFooter}>
+            <View style={styles.confirmModalFooter}>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnSecondary]}
+                style={[styles.modalBtn, styles.cancelBtn]}
                 onPress={() => setShowDeleteConfirm(false)}
               >
-                <Text style={styles.modalBtnSecondaryText}>Cancel</Text>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnDanger]}
+                style={[styles.modalBtn, styles.deleteBtn]}
                 onPress={handleDeleteConfirm}
               >
-                <Text style={styles.modalBtnDangerText}>Delete Account</Text>
+                <Text style={styles.deleteBtnText}>Delete Account</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
+      {/* DELETE SUCCESS MODAL */}
       <Modal transparent={true} visible={deleteSuccess} animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContainer, styles.successModal]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, styles.successTitle]}>
+          <View style={[styles.confirmModal, styles.successModal]}>
+            <View style={styles.confirmModalHeader}>
+              <Text style={[styles.confirmModalTitle, styles.successTitle]}>
                 <MaterialIcons name="check-circle" size={20} color="#10b981" /> Account Deleted!
               </Text>
             </View>
-            <View style={styles.modalBody}>
-              <Text style={styles.modalBodyText}>Your account has been successfully deleted.</Text>
-              <Text style={styles.modalBodyText}>Redirecting...</Text>
+            <View style={styles.confirmModalBody}>
+              <Text style={styles.confirmModalText}>Your account has been successfully deleted.</Text>
+              <Text style={styles.confirmModalText}>Redirecting...</Text>
             </View>
           </View>
         </View>
@@ -1006,324 +1194,84 @@ const handleLogout = async () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f7fa",
-    marginTop: 40
+    backgroundColor: "#f7f9fb",
   },
-  dashboardContainer: {
-    flex: 1,
-    flexDirection: "row",
-  },
-  userSidebar: {
-    width: 280,
-    backgroundColor: "white",
-    shadowColor: "#000",
-    shadowOffset: { width: 2, height: 0 },
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    elevation: 5,
-    borderRightWidth: 1,
-    borderRightColor: "#eaeaea",
-  },
-  sidebarContent: {
-    flex: 1,
-    padding: 20,
-  },
-  sidebarHeader: {
-    marginBottom: 30,
-    paddingBottom: 20,
+
+  header: {
+    backgroundColor: "#ffffff",
+    paddingTop: Platform.OS === "ios" ? 40 : 10,
+    paddingBottom: 10,
+    paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: "#eaeaea",
-  },
-  profileSection: {
-    alignItems: "center",
-  },
-  profileImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    overflow: "hidden",
-    marginBottom: 15,
-    borderWidth: 3,
-    borderColor: "#667eea",
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f0f0f0",
-  },
-  profileImagePlaceholder: {
-    width: "100%",
-    height: "100%",
-    backgroundColor: "#667eea",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  profileImagePlaceholderText: {
-    fontSize: 36,
-    fontWeight: "bold",
-    color: "white",
-  },
-  profileImageImg: {
-    width: "100%",
-    height: "100%",
-  },
-  profileInfo: {
-    alignItems: "center",
-  },
-  sidebarTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#333",
-    marginVertical: 2,
-  },
-  sidebarSubtitle: {
-    fontSize: 12,
-    color: "#888",
-    marginVertical: 1,
-  },
-  memberBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f0f0f0",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 8,
-    gap: 4,
-  },
-  memberBadgeText: {
-    fontSize: 11,
-    color: "#667eea",
-    fontWeight: "600",
-  },
-  sidebarMenu: {
-    flex: 1,
-  },
-  sidebarItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 5,
-    position: "relative",
-  },
-  sidebarItemActive: {
-    backgroundColor: "#667eea",
-  },
-  sidebarIcon: {
-    width: 32,
-    alignItems: "center",
-    marginRight: 12,
-  },
-  sidebarIconActive: {
-    transform: [{ scale: 1.1 }],
-  },
-  sidebarText: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#555",
-  },
-  sidebarTextActive: {
-    color: "white",
-    fontWeight: "600",
-  },
-  activeIndicator: {
-    position: "absolute",
-    right: 12,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "white",
-  },
-  dashboardContent: {
-    flex: 1,
-    backgroundColor: "#f8fafc",
-  },
-  dashboardContentMobile: {
-    marginTop: 80,
-    marginBottom: 84, // Increased bottom margin for better spacing
-  },
-  contentScrollable: {
-    flex: 1,
-  },
-  contentSection: {
-    backgroundColor: "white",
-    borderRadius: 15,
-    padding: 20,
-    margin: 16,
+    borderBottomColor: "#e2e8f0",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#333",
-    marginBottom: 20,
-    paddingBottom: 10,
-    borderBottomWidth: 2,
-    borderBottomColor: "#f0f0f0",
-  },
-  placeholderText: {
-    color: "#666",
-    fontSize: 14,
-  },
-  helpContent: {
-    gap: 16,
-  },
-  supportCard: {
-    backgroundColor: "#f8f9ff",
-    borderRadius: 12,
-    padding: 20,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#eaeaea",
-    marginBottom: 16,
-  },
-  supportCardTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#333",
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  supportCardText: {
-    fontSize: 13,
-    color: "#666",
-    textAlign: "center",
-  },
-  privacyContent: {
-    gap: 16,
-  },
-  privacyOption: {
-    backgroundColor: "#f8f9ff",
-    borderRadius: 12,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "#eaeaea",
-    marginBottom: 16,
-  },
-  privacyOptionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 8,
-  },
-  privacyOptionText: {
-    fontSize: 13,
-    color: "#666",
-    marginBottom: 15,
-  },
-  privacyBtn: {
-    backgroundColor: "#667eea",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 6,
-    alignSelf: "flex-start",
-  },
-  privacyBtnText: {
-    color: "white",
-    fontSize: 13,
-    fontWeight: "500",
-  },
-  mobileHeader: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 1000,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  mobileHeaderGradient: {
-    paddingTop: Platform.OS === "ios" ? 40 : (StatusBar.currentHeight || 20),
-    paddingBottom: 10,
-    paddingHorizontal: 16,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-  },
-  mobileHeaderContent: {
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 100,
+    marginTop: 35,
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
   },
-  mobileHeaderLeft: {
+  headerLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
-  logoWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  headerLogo: {
+    width: 36,
+    height: 36,
+    backgroundColor: "#f1f5f9",
+    borderRadius: 10,
+    padding: 4,
   },
-  mobileLogo: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "white",
-  },
-  mobileLogoHighlight: {
-    color: "#FFD700",
-  },
-  mobileHeaderRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 20,
-  },
-  notificationBtn: {
-    position: "relative",
-  },
-  notificationBadge: {
-    position: "absolute",
-    top: -5,
-    right: -8,
-    backgroundColor: "#FF4757",
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1,
-  },
-  notificationBadgeText: {
-    color: "white",
-    fontSize: 10,
-    fontWeight: "bold",
-  },
-  mobileProfileBtn: {
-    padding: 0,
-  },
-  mobileUserAvatar: {
+  profileImageWrapper: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    borderWidth: 2,
-    borderColor: "white",
+    overflow: "hidden",
+    borderWidth: 1.5,
+    borderColor: "#ffffff",
+    backgroundColor: "#ffffff",
+    // Premium Shadow
+    shadowColor: "#6366f1",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  profileAvatarPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.2)",
+  profileImageHeader: {
+    width: "100%",
+    height: "100%",
+  },
+  profileImagePlaceholderHeader: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#1d2b3a",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 2,
-    borderColor: "white",
   },
-  profileAvatarText: {
-    fontSize: 16,
+  profileInitialsHeader: {
+    fontSize: 18,
     fontWeight: "bold",
-    color: "white",
+    color: "#ffffff",
   },
-  profileDropdownMenu: {
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1D2B3A",
+    letterSpacing: -0.5,
+  },
+
+  // Profile Dropdown
+  profileDropdown: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 100 : 80,
-    right: 16,
-    width: 300,
-    backgroundColor: "white",
+    top: Platform.OS === "ios" ? 100 : 70,
+    right: 20,
+    width: 280,
+    backgroundColor: "#ffffff",
     borderRadius: 16,
     overflow: "hidden",
     shadowColor: "#000",
@@ -1331,9 +1279,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
-    zIndex: 1001,
+    zIndex: 101,
   },
-  profileDropdownHeader: {
+  dropdownHeader: {
     padding: 20,
     backgroundColor: "#1E293B",
     flexDirection: "row",
@@ -1341,32 +1289,32 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   dropdownAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     borderWidth: 2,
-    borderColor: "white",
+    borderColor: "#ffffff",
   },
   dropdownAvatarPlaceholder: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: "rgba(255,255,255,0.2)",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
-    borderColor: "white",
+    borderColor: "#ffffff",
   },
   dropdownAvatarText: {
-    fontSize: 28,
+    fontSize: 20,
     fontWeight: "bold",
-    color: "white",
+    color: "#ffffff",
   },
   dropdownUserInfo: {
     flex: 1,
   },
   dropdownUserName: {
-    color: "white",
+    color: "#ffffff",
     fontSize: 16,
     fontWeight: "700",
     marginBottom: 4,
@@ -1375,7 +1323,7 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.9)",
     fontSize: 12,
   },
-  profileDropdownItems: {
+  dropdownItems: {
     paddingVertical: 8,
   },
   dropdownItem: {
@@ -1383,6 +1331,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     padding: 14,
+    paddingHorizontal: 20,
   },
   dropdownItemText: {
     fontSize: 14,
@@ -1392,134 +1341,359 @@ const styles = StyleSheet.create({
   dropdownDivider: {
     height: 1,
     backgroundColor: "#f0f0f0",
-    marginVertical: 8,
+    marginVertical: 4,
   },
-  logoutItem: {
+  logoutDropdownItem: {
     backgroundColor: "#fff5f5",
   },
-  logoutText: {
-    color: "#dc2626",
-  },
-  mobileBottomNav: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "white",
-    flexDirection: "row",
-    justifyContent: "space-around",
-    paddingVertical: 12,
-    paddingBottom: Platform.OS === "ios" ? 24 : 12, // Extra padding for iOS
-    borderTopWidth: 1,
-    borderTopColor: "#334155",
-    zIndex: 998,
-    backgroundColor: "#1E293B",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  mobileNavBtn: {
+
+  // Main Content
+  contentContainer: {
     flex: 1,
+  },
+
+  appointmentsRoot: {
+    flex: 1,
+    backgroundColor: "#f1f5f9",
+  },
+  appointmentsHero: {
+    marginHorizontal: 12,
+    marginTop: 10,
+    borderRadius: 18,
+    padding: 18,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  appointmentsHeroTitle: {
+    color: "#ffffff",
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  appointmentsHeroSubtitle: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 12,
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  appointmentsHeroTabs: {
+    marginTop: 14,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius: 12,
+    padding: 4,
+    flexDirection: "row",
+    gap: 6,
+  },
+  heroTabBtn: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
     alignItems: "center",
-    paddingVertical: 6,
-    borderRadius: 8,
   },
-  mobileNavBtnActive: {
-    backgroundColor: "transparent",
+  heroTabBtnActive: {
+    backgroundColor: "#ffffff",
   },
-  navIconWrapper: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 4,
+  heroTabText: {
+    color: "#e2e8f0",
+    fontSize: 12,
+    fontWeight: "700",
   },
-  navIconWrapperActive: {
-    backgroundColor: "rgba(59, 130, 246, 0.15)",
+  heroTabTextActive: {
+    color: "#0f172a",
   },
-  navLabel: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: "#94A3B8",
+  appointmentFilterRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 6,
   },
-  navLabelActive: {
-    color: "#3B82F6",
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: "#e2e8f0",
+  },
+  filterChipActive: {
+    backgroundColor: "#312e81",
+  },
+  filterChipText: {
+    color: "#334155",
+    fontSize: 12,
     fontWeight: "600",
   },
-  // Improved Chat Components with professional AI design
-  floatingChatBtn: {
-    position: "absolute",
-    bottom: 20,
-    right: 20,
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+  filterChipTextActive: {
+    color: "#ffffff",
+  },
+  appointmentsList: {
+    paddingHorizontal: 12,
+    paddingBottom: 120,
+    paddingTop: 6,
+    gap: 10,
+  },
+  appointmentLoaderWrap: {
+    alignItems: "center",
+    paddingVertical: 40,
+  },
+  appointmentLoaderText: {
+    marginTop: 10,
+    color: "#64748b",
+    fontSize: 13,
+  },
+  appointmentEmptyCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  appointmentEmptyTitle: {
+    marginTop: 10,
+    color: "#0f172a",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  appointmentEmptySubtitle: {
+    marginTop: 6,
+    color: "#64748b",
+    fontSize: 12,
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  appointmentCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  appointmentCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  appointmentAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+  },
+  appointmentMetaColumn: {
+    flex: 1,
+  },
+  appointmentDoctorName: {
+    color: "#0f172a",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  appointmentSpecialization: {
+    color: "#64748b",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  aptStatusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  aptStatusText: {
+    fontSize: 10,
+    textTransform: "uppercase",
+    fontWeight: "700",
+    letterSpacing: 0.4,
+  },
+  aptStatusPending: {
+    backgroundColor: "#fff7ed",
+  },
+  aptStatusConfirmed: {
+    backgroundColor: "#eef2ff",
+  },
+  aptStatusCompleted: {
+    backgroundColor: "#ecfdf5",
+  },
+  aptStatusCanceled: {
+    backgroundColor: "#fef2f2",
+  },
+  appointmentDateRow: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#f8fafc",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  appointmentDateText: {
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  appointmentActionRow: {
+    marginTop: 12,
+    flexDirection: "row",
+    gap: 8,
+  },
+  appointmentDetailsBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#dbe4ee",
+    borderRadius: 10,
+    paddingVertical: 9,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#667eea",
+    flexDirection: "row",
+    gap: 6,
+  },
+  appointmentDetailsText: {
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  appointmentBookBtn: {
+    flex: 1,
+    backgroundColor: "#4f46e5",
+    borderRadius: 10,
+    paddingVertical: 9,
+    justifyContent: "center",
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  appointmentBookText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  appointmentDetailsModal: {
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    padding: 20,
+    width: width * 0.88,
+    maxWidth: 420,
+  },
+  detailsCloseBtn: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    zIndex: 2,
+  },
+  appointmentDetailsTitle: {
+    color: "#0f172a",
+    fontSize: 20,
+    fontWeight: "800",
+    marginBottom: 14,
+  },
+  appointmentDetailsLine: {
+    color: "#334155",
+    fontSize: 14,
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+
+  // AI FLOATING BUTTON - Matching screen.png
+  aiButton: {
+    position: "absolute",
+    bottom: 100,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    shadowColor: "#7c83fd",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.4,
     shadowRadius: 12,
     elevation: 10,
     zIndex: 999,
   },
-  floatingChatBtnMobile: {
-    bottom: 84,
-    right: 16,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-  },
-  floatingChatGradient: {
+  aiButtonGradient: {
     width: "100%",
     height: "100%",
-    borderRadius: 32,
+    borderRadius: 28,
     justifyContent: "center",
     alignItems: "center",
+    flexDirection: "column",
   },
-  floatingChatInner: {
-    position: "relative",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  floatingChatPulse: {
-    position: "absolute",
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "rgba(102, 126, 234, 0.4)",
-    opacity: 0.5,
-  },
-  floatingChatBtnText: {
-    position: "absolute",
-    bottom: -20,
-    color: "#667eea",
+  aiButtonText: {
+    color: "#ffffff",
     fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 0.8,
+    fontWeight: "bold",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginTop: 2,
   },
-  unreadBadge: {
+  aiUnreadBadge: {
     position: "absolute",
     top: -5,
     right: -5,
-    backgroundColor: "#ff4757",
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
+    backgroundColor: "#ef4444",
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 5,
     borderWidth: 2,
-    borderColor: "white",
+    borderColor: "#ffffff",
   },
-  unreadBadgeText: {
-    color: "white",
-    fontSize: 11,
+  aiUnreadBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
     fontWeight: "600",
   },
+
+  // BOTTOM NAVIGATION - Matching screen.png
+  bottomNav: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#081625",
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "stretch",
+    height: 80,
+    borderTopWidth: 1,
+    borderTopColor: "#1e293b",
+    paddingBottom: Platform.OS === "ios" ? 20 : 8,
+    zIndex: 998,
+  },
+  navItem: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  navItemActive: {
+    backgroundColor: "#1e2b3c",
+  },
+  navIconWrapper: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  navIconWrapperActive: {
+    borderTopWidth: 4,
+    borderTopColor: "#ffffff",
+    paddingTop: 8,
+  },
+  navLabel: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: "#94a3b8",
+    marginTop: 4,
+  },
+  navLabelActive: {
+    color: "#ffffff",
+  },
+
+  // Chat Popup Styles
   chatPopupOverlay: {
     position: "absolute",
     bottom: 90,
@@ -1528,7 +1702,7 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
   chatPopup: {
-    backgroundColor: "white",
+    backgroundColor: "#ffffff",
     borderRadius: 20,
     height: 480,
     overflow: "hidden",
@@ -1573,7 +1747,7 @@ const styles = StyleSheet.create({
   chatHeaderTitle: {
     fontSize: 16,
     fontWeight: "700",
-    color: "white",
+    color: "#ffffff",
   },
   chatStatus: {
     fontSize: 11,
@@ -1610,7 +1784,7 @@ const styles = StyleSheet.create({
   chatBubble: {
     padding: 10,
     borderRadius: 18,
-    backgroundColor: "white",
+    backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: "#eaeaea",
     maxWidth: "100%",
@@ -1625,11 +1799,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   chatBubbleTextUser: {
-    color: "white",
+    color: "#ffffff",
   },
   chatPopupFooter: {
     padding: 12,
-    backgroundColor: "white",
+    backgroundColor: "#ffffff",
     borderTopWidth: 1,
     borderTopColor: "#eaeaea",
     flexDirection: "row",
@@ -1664,8 +1838,9 @@ const styles = StyleSheet.create({
     height: 8,
     backgroundColor: "#667eea",
     borderRadius: 4,
-    animation: "pulse 1s infinite",
   },
+
+  // Call Modal Styles
   callModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.85)",
@@ -1731,17 +1906,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#ef4444",
   },
   callBtnText: {
-    color: "white",
+    color: "#ffffff",
     fontSize: 12,
     fontWeight: "600",
   },
+
+  // Video Call Modal Styles
   videoCallModalOverlay: {
     flex: 1,
-    backgroundColor: "black",
+    backgroundColor: "#000000",
   },
   videoCallModal: {
     flex: 1,
-    backgroundColor: "#000",
+    backgroundColor: "#000000",
   },
   videoBackground: {
     flex: 1,
@@ -1758,7 +1935,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   remoteName: {
-    color: "white",
+    color: "#ffffff",
     fontSize: 24,
     fontWeight: "600",
     marginBottom: 10,
@@ -1790,7 +1967,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   localVideoText: {
-    color: "white",
+    color: "#ffffff",
     fontSize: 12,
     marginTop: 4,
   },
@@ -1811,6 +1988,8 @@ const styles = StyleSheet.create({
   endCallBtn: {
     backgroundColor: "#ef4444",
   },
+
+  // Voice Call Modal Styles
   voiceCallModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.95)",
@@ -1844,7 +2023,7 @@ const styles = StyleSheet.create({
   voiceCallerName: {
     fontSize: 24,
     fontWeight: "600",
-    color: "white",
+    color: "#ffffff",
     marginBottom: 8,
   },
   voiceCallStatus: {
@@ -1859,120 +2038,216 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+
+  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
   },
-  modalContainer: {
-    backgroundColor: "white",
-    borderRadius: 16,
-    width: width * 0.85,
-    maxWidth: 400,
+  // Premium More Modal Styles
+  premiumMoreModal: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    width: width,
+    height: height * 0.75,
+    position: 'absolute',
+    bottom: 0,
     overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 25,
   },
-  modalHeader: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eaeaea",
+  premiumMoreHeader: {
+    padding: 24,
+    paddingTop: 12,
+    alignItems: "center",
+  },
+  premiumHeaderLine: {
+    width: 40,
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.3)",
+    borderRadius: 2,
+    marginBottom: 20,
+  },
+  premiumHeaderTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    width: "100%",
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#333",
+  premiumMoreTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#ffffff",
+    letterSpacing: 0.5,
   },
-  closeModalText: {
-    fontSize: 24,
-    color: "#999",
+  premiumCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  modalBody: {
-    padding: 20,
+  premiumMoreBody: {
+    flex: 1,
+    padding: 24,
+    backgroundColor: "#ffffff",
   },
-  modalBodyText: {
-    color: "#666",
+  premiumMoreSection: {
+    marginBottom: 28,
+  },
+  premiumSectionTitle: {
     fontSize: 14,
-    lineHeight: 20,
+    fontWeight: "700",
+    color: "#94a3b8",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 16,
+    marginLeft: 4,
+  },
+  premiumGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  premiumListItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    padding: 12,
+    borderRadius: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#f1f5f9",
+  },
+  premiumListIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  premiumListText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#334155",
+  },
+  premiumLogoutBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ef4444",
+    padding: 16,
+    borderRadius: 16,
+    gap: 12,
+    shadowColor: "#ef4444",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  premiumLogoutText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  premiumDeleteBtn: {
+    alignItems: "center",
+    padding: 16,
+    marginTop: 8,
+  },
+  premiumDeleteText: {
+    color: "#94a3b8",
+    fontSize: 13,
+    fontWeight: "600",
+    textDecorationLine: "underline",
+  },
+
+  confirmModal: {
+    backgroundColor: "#ffffff",
+    borderRadius: 24,
+    width: width * 0.85,
+    maxWidth: 400,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  confirmModalHeader: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+    alignItems: "center",
+  },
+  confirmModalTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#1e293b",
+  },
+  confirmModalBody: {
+    padding: 24,
+    alignItems: "center",
+  },
+  confirmModalText: {
+    color: "#64748b",
+    fontSize: 15,
+    lineHeight: 22,
     textAlign: "center",
   },
-  modalFooter: {
+  confirmModalFooter: {
     padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#eaeaea",
     flexDirection: "row",
     gap: 12,
-    justifyContent: "flex-end",
+    justifyContent: "center",
+    backgroundColor: "#f8fafc",
   },
   modalBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
   },
-  modalBtnSecondary: {
-    backgroundColor: "white",
+  cancelBtn: {
+    backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#e2e8f0",
   },
-  modalBtnSecondaryText: {
-    color: "#666",
-    fontSize: 13,
-    fontWeight: "500",
+  cancelBtnText: {
+    color: "#475569",
+    fontWeight: "700",
+    fontSize: 14,
   },
-  modalBtnDanger: {
+  confirmLogoutBtn: {
     backgroundColor: "#ef4444",
   },
-  modalBtnDangerText: {
-    color: "white",
-    fontSize: 13,
-    fontWeight: "500",
+  confirmLogoutBtnText: {
+    color: "#ffffff",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  deleteBtn: {
+    backgroundColor: "#ef4444",
+  },
+  deleteBtnText: {
+    color: "#ffffff",
+    fontWeight: "700",
+    fontSize: 14,
   },
   successModal: {
-    backgroundColor: "#d4edda",
+    borderTopWidth: 4,
+    borderTopColor: "#10b981",
   },
   successTitle: {
     color: "#10b981",
-  },
-  moreOptionsList: {
-    paddingVertical: 8,
-  },
-  moreOptionItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-  },
-  moreOptionItemActive: {
-    backgroundColor: "#f8f9ff",
-  },
-  moreOptionIcon: {
-    width: 28,
-    marginRight: 12,
-  },
-  moreOptionText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#555",
-  },
-  moreActions: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
-  },
-  moreActionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 12,
-  },
-  moreActionBtnText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#dc2626",
   },
 });

@@ -1,4 +1,4 @@
-// RoleSelector.jsx - Fixed Native Driver Issues
+// RoleSelector.jsx - Masterpiece UI Version
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -17,10 +17,11 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Import logo - adjust path as needed
+// Import logo
 import logo from '../../image/Mediconect Logo-3.png';
 
 const RoleSelector = () => {
@@ -30,16 +31,65 @@ const RoleSelector = () => {
   
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+  const logoScale = useRef(new Animated.Value(0.8)).current;
+  const userCardSlide = useRef(new Animated.Value(50)).current;
+  const counselorCardSlide = useRef(new Animated.Value(50)).current;
   const scaleUser = useRef(new Animated.Value(1)).current;
   const scaleCounselor = useRef(new Animated.Value(1)).current;
+  const logoFloat = useRef(new Animated.Value(0)).current;
+  
+  // Background Animation Values
+  const orb1Anim = useRef(new Animated.Value(0)).current;
+  const orb2Anim = useRef(new Animated.Value(0)).current;
+  const particle1 = useRef(new Animated.Value(0)).current;
+  const particle2 = useRef(new Animated.Value(0)).current;
+  
+  const logoHeartbeat = useRef(new Animated.Value(1)).current;
   
   useEffect(() => {
-    // Entrance animation
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 800,
-      useNativeDriver: true,
-    }).start();
+    // Entrance Sequence
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
+        Animated.spring(slideAnim, { toValue: 0, tension: 20, friction: 7, useNativeDriver: true }),
+        Animated.spring(logoScale, { toValue: 1, tension: 15, friction: 6, useNativeDriver: true }),
+      ]),
+      Animated.stagger(200, [
+        Animated.spring(userCardSlide, { toValue: 0, tension: 25, friction: 8, useNativeDriver: true }),
+        Animated.spring(counselorCardSlide, { toValue: 0, tension: 25, friction: 8, useNativeDriver: true }),
+      ]),
+    ]).start();
+
+    // Heartbeat Logo
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(logoHeartbeat, { toValue: 1.05, duration: 1500, useNativeDriver: true }),
+        Animated.timing(logoHeartbeat, { toValue: 1, duration: 1500, useNativeDriver: true }),
+      ])
+    ).start();
+
+    // Floating logo drift
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(logoFloat, { toValue: -15, duration: 3000, useNativeDriver: true }),
+        Animated.timing(logoFloat, { toValue: 0, duration: 3000, useNativeDriver: true }),
+      ])
+    ).start();
+
+    // Lava Background Orbs
+    const createOrbLoop = (anim, toVal) => {
+      return Animated.loop(
+        Animated.sequence([
+          Animated.timing(anim, { toValue: toVal, duration: 10000, useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0, duration: 10000, useNativeDriver: true }),
+        ])
+      );
+    };
+    createOrbLoop(orb1Anim, 120).start();
+    createOrbLoop(orb2Anim, -100).start();
+    createOrbLoop(particle1, 200).start();
+    createOrbLoop(particle2, -150).start();
     
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => false);
     return () => backHandler.remove();
@@ -75,8 +125,6 @@ const RoleSelector = () => {
       await AsyncStorage.removeItem('userType');
       await AsyncStorage.setItem('role', normalizedRole);
       
-      console.log(normalizedRole + " selected");
-      
       setTimeout(() => {
         setIsLoading(false);
         if (normalizedRole === 'user') {
@@ -94,106 +142,144 @@ const RoleSelector = () => {
   
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       
       <LinearGradient
-        colors={['#1a1a2e', '#16213e', '#0f3460']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+        colors={['#0f172a', '#1e293b', '#000000']}
         style={styles.gradient}
       >
+        {/* Animated Lava Orbs */}
+        <Animated.View 
+          style={[
+            styles.lavaOrb, 
+            styles.orb1, 
+            { transform: [{ translateY: orb1Anim }, { translateX: orb2Anim }] }
+          ]} 
+        />
+        <Animated.View 
+          style={[
+            styles.lavaOrb, 
+            styles.orb2, 
+            { transform: [{ translateY: orb2Anim }, { translateX: orb1Anim }] }
+          ]} 
+        />
+
+        {/* Floating Particles */}
+        <Animated.View style={[styles.particle, { top: '20%', left: '10%', transform: [{ translateY: particle1 }] }]} />
+        <Animated.View style={[styles.particle, { top: '60%', right: '15%', transform: [{ translateY: particle2 }] }]} />
+        <Animated.View style={[styles.particle, { bottom: '10%', left: '30%', transform: [{ translateX: particle1 }] }]} />
+
         <SafeAreaView style={styles.safeArea}>
           <Animated.View 
             style={[
               styles.panel,
-              { opacity: fadeAnim },
+              { 
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }, { scale: logoScale }]
+              },
             ]}
           >
-            {/* Header Section - Exactly matching web version */}
+            {/* Header Section */}
             <View style={styles.header}>
-              <Image source={logo} style={styles.logo} resizeMode="contain" />
-              <Text style={styles.welcomeBadge}>✦ welcome back ✦</Text>
-              <Text style={styles.subtitle}>choose your path —</Text>
+              <Animated.View style={{ transform: [{ translateY: logoFloat }, { scale: logoHeartbeat }] }}>
+                <View style={styles.logoOuter}>
+                  <Image source={logo} style={styles.logo} resizeMode="contain" />
+                </View>
+              </Animated.View>
+              <View style={styles.brandContainer}>
+                <Text style={styles.brandMain}>Medicone</Text>
+                <Text style={styles.brandAlt}>cket</Text>
+              </View>
+              <Text style={styles.tagline}>Elevate Your Mind, Heal Your Soul</Text>
             </View>
             
-            {/* Cards Row - Side by Side with equal width */}
+            <View style={styles.roleHeader}>
+              <View style={styles.dash} />
+              <Text style={styles.roleTitle}>Select Portal</Text>
+              <View style={styles.dash} />
+            </View>
+
+            {/* Cards Row */}
             <View style={styles.grid}>
               {/* User Card */}
-              <TouchableOpacity
-                activeOpacity={1}
-                onPressIn={() => handlePressIn('user')}
-                onPressOut={() => handlePressOut('user')}
-                onPress={() => handleRoleSelect('user')}
-                disabled={isLoading}
-                style={styles.cardContainer}
-              >
-                <Animated.View
-                  style={[
-                    styles.card,
-                    styles.userCard,
-                    { transform: [{ scale: scaleUser }] },
-                    selectedRole === 'user' && styles.selectedCard,
-                  ]}
+              <Animated.View style={[styles.cardWrapper, { transform: [{ translateY: userCardSlide }, { scale: scaleUser }] }]}>
+                <TouchableOpacity
+                  activeOpacity={1}
+                  onPressIn={() => handlePressIn('user')}
+                  onPressOut={() => handlePressOut('user')}
+                  onPress={() => handleRoleSelect('user')}
+                  disabled={isLoading}
+                  style={styles.fullWidth}
                 >
-                  <View style={[styles.iconCircle, selectedRole === 'user' && styles.selectedIconCircle]}>
-                    <Text style={styles.iconText}>🧑‍💼</Text>
+                  <View style={[styles.card, selectedRole === 'user' && styles.selectedUserCard]}>
+                    {selectedRole === 'user' && (
+                      <View style={styles.selectionCheck}>
+                        <Icon name="check-circle" size={20} color="#6366f1" />
+                      </View>
+                    )}
+                    <LinearGradient
+                      colors={['#6366f1', '#818cf8']}
+                      style={styles.iconContainer}
+                    >
+                      <Icon name="account-group" size={30} color="#ffffff" />
+                    </LinearGradient>
+                    <Text style={styles.roleLabel} numberOfLines={1} adjustsFontSizeToFit>User</Text>
+                    <Text style={styles.roleHint}>I need support</Text>
+                    
+                    {selectedRole === 'user' && isLoading ? (
+                      <ActivityIndicator size="small" color="#6366f1" style={{ marginTop: 10 }} />
+                    ) : (
+                      <View style={styles.goButton}>
+                        <Icon name="chevron-right" size={20} color="#6366f1" />
+                      </View>
+                    )}
                   </View>
-                  <Text style={[styles.roleLabel, selectedRole === 'user' && styles.selectedRoleLabel]}>user</Text>
-                  <Text style={styles.roleHint}>personal dashboard</Text>
-                  <View style={styles.microDivider} />
-                  <Text style={styles.footerNote}>explore</Text>
-                  {selectedRole === 'user' && isLoading ? (
-                    <View style={styles.loadingOverlay}>
-                      <ActivityIndicator size="large" color="#667eea" />
-                    </View>
-                  ) : null}
-                </Animated.View>
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </Animated.View>
               
               {/* Counselor Card */}
-              <TouchableOpacity
-                activeOpacity={1}
-                onPressIn={() => handlePressIn('counselor')}
-                onPressOut={() => handlePressOut('counselor')}
-                onPress={() => handleRoleSelect('counselor')}
-                disabled={isLoading}
-                style={styles.cardContainer}
-              >
-                <Animated.View
-                  style={[
-                    styles.card,
-                    styles.counselorCard,
-                    { transform: [{ scale: scaleCounselor }] },
-                    selectedRole === 'counselor' && styles.selectedCard,
-                  ]}
+              <Animated.View style={[styles.cardWrapper, { transform: [{ translateY: counselorCardSlide }, { scale: scaleCounselor }] }]}>
+                <TouchableOpacity
+                  activeOpacity={1}
+                  onPressIn={() => handlePressIn('counselor')}
+                  onPressOut={() => handlePressOut('counselor')}
+                  onPress={() => handleRoleSelect('counselor')}
+                  disabled={isLoading}
+                  style={styles.fullWidth}
                 >
-                  <View style={[styles.iconCircle, selectedRole === 'counselor' && styles.selectedIconCircle]}>
-                    <Text style={styles.iconText}>👩‍⚕️</Text>
+                  <View style={[styles.card, selectedRole === 'counselor' && styles.selectedCounselorCard]}>
+                    {selectedRole === 'counselor' && (
+                      <View style={[styles.selectionCheck, { borderColor: '#10b981' }]}>
+                        <Icon name="check-circle" size={20} color="#10b981" />
+                      </View>
+                    )}
+                    <LinearGradient
+                      colors={['#10b981', '#34d399']}
+                      style={styles.iconContainer}
+                    >
+                      <Icon name="doctor" size={30} color="#ffffff" />
+                    </LinearGradient>
+                    <Text style={styles.roleLabel} numberOfLines={1} adjustsFontSizeToFit>Counselor</Text>
+                    <Text style={styles.roleHint}>Expert help</Text>
+                    
+                    {selectedRole === 'counselor' && isLoading ? (
+                      <ActivityIndicator size="small" color="#10b981" style={{ marginTop: 10 }} />
+                    ) : (
+                      <View style={[styles.goButton, { backgroundColor: '#ecfdf5' }]}>
+                        <Icon name="chevron-right" size={20} color="#10b981" />
+                      </View>
+                    )}
                   </View>
-                  <Text style={[styles.roleLabel, selectedRole === 'counselor' && styles.selectedRoleLabel]}>counsellor</Text>
-                  <Text style={styles.roleHint}>professional toolkit</Text>
-                  <View style={styles.microDivider} />
-                  <Text style={styles.footerNote}>guide</Text>
-                  {selectedRole === 'counselor' && isLoading ? (
-                    <View style={styles.loadingOverlay}>
-                      <ActivityIndicator size="large" color="#f5576c" />
-                    </View>
-                  ) : null}
-                </Animated.View>
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </Animated.View>
             </View>
             
-            {/* Bottom Actions - Exactly matching web version */}
-            <View style={styles.bottomActions}>
-              <View style={styles.actionPill}>
-                <Text style={styles.actionText}>⚡ both paths</Text>
+            <View style={styles.footer}>
+              <View style={styles.badgeContainer}>
+                <Icon name="shield-lock" size={16} color="#6366f1" />
+                <Text style={styles.badgeText}>End-to-End Encrypted</Text>
               </View>
-              <View style={styles.actionPill}>
-                <Text style={styles.actionText}>🕊️ unique</Text>
-              </View>
-              <View style={styles.actionPill}>
-                <Text style={styles.actionText}>❔ help</Text>
-              </View>
+              <Text style={styles.versionText}>v2.0.4 Premium Experience</Text>
             </View>
           </Animated.View>
         </SafeAreaView>
@@ -208,180 +294,229 @@ const styles = StyleSheet.create({
   },
   gradient: {
     flex: 1,
+    overflow: 'hidden',
+  },
+  lavaOrb: {
+    position: 'absolute',
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    opacity: 0.4,
+  },
+  orb1: {
+    top: -50,
+    left: -50,
+    backgroundColor: '#6366f1',
+  },
+  orb2: {
+    bottom: -50,
+    right: -50,
+    backgroundColor: '#10b981',
+  },
+  particle: {
+    position: 'absolute',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    shadowColor: '#ffffff',
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
   },
   safeArea: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
+    padding: 24,
   },
   panel: {
-    width: '100%',
-    maxWidth: 500,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
     borderRadius: 40,
-    padding: SCREEN_WIDTH < 400 ? 20 : SCREEN_WIDTH < 500 ? 25 : 35,
+    padding: 30,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.8)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.25,
-    shadowRadius: 40,
-    elevation: 20,
+    shadowOpacity: 0.15,
+    shadowRadius: 30,
+    elevation: 15,
   },
   header: {
     alignItems: 'center',
-    marginBottom: SCREEN_HEIGHT < 700 ? 30 : 40,
+    marginBottom: 40,
+  },
+  logoOuter: {
+    padding: 10,
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 15,
+    elevation: 6,
   },
   logo: {
-    width: SCREEN_WIDTH < 400 ? 55 : 65,
-    height: SCREEN_WIDTH < 400 ? 55 : 65,
-    marginBottom: 15,
+    width: 65,
+    height: 65,
   },
-  welcomeBadge: {
-    fontSize: SCREEN_WIDTH < 400 ? 20 : SCREEN_WIDTH < 500 ? 22 : 24,
-    fontWeight: '700',
-    color: '#667eea',
-    marginBottom: 6,
-    letterSpacing: 0.5,
+  brandContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
   },
-  subtitle: {
-    fontSize: SCREEN_WIDTH < 400 ? 13 : 15,
+  brandMain: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#1e293b',
+    letterSpacing: -1,
+  },
+  brandAlt: {
+    fontSize: 32,
+    fontWeight: '400',
+    color: '#6366f1',
+    letterSpacing: -1,
+  },
+  tagline: {
+    fontSize: 14,
     color: '#64748b',
     fontWeight: '500',
-    letterSpacing: 0.3,
+    marginTop: 4,
+  },
+  roleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    marginBottom: 24,
+  },
+  dash: {
+    width: 20,
+    height: 2,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 1,
+  },
+  roleTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 2,
   },
   grid: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: SCREEN_WIDTH < 400 ? 12 : SCREEN_WIDTH < 500 ? 16 : 20,
-    marginBottom: SCREEN_HEIGHT < 700 ? 25 : 35,
+    gap: 12,
+    marginBottom: 40,
+    width: '100%',
   },
-  cardContainer: {
+  cardWrapper: {
     flex: 1,
-    minWidth: SCREEN_WIDTH < 380 ? 130 : 150,
+    flexBasis: 0,
+    alignItems: 'center',
+  },
+  fullWidth: {
+    width: '100%',
   },
   card: {
-    borderRadius: 28,
-    padding: SCREEN_WIDTH < 400 ? 16 : SCREEN_WIDTH < 500 ? 18 : 22,
-    borderWidth: 2,
-     backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    // backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    backgroundColor: '#ffffff',
+    borderRadius: 30,
+    padding: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    height: 210, // Absolute fixed height for symmetry
+    width: '100%',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
   },
-  userCard: {
-    borderColor: 'rgba(255, 255, 255, 0.75)',
-    backgroundGradient: ['rgba(235, 247, 255, 0.85)', 'rgba(255, 255, 255, 0.9)'],
+  selectedUserCard: {
+    borderColor: '#6366f1',
+    backgroundColor: '#f5f7ff',
+    borderWidth: 2,
+    // Premium Glow
+    shadowColor: '#6366f1',
+    shadowOpacity: 0.25,
+    shadowRadius: 15,
+    elevation: 8,
   },
-  counselorCard: {
-    borderColor: 'rgba(255, 255, 255, 0.75)',
+  selectedCounselorCard: {
+    borderColor: '#10b981',
+    backgroundColor: '#f0fdf4',
+    borderWidth: 2,
+    // Premium Glow
+    shadowColor: '#10b981',
+    shadowOpacity: 0.25,
+    shadowRadius: 15,
+    elevation: 8,
   },
-  selectedCard: {
-    borderWidth: 3,
-    borderColor: '#ffffff',
-    shadowColor: '#667eea',
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
-    transform: [{ scale: 1.02 }],
-  },
-  iconCircle: {
-    width: SCREEN_WIDTH < 400 ? 55 : SCREEN_WIDTH < 500 ? 65 : 75,
-    height: SCREEN_WIDTH < 400 ? 55 : SCREEN_WIDTH < 500 ? 65 : 75,
-    borderRadius: SCREEN_WIDTH < 400 ? 27.5 : SCREEN_WIDTH < 500 ? 32.5 : 37.5,
+  iconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: SCREEN_WIDTH < 400 ? 12 : 15,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
+    marginBottom: 16,
+    // Premium Squircle effect
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
   },
-  selectedIconCircle: {
-    backgroundColor: 'rgba(255, 255, 255, 0.45)',
-    borderColor: 'white',
-  },
-  iconText: {
-    fontSize: SCREEN_WIDTH < 400 ? 32 : SCREEN_WIDTH < 500 ? 36 : 42,
+  selectionCheck: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 10,
   },
   roleLabel: {
-    fontSize: SCREEN_WIDTH < 400 ? 18 : SCREEN_WIDTH < 500 ? 20 : 24,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 4,
-    backgroundGradient: ['#667eea', '#764ba2'],
+    fontSize: 18,
+    fontWeight: '900',
     color: '#1e293b',
-  },
-  selectedRoleLabel: {
-    color: '#667eea',
+    textAlign: 'center',
   },
   roleHint: {
-    fontSize: SCREEN_WIDTH < 400 ? 10 : SCREEN_WIDTH < 500 ? 11 : 12,
-    color: '#4a5568',
-    textAlign: 'center',
-    marginBottom: 10,
-    fontWeight: '500',
-    // backgroundColor: 'rgba(255, 255, 240, 0.4)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 40,
-    overflow: 'hidden',
-  },
-  microDivider: {
-    width: SCREEN_WIDTH < 400 ? 35 : 40,
-    height: 2,
-    backgroundColor: '#667eea',
-    borderRadius: 1,
-    marginVertical: 10,
-    opacity: 0.5,
-  },
-  footerNote: {
-    fontSize: SCREEN_WIDTH < 400 ? 9 : SCREEN_WIDTH < 500 ? 10 : 11,
-    color: '#667eea',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontSize: 11,
+    color: '#64748b',
     marginTop: 4,
+    fontWeight: '700',
+    textAlign: 'center',
   },
-  loadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 28,
+  goButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#eef2ff',
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: 16,
   },
-  bottomActions: {
+  footer: {
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+    paddingTop: 24,
+  },
+  badgeContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: SCREEN_WIDTH < 400 ? 8 : 12,
-    paddingTop: SCREEN_WIDTH < 400 ? 15 : 20,
-    borderTopWidth: 2,
-    borderTopColor: 'rgba(255, 255, 255, 0.5)',
-    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#f5f7ff',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
   },
-  actionPill: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.7)',
-    paddingHorizontal: SCREEN_WIDTH < 400 ? 10 : 14,
-    paddingVertical: SCREEN_WIDTH < 400 ? 6 : 8,
-    borderRadius: 60,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6366f1',
   },
-  actionText: {
-    fontSize: SCREEN_WIDTH < 400 ? 10 : SCREEN_WIDTH < 500 ? 11 : 12,
+  versionText: {
+    fontSize: 10,
+    color: '#94a3b8',
+    marginTop: 12,
     fontWeight: '500',
-    color: '#2d3748',
   },
 });
 

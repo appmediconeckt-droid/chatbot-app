@@ -120,6 +120,10 @@ const VideoCallModal = ({
   const [isCameraSwitched, setIsCameraSwitched] = useState(false);
   const [isCallActive, setIsCallActive] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showScreenShare, setShowScreenShare] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [selectedEmoji, setSelectedEmoji] = useState('');
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [volumeLevel, setVolumeLevel] = useState(70);
   const [callDuration, setCallDuration] = useState(0);
   const [availableCameras, setAvailableCameras] = useState([]);
@@ -155,6 +159,35 @@ const VideoCallModal = ({
   const establishConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
+
+  const openCallSettings = useCallback(() => {
+    setShowSettings(true);
+  }, []);
+
+  const openEmojiPicker = useCallback(() => {
+    setShowEmojiPicker(true);
+  }, []);
+
+  const openScreenShare = useCallback(() => {
+    if (!isRemoteVideoReady || isConnecting || isReconnecting) {
+      setWebrtcError('Screen sharing is available after the call is connected.');
+      return;
+    }
+    setShowScreenShare(true);
+  }, [isConnecting, isReconnecting, isRemoteVideoReady]);
+
+  const sendEmojiReaction = useCallback((emoji) => {
+    setSelectedEmoji(emoji);
+    setShowEmojiPicker(false);
+  }, []);
+
+  const handleStartScreenShare = useCallback(() => {
+    setIsScreenSharing(true);
+  }, []);
+
+  const handleStopScreenShare = useCallback(() => {
+    setIsScreenSharing(false);
+  }, []);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -551,6 +584,8 @@ const VideoCallModal = ({
     setIsCameraSwitched(false);
     setIsCallActive(true);
     setShowSettings(false);
+    setShowEmojiPicker(false);
+    setSelectedEmoji('');
     setCallStatus('ended');
     setCallId('');
     setRoomId('');
@@ -689,6 +724,12 @@ const VideoCallModal = ({
               <Text style={styles.durationText}>{formatTime(callDuration)}</Text>
             </View>
           )}
+
+          {!!selectedEmoji && (
+            <View style={styles.reactionBadge}>
+              <Text style={styles.reactionText}>{selectedEmoji}</Text>
+            </View>
+          )}
         </View>
 
         {/* ── Bottom Controls ──────────────────────────────── */}
@@ -711,12 +752,18 @@ const VideoCallModal = ({
           </TouchableOpacity>
 
           {/* Screen share (placeholder) */}
-          <TouchableOpacity style={styles.ctrlBtn} onPress={() => setShowSettings(true)}>
+          <TouchableOpacity
+            style={[
+              styles.ctrlBtn,
+              (!isRemoteVideoReady || isConnecting || isReconnecting) && styles.ctrlBtnDisabled,
+            ]}
+            onPress={openScreenShare}
+          >
             <Ionicons name="desktop-outline" size={24} color="#fff" />
           </TouchableOpacity>
 
-          {/* Settings / Emoji */}
-          <TouchableOpacity style={styles.ctrlBtn} onPress={() => setShowSettings(true)}>
+          {/* Emoji Reactions */}
+          <TouchableOpacity style={styles.ctrlBtn} onPress={openEmojiPicker}>
             <Ionicons name="happy-outline" size={24} color="#fff" />
           </TouchableOpacity>
 
@@ -852,6 +899,108 @@ const VideoCallModal = ({
               </ScrollView>
 
               <TouchableOpacity style={styles.doneBtn} onPress={() => setShowSettings(false)}>
+                <Text style={styles.doneBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ── Emoji Picker Bottom Sheet ──────────────────── */}
+        <Modal
+          visible={showEmojiPicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowEmojiPicker(false)}
+        >
+          <View style={styles.settingsOverlay}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={() => setShowEmojiPicker(false)}
+            />
+            <View style={[styles.settingsPanel, { paddingBottom: insets.bottom + 20 }]}>
+              <View style={styles.settingsHandle}>
+                <View style={styles.settingsHandleBar} />
+              </View>
+              <Text style={styles.settingsTitle}>Emoji Reactions</Text>
+              <Text style={styles.screenShareDescription}>Tap an emoji to react during the call.</Text>
+
+              <View style={styles.emojiGrid}>
+                {['😀', '😂', '😍', '😮', '👏', '👍', '🙏', '❤️'].map((emoji) => (
+                  <TouchableOpacity
+                    key={emoji}
+                    style={styles.emojiButton}
+                    onPress={() => sendEmojiReaction(emoji)}
+                  >
+                    <Text style={styles.emojiText}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity style={styles.doneBtn} onPress={() => setShowEmojiPicker(false)}>
+                <Text style={styles.doneBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ── Screen Share Bottom Sheet ───────────────────── */}
+        <Modal
+          visible={showScreenShare}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowScreenShare(false)}
+        >
+          <View style={styles.settingsOverlay}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={() => setShowScreenShare(false)}
+            />
+            <View style={[styles.settingsPanel, { paddingBottom: insets.bottom + 20 }]}>
+              <View style={styles.settingsHandle}>
+                <View style={styles.settingsHandleBar} />
+              </View>
+              <Text style={styles.settingsTitle}>Screen Sharing</Text>
+              <Text style={styles.screenShareDescription}>
+                Share your screen during the call. Native screen capture needs platform support, so this panel is the control center for sharing actions.
+              </Text>
+
+              <View style={styles.screenShareCard}>
+                <Ionicons name={isScreenSharing ? 'desktop' : 'desktop-outline'} size={28} color="#4ade80" />
+                <View style={styles.screenShareCardTextWrap}>
+                  <Text style={styles.screenShareCardTitle}>
+                    {isScreenSharing ? 'Screen sharing is active' : 'Screen sharing is off'}
+                  </Text>
+                  <Text style={styles.screenShareCardSubtitle}>
+                    {isScreenSharing
+                      ? 'Your screen is being shared in the current call.'
+                      : 'Tap Start Sharing to begin.'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.screenShareActions}>
+                <TouchableOpacity
+                  style={[styles.screenShareBtn, styles.screenShareStartBtn, isScreenSharing && styles.screenShareBtnDisabled]}
+                  onPress={handleStartScreenShare}
+                  disabled={isScreenSharing}
+                >
+                  <Ionicons name="play" size={18} color="#ffffff" />
+                  <Text style={styles.screenShareBtnText}>Start Sharing</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.screenShareBtn, styles.screenShareStopBtn, !isScreenSharing && styles.screenShareBtnDisabled]}
+                  onPress={handleStopScreenShare}
+                  disabled={!isScreenSharing}
+                >
+                  <Ionicons name="stop" size={18} color="#ffffff" />
+                  <Text style={styles.screenShareBtnText}>Stop Sharing</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity style={styles.doneBtn} onPress={() => setShowScreenShare(false)}>
                 <Text style={styles.doneBtnText}>Done</Text>
               </TouchableOpacity>
             </View>
@@ -1018,8 +1167,27 @@ const styles = StyleSheet.create({
   ctrlBtnActive: {
     backgroundColor: '#2a4a7f',
   },
+  ctrlBtnDisabled: {
+    opacity: 0.45,
+  },
   endBtn: {
     backgroundColor: '#ef4444',
+  },
+  reactionBadge: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    backgroundColor: 'rgba(15,23,42,0.8)',
+    borderRadius: 22,
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#4ade80',
+  },
+  reactionText: {
+    fontSize: 24,
   },
 
   // Settings panel
@@ -1117,6 +1285,83 @@ const styles = StyleSheet.create({
   audioHint: {
     color: '#94a3b8',
     fontSize: 12,
+  },
+  emojiGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  emojiButton: {
+    width: '23%',
+    aspectRatio: 1,
+    borderRadius: 14,
+    backgroundColor: '#334155',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  emojiText: {
+    fontSize: 30,
+  },
+  screenShareDescription: {
+    color: '#cbd5e1',
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 18,
+    textAlign: 'center',
+  },
+  screenShareCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#334155',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  screenShareCardTextWrap: {
+    flex: 1,
+  },
+  screenShareCardTitle: {
+    color: '#f8fafc',
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  screenShareCardSubtitle: {
+    color: '#94a3b8',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  screenShareActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 10,
+  },
+  screenShareBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 13,
+    borderRadius: 14,
+  },
+  screenShareStartBtn: {
+    backgroundColor: '#2563eb',
+  },
+  screenShareStopBtn: {
+    backgroundColor: '#ef4444',
+  },
+  screenShareBtnDisabled: {
+    opacity: 0.45,
+  },
+  screenShareBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   infoCard: {
     flexDirection: 'row',

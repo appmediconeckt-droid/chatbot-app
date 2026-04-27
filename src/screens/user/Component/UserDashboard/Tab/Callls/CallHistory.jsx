@@ -68,13 +68,19 @@ const isMissedCall = (call) => {
   return status === 'missed' || status === 'rejected' || status === 'cancelled';
 };
 
-const statusIconName = (status) => {
-  if (status === 'incoming') return 'arrow-down-circle-outline';
-  if (status === 'missed') return 'close-circle-outline';
-  return 'arrow-up-circle-outline';
-};
+const callIconName = (type) => (type === "video" ? "videocam-outline" : "call-outline");
 
-const callIconName = (type) => (type === 'video' ? 'videocam-outline' : 'call-outline');
+const getProfilePhotoUrl = (call) => {
+  if (!call) return null;
+  const photo = call.profilePic || call.profilePhoto || call.avatar;
+  if (!photo) return null;
+  if (typeof photo === "string") {
+    if (photo.startsWith("http")) return photo;
+    if (photo.startsWith("/")) return `${API_BASE_URL}${photo}`;
+    if (photo.length > 5) return `${API_BASE_URL}/${photo}`; // Likely a filename
+  }
+  return null;
+};
 
 const CallHistory = () => {
   const [activeFilter, setActiveFilter] = useState('all');
@@ -104,7 +110,7 @@ const CallHistory = () => {
       setCurrentUserType(normalizeRole(userRole));
     };
 
-    loadSession().catch(() => {});
+    loadSession().catch(() => { });
   }, []);
 
   const fetchCallHistory = useCallback(async () => {
@@ -178,7 +184,7 @@ const CallHistory = () => {
     } catch (error) {
       setCallError(
         error?.response?.data?.error ||
-          'Failed to load call history. Please try again.',
+        'Failed to load call history. Please try again.',
       );
       setCallsData([]);
     } finally {
@@ -187,7 +193,7 @@ const CallHistory = () => {
   }, [currentUserId]);
 
   useEffect(() => {
-    fetchCallHistory().catch(() => {});
+    fetchCallHistory().catch(() => { });
   }, [fetchCallHistory]);
 
   const startCallFromHistory = useCallback(
@@ -250,9 +256,9 @@ const CallHistory = () => {
             receiverData.profilePhoto ||
             String(
               receiverData.displayName ||
-                receiverData.fullName ||
-                callEntry?.name ||
-                'P',
+              receiverData.fullName ||
+              callEntry?.name ||
+              'P',
             )
               .trim()
               .charAt(0)
@@ -270,8 +276,8 @@ const CallHistory = () => {
       } catch (error) {
         setCallError(
           error?.response?.data?.error ||
-            error?.message ||
-            'Unable to start call. Please try again.',
+          error?.message ||
+          'Unable to start call. Please try again.',
         );
       }
     },
@@ -310,7 +316,7 @@ const CallHistory = () => {
 
   const openCallModal = useCallback(
     (call) => {
-      startCallFromHistory(call.type, call).catch(() => {});
+      startCallFromHistory(call.type, call).catch(() => { });
     },
     [startCallFromHistory],
   );
@@ -320,7 +326,7 @@ const CallHistory = () => {
       setCallError('No recent contacts found. Start a chat first.');
       return;
     }
-    startCallFromHistory('video', callsData[0]).catch(() => {});
+    startCallFromHistory('video', callsData[0]).catch(() => { });
   }, [callsData, startCallFromHistory]);
 
   const openNewVoiceCall = useCallback(() => {
@@ -328,14 +334,14 @@ const CallHistory = () => {
       setCallError('No recent contacts found. Start a chat first.');
       return;
     }
-    startCallFromHistory('voice', callsData[0]).catch(() => {});
+    startCallFromHistory('voice', callsData[0]).catch(() => { });
   }, [callsData, startCallFromHistory]);
 
   const closeCallModals = useCallback(() => {
     setIsVideoModalOpen(false);
     setIsVoiceModalOpen(false);
     setSelectedCall(null);
-    fetchCallHistory().catch(() => {});
+    fetchCallHistory().catch(() => { });
   }, [fetchCallHistory]);
 
   const handleEndCall = useCallback(
@@ -362,60 +368,75 @@ const CallHistory = () => {
     [currentUserId, currentUserType],
   );
 
-  const renderCallItem = ({ item: call }) => (
-    <TouchableOpacity
-      style={[styles.callItem, call.missed && styles.missedCall]}
-      onPress={() => openCallModal(call)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.callAvatar}>
-        <Text style={styles.callAvatarText}>{call.profilePic}</Text>
-      </View>
+  const renderCallItem = ({ item: call }) => {
+    const isMissed = call.status === "missed";
+    const profileUrl = getProfilePhotoUrl(call);
 
-      <View style={styles.callInfo}>
-        <View style={styles.callNameRow}>
-          <Text style={styles.callName} numberOfLines={1}>
-            {call.name}
-          </Text>
-          <Text style={styles.callTime}>{call.time}</Text>
-        </View>
-
-        <View style={styles.callDetails}>
-          <Ionicons
-            name={statusIconName(call.status)}
-            size={14}
-            color={call.status === 'missed' ? '#d32f2f' : '#64748b'}
-          />
-          <Ionicons name={callIconName(call.type)} size={14} color="#64748b" />
-          <Text style={styles.callType}>
-            {call.type === 'video' ? 'Video Call' : 'Voice Call'}
-          </Text>
-          {call.duration ? (
-            <Text style={styles.callDuration}>{call.duration}</Text>
-          ) : null}
-          {call.missed ? (
-            <View style={styles.callMissedTag}>
-              <Text style={styles.callMissedTagText}>Missed</Text>
-            </View>
-          ) : null}
-        </View>
-      </View>
-
+    return (
       <TouchableOpacity
-        style={styles.callActionBtn}
-        onPress={(event) => {
-          event?.stopPropagation?.();
-          openCallModal(call);
-        }}
+        style={[styles.callItem, isMissed && styles.missedCallItem]}
+        onPress={() => openCallModal(call)}
+        activeOpacity={0.7}
       >
-        <Ionicons
-          name={call.type === 'video' ? 'videocam' : 'call'}
-          size={18}
-          color="#3b4a54"
-        />
+        <View style={styles.callAvatar}>
+          {profileUrl ? (
+            <Image source={{ uri: profileUrl }} style={styles.callAvatarImage} />
+          ) : (
+            <View style={[styles.callAvatarPlaceholder, { backgroundColor: isMissed ? "#fee2e2" : "#eef2ff" }]}>
+              <Text style={[styles.callAvatarText, { color: isMissed ? "#ef4444" : "#2c50cd" }]}>{call.profilePic}</Text>
+            </View>
+          )}
+          <View style={[styles.directionIndicator, { backgroundColor: isMissed ? "#ef4444" : call.status === "incoming" ? "#10b981" : "#3b82f6" }]}>
+            <Ionicons
+              name={isMissed ? "close" : call.status === "incoming" ? "arrow-down" : "arrow-up"}
+              size={10}
+              color="#ffffff"
+            />
+          </View>
+        </View>
+
+        <View style={styles.callInfo}>
+          <View style={styles.callNameRow}>
+            <Text style={[styles.callName, isMissed && styles.missedCallName]} numberOfLines={1}>
+              {call.name}
+            </Text>
+            <Text style={styles.callTime}>{call.time}</Text>
+          </View>
+
+          <View style={styles.callDetails}>
+            <Text style={styles.callType}>
+              {call.type === "video" ? "Video Call" : "Voice Call"}
+            </Text>
+            {call.duration && (
+              <>
+                <View style={styles.dotSeparator} />
+                <Text style={styles.callDuration}>{call.duration}</Text>
+              </>
+            )}
+            {isMissed && (
+              <View style={styles.callMissedTag}>
+                <Text style={styles.callMissedTagText}>Missed</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <TouchableOpacity
+          style={styles.callActionBtn}
+          onPress={(event) => {
+            event?.stopPropagation?.();
+            openCallModal(call);
+          }}
+        >
+          <Ionicons
+            name={call.type === "video" ? "videocam" : "call"}
+            size={20}
+            color="#2c50cd"
+          />
+        </TouchableOpacity>
       </TouchableOpacity>
-    </TouchableOpacity>
-  );
+    );
+  };
 
   const renderSectionHeader = ({ section: { title } }) => (
     <View style={styles.callDateHeader}>
@@ -453,33 +474,25 @@ const CallHistory = () => {
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor="#667eea" />
 
-      <View style={styles.headerFixed}>
-        <View style={styles.callHeader}>
-          <Text style={styles.callTitle}>Call History</Text>
-          <View style={styles.callHeaderActions}>
-            <TouchableOpacity style={styles.callIconBtn} onPress={openNewVoiceCall}>
-              <Ionicons name="call" size={20} color="#1a1a2e" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.callIconBtn} onPress={openNewVideoCall}>
-              <Ionicons name="videocam" size={20} color="#1a1a2e" />
-            </TouchableOpacity>
-          </View>
-        </View>
+      <View style={styles.headerContainer}>
+        
 
-        <View style={styles.callSearch}>
-          <Ionicons name="search-outline" size={18} color="#6b7c85" />
-          <TextInput
-            style={styles.callSearchInput}
-            placeholder="Search calls..."
-            placeholderTextColor="#8696a0"
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-          />
-          {searchTerm ? (
-            <TouchableOpacity style={styles.callClearBtn} onPress={() => setSearchTerm('')}>
-              <Ionicons name="close" size={16} color="#8696a0" />
-            </TouchableOpacity>
-          ) : null}
+        <View style={styles.searchSection}>
+          <View style={styles.callSearch}>
+            <Ionicons name="search" size={18} color="#74777c" />
+            <TextInput
+              style={styles.callSearchInput}
+              placeholder="Search contacts..."
+              placeholderTextColor="#8696a0"
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+            />
+            {searchTerm ? (
+              <TouchableOpacity style={styles.callClearBtn} onPress={() => setSearchTerm("")}>
+                <Ionicons name="close-circle" size={18} color="#8696a0" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
 
         <View style={styles.callFilters}>
@@ -506,7 +519,7 @@ const CallHistory = () => {
 
         {callError ? (
           <View style={styles.callErrorBanner}>
-            <Ionicons name="alert-circle-outline" size={16} color="#b91c1c" />
+            <Ionicons name="alert-circle" size={16} color="#b91c1c" />
             <Text style={styles.callErrorText}>{callError}</Text>
           </View>
         ) : null}
@@ -546,204 +559,265 @@ const CallHistory = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: "#f8f9fb",
   },
-  headerFixed: {
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f2f5',
+  headerContainer: {
+    backgroundColor: "#ffffff",
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+    paddingBottom: 4,
+    marginTop:-35
   },
   callHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 16,
     paddingBottom: 12,
-    marginTop:-20
   },
   callTitle: {
     fontSize: 24,
-    fontWeight: '600',
-    color: '#1a1a2e',
+    fontWeight: "800",
+    color: "#0f172a",
+    letterSpacing: -0.5,
+  },
+  callSubtitle: {
+    fontSize: 13,
+    color: "#64748b",
+    marginTop: 2,
   },
   callHeaderActions: {
-    flexDirection: 'row',
-    gap: 16,
+    flexDirection: "row",
+    gap: 12,
   },
-  callIconBtn: {
-    padding: 6,
+  headerActionBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#f1f5f9",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  callSearch: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  searchSection: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#f0f2f5',
-    marginHorizontal: 16,
-    marginVertical: 8,
-    borderRadius: 30,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    gap: 8,
+  },
+  callSearch: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f1f5f9",
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    height: 46,
+    gap: 10,
   },
   callSearchInput: {
     flex: 1,
     fontSize: 15,
-    paddingVertical: 5,
-    color: '#111b21',
+    color: "#1e293b",
+    fontWeight: "500",
   },
   callClearBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    padding: 4,
   },
   callFilters: {
-    flexDirection: 'row',
+    flexDirection: "row",
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingVertical: 12,
     gap: 8,
   },
   callFilterBtn: {
     paddingVertical: 8,
-    paddingHorizontal: 20,
-    borderRadius: 24,
-    backgroundColor: '#f0f2f5',
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    backgroundColor: "#f1f5f9",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
   callFilterBtnActive: {
-    backgroundColor: '#667eea',
+    backgroundColor: "#2c50cd",
+    borderColor: "#2c50cd",
   },
   callFilterBtnText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#3b4a54',
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#64748b",
   },
   callFilterBtnTextActive: {
-    color: '#ffffff',
+    color: "#ffffff",
   },
   callErrorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     marginHorizontal: 16,
-    marginBottom: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: '#fee2e2',
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#fee2e2",
   },
   callErrorText: {
     flex: 1,
-    color: '#b91c1c',
+    color: "#b91c1c",
     fontSize: 13,
+    fontWeight: "500",
   },
   callsList: {
     paddingHorizontal: 16,
-    paddingBottom: 20,
-    flexGrow: 1,
+    paddingBottom: 40,
+    paddingTop: 10,
   },
   callDateHeader: {
-    paddingVertical: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
   },
   callDate: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#667781',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#94a3b8",
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
   callItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f2f5',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#f1f5f9",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  missedCall: {},
+  missedCallItem: {
+    borderColor: "#fee2e2",
+  },
   callAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#667eea',
-    justifyContent: 'center',
-    alignItems: 'center',
+    position: "relative",
     marginRight: 14,
   },
+  callAvatarPlaceholder: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  callAvatarImage: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+  },
   callAvatarText: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  directionIndicator: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: "#ffffff",
+    justifyContent: "center",
+    alignItems: "center",
   },
   callInfo: {
     flex: 1,
   },
   callNameRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 5,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
   },
   callName: {
     fontSize: 16,
-    fontWeight: '500',
-    color: '#111b21',
+    fontWeight: "700",
+    color: "#1e293b",
     flex: 1,
-    marginRight: 10,
+  },
+  missedCallName: {
+    color: "#ef4444",
   },
   callTime: {
     fontSize: 12,
-    color: '#667781',
+    color: "#94a3b8",
+    fontWeight: "500",
   },
   callDetails: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
-    flexWrap: 'wrap',
   },
   callType: {
     fontSize: 13,
-    color: '#667781',
+    color: "#64748b",
+    fontWeight: "500",
+  },
+  dotSeparator: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: "#cbd5e1",
   },
   callDuration: {
     fontSize: 13,
-    color: '#667781',
-    marginLeft: 2,
+    color: "#64748b",
+    fontWeight: "500",
   },
   callMissedTag: {
-    backgroundColor: '#ffebee',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 30,
-    marginLeft: 4,
+    backgroundColor: "#fef2f2",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 6,
   },
   callMissedTagText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#d32f2f',
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#ef4444",
+    textTransform: "uppercase",
   },
   callActionBtn: {
     width: 42,
     height: 42,
-    borderRadius: 21,
-    backgroundColor: '#f0f2f5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderRadius: 12,
+    backgroundColor: "#f1f5f9",
+    justifyContent: "center",
+    alignItems: "center",
     marginLeft: 10,
   },
   callNoResults: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 60,
-    gap: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 80,
+    gap: 16,
   },
   callNoResultsTitle: {
     fontSize: 18,
-    fontWeight: '500',
-    color: '#3b4a54',
-    marginTop: 4,
+    fontWeight: "700",
+    color: "#1e293b",
   },
   callNoResultsSubtitle: {
     fontSize: 14,
-    color: '#8696a0',
+    color: "#64748b",
+    textAlign: "center",
+    paddingHorizontal: 40,
   },
 });
 
