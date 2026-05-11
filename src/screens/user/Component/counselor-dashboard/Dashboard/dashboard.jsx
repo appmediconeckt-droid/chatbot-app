@@ -31,7 +31,7 @@ import Feather from "react-native-vector-icons/Feather";
 
 // Custom Hooks
 import useVibration from "../../../../../hooks/useVibration";
-import useRingtone, { forceStopRingtone } from "../../../../../hooks/useRingtone";
+import { forceStopRingtone, startIncomingRingtone } from "../../../../../hooks/useRingtone";
 import Dashboard from "../Tab/CounselorDashboard/Dashboardcou";
 import Messagesou from "../Tab/Messages/Messagesou";
 import PatientRequests from "../Tab/PatientRequests/PatientRequests";
@@ -58,8 +58,6 @@ const IncomingCallModal = ({
   const [isRejecting, setIsRejecting] = useState(false);
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const { stopRinging } = useRingtone();
-
   useEffect(() => {
     if (isOpen) {
       Animated.spring(scaleAnim, {
@@ -105,18 +103,16 @@ const IncomingCallModal = ({
 
   const handleAccept = async () => {
     setIsAccepting(true);
-    // Close modal first so ringtone effect can't restart while accept API is in-flight.
+    forceStopRingtone();
     onClose();
-    stopRinging();
     if (onAccept) await onAccept(callData);
     setIsAccepting(false);
   };
 
   const handleReject = async () => {
     setIsRejecting(true);
-    // Close modal first so ringtone effect can't restart while reject API is in-flight.
+    forceStopRingtone();
     onClose();
-    stopRinging();
     if (onReject) await onReject(callData?.callId);
     setIsRejecting(false);
   };
@@ -396,7 +392,13 @@ export default function CounselorDashboard() {
   const [counsellorId, setCounsellorId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [pollingInterval, setPollingInterval] = useState(null);
+  // Ref mirrors for modal states — lets polling interval use stable [] deps
+  // without going stale on state changes.
+  const showIncomingCallModalRef = useRef(false);
+  const isVideoModalOpenRef = useRef(false);
+  const isVoiceModalOpenRef = useRef(false);
+  const isFocusedRef = useRef(false);
+  const isPollingRef = useRef(true);
 
   // â”€â”€ Appointment state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [appointments, setAppointments] = useState([]);
@@ -407,16 +409,23 @@ export default function CounselorDashboard() {
   const navigation = useNavigation();
   const { vibrate } = useVibration();
   const { showToast: showAppToast } = useToast();
-  const { startRinging: startIncomingRing, stopRinging: stopIncomingRing } = useRingtone();
+  // Tracks whether ring has been started so we don't call startIncomingRingtone
+  // multiple times for the same modal session (prevents double ring).
+  const ringingStartedRef = useRef(false);
 
   useEffect(() => {
-    if (!isFocused) {
-      stopIncomingRing();
+    if (!isFocused || !showIncomingCallModal) {
+      if (ringingStartedRef.current) {
+        ringingStartedRef.current = false;
+        forceStopRingtone();
+      }
       return;
     }
-    if (showIncomingCallModal) startIncomingRing(true);
-    else stopIncomingRing();
-  }, [isFocused, showIncomingCallModal, startIncomingRing, stopIncomingRing]);
+    if (!ringingStartedRef.current) {
+      ringingStartedRef.current = true;
+      startIncomingRingtone(true);
+    }
+  }, [isFocused, showIncomingCallModal]);
 
   // If caller ends/cancels while incoming modal is open, stop ringtone and close modal.
   useEffect(() => {
@@ -439,9 +448,10 @@ export default function CounselorDashboard() {
         const stillThere = pending.some((c) => (c?.callId || c?.id || c?._id) === incomingCallData.callId);
 
         if (!stillThere && !cancelled) {
+          forceStopRingtone();
+          ringingStartedRef.current = false;
           setShowIncomingCallModal(false);
           setIncomingCallData(null);
-          stopIncomingRing();
         }
       } catch (_) {
         // ignore transient polling errors
@@ -455,7 +465,7 @@ export default function CounselorDashboard() {
       cancelled = true;
       clearInterval(intervalId);
     };
-  }, [isFocused, showIncomingCallModal, incomingCallData?.callId, stopIncomingRing]);
+  }, [isFocused, showIncomingCallModal, incomingCallData?.callId]);
 
   const normalizeObjectId = (value) => {
     if (!value) return null;
@@ -869,6 +879,9 @@ export default function CounselorDashboard() {
   };
 
   const handleRejectIncomingCall = async (callId) => {
+    forceStopRingtone();
+    setShowIncomingCallModal(false);
+    setIncomingCallData(null);
     await rejectCall(callId);
   };
 
@@ -901,9 +914,9 @@ export default function CounselorDashboard() {
 
         if (
           waitingCall &&
-          !showIncomingCallModal &&
-          !isVideoModalOpen &&
-          !isVoiceModalOpen
+          !showIncomingCallModalRef.current &&
+          !isVideoModalOpenRef.current &&
+          !isVoiceModalOpenRef.current
         ) {
           const fromData = waitingCall.from || waitingCall.initiator || {};
           const displayName =
@@ -940,6 +953,7 @@ export default function CounselorDashboard() {
       const status = error?.response?.status;
       if (status === 401) {
         showToast("Session expired. Please login again.", "error");
+        isPollingRef.current = false;
         setIsPolling(false);
         return;
       }
@@ -947,22 +961,29 @@ export default function CounselorDashboard() {
     }
   };
 
-  // Polling for waiting calls
-  useEffect(() => {
-    if (isFocused && isPolling && !showIncomingCallModal && !isVideoModalOpen && !isVoiceModalOpen) {
-      fetchWaitingCalls();
-      const interval = setInterval(fetchWaitingCalls, 5000);
-      setPollingInterval(interval);
-      return () => clearInterval(interval);
-    } else if (pollingInterval) {
-      clearInterval(pollingInterval);
-      setPollingInterval(null);
-    }
-  }, [isFocused, isPolling, showIncomingCallModal, isVideoModalOpen, isVoiceModalOpen]);
+  // Keep ref mirrors in sync so the stable polling interval reads current values.
+  useEffect(() => { showIncomingCallModalRef.current = showIncomingCallModal; }, [showIncomingCallModal]);
+  useEffect(() => { isVideoModalOpenRef.current = isVideoModalOpen; }, [isVideoModalOpen]);
+  useEffect(() => { isVoiceModalOpenRef.current = isVoiceModalOpen; }, [isVoiceModalOpen]);
+  useEffect(() => { isFocusedRef.current = isFocused; }, [isFocused]);
+  useEffect(() => { isPollingRef.current = isPolling; }, [isPolling]);
 
+  // Polling for waiting calls — stable [] deps prevent interval restart on modal state changes.
   useEffect(() => {
-    setIsPolling(!(showIncomingCallModal || isVideoModalOpen || isVoiceModalOpen));
-  }, [showIncomingCallModal, isVideoModalOpen, isVoiceModalOpen]);
+    const poll = () => {
+      if (
+        !isFocusedRef.current ||
+        !isPollingRef.current ||
+        showIncomingCallModalRef.current ||
+        isVideoModalOpenRef.current ||
+        isVoiceModalOpenRef.current
+      ) return;
+      fetchWaitingCalls();
+    };
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => clearInterval(interval);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // â”€â”€ Fetch Pending Chat Requests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const fetchPendingRequests = async () => {
@@ -1105,21 +1126,24 @@ export default function CounselorDashboard() {
   };
 
   const handleCloseVideoModal = () => {
-    stopIncomingRing();
+    forceStopRingtone();
+    ringingStartedRef.current = false;
     setIsVideoModalOpen(false);
     setIsVoiceModalOpen(false);
     setSelectedCall(null);
     setShowIncomingCallModal(false);
     setIncomingCallData(null);
     // Delay re-enabling polling so the just-ended call clears from the backend
-    // before we poll again — prevents the ringtone restarting immediately after hangup
-    setTimeout(() => setIsPolling(true), 6000);
+    // before we poll again — prevents the ringtone restarting immediately after hangup.
+    setTimeout(() => { isPollingRef.current = true; setIsPolling(true); }, 6000);
   };
 
   const handleCloseIncomingModal = () => {
+    forceStopRingtone();
+    ringingStartedRef.current = false;
     setShowIncomingCallModal(false);
     setIncomingCallData(null);
-    stopIncomingRing();
+    isPollingRef.current = true;
     setIsPolling(true);
   };
 

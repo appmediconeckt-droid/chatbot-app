@@ -635,11 +635,14 @@ export default function UserDashboard() {
   const showCallModalRef = useRef(false);
   const isVideoModalOpenRef = useRef(false);
   const isVoiceModalOpenRef = useRef(false);
+  // Ref mirror for callerInfo so "still pending" check has stable access
+  const callerInfoRef = useRef({ callId: '' });
 
   // Keep refs in sync with state
   useEffect(() => { showCallModalRef.current = showCallModal; }, [showCallModal]);
   useEffect(() => { isVideoModalOpenRef.current = isVideoModalOpen; }, [isVideoModalOpen]);
   useEffect(() => { isVoiceModalOpenRef.current = isVoiceModalOpen; }, [isVoiceModalOpen]);
+  useEffect(() => { callerInfoRef.current = callerInfo; }, [callerInfo]);
 
   // Poll for incoming calls from counselor — single stable interval, never restarts
   useEffect(() => {
@@ -710,6 +713,51 @@ export default function UserDashboard() {
       clearInterval(intervalId);
     };
   }, []);
+
+  // If the counselor cancels/ends the outgoing call while the user's incoming
+  // call modal is open, detect that the call is gone and close the modal + stop ring.
+  useEffect(() => {
+    if (!showCallModal || !callerInfo.callId) return;
+
+    let cancelled = false;
+
+    const checkStillPending = async () => {
+      try {
+        const token =
+          (await AsyncStorage.getItem('accessToken')) ||
+          (await AsyncStorage.getItem('token'));
+        const storedUserId = await AsyncStorage.getItem('userId');
+        if (!token || !storedUserId || cancelled) return;
+
+        const response = await axios.get(
+          `${API_BASE_URL}/api/video/calls/pending/${storedUserId}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (cancelled) return;
+
+        const callsList = response.data.pendingRequests || [];
+        const currentCallId = callerInfoRef.current.callId;
+        const stillThere = callsList.some(
+          (c) => (c?.callId || c?.id || c?._id) === currentCallId
+        );
+
+        if (!stillThere) {
+          forceStopRingtone();
+          pollBlockedUntilRef.current = Date.now() + 6000;
+          setShowCallModal(false);
+          setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+        }
+      } catch (_) {}
+    };
+
+    checkStillPending();
+    const intervalId = setInterval(checkStillPending, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [showCallModal, callerInfo.callId]);
 
   const checkMobile = () => {
     setIsMobile(width <= 768);
@@ -888,9 +936,10 @@ export default function UserDashboard() {
   };
 
   const handleAcceptCall = async (callId) => {
-    // Stop ringtone immediately — synchronous, fires before any await
     forceStopRingtone();
     setShowCallModal(false);
+    setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+    pollBlockedUntilRef.current = Date.now() + 6000;
     try {
       const token = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
       const storedUserId = await AsyncStorage.getItem('userId');
@@ -936,10 +985,6 @@ export default function UserDashboard() {
         isIncoming: true,
       };
 
-      // Dismiss ringing screen and stop ringtone before opening call
-      setShowCallModal(false);
-      setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
-
       setSelectedCall(acceptedCallData);
       if (modalType === 'video') setIsVideoModalOpen(true);
       else setIsVoiceModalOpen(true);
@@ -951,6 +996,9 @@ export default function UserDashboard() {
   const handleRejectCall = async (callId) => {
     forceStopRingtone();
     setShowCallModal(false);
+    setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+    // Block polling so the backend has time to process the reject before we poll again
+    pollBlockedUntilRef.current = Date.now() + 6000;
     try {
       const token = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
       const storedUserId = await AsyncStorage.getItem('userId');
@@ -1001,7 +1049,12 @@ export default function UserDashboard() {
 
       <CallModal
         isOpen={showCallModal}
-        onClose={() => setShowCallModal(false)}
+        onClose={() => {
+          forceStopRingtone();
+          setShowCallModal(false);
+          setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+          pollBlockedUntilRef.current = Date.now() + 6000;
+        }}
         callType={callType}
         callerName={callerInfo.userName || callerInfo.name}
         callerImage={callerInfo.image}
