@@ -3,7 +3,6 @@ import { Vibration } from "react-native";
 import InCallManager from "react-native-incall-manager";
 
 const VIBRATION_PATTERN = [0, 400, 200, 400, 1000];
-const RINGTONE_CYCLE_MS = 2500;
 const MAX_RING_DURATION_MS = 60000;
 
 // Singleton — one shared state across all hook instances so any component
@@ -11,7 +10,6 @@ const MAX_RING_DURATION_MS = 60000;
 let globalIsRinging = false;
 let globalMode = null;
 let globalSession = 0;
-let ringLoopTimer = null;
 let ringFailsafeTimer = null;
 const listeners = new Set();
 
@@ -20,8 +18,6 @@ const notify = () => {
   listeners.forEach((fn) => { try { fn(snapshot); } catch (_) {} });
 };
 
-// Null-checked so a missing native module doesn't crash silently in a way
-// that's hard to diagnose — the guard makes the skip explicit.
 const forceStopAudio = () => {
   Vibration.cancel();
   if (InCallManager) {
@@ -37,7 +33,6 @@ const stopRingingGlobal = () => {
   globalIsRinging = false;
   globalMode = null;
 
-  if (ringLoopTimer) { clearTimeout(ringLoopTimer); ringLoopTimer = null; }
   if (ringFailsafeTimer) { clearTimeout(ringFailsafeTimer); ringFailsafeTimer = null; }
 
   // Cut audio before notifying React — prevents a render where state says
@@ -46,26 +41,11 @@ const stopRingingGlobal = () => {
   notify();
 };
 
-const ringTriggerGlobal = (mySession) => {
-  if (!globalIsRinging || globalSession !== mySession) return;
-
-  if (InCallManager) {
-    try { InCallManager.stopRingtone(); } catch (_) {}
-    try { InCallManager.startRingtone("_BUNDLE_"); } catch (_) {}
-  }
-
-  // Clear before reassigning — prevents a leaked timer if this function is
-  // somehow re-entered before the previous setTimeout fires.
-  if (ringLoopTimer) clearTimeout(ringLoopTimer);
-  ringLoopTimer = setTimeout(() => ringTriggerGlobal(mySession), RINGTONE_CYCLE_MS);
-};
-
 const startRingingGlobal = (incoming = true) => {
   const requestedMode = incoming ? "incoming" : "outgoing";
 
   if (globalIsRinging) {
     if (globalMode !== requestedMode) {
-      // stopRingingGlobal increments globalSession here (to old+1).
       stopRingingGlobal();
     } else {
       return;
@@ -74,8 +54,6 @@ const startRingingGlobal = (incoming = true) => {
 
   // Compute mySession AFTER the conditional stop so the new session ID is
   // always strictly greater than whatever stopRingingGlobal left behind.
-  // Previously this was computed before the stop, meaning two sessions could
-  // share the same ID when a mode-change stop occurred.
   const mySession = globalSession + 1;
   globalSession = mySession;
   globalIsRinging = true;
@@ -90,8 +68,9 @@ const startRingingGlobal = (incoming = true) => {
     if (InCallManager) {
       try { InCallManager.setForceSpeakerphoneOn(true); } catch (_) {}
       try { InCallManager.setKeepScreenOn(true); } catch (_) {}
+      // startRingtone loops natively — call once, no JS timer needed.
+      try { InCallManager.startRingtone("_BUNDLE_"); } catch (_) {}
     }
-    ringTriggerGlobal(mySession);
     Vibration.vibrate(VIBRATION_PATTERN, true);
   } else {
     if (InCallManager) {
@@ -101,7 +80,6 @@ const startRingingGlobal = (incoming = true) => {
     }
   }
 
-  // Notify after all audio/state is set up so listeners see a consistent snapshot.
   notify();
 };
 
@@ -111,7 +89,6 @@ const resetRingtoneState = () => {
   globalSession += 1;
   globalIsRinging = false;
   globalMode = null;
-  if (ringLoopTimer) { clearTimeout(ringLoopTimer); ringLoopTimer = null; }
   if (ringFailsafeTimer) { clearTimeout(ringFailsafeTimer); ringFailsafeTimer = null; }
   forceStopAudio();
   notify();
