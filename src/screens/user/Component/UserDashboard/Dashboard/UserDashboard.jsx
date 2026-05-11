@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -15,23 +15,27 @@ import {
   StyleSheet,
   Dimensions,
   Animated,
-  SafeAreaView,
   StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation } from "@react-navigation/native";
 import axios from "axios";
 import { API_BASE_URL } from "../../../../../axiosConfig";
+import { io } from "socket.io-client";
 import Icon from "react-native-vector-icons/FontAwesome5";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import LinearGradient from 'react-native-linear-gradient';
 import safeVibrate from "../../../../../utils/safeVibrate";
+import { forceStopRingtone, startIncomingRingtone } from "../../../../../hooks/useRingtone";
 import ChatInterface from "../Tab/chatbot/ChatInterface";
 import CounselorTable from "../Tab/Appointment/BookAppointment";
 import WalletDashboard from "../Tab/Wallet/WalletDashboard";
 import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
+import RealVideoCallModal from "../Tab/CallModal/VideoCallModal";
+import RealVoiceCallModal from "../Tab/CallModal/VoiceCallModal";
 
 const { width, height } = Dimensions.get("window");
 
@@ -43,6 +47,7 @@ const ChatPopup = ({
   sendMessage,
   isLoading,
   onClose,
+  onCounselorPress,
 }) => (
   <Modal animationType="slide" transparent={true} visible={true}>
     <View style={styles.chatPopupOverlay}>
@@ -71,44 +76,63 @@ const ChatPopup = ({
         </LinearGradient>
 
         <ScrollView style={styles.chatPopupBody}>
-          {messages.map((message) => (
-            <View
-              key={message.id}
-              style={[
-                styles.chatMessageWrapper,
-                message.sender === "user" && styles.chatMessageWrapperUser,
-              ]}
-            >
-              {message.sender === "ai" && (
-                <LinearGradient
-                  colors={['#667eea', '#764ba2']}
-                  style={[styles.chatAvatar, styles.chatAvatarSmall]}
-                >
-                  <MaterialIcons name="auto-awesome" size={14} color="white" />
-                </LinearGradient>
-              )}
+          {messages.map((message) => {
+            const textParts = String(message.text || "").split(/(\[.*?\])/g);
+
+            return (
               <View
+                key={message.id}
                 style={[
-                  styles.chatBubble,
-                  message.sender === "user" && styles.chatBubbleUser,
+                  styles.chatMessageWrapper,
+                  message.sender === "user" && styles.chatMessageWrapperUser,
                 ]}
               >
-                <Text
+                {message.sender === "ai" && (
+                  <LinearGradient
+                    colors={['#667eea', '#764ba2']}
+                    style={[styles.chatAvatar, styles.chatAvatarSmall]}
+                  >
+                    <MaterialIcons name="auto-awesome" size={14} color="white" />
+                  </LinearGradient>
+                )}
+                <View
                   style={[
-                    styles.chatBubbleText,
-                    message.sender === "user" && styles.chatBubbleTextUser,
+                    styles.chatBubble,
+                    message.sender === "user" && styles.chatBubbleUser,
                   ]}
                 >
-                  {message.text}
-                </Text>
-              </View>
-              {message.sender === "user" && (
-                <View style={[styles.chatAvatar, styles.chatAvatarSmall, styles.userAvatar]}>
-                  <Ionicons name="person-circle" size={18} color="#667eea" />
+                  <Text
+                    style={[
+                      styles.chatBubbleText,
+                      message.sender === "user" && styles.chatBubbleTextUser,
+                    ]}
+                  >
+                    {textParts.map((part, index) => {
+                      if (part.startsWith("[") && part.endsWith("]")) {
+                        const counselorName = part.slice(1, -1).trim();
+                        return (
+                          <Text
+                            key={`${message.id}_${index}`}
+                            style={styles.chatCounselorMention}
+                            onPress={() => onCounselorPress?.(counselorName)}
+                          >
+                            {counselorName}
+                          </Text>
+                        );
+                      }
+
+                      return <Text key={`${message.id}_${index}`}>{part}</Text>;
+                    })}
+                  </Text>
                 </View>
-              )}
-            </View>
-          ))}
+                {message.sender === "user" && (
+                  <View style={[styles.chatAvatar, styles.chatAvatarSmall, styles.userAvatar]}>
+                    <Ionicons name="person-circle" size={18} color="#667eea" />
+                  </View>
+                )}
+              </View>
+            );
+          })}
           {isLoading && (
             <View style={[styles.chatMessageWrapper, styles.chatMessageWrapperAi]}>
               <LinearGradient
@@ -258,64 +282,6 @@ const CallModal = ({
   );
 };
 
-// Video Call Modal Component
-const VideoCallModal = ({ isOpen, onClose, callData, onEndCall }) => (
-  <Modal transparent={true} visible={isOpen} animationType="slide">
-    <View style={styles.videoCallModalOverlay}>
-      <View style={styles.videoCallModal}>
-        <View style={styles.videoBackground}>
-          <View style={styles.remoteVideoPlaceholder}>
-            {callData?.from?.profilePhoto ? (
-              <Image source={{ uri: callData.from.profilePhoto }} style={styles.remoteAvatar} />
-            ) : (
-              <MaterialIcons name="person" size={80} color="#667eea" />
-            )}
-            <Text style={styles.remoteName}>{callData?.from?.fullName || "Counselor"}</Text>
-            <View style={styles.videoLoading}>
-              <ActivityIndicator size="small" color="#667eea" />
-              <Text style={styles.videoLoadingText}>Connecting...</Text>
-            </View>
-          </View>
-          <View style={styles.localVideoPreview}>
-            <View style={styles.localVideoPlaceholder}>
-              <MaterialIcons name="videocam" size={24} color="#667eea" />
-              <Text style={styles.localVideoText}>You</Text>
-            </View>
-          </View>
-        </View>
-        <View style={styles.videoCallControls}>
-          <TouchableOpacity style={[styles.videoCallBtn, styles.endCallBtn]} onPress={onClose}>
-            <MaterialIcons name="call-end" size={24} color="white" />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-  </Modal>
-);
-
-// Voice Call Modal Component
-const VoiceCallModal = ({ isOpen, onClose, callData, onEndCall }) => (
-  <Modal transparent={true} visible={isOpen} animationType="slide">
-    <View style={styles.voiceCallModalOverlay}>
-      <View style={styles.voiceCallModal}>
-        <View style={styles.voiceCallContent}>
-          <View style={styles.voiceCallerAvatar}>
-            {callData?.from?.profilePhoto ? (
-              <Image source={{ uri: callData.from.profilePhoto }} style={styles.voiceAvatar} />
-            ) : (
-              <MaterialIcons name="person" size={60} color="#667eea" />
-            )}
-          </View>
-          <Text style={styles.voiceCallerName}>{callData?.from?.fullName || "Counselor"}</Text>
-          <Text style={styles.voiceCallStatus}>Connecting...</Text>
-          <TouchableOpacity style={[styles.voiceCallBtn, styles.endCallBtn]} onPress={onClose}>
-            <MaterialIcons name="call-end" size={28} color="white" />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-  </Modal>
-);
 
 const MyAppointmentsPanel = ({ onBookPress }) => {
   const [appointments, setAppointments] = useState([]);
@@ -324,30 +290,69 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
   const [statusFilter, setStatusFilter] = useState("All");
   const [selectedApt, setSelectedApt] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const socketRef = useRef(null);
+
+  const fetchAppointments = useCallback(async () => {
+    try {
+      setLoadingAppointments(true);
+      const token =
+        (await AsyncStorage.getItem("token")) ||
+        (await AsyncStorage.getItem("accessToken"));
+      const response = await axios.get(`${API_BASE_URL}/api/appointments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setAppointments(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      console.error("Error fetching appointments:", err);
+      setAppointments([]);
+    } finally {
+      setLoadingAppointments(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchAppointments = async () => {
-      try {
-        setLoadingAppointments(true);
-        const token =
-          (await AsyncStorage.getItem("token")) ||
-          (await AsyncStorage.getItem("accessToken"));
+    fetchAppointments();
 
-        const response = await axios.get(`${API_BASE_URL}/api/appointments`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+    const connectSocket = async () => {
+      const token =
+        (await AsyncStorage.getItem("token")) ||
+        (await AsyncStorage.getItem("accessToken"));
+      const userId = await AsyncStorage.getItem("userId");
+      if (!token) return;
 
-        setAppointments(Array.isArray(response.data) ? response.data : []);
-      } catch (err) {
-        console.error("Error fetching appointments:", err);
-        setAppointments([]);
-      } finally {
-        setLoadingAppointments(false);
-      }
+      const socket = io(API_BASE_URL, {
+        transports: ["polling", "websocket"],
+        auth: { token },
+        reconnection: true,
+      });
+      socketRef.current = socket;
+
+      socket.on("connect", () => {
+        if (userId) socket.emit("join-user-room", { userId });
+      });
+
+      // Re-fetch on any appointment change event
+      const refresh = () => fetchAppointments();
+      socket.on("appointment-booked", refresh);
+      socket.on("appointment-updated", refresh);
+      socket.on("appointment-confirmed", refresh);
+      socket.on("appointment-cancelled", refresh);
+      socket.on("appointment-status-changed", refresh);
+      
+      // 🔄 Listen for appointment call initiation and status updates
+      socket.on("appointment-call-initiated", refresh);
+      socket.on("appointment-status-updated", refresh);
     };
 
-    fetchAppointments();
-  }, []);
+    connectSocket();
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    };
+  }, [fetchAppointments]);
 
   const upcomingApts = appointments.filter(
     (apt) => apt.status !== "completed" && apt.status !== "canceled"
@@ -372,6 +377,20 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
     return styles.aptStatusPending;
   };
 
+  const getStatusTextColor = (status) => {
+    if (status === "confirmed") return "#5b21b6";
+    if (status === "completed") return "#166534";
+    if (status === "canceled") return "#b91c1c";
+    return "#c2410c";
+  };
+
+  const getAccentColor = (status) => {
+    if (status === "confirmed") return "#7c3aed";
+    if (status === "completed") return "#16a34a";
+    if (status === "canceled") return "#ef4444";
+    return "#f97316";
+  };
+
   const getAvatarSrc = (apt) => {
     const photo = apt?.counselor?.profilePhoto;
     if (photo) {
@@ -384,44 +403,40 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
 
   return (
     <View style={styles.appointmentsRoot}>
-      <LinearGradient colors={["#0f172a", "#1e293b"]} style={styles.appointmentsHero}>
-        <Text style={styles.appointmentsHeroTitle}>My Appointments</Text>
-        <Text style={styles.appointmentsHeroSubtitle}>
-          Track upcoming sessions and review previous consultations.
-        </Text>
-
-        <View style={styles.appointmentsHeroTabs}>
+      {/* Tabs + Filter bar */}
+      <View style={styles.appointmentsTopBar}>
+        <View style={styles.appointmentsTabRow}>
           <TouchableOpacity
             onPress={() => setActiveTab("Upcoming")}
-            style={[styles.heroTabBtn, activeTab === "Upcoming" && styles.heroTabBtnActive]}
+            style={[styles.aptTabBtn, activeTab === "Upcoming" && styles.aptTabBtnActive]}
           >
-            <Text style={[styles.heroTabText, activeTab === "Upcoming" && styles.heroTabTextActive]}>Upcoming</Text>
+            <Text style={[styles.aptTabText, activeTab === "Upcoming" && styles.aptTabTextActive]}>Upcoming</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setActiveTab("Past")}
-            style={[styles.heroTabBtn, activeTab === "Past" && styles.heroTabBtnActive]}
+            style={[styles.aptTabBtn, activeTab === "Past" && styles.aptTabBtnActive]}
           >
-            <Text style={[styles.heroTabText, activeTab === "Past" && styles.heroTabTextActive]}>Past</Text>
+            <Text style={[styles.aptTabText, activeTab === "Past" && styles.aptTabTextActive]}>Past</Text>
           </TouchableOpacity>
         </View>
-      </LinearGradient>
 
-      <View style={styles.appointmentFilterRow}>
-        {[
-          { key: "All", label: "All" },
-          { key: "Pending", label: "Pending" },
-          { key: "Confirmed", label: "Confirmed" },
-        ].map((chip) => (
-          <TouchableOpacity
-            key={chip.key}
-            style={[styles.filterChip, statusFilter === chip.key && styles.filterChipActive]}
-            onPress={() => setStatusFilter(chip.key)}
-          >
-            <Text style={[styles.filterChipText, statusFilter === chip.key && styles.filterChipTextActive]}>
-              {chip.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        <View style={styles.appointmentFilterRow}>
+          {[
+            { key: "All", label: "All" },
+            { key: "Pending", label: "Pending" },
+            { key: "Confirmed", label: "Confirmed" },
+          ].map((chip) => (
+            <TouchableOpacity
+              key={chip.key}
+              style={[styles.filterChip, statusFilter === chip.key && styles.filterChipActive]}
+              onPress={() => setStatusFilter(chip.key)}
+            >
+              <Text style={[styles.filterChipText, statusFilter === chip.key && styles.filterChipTextActive]}>
+                {chip.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.appointmentsList} showsVerticalScrollIndicator={false}>
@@ -432,7 +447,7 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
           </View>
         ) : displayApts.length === 0 ? (
           <View style={styles.appointmentEmptyCard}>
-            <MaterialIcons name="event-busy" size={30} color="#94a3b8" />
+            <MaterialIcons name="event-busy" size={40} color="#c7d2fe" />
             <Text style={styles.appointmentEmptyTitle}>No appointments found</Text>
             <Text style={styles.appointmentEmptySubtitle}>
               Try changing filters or book a new session with a counselor.
@@ -441,8 +456,13 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
         ) : (
           displayApts.map((apt) => (
             <View key={apt._id} style={styles.appointmentCard}>
+              {/* Accent bar */}
+              <View style={[styles.aptCardAccent, { backgroundColor: getAccentColor(apt.status) }]} />
+
               <View style={styles.appointmentCardHeader}>
-                <Image source={{ uri: getAvatarSrc(apt) }} style={styles.appointmentAvatar} />
+                <View style={styles.aptAvatarWrap}>
+                  <Image source={{ uri: getAvatarSrc(apt) }} style={styles.appointmentAvatar} />
+                </View>
                 <View style={styles.appointmentMetaColumn}>
                   <Text style={styles.appointmentDoctorName} numberOfLines={1}>
                     Dr. {apt?.counselor?.fullName || "Counselor"}
@@ -452,19 +472,29 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
                   </Text>
                 </View>
                 <View style={[styles.aptStatusPill, getStatusStyle(apt.status)]}>
-                  <Text style={styles.aptStatusText}>{apt.status || "pending"}</Text>
+                  <Text style={[styles.aptStatusText, { color: getStatusTextColor(apt.status) }]}>{apt.status || "pending"}</Text>
                 </View>
               </View>
 
+              <View style={styles.aptDivider} />
+
               <View style={styles.appointmentDateRow}>
-                <MaterialIcons name="event" size={16} color="#4f46e5" />
+                <View style={styles.aptDateIconWrap}>
+                  <MaterialIcons name="event" size={15} color="#4f46e5" />
+                </View>
                 <Text style={styles.appointmentDateText}>
                   {new Date(apt.date).toLocaleDateString("en-US", {
+                    weekday: "short",
                     month: "short",
                     day: "numeric",
                     year: "numeric",
                   })}
-                  {"  •  "}
+                </Text>
+                <View style={styles.aptTimeDot} />
+                <View style={styles.aptDateIconWrap}>
+                  <MaterialIcons name="access-time" size={15} color="#4f46e5" />
+                </View>
+                <Text style={styles.appointmentDateText}>
                   {new Date(apt.date).toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -480,7 +510,7 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
                     setShowDetailsModal(true);
                   }}
                 >
-                  <MaterialIcons name="visibility" size={15} color="#334155" />
+                  <MaterialIcons name="visibility" size={15} color="#4f46e5" />
                   <Text style={styles.appointmentDetailsText}>View Details</Text>
                 </TouchableOpacity>
 
@@ -530,6 +560,7 @@ export default function UserDashboard() {
   const [active, setActive] = useState("Chat");
   const [chatOpen, setChatOpen] = useState(false);
   const [newMessage, setNewMessage] = useState("");
+  const [targetCounselor, setTargetCounselor] = useState("");
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
@@ -574,6 +605,12 @@ export default function UserDashboard() {
     },
   ]);
 
+  const handleAIContactClick = (name) => {
+    setTargetCounselor(name);
+    setActive("Counselor");
+    setChatOpen(false);
+  };
+
   useEffect(() => {
     checkMobile();
     fetchUserData();
@@ -589,6 +626,90 @@ export default function UserDashboard() {
       setUnreadCount(0);
     }
   }, [chatOpen]);
+
+  // Track call IDs already handled so the same call never rings twice
+  const handledCallIdsRef = useRef(new Set());
+  // After a call ends, block polling for 6s so the backend clears the call first
+  const pollBlockedUntilRef = useRef(0);
+  // Refs so the polling interval never needs to restart when modal state changes
+  const showCallModalRef = useRef(false);
+  const isVideoModalOpenRef = useRef(false);
+  const isVoiceModalOpenRef = useRef(false);
+
+  // Keep refs in sync with state
+  useEffect(() => { showCallModalRef.current = showCallModal; }, [showCallModal]);
+  useEffect(() => { isVideoModalOpenRef.current = isVideoModalOpen; }, [isVideoModalOpen]);
+  useEffect(() => { isVoiceModalOpenRef.current = isVoiceModalOpen; }, [isVoiceModalOpen]);
+
+  // Poll for incoming calls from counselor — single stable interval, never restarts
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchIncomingCalls = async () => {
+      try {
+        if (Date.now() < pollBlockedUntilRef.current) return;
+        if (showCallModalRef.current || isVideoModalOpenRef.current || isVoiceModalOpenRef.current) return;
+
+        const token =
+          (await AsyncStorage.getItem('accessToken')) ||
+          (await AsyncStorage.getItem('token'));
+        const storedUserId = await AsyncStorage.getItem('userId');
+        if (!token || !storedUserId) return;
+
+        const response = await axios.get(
+          `${API_BASE_URL}/api/video/calls/pending/${storedUserId}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!isMounted) return;
+
+        const callsList = response.data.pendingRequests || [];
+        if (response.data.success && callsList.length > 0) {
+          const waitingCall = callsList[0];
+          const callId = waitingCall.callId || waitingCall._id || waitingCall.id;
+
+          // Skip calls we already handled or dismissed
+          if (handledCallIdsRef.current.has(callId)) return;
+
+          const fromData = waitingCall.from || {};
+          const counselorName =
+            fromData.fullName ||
+            fromData.name ||
+            fromData.displayName ||
+            waitingCall.counselorName ||
+            waitingCall.counsellorName ||
+            'Counselor';
+
+          handledCallIdsRef.current.add(callId);
+
+          const resolvedCallType =
+            String(waitingCall.callType || 'video').toLowerCase() === 'audio'
+              ? 'voice'
+              : 'video';
+
+          setCallerInfo({
+            callId,
+            roomId: waitingCall.roomId,
+            name: counselorName,
+            userName: counselorName,
+            image: fromData.profilePhoto || fromData.image || null,
+            userId: fromData._id || fromData.id || '',
+            callType: resolvedCallType,
+            from: fromData,
+          });
+          setCallType(resolvedCallType);
+          startIncomingRingtone(true);
+          setShowCallModal(true);
+        }
+      } catch (_) {}
+    };
+
+    const intervalId = setInterval(fetchIncomingCalls, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, []);
 
   const checkMobile = () => {
     setIsMobile(width <= 768);
@@ -632,27 +753,40 @@ export default function UserDashboard() {
     setIsLoading(true);
 
     try {
-      const token = await AsyncStorage.getItem("token");
-      const userId = await AsyncStorage.getItem("userId");
+      const token = (await AsyncStorage.getItem("token")) || (await AsyncStorage.getItem("accessToken"));
+
+      const history = chatMessages.slice(-10).map((msg) => ({
+        role: msg.sender === "user" ? "user" : "assistant",
+        content: msg.text,
+      }));
 
       const response = await axios.post(
-        `${API_BASE_URL}/api/chat/send`,
+        `${API_BASE_URL}/api/ai-chat`,
         {
-          userId: userId,
-          message: newMessage,
+          message: userMessage.text,
+          history,
         },
         {
           headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            "Content-Type": "application/json",
           },
+          timeout: 10000,
         }
       );
 
-      if (response.data && response.data.reply) {
+      const aiResponseText =
+        response.data?.data?.aiResponse ||
+        response.data?.reply ||
+        response.data?.response ||
+        response.data?.message ||
+        response.data?.text ||
+        "I'm here to help. Could you please rephrase that?";
+
+      if (response.data?.success || aiResponseText) {
         const aiMessage = {
           id: Date.now() + 1,
-          text: response.data.reply,
+          text: aiResponseText,
           sender: "ai",
         };
         setChatMessages((prev) => [...prev, aiMessage]);
@@ -754,17 +888,80 @@ export default function UserDashboard() {
   };
 
   const handleAcceptCall = async (callId) => {
-    setSelectedCall(callerInfo);
-    if (callType !== "video") {
-      setIsVoiceModalOpen(true);
-    } else {
-      setIsVideoModalOpen(true);
-    }
+    // Stop ringtone immediately — synchronous, fires before any await
+    forceStopRingtone();
     setShowCallModal(false);
+    try {
+      const token = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
+      const storedUserId = await AsyncStorage.getItem('userId');
+      if (!token || !storedUserId) return;
+
+      const acceptRes = await axios.put(
+        API_BASE_URL + '/api/video/calls/' + callId + '/accept',
+        { acceptorId: storedUserId, acceptorType: 'user' },
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      if (!acceptRes.data?.success) return;
+
+      let detailedCall = null;
+      try {
+        const detailsRes = await axios.get(
+          API_BASE_URL + '/api/video/calls/' + callId + '/details',
+          { params: { userId: storedUserId, userType: 'user' }, headers: { Authorization: 'Bearer ' + token } }
+        );
+        detailedCall = detailsRes.data?.call || null;
+      } catch (_) {}
+
+      const incomingType = String(callerInfo.callType || callType || 'video').toLowerCase();
+      const modalType = incomingType === 'audio' ? 'voice' : incomingType;
+      const remoteParticipant = detailedCall?.initiator || callerInfo?.from || {};
+
+      const acceptedCallData = {
+        id: detailedCall?.id || detailedCall?._id || callId,
+        callId,
+        roomId: acceptRes.data?.roomId || detailedCall?.roomId || callerInfo.roomId,
+        name: remoteParticipant?.fullName || remoteParticipant?.displayName || callerInfo.name || 'Counselor',
+        type: modalType,
+        callType: modalType,
+        status: acceptRes.data?.status || detailedCall?.status || 'active',
+        profilePic: remoteParticipant?.profilePhoto || callerInfo.image || null,
+        phoneNumber: remoteParticipant?.phoneNumber || '',
+        apiCallData: detailedCall,
+        initiator: detailedCall?.initiator,
+        receiver: detailedCall?.receiver,
+        initiatorId: detailedCall?.initiator?.id || detailedCall?.initiator?._id,
+        receiverId: detailedCall?.receiver?.id || detailedCall?.receiver?._id,
+        currentUserId: storedUserId,
+        currentUserType: 'user',
+        isIncoming: true,
+      };
+
+      // Dismiss ringing screen and stop ringtone before opening call
+      setShowCallModal(false);
+      setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+
+      setSelectedCall(acceptedCallData);
+      if (modalType === 'video') setIsVideoModalOpen(true);
+      else setIsVoiceModalOpen(true);
+    } catch (error) {
+      console.error('Error accepting call:', error);
+    }
   };
 
   const handleRejectCall = async (callId) => {
+    forceStopRingtone();
     setShowCallModal(false);
+    try {
+      const token = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
+      const storedUserId = await AsyncStorage.getItem('userId');
+      if (token && storedUserId && callId) {
+        await axios.put(
+          API_BASE_URL + '/api/video/calls/' + callId + '/reject',
+          { userId: storedUserId, reason: 'declined' },
+          { headers: { Authorization: 'Bearer ' + token } }
+        ).catch(() => {});
+      }
+    } catch (_) {}
   };
 
   const allMenuItems = [
@@ -780,7 +977,7 @@ export default function UserDashboard() {
       case "Chat":
         return <ChatInterface setActiveTab={switchDashboardTab} />;
       case "Counselor":
-        return <CounselorTable />;
+        return <CounselorTable initialSearchQuery={targetCounselor} />;
       case "Appointment":
         return <MyAppointmentsPanel onBookPress={() => setActive("Counselor")} />;
       case "Wallet":
@@ -795,7 +992,7 @@ export default function UserDashboard() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar
         barStyle="dark-content"
         backgroundColor="#ffffff"
@@ -813,82 +1010,112 @@ export default function UserDashboard() {
         onRejectCall={handleRejectCall}
       />
 
-      <VideoCallModal
+      <RealVideoCallModal
         isOpen={isVideoModalOpen}
-        onClose={() => setIsVideoModalOpen(false)}
+        onClose={() => {
+          pollBlockedUntilRef.current = Date.now() + 6000;
+          setIsVideoModalOpen(false);
+          setSelectedCall(null);
+          setShowCallModal(false);
+          setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+        }}
         callData={selectedCall}
-        onEndCall={() => { }}
+        onEndCall={async (callId) => {
+          try {
+            const token = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
+            const storedUserId = await AsyncStorage.getItem('userId');
+            if (token && storedUserId && callId) {
+              await axios.put(
+                API_BASE_URL + '/api/video/calls/' + callId + '/end',
+                { userId: storedUserId, endedBy: 'user' },
+                { headers: { Authorization: 'Bearer ' + token } }
+              ).catch(() => {});
+            }
+          } catch (_) {}
+        }}
       />
 
-      <VoiceCallModal
+      <RealVoiceCallModal
         isOpen={isVoiceModalOpen}
-        onClose={() => setIsVoiceModalOpen(false)}
+        onClose={() => {
+          pollBlockedUntilRef.current = Date.now() + 6000;
+          setIsVoiceModalOpen(false);
+          setSelectedCall(null);
+          setShowCallModal(false);
+          setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+        }}
         callData={selectedCall}
-        onEndCall={() => { }}
+        onEndCall={async (callId) => {
+          try {
+            const token = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
+            const storedUserId = await AsyncStorage.getItem('userId');
+            if (token && storedUserId && callId) {
+              await axios.put(
+                API_BASE_URL + '/api/video/calls/' + callId + '/end',
+                { userId: storedUserId, endedBy: 'user' },
+                { headers: { Authorization: 'Bearer ' + token } }
+              ).catch(() => {});
+            }
+          } catch (_) {}
+        }}
       />
 
       {/* HEADER - Exactly matching screen.png */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Image
-            source={require("../../../../../image/Mediconect Logo-3.png")}
-            style={styles.headerLogo}
-            resizeMode="contain"
-          />
-          <Text style={styles.headerTitle}>Mediconecket</Text>
-        </View>
-
-        <TouchableOpacity
-          style={styles.profileImageWrapper}
-          onPress={() => setShowProfileMenu(!showProfileMenu)}
-          activeOpacity={0.7}
-        >
-          {userData.profilePhoto ? (
-            <Image source={{ uri: userData.profilePhoto }} style={styles.profileImageHeader} />
-          ) : (
-            <View style={styles.profileImagePlaceholderHeader}>
-              <Text style={styles.profileInitialsHeader}>
-                {userData.name?.charAt(0) || 'U'}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
-
-        {/* Profile Dropdown Menu */}
-        {showProfileMenu && (
-          <Animated.View style={[styles.profileDropdown, { opacity: headerAnim }]}>
-            <View style={styles.dropdownHeader}>
-              {userData.profilePhoto ? (
-                <Image source={{ uri: userData.profilePhoto }} style={styles.dropdownAvatar} />
-              ) : (
-                <View style={styles.dropdownAvatarPlaceholder}>
-                  <Text style={styles.dropdownAvatarText}>
-                    {userData.name?.charAt(0) || 'U'}
-                  </Text>
-                </View>
-              )}
-              <View style={styles.dropdownUserInfo}>
-                <Text style={styles.dropdownUserName}>{userData.name}</Text>
-                <Text style={styles.dropdownUserEmail}>{userData.email}</Text>
-              </View>
-            </View>
-            <View style={styles.dropdownItems}>
-              <TouchableOpacity style={styles.dropdownItem} onPress={handleProfileClick}>
-                <MaterialIcons name="person" size={18} color="#3B82F6" />
-                <Text style={styles.dropdownItemText}>My Profile</Text>
-              </TouchableOpacity>
-              <View style={styles.dropdownDivider} />
-              <TouchableOpacity
-                style={[styles.dropdownItem, styles.logoutDropdownItem]}
-                onPress={() => setShowLogoutConfirm(true)}
-              >
-                <MaterialIcons name="logout" size={18} color="#dc2626" />
-                <Text style={[styles.dropdownItemText, styles.logoutText]}>Logout</Text>
-              </TouchableOpacity>
-            </View>
-          </Animated.View>
-        )}
+  <View style={styles.headerLeft}>
+    <Text style={styles.userName}>{userData.name || 'User'}</Text>
+  </View>
+  <TouchableOpacity 
+    style={styles.profileImageWrapper}
+    onPress={() => setShowProfileMenu(!showProfileMenu)}
+    activeOpacity={0.7}
+  >
+    {userData.profilePhoto ? (
+      <Image source={{ uri: userData.profilePhoto }} style={styles.profileImageHeader} />
+    ) : (
+      <View style={styles.profileImagePlaceholderHeader}>
+        <Text style={styles.profileInitialsHeader}>
+          {userData.name?.charAt(0) || 'U'}
+        </Text>
       </View>
+    )}
+  </TouchableOpacity>
+
+  {/* Profile Dropdown Menu */}
+  {showProfileMenu && (
+    <Animated.View style={[styles.profileDropdown, { opacity: headerAnim }]}>
+      <View style={styles.dropdownHeader}>
+        {userData.profilePhoto ? (
+          <Image source={{ uri: userData.profilePhoto }} style={styles.dropdownAvatar} />
+        ) : (
+          <View style={styles.dropdownAvatarPlaceholder}>
+            <Text style={styles.dropdownAvatarText}>
+              {userData.name?.charAt(0) || 'U'}
+            </Text>
+          </View>
+        )}
+        <View style={styles.dropdownUserInfo}>
+          <Text style={styles.dropdownUserName}>{userData.name}</Text>
+          <Text style={styles.dropdownUserEmail}>{userData.email}</Text>
+        </View>
+      </View>
+      <View style={styles.dropdownItems}>
+        <TouchableOpacity style={styles.dropdownItem} onPress={handleProfileClick}>
+          <MaterialIcons name="person" size={18} color="#4A90E2" />
+          <Text style={styles.dropdownItemText}>My Profile</Text>
+        </TouchableOpacity>
+        <View style={styles.dropdownDivider} />
+        <TouchableOpacity
+          style={[styles.dropdownItem, styles.logoutDropdownItem]}
+          onPress={() => setShowLogoutConfirm(true)}
+        >
+          <MaterialIcons name="logout" size={18} color="#ef4444" />
+          <Text style={[styles.dropdownItemText, styles.logoutText]}>Logout</Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  )}
+</View>
 
       {/* MAIN CONTENT */}
       <View style={styles.contentContainer}>
@@ -924,6 +1151,7 @@ export default function UserDashboard() {
           sendMessage={sendMessage}
           isLoading={isLoading}
           onClose={() => setChatOpen(false)}
+          onCounselorPress={handleAIContactClick}
         />
       )}
 
@@ -941,7 +1169,7 @@ export default function UserDashboard() {
               color={active === "Chat" ? "#ffffff" : "#94a3b8"}
             />
           </View>
-          <Text style={[styles.navLabel, active === "Chat" && styles.navLabelActive]}>Chat</Text>
+          <Text style={[styles.navLabel, active === "Chat" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>Chat</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -951,11 +1179,11 @@ export default function UserDashboard() {
           <View style={[styles.navIconWrapper, active === "Counselor" && styles.navIconWrapperActive]}>
             <MaterialIcons
               name="psychology"
-              size={26}
+              size={24}
               color={active === "Counselor" ? "#ffffff" : "#94a3b8"}
             />
           </View>
-          <Text style={[styles.navLabel, active === "Counselor" && styles.navLabelActive]}>Counselor</Text>
+          <Text style={[styles.navLabel, active === "Counselor" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>Counselor</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -965,11 +1193,11 @@ export default function UserDashboard() {
           <View style={[styles.navIconWrapper, active === "Appointment" && styles.navIconWrapperActive]}>
             <MaterialIcons
               name="event-available"
-              size={26}
+              size={24}
               color={active === "Appointment" ? "#ffffff" : "#94a3b8"}
             />
           </View>
-          <Text style={[styles.navLabel, active === "Appointment" && styles.navLabelActive]}>Appointment</Text>
+          <Text style={[styles.navLabel, active === "Appointment" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>Appointment</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -979,11 +1207,11 @@ export default function UserDashboard() {
           <View style={[styles.navIconWrapper, active === "Wallet" && styles.navIconWrapperActive]}>
             <MaterialIcons
               name="account-balance-wallet"
-              size={26}
+              size={24}
               color={active === "Wallet" ? "#ffffff" : "#94a3b8"}
             />
           </View>
-          <Text style={[styles.navLabel, active === "Wallet" && styles.navLabelActive]}>Wallet</Text>
+          <Text style={[styles.navLabel, active === "Wallet" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>Wallet</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -991,9 +1219,9 @@ export default function UserDashboard() {
           onPress={() => setShowMoreModal(true)}
         >
           <View style={styles.navIconWrapper}>
-            <MaterialIcons name="more-horiz" size={26} color="#94a3b8" />
+            <MaterialIcons name="more-horiz" size={24} color="#94a3b8" />
           </View>
-          <Text style={styles.navLabel}>More</Text>
+          <Text style={styles.navLabel} numberOfLines={1} adjustsFontSizeToFit>More</Text>
         </TouchableOpacity>
       </View>
 
@@ -1187,7 +1415,7 @@ export default function UserDashboard() {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -1197,156 +1425,155 @@ const styles = StyleSheet.create({
     backgroundColor: "#f7f9fb",
   },
 
-  header: {
-    backgroundColor: "#ffffff",
-    paddingTop: Platform.OS === "ios" ? 40 : 10,
-    paddingBottom: 10,
+ header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 10 : 10,
+    paddingBottom: 15,
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
-    shadowColor: "#000",
+    borderBottomColor: '#f0f0f0',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 3,
     zIndex: 100,
-    marginTop: 35,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
   },
   headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+    flex: 1,
   },
-  headerLogo: {
-    width: 36,
-    height: 36,
-    backgroundColor: "#f1f5f9",
-    borderRadius: 10,
-    padding: 4,
+  userName: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1e293b',
   },
+  
+  // Profile Image - Matching iOS style
   profileImageWrapper: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    overflow: "hidden",
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    overflow: 'hidden',
     borderWidth: 1.5,
-    borderColor: "#ffffff",
-    backgroundColor: "#ffffff",
-    // Premium Shadow
-    shadowColor: "#6366f1",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
+    borderColor: '#f0f0f0',
+    backgroundColor: '#f1f5f9',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#4A90E2',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   profileImageHeader: {
-    width: "100%",
-    height: "100%",
+    width: '100%',
+    height: '100%',
   },
   profileImagePlaceholderHeader: {
-    width: "100%",
-    height: "100%",
-    backgroundColor: "#1d2b3a",
-    justifyContent: "center",
-    alignItems: "center",
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#4A90E2',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   profileInitialsHeader: {
     fontSize: 18,
-    fontWeight: "bold",
-    color: "#ffffff",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1D2B3A",
-    letterSpacing: -0.5,
+    fontWeight: 'bold',
+    color: '#ffffff',
   },
 
-  // Profile Dropdown
+  // Profile Dropdown - Matching iOS style
   profileDropdown: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? 100 : 70,
-    right: 20,
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 70 : 65,
+    right: 15,
     width: 280,
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    overflow: "hidden",
-    shadowColor: "#000",
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
     zIndex: 101,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
   },
   dropdownHeader: {
-    padding: 20,
-    backgroundColor: "#1E293B",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
+    padding: 16,
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
   },
   dropdownAvatar: {
     width: 50,
     height: 50,
     borderRadius: 25,
     borderWidth: 2,
-    borderColor: "#ffffff",
+    borderColor: '#4A90E2',
   },
   dropdownAvatarPlaceholder: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: '#4A90E2',
+    justifyContent: 'center',
+    alignItems: 'center',
     borderWidth: 2,
-    borderColor: "#ffffff",
+    borderColor: '#4A90E2',
   },
   dropdownAvatarText: {
     fontSize: 20,
-    fontWeight: "bold",
-    color: "#ffffff",
+    fontWeight: 'bold',
+    color: '#ffffff',
   },
   dropdownUserInfo: {
     flex: 1,
   },
   dropdownUserName: {
-    color: "#ffffff",
+    color: '#1e293b',
     fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 4,
+    fontWeight: '600',
+    marginBottom: 2,
   },
   dropdownUserEmail: {
-    color: "rgba(255,255,255,0.9)",
+    color: '#64748b',
     fontSize: 12,
   },
   dropdownItems: {
     paddingVertical: 8,
   },
   dropdownItem: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
     padding: 14,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
   dropdownItemText: {
     fontSize: 14,
-    color: "#333",
-    fontWeight: "500",
+    color: '#1e293b',
+    fontWeight: '500',
   },
   dropdownDivider: {
     height: 1,
-    backgroundColor: "#f0f0f0",
+    backgroundColor: '#f0f0f0',
     marginVertical: 4,
   },
   logoutDropdownItem: {
-    backgroundColor: "#fff5f5",
+    backgroundColor: '#fff5f5',
   },
-
+  logoutText: {
+    color: '#ef4444',
+  },
+  
   // Main Content
   contentContainer: {
     flex: 1,
@@ -1354,182 +1581,220 @@ const styles = StyleSheet.create({
 
   appointmentsRoot: {
     flex: 1,
-    backgroundColor: "#f1f5f9",
+    backgroundColor: "#f0f4ff",
   },
-  appointmentsHero: {
-    marginHorizontal: 12,
-    marginTop: 10,
-    borderRadius: 18,
-    padding: 18,
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 4,
+
+  // Top bar: tabs + filters
+  appointmentsTopBar: {
+    backgroundColor: "#ffffff",
+    paddingTop: 14,
+    paddingBottom: 10,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e8ecf5",
+    shadowColor: "#4f46e5",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  appointmentsHeroTitle: {
-    color: "#ffffff",
-    fontSize: 22,
-    fontWeight: "800",
-  },
-  appointmentsHeroSubtitle: {
-    color: "rgba(255,255,255,0.85)",
-    fontSize: 12,
-    marginTop: 6,
-    lineHeight: 18,
-  },
-  appointmentsHeroTabs: {
-    marginTop: 14,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    borderRadius: 12,
-    padding: 4,
+  appointmentsTabRow: {
     flexDirection: "row",
-    gap: 6,
+    backgroundColor: "#f0f4ff",
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 12,
   },
-  heroTabBtn: {
+  aptTabBtn: {
     flex: 1,
-    borderRadius: 10,
-    paddingVertical: 8,
+    borderRadius: 11,
+    paddingVertical: 9,
     alignItems: "center",
   },
-  heroTabBtnActive: {
-    backgroundColor: "#ffffff",
+  aptTabBtnActive: {
+    backgroundColor: "#4f46e5",
+    shadowColor: "#4f46e5",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  heroTabText: {
-    color: "#e2e8f0",
-    fontSize: 12,
+  aptTabText: {
+    color: "#6b7280",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  aptTabTextActive: {
+    color: "#ffffff",
     fontWeight: "700",
-  },
-  heroTabTextActive: {
-    color: "#0f172a",
   },
   appointmentFilterRow: {
     flexDirection: "row",
     gap: 8,
-    marginHorizontal: 12,
-    marginTop: 12,
-    marginBottom: 6,
   },
   filterChip: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: "#e2e8f0",
+    backgroundColor: "#f0f4ff",
+    borderWidth: 1,
+    borderColor: "#e0e7ff",
   },
   filterChipActive: {
-    backgroundColor: "#312e81",
+    backgroundColor: "#4f46e5",
+    borderColor: "#4f46e5",
   },
   filterChipText: {
-    color: "#334155",
+    color: "#6b7280",
     fontSize: 12,
     fontWeight: "600",
   },
   filterChipTextActive: {
     color: "#ffffff",
   },
+
+  // List
   appointmentsList: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     paddingBottom: 120,
-    paddingTop: 6,
-    gap: 10,
+    paddingTop: 14,
+    gap: 14,
   },
   appointmentLoaderWrap: {
     alignItems: "center",
-    paddingVertical: 40,
+    paddingVertical: 60,
+    gap: 12,
   },
   appointmentLoaderText: {
-    marginTop: 10,
-    color: "#64748b",
+    color: "#6b7280",
     fontSize: 13,
+    fontWeight: "500",
   },
   appointmentEmptyCard: {
     backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 24,
+    borderRadius: 20,
+    paddingVertical: 48,
+    paddingHorizontal: 24,
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
+    shadowColor: "#4f46e5",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+    elevation: 3,
   },
   appointmentEmptyTitle: {
-    marginTop: 10,
+    marginTop: 14,
     color: "#0f172a",
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "700",
   },
   appointmentEmptySubtitle: {
     marginTop: 6,
-    color: "#64748b",
-    fontSize: 12,
+    color: "#94a3b8",
+    fontSize: 13,
     textAlign: "center",
-    lineHeight: 18,
+    lineHeight: 20,
   },
+
+  // Card
   appointmentCard: {
     backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+    borderRadius: 20,
+    overflow: "hidden",
+    shadowColor: "#4f46e5",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.09,
+    shadowRadius: 18,
+    elevation: 4,
+  },
+  aptCardAccent: {
+    height: 4,
+    width: "100%",
   },
   appointmentCardHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+  aptAvatarWrap: {
+    width: 54,
+    height: 54,
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: "#e0e7ff",
   },
   appointmentAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 54,
+    height: 54,
   },
   appointmentMetaColumn: {
     flex: 1,
   },
   appointmentDoctorName: {
     color: "#0f172a",
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "700",
+    letterSpacing: 0.1,
   },
   appointmentSpecialization: {
-    color: "#64748b",
+    color: "#6b7280",
     fontSize: 12,
-    marginTop: 2,
+    marginTop: 3,
+    fontWeight: "500",
   },
   aptStatusPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 999,
   },
   aptStatusText: {
     fontSize: 10,
     textTransform: "uppercase",
-    fontWeight: "700",
-    letterSpacing: 0.4,
+    fontWeight: "800",
+    letterSpacing: 0.6,
   },
   aptStatusPending: {
-    backgroundColor: "#fff7ed",
+    backgroundColor: "#fff4e5",
   },
   aptStatusConfirmed: {
-    backgroundColor: "#eef2ff",
+    backgroundColor: "#ede9fe",
   },
   aptStatusCompleted: {
-    backgroundColor: "#ecfdf5",
+    backgroundColor: "#dcfce7",
   },
   aptStatusCanceled: {
-    backgroundColor: "#fef2f2",
+    backgroundColor: "#fee2e2",
+  },
+
+  aptDivider: {
+    height: 1,
+    backgroundColor: "#f1f5f9",
+    marginHorizontal: 16,
+    marginTop: 14,
   },
   appointmentDateRow: {
-    marginTop: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    backgroundColor: "#f8fafc",
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    gap: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  aptDateIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    backgroundColor: "#ede9fe",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  aptTimeDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#c7d2fe",
+    marginHorizontal: 4,
   },
   appointmentDateText: {
     color: "#334155",
@@ -1537,65 +1802,78 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   appointmentActionRow: {
-    marginTop: 12,
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
   appointmentDetailsBtn: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: "#dbe4ee",
-    borderRadius: 10,
-    paddingVertical: 9,
+    borderWidth: 1.5,
+    borderColor: "#e0e7ff",
+    borderRadius: 13,
+    paddingVertical: 11,
     justifyContent: "center",
     alignItems: "center",
     flexDirection: "row",
     gap: 6,
+    backgroundColor: "#f5f3ff",
   },
   appointmentDetailsText: {
-    color: "#334155",
-    fontSize: 12,
+    color: "#4f46e5",
+    fontSize: 13,
     fontWeight: "700",
   },
   appointmentBookBtn: {
     flex: 1,
     backgroundColor: "#4f46e5",
-    borderRadius: 10,
-    paddingVertical: 9,
+    borderRadius: 13,
+    paddingVertical: 11,
     justifyContent: "center",
     alignItems: "center",
     flexDirection: "row",
     gap: 6,
+    shadowColor: "#4f46e5",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   appointmentBookText: {
     color: "#ffffff",
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
   },
   appointmentDetailsModal: {
     backgroundColor: "#ffffff",
-    borderRadius: 18,
-    padding: 20,
+    borderRadius: 22,
+    padding: 24,
     width: width * 0.88,
     maxWidth: 420,
   },
   detailsCloseBtn: {
     position: "absolute",
-    top: 10,
-    right: 10,
+    top: 14,
+    right: 14,
     zIndex: 2,
+    backgroundColor: "#f1f5f9",
+    borderRadius: 20,
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
   },
   appointmentDetailsTitle: {
     color: "#0f172a",
     fontSize: 20,
     fontWeight: "800",
-    marginBottom: 14,
+    marginBottom: 16,
   },
   appointmentDetailsLine: {
-    color: "#334155",
+    color: "#475569",
     fontSize: 14,
-    marginBottom: 8,
-    lineHeight: 20,
+    marginBottom: 10,
+    lineHeight: 22,
   },
 
   // AI FLOATING BUTTON - Matching screen.png
@@ -1659,16 +1937,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-around",
     alignItems: "stretch",
-    height: 80,
+    height: Platform.OS === "ios" ? 82 : 68,
     borderTopWidth: 1,
     borderTopColor: "#1e293b",
-    paddingBottom: Platform.OS === "ios" ? 20 : 8,
+    paddingBottom: Platform.OS === "ios" ? 20 : 4,
     zIndex: 998,
   },
   navItem: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingHorizontal: 2,
+    overflow: "hidden",
   },
   navItemActive: {
     backgroundColor: "#1e2b3c",
@@ -1676,18 +1956,19 @@ const styles = StyleSheet.create({
   navIconWrapper: {
     justifyContent: "center",
     alignItems: "center",
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   navIconWrapperActive: {
-    borderTopWidth: 4,
+    borderTopWidth: 3,
     borderTopColor: "#ffffff",
-    paddingTop: 8,
+    paddingTop: 6,
   },
   navLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "500",
     color: "#94a3b8",
-    marginTop: 4,
+    marginTop: 2,
+    textAlign: "center",
   },
   navLabelActive: {
     color: "#ffffff",
@@ -1797,6 +2078,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#333",
     lineHeight: 20,
+  },
+  chatCounselorMention: {
+    color: "#1d4ed8",
+    fontWeight: "700",
+    textDecorationLine: "underline",
   },
   chatBubbleTextUser: {
     color: "#ffffff",

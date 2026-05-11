@@ -369,7 +369,7 @@ const UserSignup = ({ navigation, route }) => {
               <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
                   <View style={styles.logoBadge}><Image source={logo} style={styles.logo} resizeMode="contain" /></View>
-                  <View style={styles.brandContainer}><Text style={styles.brandMain}>Medicone</Text><Text style={styles.brandAlt}>cket</Text></View>
+                  <View style={styles.brandContainer}><Text style={styles.brandMain}>Medicone</Text><Text style={styles.brandAlt}>ckt</Text></View>
                   <Text style={styles.tagline}>{isLogin ? 'Welcome back, seeker' : 'Begin your journey'}</Text>
                 </View>
 
@@ -485,9 +485,9 @@ const styles = StyleSheet.create({
   orb1: { top: -100, right: -50, backgroundColor: '#6366f1' },
   orb2: { bottom: -50, left: -100, backgroundColor: '#10b981' },
   safeArea: { flex: 1 },
-  scrollContent: { padding: 24, paddingTop: 100, paddingBottom: 60 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 100, paddingBottom: 60, flexGrow: 1 },
   backBtn: { position: 'absolute', top: 30, left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
-  panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, padding: 24, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
+  panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, paddingHorizontal: 24, paddingVertical: 28, width: '100%', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
   header: { alignItems: 'center', marginBottom: 24 },
   logoBadge: { padding: 8, backgroundColor: '#fff', borderRadius: 20, shadowColor: '#6366f1', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
   logo: { width: 55, height: 55 },

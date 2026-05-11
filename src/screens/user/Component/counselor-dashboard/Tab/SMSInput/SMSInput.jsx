@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
@@ -14,13 +14,15 @@ import {
   Platform,
   StatusBar,
   InteractionManager,
+  Image,
 } from 'react-native';
 import { io } from 'socket.io-client';
-import axios from 'axios';
+import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { API_BASE_URL } from '../../../../../../axiosConfig';
 import VideoCallModal from '../../../UserDashboard/Tab/CallModal/VideoCallModal';
 import VoiceCallModal from '../../../UserDashboard/Tab/CallModal/VoiceCallModal';
+import useRingtone from '../../../../../../hooks/useRingtone';
+import { useIsFocused } from '@react-navigation/native';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -37,15 +39,19 @@ const IncomingCallModal = ({
 }) => {
   const [isJoining, setIsJoining] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
+  const { stopRinging } = useRingtone();
 
   const handleJoin = async () => {
     if (isJoining) return;
     setIsJoining(true);
+    stopRinging();
+    // Close modal first so ringtone effect can't restart while accept API is in-flight.
+    onClose();
     if (onJoinCall && callData) {
       try {
         const result = await onJoinCall(callData.callId);
         if (result && result.success) {
-          onClose();
+          // already closed
         }
       } catch (error) {
         console.error("Error joining call:", error);
@@ -53,7 +59,6 @@ const IncomingCallModal = ({
         setIsJoining(false);
       }
     } else {
-      onClose();
       setIsJoining(false);
     }
   };
@@ -61,17 +66,19 @@ const IncomingCallModal = ({
   const handleReject = async () => {
     if (isRejecting) return;
     setIsRejecting(true);
+    stopRinging();
+    // Close modal first so ringtone effect can't restart while reject API is in-flight.
+    onClose();
     if (onRejectCall && callData) {
       try {
         await onRejectCall(callData.callId);
-        onClose();
+        // already closed
       } catch (error) {
         console.error("Error rejecting call:", error);
       } finally {
         setIsRejecting(false);
       }
     } else {
-      onClose();
       setIsRejecting(false);
     }
   };
@@ -79,6 +86,7 @@ const IncomingCallModal = ({
   if (!isOpen) return null;
 
   const displayName = callerName || "Anonymous User";
+  const displayInitial = (displayName?.charAt(0) || "A").toUpperCase();
 
   return (
     <Modal
@@ -95,9 +103,7 @@ const IncomingCallModal = ({
           <View style={styles.incomingCallContent}>
             <View style={styles.incomingCallerInfo}>
               <View style={styles.incomingCallerAvatar}>
-                <Text style={styles.avatarEmojiLarge}>
-                  {callerAvatar === "👨" ? "👨" : callerAvatar === "👩" ? "👩" : "👤"}
-                </Text>
+                <Text style={styles.avatarInitialLarge}>{displayInitial}</Text>
               </View>
               <Text style={styles.incomingCallerName}>{displayName}</Text>
               <Text style={styles.incomingCallType}>
@@ -141,12 +147,13 @@ const IncomingCallModal = ({
 };
 
 const SMSInput = ({ navigation, route }) => {
+  const isFocused = useIsFocused();
   const location = route.params || {};
   const [message, setMessage] = useState("");
   const messagesContainerRef = useRef(null);
   const chatSocketRef = useRef(null);
   const fallbackChatIdRef = useRef(null);
-  const hasInitialAutoScrollRef = useRef(false);
+  const initialLoadDoneRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [remoteIsTyping, setRemoteIsTyping] = useState(false);
@@ -167,6 +174,59 @@ const SMSInput = ({ navigation, route }) => {
     roomId: "",
     callType: "video",
   });
+  const { startRinging, stopRinging } = useRingtone();
+
+  useEffect(() => {
+    if (!isFocused) {
+      stopRinging();
+      return;
+    }
+    if (showIncomingModal) startRinging(true);
+    else stopRinging();
+  }, [isFocused, showIncomingModal, startRinging, stopRinging]);
+
+  // If caller ends/cancels while modal is open, stop ringtone and close modal.
+  useEffect(() => {
+    if (!isFocused || !showIncomingModal || !incomingCallData?.callId || !counselorId) return;
+
+    let cancelled = false;
+
+    const checkStillPending = async () => {
+      try {
+        const token = await getAuthToken();
+        if (cancelled || !token) return;
+
+        const response = await axios.get(`${API_BASE_URL}/api/video/calls/pending/${counselorId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        const pending = response.data?.pendingRequests || [];
+        const stillThere = pending.some((c) => c?.callId === incomingCallData.callId);
+
+        if (!stillThere && !cancelled) {
+          setShowIncomingModal(false);
+          setIncomingCallData({
+            name: "",
+            avatar: "👤",
+            callId: "",
+            roomId: "",
+            callType: "video",
+          });
+          stopRinging();
+        }
+      } catch (_) {
+        // ignore transient polling errors
+      }
+    };
+
+    checkStillPending();
+    const intervalId = setInterval(checkStillPending, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [isFocused, showIncomingModal, incomingCallData?.callId, counselorId, stopRinging]);
 
   // Message states
   const [messages, setMessages] = useState([]);
@@ -225,15 +285,66 @@ const SMSInput = ({ navigation, route }) => {
     }
   };
 
+  const normalizeObjectId = (value) => {
+    if (!value) return null;
+
+    if (typeof value === "object") {
+      return (
+        normalizeObjectId(value._id) ||
+        normalizeObjectId(value.id) ||
+        normalizeObjectId(value.userId) ||
+        normalizeObjectId(value.$oid) ||
+        null
+      );
+    }
+
+    const asString = String(value).trim();
+    if (!asString) return null;
+
+    if (/^[a-f\d]{24}$/i.test(asString)) return asString;
+
+    const embeddedMatch = asString.match(/[a-f\d]{24}/i);
+    return embeddedMatch ? embeddedMatch[0] : null;
+  };
+
+  const getParticipantIdFromChatId = () => {
+    const sourceChatId =
+      chatId ||
+      location?.chatData?.chatId ||
+      location?.chatData?.id ||
+      selectedUser?.chatId ||
+      "";
+
+    const chatIdText = String(sourceChatId || "");
+    if (!chatIdText) return null;
+
+    const matchedIds = chatIdText.match(/[a-f\d]{24}/gi) || [];
+    if (!matchedIds.length) return null;
+
+    const normalizedCounselorId = normalizeObjectId(counselorId);
+    const receiverId = matchedIds.find(
+      (id) => !normalizedCounselorId || String(id).toLowerCase() !== String(normalizedCounselorId).toLowerCase()
+    );
+
+    return receiverId || null;
+  };
+
   const getSelectedUserId = () => {
-    if (!selectedUser) return null;
     return (
-      selectedUser.receiverId ||
-      selectedUser._id ||
-      selectedUser.id ||
-      selectedUser.userId ||
+      selectedUser?.receiverId ||
+      selectedUser?._id ||
+      selectedUser?.id ||
+      selectedUser?.userId ||
+      selectedUser?.user?._id ||
+      selectedUser?.user?.id ||
+      selectedUser?.patient?._id ||
+      selectedUser?.patient?.id ||
       location?.userId ||
       location?.chatData?.receiverId ||
+      location?.chatData?.otherParty?._id ||
+      location?.chatData?.otherParty?.id ||
+      location?.chatData?.otherParty?.userId ||
+      getParticipantIdFromChatId() ||
       null
     );
   };
@@ -269,37 +380,32 @@ const SMSInput = ({ navigation, route }) => {
       .slice(0, 2);
   };
 
+  // Chat UX: use an inverted list so latest messages are visible immediately.
+  const messagesForList = useMemo(() => {
+    if (!messages?.length) return [];
+    return [...messages].reverse();
+  }, [messages]);
+
   const scrollToBottom = useCallback((animated = true) => {
-    InteractionManager.runAfterInteractions(() => {
-      requestAnimationFrame(() => {
-        if (!messagesContainerRef.current) return;
-        try {
-          messagesContainerRef.current.scrollToEnd({ animated });
-        } catch (scrollError) {
-          // Ignore transient list layout race while list mounts.
-        }
-      });
-    });
+    if (!messagesContainerRef.current) return;
+    try {
+      messagesContainerRef.current.scrollToOffset({ offset: 0, animated });
+    } catch (_) {}
   }, []);
 
   const handleMessagesScroll = useCallback((event) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
-    shouldAutoScrollRef.current = distanceFromBottom <= 120;
+    const distanceFromNewest = contentOffset.y;
+    shouldAutoScrollRef.current = distanceFromNewest <= 120;
   }, []);
 
   const handleMessagesContentSizeChange = useCallback(() => {
     if (!messages.length) return;
-
-    if (!hasInitialAutoScrollRef.current) {
-      hasInitialAutoScrollRef.current = true;
-      shouldAutoScrollRef.current = true;
-      scrollToBottom(false);
-      return;
-    }
-
     if (shouldAutoScrollRef.current) {
-      scrollToBottom(true);
+      // No animation on initial load — jumps straight to bottom without scrolling through history
+      // Animated only for new messages after initial load is done
+      scrollToBottom(initialLoadDoneRef.current);
+      initialLoadDoneRef.current = true;
     }
   }, [messages.length, scrollToBottom]);
 
@@ -341,7 +447,7 @@ const SMSInput = ({ navigation, route }) => {
           setChatStatus(response.data.chatStatus);
         }
         const transformedMessages = response.data.messages.map((msg, index) => ({
-          id: msg.id || index,
+          id: msg.id || msg._id || msg.messageId || `fetched_${index}`,
           messageId: msg.messageId,
           text: msg.content,
           sender: msg.senderRole === "counsellor" ? "me" : "user",
@@ -357,7 +463,7 @@ const SMSInput = ({ navigation, route }) => {
           isRead: msg.isRead,
           status: "sent",
         }));
-        hasInitialAutoScrollRef.current = false;
+        initialLoadDoneRef.current = false;
         shouldAutoScrollRef.current = true;
         setMessages(transformedMessages);
         saveMessagesToLocalStorage(transformedMessages);
@@ -400,7 +506,6 @@ const SMSInput = ({ navigation, route }) => {
       const chatIdToLoad = getChatIdForAPI();
       const savedChat = savedChats.find(chat => chat.chatId === chatIdToLoad);
       if (savedChat && savedChat.messages) {
-        hasInitialAutoScrollRef.current = false;
         shouldAutoScrollRef.current = true;
         setMessages(savedChat.messages);
         if (savedChat.chatStatus) setChatStatus(savedChat.chatStatus);
@@ -463,10 +568,17 @@ const SMSInput = ({ navigation, route }) => {
     try {
       const sentMsg = await sendMessageToAPI({ messageContent: messageText });
       setMessages(prev => {
+        // If socket already replaced the temp bubble, just remove any remaining temp
+        const confirmedId = sentMsg?.id || sentMsg?._id || sentMsg?.messageId;
+        const socketAlreadyAdded = confirmedId && prev.some(m =>
+          !m.isTemporary && (m.id === confirmedId || (m.messageId && m.messageId === sentMsg?.messageId))
+        );
+        if (socketAlreadyAdded) return prev.filter(m => !m.isTemporary);
+
         const withoutTemp = prev.filter(m => !m.isTemporary);
         if (!sentMsg) return withoutTemp;
         return [...withoutTemp, {
-          id: sentMsg.id || sentMsg._id,
+          id: confirmedId,
           messageId: sentMsg.messageId,
           text: sentMsg.content,
           sender: "me",
@@ -499,9 +611,9 @@ const SMSInput = ({ navigation, route }) => {
       setCallError("Please login again to make calls");
       return;
     }
-    const userId = getSelectedUserId();
+    const userId = normalizeObjectId(getSelectedUserId());
     if (!userId) {
-      setCallError("User information not found");
+      setCallError("Invalid receiver ID format for this user");
       return;
     }
     setIsInitiatingCall(true);
@@ -509,29 +621,63 @@ const SMSInput = ({ navigation, route }) => {
     try {
       const token = await getAuthToken();
       if (!token) throw new Error("Authentication token not found");
+      const authHeader = String(token).startsWith("Bearer ")
+        ? String(token)
+        : `Bearer ${token}`;
       const requestBody = {
-        initiatorId: counselorId,
-        initiatorType: "counsellor",
-        receiverId: userId,
+        initiatorId: String(counselorId),
+        receiverId: String(userId),
         receiverType: "user",
         callType: "video",
       };
-      const response = await axios.post(`${API_BASE_URL}/api/video/calls/initiate`, requestBody, {
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      });
+
+      let response;
+      try {
+        response = await axios.post(
+          `${API_BASE_URL}/api/video/calls/initiate`,
+          { ...requestBody, initiatorType: "counsellor" },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: authHeader,
+            },
+          }
+        );
+      } catch (firstError) {
+        if (firstError?.response?.status !== 400) {
+          throw firstError;
+        }
+
+        response = await axios.post(
+          `${API_BASE_URL}/api/video/calls/initiate`,
+          { ...requestBody, initiatorType: "counselor" },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: authHeader,
+            },
+          }
+        );
+      }
       if (response.data && response.data.success) {
         const callData = {
           id: response.data.callData?.id,
-          callId: response.data.callId,
-          roomId: response.data.roomId,
+          callId: response.data.callId || response.data.callData?._id || response.data.callData?.id,
+          roomId: response.data.roomId || response.data.callData?.roomId,
           name: selectedUser.name || USER_NAME,
           type: "video",
+          callType: "video",
           profilePic: getAvatarByGender(selectedUser.gender),
           phoneNumber: selectedUser.phone,
           status: response.data.status || "ringing",
           date: "Today",
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          currentUserId: String(counselorId),
+          currentUserType: "counsellor",
+          initiator: response.data.callData?.initiator,
+          receiver: response.data.callData?.receiver,
           apiCallData: response.data.callData,
+          isIncoming: false,
         };
         setSelectedCall(callData);
         setIsVideoModalOpen(true);
@@ -539,8 +685,13 @@ const SMSInput = ({ navigation, route }) => {
         throw new Error(response.data?.message || "Failed to initiate video call");
       }
     } catch (error) {
-      console.error("Error initiating video call:", error);
-      setCallError(error.response?.data?.message || error.message || "Failed to initiate video call");
+      console.error("Error initiating video call:", error?.response?.data || error);
+      setCallError(
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error.message ||
+        "Failed to initiate video call"
+      );
     } finally {
       setIsInitiatingCall(false);
     }
@@ -555,9 +706,9 @@ const SMSInput = ({ navigation, route }) => {
       setCallError("Please login again to make calls");
       return;
     }
-    const userId = getSelectedUserId();
+    const userId = normalizeObjectId(getSelectedUserId());
     if (!userId) {
-      setCallError("User information not found");
+      setCallError("Invalid receiver ID format for this user");
       return;
     }
     setIsInitiatingCall(true);
@@ -565,29 +716,63 @@ const SMSInput = ({ navigation, route }) => {
     try {
       const token = await getAuthToken();
       if (!token) throw new Error("Authentication token not found");
+      const authHeader = String(token).startsWith("Bearer ")
+        ? String(token)
+        : `Bearer ${token}`;
       const requestBody = {
-        initiatorId: counselorId,
-        initiatorType: "counsellor",
-        receiverId: userId,
+        initiatorId: String(counselorId),
+        receiverId: String(userId),
         receiverType: "user",
         callType: "audio",
       };
-      const response = await axios.post(`${API_BASE_URL}/api/video/calls/initiate`, requestBody, {
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      });
+
+      let response;
+      try {
+        response = await axios.post(
+          `${API_BASE_URL}/api/video/calls/initiate`,
+          { ...requestBody, initiatorType: "counsellor" },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: authHeader,
+            },
+          }
+        );
+      } catch (firstError) {
+        if (firstError?.response?.status !== 400) {
+          throw firstError;
+        }
+
+        response = await axios.post(
+          `${API_BASE_URL}/api/video/calls/initiate`,
+          { ...requestBody, initiatorType: "counselor" },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: authHeader,
+            },
+          }
+        );
+      }
       if (response.data && response.data.success) {
         const callData = {
           id: response.data.callData?.id,
-          callId: response.data.callId,
-          roomId: response.data.roomId,
+          callId: response.data.callId || response.data.callData?._id || response.data.callData?.id,
+          roomId: response.data.roomId || response.data.callData?.roomId,
           name: selectedUser.name || USER_NAME,
           type: "voice",
+          callType: "audio",
           profilePic: getAvatarByGender(selectedUser.gender),
           phoneNumber: selectedUser.phone,
           status: response.data.status || "ringing",
           date: "Today",
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          currentUserId: String(counselorId),
+          currentUserType: "counsellor",
+          initiator: response.data.callData?.initiator,
+          receiver: response.data.callData?.receiver,
           apiCallData: response.data.callData,
+          isIncoming: false,
         };
         setSelectedCall(callData);
         setIsVoiceModalOpen(true);
@@ -595,8 +780,13 @@ const SMSInput = ({ navigation, route }) => {
         throw new Error(response.data?.message || "Failed to initiate voice call");
       }
     } catch (error) {
-      console.error("Error initiating voice call:", error);
-      setCallError(error.response?.data?.message || error.message || "Failed to initiate voice call");
+      console.error("Error initiating voice call:", error?.response?.data || error);
+      setCallError(
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error.message ||
+        "Failed to initiate voice call"
+      );
     } finally {
       setIsInitiatingCall(false);
     }
@@ -627,20 +817,27 @@ const SMSInput = ({ navigation, route }) => {
         const remoteParticipant = detailedCall
           ? String(detailedCall.initiator?.id) === String(counselorId) ? detailedCall.receiver : detailedCall.initiator
           : null;
+        const anonymousName =
+          remoteParticipant?.anonymous ||
+          remoteParticipant?.anonName ||
+          remoteParticipant?.anonymousName ||
+          incomingCallData.name ||
+          "Anonymous User";
         const callDataForModal = {
           id: detailedCall?.id || callId,
           callId: callId,
           roomId: response.data.roomId || detailedCall?.roomId || incomingCallData.roomId,
-          name: remoteParticipant?.displayName || remoteParticipant?.fullName || incomingCallData.name,
+          name: anonymousName,
           type: modalType,
           callType: modalType,
-          profilePic: remoteParticipant?.profilePhoto || incomingCallData.avatar,
+          profilePic: null,
           phoneNumber: remoteParticipant?.phoneNumber || "",
           status: response.data.status || "active",
           date: "Today",
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           apiCallData: detailedCall,
           isIncoming: true,
+          currentUserType: "counsellor",
         };
         if (modalType === "video") {
           setSelectedCall(callDataForModal);
@@ -709,29 +906,36 @@ const SMSInput = ({ navigation, route }) => {
         if (response.data.success && callsList.length > 0) {
           const waitingCall = callsList[0];
           const fromData = waitingCall.from || {};
-          let displayName = "Anonymous User";
-          if (fromData.displayName) displayName = fromData.displayName;
-          else if (fromData.fullName) displayName = fromData.fullName;
-          else if (fromData.name) displayName = fromData.name;
-          let avatar = "👤";
-          if (fromData.gender === "female") avatar = "👩";
-          else if (fromData.gender === "male") avatar = "👨";
+          const displayName =
+            fromData.anonymous ||
+            fromData.anonName ||
+            fromData.anonymousName ||
+            "Anonymous User";
           setIncomingCallData({
             callId: waitingCall.callId,
             roomId: waitingCall.roomId,
             name: displayName,
-            avatar: avatar,
+            // Counselor side: never show the caller's real photo here (privacy).
+            avatar: "👤",
             callType: waitingCall.callType || "video",
             requestMessage: waitingCall.requestMessage || `Incoming ${waitingCall.callType || "video"} call...`,
+            requestedAt: waitingCall.requestedAt,
           });
           setShowIncomingModal(true);
         }
       } catch (error) {
+        const status = error?.response?.status;
+        if (status === 401) {
+          // Token expired and refresh failed (or user logged out). Stop polling to avoid spam.
+          if (intervalId) clearInterval(intervalId);
+          intervalId = null;
+          return;
+        }
         console.error("Error polling for calls:", error);
       }
     };
     
-    if (counselorId) {
+    if (isFocused && counselorId) {
       intervalId = setInterval(fetchIncomingCalls, 5000);
     }
     
@@ -739,7 +943,7 @@ const SMSInput = ({ navigation, route }) => {
       isMounted = false;
       if (intervalId) clearInterval(intervalId);
     };
-  }, [showIncomingModal, counselorId, isVideoModalOpen, isVoiceModalOpen]);
+  }, [isFocused, showIncomingModal, counselorId, isVideoModalOpen, isVoiceModalOpen]);
 
   const handleCloseModal = () => {
     setIsVideoModalOpen(false);
@@ -789,42 +993,51 @@ const SMSInput = ({ navigation, route }) => {
       
       socket.on("new-message", (messageData) => {
         shouldAutoScrollRef.current = true;
-        if (messageData.senderRole === "counsellor" && String(messageData.senderId) === String(counselorId)) {
-          setMessages(prev => {
-            const withoutTemp = prev.filter(msg => !msg.isTemporary);
-            const alreadyHas = withoutTemp.some(msg => msg.messageId && messageData.messageId && msg.messageId === messageData.messageId);
-            if (alreadyHas) return withoutTemp;
-            return [...withoutTemp, {
-              id: messageData.id || messageData.messageId,
-              messageId: messageData.messageId,
-              text: messageData.content,
-              sender: "me",
-              senderRole: "counsellor",
-              time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-              fullTime: messageData.createdAt,
-              contentType: messageData.contentType,
-              isRead: messageData.isRead,
-              status: "sent",
-            }];
-          });
-          return;
-        }
-        const transformedMessage = {
-          id: messageData.id || messageData.messageId,
-          messageId: messageData.messageId,
-          text: messageData.content,
-          sender: messageData.senderRole === "counsellor" ? "me" : "user",
-          senderRole: messageData.senderRole,
-          time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          fullTime: messageData.createdAt,
-          contentType: messageData.contentType,
-          isRead: messageData.isRead,
-          status: "sent",
-        };
+        const incomingId = messageData.id || messageData._id || messageData.messageId;
+        const isOwnMessage = messageData.senderRole === "counsellor" && String(messageData.senderId) === String(counselorId);
+
         setMessages(prev => {
-          const isDuplicate = prev.some(msg => msg.messageId && messageData.messageId && msg.messageId === messageData.messageId);
-          if (isDuplicate) return prev;
-          return [...prev, transformedMessage];
+          // Dedup by messageId or id
+          const alreadyExists = prev.some(msg =>
+            (msg.messageId && messageData.messageId && msg.messageId === messageData.messageId) ||
+            (msg.id && incomingId && !String(msg.id).startsWith('temp_') && msg.id === incomingId)
+          );
+          if (alreadyExists) return prev;
+
+          // For own messages: replace temp bubble instead of adding a new one
+          if (isOwnMessage) {
+            const tempIndex = prev.findIndex(msg => msg.isTemporary);
+            if (tempIndex !== -1) {
+              const next = [...prev];
+              next[tempIndex] = {
+                id: incomingId,
+                messageId: messageData.messageId,
+                text: messageData.content,
+                sender: "me",
+                senderRole: "counsellor",
+                time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                fullTime: messageData.createdAt,
+                contentType: messageData.contentType,
+                isRead: messageData.isRead,
+                status: "sent",
+              };
+              return next;
+            }
+            // No temp bubble — add normally (e.g. sent from another device)
+          }
+
+          return [...prev, {
+            id: incomingId,
+            messageId: messageData.messageId,
+            text: messageData.content,
+            sender: isOwnMessage ? "me" : "user",
+            senderRole: messageData.senderRole,
+            time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            fullTime: messageData.createdAt,
+            contentType: messageData.contentType,
+            isRead: messageData.isRead,
+            status: "sent",
+          }];
         });
       });
       
@@ -867,17 +1080,6 @@ const SMSInput = ({ navigation, route }) => {
     }
   }, [callError]);
 
-  useEffect(() => {
-    if (messages.length > 0) {
-      if (!hasInitialAutoScrollRef.current) {
-        hasInitialAutoScrollRef.current = true;
-        shouldAutoScrollRef.current = true;
-        scrollToBottom(false);
-      } else if (shouldAutoScrollRef.current) {
-        scrollToBottom(true);
-      }
-    }
-  }, [messages.length, scrollToBottom]);
 
   const renderMessageStatus = (message) => {
     if (message.sender !== "me") return null;
@@ -930,11 +1132,11 @@ const SMSInput = ({ navigation, route }) => {
     >
       <StatusBar barStyle="dark-content" backgroundColor="#f7f9fb" translucent={false} />
       <View style={styles.chatBoxMain}>
-        {/* Header - Serenity Trust Design */}
+        {/* Header - MediConeckt Design */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-              <Ionicons name="arrow-back" size={22} color="#081625" />
+              <Ionicons name="arrow-back" size={24} color="#081625" />
             </TouchableOpacity>
             <View style={styles.userInfo}>
               <View style={styles.userAvatar}>
@@ -957,18 +1159,18 @@ const SMSInput = ({ navigation, route }) => {
           </View>
           <View style={styles.callButtons}>
             <TouchableOpacity
-              style={[styles.actionBtn, styles.voiceCallBtn]}
+              style={styles.actionBtn}
               onPress={initiateVoiceCall}
               disabled={isInitiatingCall}
             >
-              <Ionicons name="call" size={22} color="#2c50cd" />
+              <Ionicons name="call-outline" size={22} color="#2c50cd" />
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.actionBtn, styles.videoCallBtn]}
+              style={styles.actionBtn}
               onPress={initiateVideoCall}
               disabled={isInitiatingCall}
             >
-              <Ionicons name="videocam" size={22} color="#2c50cd" />
+              <Ionicons name="videocam-outline" size={22} color="#2c50cd" />
             </TouchableOpacity>
           </View>
         </View>
@@ -1000,7 +1202,7 @@ const SMSInput = ({ navigation, route }) => {
           <FlatList
             ref={messagesContainerRef}
             style={styles.messagesArea}
-            data={messages}
+            data={messagesForList}
             keyExtractor={(item, index) => item.id?.toString() || index.toString()}
             renderItem={renderMessage}
             contentContainerStyle={styles.messagesList}
@@ -1008,7 +1210,27 @@ const SMSInput = ({ navigation, route }) => {
             onScroll={handleMessagesScroll}
             scrollEventThrottle={16}
             keyboardShouldPersistTaps="handled"
+            inverted
             ListHeaderComponent={
+              remoteIsTyping ? (
+                <View style={styles.typingContainer}>
+                  <View style={styles.typingDots}>
+                    <View style={styles.typingDot} />
+                    <View style={[styles.typingDot, styles.typingDotDelay1]} />
+                    <View style={[styles.typingDot, styles.typingDotDelay2]} />
+                  </View>
+                  <Text style={styles.typingLabel}>{USER_NAME} is typing...</Text>
+                </View>
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyMessages}>
+                <Text style={styles.emptyMessagesIcon}>💬</Text>
+                <Text style={styles.emptyMessagesText}>No messages yet</Text>
+                <Text style={styles.emptyMessagesSubtext}>Start a conversation by sending a message</Text>
+              </View>
+            }
+            ListFooterComponent={
               <View style={styles.welcomeCard}>
                 <View style={styles.welcomeAvatar}>
                   <Text style={styles.welcomeInitials}>{getInitials(USER_NAME)}</Text>
@@ -1024,29 +1246,10 @@ const SMSInput = ({ navigation, route }) => {
                 </View>
               </View>
             }
-            ListEmptyComponent={
-              <View style={styles.emptyMessages}>
-                <Text style={styles.emptyMessagesIcon}>💬</Text>
-                <Text style={styles.emptyMessagesText}>No messages yet</Text>
-                <Text style={styles.emptyMessagesSubtext}>Start a conversation by sending a message</Text>
-              </View>
-            }
-            ListFooterComponent={
-              remoteIsTyping ? (
-                <View style={styles.typingContainer}>
-                  <View style={styles.typingDots}>
-                    <View style={styles.typingDot} />
-                    <View style={[styles.typingDot, styles.typingDotDelay1]} />
-                    <View style={[styles.typingDot, styles.typingDotDelay2]} />
-                  </View>
-                  <Text style={styles.typingLabel}>{USER_NAME} is typing...</Text>
-                </View>
-              ) : null
-            }
           />
         )}
 
-        {/* Input Area - Serenity Design */}
+        {/* Input Area - MediConeckt Design */}
         <View style={styles.inputArea}>
           <View style={styles.inputGroup}>
             <View style={styles.inputWrapper}>
@@ -1091,7 +1294,7 @@ const SMSInput = ({ navigation, route }) => {
       />
 
       <IncomingCallModal
-        isOpen={showIncomingModal}
+        isOpen={isFocused && showIncomingModal}
         onClose={() => setShowIncomingModal(false)}
         callType={incomingCallData.callType}
         callerName={incomingCallData.name}
@@ -1107,121 +1310,117 @@ const SMSInput = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f7f9fb',
+    backgroundColor: '#f5f7fb',
+    // marginTop:-30
   },
   chatBoxMain: {
     flex: 1,
-    backgroundColor: '#f7f9fb',
+    backgroundColor: '#f5f7fb',
     paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f7f9fb',
+    backgroundColor: '#f5f7fb',
   },
   emptyState: {
     alignItems: 'center',
-    padding: 40,
+    padding: 32,
     backgroundColor: '#ffffff',
-    borderRadius: 24,
-    margin: 20,
+    borderRadius: 20,
+    margin: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
     shadowRadius: 12,
-    elevation: 4,
+    elevation: 2,
   },
   emptyIcon: {
-    fontSize: 64,
-    marginBottom: 20,
-    opacity: 0.6,
+    fontSize: 56,
+    marginBottom: 16,
+    opacity: 0.5,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#081625',
-    marginBottom: 8,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginBottom: 6,
   },
   emptyText: {
     fontSize: 14,
-    color: '#526071',
+    color: '#64748b',
     textAlign: 'center',
     marginBottom: 24,
     lineHeight: 20,
   },
   backToListBtn: {
-    paddingHorizontal: 28,
-    paddingVertical: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
     backgroundColor: '#2c50cd',
-    borderRadius: 30,
+    borderRadius: 24,
     shadowColor: '#2c50cd',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
     elevation: 3,
   },
   backToListBtnText: {
     color: '#ffffff',
     fontWeight: '600',
-    fontSize: 14,
+    fontSize: 13,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 12,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e6e8ea',
+    borderBottomColor: '#e9ecef',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 2,
+    elevation: 1,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    gap: 12,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f2f4f6',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f1f5f9',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 12,
   },
   userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
     flex: 1,
+    gap: 12,
   },
   userAvatar: {
-     width: 44,  // Changed from 52 to 44 (smaller)
-  height: 44, 
-    borderRadius: 26,
-    backgroundColor: '#d5e4f8',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#e2e8f0',
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
-    shadowColor: '#b9c8db',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 3,
   },
   avatarIcon: {
-    fontSize: 26,
+    fontSize: 24,
   },
   activeDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     position: 'absolute',
     bottom: 2,
     right: 2,
@@ -1233,135 +1432,128 @@ const styles = StyleSheet.create({
   },
   userName: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#081625',
+    fontWeight: '600',
+    color: '#0f172a',
     marginBottom: 2,
   },
   profileStatus: {
-    fontSize: 10,
+    fontSize: 12,
   },
   statusText: {
-    color: '#74777c',
+    color: '#64748b',
     fontWeight: '500',
   },
   typingText: {
     color: '#2c50cd',
-    fontWeight: '600',
+    fontWeight: '500',
   },
   callButtons: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 12,
   },
   actionBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#f2f4f6',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f1f5f9',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  voiceCallBtn: {
-    backgroundColor: '#f2f4f6',
-  },
-  videoCallBtn: {
-    backgroundColor: '#f2f4f6',
   },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffdad6',
+    backgroundColor: '#fef2f2',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 4,
     borderRadius: 12,
-    gap: 10,
+    gap: 8,
   },
   errorIcon: {
     fontSize: 16,
-    marginRight: 10,
+    marginRight: 6,
   },
   errorText: {
     flex: 1,
-    color: '#93000a',
-    fontSize: 13,
+    color: '#dc2626',
+    fontSize: 12,
     fontWeight: '500',
-  },
-  errorClose: {
-    fontSize: 18,
-    color: '#93000a',
-    paddingHorizontal: 8,
-    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 16,
-    backgroundColor: '#f7f9fb',
+    gap: 12,
+    backgroundColor: '#f5f7fb',
   },
   loadingText: {
     fontSize: 14,
-    color: '#74777c',
+    color: '#64748b',
     fontWeight: '500',
   },
   messagesArea: {
     flex: 1,
-    backgroundColor: '#f7f9fb',
+    backgroundColor: '#f5f7fb',
   },
   messagesList: {
     paddingHorizontal: 16,
-    paddingVertical: 20,
-    gap: 12,
+    paddingVertical: 16,
+    gap: 8,
     flexGrow: 1,
   },
   welcomeCard: {
     flexDirection: 'row',
-    backgroundColor: '#eceef0',
-    borderRadius: 24,
-    padding: 20,
-    marginBottom: 20,
-    gap: 16,
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 1,
   },
   welcomeAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#b9c8db',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#e2e8f0',
     justifyContent: 'center',
     alignItems: 'center',
   },
   welcomeInitials: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: '#081625',
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#0f172a',
     textTransform: 'uppercase',
   },
   welcomeMsg: {
     flex: 1,
   },
   welcomeTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#081625',
-    marginBottom: 6,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 4,
   },
   welcomeDesc: {
-    fontSize: 13,
-    color: '#44474c',
-    marginBottom: 6,
-    lineHeight: 18,
+    fontSize: 12,
+    color: '#475569',
+    marginBottom: 4,
+    lineHeight: 16,
   },
   welcomeTime: {
-    fontSize: 11,
-    color: '#8492a5',
+    fontSize: 10,
+    color: '#94a3b8',
     fontWeight: '500',
   },
   errorMessage: {
     alignItems: 'center',
-    paddingTop: 100,
-    backgroundColor: '#f7f9fb',
+    paddingTop: 80,
+    backgroundColor: '#f5f7fb',
   },
   retryBtn: {
     marginTop: 16,
@@ -1371,35 +1563,35 @@ const styles = StyleSheet.create({
   },
   emptyMessages: {
     alignItems: 'center',
-    paddingTop: 80,
+    paddingTop: 60,
     paddingHorizontal: 40,
   },
   emptyMessagesIcon: {
-    fontSize: 56,
-    marginBottom: 20,
+    fontSize: 48,
+    marginBottom: 16,
     opacity: 0.4,
   },
   emptyMessagesText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#74777c',
-    marginBottom: 8,
+    color: '#64748b',
+    marginBottom: 6,
   },
   emptyMessagesSubtext: {
-    fontSize: 13,
-    color: '#8492a5',
-    marginTop: 4,
+    fontSize: 12,
+    color: '#94a3b8',
+    marginTop: 2,
     textAlign: 'center',
   },
   typingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     marginTop: 8,
     marginBottom: 4,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: '#eceef0',
+    paddingVertical: 8,
+    backgroundColor: '#f1f5f9',
     alignSelf: 'flex-start',
     borderRadius: 20,
   },
@@ -1409,10 +1601,10 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   typingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#8492a5',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#94a3b8',
     opacity: 0.6,
   },
   typingDotDelay1: {
@@ -1422,13 +1614,13 @@ const styles = StyleSheet.create({
     opacity: 0.2,
   },
   typingLabel: {
-    fontSize: 12,
-    color: '#526071',
+    fontSize: 11,
+    color: '#64748b',
     fontStyle: 'italic',
   },
   messageBubble: {
     maxWidth: '100%',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   messageRight: {
     alignSelf: 'flex-end',
@@ -1437,84 +1629,86 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   messageContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 24,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
     maxWidth: '85%',
   },
   userMessageContent: {
     backgroundColor: '#2c50cd',
     borderBottomRightRadius: 4,
     shadowColor: '#2c50cd',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
   },
   counselorMessageContent: {
     backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: '#e6e8ea',
+    borderColor: '#e9ecef',
     borderBottomLeftRadius: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
+    shadowOpacity: 0.02,
+    shadowRadius: 2,
+    elevation: 0.5,
   },
   messageText: {
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: '500',
   },
   userMessageText: {
     color: '#ffffff',
   },
   counselorMessageText: {
-    color: '#081625',
+    color: '#1e293b',
   },
   messageFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    marginTop: 6,
-    gap: 6,
+    marginTop: 4,
+    gap: 4,
   },
   messageTime: {
-    fontSize: 10,
-    color: '#8492a5',
+    fontSize: 9,
+    color: '#94a3b8',
     fontWeight: '500',
   },
   messageStatusSending: {
-    fontSize: 10,
+    fontSize: 9,
     color: '#f59e0b',
     fontWeight: '500',
   },
   messageStatusSent: {
-    fontSize: 10,
-    color: '#4caf50',
+    fontSize: 9,
+    color: '#10b981',
     fontWeight: '500',
   },
   messageStatusError: {
-    fontSize: 10,
-    color: '#f44336',
+    fontSize: 9,
+    color: '#ef4444',
     fontWeight: '500',
   },
   inputArea: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: '#e6e8ea',
+    borderTopColor: '#e9ecef',
     backgroundColor: '#ffffff',
   },
   inputGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#f2f4f6',
+    backgroundColor: '#f8fafc',
     borderRadius: 28,
     paddingHorizontal: 8,
     paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
   },
   inputWrapper: {
     flex: 1,
@@ -1523,16 +1717,16 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    fontSize: 15,
-    color: '#081625',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    fontSize: 14,
+    color: '#1e293b',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
     maxHeight: 100,
   },
   sendBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1540,43 +1734,43 @@ const styles = StyleSheet.create({
     backgroundColor: '#2c50cd',
     shadowColor: '#2c50cd',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
   },
   sendBtnDisabled: {
-    backgroundColor: '#b9c8db',
+    backgroundColor: '#cbd5e1',
     opacity: 0.7,
   },
-  // Incoming Call Modal Styles - Professional Serenity
+  // Incoming Call Modal Styles
   incomingCallOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   incomingCallModal: {
     width: screenWidth * 0.85,
-    maxWidth: 380,
+    maxWidth: 360,
     backgroundColor: '#ffffff',
-    borderRadius: 28,
+    borderRadius: 24,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    elevation: 12,
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 10,
   },
   videoCallModal: {
-    borderTopWidth: 4,
+    borderTopWidth: 3,
     borderTopColor: '#2c50cd',
   },
   voiceCallModal: {
-    borderTopWidth: 4,
-    borderTopColor: '#4caf50',
+    borderTopWidth: 3,
+    borderTopColor: '#10b981',
   },
   incomingCallContent: {
-    padding: 28,
+    padding: 24,
     alignItems: 'center',
   },
   incomingCallerInfo: {
@@ -1584,65 +1778,70 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   incomingCallerAvatar: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: '#d5e4f8',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#e2e8f0',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
-    shadowColor: '#b9c8db',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   avatarEmojiLarge: {
-    fontSize: 52,
+    fontSize: 44,
+  },
+  avatarInitialLarge: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#0f172a",
   },
   incomingCallerName: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#081625',
-    marginBottom: 6,
+    color: '#0f172a',
+    marginBottom: 4,
   },
   incomingCallType: {
-    fontSize: 14,
-    color: '#526071',
-    marginBottom: 10,
+    fontSize: 13,
+    color: '#64748b',
+    marginBottom: 8,
     fontWeight: '500',
   },
   incomingCallMessage: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#2c50cd',
-    fontWeight: '600',
+    fontWeight: '500',
   },
   incomingCallControls: {
     flexDirection: 'row',
-    gap: 14,
+    gap: 12,
     width: '100%',
   },
   incomingCallBtn: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 30,
+    paddingVertical: 12,
+    borderRadius: 28,
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   acceptBtn: {
     backgroundColor: '#2c50cd',
   },
   rejectBtn: {
-    backgroundColor: '#ba1a1a',
+    backgroundColor: '#dc2626',
   },
   incomingCallBtnText: {
     color: '#ffffff',
-    fontWeight: '700',
-    fontSize: 14,
+    fontWeight: '600',
+    fontSize: 13,
   },
 });
 

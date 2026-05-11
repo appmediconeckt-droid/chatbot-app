@@ -416,7 +416,7 @@ const CounselorSignup = ({ navigation, route }) => {
               <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
                   <View style={styles.logoBadge}><Image source={logo} style={styles.logo} resizeMode="contain" /></View>
-                  <View style={styles.brandContainer}><Text style={styles.brandMain}>Medicone</Text><Text style={[styles.brandAlt, { color: '#10b981' }]}>cket</Text></View>
+                  <View style={styles.brandContainer}><Text style={styles.brandMain}>Medicone</Text><Text style={[styles.brandAlt, { color: '#10b981' }]}>ckt</Text></View>
                   <Text style={styles.tagline}>{isLogin ? 'Welcome back, Counselor' : 'Join our expert team'}</Text>
                 </View>
                 {!isLogin && (

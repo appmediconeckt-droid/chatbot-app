@@ -27,6 +27,15 @@ export const getAccessToken = async () => {
   return token;
 };
 
+export const getAuthToken = getAccessToken;
+
+export const getCounsellorId = async () => {
+  // App historically stored both spellings; prefer the commonly used key.
+  let id = await AsyncStorage.getItem("counsellorId");
+  if (!id) id = await AsyncStorage.getItem("counselorId");
+  return id;
+};
+
 export const clearAuthData = async () => {
   await AsyncStorage.multiRemove([
     "userEmail",
@@ -38,5 +47,6 @@ export const clearAuthData = async () => {
     "userRole",
     "userId",
     "counsellorId",
+    "counselorId",
   ]);
 };

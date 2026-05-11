@@ -1,3 +1,4 @@
+// ChatInterface.tsx - Android version with iOS design
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
@@ -13,39 +14,46 @@ import {
   Dimensions,
   Animated,
   Platform,
+  RefreshControl,
+  Vibration,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import safeVibrate from '../../../../../../utils/safeVibrate';
-import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const { width: screenWidth } = Dimensions.get('window');
 
 const ChatInterface = ({ setActiveTab }) => {
   const navigation = useNavigation();
 
   const [counselors, setCounselors] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, counselor: null });
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [counselorToDelete, setCounselorToDelete] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [selectedCounselor, setSelectedCounselor] = useState(null);
 
-  const contextMenuAnim = useRef(new Animated.Value(0)).current;
-  const modalAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const longPressTimer = useRef(null);
+  const pressedItemId = useRef(null);
 
   const getInitials = (name) => {
-    if (!name) return '?';
+    if (!name) return '👤';
     return name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
   };
 
   const getAvatarColor = (name) => {
     if (!name) return '#4f46e5';
-    const colors = ['#4f46e5', '#0891b2', '#059669', '#b45309', '#c2410c', '#7e22ce', '#be123c', '#1e40af'];
+    const colors = [
+      '#4f46e5', '#0891b2', '#059669', '#b45309', '#c2410c',
+      '#7e22ce', '#be123c', '#1e40af', '#0f766e', '#6b21a8',
+      '#d97706', '#dc2626', '#16a34a', '#9333ea', '#db2777'
+    ];
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
       hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -68,6 +76,7 @@ const ChatInterface = ({ setActiveTab }) => {
       if (diffDays === 0) return messageTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       if (diffDays === 1) return 'Yesterday';
       if (diffDays < 7) return messageTime.toLocaleDateString([], { weekday: 'short' });
+      if (diffDays < 30) return `${diffDays}d ago`;
       return messageTime.toLocaleDateString([], { month: 'short', day: 'numeric' });
     } catch {
       return '';
@@ -77,7 +86,8 @@ const ChatInterface = ({ setActiveTab }) => {
   const formatFullDateTime = (timeString) => {
     if (!timeString) return '';
     try {
-      return new Date(timeString).toLocaleString([], {
+      const date = new Date(timeString);
+      return date.toLocaleString([], {
         year: 'numeric', month: 'long', day: 'numeric',
         hour: '2-digit', minute: '2-digit',
       });
@@ -86,7 +96,29 @@ const ChatInterface = ({ setActiveTab }) => {
     }
   };
 
-  const fetchChats = useCallback(async () => {
+  const formatLastSeen = (lastSeen) => {
+    if (!lastSeen) return 'Offline';
+    try {
+      const lastSeenTime = new Date(lastSeen);
+      const now = new Date();
+      const diffMs = now - lastSeenTime;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) return 'Just now';
+      if (diffHours < 1) return `${diffMins} minutes ago`;
+      if (diffHours === 1) return '1 hour ago';
+      if (diffHours < 24) return `${diffHours} hours ago`;
+      if (diffDays === 1) return 'Yesterday';
+      if (diffDays < 7) return `${diffDays} days ago`;
+      return lastSeenTime.toLocaleDateString();
+    } catch {
+      return 'Recently';
+    }
+  };
+
+  const fetchChats = useCallback(async (isInitial = false) => {
     const resolveLastMessage = (chat) => {
       const latestFromArray = Array.isArray(chat?.messages) && chat.messages.length > 0
         ? chat.messages[chat.messages.length - 1]
@@ -103,12 +135,20 @@ const ChatInterface = ({ setActiveTab }) => {
     };
 
     try {
+      if (isInitial) {
+        setInitialLoading(true);
+      } else {
+        setRefreshing(true);
+      }
       setLoading(true);
       setError(null);
-      const token = await AsyncStorage.getItem('token');
+
+      const token = await AsyncStorage.getItem('token') || await AsyncStorage.getItem('accessToken');
       if (!token) {
         setCounselors([]);
         setLoading(false);
+        setInitialLoading(false);
+        setRefreshing(false);
         return;
       }
 
@@ -134,6 +174,7 @@ const ChatInterface = ({ setActiveTab }) => {
           return {
             id: otherParty.id || chat.chatId,
             name: otherParty.name || 'Unknown Counselor',
+            fullName: otherParty.name || 'Unknown Counselor',
             lastMessage,
             lastMessageTime,
             time: formatTime(lastMessageTime),
@@ -146,6 +187,8 @@ const ChatInterface = ({ setActiveTab }) => {
             chatId: chat.chatId,
             status: chat.status,
             isExpired: chat.isExpired,
+            profilePhoto: otherParty.profilePhoto,
+            phoneNumber: otherParty.phoneNumber,
           };
         });
 
@@ -164,19 +207,22 @@ const ChatInterface = ({ setActiveTab }) => {
       setError(error.message);
     } finally {
       setLoading(false);
+      setInitialLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  const markChatAsRead = useCallback(async (chatId) => {
+  const markChatAsRead = useCallback(async (chatIdentifier) => {
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem('token') || await AsyncStorage.getItem('accessToken');
       if (!token) return;
       await axios.post(
         `${API_BASE_URL}/api/chat/mark-all-read`,
-        { chatId },
+        { chatId: chatIdentifier },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setCounselors((prev) => prev.map((c) => (c.id === chatId ? { ...c, unread: 0 } : c)));
+      // Normalize update: match either chatId or id fields to be robust
+      setCounselors((prev) => prev.map((c) => ((c.chatId === chatIdentifier || String(c.id) === String(chatIdentifier)) ? { ...c, unread: 0 } : c)));
     } catch (error) {
       console.error('Error marking chat as read:', error);
     }
@@ -184,13 +230,16 @@ const ChatInterface = ({ setActiveTab }) => {
 
   const deleteChat = useCallback(async (chatId) => {
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem('token') || await AsyncStorage.getItem('accessToken');
       if (!token) return false;
       const response = await axios.delete(`${API_BASE_URL}/api/chat/chats/${chatId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.status === 200 || response.status === 204) {
         setCounselors((prev) => prev.filter((c) => c.id !== chatId));
+        if (Platform.OS === 'android') {
+          Vibration.vibrate(50);
+        }
         return true;
       }
       return false;
@@ -201,70 +250,103 @@ const ChatInterface = ({ setActiveTab }) => {
   }, []);
 
   useEffect(() => {
-    fetchChats();
-    const interval = setInterval(fetchChats, 30000);
+    fetchChats(true);
+    const interval = setInterval(() => fetchChats(false), 30000);
     return () => clearInterval(interval);
   }, [fetchChats]);
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchChats(false);
+    }, [fetchChats])
+  );
+
   const handleCounselorSelect = useCallback(async (counselor) => {
-    if (contextMenu.visible) return;
+    // Ensure we mark the correct chat as read using the chatId when available
+    await markChatAsRead(counselor.chatId || counselor.id);
     safeVibrate(80);
-    await markChatAsRead(counselor.id);
+    // Pass both `chatId` and `id` explicitly so the ChatBox can unambiguously resolve
     navigation.navigate('ChatBox', {
+      id: counselor.id,
       chatId: counselor.chatId,
       counselor: {
         id: counselor.id,
         name: counselor.name,
+        fullName: counselor.name,
         specialization: counselor.specialization,
         online: counselor.online,
         lastSeen: counselor.lastSeen,
         avatar: counselor.avatar,
+        profilePhoto: counselor.profilePhoto,
+        phoneNumber: counselor.phoneNumber,
       },
     });
-  }, [contextMenu.visible, markChatAsRead, navigation]);
+  }, [markChatAsRead, navigation]);
 
   const handleStartNewChat = useCallback(() => {
     safeVibrate(100);
     if (setActiveTab) {
-      setActiveTab('Counselor');
+      setActiveTab('Live Chat');
     } else {
-      navigation.navigate('CounselorTable');
+      navigation.navigate('CounselorDirectory');
     }
   }, [setActiveTab, navigation]);
 
-  const handleLongPress = useCallback((counselor) => {
-    safeVibrate(150);
-    setContextMenu({
-      visible: true,
-      x: screenWidth / 2 - 150,
-      y: screenHeight / 2 - 150,
-      counselor,
-    });
-    Animated.spring(contextMenuAnim, { toValue: 1, friction: 8, tension: 40, useNativeDriver: true }).start();
-  }, [contextMenuAnim]);
+  const handleLongPressStart = useCallback((counselor) => {
+    pressedItemId.current = counselor.id;
+    Animated.spring(scaleAnim, {
+      toValue: 0.95,
+      useNativeDriver: true,
+      speed: 50,
+    }).start();
+    longPressTimer.current = setTimeout(() => {
+      if (pressedItemId.current === counselor.id) {
+        if (Platform.OS === 'android') {
+          Vibration.vibrate(50);
+        }
+        setSelectedCounselor(counselor);
+        setShowDeleteConfirm(true);
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          useNativeDriver: true,
+          speed: 50,
+        }).start();
+      }
+    }, 500);
+  }, [scaleAnim]);
 
-  const closeContextMenu = useCallback(() => {
-    Animated.timing(contextMenuAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
-      setContextMenu({ visible: false, x: 0, y: 0, counselor: null });
-    });
-  }, [contextMenuAnim]);
+  const handleLongPressEnd = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    pressedItemId.current = null;
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 50,
+    }).start();
+  }, [scaleAnim]);
 
-  const handleDeleteChat = useCallback((counselor) => {
-    setCounselorToDelete(counselor);
-    setShowDeleteConfirm(true);
-    closeContextMenu();
-    Animated.spring(modalAnim, { toValue: 1, friction: 8, tension: 40, useNativeDriver: true }).start();
-  }, [closeContextMenu, modalAnim]);
+  const handleItemPress = useCallback((counselor) => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    handleCounselorSelect(counselor);
+  }, [handleCounselorSelect]);
 
   const confirmDeleteChat = useCallback(async () => {
-    if (counselorToDelete) {
-      const success = await deleteChat(counselorToDelete.id);
-      if (success) safeVibrate([120, 60, 120]);
+    if (selectedCounselor) {
+      const success = await deleteChat(selectedCounselor.id);
+      if (success && Platform.OS === 'android') {
+        Vibration.vibrate([50, 30, 50]);
+      }
       setShowDeleteConfirm(false);
-      setCounselorToDelete(null);
-      modalAnim.setValue(0);
+      setSelectedCounselor(null);
     }
-  }, [counselorToDelete, deleteChat, modalAnim]);
+  }, [selectedCounselor, deleteChat]);
+
 
   const filteredCounselors = counselors.filter((counselor) =>
     counselor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -272,714 +354,589 @@ const ChatInterface = ({ setActiveTab }) => {
     counselor.lastMessage.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const renderCounselorItem = ({ item }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => handleCounselorSelect(item)}
-      onLongPress={() => handleLongPress(item)}
-      delayLongPress={500}
-      activeOpacity={0.7}
-    >
-      <View style={styles.cardLeft}>
-        <View style={styles.avatarWrapper}>
-          {item.avatar ? (
-            <Image source={{ uri: item.avatar }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatarPlaceholder, { backgroundColor: getAvatarColor(item.name) }]}>
-              <Text style={styles.avatarInitials}>{getInitials(item.name)}</Text>
-            </View>
-          )}
-          <View style={[styles.onlineDot, item.online ? styles.online : styles.offline]} />
-        </View>
-      </View>
-
-      <View style={styles.cardCenter}>
-        <Text style={styles.name}>{item.name}</Text>
-        <View style={styles.specializationBadge}>
-          <Text style={styles.specializationText}>{item.specialization?.toUpperCase() || 'COUNSELOR'}</Text>
-        </View>
-        <Text style={styles.lastMessage} numberOfLines={1}>{item.lastMessage}</Text>
-      </View>
-
-      <View style={styles.cardRight}>
-        <Text style={styles.time}>{item.time}</Text>
-        {item.unread > 0 && (
-          <View style={styles.unreadBadge}>
-            <Text style={styles.unreadText}>{item.unread > 99 ? '99+' : item.unread}</Text>
-          </View>
-        )}
-        <TouchableOpacity
-          style={[styles.chatBtn, item.status === 'accepted' && styles.chatBtnActive]}
-          onPress={() => handleCounselorSelect(item)}
-        >
-          <Text style={[styles.chatBtnText, item.status === 'accepted' && styles.chatBtnTextActive]}>
-            {item.status === 'accepted' ? 'Chat' : 'Book'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  );
-
-  const EmptyState = () => {
-    if (loading) {
+  const renderAvatar = (counselor) => {
+    const avatarUrl = counselor.avatar || counselor.profilePhoto?.url;
+    if (avatarUrl) {
       return (
-        <View style={styles.emptyContainer}>
-          <ActivityIndicator size="large" color="#2c50cd" />
-          <Text style={styles.emptyText}>Loading your chats...</Text>
-        </View>
-      );
-    }
-    if (error) {
-      return (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.errorText}>⚠️ {error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={fetchChats}>
-            <Text style={styles.retryBtnText}>Try Again</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-    if (searchTerm) {
-      return (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No results found for "{searchTerm}"</Text>
-          <TouchableOpacity onPress={() => setSearchTerm('')}>
-            <Text style={styles.linkText}>Clear search</Text>
-          </TouchableOpacity>
-        </View>
+        <Image
+          source={{ uri: avatarUrl }}
+          style={styles.avatarImage}
+        />
       );
     }
     return (
+      <View style={[styles.avatarInitials, { backgroundColor: getAvatarColor(counselor.name) }]}>
+        <Text style={styles.avatarInitialsText}>{getInitials(counselor.name)}</Text>
+      </View>
+    );
+  };
+
+  const renderChatItem = ({ item }) => {
+    const animatedStyle = {
+      transform: [{ scale: pressedItemId.current === item.id ? scaleAnim : 1 }],
+    };
+    return (
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => handleItemPress(item)}
+        onLongPress={() => handleLongPressStart(item)}
+        onPressOut={handleLongPressEnd}
+        delayLongPress={500}
+      >
+        <Animated.View style={[styles.chatItem, animatedStyle]}>
+          <View style={styles.avatarContainer}>
+            {renderAvatar(item)}
+            <View style={[styles.statusDot, item.online ? styles.statusOnline : styles.statusOffline]} />
+          </View>
+          <View style={styles.chatInfo}>
+            <View style={styles.chatHeader}>
+              <Text style={styles.chatName} numberOfLines={1}>
+                {item.name}
+              </Text>
+              <Text style={styles.chatTime}>{item.time}</Text>
+            </View>
+            <View style={styles.chatFooter}>
+              <Text style={styles.lastMessage} numberOfLines={1}>
+                {item.lastMessage}
+              </Text>
+              {item.unread > 0 && (
+                <View style={styles.unreadBadge}>
+                  <Text style={styles.unreadBadgeText}>
+                    {item.unread > 99 ? '99+' : item.unread}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.metaContainer}>
+              <Text style={styles.specialization} numberOfLines={1}>
+                {item.specialization}
+              </Text>
+              {item.status === 'accepted' && (
+                <View style={styles.acceptedBadge}>
+                  <Ionicons name="checkmark-circle" size={14} color="#10b981" />
+                </View>
+              )}
+              {item.isExpired && (
+                <View style={styles.expiredBadge}>
+                  <Ionicons name="time-outline" size={14} color="#f59e0b" />
+                  <Text style={styles.expiredText}>Expired</Text>
+                </View>
+              )}
+            </View>
+            {!item.online && item.lastSeen && (
+              <Text style={styles.lastSeen} numberOfLines={1}>
+                Last seen: {formatLastSeen(item.lastSeen)}
+              </Text>
+            )}
+          </View>
+        </Animated.View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderEmptyState = () => {
+    if (initialLoading || loading) return null;
+    return (
       <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>No active chats yet</Text>
-        <TouchableOpacity onPress={handleStartNewChat}>
-          <Text style={styles.linkText}>Find a Counselor</Text>
+        {searchTerm ? (
+          <>
+            <Ionicons name="search-outline" size={64} color="#cbd5e1" />
+            <Text style={styles.emptyTitle}>No counselors found</Text>
+            <Text style={styles.emptyText}>
+              No counselors matching "{searchTerm}"
+            </Text>
+            <TouchableOpacity style={styles.clearButton} onPress={() => setSearchTerm('')}>
+              <Text style={styles.clearButtonText}>Clear search</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Ionicons name="chatbubbles-outline" size={64} color="#cbd5e1" />
+            <Text style={styles.emptyTitle}>No active chats yet</Text>
+            <Text style={styles.emptyText}>
+              Start a conversation with a counselor
+            </Text>
+            <TouchableOpacity style={styles.startButton} onPress={handleStartNewChat}>
+              <Text style={styles.startButtonText}>Start a new chat</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
+    );
+  };
+
+  const renderErrorState = () => {
+    if (!error || loading || initialLoading) return null;
+    return (
+      <View style={styles.errorContainer}>
+        <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => fetchChats(false)}>
+          <Text style={styles.retryButtonText}>Retry</Text>
         </TouchableOpacity>
       </View>
     );
   };
 
   return (
-    <View style={styles.container}>
-      {/* SEARCH BAR - Matching HTML design */}
-      <View style={styles.searchSection}>
-      
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <View style={styles.header}>
         <View style={styles.searchContainer}>
-          <Ionicons name="search" size={18} color="#74777c" style={styles.searchLeadingIcon} />
+          <View style={styles.searchIconWrap}>
+            <Ionicons name="search-outline" size={18} color="#4f46e5" />
+          </View>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search name, specialty, or message"
-            placeholderTextColor="#74777c"
+            placeholder="Search counselors..."
+            placeholderTextColor="#94a3b8"
             value={searchTerm}
             onChangeText={setSearchTerm}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
           />
-          {searchTerm.length > 0 ? (
-            <TouchableOpacity style={styles.searchActionBtn} onPress={() => setSearchTerm('')}>
-              <Ionicons name="close" size={16} color="#4b5563" />
+          {searchTerm.length > 0 && (
+            <TouchableOpacity style={styles.searchClearButton} onPress={() => setSearchTerm('')} activeOpacity={0.7}>
+              <Ionicons name="close" size={14} color="#64748b" />
             </TouchableOpacity>
-          ) : (
-            <View style={styles.searchActionBtn}>
-              <MaterialIcons name="tune" size={18} color="#74777c" />
-            </View>
           )}
         </View>
-
       </View>
-
-      {/* COUNSELOR LIST */}
-      <FlatList
-        data={filteredCounselors}
-        keyExtractor={(item) => item.id?.toString() || item.chatId}
-        renderItem={renderCounselorItem}
-        contentContainerStyle={styles.listContainer}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={<EmptyState />}
-      />
-
-      {/* CONTEXT MENU MODAL */}
-      <Modal transparent visible={contextMenu.visible} animationType="none" onRequestClose={closeContextMenu}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={closeContextMenu}>
-          <Animated.View style={[styles.contextMenu, { opacity: contextMenuAnim, transform: [{ scale: contextMenuAnim }] }]}>
-            {contextMenu.counselor && (
-              <>
-                <View style={styles.contextMenuHeader}>
-                  <View style={styles.contextMenuAvatar}>
-                    {contextMenu.counselor.avatar ? (
-                      <Image source={{ uri: contextMenu.counselor.avatar }} style={styles.contextMenuAvatarImg} />
-                    ) : (
-                      <View style={[styles.contextMenuAvatarPlaceholder, { backgroundColor: getAvatarColor(contextMenu.counselor.name) }]}>
-                        <Text style={styles.contextMenuAvatarInitials}>{getInitials(contextMenu.counselor.name)}</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.contextMenuInfo}>
-                    <Text style={styles.contextMenuName}>{contextMenu.counselor.name}</Text>
-                    <Text style={styles.contextMenuStatus}>{contextMenu.counselor.online ? '🟢 Online' : '⚫ Offline'}</Text>
-                    <Text style={styles.contextMenuTime} numberOfLines={1}>Last: {contextMenu.counselor.fullDateTime}</Text>
-                  </View>
-                </View>
-                <View style={styles.contextMenuItems}>
-                  <TouchableOpacity style={styles.contextMenuItem} onPress={() => { markChatAsRead(contextMenu.counselor.id); closeContextMenu(); }}>
-                    <Text style={styles.contextMenuIcon}>✓</Text>
-                    <Text style={styles.contextMenuItemText}>Mark as Read</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.contextMenuItem} onPress={() => handleDeleteChat(contextMenu.counselor)}>
-                    <Text style={styles.contextMenuIcon}>🗑️</Text>
-                    <Text style={[styles.contextMenuItemText, styles.dangerText]}>Delete Chat</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.contextMenuItem} onPress={closeContextMenu}>
-                    <Text style={styles.contextMenuIcon}>✕</Text>
-                    <Text style={styles.contextMenuItemText}>Cancel</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
-          </Animated.View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* DELETE CONFIRM MODAL */}
-      <Modal transparent visible={showDeleteConfirm} animationType="none" onRequestClose={() => setShowDeleteConfirm(false)}>
+      {initialLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4f46e5" />
+          <Text style={styles.loadingText}>Loading messages...</Text>
+        </View>
+      ) : error && !loading ? (
+        renderErrorState()
+      ) : (
+        <FlatList
+          data={filteredCounselors}
+          keyExtractor={(item) => (item.chatId ? String(item.chatId) : item.id?.toString())}
+          renderItem={renderChatItem}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={filteredCounselors.length === 0 ? styles.listEmpty : styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => fetchChats(false)}
+              tintColor="#4f46e5"
+              colors={['#4f46e5']}
+            />
+          }
+          ListEmptyComponent={renderEmptyState}
+        />
+      )}
+      <Modal
+        visible={showDeleteConfirm}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDeleteConfirm(false)}
+      >
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowDeleteConfirm(false)}>
-          <Animated.View style={[styles.deleteModal, { opacity: modalAnim, transform: [{ scale: modalAnim }] }]}>
-            {counselorToDelete && (
-              <>
-                <View style={styles.deleteModalHeader}>
-                  <Text style={styles.deleteModalTitle}>Delete Chat</Text>
-                </View>
-                <View style={styles.deleteModalBody}>
-                  <View style={styles.deleteCounselorInfo}>
-                    {counselorToDelete.avatar ? (
-                      <Image source={{ uri: counselorToDelete.avatar }} style={styles.deleteAvatar} />
-                    ) : (
-                      <View style={[styles.deleteAvatarPlaceholder, { backgroundColor: getAvatarColor(counselorToDelete.name) }]}>
-                        <Text style={styles.deleteAvatarInitials}>{getInitials(counselorToDelete.name)}</Text>
-                      </View>
-                    )}
-                    <View style={styles.deleteInfo}>
-                      <Text style={styles.deleteName}>{counselorToDelete.name}</Text>
-                      <Text style={styles.deleteSpecialization}>{counselorToDelete.specialization}</Text>
-                    </View>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Delete Chat</Text>
+            </View>
+            {selectedCounselor && (
+              <View style={styles.modalBody}>
+                <View style={styles.deleteCounselorInfo}>
+                  <View style={styles.deleteAvatar}>
+                    {renderAvatar(selectedCounselor)}
                   </View>
-                  <Text style={styles.deleteConfirmText}>Are you sure you want to delete this chat?</Text>
-                  <View style={styles.deleteWarning}>
-                    <Text style={styles.deleteWarningText}>⚠️ This action cannot be undone. All messages will be permanently deleted.</Text>
+                  <View style={styles.deleteInfo}>
+                    <Text style={styles.deleteName}>{selectedCounselor.name}</Text>
+                    <Text style={styles.deleteSpecialization}>
+                      {selectedCounselor.specialization}
+                    </Text>
                   </View>
-                  {counselorToDelete.fullDateTime && (
-                    <Text style={styles.deleteMeta}>Last message: {counselorToDelete.fullDateTime}</Text>
-                  )}
                 </View>
-                <View style={styles.deleteModalFooter}>
-                  <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowDeleteConfirm(false)}>
-                    <Text style={styles.cancelBtnText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.deleteBtn} onPress={confirmDeleteChat}>
-                    <Text style={styles.deleteBtnText}>Delete Chat</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
+                <Text style={styles.deleteMessage}>
+                  Are you sure you want to delete this chat?
+                </Text>
+                <Text style={styles.deleteWarning}>
+                  ⚠️ This action cannot be undone. All messages will be permanently deleted.
+                </Text>
+                {selectedCounselor.fullDateTime && (
+                  <Text style={styles.chatTimeInfo}>
+                    Last message: {selectedCounselor.fullDateTime}
+                  </Text>
+                )}
+              </View>
             )}
-          </Animated.View>
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowDeleteConfirm(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.deleteButton]}
+                onPress={confirmDeleteChat}
+              >
+                <Text style={styles.deleteButtonText}>Delete Chat</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </TouchableOpacity>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = {
   container: {
     flex: 1,
-    backgroundColor: '#f7f9fb', // HTML background color
+    backgroundColor: '#ffffff',
   },
-
-  // Search Section - Matching HTML
-  searchSection: {
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 10,
-    backgroundColor: '#f7f9fb',
-  },
-  searchHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  searchHeading: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#0f172a',
-    fontFamily: Platform.OS === 'ios' ? 'Manrope' : 'sans-serif',
-  },
-  searchCount: {
-    minWidth: 28,
-    textAlign: 'center',
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#1e3a8a',
-    backgroundColor: '#dbeafe',
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+  header: {
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 8,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 9999,
-    paddingLeft: 14,
-    paddingRight: 10,
-    paddingVertical: 6,
+    backgroundColor: '#f8fafc',
+    borderRadius: 18,
+    paddingHorizontal: 10,
+    height: 46,
     borderWidth: 1,
-    borderColor: '#d6dde5',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
+    borderColor: '#dbe4f0',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.06,
-    shadowRadius: 8,
+    shadowRadius: 14,
     elevation: 2,
   },
-  searchLeadingIcon: {
+  searchIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#eef2ff',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
-    color: '#191c1e',
-    paddingVertical: 7,
-    paddingHorizontal: 0,
-    fontFamily: Platform.OS === 'ios' ? 'Manrope' : 'sans-serif',
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1e293b',
+    paddingVertical: 0,
   },
-  searchActionBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
+  searchClearButton: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     justifyContent: 'center',
-    marginLeft: 8,
-  },
-  tableHeaderRow: {
-    marginTop: 10,
-    marginBottom: 2,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 4,
+    backgroundColor: '#e2e8f0',
   },
-  tableHeaderText: {
-    fontSize: 11,
-    color: '#64748b',
-    fontWeight: '700',
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
+
+  list: {
+    paddingVertical: 0,
   },
-  tableHeaderCounselor: {
+  listEmpty: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 32,
   },
-  tableHeaderStatus: {
-    minWidth: 72,
-    textAlign: 'right',
-  },
-
-  // List
-  listContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 100,
-    gap: 10,
-  },
-
-  // Card - Matching HTML card design
-  card: {
+  chatItem: {
     flexDirection: 'row',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
     backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 13,
-    borderWidth: 1,
-    borderColor: 'rgba(196,198,204,0.35)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    marginHorizontal: 12,
+    marginVertical: 2,
   },
-  cardLeft: {
+  avatarContainer: {
+    position: 'relative',
     marginRight: 12,
   },
-  avatarWrapper: {
-    position: 'relative',
+  avatarImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
-  avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-  },
-  avatarPlaceholder: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
+  avatarInitials: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  avatarInitials: {
-    fontSize: 20,
-    fontWeight: '700',
+  avatarInitialsText: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#ffffff',
   },
-  onlineDot: {
+  statusDot: {
     position: 'absolute',
-    bottom: -4,
-    right: -4,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    bottom: 2,
+    right: 2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     borderWidth: 2,
     borderColor: '#ffffff',
   },
-  online: {
+  statusOnline: {
     backgroundColor: '#10b981',
   },
-  offline: {
-    backgroundColor: '#cbd5e1',
+  statusOffline: {
+    backgroundColor: '#94a3b8',
   },
-  cardCenter: {
+  chatInfo: {
     flex: 1,
-    gap: 2,
   },
-  name: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#081625',
+  chatHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Manrope' : 'sans-serif',
   },
-  specializationBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#d5e4f8',
-    paddingHorizontal: 8,
+  chatName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1e293b',
+    flex: 1,
+  },
+  chatTime: {
+    fontSize: 12,
+    color: '#94a3b8',
+    marginLeft: 8,
+  },
+  chatFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  lastMessage: {
+    fontSize: 14,
+    color: '#64748b',
+    flex: 1,
+  },
+  unreadBadge: {
+    backgroundColor: '#4f46e5',
+    borderRadius: 9,
+    minWidth: 16,
+    height: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    marginLeft: 8,
+  },
+  unreadBadgeText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '600',
+  },
+  metaContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  specialization: {
+    fontSize: 12,
+    color: '#64748b',
+    marginRight: 8,
+  },
+  acceptedBadge: {
+    marginRight: 4,
+  },
+  expiredBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
-  specializationText: {
+  expiredText: {
     fontSize: 10,
-    fontWeight: '700',
-    color: '#0e1d2b',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    color: '#f59e0b',
+    marginLeft: 2,
   },
-  lastMessage: {
-    fontSize: 12,
-    color: '#44474c',
-    lineHeight: 16,
-    marginTop: 3,
-  },
-  cardRight: {
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: 6,
-    marginLeft: 12,
-    minWidth: 80,
-  },
-  time: {
-    fontSize: 12,
-    color: '#74777c',
-    fontWeight: '500',
-  },
-  unreadBadge: {
-    backgroundColor: '#ef4444',
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 6,
-  },
-  unreadText: {
-    color: '#ffffff',
+  lastSeen: {
     fontSize: 11,
-    fontWeight: '600',
+    color: '#94a3b8',
   },
-  chatBtn: {
-    minWidth: 68,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: '#eef2f7',
-    alignItems: 'center',
-  },
-  chatBtnActive: {
-    backgroundColor: '#2c50cd',
-    shadowColor: '#2c50cd',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  chatBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#44474c',
-  },
-  chatBtnTextActive: {
-    color: '#ffffff',
-  },
-
-  // Empty State
-  emptyContainer: {
-    alignItems: 'center',
+  loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
-    paddingVertical: 80,
-    gap: 12,
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#64748b',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginTop: 16,
+    marginBottom: 8,
   },
   emptyText: {
     fontSize: 14,
     color: '#64748b',
     textAlign: 'center',
+    marginBottom: 24,
+  },
+  clearButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 8,
+  },
+  clearButtonText: {
+    fontSize: 14,
+    color: '#4f46e5',
+    fontWeight: '500',
+  },
+  startButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: '#4f46e5',
+    borderRadius: 8,
+  },
+  startButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
   },
   errorText: {
     fontSize: 14,
-    color: '#dc2626',
+    color: '#ef4444',
     textAlign: 'center',
+    marginTop: 12,
+    marginBottom: 20,
   },
-  retryBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    backgroundColor: '#2c50cd',
+  retryButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    backgroundColor: '#4f46e5',
     borderRadius: 8,
   },
-  retryBtnText: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  linkText: {
+  retryButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#2c50cd',
-    textDecorationLine: 'underline',
+    color: '#ffffff',
   },
-
-  // Modal Overlay
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-
-  // Context Menu
-  contextMenu: {
+  modalContainer: {
+    width: screenWidth - 48,
     backgroundColor: '#ffffff',
     borderRadius: 16,
-    width: 280,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
   },
-  contextMenuHeader: {
-    flexDirection: 'row',
-    padding: 14,
-    backgroundColor: '#2c50cd',
-    gap: 10,
-    alignItems: 'center',
-  },
-  contextMenuAvatar: {
-    flexShrink: 0,
-  },
-  contextMenuAvatarImg: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-  },
-  contextMenuAvatarPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  contextMenuAvatarInitials: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#ffffff',
-  },
-  contextMenuInfo: {
-    flex: 1,
-  },
-  contextMenuName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#ffffff',
-  },
-  contextMenuStatus: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.85)',
-    marginTop: 2,
-  },
-  contextMenuTime: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.75)',
-    marginTop: 2,
-  },
-  contextMenuItems: {
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-  },
-  contextMenuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    gap: 10,
-  },
-  contextMenuIcon: {
-    fontSize: 16,
-    width: 22,
-    textAlign: 'center',
-    color: '#4b5563',
-  },
-  contextMenuItemText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1f2937',
-  },
-  dangerText: {
-    color: '#dc2626',
-  },
-
-  // Delete Modal
-  deleteModal: {
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    width: '90%',
-    maxWidth: 380,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  deleteModalHeader: {
+  modalHeader: {
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: '#e2e8f0',
   },
-  deleteModalTitle: {
+  modalTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#0f172a',
+    fontWeight: '600',
+    color: '#1e293b',
   },
-  deleteModalBody: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+  modalBody: {
+    padding: 20,
   },
   deleteCounselorInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    marginBottom: 20,
     padding: 12,
     backgroundColor: '#f8fafc',
-    borderRadius: 14,
-    marginBottom: 16,
+    borderRadius: 12,
   },
   deleteAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 12,
-  },
-  deleteAvatarPlaceholder: {
-    width: 50,
-    height: 50,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  deleteAvatarInitials: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#ffffff',
+    marginRight: 12,
   },
   deleteInfo: {
     flex: 1,
   },
   deleteName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0f172a',
-    marginBottom: 2,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginBottom: 4,
   },
   deleteSpecialization: {
-    fontSize: 11,
-    color: '#2c50cd',
-    fontWeight: '500',
+    fontSize: 13,
+    color: '#64748b',
   },
-  deleteConfirmText: {
+  deleteMessage: {
     fontSize: 14,
     color: '#1e293b',
     marginBottom: 12,
-    lineHeight: 20,
   },
   deleteWarning: {
-    backgroundColor: '#fef2f2',
-    padding: 12,
-    borderRadius: 12,
-    borderLeftWidth: 3,
-    borderLeftColor: '#ef4444',
+    fontSize: 13,
+    color: '#f59e0b',
     marginBottom: 12,
   },
-  deleteWarningText: {
+  chatTimeInfo: {
     fontSize: 12,
-    color: '#b91c1c',
-    lineHeight: 18,
+    color: '#94a3b8',
   },
-  deleteMeta: {
-    fontSize: 11,
-    color: '#64748b',
-    paddingTop: 10,
+  modalFooter: {
+    flexDirection: 'row',
     borderTopWidth: 1,
     borderTopColor: '#e2e8f0',
-    fontStyle: 'italic',
   },
-  deleteModalFooter: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    paddingTop: 14,
-    gap: 10,
-    justifyContent: 'flex-end',
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+  modalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  cancelBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    backgroundColor: '#ffffff',
-    borderRadius: 10,
+  cancelButton: {
+    backgroundColor: '#f1f5f9',
   },
-  cancelBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#374151',
+  cancelButtonText: {
+    fontSize: 16,
+    color: '#64748b',
+    fontWeight: '500',
   },
-  deleteBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    backgroundColor: '#dc2626',
-    borderRadius: 10,
+  deleteButton: {
+    backgroundColor: '#ef4444',
   },
-  deleteBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
+  deleteButtonText: {
+    fontSize: 16,
     color: '#ffffff',
+    fontWeight: '500',
   },
 };
 

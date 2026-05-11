@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(node fix_userdashboard.js)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(node fix_calls.js)",
+      "Bash(node fix_socket_accepted.js)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\chatbots\" -Recurse -Directory | Where-Object { $_.Name -match 'counselor|call' } | Select-Object -ExpandProperty FullName | head -20)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\chatbots\" -Recurse -Directory | Where-Object { $_.Name -match 'counselor|call' } | Select-Object -ExpandProperty FullName | Select-Object -First 20)",
+      "Bash(Get-ChildItem \"c:\\\\chatbots\\\\public\" -Recurse -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object FullName)",
+      "PowerShell(Copy-Item \"c:\\\\chatbots\\\\src\\\\public\\\\rigntone.mp3\" \"c:\\\\chatbots\\\\android\\\\app\\\\src\\\\main\\\\res\\\\raw\\\\ringtone.mp3\" -Force)",
+      "PowerShell(Copy-Item \"c:\\\\chatbots\\\\android\\\\app\\\\src\\\\main\\\\res\\\\raw\\\\ringtone.mp3\" \"c:\\\\chatbots\\\\android\\\\app\\\\src\\\\main\\\\res\\\\raw\\\\incallmanager_ringtone.mp3\" -Force)"
+    ]
+  }
+}

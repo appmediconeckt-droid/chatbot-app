@@ -11,6 +11,9 @@
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		0911ADD75FDD439CB5028A67 /* rigntone.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 7BA55CC36F5F4675A2F736FA /* rigntone.mp3 */; };
+		A6B0C7A1D2E3F4A5B6C7D8E9 /* incallmanager_ringtone.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = A6B0C7A1D2E3F4A5B6C7D8EA /* incallmanager_ringtone.mp3 */; };
+		A6B0C7A1D2E3F4A5B6C7D8EB /* incallmanager_ringback.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = A6B0C7A1D2E3F4A5B6C7D8EC /* incallmanager_ringback.mp3 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +27,9 @@
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = chatbots/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = chatbots/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		7BA55CC36F5F4675A2F736FA /* rigntone.mp3 */ = {isa = PBXFileReference; name = "rigntone.mp3"; path = "../assets/rigntone.mp3"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		A6B0C7A1D2E3F4A5B6C7D8EA /* incallmanager_ringtone.mp3 */ = {isa = PBXFileReference; name = "incallmanager_ringtone.mp3"; path = "../assets/incallmanager_ringtone.mp3"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		A6B0C7A1D2E3F4A5B6C7D8EC /* incallmanager_ringback.mp3 */ = {isa = PBXFileReference; name = "incallmanager_ringback.mp3"; path = "../assets/incallmanager_ringback.mp3"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +80,7 @@
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				BBD78D7AC51CEA395F1C20DB /* Pods */,
+				2A4F961CFFF74841A3F99C0E /* Resources */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -96,6 +103,17 @@
 			);
 			path = Pods;
 			sourceTree = "<group>";
+		};
+		2A4F961CFFF74841A3F99C0E /* Resources */ = {
+			isa = "PBXGroup";
+			children = (
+				7BA55CC36F5F4675A2F736FA /* rigntone.mp3 */,
+				A6B0C7A1D2E3F4A5B6C7D8EA /* incallmanager_ringtone.mp3 */,
+				A6B0C7A1D2E3F4A5B6C7D8EC /* incallmanager_ringback.mp3 */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+			path = "";
 		};
 /* End PBXGroup section */
 
@@ -159,6 +177,9 @@
 			files = (
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
+				0911ADD75FDD439CB5028A67 /* rigntone.mp3 in Resources */,
+				A6B0C7A1D2E3F4A5B6C7D8E9 /* incallmanager_ringtone.mp3 in Resources */,
+				A6B0C7A1D2E3F4A5B6C7D8EB /* incallmanager_ringback.mp3 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

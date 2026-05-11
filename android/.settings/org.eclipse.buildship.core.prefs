@@ -1,29 +1,16 @@
-<<<<<<< HEAD
-arguments=
+=\=\=\=\=\=\=
+<<<<<<<=HEAD
+>>>>>>>=18f0a5d7b10999a6471dad398966af9437103129
+arguments=--init-script C\:\\Users\\vsing\\AppData\\Roaming\\Code\\User\\globalStorage\\redhat.java\\1.54.0\\config_win\\org.eclipse.osgi\\58\\0\\.cp\\gradle\\init\\init.gradle --init-script C\:\\Users\\vsing\\AppData\\Roaming\\Code\\User\\globalStorage\\redhat.java\\1.54.0\\config_win\\org.eclipse.osgi\\58\\0\\.cp\\gradle\\protobuf\\init.gradle --init-script C\:\\Users\\vsing\\AppData\\Roaming\\Code\\User\\globalStorage\\redhat.java\\1.54.0\\config_win\\org.eclipse.osgi\\58\\0\\.cp\\gradle\\kotlin\\init.gradle --init-script C\:\\Users\\vsing\\AppData\\Roaming\\Code\\User\\globalStorage\\redhat.java\\1.54.0\\config_win\\org.eclipse.osgi\\58\\0\\.cp\\gradle\\groovy\\init.gradle --init-script C\:\\Users\\vsing\\AppData\\Roaming\\Code\\User\\globalStorage\\redhat.java\\1.54.0\\config_win\\org.eclipse.osgi\\58\\0\\.cp\\gradle\\scala\\init.gradle
 auto.sync=false
 build.scans.enabled=false
 connection.gradle.distribution=GRADLE_DISTRIBUTION(WRAPPER)
 connection.project.dir=
 eclipse.preferences.version=1
 gradle.user.home=
-java.home=
+java.home=C\:/Program Files/OpenLogic/jdk-17.0.18.8-hotspot
 jvm.arguments=
 offline.mode=false
-override.workspace.settings=false
-show.console.view=false
-show.executions.view=false
-=======
-arguments=
-auto.sync=false
-build.scans.enabled=false
-connection.gradle.distribution=GRADLE_DISTRIBUTION(WRAPPER)
-connection.project.dir=
-eclipse.preferences.version=1
-gradle.user.home=
-java.home=
-jvm.arguments=
-offline.mode=false
-override.workspace.settings=false
-show.console.view=false
-show.executions.view=false
->>>>>>> 18f0a5d7b10999a6471dad398966af9437103129
+override.workspace.settings=true
+show.console.view=true
+show.executions.view=true

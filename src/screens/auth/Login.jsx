@@ -327,7 +327,7 @@ const Login = ({ navigation, route }) => {
           {/* Header Section */}
           <View style={styles.headerSection}>
             <View style={styles.logoContainer}>
-              <Text style={styles.logoText}>Mediconect</Text>
+              <Text style={styles.logoText}>Mediconeckt</Text>
             </View>
             <Text style={styles.title}>Welcome Back</Text>
             <Text style={styles.subtitle}>Login with your email and password</Text>

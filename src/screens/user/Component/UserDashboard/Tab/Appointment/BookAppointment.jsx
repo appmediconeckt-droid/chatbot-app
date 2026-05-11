@@ -14,6 +14,7 @@ import {
   StatusBar,
   Dimensions,
   Alert,
+  Platform,
   useWindowDimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -21,11 +22,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 const { width, height } = Dimensions.get('window');
 
-const CounselorRequestChat = () => {
+const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const navigation = useNavigation();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isSmallPhone = screenWidth < 420;
@@ -43,7 +45,15 @@ const CounselorRequestChat = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('name');
   const [showBookingModal, setShowBookingModal] = useState(false);
-  const [bookingDate, setBookingDate] = useState('');
+  const [bookingDateTime, setBookingDateTime] = useState(() => {
+    const nextSlot = new Date();
+    const roundedMinutes = Math.ceil(nextSlot.getMinutes() / 15) * 15;
+    nextSlot.setMinutes(roundedMinutes, 0, 0);
+    nextSlot.setHours(nextSlot.getHours() + 1);
+    return nextSlot;
+  });
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [bookingNotes, setBookingNotes] = useState('');
 
   // Get user ID and token from AsyncStorage
@@ -54,6 +64,12 @@ const CounselorRequestChat = () => {
     loadUserData();
     fetchAcceptedChats();
   }, []);
+
+  useEffect(() => {
+    if (typeof initialSearchQuery === 'string' && initialSearchQuery.trim()) {
+      setSearchQuery(initialSearchQuery.trim());
+    }
+  }, [initialSearchQuery]);
 
   const loadUserData = async () => {
     try {
@@ -256,7 +272,58 @@ const CounselorRequestChat = () => {
 
   const handleBookAppointment = (counselor) => {
     setSelectedCounselorForRequest(counselor);
+    const nextSlot = new Date();
+    const roundedMinutes = Math.ceil(nextSlot.getMinutes() / 15) * 15;
+    nextSlot.setMinutes(roundedMinutes, 0, 0);
+    nextSlot.setHours(nextSlot.getHours() + 1);
+    setBookingDateTime(nextSlot);
+    setShowDatePicker(false);
+    setShowTimePicker(false);
     setShowBookingModal(true);
+  };
+
+  const bookingDateLabel = bookingDateTime.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  const bookingTimeLabel = bookingDateTime.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const handleDateChange = (event, selectedDate) => {
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
+
+    if (event?.type === 'dismissed' || !selectedDate) {
+      return;
+    }
+
+    setBookingDateTime((prev) => {
+      const next = new Date(prev);
+      next.setFullYear(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+      return next;
+    });
+  };
+
+  const handleTimeChange = (event, selectedTime) => {
+    if (Platform.OS === 'android') {
+      setShowTimePicker(false);
+    }
+
+    if (event?.type === 'dismissed' || !selectedTime) {
+      return;
+    }
+
+    setBookingDateTime((prev) => {
+      const next = new Date(prev);
+      next.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+      return next;
+    });
   };
 
   // Send chat request
@@ -343,12 +410,13 @@ const CounselorRequestChat = () => {
   };
 
   const handleConfirmBooking = async () => {
-    const parsedDate = bookingDate.includes('T')
-      ? new Date(bookingDate)
-      : new Date(bookingDate.replace(' ', 'T'));
+    if (!bookingDateTime || Number.isNaN(bookingDateTime.getTime())) {
+      Alert.alert('Invalid Date', 'Please choose a valid appointment date and time.');
+      return;
+    }
 
-    if (!bookingDate || Number.isNaN(parsedDate.getTime())) {
-      Alert.alert('Invalid Date', 'Enter date and time in this format: 2026-05-02 14:30');
+    if (bookingDateTime.getTime() <= Date.now()) {
+      Alert.alert('Invalid Time', 'Please choose a future date and time for the appointment.');
       return;
     }
 
@@ -366,7 +434,7 @@ const CounselorRequestChat = () => {
         `${API_BASE_URL}/api/appointments`,
         {
           counselorId: selectedCounselorForRequest?.id,
-          date: parsedDate.toISOString(),
+          date: bookingDateTime.toISOString(),
           notes: bookingNotes.trim(),
         },
         {
@@ -385,7 +453,6 @@ const CounselorRequestChat = () => {
 
       Alert.alert('Booked Successfully', 'Appointment request sent. The counselor has been notified.');
       setShowBookingModal(false);
-      setBookingDate('');
       setBookingNotes('');
     } catch (error) {
       console.error('Error booking appointment:', error);
@@ -547,10 +614,10 @@ const CounselorRequestChat = () => {
 
   const renderListHeader = () => (
     <>
-      <View style={styles.header}>
+      {/* <View style={styles.header}>
         <Text style={styles.headerTitle}>Counselor Directory</Text>
         <Text style={styles.headerSubtitle}>Trusted experts for confidential mental wellness support</Text>
-      </View>
+      </View> */}
 
       <View style={styles.searchContainer}>
         <TextInput
@@ -574,8 +641,7 @@ const CounselorRequestChat = () => {
           />
         </TouchableOpacity>
       </View>
-      <Text style={styles.searchHelpText}>Search by name, specialization, and location.</Text>
-
+      
       <View style={styles.sortRow}>
         <Text style={styles.sortLabel}>Sort:</Text>
         <TouchableOpacity
@@ -782,13 +848,83 @@ const CounselorRequestChat = () => {
             <ScrollView showsVerticalScrollIndicator={false}>
               <View style={styles.modalInfo}>
                 <Text style={styles.modalSectionTitle}>Appointment Date & Time</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  value={bookingDate}
-                  onChangeText={setBookingDate}
-                  placeholder="YYYY-MM-DD HH:mm"
-                  placeholderTextColor="#94a3b8"
-                />
+                <View style={styles.dateTimeRow}>
+                  <TouchableOpacity
+                    style={styles.dateTimeCard}
+                    onPress={() => {
+                      setShowDatePicker((prev) => !prev);
+                      if (Platform.OS === 'ios') {
+                        setShowTimePicker(false);
+                      }
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.dateTimeCardHeader}>
+                      <Ionicons name="calendar-outline" size={16} color="#334155" />
+                      <Text style={styles.dateTimeCardLabel}>Date</Text>
+                    </View>
+                    <Text style={styles.dateTimeCardValue}>{bookingDateLabel}</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.dateTimeCard}
+                    onPress={() => {
+                      setShowTimePicker((prev) => !prev);
+                      if (Platform.OS === 'ios') {
+                        setShowDatePicker(false);
+                      }
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.dateTimeCardHeader}>
+                      <Ionicons name="time-outline" size={16} color="#334155" />
+                      <Text style={styles.dateTimeCardLabel}>Time</Text>
+                    </View>
+                    <Text style={styles.dateTimeCardValue}>{bookingTimeLabel}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {(showDatePicker || showTimePicker) && Platform.OS === 'ios' ? (
+                  <View style={styles.pickerWrap}>
+                    {showDatePicker ? (
+                      <DateTimePicker
+                        value={bookingDateTime}
+                        mode="date"
+                        display="inline"
+                        minimumDate={new Date()}
+                        onChange={handleDateChange}
+                      />
+                    ) : null}
+
+                    {showTimePicker ? (
+                      <DateTimePicker
+                        value={bookingDateTime}
+                        mode="time"
+                        display="spinner"
+                        onChange={handleTimeChange}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {showDatePicker && Platform.OS === 'android' ? (
+                  <DateTimePicker
+                    value={bookingDateTime}
+                    mode="date"
+                    display="default"
+                    minimumDate={new Date()}
+                    onChange={handleDateChange}
+                  />
+                ) : null}
+
+                {showTimePicker && Platform.OS === 'android' ? (
+                  <DateTimePicker
+                    value={bookingDateTime}
+                    mode="time"
+                    display="default"
+                    onChange={handleTimeChange}
+                  />
+                ) : null}
 
                 <Text style={[styles.modalSectionTitle, { marginTop: 14 }]}>Clinical Notes / Reason</Text>
                 <TextInput
@@ -1412,6 +1548,43 @@ const styles = {
     color: '#0f172a',
     fontWeight: '700',
     marginBottom: 8,
+  },
+  dateTimeRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  dateTimeCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#dbe4ee',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#f8fafc',
+  },
+  dateTimeCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  dateTimeCardLabel: {
+    fontSize: 12,
+    color: '#475569',
+    fontWeight: '600',
+  },
+  dateTimeCardValue: {
+    fontSize: 14,
+    color: '#0f172a',
+    fontWeight: '700',
+  },
+  pickerWrap: {
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+    overflow: 'hidden',
   },
   modalInput: {
     borderWidth: 1,
