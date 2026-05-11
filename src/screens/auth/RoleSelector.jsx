@@ -188,7 +188,7 @@ const RoleSelector = () => {
               </Animated.View>
               <View style={styles.brandContainer}>
                 <Text style={styles.brandMain}>Medicone</Text>
-                <Text style={styles.brandAlt}>cket</Text>
+                <Text style={styles.brandAlt}>ckt</Text>
               </View>
               <Text style={styles.tagline}>Elevate Your Mind, Heal Your Soul</Text>
             </View>

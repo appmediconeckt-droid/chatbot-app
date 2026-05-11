@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,245 +9,276 @@ import {
   Dimensions,
   StatusBar,
   Platform,
+  RefreshControl,
 } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axiosInstance, { API_BASE_URL } from '../../../../../../axiosConfig';
+import { io } from 'socket.io-client';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 const { width: screenWidth } = Dimensions.get('window');
 
-/**
- * Dashboard Component – Sirf Dashboard ka data/content
- * Koi side menu nahi, sirf dashboard statistics aur cards
- */
 const Dashboard = () => {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [appointments, setAppointments] = useState([]);
+  const [counselorName, setCounselorName] = useState('');
+  const socketRef = useRef(null);
 
-  // Simulate loading data
-  useEffect(() => {
-    const timer = setTimeout(() => {
+  const getToken = async () =>
+    (await AsyncStorage.getItem('accessToken')) ||
+    (await AsyncStorage.getItem('token'));
+
+  const getCounsellorId = async () =>
+    (await AsyncStorage.getItem('counsellorId')) ||
+    (await AsyncStorage.getItem('counselorId'));
+
+  const fetchData = useCallback(async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
+      const counsellorId = await getCounsellorId();
+
+      if (counsellorId) {
+        try {
+          const profileRes = await axiosInstance.get(`${API_BASE_URL}/api/auth/getCounsellor/${counsellorId}`);
+          const name = profileRes.data?.counsellor?.fullName || profileRes.data?.fullName || '';
+          setCounselorName(name);
+        } catch (_) {}
+      }
+
+      const aptRes = await axiosInstance.get(`${API_BASE_URL}/api/appointments`);
+      const data = Array.isArray(aptRes.data)
+        ? aptRes.data
+        : Array.isArray(aptRes.data?.appointments)
+        ? aptRes.data.appointments
+        : Array.isArray(aptRes.data?.data)
+        ? aptRes.data.data
+        : [];
+      setAppointments(data);
+    } catch (err) {
+      console.error('Dashboard fetch error:', err);
+    } finally {
       setLoading(false);
-    }, 1000);
-
-    return () => clearTimeout(timer);
+      setRefreshing(false);
+    }
   }, []);
 
-  // Dashboard statistics data
-  const dashboardStats = [
-    { title: 'Total Patients', value: '156', icon: '👥', change: '+12%', color: '#4285F4' },
-    { title: "Today's Sessions", value: '8', icon: '⏳', change: '+2 today', color: '#0F9D58' },
-    { title: 'Appointments', value: '12', icon: '📅', change: '3 urgent', color: '#F4B400' },
-    { title: 'Monthly Earnings', value: '₹84.5K', icon: '💰', change: '+18%', color: '#DB4437' },
-  ];
+  useEffect(() => {
+    fetchData();
 
-  // Recent sessions data
-  const recentSessions = [
-    { id: 1, patient: 'Rahul Sharma', time: '10:30 AM', type: 'Video Call', status: 'Completed', statusColor: '#0F9D58' },
-    { id: 2, patient: 'Priya Patel', time: '11:45 AM', type: 'In-Person', status: 'In Progress', statusColor: '#F4B400' },
-    { id: 3, patient: 'Amit Kumar', time: '2:00 PM', type: 'Voice Call', status: 'Scheduled', statusColor: '#4285F4' },
-    { id: 4, patient: 'Neha Singh', time: '3:30 PM', type: 'Video Call', status: 'Scheduled', statusColor: '#4285F4' },
-    { id: 5, patient: 'Vikram Mehta', time: '5:00 PM', type: 'In-Person', status: 'Scheduled', statusColor: '#4285F4' },
-  ];
+    const connectSocket = async () => {
+      const token = await getToken();
+      const counsellorId = await getCounsellorId();
+      if (!token) return;
 
-  // Upcoming appointments
-  const upcomingAppointments = [
-    { id: 1, patient: 'Sunita Reddy', time: 'Tomorrow, 9:00 AM', type: 'Video Call' },
-    { id: 2, patient: 'Arjun Nair', time: 'Tomorrow, 11:30 AM', type: 'In-Person' },
-    { id: 3, patient: 'Kavita Joshi', time: 'Wed, 10:00 AM', type: 'Voice Call' },
-  ];
+      const socket = io(API_BASE_URL, {
+        transports: ['polling', 'websocket'],
+        auth: { token },
+        reconnection: true,
+      });
+      socketRef.current = socket;
 
-  // Recent messages
-  const recentMessages = [
-    { id: 1, sender: 'Anjali Desai', preview: 'When can we schedule next session?', time: '5 min ago', unread: true },
-    { id: 2, sender: 'Rohan Mehra', preview: "Thank you for yesterday's session", time: '2 hours ago', unread: false },
-    { id: 3, sender: 'Dr. Gupta', preview: 'Case notes for patient referral', time: 'Yesterday', unread: false },
-  ];
+      socket.on('connect', () => {
+        if (counsellorId) socket.emit('join-counsellor-room', { counsellorId });
+      });
 
-  // Weekly schedule
-  const weeklySchedule = [
-    { day: 'Mon', sessions: 6, patients: 8 },
-    { day: 'Tue', sessions: 4, patients: 6 },
-    { day: 'Wed', sessions: 8, patients: 10 },
-    { day: 'Thu', sessions: 5, patients: 7 },
-    { day: 'Fri', sessions: 7, patients: 9 },
-    { day: 'Sat', sessions: 3, patients: 4 },
-  ];
+      const refresh = () => fetchData(true);
+      // Cover all possible event names the backend may emit
+      socket.on('appointment-booked', refresh);
+      socket.on('appointment-new', refresh);
+      socket.on('appointment-updated', refresh);
+      socket.on('appointment-confirmed', refresh);
+      socket.on('appointment-cancelled', refresh);
+      socket.on('appointment-status-changed', refresh);
+      socket.on('new-appointment', refresh);
+    };
 
-  // Get current date formatted
-  const getFormattedDate = () => {
-    const date = new Date();
-    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-    return date.toLocaleDateString('en-IN', options);
+    connectSocket();
+
+    return () => {
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
+  }, [fetchData]);
+
+  // Use start-of-today so appointments earlier today are included
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const upcomingApts = appointments
+    .filter((a) => {
+      const s = (a.status || '').toLowerCase();
+      return s !== 'canceled' && s !== 'cancelled' && s !== 'completed';
+    })
+    .filter((a) => new Date(a.date) >= today)
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .slice(0, 5);
+
+  const pendingCount = appointments.filter((a) => (a.status || '').toLowerCase() === 'pending').length;
+  const confirmedCount = appointments.filter((a) => (a.status || '').toLowerCase() === 'confirmed').length;
+  const totalCount = appointments.length;
+
+  const getFormattedDate = () =>
+    new Date().toLocaleDateString('en-IN', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+
+  const formatAptTime = (dateStr) => {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    const todayDate = new Date();
+    const tomorrow = new Date(todayDate);
+    tomorrow.setDate(todayDate.getDate() + 1);
+    const isToday = d.toDateString() === todayDate.toDateString();
+    const isTomorrow = d.toDateString() === tomorrow.toDateString();
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (isToday) return `Today, ${time}`;
+    if (isTomorrow) return `Tomorrow, ${time}`;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + `, ${time}`;
   };
+
+  const getUserName = (apt) =>
+    apt?.user?.fullName || apt?.user?.name || apt?.user?.anonymous ||
+    apt?.patient?.fullName || apt?.patient?.name || 'Patient';
+
+  const getStatusStyle = (status) => {
+    const s = (status || '').toLowerCase();
+    if (s === 'confirmed') return { bg: '#dcfce7', text: '#16a34a' };
+    if (s === 'canceled' || s === 'cancelled') return { bg: '#fee2e2', text: '#b91c1c' };
+    return { bg: '#fff4e5', text: '#c2410c' };
+  };
+
+  const stats = [
+    { label: 'Total', value: String(totalCount), icon: 'event-note', color: '#4f46e5', bg: '#ede9fe' },
+    { label: 'Pending', value: String(pendingCount), icon: 'hourglass-empty', color: '#c2410c', bg: '#fff4e5' },
+    { label: 'Confirmed', value: String(confirmedCount), icon: 'check-circle', color: '#16a34a', bg: '#dcfce7' },
+  ];
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#2563eb" />
+      <View style={styles.loaderWrap}>
+        <ActivityIndicator size="large" color="#4f46e5" />
       </View>
     );
   }
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={Platform.OS === 'android'} />
-      <ScrollView 
+      <StatusBar barStyle="dark-content" backgroundColor="#f0f4ff" translucent={false} />
+      <ScrollView
         style={styles.container}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); fetchData(); }}
+            colors={['#4f46e5']}
+            tintColor="#4f46e5"
+          />
+        }
       >
-        {/* Header Section - Transparent with proper padding for status bar */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.welcomeTitle}>Welcome back, Dr. Sharma 👋</Text>
-            <Text style={styles.dateInfo}>{getFormattedDate()}</Text>
-          </View>
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={[styles.actionBtn, styles.primaryBtn]}>
-              <Text style={styles.primaryBtnText}>+ New Session</Text>
-            </TouchableOpacity>
+        {/* Welcome */}
+        <View style={styles.welcomeBlock}>
+          <View style={styles.welcomeTextWrap}>
+            <Text style={styles.welcomeTitle}>
+              Welcome back{counselorName ? `,` : ''}{'\n'}
+              {counselorName ? <Text style={styles.welcomeName}>{counselorName} 👋</Text> : '👋'}
+            </Text>
+            <Text style={styles.dateText}>{getFormattedDate()}</Text>
           </View>
         </View>
 
-        {/* Statistics Cards */}
-        <View style={styles.statsContainer}>
-          {dashboardStats.map((stat, index) => (
-            <View 
-              key={index} 
-              style={[styles.statCard, { borderLeftColor: stat.color }]}
-            >
-              <View style={[styles.statIcon, { backgroundColor: stat.color + '15' }]}>
-                <Text style={[styles.statIconText, { color: stat.color }]}>{stat.icon}</Text>
+        {/* Stats row — full width, equal flex columns */}
+        <View style={styles.statsRow}>
+          {stats.map((s) => (
+            <View key={s.label} style={[styles.statCard, { backgroundColor: s.bg }]}>
+              <View style={[styles.statIconBox, { backgroundColor: s.color + '22' }]}>
+                <MaterialIcons name={s.icon} size={20} color={s.color} />
               </View>
-              <View style={styles.statDetails}>
-                <Text style={styles.statLabel}>{stat.title}</Text>
-                <Text style={styles.statValue}>{stat.value}</Text>
-                <Text style={[styles.statChange, { color: stat.color }]}>{stat.change}</Text>
-              </View>
+              <Text style={[styles.statValue, { color: s.color }]}>{s.value}</Text>
+              <Text style={[styles.statLabel, { color: s.color }]}>{s.label}</Text>
             </View>
           ))}
         </View>
 
-        {/* Main Grid - 2 Columns Layout */}
-        <View style={styles.dashboardGrid}>
-          {/* Left Column */}
-          <View style={styles.gridLeft}>
-            {/* Recent Sessions Card */}
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Recent Sessions</Text>
-                <TouchableOpacity>
-                  <Text style={styles.viewLink}>View All →</Text>
-                </TouchableOpacity>
+        {/* Upcoming Appointments */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <View style={styles.cardTitleIcon}>
+                <MaterialIcons name="event" size={16} color="#4f46e5" />
               </View>
-              
-              {recentSessions.map((session) => (
-                <TouchableOpacity key={session.id} style={styles.sessionItem}>
-                  <View style={styles.sessionInfo}>
-                    <Text style={styles.patientName}>{session.patient}</Text>
-                    <Text style={styles.sessionTime}>{session.time}</Text>
-                    <Text style={styles.sessionType}>{session.type}</Text>
-                  </View>
-                  <View style={[styles.statusBadge, { backgroundColor: session.statusColor + '20' }]}>
-                    <Text style={[styles.statusText, { color: session.statusColor }]}>
-                      {session.status}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
+              <Text style={styles.cardTitle}>Upcoming Sessions</Text>
             </View>
-
-            {/* Weekly Overview Card */}
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Weekly Overview</Text>
-                <TouchableOpacity>
-                  <Text style={styles.viewLink}>Details →</Text>
-                </TouchableOpacity>
+            {pendingCount > 0 && (
+              <View style={styles.pendingBadge}>
+                <Text style={styles.pendingBadgeText}>{pendingCount} pending</Text>
               </View>
-              <View style={styles.weeklyGrid}>
-                {weeklySchedule.map((day) => (
-                  <View key={day.day} style={styles.dayCard}>
-                    <Text style={styles.dayName}>{day.day}</Text>
-                    <Text style={styles.daySessions}>{day.sessions} sessions</Text>
-                    <Text style={styles.dayPatients}>{day.patients} patients</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
+            )}
           </View>
 
-          {/* Right Column */}
-          <View style={styles.gridRight}>
-            {/* Upcoming Appointments Card */}
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Upcoming Appointments</Text>
-                <TouchableOpacity>
-                  <Text style={styles.viewLink}>Schedule →</Text>
-                </TouchableOpacity>
-              </View>
-              {upcomingAppointments.map((apt) => (
-                <TouchableOpacity key={apt.id} style={styles.appointmentItem}>
-                  <View style={styles.appointmentIcon}>
-                    <Text style={styles.appointmentIconText}>📅</Text>
+          {upcomingApts.length === 0 ? (
+            <View style={styles.emptyBox}>
+              <MaterialIcons name="event-available" size={36} color="#c7d2fe" />
+              <Text style={styles.emptyText}>No upcoming sessions</Text>
+            </View>
+          ) : (
+            upcomingApts.map((apt, idx) => {
+              const aptId = apt._id || apt.id || idx;
+              const sc = getStatusStyle(apt.status);
+              return (
+                <View key={aptId} style={[styles.aptRow, idx === 0 && styles.aptRowFirst]}>
+                  <View style={styles.aptAvatar}>
+                    <Text style={styles.aptAvatarText}>
+                      {(getUserName(apt).charAt(0) || 'P').toUpperCase()}
+                    </Text>
                   </View>
-                  <View style={styles.appointmentInfo}>
-                    <Text style={styles.appointmentPatient}>{apt.patient}</Text>
-                    <Text style={styles.appointmentTime}>{apt.time}</Text>
-                    <View style={styles.appointmentTypeBadge}>
-                      <Text style={styles.appointmentTypeText}>{apt.type}</Text>
+                  <View style={styles.aptInfo}>
+                    <Text style={styles.aptPatient} numberOfLines={1}>{getUserName(apt)}</Text>
+                    <View style={styles.aptTimeLine}>
+                      <MaterialIcons name="access-time" size={11} color="#94a3b8" />
+                      <Text style={styles.aptTime}>{formatAptTime(apt.date)}</Text>
                     </View>
                   </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Recent Messages Card */}
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Recent Messages</Text>
-                <View style={styles.messageCountBadge}>
-                  <Text style={styles.messageCountText}>1 new</Text>
+                  <View style={[styles.statusPill, { backgroundColor: sc.bg }]}>
+                    <Text style={[styles.statusPillText, { color: sc.text }]}>
+                      {(apt.status || 'pending').charAt(0).toUpperCase() + (apt.status || 'pending').slice(1)}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-              {recentMessages.map((msg) => (
-                <TouchableOpacity key={msg.id} style={[styles.messageItem, msg.unread && styles.unreadMessage]}>
-                  <View style={styles.messageAvatar}>
-                    <Text style={styles.messageAvatarText}>{msg.sender.charAt(0)}</Text>
-                  </View>
-                  <View style={styles.messageContent}>
-                    <Text style={styles.messageSender}>{msg.sender}</Text>
-                    <Text style={styles.messagePreview}>{msg.preview}</Text>
-                    <Text style={styles.messageTime}>{msg.time}</Text>
-                  </View>
-                  {msg.unread && <View style={styles.unreadDot} />}
-                </TouchableOpacity>
-              ))}
-            </View>
+              );
+            })
+          )}
+        </View>
 
-            {/* Quick Actions Card */}
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Quick Actions</Text>
+        {/* Quick Actions */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <View style={styles.cardTitleIcon}>
+                <MaterialIcons name="flash-on" size={16} color="#4f46e5" />
               </View>
-              <View style={styles.quickActions}>
-                <TouchableOpacity style={styles.quickActionBtn}>
-                  <Text style={styles.quickActionIcon}>📝</Text>
-                  <Text style={styles.quickActionText}>Add Notes</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.quickActionBtn}>
-                  <Text style={styles.quickActionIcon}>💰</Text>
-                  <Text style={styles.quickActionText}>Invoice</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.quickActionBtn}>
-                  <Text style={styles.quickActionIcon}>📊</Text>
-                  <Text style={styles.quickActionText}>Reports</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.quickActionBtn}>
-                  <Text style={styles.quickActionIcon}>👥</Text>
-                  <Text style={styles.quickActionText}>New Patient</Text>
-                </TouchableOpacity>
-              </View>
+              <Text style={styles.cardTitle}>Quick Actions</Text>
             </View>
+          </View>
+          <View style={styles.quickGrid}>
+            {[
+              { icon: 'note-add', label: 'Add Notes', color: '#4f46e5', bg: '#ede9fe' },
+              { icon: 'receipt', label: 'Invoice', color: '#16a34a', bg: '#dcfce7' },
+              { icon: 'bar-chart', label: 'Reports', color: '#c2410c', bg: '#fff4e5' },
+              { icon: 'person-add', label: 'New Patient', color: '#0369a1', bg: '#e0f2fe' },
+            ].map((q) => (
+              <TouchableOpacity key={q.label} style={[styles.quickBtn, { backgroundColor: q.bg }]}>
+                <View style={[styles.quickIconBox, { backgroundColor: q.color + '22' }]}>
+                  <MaterialIcons name={q.icon} size={22} color={q.color} />
+                </View>
+                <Text style={[styles.quickLabel, { color: q.color }]}>{q.label}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
       </ScrollView>
@@ -255,144 +286,98 @@ const Dashboard = () => {
   );
 };
 
+const CARD_PADDING = 16;
+const CONTENT_H_PAD = 16;
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f7fa',
+    backgroundColor: '#f0f4ff',
   },
-  contentContainer: {
-    paddingHorizontal: 15,
-    paddingBottom: 30,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+  content: {
+    paddingHorizontal: CONTENT_H_PAD,
+    paddingBottom: 48,
+    paddingTop: 16,
+    gap: 14,
   },
-  loadingContainer: {
+  loaderWrap: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f7fa',
+    backgroundColor: '#f0f4ff',
   },
-  // Header Styles - Transparent, no background color
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
-    marginTop: 8,
-    flexWrap: 'wrap',
-    backgroundColor: 'transparent', // Transparent background
+
+  // Welcome
+  welcomeBlock: {
+    backgroundColor: '#4f46e5',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#4f46e5',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  welcomeTextWrap: {
+    gap: 6,
   },
   welcomeTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1a1a2e',
-    marginBottom: 6,
-  },
-  dateInfo: {
-    fontSize: 13,
-    color: '#666',
-    letterSpacing: 0.3,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  actionBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: 'transparent',
-  },
-  actionBtnText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#1e293b',
-  },
-  primaryBtn: {
-    backgroundColor: '#2563eb',
-    shadowColor: '#2563eb',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  primaryBtnText: {
-    color: 'white',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
+    color: '#c7d2fe',
+    lineHeight: 22,
   },
-  // Statistics Cards
-  statsContainer: {
+  welcomeName: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#ffffff',
+  },
+  dateText: {
+    fontSize: 12,
+    color: '#a5b4fc',
+    fontWeight: '500',
+  },
+
+  // Stats
+  statsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-    gap: 12,
+    gap: 10,
   },
   statCard: {
-    width: screenWidth > 768 ? '23%' : screenWidth > 480 ? '48%' : '100%',
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  statIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  statIconText: {
-    fontSize: 24,
-  },
-  statDetails: {
     flex: 1,
+    borderRadius: 16,
+    padding: 14,
+    alignItems: 'center',
+    gap: 6,
+  },
+  statIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statValue: {
+    fontSize: 26,
+    fontWeight: '800',
+    lineHeight: 30,
   },
   statLabel: {
     fontSize: 11,
-    color: '#64748b',
-    textTransform: 'uppercase',
-    marginBottom: 4,
-    letterSpacing: 0.5,
-  },
-  statValue: {
-    fontSize: 22,
     fontWeight: '700',
-    color: '#1e293b',
-    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    opacity: 0.75,
   },
-  statChange: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  // Dashboard Grid
-  dashboardGrid: {
-    flexDirection: screenWidth > 768 ? 'row' : 'column',
-    gap: 20,
-  },
-  gridLeft: {
-    flex: 1.5,
-  },
-  gridRight: {
-    flex: 1,
-  },
-  // Card Styles
+
+  // Card
   card: {
-    backgroundColor: 'white',
+    backgroundColor: '#ffffff',
     borderRadius: 20,
-    padding: 20,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
+    padding: CARD_PADDING,
+    shadowColor: '#94a3b8',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.10,
     shadowRadius: 12,
     elevation: 3,
   },
@@ -400,221 +385,132 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1e293b',
-  },
-  viewLink: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#2563eb',
-  },
-  // Session Item
-  sessionItem: {
+  cardTitleRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f2f5',
-  },
-  sessionInfo: {
-    flex: 1,
-  },
-  patientName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: 4,
-  },
-  sessionTime: {
-    fontSize: 13,
-    color: '#64748b',
-    marginBottom: 2,
-  },
-  sessionType: {
-    fontSize: 12,
-    color: '#94a3b8',
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 30,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  // Weekly Grid
-  weeklyGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
     gap: 8,
   },
-  dayCard: {
-    width: screenWidth > 480 ? '15%' : '30%',
-    backgroundColor: '#f8fafc',
-    padding: 12,
-    borderRadius: 12,
+  cardTitleIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    backgroundColor: '#ede9fe',
     alignItems: 'center',
-  },
-  dayName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1e293b',
-    marginBottom: 4,
-  },
-  daySessions: {
-    fontSize: 11,
-    color: '#2563eb',
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  dayPatients: {
-    fontSize: 10,
-    color: '#64748b',
-  },
-  // Appointment Item
-  appointmentItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    backgroundColor: '#f8fafc',
-    padding: 12,
-    borderRadius: 14,
-    marginBottom: 12,
-  },
-  appointmentIcon: {
-    width: 44,
-    height: 44,
-    backgroundColor: '#eef2ff',
-    borderRadius: 12,
     justifyContent: 'center',
-    alignItems: 'center',
   },
-  appointmentIconText: {
-    fontSize: 20,
-  },
-  appointmentInfo: {
-    flex: 1,
-  },
-  appointmentPatient: {
+  cardTitle: {
     fontSize: 15,
-    fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: 2,
+    fontWeight: '700',
+    color: '#0f172a',
   },
-  appointmentTime: {
-    fontSize: 12,
-    color: '#64748b',
-    marginBottom: 4,
-  },
-  appointmentTypeBadge: {
-    backgroundColor: '#eef2ff',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 30,
-    alignSelf: 'flex-start',
-  },
-  appointmentTypeText: {
-    fontSize: 10,
-    color: '#2563eb',
-    fontWeight: '600',
-  },
-  // Message Item
-  messageItem: {
-    flexDirection: 'row',
-    gap: 14,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f2f5',
-    position: 'relative',
-  },
-  unreadMessage: {
-    backgroundColor: '#f0f9ff',
-    marginHorizontal: -12,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-  },
-  messageAvatar: {
-    width: 44,
-    height: 44,
-    backgroundColor: '#2563eb',
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  messageAvatarText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: 'white',
-  },
-  messageContent: {
-    flex: 1,
-  },
-  messageSender: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: 2,
-  },
-  messagePreview: {
-    fontSize: 12,
-    color: '#475569',
-    marginBottom: 2,
-  },
-  messageTime: {
-    fontSize: 10,
-    color: '#94a3b8',
-  },
-  messageCountBadge: {
-    backgroundColor: '#2563eb',
+  pendingBadge: {
+    backgroundColor: '#fff4e5',
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 30,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#fed7aa',
   },
-  messageCountText: {
+  pendingBadgeText: {
     fontSize: 11,
-    fontWeight: '600',
-    color: 'white',
+    color: '#c2410c',
+    fontWeight: '700',
   },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    backgroundColor: '#2563eb',
-    borderRadius: 4,
-    position: 'absolute',
-    right: 0,
-    top: 18,
-  },
-  // Quick Actions
-  quickActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+
+  // Empty state
+  emptyBox: {
+    alignItems: 'center',
+    paddingVertical: 28,
     gap: 10,
   },
-  quickActionBtn: {
-    width: screenWidth > 480 ? '48%' : '100%',
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+  emptyText: {
+    color: '#94a3b8',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+
+  // Appointment row
+  aptRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  aptRowFirst: {
+    borderTopWidth: 0,
+  },
+  aptAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#ede9fe',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aptAvatarText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#4f46e5',
+  },
+  aptInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  aptPatient: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  aptTimeLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  aptTime: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  statusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+
+  // Quick actions — flex so they fill full width
+  quickGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  quickBtn: {
+    // Each button takes exactly half the available card width minus half the gap
+    width: (screenWidth - CONTENT_H_PAD * 2 - CARD_PADDING * 2 - 10) / 2,
     borderRadius: 14,
     padding: 16,
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
-  quickActionIcon: {
-    fontSize: 24,
+  quickIconBox: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  quickActionText: {
+  quickLabel: {
     fontSize: 13,
-    color: '#334155',
-    fontWeight: '500',
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });
 

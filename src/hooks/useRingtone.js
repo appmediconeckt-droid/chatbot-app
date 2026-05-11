@@ -1,565 +1,146 @@
-<<<<<<< HEAD
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Vibration } from "react-native";
+import InCallManager from "react-native-incall-manager";
 
-const RING_REPEAT_MS = 3000;
-const BEEP_FREQUENCY_HZ = 880;
-const BEEP_DURATION_SEC = 0.18;
-const BEEP_GAP_SEC = 0.12;
-const BEEP_ATTACK_SEC = 0.01;
-const BEEP_RELEASE_SEC = 0.08;
-const BEEP_VOLUME = 0.08;
-const RESUME_EVENTS = ["pointerdown", "touchstart", "keydown"];
+const VIBRATION_PATTERN = [0, 400, 200, 400, 1000];
+const RINGTONE_CYCLE_MS = 2500;
+const MAX_RING_DURATION_MS = 60000;
 
-const useRingtone = () => {
-  const [isRinging, setIsRinging] = useState(false);
+// Singleton — one shared state across all hook instances so any component
+// can stop the ringtone and it stops everywhere immediately.
+let globalIsRinging = false;
+let globalMode = null;
+let globalSession = 0;
+let ringLoopTimer = null;
+let ringFailsafeTimer = null;
+const listeners = new Set();
 
-  const isRingingRef = useRef(false);
-  const audioContextRef = useRef(null);
-  const repeatTimerRef = useRef(null);
-  const activeNodesRef = useRef([]);
-  const startRingingRef = useRef(null);
-  const resumeFromGestureRef = useRef(null);
-  const listenersAttachedRef = useRef(false);
-
-  const clearRepeatTimer = useCallback(() => {
-    if (repeatTimerRef.current) {
-      clearTimeout(repeatTimerRef.current);
-      repeatTimerRef.current = null;
-    }
-  }, []);
-
-  const disconnectNode = useCallback((node) => {
-    if (!node) return;
-
-    try {
-      node.disconnect();
-    } catch {
-      // Node may already be disconnected; ignore.
-    }
-  }, []);
-
-  const removeActiveEntry = useCallback(
-    (entry) => {
-      activeNodesRef.current = activeNodesRef.current.filter(
-        (item) => item !== entry,
-      );
-      disconnectNode(entry.oscillator);
-      disconnectNode(entry.gainNode);
-    },
-    [disconnectNode],
-  );
-
-  const stopActiveNodes = useCallback(() => {
-    activeNodesRef.current.forEach((entry) => {
-      entry.oscillator.onended = null;
-
-      try {
-        entry.oscillator.stop();
-      } catch {
-        // Oscillator may already be stopped.
-      }
-
-      disconnectNode(entry.oscillator);
-      disconnectNode(entry.gainNode);
-    });
-
-    activeNodesRef.current = [];
-  }, [disconnectNode]);
-
-  const detachResumeListeners = useCallback(() => {
-    if (
-      typeof window === "undefined" ||
-      !listenersAttachedRef.current ||
-      !resumeFromGestureRef.current
-    ) {
-      return;
-    }
-
-    RESUME_EVENTS.forEach((eventName) => {
-      window.removeEventListener(eventName, resumeFromGestureRef.current);
-    });
-
-    listenersAttachedRef.current = false;
-  }, []);
-
-  const ensureAudioContext = useCallback(() => {
-    if (typeof window === "undefined") return null;
-
-    const AudioContextCtor =
-      window.AudioContext || window.webkitAudioContext;
-
-    if (!AudioContextCtor) {
-      console.warn("Web Audio API is not supported in this browser.");
-      return null;
-    }
-
-    if (
-      !audioContextRef.current ||
-      audioContextRef.current.state === "closed"
-    ) {
-      audioContextRef.current = new AudioContextCtor();
-    }
-
-    return audioContextRef.current;
-  }, []);
-
-  const scheduleBeep = useCallback(
-    (audioContext, startTime) => {
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(BEEP_FREQUENCY_HZ, startTime);
-
-      // Web Audio cannot ramp exponentially from absolute zero,
-      // so use a tiny floor value instead.
-      gainNode.gain.setValueAtTime(0.0001, startTime);
-      gainNode.gain.exponentialRampToValueAtTime(
-        BEEP_VOLUME,
-        startTime + BEEP_ATTACK_SEC,
-      );
-      gainNode.gain.exponentialRampToValueAtTime(
-        0.0001,
-        startTime + BEEP_DURATION_SEC + BEEP_RELEASE_SEC,
-      );
-
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-
-      const entry = { oscillator, gainNode };
-      activeNodesRef.current.push(entry);
-
-      oscillator.onended = () => {
-        removeActiveEntry(entry);
-      };
-
-      oscillator.start(startTime);
-      oscillator.stop(startTime + BEEP_DURATION_SEC + BEEP_RELEASE_SEC);
-    },
-    [removeActiveEntry],
-  );
-
-  const scheduleDoubleRing = useCallback(
-    (audioContext) => {
-      if (!isRingingRef.current) return;
-
-      stopActiveNodes();
-      clearRepeatTimer();
-
-      const firstBeepStart = audioContext.currentTime + 0.02;
-      const secondBeepStart =
-        firstBeepStart + BEEP_DURATION_SEC + BEEP_GAP_SEC;
-
-      scheduleBeep(audioContext, firstBeepStart);
-      scheduleBeep(audioContext, secondBeepStart);
-
-      repeatTimerRef.current = setTimeout(() => {
-        if (typeof startRingingRef.current === "function") {
-          void startRingingRef.current();
-        }
-      }, RING_REPEAT_MS);
-    },
-    [clearRepeatTimer, scheduleBeep, stopActiveNodes],
-  );
-
-  const resumeFromGesture = useCallback(async () => {
-    if (!isRingingRef.current) {
-      detachResumeListeners();
-      return;
-    }
-
-    const audioContext = ensureAudioContext();
-    if (!audioContext) {
-      detachResumeListeners();
-      setIsRinging(false);
-      isRingingRef.current = false;
-      return;
-    }
-
-    try {
-      if (audioContext.state === "suspended") {
-        await audioContext.resume();
-      }
-    } catch (error) {
-      console.warn("Ringtone resume still blocked by browser policy.", error);
-    }
-
-    if (audioContext.state === "running" && isRingingRef.current) {
-      detachResumeListeners();
-      scheduleDoubleRing(audioContext);
-    }
-  }, [detachResumeListeners, ensureAudioContext, scheduleDoubleRing]);
-
-  const startRinging = useCallback(async () => {
-    const audioContext = ensureAudioContext();
-    if (!audioContext) {
-      setIsRinging(false);
-      isRingingRef.current = false;
-      return;
-    }
-
-    setIsRinging(true);
-    isRingingRef.current = true;
-
-    try {
-      if (audioContext.state === "suspended") {
-        await audioContext.resume();
-      }
-    } catch (error) {
-      console.warn("Initial ringtone resume attempt was blocked.", error);
-    }
-
-    if (audioContext.state === "running") {
-      detachResumeListeners();
-      scheduleDoubleRing(audioContext);
-      return;
-    }
-
-    // Browser autoplay gotcha:
-    // incoming-call events are usually not user gestures, so Safari/iOS and
-    // some desktop browsers may keep the AudioContext suspended until the user
-    // taps or presses a key. We keep temporary listeners alive so the ringtone
-    // starts on the first gesture while the overlay is still visible.
-    if (typeof window !== "undefined" && !listenersAttachedRef.current) {
-      RESUME_EVENTS.forEach((eventName) => {
-        window.addEventListener(eventName, resumeFromGesture, {
-          passive: true,
-        });
-      });
-      listenersAttachedRef.current = true;
-    }
-  }, [detachResumeListeners, ensureAudioContext, resumeFromGesture, scheduleDoubleRing]);
-
-  const stopRinging = useCallback(() => {
-    setIsRinging(false);
-    isRingingRef.current = false;
-
-    clearRepeatTimer();
-    detachResumeListeners();
-    stopActiveNodes();
-
-    const audioContext = audioContextRef.current;
-    if (audioContext && audioContext.state === "running") {
-      audioContext.suspend().catch(() => {
-        // Context may already be closing; ignore.
-      });
-    }
-  }, [clearRepeatTimer, detachResumeListeners, stopActiveNodes]);
-
-  useEffect(() => {
-    isRingingRef.current = isRinging;
-  }, [isRinging]);
-
-  useEffect(() => {
-    startRingingRef.current = startRinging;
-    resumeFromGestureRef.current = resumeFromGesture;
-  }, [startRinging, resumeFromGesture]);
-
-  useEffect(() => {
-    return () => {
-      clearRepeatTimer();
-      detachResumeListeners();
-      stopActiveNodes();
-
-      const audioContext = audioContextRef.current;
-      audioContextRef.current = null;
-
-      if (audioContext && audioContext.state !== "closed") {
-        audioContext.close().catch(() => {
-          // Ignore close races during unmount.
-        });
-      }
-    };
-  }, [clearRepeatTimer, detachResumeListeners, stopActiveNodes]);
-
-  return {
-    startRinging,
-    stopRinging,
-    isRinging,
-  };
+const notify = () => {
+  const snapshot = { isRinging: globalIsRinging, mode: globalMode };
+  listeners.forEach((fn) => { try { fn(snapshot); } catch (_) {} });
 };
 
-export default useRingtone;
-=======
-import { useCallback, useEffect, useRef, useState } from "react";
-
-const RING_REPEAT_MS = 3000;
-const BEEP_FREQUENCY_HZ = 880;
-const BEEP_DURATION_SEC = 0.18;
-const BEEP_GAP_SEC = 0.12;
-const BEEP_ATTACK_SEC = 0.01;
-const BEEP_RELEASE_SEC = 0.08;
-const BEEP_VOLUME = 0.08;
-const RESUME_EVENTS = ["pointerdown", "touchstart", "keydown"];
-
-const useRingtone = () => {
-  const [isRinging, setIsRinging] = useState(false);
-
-  const isRingingRef = useRef(false);
-  const audioContextRef = useRef(null);
-  const repeatTimerRef = useRef(null);
-  const activeNodesRef = useRef([]);
-  const startRingingRef = useRef(null);
-  const resumeFromGestureRef = useRef(null);
-  const listenersAttachedRef = useRef(false);
-
-  const clearRepeatTimer = useCallback(() => {
-    if (repeatTimerRef.current) {
-      clearTimeout(repeatTimerRef.current);
-      repeatTimerRef.current = null;
-    }
-  }, []);
-
-  const disconnectNode = useCallback((node) => {
-    if (!node) return;
-
-    try {
-      node.disconnect();
-    } catch {
-      // Node may already be disconnected; ignore.
-    }
-  }, []);
-
-  const removeActiveEntry = useCallback(
-    (entry) => {
-      activeNodesRef.current = activeNodesRef.current.filter(
-        (item) => item !== entry,
-      );
-      disconnectNode(entry.oscillator);
-      disconnectNode(entry.gainNode);
-    },
-    [disconnectNode],
-  );
-
-  const stopActiveNodes = useCallback(() => {
-    activeNodesRef.current.forEach((entry) => {
-      entry.oscillator.onended = null;
-
-      try {
-        entry.oscillator.stop();
-      } catch {
-        // Oscillator may already be stopped.
-      }
-
-      disconnectNode(entry.oscillator);
-      disconnectNode(entry.gainNode);
-    });
-
-    activeNodesRef.current = [];
-  }, [disconnectNode]);
-
-  const detachResumeListeners = useCallback(() => {
-    if (
-      typeof window === "undefined" ||
-      !listenersAttachedRef.current ||
-      !resumeFromGestureRef.current
-    ) {
-      return;
-    }
-
-    RESUME_EVENTS.forEach((eventName) => {
-      window.removeEventListener(eventName, resumeFromGestureRef.current);
-    });
-
-    listenersAttachedRef.current = false;
-  }, []);
-
-  const ensureAudioContext = useCallback(() => {
-    if (typeof window === "undefined") return null;
-
-    const AudioContextCtor =
-      window.AudioContext || window.webkitAudioContext;
-
-    if (!AudioContextCtor) {
-      console.warn("Web Audio API is not supported in this browser.");
-      return null;
-    }
-
-    if (
-      !audioContextRef.current ||
-      audioContextRef.current.state === "closed"
-    ) {
-      audioContextRef.current = new AudioContextCtor();
-    }
-
-    return audioContextRef.current;
-  }, []);
-
-  const scheduleBeep = useCallback(
-    (audioContext, startTime) => {
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(BEEP_FREQUENCY_HZ, startTime);
-
-      // Web Audio cannot ramp exponentially from absolute zero,
-      // so use a tiny floor value instead.
-      gainNode.gain.setValueAtTime(0.0001, startTime);
-      gainNode.gain.exponentialRampToValueAtTime(
-        BEEP_VOLUME,
-        startTime + BEEP_ATTACK_SEC,
-      );
-      gainNode.gain.exponentialRampToValueAtTime(
-        0.0001,
-        startTime + BEEP_DURATION_SEC + BEEP_RELEASE_SEC,
-      );
-
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-
-      const entry = { oscillator, gainNode };
-      activeNodesRef.current.push(entry);
-
-      oscillator.onended = () => {
-        removeActiveEntry(entry);
-      };
-
-      oscillator.start(startTime);
-      oscillator.stop(startTime + BEEP_DURATION_SEC + BEEP_RELEASE_SEC);
-    },
-    [removeActiveEntry],
-  );
-
-  const scheduleDoubleRing = useCallback(
-    (audioContext) => {
-      if (!isRingingRef.current) return;
-
-      stopActiveNodes();
-      clearRepeatTimer();
-
-      const firstBeepStart = audioContext.currentTime + 0.02;
-      const secondBeepStart =
-        firstBeepStart + BEEP_DURATION_SEC + BEEP_GAP_SEC;
-
-      scheduleBeep(audioContext, firstBeepStart);
-      scheduleBeep(audioContext, secondBeepStart);
-
-      repeatTimerRef.current = setTimeout(() => {
-        if (typeof startRingingRef.current === "function") {
-          void startRingingRef.current();
-        }
-      }, RING_REPEAT_MS);
-    },
-    [clearRepeatTimer, scheduleBeep, stopActiveNodes],
-  );
-
-  const resumeFromGesture = useCallback(async () => {
-    if (!isRingingRef.current) {
-      detachResumeListeners();
-      return;
-    }
-
-    const audioContext = ensureAudioContext();
-    if (!audioContext) {
-      detachResumeListeners();
-      setIsRinging(false);
-      isRingingRef.current = false;
-      return;
-    }
-
-    try {
-      if (audioContext.state === "suspended") {
-        await audioContext.resume();
-      }
-    } catch (error) {
-      console.warn("Ringtone resume still blocked by browser policy.", error);
-    }
-
-    if (audioContext.state === "running" && isRingingRef.current) {
-      detachResumeListeners();
-      scheduleDoubleRing(audioContext);
-    }
-  }, [detachResumeListeners, ensureAudioContext, scheduleDoubleRing]);
-
-  const startRinging = useCallback(async () => {
-    const audioContext = ensureAudioContext();
-    if (!audioContext) {
-      setIsRinging(false);
-      isRingingRef.current = false;
-      return;
-    }
-
-    setIsRinging(true);
-    isRingingRef.current = true;
-
-    try {
-      if (audioContext.state === "suspended") {
-        await audioContext.resume();
-      }
-    } catch (error) {
-      console.warn("Initial ringtone resume attempt was blocked.", error);
-    }
-
-    if (audioContext.state === "running") {
-      detachResumeListeners();
-      scheduleDoubleRing(audioContext);
-      return;
-    }
-
-    // Browser autoplay gotcha:
-    // incoming-call events are usually not user gestures, so Safari/iOS and
-    // some desktop browsers may keep the AudioContext suspended until the user
-    // taps or presses a key. We keep temporary listeners alive so the ringtone
-    // starts on the first gesture while the overlay is still visible.
-    if (typeof window !== "undefined" && !listenersAttachedRef.current) {
-      RESUME_EVENTS.forEach((eventName) => {
-        window.addEventListener(eventName, resumeFromGesture, {
-          passive: true,
-        });
-      });
-      listenersAttachedRef.current = true;
-    }
-  }, [detachResumeListeners, ensureAudioContext, resumeFromGesture, scheduleDoubleRing]);
-
-  const stopRinging = useCallback(() => {
-    setIsRinging(false);
-    isRingingRef.current = false;
-
-    clearRepeatTimer();
-    detachResumeListeners();
-    stopActiveNodes();
-
-    const audioContext = audioContextRef.current;
-    if (audioContext && audioContext.state === "running") {
-      audioContext.suspend().catch(() => {
-        // Context may already be closing; ignore.
-      });
-    }
-  }, [clearRepeatTimer, detachResumeListeners, stopActiveNodes]);
-
-  useEffect(() => {
-    isRingingRef.current = isRinging;
-  }, [isRinging]);
-
-  useEffect(() => {
-    startRingingRef.current = startRinging;
-    resumeFromGestureRef.current = resumeFromGesture;
-  }, [startRinging, resumeFromGesture]);
-
-  useEffect(() => {
-    return () => {
-      clearRepeatTimer();
-      detachResumeListeners();
-      stopActiveNodes();
-
-      const audioContext = audioContextRef.current;
-      audioContextRef.current = null;
-
-      if (audioContext && audioContext.state !== "closed") {
-        audioContext.close().catch(() => {
-          // Ignore close races during unmount.
-        });
-      }
-    };
-  }, [clearRepeatTimer, detachResumeListeners, stopActiveNodes]);
-
-  return {
-    startRinging,
-    stopRinging,
-    isRinging,
-  };
+// Null-checked so a missing native module doesn't crash silently in a way
+// that's hard to diagnose — the guard makes the skip explicit.
+const forceStopAudio = () => {
+  Vibration.cancel();
+  if (InCallManager) {
+    try { InCallManager.stopRingtone(); } catch (_) {}
+    try { InCallManager.stopRingback(); } catch (_) {}
+    try { InCallManager.setForceSpeakerphoneOn(false); } catch (_) {}
+    try { InCallManager.setKeepScreenOn(false); } catch (_) {}
+  }
 };
 
+const stopRingingGlobal = () => {
+  globalSession += 1;
+  globalIsRinging = false;
+  globalMode = null;
+
+  if (ringLoopTimer) { clearTimeout(ringLoopTimer); ringLoopTimer = null; }
+  if (ringFailsafeTimer) { clearTimeout(ringFailsafeTimer); ringFailsafeTimer = null; }
+
+  // Cut audio before notifying React — prevents a render where state says
+  // "stopped" but audio is still playing.
+  forceStopAudio();
+  notify();
+};
+
+const ringTriggerGlobal = (mySession) => {
+  if (!globalIsRinging || globalSession !== mySession) return;
+
+  if (InCallManager) {
+    try { InCallManager.stopRingtone(); } catch (_) {}
+    try { InCallManager.startRingtone("_BUNDLE_"); } catch (_) {}
+  }
+
+  // Clear before reassigning — prevents a leaked timer if this function is
+  // somehow re-entered before the previous setTimeout fires.
+  if (ringLoopTimer) clearTimeout(ringLoopTimer);
+  ringLoopTimer = setTimeout(() => ringTriggerGlobal(mySession), RINGTONE_CYCLE_MS);
+};
+
+const startRingingGlobal = (incoming = true) => {
+  const requestedMode = incoming ? "incoming" : "outgoing";
+
+  if (globalIsRinging) {
+    if (globalMode !== requestedMode) {
+      // stopRingingGlobal increments globalSession here (to old+1).
+      stopRingingGlobal();
+    } else {
+      return;
+    }
+  }
+
+  // Compute mySession AFTER the conditional stop so the new session ID is
+  // always strictly greater than whatever stopRingingGlobal left behind.
+  // Previously this was computed before the stop, meaning two sessions could
+  // share the same ID when a mode-change stop occurred.
+  const mySession = globalSession + 1;
+  globalSession = mySession;
+  globalIsRinging = true;
+  globalMode = requestedMode;
+
+  if (ringFailsafeTimer) clearTimeout(ringFailsafeTimer);
+  ringFailsafeTimer = setTimeout(() => {
+    if (globalIsRinging && globalSession === mySession) stopRingingGlobal();
+  }, MAX_RING_DURATION_MS);
+
+  if (incoming) {
+    if (InCallManager) {
+      try { InCallManager.setForceSpeakerphoneOn(true); } catch (_) {}
+      try { InCallManager.setKeepScreenOn(true); } catch (_) {}
+    }
+    ringTriggerGlobal(mySession);
+    Vibration.vibrate(VIBRATION_PATTERN, true);
+  } else {
+    if (InCallManager) {
+      try { InCallManager.stopRingback(); } catch (_) {}
+      try { InCallManager.setKeepScreenOn(true); } catch (_) {}
+      try { InCallManager.startRingback("_BUNDLE_"); } catch (_) {}
+    }
+  }
+
+  // Notify after all audio/state is set up so listeners see a consistent snapshot.
+  notify();
+};
+
+// Resets all module-level state — call on logout to prevent stale globals
+// from poisoning the next call session in the same app lifetime.
+const resetRingtoneState = () => {
+  globalSession += 1;
+  globalIsRinging = false;
+  globalMode = null;
+  if (ringLoopTimer) { clearTimeout(ringLoopTimer); ringLoopTimer = null; }
+  if (ringFailsafeTimer) { clearTimeout(ringFailsafeTimer); ringFailsafeTimer = null; }
+  forceStopAudio();
+  notify();
+};
+
+const useRingtone = () => {
+  const [state, setState] = useState(() => ({ isRinging: globalIsRinging, mode: globalMode }));
+
+  useEffect(() => {
+    const listener = (snapshot) => setState(snapshot);
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  }, []);
+
+  const startRinging = useCallback((incoming = true) => {
+    startRingingGlobal(incoming);
+  }, []);
+
+  const stopRinging = useCallback(() => {
+    stopRingingGlobal();
+  }, []);
+
+  return { startRinging, stopRinging, isRinging: state.isRinging, mode: state.mode };
+};
+
+// Exported so handlers can control audio synchronously without a hook instance.
+export {
+  stopRingingGlobal as forceStopRingtone,
+  startRingingGlobal as startIncomingRingtone,
+  resetRingtoneState,
+};
 export default useRingtone;
->>>>>>> 18f0a5d7b10999a6471dad398966af9437103129

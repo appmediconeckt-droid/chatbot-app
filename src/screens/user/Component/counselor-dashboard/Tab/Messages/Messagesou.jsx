@@ -17,6 +17,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
+import axios from 'axios';
+import useRingtone from '../../../../../../hooks/useRingtone';
+import safeVibrate from '../../../../../../utils/safeVibrate';
+import VideoCallModal from '../../../UserDashboard/Tab/CallModal/VideoCallModal';
+import VoiceCallModal from '../../../UserDashboard/Tab/CallModal/VoiceCallModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const API_BASE_URL = 'https://chatbot-backend-js25.onrender.com';
@@ -57,6 +62,13 @@ const SMSList = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigation = useNavigation();
+  const [showIncomingCallModal, setShowIncomingCallModal] = useState(false);
+  const [incomingCallData, setIncomingCallData] = useState(null);
+  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+  const [selectedCall, setSelectedCall] = useState(null);
+  const { startRinging: startIncomingRing, stopRinging: stopIncomingRing } = useRingtone();
+  const pollingIntervalRef = useRef(null);
 
   const handleSessionExpired = useCallback(() => {
     AsyncStorage.multiRemove(['token', 'accessToken', 'userData']);
@@ -113,7 +125,10 @@ const SMSList = () => {
         return {
           id: chat.chatId,
           chatId: chat.chatId,
+          userId: otherParty._id || otherParty.id || otherParty.userId,
+          receiverId: otherParty._id || otherParty.id || otherParty.userId,
           name: displayName,
+          gender: otherParty.gender,
           lastMessage: chat.lastMessage?.content || 'No messages yet',
           time: formatTime(lastMessageTime),
           lastActivityAt: lastMessageTime,
@@ -221,7 +236,7 @@ const styles = StyleSheet.create({
   container: { 
     flex: 1, 
     backgroundColor: '#FFFFFF', 
-    marginTop: -70,
+    marginTop: -60,
     marginLeft: -15,
     marginRight: -15,
   },

@@ -22,7 +22,7 @@ import { API_BASE_URL } from "../../../../axiosConfig";
 
 const { width, height } = Dimensions.get("window");
 
-const PatientProfile = () => {
+const PatientProfile = ({ onProfileUpdate }) => {
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [profileImage, setProfileImage] = useState(null);
@@ -101,6 +101,20 @@ const PatientProfile = () => {
 
   const bloodGroups = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
   const genders = ["Male", "Female", "Other"];
+
+  const normalizeGender = (value) => {
+    if (!value) return "";
+    const v = String(value).trim().toLowerCase();
+    if (v === "m" || v === "male") return "male";
+    if (v === "f" || v === "female") return "female";
+    if (v === "o" || v === "other") return "other";
+    return v;
+  };
+
+  const normalizeBloodGroup = (value) => {
+    if (!value) return "";
+    return String(value).replace(/\s+/g, "").toUpperCase();
+  };
 
   const [editFormData, setEditFormData] = useState({
     name: "",
@@ -275,9 +289,9 @@ const PatientProfile = () => {
     setEditFormData({
       name: data.personalInfo.name || "",
       age: data.personalInfo.age?.toString() || "",
-      gender: data.personalInfo.gender || "",
+      gender: normalizeGender(data.personalInfo.gender),
       dateOfBirth: data.personalInfo.dateOfBirth || "",
-      bloodGroup: data.personalInfo.bloodGroup || "",
+      bloodGroup: normalizeBloodGroup(data.personalInfo.bloodGroup),
       email: data.personalInfo.email || "",
       phone: data.personalInfo.phone || "",
       address: {
@@ -376,7 +390,9 @@ const PatientProfile = () => {
       formData.append("age", editFormData.age.toString());
       formData.append("gender", editFormData.gender);
       formData.append("bloodGroup", editFormData.bloodGroup);
-      formData.append("dateOfBirth", editFormData.dateOfBirth);
+      if (editFormData.dateOfBirth?.trim()) {
+        formData.append("dateOfBirth", editFormData.dateOfBirth);
+      }
 
       const addressObj = {
         ...editFormData.address,
@@ -417,7 +433,7 @@ const PatientProfile = () => {
         policyNumber: editFormData.policyNumber,
         groupNumber: editFormData.groupNumber,
         coverageAmount: editFormData.coverageAmount,
-        validityDate: editFormData.validityDate,
+        validityDate: editFormData.validityDate?.trim() || null,
         nominee: editFormData.nominee,
         relationship: editFormData.relationship,
         insuranceType: editFormData.insuranceType,
@@ -438,6 +454,7 @@ const PatientProfile = () => {
       if (response.data.success) {
         showNotificationMessage("Profile updated successfully!", "success");
         await fetchPatientProfile();
+        if (onProfileUpdate) onProfileUpdate();
         setIsEditing(false);
         setProfileImage(null);
         setProfileImageFile(null);
@@ -505,7 +522,7 @@ const PatientProfile = () => {
   };
 
   const renderProfileHeader = () => (
-    <View style={styles.header}>
+    <View style={[styles.card, styles.profileHeroCard]}>
       <View style={styles.headerTop}>
         <View style={styles.avatarWrapper}>
           <View style={styles.avatar}>
@@ -528,7 +545,11 @@ const PatientProfile = () => {
         </View>
 
         <View style={styles.profileMeta}>
+          <Text style={styles.heroKicker}>Patient Profile</Text>
           <Text style={styles.name}>{patientData.personalInfo.name}</Text>
+          <Text style={styles.heroSubtext} numberOfLines={1}>
+            {patientData.personalInfo.email || patientData.personalInfo.phone || "Profile overview"}
+          </Text>
           <View style={styles.idBadge}>
             <Text style={styles.patientId}>#{patientData.personalInfo.id.slice(-8).toUpperCase()}</Text>
           </View>
@@ -665,19 +686,21 @@ const PatientProfile = () => {
         </View>
       </View>
       <View style={styles.medicalGrid}>
-        <View style={styles.vitalStats}>
+        <View style={styles.vitalCard}>
           <Text style={styles.vitalTitle}>Vital Stats</Text>
-          <View style={styles.vitalRow}>
-            <Text style={styles.vitalLabel}>Height:</Text>
-            <Text style={styles.vitalValue}>
-              {patientData.medicalInfo?.height || "--"} cm
-            </Text>
-          </View>
-          <View style={styles.vitalRow}>
-            <Text style={styles.vitalLabel}>Weight:</Text>
-            <Text style={styles.vitalValue}>
-              {patientData.medicalInfo?.weight || "--"} kg
-            </Text>
+          <View style={styles.vitalRows}>
+            <View style={styles.vitalRow}>
+              <Text style={styles.vitalLabel}>Height</Text>
+              <Text style={styles.vitalValue}>
+                {patientData.medicalInfo?.height || "--"} cm
+              </Text>
+            </View>
+            <View style={styles.vitalRow}>
+              <Text style={styles.vitalLabel}>Weight</Text>
+              <Text style={styles.vitalValue}>
+                {patientData.medicalInfo?.weight || "--"} kg
+              </Text>
+            </View>
           </View>
         </View>
         <View style={styles.conditionsList}>
@@ -914,14 +937,16 @@ const PatientProfile = () => {
                           key={bg}
                           style={[
                             styles.selectOption,
-                            editFormData.bloodGroup === bg && styles.selectOptionActive,
+                            normalizeBloodGroup(editFormData.bloodGroup) === bg &&
+                              styles.selectOptionActive,
                           ]}
                           onPress={() => handleEditFormChange("bloodGroup", bg)}
                         >
                           <Text
                             style={[
                               styles.selectOptionText,
-                              editFormData.bloodGroup === bg && styles.selectOptionTextActive,
+                              normalizeBloodGroup(editFormData.bloodGroup) === bg &&
+                                styles.selectOptionTextActive,
                             ]}
                           >
                             {bg}
@@ -1316,21 +1341,24 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: "white",
-    padding: 24,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
-    shadowRadius: 20,
-    elevation: 5,
     marginBottom: 20,
+  },
+  profileHeroCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 20,
+    overflow: "hidden",
+    backgroundColor: "#ffffff",
+    borderColor: "#e0e7ff",
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 4,
   },
   headerTop: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 20,
-    marginBottom: 24,
+    gap: 16,
+    marginBottom: 20,
   },
   avatarWrapper: {
     position: "relative",
@@ -1372,11 +1400,25 @@ const styles = StyleSheet.create({
   profileMeta: {
     flex: 1,
   },
+  heroKicker: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+    color: "#6366f1",
+    marginBottom: 4,
+  },
   name: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: "800",
     color: "#1e293b",
-    marginBottom: 6,
+    marginBottom: 4,
+  },
+  heroSubtext: {
+    fontSize: 13,
+    color: "#64748b",
+    fontWeight: "500",
+    marginBottom: 10,
   },
   idBadge: {
     backgroundColor: "#f1f5f9",
@@ -1395,8 +1437,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     backgroundColor: "#f8fafc",
-    borderRadius: 20,
+    borderRadius: 18,
     padding: 16,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
   statItem: {
     flex: 1,
@@ -1512,23 +1556,33 @@ const styles = StyleSheet.create({
   medicalGrid: {
     gap: 20,
   },
-  vitalStats: {
+  vitalCard: {
+    backgroundColor: "#f0fdf4",
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#dcfce7",
+    gap: 12,
+  },
+  vitalRows: {
     flexDirection: "row",
     gap: 12,
   },
-  vitalBox: {
+  vitalRow: {
     flex: 1,
-    backgroundColor: "#f0fdf4",
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#dcfce7",
+    gap: 4,
+  },
+  vitalTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#14532d",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
   },
   vitalLabel: {
     fontSize: 12,
     color: "#166534",
-    fontWeight: "600",
-    marginBottom: 4,
+    fontWeight: "700",
   },
   vitalValue: {
     fontSize: 18,
@@ -1759,6 +1813,35 @@ const styles = StyleSheet.create({
   removeBtnText: {
     color: "#ef4444",
     fontWeight: "700",
+  },
+  selectContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 6,
+  },
+  selectOption: {
+    minHeight: 38,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: "#f1f5f9",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectOptionActive: {
+    backgroundColor: "#6366f1",
+    borderColor: "#4f46e5",
+  },
+  selectOptionText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#64748b",
+  },
+  selectOptionTextActive: {
+    color: "white",
   },
   scrollPicker: {
     marginVertical: 4,

@@ -19,10 +19,11 @@ const axiosInstance = axios.create({
 axiosInstance.interceptors.request.use(
   async (config) => {
     try {
-      const token = await AsyncStorage.getItem('accessToken');
+      const token =
+        (await AsyncStorage.getItem('accessToken')) ||
+        (await AsyncStorage.getItem('token'));
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
-        console.log('Token added to header:', token.substring(0, 20) + '...');
       }
     } catch (error) {
       console.log('Error getting token:', error);
@@ -113,7 +114,16 @@ axiosInstance.interceptors.response.use(
         processQueue(refreshError, null);
 
         // Clear tokens and redirect to login
-        await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'userData', 'userId']);
+        await AsyncStorage.multiRemove([
+          'accessToken',
+          'token',
+          'refreshToken',
+          'userData',
+          'userId',
+          'userRole',
+          'counsellorId',
+          'counselorId',
+        ]);
         
         // You can add navigation here if needed
         // navigationRef.current?.navigate('UserSignup');

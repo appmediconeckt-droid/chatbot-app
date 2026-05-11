@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -25,6 +25,7 @@ import { launchImageLibrary } from "react-native-image-picker";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import VideoCallModal from "../CallModal/VideoCallModal";
 import VoiceCallModal from "../CallModal/VoiceCallModal";
+import useRingtone from "../../../../../../hooks/useRingtone";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -150,6 +151,28 @@ const IncomingCallModal = ({
   );
 };
 
+// Reusable confirm modal to replace native Alert.confirm
+const ConfirmModal = ({ visible, title, message, onConfirm, onCancel, confirmText = 'Delete', cancelText = 'Cancel', destructive = false }) => {
+  return (
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={onCancel}>
+      <TouchableOpacity style={styles.confirmOverlay} activeOpacity={1} onPress={onCancel}>
+        <View style={styles.confirmBox}>
+          <Text style={styles.confirmTitle}>{title}</Text>
+          <Text style={styles.confirmMessage}>{message}</Text>
+          <View style={styles.confirmButtonsRow}>
+            <TouchableOpacity style={[styles.confirmBtn, styles.confirmBtnCancel]} onPress={onCancel}>
+              <Text style={styles.confirmBtnText}>{cancelText}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.confirmBtn, styles.confirmBtnConfirm, destructive && styles.confirmDestructive]} onPress={onConfirm}>
+              <Text style={[styles.confirmBtnText, destructive && { color: '#fff' }]}>{confirmText}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
+};
+
 const ChatBox = () => {
   const navigation = useNavigation();
   const route = useRoute();
@@ -193,8 +216,19 @@ const ChatBox = () => {
     callType: "video",
   });
 
+  const { startRinging: startIncomingRing, stopRinging: stopIncomingRing } = useRingtone();
+
+  useEffect(() => {
+    if (showIncomingModal) {
+      startIncomingRing(true);
+    } else {
+      stopIncomingRing();
+    }
+  }, [showIncomingModal, startIncomingRing, stopIncomingRing]);
+
   const [newMessage, setNewMessage] = useState("");
   const [showOptions, setShowOptions] = useState(false);
+  const [confirmState, setConfirmState] = useState({ visible: false, title: '', message: '', onConfirm: null, onCancel: null, destructive: false });
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [remoteIsTyping, setRemoteIsTyping] = useState(false);
@@ -267,7 +301,8 @@ const ChatBox = () => {
       requestAnimationFrame(() => {
         if (!flatListRef.current) return;
         try {
-          flatListRef.current.scrollToEnd({ animated });
+          // With `inverted`, offset 0 corresponds to the visual bottom (newest messages).
+          flatListRef.current.scrollToOffset({ offset: 0, animated });
         } catch (error) {
           // FlatList can throw if content is not laid out yet; ignore transient race.
         }
@@ -275,10 +310,20 @@ const ChatBox = () => {
     });
   }, []);
 
+  // Chat UX: use an inverted list so the newest message appears at the bottom
+  // without needing an initial scroll-to-end (more reliable on Android).
+  const messagesForList = useMemo(() => {
+    if (!messages?.length) return [];
+    // Data oldest -> newest; for inverted lists we pass newest -> oldest.
+    return [...messages].reverse();
+  }, [messages]);
+
   const handleMessagesScroll = useCallback((event) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
-    shouldAutoScrollRef.current = distanceFromBottom <= 120;
+    // With `inverted`, being "at bottom" means being near offset 0.
+    // Keep auto-scroll enabled only if the user is near the newest messages.
+    const distanceFromNewest = contentOffset.y;
+    shouldAutoScrollRef.current = distanceFromNewest <= 120;
   }, []);
 
   const handleMessagesContentSizeChange = useCallback(() => {
@@ -631,6 +676,74 @@ const ChatBox = () => {
     }
   };
 
+  // Delete a single message (tries standard backend route and falls back gracefully)
+  const deleteMessage = async (messageId) => {
+    if (!messageId) return false;
+    const apiChatId = getChatIdForAPI();
+    try {
+      const token = await AsyncStorage.getItem("token");
+      await axios.delete(`${API_BASE_URL}/api/chat/chat/${apiChatId}/message/${messageId}`, {
+        headers: { Authorization: token ? `Bearer ${token}` : undefined },
+      });
+      // remove from UI
+      setMessages(prev => prev.filter(m => String(m.id) !== String(messageId) && String(m.messageId) !== String(messageId)));
+      // persist change to local storage
+      try {
+        const savedChats = JSON.parse(await AsyncStorage.getItem("activeChats") || "[]");
+        const updatedChats = savedChats.map(c => {
+          if (c.chatId === apiChatId || String(c.id) === String(currentChat?.id)) {
+            return { ...c, messages: (c.messages || []).filter(m => String(m.id) !== String(messageId) && String(m.messageId) !== String(messageId)) };
+          }
+          return c;
+        });
+        await AsyncStorage.setItem("activeChats", JSON.stringify(updatedChats));
+      } catch (e) {
+        // ignore storage errors
+      }
+      return true;
+    } catch (err) {
+      console.error("Delete message failed:", err?.response || err.message || err);
+      Alert.alert("Delete message", "Could not delete message from server.");
+      return false;
+    }
+  };
+
+  // Delete whole chat (clear all messages permanently)
+  const deleteWholeChat = async () => {
+    const apiChatId = getChatIdForAPI();
+    try {
+      const token = await AsyncStorage.getItem("token");
+      // Try endpoint that clears messages for a chat
+      await axios.delete(`${API_BASE_URL}/api/chat/chat/${apiChatId}/messages`, {
+        headers: { Authorization: token ? `Bearer ${token}` : undefined },
+      });
+    } catch (err) {
+      // Fallback: try deleting the chat resource itself
+      try {
+        const token = await AsyncStorage.getItem("token");
+        await axios.delete(`${API_BASE_URL}/api/chat/chats/${apiChatId}`, {
+          headers: { Authorization: token ? `Bearer ${token}` : undefined },
+        });
+      } catch (err2) {
+        console.error("Delete chat failed:", err2?.response || err2.message || err2);
+        Alert.alert("Delete chat", "Could not delete chat on server. Clearing locally.");
+      }
+    }
+
+    // Clear locally regardless of server result
+    setMessages([]);
+    try {
+      const savedChats = JSON.parse(await AsyncStorage.getItem("activeChats") || "[]");
+      const updatedChats = savedChats.map(c => (c.chatId === apiChatId || String(c.id) === String(currentChat?.id)) ? { ...c, messages: [] } : c);
+      await AsyncStorage.setItem("activeChats", JSON.stringify(updatedChats));
+    } catch (e) {
+      // ignore storage errors
+    }
+    // close options if open
+    setShowOptions(false);
+    return true;
+  };
+
   const handlePickAttachment = useCallback(async () => {
     if (isSending) return;
 
@@ -693,6 +806,7 @@ const ChatBox = () => {
           roomId: response.data.roomId,
           name: response.data.callData?.receiver?.name || receiverName,
           type: "video",
+          callType: "video",
           profilePic: receiverProfilePhoto,
           phoneNumber: currentCounselor?.phoneNumber,
           status: response.data.status || "ringing",
@@ -701,6 +815,8 @@ const ChatBox = () => {
           apiCallData: response.data.callData,
           initiator: response.data.callData?.initiator,
           receiver: response.data.callData?.receiver,
+          currentUserId: initiatorId,
+          currentUserType: "user",
         };
         setSelectedCall(callData);
         setIsVideoModalOpen(true);
@@ -750,6 +866,7 @@ const ChatBox = () => {
           roomId: response.data.roomId,
           name: response.data.callData?.receiver?.name || receiverName,
           type: "voice",
+          callType: "audio",
           profilePic: receiverProfilePhoto,
           phoneNumber: currentCounselor?.phoneNumber,
           status: response.data.status || "ringing",
@@ -758,6 +875,8 @@ const ChatBox = () => {
           apiCallData: response.data.callData,
           initiator: response.data.callData?.initiator,
           receiver: response.data.callData?.receiver,
+          currentUserId: initiatorId,
+          currentUserType: "user",
         };
         setSelectedCall(callData);
         setIsVoiceModalOpen(true);
@@ -999,7 +1118,25 @@ const ChatBox = () => {
     const showAvatar = !isUser && (index === 0 || messages[index - 1]?.sender === "user");
     
     return (
-      <View style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}>
+      <TouchableOpacity
+        activeOpacity={1}
+        onLongPress={() => {
+          if (item.sender === "user") {
+            setConfirmState({
+              visible: true,
+              title: 'Delete message',
+              message: 'Delete this message?',
+              destructive: true,
+              onCancel: () => setConfirmState(s => ({ ...s, visible: false })),
+              onConfirm: async () => {
+                setConfirmState(s => ({ ...s, visible: false }));
+                await deleteMessage(item.messageId || item.id);
+              },
+            });
+          }
+        }}
+        style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}
+      >
         {!isUser && (
           <View style={styles.messageAvatarContainer}>
             {showAvatar ? (
@@ -1045,7 +1182,7 @@ const ChatBox = () => {
             </View>
           </View>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -1113,7 +1250,9 @@ const ChatBox = () => {
                   <View style={[styles.activeDot, counselorOnline ? styles.onlineDot : styles.offlineDot]} />
                 </View>
                 <View style={styles.profileInfo}>
-                  <Text style={styles.profileName}>{counselorName}</Text>
+                  <Text style={styles.profileName} numberOfLines={1} ellipsizeMode="tail">
+                    {counselorName}
+                  </Text>
                   {/* <Text style={styles.profileSpecialization}>{counselorSpecialization}</Text> */}
                   <View style={styles.profileStatusRow}>
                     {remoteIsTyping ? (
@@ -1131,13 +1270,13 @@ const ChatBox = () => {
 
             <View style={styles.headerRight}>
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.disabledBtn]} onPress={handleVideoCall} disabled={isInitiatingCall}>
-                <Ionicons name="videocam" size={22} color="#2c50cd" />
+                <Ionicons name="videocam" size={20} color="#2c50cd" style={styles.actionIcon} />
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.disabledBtn]} onPress={handleVoiceCall} disabled={isInitiatingCall}>
-                <Ionicons name="call" size={22} color="#2c50cd" />
+                <Ionicons name="call" size={20} color="#2c50cd" style={styles.actionIcon} />
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(!showOptions)}>
-                <Ionicons name="ellipsis-vertical" size={20} color="#526071" />
+                <Ionicons name="ellipsis-vertical" size={18} color="#526071" style={styles.actionIcon} />
               </TouchableOpacity>
             </View>
           </View>
@@ -1150,9 +1289,22 @@ const ChatBox = () => {
                   <Ionicons name="refresh" size={18} color="#526071" />
                   <Text style={styles.optionText}>Refresh Messages</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.optionItem} onPress={() => { setMessages([]); setShowOptions(false); }}>
+                <TouchableOpacity style={styles.optionItem} onPress={() => {
+                    setShowOptions(false);
+                    setConfirmState({
+                      visible: true,
+                      title: 'Delete Chat',
+                      message: 'Delete all messages for this conversation? This cannot be undone.',
+                      destructive: true,
+                      onCancel: () => setConfirmState(s => ({ ...s, visible: false })),
+                      onConfirm: async () => {
+                        setConfirmState(s => ({ ...s, visible: false }));
+                        await deleteWholeChat();
+                      }
+                    });
+                  }}>
                   <Ionicons name="trash-outline" size={18} color="#526071" />
-                  <Text style={styles.optionText}>Clear Chat</Text>
+                  <Text style={styles.optionText}>Delete Chat</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.optionItem} onPress={() => { Alert.alert("Report Issue", "Feature coming soon"); setShowOptions(false); }}>
                   <Ionicons name="warning-outline" size={18} color="#526071" />
@@ -1189,7 +1341,7 @@ const ChatBox = () => {
           ) : (
             <FlatList
               ref={flatListRef}
-              data={messages}
+              data={messagesForList}
               keyExtractor={(item, index) => item.id?.toString() || index.toString()}
               renderItem={renderMessage}
               contentContainerStyle={styles.messagesList}
@@ -1198,11 +1350,24 @@ const ChatBox = () => {
               scrollEventThrottle={16}
               keyboardShouldPersistTaps="always"
               keyboardDismissMode="none"
+              inverted
               initialNumToRender={15}
               maxToRenderPerBatch={10}
               windowSize={10}
               removeClippedSubviews={Platform.OS === "android"}
               ListHeaderComponent={
+                remoteIsTyping ? (
+                  <View style={styles.typingContainer}>
+                    <View style={styles.typingDots}>
+                      <View style={styles.typingDot} />
+                      <View style={[styles.typingDot, styles.typingDotDelay1]} />
+                      <View style={[styles.typingDot, styles.typingDotDelay2]} />
+                    </View>
+                    <Text style={styles.typingLabel}>{counselorName} is typing...</Text>
+                  </View>
+                ) : null
+              }
+              ListFooterComponent={
                 <View style={styles.welcomeCard}>
                   <View style={styles.welcomeAvatar}>
                     <Text style={styles.welcomeInitials}>{getInitials(counselorName)}</Text>
@@ -1218,18 +1383,6 @@ const ChatBox = () => {
                   </View>
                 </View>
               }
-              ListFooterComponent={
-                remoteIsTyping ? (
-                  <View style={styles.typingContainer}>
-                    <View style={styles.typingDots}>
-                      <View style={styles.typingDot} />
-                      <View style={[styles.typingDot, styles.typingDotDelay1]} />
-                      <View style={[styles.typingDot, styles.typingDotDelay2]} />
-                    </View>
-                    <Text style={styles.typingLabel}>{counselorName} is typing...</Text>
-                  </View>
-                ) : null
-              }
             />
           )}
 
@@ -1244,7 +1397,7 @@ const ChatBox = () => {
                   </TouchableOpacity>
                 </View>
                 <View style={styles.emojiGrid}>
-                  {["😊", "😂", "🥰", "😎", "😢", "😡", "👍", "👋", "❤️", "🎉", "🙏", "💪", "🌟", "💡", "🤗", "🙌"].map((emoji, index) => (
+                  {["😊", "😂", "❤️", "👍", "🔥", "🎉", "🙏", "💯"].map((emoji, index) => (
                     <TouchableOpacity key={index} style={styles.emojiItem} onPress={() => {
                       setNewMessage(prev => prev + emoji);
                       setShowEmojiPicker(false);
@@ -1257,6 +1410,18 @@ const ChatBox = () => {
               </View>
             </TouchableOpacity>
           </Modal>
+
+          {/* Confirm Modal (replaces native Alert confirmations) */}
+          <ConfirmModal
+            visible={confirmState.visible}
+            title={confirmState.title}
+            message={confirmState.message}
+            destructive={confirmState.destructive}
+            onCancel={confirmState.onCancel || (() => setConfirmState(s => ({ ...s, visible: false })))}
+            onConfirm={confirmState.onConfirm || (() => setConfirmState(s => ({ ...s, visible: false })))}
+            confirmText={confirmState.confirmText}
+            cancelText={confirmState.cancelText}
+          />
 
           {/* Input Area - Serenity Design */}
           <View style={styles.inputArea}>
@@ -1347,6 +1512,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f7f9fb",
+   
   },
   keyboardAvoid: {
     flex: 1,
@@ -1376,6 +1542,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    flex: 1,
+    minWidth: 0,
   },
   backBtn: {
     width: 40,
@@ -1389,6 +1557,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    flex: 1,
+    minWidth: 0,
   },
 // Updated styles for header - replace the existing style definitions:
 
@@ -1431,12 +1601,16 @@ activeDot: {
 },
 profileInfo: {
   flexDirection: "column",
+  flexShrink: 1,
+  minWidth: 0,
 },
 profileName: {
   fontSize: 16,
   fontWeight: "700",
   color: "#081625",
   fontFamily: Platform.OS === "ios" ? "Manrope" : "System",
+  flexShrink: 1,
+  maxWidth: screenWidth * 0.42,
 },
 // REMOVED profileSpecialization style entirely
 profileStatusRow: {
@@ -1478,6 +1652,12 @@ profileStatusRow: {
     backgroundColor: "#f2f4f6",
     justifyContent: "center",
     alignItems: "center",
+  },
+  actionIcon: {
+    // force consistent visual size and vertical alignment
+    fontSize: 20,
+    lineHeight: 20,
+    includeFontPadding: false,
   },
   disabledBtn: {
     opacity: 0.5,
@@ -1752,7 +1932,7 @@ profileStatusRow: {
     alignItems: "center",
     gap: 10,
     marginTop: 8,
-    marginBottom: 4,
+    marginBottom: 10,
     paddingHorizontal: 8,
     paddingVertical: 10,
     backgroundColor: "#eceef0",
@@ -1786,10 +1966,11 @@ profileStatusRow: {
   inputArea: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: Platform.OS === "ios" ? 30 : 0, // Removed bottom padding for Android to eliminate 'margin'
+    paddingBottom: Platform.OS === "ios" ? 30 : 12,
     borderTopWidth: 1,
     borderTopColor: "#e6e8ea",
     backgroundColor: "#ffffff",
+    
   },
   inputGroupDisabled: {
     opacity: 0.8,
@@ -1879,38 +2060,97 @@ profileStatusRow: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingBottom: Platform.OS === "ios" ? 34 : 20,
+    maxHeight: 220,
   },
   emojiHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#f2f4f6",
   },
   emojiTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
     color: "#081625",
   },
   emojiGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+    justifyContent: "space-around",
   },
   emojiItem: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#f2f4f6",
     justifyContent: "center",
     alignItems: "center",
+    marginBottom: 4,
   },
   emojiText: {
-    fontSize: 28,
+    fontSize: 24,
+  },
+  // Confirm Modal Styles
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmBox: {
+    width: '86%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  confirmTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#081625',
+    marginBottom: 8,
+  },
+  confirmMessage: {
+    fontSize: 14,
+    color: '#526071',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  confirmButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  confirmBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmBtnCancel: {
+    backgroundColor: '#f2f4f6',
+  },
+  confirmBtnConfirm: {
+    backgroundColor: '#2c50cd',
+  },
+  confirmBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#081625',
+  },
+  confirmDestructive: {
+    backgroundColor: '#ba1a1a',
   },
   // Incoming Call Modal Styles
   incomingModalOverlay: {
