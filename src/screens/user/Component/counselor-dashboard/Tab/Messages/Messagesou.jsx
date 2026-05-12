@@ -197,18 +197,44 @@ const SMSList = () => {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
       
-      <View style={styles.searchSection}>
-        <View style={styles.searchPill}>
-          <Ionicons name="search" size={20} color="#667781" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search messages..."
-            placeholderTextColor="#8696A0"
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-          />
-        </View>
-      </View>
+     <View style={styles.searchSection}>
+  <View style={styles.searchContainer}>
+    
+    <View style={styles.searchIconWrap}>
+      <Ionicons
+        name="search-outline"
+        size={18}
+        color="#4f46e5"
+      />
+    </View>
+
+    <TextInput
+      style={styles.searchInput}
+      placeholder="Search messages..."
+      placeholderTextColor="#94a3b8"
+      value={searchTerm}
+      onChangeText={setSearchTerm}
+      returnKeyType="search"
+      autoCorrect={false}
+      autoCapitalize="none"
+    />
+
+    {searchTerm.length > 0 && (
+      <TouchableOpacity
+        style={styles.searchClearButton}
+        onPress={() => setSearchTerm('')}
+        activeOpacity={0.7}
+      >
+        <Ionicons
+          name="close"
+          size={14}
+          color="#64748b"
+        />
+      </TouchableOpacity>
+    )}
+
+  </View>
+</View>
 
       {loading && users.length === 0 ? (
         <View style={styles.shimmerContainer}>
@@ -240,30 +266,68 @@ const styles = StyleSheet.create({
     marginLeft: -15,
     marginRight: -15,
   },
-  searchSection: { 
-    paddingHorizontal: 25, 
-    paddingTop: Platform.OS === 'ios' ? 70 : 70,
-    paddingBottom: 15 
-  },
-  searchPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0F2F5',
-    borderRadius: 25,
-    paddingHorizontal: 16,
-    height: 48,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  searchIcon: { marginRight: 12 },
-  searchInput: { flex: 1, fontSize: 16, color: '#1A1C1E', padding: 0 },
+  searchSection: {
+  paddingHorizontal: 14,
+  paddingTop: Platform.OS === 'ios' ? 65 : 65,
+  paddingBottom: 8,
+  backgroundColor: '#ffffff',
+  borderBottomWidth: 1,
+  borderBottomColor: '#e2e8f0',
+},
 
+searchContainer: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  backgroundColor: '#f8fafc',
+  borderRadius: 18,
+  paddingHorizontal: 10,
+  height: 46,
+  borderWidth: 1,
+  borderColor: '#dbe4f0',
+
+  shadowColor: '#0f172a',
+  shadowOffset: {
+    width: 0,
+    height: 6,
+  },
+  shadowOpacity: 0.06,
+  shadowRadius: 14,
+
+  elevation: 2,
+},
+
+searchIconWrap: {
+  width: 30,
+  height: 30,
+  borderRadius: 15,
+  backgroundColor: '#eef2ff',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginRight: 8,
+},
+
+searchInput: {
+  flex: 1,
+  fontSize: 15,
+  fontWeight: '600',
+  color: '#1e293b',
+  paddingVertical: 0,
+},
+
+searchClearButton: {
+  width: 26,
+  height: 26,
+  borderRadius: 13,
+  justifyContent: 'center',
+  alignItems: 'center',
+  backgroundColor: '#e2e8f0',
+},
   list: { width: '100%', paddingBottom: 100, paddingHorizontal: 15 }, 
   chatRow: {
     flexDirection: 'row',
     width: '100%',
     paddingHorizontal: 10,
-    paddingVertical: 15,
+    paddingVertical: 10,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     borderBottomWidth: 1,

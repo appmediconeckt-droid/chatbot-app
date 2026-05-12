@@ -24,52 +24,93 @@ import {
   CallingState,
 } from '@stream-io/video-react-native-sdk';
 
+const resolveCallDisplayName = (callData, isCounselor) => {
+  const apiCallData = callData?.apiCallData || {};
+  const initiator = apiCallData?.initiator || {};
+  const receiver = apiCallData?.receiver || {};
+
+  const preferredAnonymous =
+    initiator?.anonymous || initiator?.anonName || initiator?.anonymousName ||
+    receiver?.anonymous || receiver?.anonName || receiver?.anonymousName;
+
+  const preferred =
+    callData?.name ||
+    callData?.displayName ||
+    callData?.callerName ||
+    receiver?.displayName ||
+    receiver?.fullName ||
+    initiator?.displayName ||
+    initiator?.fullName;
+
+  if (isCounselor) {
+    return preferredAnonymous || preferred || 'Participant';
+  }
+  return preferred || preferredAnonymous || 'Participant';
+};
+
 // ─── Audio call UI (inside StreamCall context) ────────────────────────────────
-const AudioCallUI = ({ onEndCall, callerName, callerProfilePic, isCounselor, isOutgoing }) => {
+// onLocalHangup: user pressed end button (sends call.end() to kill for both sides)
+// onRemoteEnded: remote side already ended, just cleanup locally
+const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePic, isCounselor, isOutgoing }) => {
   const {
     useCallCallingState,
     useMicrophoneState,
-    useCallStartedAt,
-    useCallEndedAt,
   } = useCallStateHooks();
   const callingState = useCallCallingState();
   const { microphone, isMute } = useMicrophoneState();
   const { startRinging, stopRinging } = useRingtone();
-  const startedAt = useCallStartedAt?.();
-  const endedAt = useCallEndedAt?.();
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   // Guard: fire onEndCall exactly once per session
   const endedRef = useRef(false);
   // Guard: prevent duplicate startRinging calls per connecting phase
   const ringingRef = useRef(false);
+  // Records the exact moment both sides reach JOINED — timer starts from here
+  const joinedAtRef = useRef(null);
+
+  const isJoined = callingState === CallingState.JOINED;
 
   useEffect(() => {
-    if (!startedAt) {
-      setElapsedSeconds(0);
+    if (!isJoined) {
+      // Not yet connected — reset timer and clear any stored join time
+      if (
+        callingState === CallingState.JOINING ||
+        callingState === CallingState.RINGING ||
+        callingState === CallingState.IDLE
+      ) {
+        joinedAtRef.current = null;
+        setElapsedSeconds(0);
+      }
       return;
     }
 
-    const updateElapsedSeconds = () => {
-      const endTime = endedAt || new Date();
-      const seconds = Math.max(
-        0,
-        Math.floor((endTime.getTime() - startedAt.getTime()) / 1000),
-      );
-      setElapsedSeconds(seconds);
+    // Record join time exactly once per call session
+    if (!joinedAtRef.current) {
+      joinedAtRef.current = Date.now();
+    }
+
+    const joined = joinedAtRef.current;
+
+    const tick = () => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - joined) / 1000)));
     };
 
-    updateElapsedSeconds();
+    tick();
 
-    if (endedAt) return;
+    let intervalId = null;
+    const msIntoSecond = (Date.now() - joined) % 1000;
+    const alignTimeout = setTimeout(() => {
+      tick();
+      intervalId = setInterval(tick, 1000);
+    }, 1000 - msIntoSecond);
 
-    const timerId = setInterval(updateElapsedSeconds, 1000);
-    return () => clearInterval(timerId);
-  }, [endedAt, startedAt]);
+    return () => {
+      clearTimeout(alignTimeout);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isJoined, callingState]);
 
-  // callerName prop already has anonymous name from callData.name (set by backend)
-  // For counselor: always show anonymous name, never real name
-  const displayName = callerName || (isCounselor ? 'Anonymous User' : 'User');
+  const displayName = callerName || 'Participant';
   // Counselor sees anonymous user — never show real photo
   const showPhoto = !isCounselor && callerProfilePic;
 
@@ -83,18 +124,18 @@ const AudioCallUI = ({ onEndCall, callerName, callerProfilePic, isCounselor, isO
   const isConnecting =
     callingState === CallingState.JOINING ||
     callingState === CallingState.RINGING;
-  const isConnected = callingState === CallingState.JOINED && !endedAt;
+  const isConnected = callingState === CallingState.JOINED;
   const isEnded =
-    !!endedAt ||
     callingState === CallingState.LEFT ||
     callingState === CallingState.IDLE;
 
   useEffect(() => {
     if (isEnded && !endedRef.current) {
       endedRef.current = true;
-      onEndCall();
+      // State went to LEFT/IDLE without local hangup — remote ended the call
+      onRemoteEnded();
     }
-  }, [isEnded, onEndCall]);
+  }, [isEnded, onRemoteEnded]);
 
   // Outgoing side only: play ringback during connecting, stop once joined/ended.
   // ringingRef prevents calling startRinging multiple times if callingState
@@ -165,7 +206,7 @@ const AudioCallUI = ({ onEndCall, callerName, callerProfilePic, isCounselor, isO
           <Ionicons name={isMute ? 'mic-off' : 'mic'} size={26} color="#fff" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.ctrlBtn, styles.endBtn]} onPress={onEndCall}>
+        <TouchableOpacity style={[styles.ctrlBtn, styles.endBtn]} onPress={onLocalHangup}>
           <Ionicons
             name="call"
             size={26}
@@ -187,36 +228,47 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
 
   const callRef = useRef(null);
   const clientRef = useRef(null);
-  // Prevents setup() from running twice (Strict Mode double-invoke or re-render)
   const initializingRef = useRef(false);
-  // Prevents cleanup() from running multiple times concurrently
   const cleaningUpRef = useRef(false);
-  // Prevents handleClose from triggering multiple simultaneous close flows
   const closingRef = useRef(false);
-  // Signals the in-flight async setup to abort
   const cancelledRef = useRef(false);
-  // Stores unsub functions so listeners are removed exactly once
   const unsubscribersRef = useRef([]);
+  // Always holds the latest handleClose — Stream listeners use this ref so they
+  // never capture a stale closure when call.ended fires on the remote side.
+  const handleCloseRef = useRef(null);
 
   const { stopRinging } = useRingtone();
+  const isCounselorView =
+    callData?.currentUserType === 'counsellor' ||
+    callData?.currentUserType === 'counselor';
+  const displayName = resolveCallDisplayName(callData, isCounselorView);
 
-  // Idempotent cleanup — safe to call multiple times
-  const cleanup = useCallback(async () => {
+  const cleanup = useCallback(async (endForAll = false) => {
     if (cleaningUpRef.current) return;
     cleaningUpRef.current = true;
 
     stopRinging();
     cancelledRef.current = true;
+    if (cancelledRef._pollInterval) {
+      clearInterval(cancelledRef._pollInterval);
+      cancelledRef._pollInterval = null;
+    }
 
-    // Remove Stream event listeners before leaving
+    // Unsubscribe FIRST — stops call.ended re-firing during end()/leave()
     unsubscribersRef.current.forEach((fn) => { try { fn(); } catch (_) {} });
     unsubscribersRef.current = [];
 
-    try { await callRef.current?.leave(); } catch (_) {}
-    try { await clientRef.current?.disconnectUser(); } catch (_) {}
-
+    const currentCall = callRef.current;
+    const currentClient = clientRef.current;
     callRef.current = null;
     clientRef.current = null;
+
+    if (endForAll) {
+      try { await currentCall?.end(); } catch (_) {}
+    } else {
+      try { await currentCall?.leave(); } catch (_) {}
+    }
+    try { await currentClient?.disconnectUser(); } catch (_) {}
     initializingRef.current = false;
     cleaningUpRef.current = false;
 
@@ -226,18 +278,20 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
     setLoading(false);
   }, [stopRinging]);
 
-  // handleClose is idempotent via closingRef
-  const handleClose = useCallback(async () => {
+  const handleClose = useCallback(async (localHangup = true) => {
     if (closingRef.current) return;
     closingRef.current = true;
 
-    if (onEndCall && callData?.callId) {
+    if (localHangup && onEndCall && callData?.callId) {
       try { await onEndCall(callData.callId); } catch (_) {}
     }
-    await cleanup();
+    await cleanup(localHangup);
     onClose();
     closingRef.current = false;
   }, [cleanup, callData?.callId, onEndCall, onClose]);
+
+  // Keep the ref in sync with the latest handleClose on every render
+  handleCloseRef.current = handleClose;
 
   useEffect(() => {
     if (!isOpen || !callData?.callId) return;
@@ -295,8 +349,10 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
 
         // Register listeners before join and store unsub refs so they are
         // removed exactly once during cleanup — prevents duplicate firings
-        const unsubEnd = streamCall.on('call.ended', () => { handleClose(); });
-        const unsubSession = streamCall.on('call.session_ended', () => { handleClose(); });
+        // Use handleCloseRef so the listener always calls the latest handleClose,
+        // not the stale closure captured when setup() first ran.
+        const unsubEnd = streamCall.on('call.ended', () => { handleCloseRef.current?.(false); });
+        const unsubSession = streamCall.on('call.session_ended', () => { handleCloseRef.current?.(false); });
         unsubscribersRef.current = [unsubEnd, unsubSession];
 
         // Disable camera BEFORE joining — avoids unnecessary video track negotiation
@@ -322,6 +378,25 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
         setClient(streamClient);
         setCall(streamCall);
         setLoading(false);
+
+        // Poll backend every 3s — if the other side ended the call, close this modal
+        const pollInterval = setInterval(async () => {
+          if (cancelledRef.current) { clearInterval(pollInterval); return; }
+          try {
+            const tok = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
+            const res = await axios.get(`${API_BASE_URL}/api/video/calls/${callData.callId}`, {
+              headers: { Authorization: `Bearer ${tok}` },
+            });
+            const status = res.data?.call?.status || res.data?.status;
+            if (status === 'ended' || status === 'rejected' || status === 'missed') {
+              clearInterval(pollInterval);
+              if (!cancelledRef.current) handleCloseRef.current?.(false);
+            }
+          } catch (_) {}
+        }, 3000);
+
+        cancelledRef._pollInterval = pollInterval;
+
       } catch (err) {
         if (!cancelledRef.current) {
           setError(err?.message || 'Failed to connect voice call');
@@ -334,17 +409,19 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
     setup();
 
     return () => {
-      // Effect cleanup: mark cancelled so in-flight async work aborts.
-      // Do NOT call full cleanup() here — that runs when isOpen becomes false.
       cancelledRef.current = true;
       initializingRef.current = false;
+      if (cancelledRef._pollInterval) {
+        clearInterval(cancelledRef._pollInterval);
+        cancelledRef._pollInterval = null;
+      }
     };
   }, [isOpen, callData?.callId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Run full teardown when the modal is closed from the outside
   useEffect(() => {
     if (!isOpen) {
-      cleanup();
+      cleanup(false);
     }
   }, [isOpen, cleanup]);
 
@@ -384,14 +461,12 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
             <StreamVideo client={client}>
               <StreamCall call={call}>
                 <AudioCallUI
-                  onEndCall={handleClose}
-                  callerName={callData?.name || 'Counselor'}
+                  onLocalHangup={() => handleClose(true)}
+                  onRemoteEnded={() => handleClose(false)}
+                  callerName={displayName}
                   callerProfilePic={callData?.profilePic || null}
                   isOutgoing={callData?.isIncoming !== true}
-                  isCounselor={
-                    callData?.currentUserType === 'counsellor' ||
-                    callData?.currentUserType === 'counselor'
-                  }
+                  isCounselor={isCounselorView}
                 />
               </StreamCall>
             </StreamVideo>

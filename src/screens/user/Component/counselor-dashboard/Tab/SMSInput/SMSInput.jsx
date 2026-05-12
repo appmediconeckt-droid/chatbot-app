@@ -26,6 +26,17 @@ import { useIsFocused } from '@react-navigation/native';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
+const AVATAR_COLORS = [
+  '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b',
+  '#10b981', '#ef4444', '#06b6d4', '#6366f1',
+];
+const getAvatarColor = (name) => {
+  if (!name) return AVATAR_COLORS[0];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+};
+
 // Incoming Call Modal Component - Serenity Design
 const IncomingCallModal = ({
   isOpen,
@@ -102,7 +113,7 @@ const IncomingCallModal = ({
         ]}>
           <View style={styles.incomingCallContent}>
             <View style={styles.incomingCallerInfo}>
-              <View style={styles.incomingCallerAvatar}>
+              <View style={[styles.incomingCallerAvatar, { backgroundColor: getAvatarColor(displayName) }]}>
                 <Text style={styles.avatarInitialLarge}>{displayInitial}</Text>
               </View>
               <Text style={styles.incomingCallerName}>{displayName}</Text>
@@ -369,6 +380,7 @@ const SMSInput = ({ navigation, route }) => {
     if (gender === "female") return "👩";
     return "👤";
   };
+
 
   const getInitials = (name) => {
     if (!name) return "?";
@@ -1139,8 +1151,8 @@ const SMSInput = ({ navigation, route }) => {
               <Ionicons name="arrow-back" size={24} color="#081625" />
             </TouchableOpacity>
             <View style={styles.userInfo}>
-              <View style={styles.userAvatar}>
-                <Text style={styles.avatarIcon}>{getAvatarByGender(userDetails.gender)}</Text>
+              <View style={[styles.userAvatar, { backgroundColor: getAvatarColor(USER_NAME) }]}>
+                <Text style={styles.avatarInitial}>{(USER_NAME?.charAt(0) || 'U').toUpperCase()}</Text>
                 <View style={[styles.activeDot, { backgroundColor: selectedUser?.status === "online" ? "#4caf50" : "#94a3b8" }]} />
               </View>
               <View style={styles.userDetails}>
@@ -1159,18 +1171,18 @@ const SMSInput = ({ navigation, route }) => {
           </View>
           <View style={styles.callButtons}>
             <TouchableOpacity
-              style={styles.actionBtn}
+              style={[styles.actionBtn, isInitiatingCall && styles.actionBtnDisabled]}
               onPress={initiateVoiceCall}
               disabled={isInitiatingCall}
             >
-              <Ionicons name="call-outline" size={22} color="#2c50cd" />
+              <Ionicons name="call" size={20} color="#2c50cd" />
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.actionBtn}
+              style={[styles.actionBtn, isInitiatingCall && styles.actionBtnDisabled]}
               onPress={initiateVideoCall}
               disabled={isInitiatingCall}
             >
-              <Ionicons name="videocam-outline" size={22} color="#2c50cd" />
+              <Ionicons name="videocam" size={20} color="#2c50cd" />
             </TouchableOpacity>
           </View>
         </View>
@@ -1232,7 +1244,7 @@ const SMSInput = ({ navigation, route }) => {
             }
             ListFooterComponent={
               <View style={styles.welcomeCard}>
-                <View style={styles.welcomeAvatar}>
+                <View style={[styles.welcomeAvatar, { backgroundColor: getAvatarColor(USER_NAME) }]}>
                   <Text style={styles.welcomeInitials}>{getInitials(USER_NAME)}</Text>
                 </View>
                 <View style={styles.welcomeMsg}>
@@ -1406,16 +1418,23 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   userAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#e2e8f0',
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  avatarIcon: {
-    fontSize: 24,
+  avatarInitial: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: 0.5,
   },
   activeDot: {
     width: 10,
@@ -1459,6 +1478,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  actionBtnDisabled: {
+    opacity: 0.4,
+  },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1498,7 +1520,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f7fb',
   },
   messagesList: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 0,
     paddingVertical: 16,
     gap: 8,
     flexGrow: 1,
@@ -1520,15 +1542,20 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#e2e8f0',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   welcomeInitials: {
     fontSize: 22,
-    fontWeight: '600',
-    color: '#0f172a',
+    fontWeight: '700',
+    color: '#ffffff',
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   welcomeMsg: {
     flex: 1,
@@ -1620,7 +1647,8 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     maxWidth: '100%',
-    marginBottom: 2,
+    marginBottom: 4,
+    paddingHorizontal: 12,
   },
   messageRight: {
     alignSelf: 'flex-end',
@@ -1629,10 +1657,10 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   messageContent: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
-    maxWidth: '85%',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 22,
+    maxWidth: '82%',
   },
   userMessageContent: {
     backgroundColor: '#2c50cd',
@@ -1655,9 +1683,9 @@ const styles = StyleSheet.create({
     elevation: 0.5,
   },
   messageText: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '500',
+    fontSize: 16,
+    lineHeight: 23,
+    fontWeight: '400',
   },
   userMessageText: {
     color: '#ffffff',
@@ -1673,27 +1701,27 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   messageTime: {
-    fontSize: 9,
+    fontSize: 11,
     color: '#94a3b8',
     fontWeight: '500',
   },
   messageStatusSending: {
-    fontSize: 9,
+    fontSize: 11,
     color: '#f59e0b',
     fontWeight: '500',
   },
   messageStatusSent: {
-    fontSize: 9,
+    fontSize: 11,
     color: '#10b981',
     fontWeight: '500',
   },
   messageStatusError: {
-    fontSize: 9,
+    fontSize: 11,
     color: '#ef4444',
     fontWeight: '500',
   },
   inputArea: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 0,
     paddingVertical: 12,
     borderTopWidth: 1,
     borderTopColor: '#e9ecef',
@@ -1778,26 +1806,23 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   incomingCallerAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#e2e8f0',
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  avatarEmojiLarge: {
-    fontSize: 44,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
   },
   avatarInitialLarge: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: "#0f172a",
+    fontSize: 38,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: 1,
   },
   incomingCallerName: {
     fontSize: 20,

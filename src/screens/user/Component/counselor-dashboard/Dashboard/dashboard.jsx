@@ -28,6 +28,8 @@ import { io } from "socket.io-client";
 // Icons (using only FontAwesome6 - no MaterialIcons)
 import Icon from "react-native-vector-icons/FontAwesome6";
 import Feather from "react-native-vector-icons/Feather";
+import LinearGradient from "react-native-linear-gradient";
+import Ionicons from "react-native-vector-icons/Ionicons";
 
 // Custom Hooks
 import useVibration from "../../../../../hooks/useVibration";
@@ -36,6 +38,7 @@ import Dashboard from "../Tab/CounselorDashboard/Dashboardcou";
 import Messagesou from "../Tab/Messages/Messagesou";
 import PatientRequests from "../Tab/PatientRequests/PatientRequests";
 import CounselorProfile from "../Tab/Profile-Con/CounselorProfile";
+import CounselorSettings from "../Tab/Settings/CounselorSettings";
 import VideoCallModal from "../../UserDashboard/Tab/CallModal/VideoCallModal";
 import VoiceCallModal from "../../UserDashboard/Tab/CallModal/VoiceCallModal";
 import safeVibrate from "../../../../../utils/safeVibrate";
@@ -186,128 +189,111 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating }) => 
   const isConfirmed = apt.status === "confirmed";
   const isCanceled = apt.status === "canceled";
 
-  const avatarConfig = isPending
-    ? { icon: "user-clock", bg: "#fff7e6", color: "#f59e0b" }
-    : isConfirmed
-    ? { icon: "user-check", bg: "#eafaf2", color: "#10b981" }
-    : { icon: "user-xmark", bg: "#feeff1", color: "#ef4444" };
-
-  const patientName =
-    apt.patient?.anonymous || apt.patient?.fullName || "Anonymous User";
+  const patientName = apt.patient?.anonymous || apt.patient?.fullName || "Anonymous User";
+  const initials = patientName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
 
   const requestedDate = apt.date
-    ? new Date(apt.date).toLocaleDateString("en-IN", {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-      })
+    ? new Date(apt.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+    : "—";
+  const requestedTime = apt.date
+    ? new Date(apt.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "—";
 
-  const requestedTime = apt.date
-    ? new Date(apt.date).toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "—";
-  const statusColor =
-    isPending ? "#f59e0b" : isConfirmed ? "#10b981" : "#ef4444";
-  const statusBg =
-    isPending ? "#fef3c7" : isConfirmed ? "#d1fae5" : "#fee2e2";
+  const statusColor = isPending ? "#f59e0b" : isConfirmed ? "#10b981" : "#ef4444";
+  const statusBg = isPending ? "#fef3c7" : isConfirmed ? "#d1fae5" : "#fee2e2";
+  const statusLabel = isPending ? "PENDING" : isConfirmed ? "CONFIRMED" : "CANCELED";
+
+  const avatarColors = isPending
+    ? ["#f59e0b", "#d97706"]
+    : isConfirmed
+    ? ["#10b981", "#059669"]
+    : ["#ef4444", "#dc2626"];
 
   return (
     <View style={aptStyles.card}>
-      <View style={[aptStyles.cardAccent, { backgroundColor: statusColor }]} />
-      {/* Header row */}
-     <View style={aptStyles.cardHeader}>
-  <View style={aptStyles.avatarWrap}>
-    <View style={[aptStyles.avatarFallback, { backgroundColor: avatarConfig.bg }]}>
-      <Icon name={avatarConfig.icon} size={20} color={avatarConfig.color} />
-    </View>
-  </View>
+      {/* Top gradient accent bar */}
+      <LinearGradient colors={avatarColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={aptStyles.cardAccent} />
 
-  <View style={aptStyles.patientInfo}>
-    <Text style={aptStyles.patientName} numberOfLines={1}>
-      {patientName}
-    </Text>
-    <View style={aptStyles.consultTag}>
-      <Icon name="brain" size={10} color="#2c50cd" />
-      <Text style={aptStyles.consultTagText}>INITIAL CONSULTATION</Text>
-    </View>
-  </View>
+      <View style={aptStyles.cardBody}>
+        {/* Header row: avatar + info + badge */}
+        <View style={aptStyles.cardHeader}>
+          <LinearGradient colors={avatarColors} style={aptStyles.avatarCircle}>
+            <Text style={aptStyles.avatarInitials}>{initials || "?"}</Text>
+          </LinearGradient>
 
-  <View style={[aptStyles.statusBadge, { backgroundColor: statusBg }]}>
-    <Text style={[aptStyles.statusText, { color: statusColor }]}>
-      {apt.status?.toUpperCase()}
-    </Text>
-  </View>
-</View>
+          <View style={aptStyles.patientInfo}>
+            <Text style={aptStyles.patientName} numberOfLines={1}>{patientName}</Text>
+            <View style={aptStyles.consultTag}>
+              <Ionicons name="medical" size={10} color="#667eea" />
+              <Text style={aptStyles.consultTagText}>CONSULTATION</Text>
+            </View>
+          </View>
 
-      {/* Notes */}
-      {apt.notes && apt.notes.trim() !== "" && (
-        <View style={aptStyles.notesBox}>
-          <Icon name="quote-left" size={10} color="#94a3b8" />
-          <Text style={aptStyles.notesText}>{apt.notes}</Text>
+          <View style={[aptStyles.statusBadge, { backgroundColor: statusBg }]}>
+            <Text style={[aptStyles.statusText, { color: statusColor }]}>{statusLabel}</Text>
+          </View>
         </View>
-      )}
 
-      {/* Time row */}
-      <View style={aptStyles.timeRow}>
-        <Icon name="clock" size={12} color="#8492a5" />
-        <Text style={aptStyles.timeLabel}>Requested: </Text>
-        <Text style={aptStyles.timeValue}>
-          {requestedDate} · {requestedTime}
-        </Text>
+        {/* Notes */}
+        {apt.notes && apt.notes.trim() !== "" && (
+          <View style={aptStyles.notesBox}>
+            <Ionicons name="chatbubble-ellipses-outline" size={13} color="#94a3b8" />
+            <Text style={aptStyles.notesText}>{apt.notes}</Text>
+          </View>
+        )}
+
+        {/* Date/time row */}
+        <View style={aptStyles.timeRow}>
+          <Ionicons name="calendar-outline" size={13} color="#667eea" />
+          <Text style={aptStyles.timeValue}>{requestedDate} · {requestedTime}</Text>
+        </View>
+
+        {/* Actions */}
+        {isPending && (
+          <View style={aptStyles.actions}>
+            <TouchableOpacity
+              style={aptStyles.rejectActionBtn}
+              onPress={() => onReject(apt._id)}
+              disabled={isUpdating}
+            >
+              {isUpdating ? (
+                <ActivityIndicator size="small" color="#ef4444" />
+              ) : (
+                <>
+                  <Ionicons name="close" size={15} color="#ef4444" />
+                  <Text style={aptStyles.rejectBtnText}>Decline</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={aptStyles.acceptActionBtn}
+              onPress={() => onAccept(apt._id)}
+              disabled={isUpdating}
+            >
+              <LinearGradient colors={["#667eea", "#764ba2"]} style={aptStyles.acceptBtnGradient}>
+                {isUpdating ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark" size={15} color="#fff" />
+                    <Text style={aptStyles.acceptBtnText}>Accept</Text>
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {isConfirmed && (
+          <TouchableOpacity style={aptStyles.videoCallBtn} onPress={() => onVideoCall(apt)}>
+            <LinearGradient colors={["#0f766e", "#0d9488"]} style={aptStyles.videoCallBtnGradient}>
+              <Ionicons name="videocam" size={15} color="#fff" />
+              <Text style={aptStyles.videoCallBtnText}>Start Video Call</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
       </View>
-
-      {/* Actions */}
-      {isPending && (
-        <View style={aptStyles.actions}>
-          <TouchableOpacity
-            style={[aptStyles.actionBtn, aptStyles.rejectActionBtn]}
-            onPress={() => onReject(apt._id)}
-            disabled={isUpdating}
-          >
-            {isUpdating ? (
-              <ActivityIndicator size="small" color="#ba1a1a" />
-            ) : (
-              <>
-                <Icon name="xmark" size={14} color="#ba1a1a" />
-                <Text style={[aptStyles.actionBtnText, { color: "#ba1a1a" }]}>
-                  Reject
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[aptStyles.actionBtn, aptStyles.acceptActionBtn]}
-            onPress={() => onAccept(apt._id)}
-            disabled={isUpdating}
-          >
-            {isUpdating ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Icon name="check" size={14} color="#fff" />
-                <Text style={[aptStyles.actionBtnText, { color: "#fff" }]}>
-                  Accept
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Video call button for confirmed appointments */}
-      {isConfirmed && (
-        <TouchableOpacity
-          style={aptStyles.videoCallBtn}
-          onPress={() => onVideoCall(apt)}
-        >
-          <Icon name="video" size={14} color="#fff" />
-          <Text style={aptStyles.videoCallBtnText}>Start Video Call</Text>
-        </TouchableOpacity>
-      )}
     </View>
   );
 };
@@ -319,46 +305,33 @@ const AppointmentSkeletonCard = () => {
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(shimmerAnim, {
-          toValue: 1,
-          duration: 850,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
-        }),
-        Animated.timing(shimmerAnim, {
-          toValue: 0,
-          duration: 850,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
-        }),
+        Animated.timing(shimmerAnim, { toValue: 1, duration: 850, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        Animated.timing(shimmerAnim, { toValue: 0, duration: 850, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
       ])
     ).start();
   }, [shimmerAnim]);
 
-  const opacity = shimmerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.35, 0.7],
-  });
+  const opacity = shimmerAnim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.7] });
 
   return (
     <View style={aptStyles.card}>
-      <Animated.View style={[aptStyles.cardAccent, { backgroundColor: "#eef2f7", opacity }]} />
-      <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 16, gap: 14 }}>
-        <View style={aptStyles.skelHeader}>
-          <Animated.View style={[aptStyles.skelAvatar, { opacity }]} />
+      <Animated.View style={[aptStyles.cardAccent, aptStyles.skelAccentColor, { opacity: opacity }]} />
+      <View style={aptStyles.cardBody}>
+        <View style={aptStyles.cardHeader}>
+          <Animated.View style={[aptStyles.skelAvatar, { opacity: opacity }]} />
           <View style={{ flex: 1, gap: 8 }}>
-            <Animated.View style={[aptStyles.skelLineLg, { opacity }]} />
-            <Animated.View style={[aptStyles.skelLineSm, { opacity }]} />
+            <Animated.View style={[aptStyles.skelLineLg, { opacity: opacity }]} />
+            <Animated.View style={[aptStyles.skelLineSm, { opacity: opacity }]} />
           </View>
-          <Animated.View style={[aptStyles.skelPill, { opacity }]} />
+          <Animated.View style={[aptStyles.skelPill, { opacity: opacity }]} />
         </View>
         <View style={aptStyles.skelBody}>
-          <Animated.View style={[aptStyles.skelLineFull, { opacity }]} />
-          <Animated.View style={[aptStyles.skelLineMed, { opacity }]} />
+          <Animated.View style={[aptStyles.skelLineFull, { opacity: opacity }]} />
+          <Animated.View style={[aptStyles.skelLineMed, { opacity: opacity }]} />
         </View>
         <View style={aptStyles.skelActions}>
-          <Animated.View style={[aptStyles.skelBtn, { opacity }]} />
-          <Animated.View style={[aptStyles.skelBtn, { opacity }]} />
+          <Animated.View style={[aptStyles.skelBtn, { opacity: opacity }]} />
+          <Animated.View style={[aptStyles.skelBtn, { opacity: opacity }]} />
         </View>
       </View>
     </View>
@@ -1265,10 +1238,10 @@ export default function CounselorDashboard() {
       label: "Appointment",
       badge: appointments.filter((a) => a.status === "pending").length,
     },
-    { id: "patients", icon: "users", label: "Patients", badge: 0 },
+    // { id: "patients", icon: "users", label: "Patients", badge: 0 },
     { id: "earnings", icon: "money-bill-wave", label: "Earnings", badge: 0 },
+    { id: "settings", icon: "sliders", label: "Settings", badge: 0 },
     { id: "profile", icon: "chart-pie", label: "Profile", badge: 0 },
-    { id: "settings", icon: "cog", label: "Settings", badge: 0 },
   ];
 
   const handleTabChange = (tabId) => {
@@ -1288,16 +1261,19 @@ export default function CounselorDashboard() {
   // â”€â”€ Appointments Tab Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderAppointmentsTab = () => {
     const filterTabs = [
-      { key: "all", label: "All" },
-      { key: "pending", label: "Pending" },
-      { key: "confirmed", label: "Confirmed" },
-      { key: "canceled", label: "Canceled" },
+      { key: 'all', label: 'All', icon: 'list' },
+      { key: 'pending', label: 'Pending', icon: 'time-outline' },
+      { key: 'confirmed', label: 'Confirmed', icon: 'checkmark-circle-outline' },
+      { key: 'canceled', label: 'Canceled', icon: 'close-circle-outline' },
     ];
 
     const filteredApts =
       aptFilter === "all"
         ? appointments
         : appointments.filter((a) => a.status === aptFilter);
+
+    const countFor = (key) =>
+      key === "all" ? appointments.length : appointments.filter((a) => a.status === key).length;
 
     return (
       <ScrollView
@@ -1308,10 +1284,22 @@ export default function CounselorDashboard() {
           <RefreshControl
             refreshing={loadingAppointments && appointments.length > 0}
             onRefresh={fetchAppointments}
-            colors={["#2c50cd"]}
+            colors={["#667eea"]}
+            tintColor="#667eea"
           />
         }
       >
+        {/* Header */}
+        <View style={aptStyles.tabHeader}>
+          <View>
+            <Text style={aptStyles.tabTitle}>Appointments</Text>
+            <Text style={aptStyles.tabSubtitle}>{appointments.length} total requests</Text>
+          </View>
+          <TouchableOpacity style={aptStyles.refreshIconBtn} onPress={fetchAppointments}>
+            <Ionicons name="refresh-outline" size={20} color="#667eea" />
+          </TouchableOpacity>
+        </View>
+
         {/* Filter chips */}
         <ScrollView
           horizontal
@@ -1321,23 +1309,29 @@ export default function CounselorDashboard() {
         >
           {filterTabs.map((ft) => {
             const isActive = aptFilter === ft.key;
+            const count = countFor(ft.key);
             return (
               <TouchableOpacity
                 key={ft.key}
-                style={[
-                  aptStyles.filterChip,
-                  isActive && aptStyles.filterChipActive,
-                ]}
+                style={[aptStyles.filterChip, isActive && aptStyles.filterChipActive]}
                 onPress={() => setAptFilter(ft.key)}
               >
-                <Text
-                  style={[
-                    aptStyles.filterChipText,
-                    isActive && aptStyles.filterChipTextActive,
-                  ]}
-                >
+                <Ionicons
+                  name={ft.icon}
+                  size={13}
+                  color={isActive ? "#ffffff" : "#475569"}
+                  style={{ marginRight: 4 }}
+                />
+                <Text style={[aptStyles.filterChipText, isActive && aptStyles.filterChipTextActive]}>
                   {ft.label}
                 </Text>
+                {count > 0 && (
+                  <View style={[aptStyles.filterChipBadge, isActive && aptStyles.filterChipBadgeActive]}>
+                    <Text style={[aptStyles.filterChipBadgeText, isActive && aptStyles.filterChipBadgeTextActive]}>
+                      {count}
+                    </Text>
+                  </View>
+                )}
               </TouchableOpacity>
             );
           })}
@@ -1346,22 +1340,26 @@ export default function CounselorDashboard() {
         {/* Loading state */}
         {loadingAppointments && appointments.length === 0 ? (
           <View style={aptStyles.listContainer}>
-            {[0, 1, 2, 3, 4].map((i) => (
+            {[0, 1, 2, 3].map((i) => (
               <AppointmentSkeletonCard key={`apt_skel_${i}`} />
             ))}
           </View>
         ) : filteredApts.length === 0 ? (
           <View style={aptStyles.emptyState}>
-            <Icon name="calendar-xmark" size={52} color="#cbd5e1" />
+            <View style={aptStyles.emptyIconWrap}>
+              <Ionicons name="calendar-outline" size={40} color="#667eea" />
+            </View>
             <Text style={aptStyles.emptyTitle}>No appointments found</Text>
             <Text style={aptStyles.emptyText}>
               {aptFilter === "pending"
-                ? "You have no pending appointment requests."
+                ? "No pending appointment requests right now."
                 : aptFilter === "confirmed"
                 ? "No confirmed appointments yet."
-                : "No appointments to show."}
+                : aptFilter === "canceled"
+                ? "No canceled appointments."
+                : "No appointments to show yet."}
             </Text>
-            <Text style={aptStyles.refreshBtnText}>Pull down to refresh</Text>
+            <Text style={aptStyles.refreshHint}>Pull down to refresh</Text>
           </View>
         ) : (
           <View style={aptStyles.listContainer}>
@@ -1369,19 +1367,15 @@ export default function CounselorDashboard() {
               <AppointmentCard
                 key={apt._id}
                 apt={apt}
-                onAccept={(id) =>
-                  handleUpdateAppointmentStatus(id, "confirmed")
-                }
-                onReject={(id) =>
-                  handleUpdateAppointmentStatus(id, "canceled")
-                }
+                onAccept={(id) => handleUpdateAppointmentStatus(id, "confirmed")}
+                onReject={(id) => handleUpdateAppointmentStatus(id, "canceled")}
                 onVideoCall={handleInitiateVideoCallFromApt}
                 updating={updatingAppointmentId}
               />
             ))}
           </View>
         )}
-        <View style={{ height: 24 }} />
+        <View style={{ height: 40 }} />
       </ScrollView>
     );
   };
@@ -1407,33 +1401,86 @@ export default function CounselorDashboard() {
         return <PatientRequests />;
       case "earnings":
         return (
-          <ScrollView>
-            <View style={styles.earningsSummary}>
-              <View style={styles.earningsCard}>
-                <Text style={styles.earningsCardTitle}>Total Earnings</Text>
-                <Text style={styles.earningsAmount}>â‚¹0</Text>
-                <Text style={styles.earningsBadge}>+0% from last month</Text>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <View style={styles.earningsSection}>
+              <View style={styles.earningsSectionHeader}>
+                <View>
+                  <Text style={styles.earningsSectionTitle}>Earnings</Text>
+                  <Text style={styles.earningsSectionSubtitle}>
+                    Your payout overview at a glance
+                  </Text>
+                </View>
+                <View style={styles.earningsPeriodPill}>
+                  <Text style={styles.earningsPeriodPillText}>This month</Text>
+                </View>
               </View>
-              <View
-                style={[styles.earningsCard, styles.earningsCardPending]}
+
+              <LinearGradient
+                colors={['#667eea', '#4f46e5', '#312e81']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.earningsHeroCard}
               >
-                <Text style={styles.earningsCardTitle}>Pending Payout</Text>
-                <Text style={styles.earningsAmount}>â‚¹0</Text>
-                <Text
-                  style={[
-                    styles.earningsBadge,
-                    styles.earningsBadgeWarning,
-                  ]}
-                >
-                  Awaiting processing
+                <View style={styles.earningsHeroTopRow}>
+                  <View style={styles.earningsHeroIconWrap}>
+                    <Icon name="wallet" size={20} color="#ffffff" />
+                  </View>
+                  <View style={styles.earningsHeroTrendPill}>
+                    <Icon name="arrow-trend-up" size={11} color="#22c55e" />
+                    <Text style={styles.earningsHeroTrendText}>+12.5%</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.earningsHeroLabel}>Total Earnings</Text>
+                <Text style={styles.earningsHeroAmount}>₹24,500</Text>
+                <Text style={styles.earningsHeroCaption}>
+                  Across 45 completed sessions this month
                 </Text>
+
+                <View style={styles.earningsHeroDivider} />
+
+                <View style={styles.earningsHeroBottomRow}>
+                  <View style={styles.earningsHeroMetaItem}>
+                    <Text style={styles.earningsHeroMetaLabel}>Pending</Text>
+                    <Text style={styles.earningsHeroMetaValue}>₹8,750</Text>
+                  </View>
+                  <View style={styles.earningsHeroMetaItem}>
+                    <Text style={styles.earningsHeroMetaLabel}>Withdrawable</Text>
+                    <Text style={styles.earningsHeroMetaValue}>₹15,750</Text>
+                  </View>
+                </View>
+              </LinearGradient>
+
+              <View style={styles.earningsMiniGrid}>
+                <View style={styles.earningsMiniCard}>
+                  <View style={[styles.earningsMiniIcon, { backgroundColor: '#dcfce7' }]}>
+                    <Icon name="check" size={14} color="#16a34a" />
+                  </View>
+                  <Text style={styles.earningsMiniLabel}>Last 30 Days</Text>
+                  <Text style={styles.earningsMiniValue}>₹24,500</Text>
+                </View>
+                <View style={styles.earningsMiniCard}>
+                  <View style={[styles.earningsMiniIcon, { backgroundColor: '#dbeafe' }]}>
+                    <Icon name="clock" size={14} color="#2563eb" />
+                  </View>
+                  <Text style={styles.earningsMiniLabel}>Processing</Text>
+                  <Text style={styles.earningsMiniValue}>2-3 days</Text>
+                </View>
               </View>
-              <View style={styles.earningsCard}>
-                <Text style={styles.earningsCardTitle}>This Month</Text>
-                <Text style={styles.earningsAmount}>â‚¹0</Text>
-                <Text style={styles.earningsBadge}>
-                  0 sessions completed
-                </Text>
+
+              <View style={styles.earningsCardRow}>
+                <View style={[styles.earningsCard, styles.earningsCardPending]}>
+                  <Text style={styles.earningsCardTitle}>Pending Payout</Text>
+                  <Text style={styles.earningsAmount}>{'\u20B9'}8,750</Text>
+                  <Text style={[styles.earningsBadge, styles.earningsBadgeWarning]}>
+                    Awaiting processing
+                  </Text>
+                </View>
+                <View style={styles.earningsCard}>
+                  <Text style={styles.earningsCardTitle}>This Month</Text>
+                  <Text style={styles.earningsAmount}>{'\u20B9'}24,500</Text>
+                  <Text style={styles.earningsBadge}>45 sessions completed</Text>
+                </View>
               </View>
             </View>
           </ScrollView>
@@ -1444,13 +1491,10 @@ export default function CounselorDashboard() {
         return <CounselorProfile />;
       case "settings":
         return (
-          <View style={styles.comingSoon}>
-            <Icon name="cog" size={64} color="#526071" />
-            <Text style={styles.comingSoonTitle}>Coming Soon</Text>
-            <Text style={styles.comingSoonText}>
-              Profile settings will be available here
-            </Text>
-          </View>
+          <CounselorSettings
+            onNavigate={(tab) => setActiveTab(tab)}
+            onLogout={() => setShowLogoutConfirm(true)}
+          />
         );
       default:
         return <Messagesou />;
@@ -1458,7 +1502,7 @@ export default function CounselorDashboard() {
   };
 
   return (
-    <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <View style={styles.container}>
         {/* Incoming Call Modal */}
@@ -1494,6 +1538,7 @@ export default function CounselorDashboard() {
         {/* Desktop Sidebar */}
         {!isMobile && (
           <View style={styles.sidebar}>
+            {/* Profile */}
             <View style={styles.sidebarHeader}>
               <View style={styles.profileContainer}>
                 {counselorData?.profilePhoto ? (
@@ -1502,7 +1547,9 @@ export default function CounselorDashboard() {
                     style={styles.profileAvatar}
                   />
                 ) : (
-                  <Icon name="user-circle" size={80} color="#8492a5" />
+                  <View style={styles.profileAvatarPlaceholder}>
+                    <Icon name="user" size={28} color="#8492a5" />
+                  </View>
                 )}
                 <Text style={styles.profileName}>
                   {counselorData?.name || "Counselor"}
@@ -1510,8 +1557,8 @@ export default function CounselorDashboard() {
                 <Text style={styles.profileSpecialization}>
                   {counselorData?.specialization || "Not specified"}
                 </Text>
-                <View style={[styles.ratingBadge, { marginTop: 4 }]}>
-                  <Icon name="star" size={14} color="#f5a623" />
+                <View style={styles.ratingBadge}>
+                  <Icon name="star" size={12} color="#f5a623" />
                   <Text style={styles.ratingText}>
                     {counselorData?.rating || 0}
                   </Text>
@@ -1519,54 +1566,52 @@ export default function CounselorDashboard() {
               </View>
             </View>
 
-            <ScrollView
-              style={styles.sidebarNavScrollView}
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={styles.sidebarNav}>
-                {navItems.map((item) => (
-                  <TouchableOpacity
-                    key={item.id}
+            {/* Nav */}
+            <View style={styles.sidebarNav}>
+              {navItems.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[
+                    styles.navItem,
+                    activeTab === item.id && styles.navItemActive,
+                  ]}
+                  onPress={() => handleTabChange(item.id)}
+                >
+                  <Icon
+                    name={item.icon}
+                    size={18}
+                    color={activeTab === item.id ? "#ffffff" : "#8492a5"}
+                  />
+                  <Text
                     style={[
-                      styles.navItem,
-                      activeTab === item.id && styles.navItemActive,
+                      styles.navLabel,
+                      activeTab === item.id && styles.navLabelActive,
                     ]}
-                    onPress={() => handleTabChange(item.id)}
                   >
-                    <Icon
-                      name={item.icon}
-                      size={20}
-                      color={
-                        activeTab === item.id ? "#ffffff" : "#8492a5"
-                      }
-                    />
-                    <Text
-                      style={[
-                        styles.navLabel,
-                        activeTab === item.id && styles.navLabelActive,
-                      ]}
-                    >
-                      {item.label}
-                    </Text>
-                    {item.badge > 0 && (
-                      <View style={styles.navBadge}>
-                        <Text style={styles.navBadgeText}>
-                          {item.badge}
-                        </Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
+                    {item.label}
+                  </Text>
+                  {item.badge > 0 && (
+                    <View style={styles.navBadge}>
+                      <Text style={styles.navBadgeText}>{item.badge}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Pushes logout to bottom */}
+            <View style={{ flex: 1 }} />
+
+            {/* Logout */}
             <View style={styles.sidebarFooter}>
               <TouchableOpacity
                 style={[styles.navItem, styles.navItemLogout]}
                 onPress={() => setShowLogoutConfirm(true)}
+                activeOpacity={0.75}
               >
-                <Icon name="sign-out-alt" size={20} color="#ba1a1a" />
+                <Feather name="log-out" size={18} color="#e53935" />
                 <Text style={[styles.navLabel, styles.navLabelLogout]}>
-                  Logout
+                  Sign Out
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1578,14 +1623,15 @@ export default function CounselorDashboard() {
           <View style={styles.mobileHeader}>
             <View style={[styles.mobileHeaderBar, { height: MOBILE_HEADER_BAR_HEIGHT, paddingTop: topInset }]}>
               <TouchableOpacity
-                style={styles.menuToggle}
+                style={[styles.menuToggle, showMobileMenu && styles.menuToggleClose]}
                 onPress={() => setShowMobileMenu(!showMobileMenu)}
+                activeOpacity={0.7}
               >
-                <Icon
-                  name={showMobileMenu ? "times" : "bars"}
-                  size={22}
-                  color="#1A1A1A"
-                />
+                {showMobileMenu ? (
+                  <Feather name="x" size={26} color="#1A1A1A" strokeWidth={3} />
+                ) : (
+                  <Icon name="bars" size={20} color="#1A1A1A" />
+                )}
               </TouchableOpacity>
 
               <View style={styles.mobileTitle}>
@@ -1596,7 +1642,13 @@ export default function CounselorDashboard() {
                 />
               </View>
 
-              <View style={styles.mobilePlaceholder} />
+              <TouchableOpacity
+                style={styles.mobileLogoutBtn}
+                onPress={() => setShowLogoutConfirm(true)}
+                activeOpacity={0.5}
+              >
+                <Feather name="log-out" size={20} color="#1A1A1A" />
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -1605,6 +1657,8 @@ export default function CounselorDashboard() {
         {isMobile && showMobileMenu && (
           <View style={[styles.mobileMenuOverlay, { top: topInset + MOBILE_HEADER_BAR_HEIGHT }]}>
             <View style={styles.mobileMenu}>
+
+              {/* Profile */}
               <View style={styles.sidebarHeader}>
                 <View style={styles.profileContainer}>
                   {counselorData?.profilePhoto ? (
@@ -1613,7 +1667,9 @@ export default function CounselorDashboard() {
                       style={styles.profileAvatar}
                     />
                   ) : (
-                    <Icon name="user-circle" size={80} color="#8492a5" />
+                    <View style={styles.profileAvatarPlaceholder}>
+                      <Icon name="user" size={44} color="#8492a5" />
+                    </View>
                   )}
                   <Text style={styles.profileName}>
                     {counselorData?.name || "Counselor"}
@@ -1621,8 +1677,8 @@ export default function CounselorDashboard() {
                   <Text style={styles.profileSpecialization}>
                     {counselorData?.specialization || "Not specified"}
                   </Text>
-                  <View style={[styles.ratingBadge, { marginTop: 4 }]}>
-                    <Icon name="star" size={14} color="#f5a623" />
+                  <View style={styles.ratingBadge}>
+                    <Icon name="star" size={15} color="#f5a623" />
                     <Text style={styles.ratingText}>
                       {counselorData?.rating || 0}
                     </Text>
@@ -1630,71 +1686,58 @@ export default function CounselorDashboard() {
                 </View>
               </View>
 
-              <ScrollView
-                style={styles.sidebarNavScrollView}
-                showsVerticalScrollIndicator={false}
-              >
-                <View style={styles.mobileNav}>
-                  {navItems.map((item) => (
-                    <TouchableOpacity
-                      key={item.id}
+              {/* Nav items */}
+              <View style={styles.mobileNav}>
+                {navItems.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[
+                      styles.mobileNavItem,
+                      activeTab === item.id && styles.mobileNavItemActive,
+                    ]}
+                    onPress={() => handleTabChange(item.id)}
+                  >
+                    <Icon
+                      name={item.icon}
+                      size={24}
+                      color={activeTab === item.id ? "#ffffff" : "#8492a5"}
+                    />
+                    <Text
                       style={[
-                        styles.mobileNavItem,
-                        activeTab === item.id && styles.mobileNavItemActive,
+                        styles.mobileNavLabel,
+                        activeTab === item.id && styles.mobileNavLabelActive,
                       ]}
-                      onPress={() => handleTabChange(item.id)}
                     >
-                      <Icon
-                        name={item.icon}
-                        size={20}
-                        color={
-                          activeTab === item.id ? "#ffffff" : "#8492a5"
-                        }
-                      />
-                      <Text
-                        style={[
-                          styles.mobileNavLabel,
-                          activeTab === item.id &&
-                            styles.mobileNavLabelActive,
-                        ]}
-                      >
-                        {item.label}
-                      </Text>
-                      {item.badge > 0 && (
-                        <View style={styles.mobileNavBadge}>
-                          <Text style={styles.mobileNavBadgeText}>
-                            {item.badge}
-                          </Text>
-                        </View>
-                      )}
-                      <Icon name="arrow-right" size={16} color="#74777c" />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-              <View style={styles.sidebarFooter}>
+                      {item.label}
+                    </Text>
+                    {item.badge > 0 && (
+                      <View style={styles.mobileNavBadge}>
+                        <Text style={styles.mobileNavBadgeText}>{item.badge}</Text>
+                      </View>
+                    )}
+                    <Feather name="chevron-right" size={18} color="#2e3d50" />
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Divider + Sign Out inline with nav */}
+              <View style={styles.mobileNavDivider} />
+              <View style={{ paddingHorizontal: 14, paddingBottom: 24 }}>
                 <TouchableOpacity
-                  style={[
-                    styles.mobileNavItem,
-                    styles.mobileNavItemLogout,
-                  ]}
+                  style={[styles.mobileNavItem, styles.mobileNavItemLogout]}
                   onPress={() => {
                     setShowMobileMenu(false);
                     setShowLogoutConfirm(true);
                   }}
+                  activeOpacity={0.75}
                 >
-                  <Icon name="sign-out-alt" size={20} color="#ba1a1a" />
-                  <Text
-                    style={[
-                      styles.mobileNavLabel,
-                      styles.mobileNavLabelLogout,
-                    ]}
-                  >
-                    Logout
+                  <Feather name="log-out" size={24} color="#e53935" />
+                  <Text style={[styles.mobileNavLabel, styles.mobileNavLabelLogout]}>
+                    Sign Out
                   </Text>
-                  <Icon name="arrow-right" size={16} color="#74777c" />
                 </TouchableOpacity>
               </View>
+
             </View>
           </View>
         )}
@@ -1883,354 +1926,353 @@ const aptStyles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 14,
     paddingBottom: 100,
-    gap: 14,
   },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 10,
+  // Tab header
+  tabHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    paddingHorizontal: 2,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontFamily: "Manrope",
-    fontWeight: "800",
-    color: "#0f172a",
+  tabTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    letterSpacing: 0.3,
   },
-  headerSubtitle: {
-    fontSize: 13,
-    fontFamily: "Manrope",
-    color: "#6b7280",
-    fontWeight: "600",
-    marginBottom: 12,
+  tabSubtitle: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '500',
     marginTop: 2,
   },
-  headerRefresh: {
-    width: 36,
-    height: 36,
+  refreshIconBtn: {
+    width: 38,
+    height: 38,
     borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  // Filter chips
   filterScroll: {
-    marginTop: 0,
-    marginBottom: 16,
-    paddingTop: 4,
-    zIndex: 1,
-    position: "relative",
+    marginBottom: 14,
   },
   filterRow: {
     gap: 8,
     paddingRight: 4,
   },
   filterChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: "#ffffff",
-    borderWidth: 1.5,
-    borderColor: "#e0e3e5",
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#ffffff',
+    borderWidth: 1.2,
+    borderColor: '#d1d5db',
+    gap: 4,
   },
   filterChipActive: {
-    backgroundColor: "#2c50cd",
-    borderColor: "#2c50cd",
+    backgroundColor: '#667eea',
+    borderColor: '#667eea',
   },
   filterChipText: {
     fontSize: 13,
-    fontFamily: "Manrope",
-    fontWeight: "600",
-    color: "#526071",
+    fontWeight: '600',
+    color: '#475569',
   },
   filterChipTextActive: {
-    color: "#ffffff",
+    color: '#ffffff',
   },
   filterChipBadge: {
-    backgroundColor: "#e0e3e5",
+    backgroundColor: '#e5e7eb',
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    justifyContent: "center",
-    alignItems: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 4,
+    marginLeft: 2,
   },
   filterChipBadgeActive: {
-    backgroundColor: "rgba(255,255,255,0.25)",
+    backgroundColor: 'rgba(255,255,255,0.3)',
   },
   filterChipBadgeText: {
     fontSize: 10,
-    fontFamily: "Manrope",
-    fontWeight: "700",
-    color: "#526071",
+    fontWeight: '700',
+    color: '#475569',
   },
   filterChipBadgeTextActive: {
-    color: "#ffffff",
+    color: '#ffffff',
   },
+  // List
   listContainer: {
-    gap: 12,
+    gap: 10,
+    marginTop: 2,
   },
+  // Card
   card: {
-    backgroundColor: "#ffffff",
-    borderRadius: 20,
-    overflow: "hidden",
-    shadowColor: "#4f46e5",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 3,
-    marginHorizontal: 4,
-    marginVertical: 1,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
   cardAccent: {
     height: 4,
-    width: "100%",
+    width: '100%',
+  },
+  cardBody: {
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 4,
+    gap: 10,
   },
   cardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 2,
   },
-
-  // Shimmer / Skeleton
-  skelHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+  // Avatar
+  avatarCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  // Patient info
+  patientInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  patientName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  consultTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  consultTagText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#667eea',
+    letterSpacing: 0.5,
+  },
+  // Status badge
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  // Notes
+  notesBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#c7d2fe',
+  },
+  notesText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#526071',
+    fontStyle: 'italic',
+    lineHeight: 17,
+  },
+  // Time row
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  timeValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  // Action buttons
+  actions: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingBottom: 14,
+    paddingTop: 2,
+  },
+  rejectActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: '#fff5f5',
+    borderWidth: 1.5,
+    borderColor: '#fecaca',
+  },
+  rejectBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ef4444',
+  },
+  acceptActionBtn: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  acceptBtnGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 12,
+  },
+  acceptBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  // Video call button
+  videoCallBtn: {
+    borderRadius: 12,
+    overflow: 'hidden',
     marginBottom: 14,
+    shadowColor: '#0f766e',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  videoCallBtnGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  videoCallBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  // Empty state
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 56,
+    gap: 10,
+  },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  emptyText: {
+    fontSize: 13,
+    color: '#6b7280',
+    textAlign: 'center',
+    paddingHorizontal: 24,
+    lineHeight: 20,
+  },
+  refreshHint: {
+    fontSize: 12,
+    color: '#9ca3af',
+    marginTop: 4,
+  },
+  // Skeleton
+  skelAccentColor: {
+    backgroundColor: '#e0e7ff',
   },
   skelAvatar: {
     width: 48,
     height: 48,
-    borderRadius: 14,
-    backgroundColor: "#eef2f7",
+    borderRadius: 24,
+    backgroundColor: '#e5e7eb',
   },
   skelPill: {
-    width: 78,
+    width: 72,
     height: 22,
     borderRadius: 999,
-    backgroundColor: "#eef2f7",
+    backgroundColor: '#e5e7eb',
   },
   skelBody: {
     gap: 10,
     marginBottom: 14,
   },
   skelLineLg: {
-    width: "62%",
-    height: 14,
+    width: '62%',
+    height: 13,
     borderRadius: 8,
-    backgroundColor: "#eef2f7",
+    backgroundColor: '#e5e7eb',
   },
   skelLineSm: {
-    width: "46%",
+    width: '44%',
     height: 10,
     borderRadius: 8,
-    backgroundColor: "#eef2f7",
+    backgroundColor: '#e5e7eb',
   },
   skelLineFull: {
-    width: "100%",
+    width: '100%',
     height: 10,
     borderRadius: 8,
-    backgroundColor: "#eef2f7",
+    backgroundColor: '#e5e7eb',
   },
   skelLineMed: {
-    width: "72%",
+    width: '70%',
     height: 10,
     borderRadius: 8,
-    backgroundColor: "#eef2f7",
+    backgroundColor: '#e5e7eb',
   },
   skelActions: {
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: 10,
   },
   skelBtn: {
     flex: 1,
-    height: 38,
+    height: 40,
     borderRadius: 12,
-    backgroundColor: "#eef2f7",
-  },
-  avatarWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    overflow: "hidden",
-  },
-  avatarFallback: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  patientInfo: {
-    flex: 1,
-    gap: 4,
-  },
-  patientName: {
-    fontSize: 15,
-    fontWeight: "700",
-    fontFamily: "Manrope",
-    color: "#191c1e",
-  },
-  consultTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  consultTagText: {
-    fontSize: 10,
-    fontFamily: "Manrope",
-    fontWeight: "700",
-    color: "#2c50cd",
-    letterSpacing: 0.5,
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-  },
-  statusText: {
-    fontSize: 10,
-    fontFamily: "Manrope",
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  notesBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 6,
-    backgroundColor: "#f8fafc",
-    borderRadius: 10,
-    padding: 10,
-    marginHorizontal: 16,
-    marginBottom: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: "#cbd5e1",
-  },
-  notesText: {
-    flex: 1,
-    fontSize: 12,
-    fontFamily: "Manrope",
-    color: "#526071",
-    fontStyle: "italic",
-    lineHeight: 17,
-  },
-  timeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#f1f5f9",
-  },
-  timeLabel: {
-    fontSize: 12,
-    fontFamily: "Manrope",
-    color: "#74777c",
-  },
-  timeValue: {
-    fontSize: 12,
-    fontFamily: "Manrope",
-    fontWeight: "600",
-    color: "#44474c",
-  },
-  actions: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    paddingTop: 4,
-  },
-  actionBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 13,
-  },
-  rejectActionBtn: {
-    backgroundColor: "#fff5f5",
-    borderWidth: 1.5,
-    borderColor: "#fecaca",
-  },
-  acceptActionBtn: {
-    backgroundColor: "#4f46e5",
-    shadowColor: "#4f46e5",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  actionBtnText: {
-    fontSize: 13,
-    fontFamily: "Manrope",
-    fontWeight: "700",
-  },
-  videoCallBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    backgroundColor: "#0f766e",
-    paddingVertical: 12,
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 13,
-  },
-  videoCallBtnText: {
-    fontSize: 13,
-    fontFamily: "Manrope",
-    fontWeight: "700",
-    color: "#ffffff",
-  },
-  emptyState: {
-    alignItems: "center",
-    paddingVertical: 48,
-    gap: 10,
-  },
-  emptyTitle: {
-    fontSize: 17,
-    fontFamily: "Manrope",
-    fontWeight: "700",
-    color: "#44474c",
-    marginTop: 4,
-  },
-  emptyText: {
-    fontSize: 13,
-    fontFamily: "Manrope",
-    color: "#74777c",
-    textAlign: "center",
-    paddingHorizontal: 24,
-  },
-  refreshBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: "#2c50cd",
-  },
-  refreshBtnText: {
-    fontSize: 12,
-    fontFamily: "Manrope",
-    fontWeight: "500",
-    color: "#94a3b8",
-    textAlign: "center",
-    marginTop: 6,
+    backgroundColor: '#e5e7eb',
   },
 });
 
@@ -2252,12 +2294,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#f7f9fb",
   },
   sidebar: {
-    width: 280,
+    width: 260,
     backgroundColor: "#081625",
+    flexDirection: "column",
     position: "absolute",
     left: 0,
     top: 0,
-    marginTop:22,
+    marginTop: 22,
     bottom: 0,
     zIndex: 999,
     shadowColor: "#0e1d2b",
@@ -2267,45 +2310,58 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   sidebarHeader: {
-    padding: 24,
+    paddingHorizontal: 20,
+    paddingTop: 28,
+    paddingBottom: 24,
     borderBottomWidth: 1,
     borderBottomColor: "#1d2b3a",
+    alignItems: "center",
   },
   profileContainer: {
     alignItems: "center",
   },
   profileAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    marginBottom: 5,
- marginTop:20
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginBottom: 14,
+    borderWidth: 3,
+    borderColor: "#2c50cd",
+  },
+  profileAvatarPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "#1d2b3a",
+    borderWidth: 3,
+    borderColor: "#2c50cd",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
   },
   profileName: {
     fontSize: 20,
-    fontWeight: "600",
+    fontWeight: "700",
     fontFamily: "Manrope",
     color: "#ffffff",
-    marginBottom: 4,
-    marginTop:4
+    marginBottom: 5,
+    textAlign: "center",
   },
   profileSpecialization: {
     fontSize: 14,
     fontFamily: "Manrope",
     color: "#8492a5",
-    marginTop:4,
-    marginBottom: 10,
+    marginBottom: 12,
     textAlign: "center",
   },
   ratingBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: 14,
+    paddingVertical: 5,
     borderRadius: 9999,
-    marginTop:8
   },
   ratingText: {
     fontSize: 14,
@@ -2313,26 +2369,25 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope",
     color: "#f5a623",
   },
-  sidebarNavScrollView: {
-    flex: 1,
-  },
   sidebarNav: {
-    padding: 16,
+    paddingHorizontal: 14,
+    paddingTop: 16,
     gap: 8,
   },
   navItem: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
-    borderRadius: 12,
-    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 10,
     position: "relative",
   },
   navItemActive: {
     backgroundColor: "#2c50cd",
   },
   navLabel: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
     fontFamily: "Manrope",
     color: "#8492a5",
@@ -2342,19 +2397,25 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   navLabelLogout: {
-    color: "#ba1a1a",
+    color: "#e53935",
     fontWeight: "700",
   },
   sidebarFooter: {
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#1d2b3a",
-    backgroundColor: "#081625",
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 20,
+  },
+  mobileNavDivider: {
+    height: 1,
+    backgroundColor: "#1d2b3a",
+    marginHorizontal: 14,
+    marginTop: 12,
+    marginBottom: 12,
   },
   navItemLogout: {
-    backgroundColor: "rgba(186, 26, 26, 0.1)",
+    backgroundColor: "rgba(229, 57, 53, 0.08)",
     borderWidth: 1,
-    borderColor: "rgba(186, 26, 26, 0.2)",
+    borderColor: "rgba(229, 57, 53, 0.18)",
   },
   navBadge: {
     position: "absolute",
@@ -2396,10 +2457,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   menuToggle: {
-    width: 50,
+    width: 36,
+    height: 36,
     justifyContent: "center",
-    alignItems: "flex-start",
+    alignItems: "center",
   },
+  menuToggleClose: {},
   mobileTitleText: {
     fontSize: 18,
     fontWeight: "700",
@@ -2407,8 +2470,11 @@ const styles = StyleSheet.create({
     color: "#1A1A1A",
     letterSpacing: -0.3,
   },
-  mobilePlaceholder: {
-    width: 50,
+  mobileLogoutBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   mobileMenuOverlay: {
     position: "absolute",
@@ -2424,30 +2490,33 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     bottom: 0,
-    width: 280,
+    width: 300,
     backgroundColor: "#081625",
-    shadowColor: "#0e1d2b",
-    shadowOffset: { width: 2, height: 0 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
+    flexDirection: "column",
+    shadowColor: "#000",
+    shadowOffset: { width: 4, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 12,
   },
   mobileNav: {
-    padding: 16,
-    gap: 8,
+    paddingHorizontal: 14,
+    paddingTop: 16,
+    gap: 6,
   },
   mobileNavItem: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
-    borderRadius: 12,
-    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderRadius: 14,
+    gap: 16,
   },
   mobileNavItemActive: {
     backgroundColor: "#2c50cd",
   },
   mobileNavLabel: {
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: "600",
     fontFamily: "Manrope",
     color: "#8492a5",
@@ -2457,14 +2526,13 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   mobileNavLabelLogout: {
-    color: "#ba1a1a",
+    color: "#e53935",
+    fontWeight: "700",
   },
   mobileNavItemLogout: {
-    marginTop: 8,
-    borderRadius: 12,
-    backgroundColor: "rgba(186, 26, 26, 0.1)",
+    backgroundColor: "rgba(229, 57, 53, 0.08)",
     borderWidth: 1,
-    borderColor: "rgba(186, 26, 26, 0.2)",
+    borderColor: "rgba(229, 57, 53, 0.18)",
   },
   mobileNavBadge: {
     backgroundColor: "#ba1a1a",
@@ -2571,42 +2639,204 @@ const styles = StyleSheet.create({
     color: "#44474c",
     textAlign: "center",
   },
-  earningsSummary: {
-    gap: 16,
+  earningsSection: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 24,
+    gap: 14,
   },
-  earningsCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
+  earningsSectionHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  earningsSectionTitle: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#0f172a",
+    letterSpacing: -0.3,
+  },
+  earningsSectionSubtitle: {
+    fontSize: 13,
+    color: "#64748b",
+    marginTop: 4,
+  },
+  earningsPeriodPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#eef2ff",
+    borderWidth: 1,
+    borderColor: "#c7d2fe",
+  },
+  earningsPeriodPillText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#4f46e5",
+  },
+  earningsHeroCard: {
+    borderRadius: 24,
     padding: 20,
-    shadowColor: "#0e1d2b",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    elevation: 10,
+  },
+  earningsHeroTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  earningsHeroIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  earningsHeroTrendPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  earningsHeroTrendText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  earningsHeroLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.82)",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  earningsHeroAmount: {
+    fontSize: 40,
+    fontWeight: "800",
+    color: "#ffffff",
+    marginTop: 8,
+    letterSpacing: -0.6,
+  },
+  earningsHeroCaption: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.82)",
+    marginTop: 8,
+  },
+  earningsHeroDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    marginVertical: 18,
+  },
+  earningsHeroBottomRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  earningsHeroMetaItem: {
+    flex: 1,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 16,
+    padding: 14,
+  },
+  earningsHeroMetaLabel: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.76)",
+    marginBottom: 6,
+  },
+  earningsHeroMetaValue: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#ffffff",
+  },
+  earningsMiniGrid: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  earningsMiniCard: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
     elevation: 2,
   },
+  earningsMiniIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  earningsMiniLabel: {
+    fontSize: 12,
+    color: "#64748b",
+    marginBottom: 4,
+  },
+  earningsMiniValue: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  earningsCardRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  earningsCard: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    padding: 18,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
   earningsCardPending: {
-    backgroundColor: "#fef3c7",
+    backgroundColor: "#fff7ed",
+    borderColor: "#fed7aa",
   },
   earningsCardTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: "Manrope",
-    color: "#44474c",
+    color: "#475569",
     marginBottom: 8,
+    fontWeight: "600",
   },
   earningsAmount: {
-    fontSize: 28,
-    fontWeight: "700",
+    fontSize: 24,
+    fontWeight: "800",
     fontFamily: "Manrope",
-    color: "#191c1e",
+    color: "#0f172a",
     marginBottom: 8,
+    letterSpacing: -0.4,
   },
   earningsBadge: {
     fontSize: 12,
     fontFamily: "Manrope",
-    color: "#2e7d32",
+    color: "#16a34a",
+    fontWeight: "600",
   },
   earningsBadgeWarning: {
-    color: "#ed6c02",
+    color: "#f97316",
   },
   requestModalOverlay: {
     flex: 1,
