@@ -81,7 +81,7 @@ const IncomingCallModal = ({
 
   if (!isOpen) return null;
 
-  const displayName = callData?.from?.fullName || callData?.from?.displayName || callerName || "Counselor";
+  const displayName = callData?.from?.displayName || callData?.from?.fullName || callerName || "Counselor";
   const profilePhoto = callData?.from?.profilePhoto || callerImage;
 
   const formatRequestTime = (dateString) => {
@@ -386,7 +386,8 @@ const ChatBox = () => {
         id: detailedCall?.id || callId,
         callId,
         roomId: response.data.roomId || detailedCall?.roomId || incomingCallData.roomId,
-        name: detailedCall?.initiator?.displayName || incomingCallData.name || "Counselor",
+        name: detailedCall?.initiator?.displayName || detailedCall?.initiator?.fullName || incomingCallData.name || "Counselor",
+        displayName: detailedCall?.initiator?.displayName || detailedCall?.initiator?.fullName || incomingCallData.name || "Counselor",
         type: modalType,
         callType: modalType,
         profilePic: detailedCall?.initiator?.profilePhoto || incomingCallData.image || null,
@@ -1115,7 +1116,6 @@ const ChatBox = () => {
 
   const renderMessage = ({ item, index }) => {
     const isUser = item.sender === "user";
-    const showAvatar = !isUser && (index === 0 || messages[index - 1]?.sender === "user");
     
     return (
       <TouchableOpacity
@@ -1137,25 +1137,6 @@ const ChatBox = () => {
         }}
         style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}
       >
-        {!isUser && (
-          <View style={styles.messageAvatarContainer}>
-            {showAvatar ? (
-              counselorProfilePhoto && !counselorAvatarFailed ? (
-                <Image
-                  source={{ uri: counselorProfilePhoto }}
-                  style={styles.messageAvatar}
-                  onError={() => setCounselorAvatarFailed(true)}
-                />
-              ) : (
-                <View style={styles.messageAvatarPlaceholder}>
-                  <Text style={styles.messageAvatarInitials}>{getInitials(counselorName)}</Text>
-                </View>
-              )
-            ) : (
-              <View style={styles.messageAvatarSpacer} />
-            )}
-          </View>
-        )}
         
         <View style={[styles.messageBubble, isUser ? styles.messageRight : styles.messageLeft]}>
           <View style={[styles.messageContent, isUser ? styles.userMessageContent : styles.counselorMessageContent]}>

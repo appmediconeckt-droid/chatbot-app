@@ -24,14 +24,45 @@ import {
   CallingState,
 } from '@stream-io/video-react-native-sdk';
 
+const resolveCallDisplayName = (callData, isCounselor) => {
+  const apiCallData = callData?.apiCallData || {};
+  const initiator = apiCallData?.initiator || {};
+  const receiver = apiCallData?.receiver || {};
+
+  const preferredAnonymous =
+    initiator?.anonymous ||
+    initiator?.anonName ||
+    initiator?.anonymousName ||
+    receiver?.anonymous ||
+    receiver?.anonName ||
+    receiver?.anonymousName;
+
+  const preferred =
+    callData?.name ||
+    callData?.displayName ||
+    callData?.callerName ||
+    receiver?.displayName ||
+    receiver?.fullName ||
+    initiator?.displayName ||
+    initiator?.fullName;
+
+  if (isCounselor) {
+    return preferredAnonymous || preferred || 'Participant';
+  }
+
+  return preferred || preferredAnonymous || 'Participant';
+};
+
 // ─── Inner call UI ────────────────────────────────────────────────────────────
-const CallUI = ({ onEndCall, isCounselor, isOutgoing }) => {
+// onLocalHangup: user pressed end button (sends call.end() to kill for both sides)
+// onRemoteEnded: remote side already ended, just cleanup locally
+const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, participantName }) => {
   const { useCallCallingState, useRemoteParticipants } = useCallStateHooks();
   const callingState = useCallCallingState();
   const remoteParticipants = useRemoteParticipants();
   const { startRinging, stopRinging } = useRingtone();
 
-  // Guard: fire onEndCall only once per session
+  // Guard: fire remote-ended callback only once per session
   const endedRef = useRef(false);
 
   const isEnded =
@@ -41,9 +72,10 @@ const CallUI = ({ onEndCall, isCounselor, isOutgoing }) => {
   useEffect(() => {
     if (isEnded && !endedRef.current) {
       endedRef.current = true;
-      onEndCall();
+      // State went to LEFT/IDLE without local hangup — remote ended the call
+      onRemoteEnded();
     }
-  }, [isEnded, onEndCall]);
+  }, [isEnded, onRemoteEnded]);
 
   // Guard: start/stop ringback only once per state transition for outgoing calls
   const ringingRef = useRef(false);
@@ -76,7 +108,12 @@ const CallUI = ({ onEndCall, isCounselor, isOutgoing }) => {
 
   return (
     <View style={{ flex: 1 }}>
-      <CallContent onHangupCallHandler={onEndCall} />
+      {!!participantName && (
+        <View style={styles.participantNameBadge}>
+          <Text style={styles.participantNameText} numberOfLines={1}>{participantName}</Text>
+        </View>
+      )}
+      <CallContent onHangupCallHandler={onLocalHangup} />
     </View>
   );
 };
@@ -90,34 +127,47 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
 
   const callRef = useRef(null);
   const clientRef = useRef(null);
-  // Prevents setup() from running twice (Strict Mode double-invoke or re-render)
   const initializingRef = useRef(false);
-  // Prevents cleanup() from running multiple times concurrently
   const cleaningUpRef = useRef(false);
-  // Signals the in-flight async setup to abort
   const cancelledRef = useRef(false);
-  // Stores unsub functions so listeners are removed exactly once
   const unsubscribersRef = useRef([]);
+  const closingRef = useRef(false);
+  // Always holds the latest handleClose — Stream listeners use this ref so they
+  // never capture a stale closure when call.ended fires on the remote side.
+  const handleCloseRef = useRef(null);
 
   const { stopRinging } = useRingtone();
+  const isCounselorView =
+    callData?.currentUserType === 'counsellor' ||
+    callData?.currentUserType === 'counselor';
+  const displayName = resolveCallDisplayName(callData, isCounselorView);
 
-  // Idempotent cleanup — safe to call multiple times
-  const cleanup = useCallback(async () => {
+  const cleanup = useCallback(async (endForAll = false) => {
     if (cleaningUpRef.current) return;
     cleaningUpRef.current = true;
 
     stopRinging();
     cancelledRef.current = true;
+    if (cancelledRef._pollInterval) {
+      clearInterval(cancelledRef._pollInterval);
+      cancelledRef._pollInterval = null;
+    }
 
-    // Remove Stream event listeners before leaving
+    // Unsubscribe FIRST — stops call.ended re-firing during end()/leave()
     unsubscribersRef.current.forEach((fn) => { try { fn(); } catch (_) {} });
     unsubscribersRef.current = [];
 
-    try { await callRef.current?.leave(); } catch (_) {}
-    try { await clientRef.current?.disconnectUser(); } catch (_) {}
-
+    const currentCall = callRef.current;
+    const currentClient = clientRef.current;
     callRef.current = null;
     clientRef.current = null;
+
+    if (endForAll) {
+      try { await currentCall?.end(); } catch (_) {}
+    } else {
+      try { await currentCall?.leave(); } catch (_) {}
+    }
+    try { await currentClient?.disconnectUser(); } catch (_) {}
     initializingRef.current = false;
     cleaningUpRef.current = false;
 
@@ -127,14 +177,20 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
     setLoading(false);
   }, [stopRinging]);
 
-  // handleClose is idempotent via cleanup's own guard
-  const handleClose = useCallback(async () => {
-    if (onEndCall && callData?.callId) {
+  const handleClose = useCallback(async (localHangup = true) => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+
+    if (localHangup && onEndCall && callData?.callId) {
       try { await onEndCall(callData.callId); } catch (_) {}
     }
-    await cleanup();
+    await cleanup(localHangup);
     onClose();
+    closingRef.current = false;
   }, [cleanup, callData?.callId, onEndCall, onClose]);
+
+  // Keep the ref in sync with the latest handleClose on every render
+  handleCloseRef.current = handleClose;
 
   useEffect(() => {
     if (!isOpen || !callData?.callId) return;
@@ -145,6 +201,7 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
 
     cancelledRef.current = false;
     cleaningUpRef.current = false;
+    closingRef.current = false;
 
     const setup = async () => {
       try {
@@ -190,8 +247,10 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
 
         // Register listeners before join and store unsub refs so they are
         // removed exactly once during cleanup — prevents duplicate firings
-        const unsubEnd = streamCall.on('call.ended', () => { handleClose(); });
-        const unsubSession = streamCall.on('call.session_ended', () => { handleClose(); });
+        // Use handleCloseRef so the listener always calls the latest handleClose,
+        // not the stale closure captured when setup() first ran.
+        const unsubEnd = streamCall.on('call.ended', () => { handleCloseRef.current?.(false); });
+        const unsubSession = streamCall.on('call.session_ended', () => { handleCloseRef.current?.(false); });
         unsubscribersRef.current = [unsubEnd, unsubSession];
 
         // Guard: only join if not already connected to this call
@@ -214,6 +273,26 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
         setClient(streamClient);
         setCall(streamCall);
         setLoading(false);
+
+        // Poll backend every 3s — if the other side ended the call, close this modal
+        const pollInterval = setInterval(async () => {
+          if (cancelledRef.current) { clearInterval(pollInterval); return; }
+          try {
+            const tok = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
+            const res = await axios.get(`${API_BASE_URL}/api/video/calls/${callData.callId}`, {
+              headers: { Authorization: `Bearer ${tok}` },
+            });
+            const status = res.data?.call?.status || res.data?.status;
+            if (status === 'ended' || status === 'rejected' || status === 'missed') {
+              clearInterval(pollInterval);
+              if (!cancelledRef.current) handleCloseRef.current?.(false);
+            }
+          } catch (_) {}
+        }, 3000);
+
+        // Store interval so cleanup can clear it
+        cancelledRef._pollInterval = pollInterval;
+
       } catch (err) {
         if (!cancelledRef.current) {
           setError(err?.message || 'Failed to connect video call');
@@ -226,17 +305,19 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
     setup();
 
     return () => {
-      // Effect cleanup: mark cancelled so in-flight async work aborts.
-      // Do NOT call full cleanup() here — that runs when isOpen becomes false.
       cancelledRef.current = true;
       initializingRef.current = false;
+      if (cancelledRef._pollInterval) {
+        clearInterval(cancelledRef._pollInterval);
+        cancelledRef._pollInterval = null;
+      }
     };
   }, [isOpen, callData?.callId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Run full teardown when the modal is closed from the outside
   useEffect(() => {
     if (!isOpen) {
-      cleanup();
+      cleanup(false);
     }
   }, [isOpen, cleanup]);
 
@@ -276,12 +357,11 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
             <StreamVideo client={client}>
               <StreamCall call={call}>
                 <CallUI
-                  onEndCall={handleClose}
+                  onLocalHangup={() => handleClose(true)}
+                  onRemoteEnded={() => handleClose(false)}
+                  participantName={displayName}
                   isOutgoing={callData?.isIncoming !== true}
-                  isCounselor={
-                    callData?.currentUserType === 'counsellor' ||
-                    callData?.currentUserType === 'counselor'
-                  }
+                  isCounselor={isCounselorView}
                 />
               </StreamCall>
             </StreamVideo>
@@ -324,6 +404,22 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  participantNameBadge: {
+    position: 'absolute',
+    top: 12,
+    alignSelf: 'center',
+    zIndex: 5,
+    backgroundColor: 'rgba(17, 24, 39, 0.75)',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    maxWidth: '80%',
+  },
+  participantNameText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });
 
 export default VideoCallModal;
