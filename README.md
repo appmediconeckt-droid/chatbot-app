@@ -24,6 +24,8 @@ With Metro running, open a new terminal window/pane from the root of your React 
 
 ### Android
 
+For release builds, create `android/keystore.properties` from `android/keystore.properties.example` and point it at your release keystore. The release signing config will fall back to the debug keystore until that file exists.
+
 ```sh
 # Using npm
 npm run android

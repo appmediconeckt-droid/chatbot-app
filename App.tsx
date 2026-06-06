@@ -8,7 +8,7 @@
 import { NewAppScreen } from '@react-native/new-app-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, Image, StatusBar, StyleSheet, Text, useColorScheme, View, Platform } from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -21,6 +21,8 @@ import Login from "./src/screens/auth/Login"
 import CounselorSignup from './src/screens/auth/CounselorSignup';
 import RoleSelector from "./src/screens/auth/RoleSelector";
 import OTPVerification from "./src/screens/auth/OTPVerification";
+import LocationGate from "./src/screens/auth/LocationGate";
+import { PermissionsAndroid } from 'react-native';
 
 import UserDashboard from './src/screens/user/Component/UserDashboard/Dashboard/UserDashboard';
 import ChatBox from './src/screens/user/Component/UserDashboard/Tab/ChatBox/ChatBox';
@@ -30,7 +32,12 @@ import { ToastProvider } from './src/components/common/ToastProvider';
 // Counselor Dashboard Screens
 import CounselorDashboard from './src/screens/user/Component/counselor-dashboard/Dashboard/dashboard';
 import SMSInput from './src/screens/user/Component/counselor-dashboard/Tab/SMSInput/SMSInput';
+import ChangePassword from './src/screens/account/ChangePassword';
+import SetPassword from './src/screens/account/SetPassword';
+import SetPasswordByOtp from './src/screens/account/SetPasswordByOtp';
 import safeVibrate from './src/utils/safeVibrate';
+import socketService from './src/services/socketService';
+import { CallProvider } from './src/screens/user/VideoCall/CallProvider';
 // Define your navigation param list
 // import { LogBox } from 'react-native';
 // LogBox.ignoreAllLogs(true);
@@ -42,19 +49,39 @@ export type RootStackParamList = {
   Login: { role?: 'user' | 'counselor' } | undefined;
   CounselorSignup: { role?: 'user' | 'counselor' } | undefined;
   OTPVerification: undefined;
+  LocationGate: { destination: keyof RootStackParamList; destinationParams?: object };
   UserDashboard: undefined;
   ChatBox: undefined;
   CounselorTable: undefined;
   CounselorDashboard: undefined;
   SMSInput: undefined;
-  // Add other screens
+  ChangePassword: undefined;
+  SetPassword: undefined;
+  SetPasswordByOtp: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+// Returns true if location permission is already granted (no dialog needed).
+const isLocationPermissionGranted = async (): Promise<boolean> => {
+  if (Platform.OS !== 'android') return false; // iOS: always go through gate on boot
+  try {
+    const fine = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+    );
+    const coarse = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+    );
+    return fine || coarse;
+  } catch {
+    return false;
+  }
+};
+
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
   const [bootRoute, setBootRoute] = useState<keyof RootStackParamList>('RoleSelector');
+  const [bootDestination, setBootDestination] = useState<'UserDashboard' | 'CounselorDashboard'>('UserDashboard');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const navigationRef = useRef<any>(null);
   const routeNameRef = useRef<string | undefined>(undefined);
@@ -83,6 +110,13 @@ function App() {
           return;
         }
 
+        // Establish the singleton presence socket so the backend marks this
+        // user online as soon as the app boots (mirrors web — connect with
+        // the auth token, backend flips isOnline=true on `connection`).
+        socketService.connect().catch((err) => {
+          console.warn('[App] socket connect failed at bootstrap:', err?.message);
+        });
+
         let role = normalizeRole(storedUserRole);
 
         if (!role && userDataRaw) {
@@ -98,10 +132,19 @@ function App() {
           role = 'counselor';
         }
 
-        if (role === 'counselor') {
-          setBootRoute('CounselorDashboard');
-        } else if (role === 'user') {
-          setBootRoute('UserDashboard');
+        if (role === 'counselor' || role === 'user') {
+          const destination = role === 'counselor' ? 'CounselorDashboard' : 'UserDashboard';
+          const alreadyGranted = await isLocationPermissionGranted();
+          if (alreadyGranted) {
+            setBootRoute(destination);
+          } else {
+            // Store destination so LocationGate can read it via route.params.
+            // We set the initial route to LocationGate and pass params via
+            // the initialParams prop on the screen definition — but since
+            // bootRoute is dynamic we use a state approach instead.
+            setBootRoute('LocationGate');
+            setBootDestination(destination as 'UserDashboard' | 'CounselorDashboard');
+          }
         } else {
           setBootRoute('RoleSelector');
         }
@@ -146,6 +189,7 @@ function App() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      <CallProvider>
       <ToastProvider>
         <NavigationContainer
           ref={navigationRef}
@@ -175,14 +219,23 @@ function App() {
             <Stack.Screen name="Login" component={Login} />
             <Stack.Screen name='CounselorSignup' component={CounselorSignup} />
               <Stack.Screen name='OTPVerification' component={OTPVerification} />
+            <Stack.Screen
+              name="LocationGate"
+              component={LocationGate}
+              initialParams={{ destination: bootDestination }}
+            />
             <Stack.Screen name="UserDashboard" component={UserDashboard} />
              <Stack.Screen name='ChatBox' component={ChatBox} />
               <Stack.Screen name='CounselorTable' component={CounselorTable} />
                <Stack.Screen name='CounselorDashboard' component={CounselorDashboard} />
                 <Stack.Screen name='SMSInput' component={SMSInput} />
+                <Stack.Screen name='ChangePassword' component={ChangePassword} />
+                <Stack.Screen name='SetPassword' component={SetPassword} />
+                <Stack.Screen name='SetPasswordByOtp' component={SetPasswordByOtp} />
           </Stack.Navigator>
         </NavigationContainer>
       </ToastProvider>
+      </CallProvider>
     </SafeAreaProvider>
   );
 }

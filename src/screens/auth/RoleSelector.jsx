@@ -279,7 +279,7 @@ const RoleSelector = () => {
                 <Icon name="shield-lock" size={16} color="#6366f1" />
                 <Text style={styles.badgeText}>End-to-End Encrypted</Text>
               </View>
-              <Text style={styles.versionText}>v2.0.4 Premium Experience</Text>
+              {/* <Text style={styles.versionText}>v2.0.4 Premium Experience</Text> */}
             </View>
           </Animated.View>
         </SafeAreaView>

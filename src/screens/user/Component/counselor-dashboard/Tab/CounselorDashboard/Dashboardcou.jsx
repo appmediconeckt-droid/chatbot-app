@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance, { API_BASE_URL } from '../../../../../../axiosConfig';
-import { io } from 'socket.io-client';
+import socketService from '../../../../../../services/socketService';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -67,41 +67,40 @@ const Dashboard = () => {
     fetchData();
 
     const connectSocket = async () => {
-      const token = await getToken();
-      const counsellorId = await getCounsellorId();
-      if (!token) return;
+      const unsubscribers = [];
+      try {
+        const token = await getToken();
+        const counsellorId = await getCounsellorId();
+        if (!token) return;
 
-      const socket = io(API_BASE_URL, {
-        transports: ['polling', 'websocket'],
-        auth: { token },
-        reconnection: true,
-      });
-      socketRef.current = socket;
+        const socket = await socketService.connect();
+        socketRef.current = socket;
 
-      socket.on('connect', () => {
         if (counsellorId) socket.emit('join-counsellor-room', { counsellorId });
-      });
 
-      const refresh = () => fetchData(true);
-      // Cover all possible event names the backend may emit
-      socket.on('appointment-booked', refresh);
-      socket.on('appointment-new', refresh);
-      socket.on('appointment-updated', refresh);
-      socket.on('appointment-confirmed', refresh);
-      socket.on('appointment-cancelled', refresh);
-      socket.on('appointment-status-changed', refresh);
-      socket.on('new-appointment', refresh);
+        const refresh = () => fetchData(true);
+        unsubscribers.push(await socketService.on('appointment-booked', refresh));
+        unsubscribers.push(await socketService.on('appointment-new', refresh));
+        unsubscribers.push(await socketService.on('appointment-updated', refresh));
+        unsubscribers.push(await socketService.on('appointment-confirmed', refresh));
+        unsubscribers.push(await socketService.on('appointment-cancelled', refresh));
+        unsubscribers.push(await socketService.on('appointment-status-changed', refresh));
+        unsubscribers.push(await socketService.on('new-appointment', refresh));
+
+        socketRef.current._unsubscribers = unsubscribers;
+      } catch (err) {
+        console.error('Failed to connect shared socket for counselor dashboard:', err);
+      }
     };
 
     connectSocket();
 
     return () => {
-      socketRef.current?.disconnect();
+      try { const unsub = socketRef.current?._unsubscribers || []; unsub.forEach(fn => { try { fn(); } catch {} }); } catch (e) {}
       socketRef.current = null;
     };
   }, [fetchData]);
 
-  // Use start-of-today so appointments earlier today are included
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -139,7 +138,6 @@ const Dashboard = () => {
     if (isTomorrow) return `Tomorrow, ${time}`;
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + `, ${time}`;
   };
-
   const getUserName = (apt) =>
     apt?.user?.fullName || apt?.user?.name || apt?.user?.anonymous ||
     apt?.patient?.fullName || apt?.patient?.name || 'Patient';
@@ -159,9 +157,12 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <View style={styles.loaderWrap}>
-        <ActivityIndicator size="large" color="#4f46e5" />
-      </View>
+      <>
+        <StatusBar barStyle="dark-content" backgroundColor="#f0f4ff" translucent={false} />
+        <View style={styles.loaderWrap}>
+          <ActivityIndicator size="large" color="#4f46e5" />
+        </View>
+      </>
     );
   }
 
@@ -192,7 +193,7 @@ const Dashboard = () => {
           </View>
         </View>
 
-        {/* Stats row — full width, equal flex columns */}
+        {/* Stats row */}
         <View style={styles.statsRow}>
           {stats.map((s) => (
             <View key={s.label} style={[styles.statCard, { backgroundColor: s.bg }]}>
@@ -486,14 +487,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  // Quick actions — flex so they fill full width
+  // Quick actions
   quickGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
   },
   quickBtn: {
-    // Each button takes exactly half the available card width minus half the gap
     width: (screenWidth - CONTENT_H_PAD * 2 - CARD_PADDING * 2 - 10) / 2,
     borderRadius: 14,
     padding: 16,

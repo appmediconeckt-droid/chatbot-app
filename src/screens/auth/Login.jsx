@@ -14,7 +14,10 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { API_BASE_URL } from '../config';
+import { API_BASE_URL } from '../../axiosConfig';
+import GoogleAuthButton from './components/GoogleAuthButton';
+import { sendLocationSilently } from '../../utils/locationHelper';
+import socketService from '../../services/socketService';
 
 const Login = ({ navigation, route }) => {
   const [email, setEmail] = useState('');
@@ -187,13 +190,12 @@ const Login = ({ navigation, route }) => {
 
       setSuccessMessage('Login successful! Redirecting...');
 
+      socketService.connect().catch(() => {});
+
+      const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
       setTimeout(() => {
-        if (isCounselor) {
-          navigation.replace('CounselorDashboard');
-        } else {
-          navigation.replace('UserDashboard');
-        }
-      }, 1200);
+        navigation.replace('LocationGate', { destination });
+      }, 800);
     } catch (err) {
       // CRITICAL: Check for both conditions exactly like web version
       if (
@@ -299,15 +301,13 @@ const Login = ({ navigation, route }) => {
 
       setShowConflictModal(false);
       setSuccessMessage('OTP verified! Redirecting...');
-      
-      // Navigate after success message
+
+      socketService.connect().catch(() => {});
+
+      const destination = resolvedRole === 'counselor' ? 'CounselorDashboard' : 'UserDashboard';
       setTimeout(() => {
-        if (resolvedRole === 'counselor') {
-          navigation.replace('CounselorDashboard');
-        } else {
-          navigation.replace('UserDashboard');
-        }
-      }, 1200);
+        navigation.replace('LocationGate', { destination });
+      }, 800);
     } catch (err) {
       const msg = err?.response?.data?.message || err?.message || 'OTP verification failed';
       setErrorMessage(msg);
@@ -392,7 +392,7 @@ const Login = ({ navigation, route }) => {
                 <Text style={styles.checkboxLabel}>Remember me</Text>
               </TouchableOpacity>
               
-              <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
+              <TouchableOpacity onPress={() => navigation.navigate('SetPasswordByOtp')}>
                 <Text style={styles.forgotPassword}>Forgot Password?</Text>
               </TouchableOpacity>
             </View>
@@ -410,9 +410,44 @@ const Login = ({ navigation, route }) => {
               )}
             </TouchableOpacity>
 
+            {/* Divider */}
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or continue with</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Google Sign-In */}
+            <GoogleAuthButton
+              role={normalizeRole(route?.params?.role) || 'user'}
+              mode="signin"
+              disabled={isLoading}
+              locationEvent="login"
+              onSuccess={({ isCounselor }) => {
+                setSuccessMessage('Login successful! Redirecting...');
+                const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
+                setTimeout(() => {
+                  navigation.replace('LocationGate', { destination });
+                }, 800);
+              }}
+              onConflict={({ email: conflictEmail }) => {
+                if (conflictEmail) setEmail(conflictEmail);
+                setShowConflictModal(true);
+                setOtpSent(false);
+                setOtp('');
+                setErrorMessage('');
+              }}
+              onError={(msg) => {
+                console.warn('[Login] Google onError:', msg);
+                setErrorMessage(msg);
+                // 8s — long enough to actually read it.
+                setTimeout(() => setErrorMessage(''), 8000);
+              }}
+            />
+
             {/* Error Message */}
             {errorMessage ? (
-              <View style={styles.errorContainer}>
+              <View style={[styles.errorContainer, { marginTop: 16 }]}>
                 <Text style={styles.errorText}>{errorMessage}</Text>
               </View>
             ) : null}
@@ -642,6 +677,23 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e5e7eb',
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    color: '#9ca3af',
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   errorContainer: {
     backgroundColor: '#ffebee',

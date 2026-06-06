@@ -22,12 +22,15 @@ import { API_BASE_URL } from '../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { launchImageLibrary } from 'react-native-image-picker';
+import GoogleAuthButton from './components/GoogleAuthButton';
+import { sendLocationSilently } from '../../utils/locationHelper';
+import socketService from '../../services/socketService';
 
 // Import logo
 import logo from '../../image/Mediconect Logo-3.png';
 
 const CounselorSignup = ({ navigation, route }) => {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
   const [formData, setFormData] = useState({
@@ -44,7 +47,7 @@ const CounselorSignup = ({ navigation, route }) => {
     consultationMode: [],
     languages: [],
     aboutMe: '',
-    profilePhoto: null,
+    // profilePhoto: null,
     confirmPassword: '',
   });
 
@@ -134,6 +137,8 @@ const CounselorSignup = ({ navigation, route }) => {
     } else {
       await AsyncStorage.setItem('userRole', 'counselor');
     }
+    sendLocationSilently('login');
+    socketService.connect().catch(() => {});
     return true;
   };
 
@@ -216,13 +221,13 @@ const CounselorSignup = ({ navigation, route }) => {
       formData.consultationMode.forEach(mode => data.append('consultationMode[]', mode.toLowerCase()));
       formData.languages.forEach(lang => data.append('languages[]', lang));
 
-      if (formData.profilePhoto) {
-        data.append('profilePhoto', {
-          uri: formData.profilePhoto.uri,
-          type: formData.profilePhoto.type || 'image/jpeg',
-          name: formData.profilePhoto.fileName || 'profile.jpg',
-        });
-      }
+      // if (formData.profilePhoto) {
+      //   data.append('profilePhoto', {
+      //     uri: formData.profilePhoto.uri,
+      //     type: formData.profilePhoto.type || 'image/jpeg',
+      //     name: formData.profilePhoto.fileName || 'profile.jpg',
+      //   });
+      // }
 
       const response = await axios.post(`${API_BASE_URL}/api/auth/complete-registration`, data, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -239,25 +244,6 @@ const CounselorSignup = ({ navigation, route }) => {
     }
   };
 
-  const handleSelectImage = () => {
-    const options = {
-      mediaType: 'photo',
-      includeBase64: false,
-      maxHeight: 1000,
-      maxWidth: 1000,
-    };
-
-    launchImageLibrary(options, (response) => {
-      if (response.didCancel) return;
-      if (response.errorCode) {
-        showNotification('Image picker error', 'error');
-        return;
-      }
-      if (response.assets && response.assets.length > 0) {
-        setFormData(prev => ({ ...prev, profilePhoto: response.assets[0] }));
-      }
-    });
-  };
 
   const handleSendVerifyOtp = async (type) => {
     const value = type === 'email' ? formData.email : formData.phoneNumber;
@@ -412,14 +398,14 @@ const CounselorSignup = ({ navigation, route }) => {
         <SafeAreaView style={styles.safeArea}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : null} style={styles.flex}>
             <TouchableOpacity style={styles.backBtn} onPress={() => navigation.replace('RoleSelector')}><Icon name="chevron-left" size={28} color="#ffffff" /></TouchableOpacity>
-            <ScrollView contentContainerStyle={[styles.scrollContent, isLogin && { paddingTop: 150 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
+            <ScrollView contentContainerStyle={[styles.scrollContent, isLogin && { paddingTop: height * 0.13 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
               <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
                   <View style={styles.logoBadge}><Image source={logo} style={styles.logo} resizeMode="contain" /></View>
                   <View style={styles.brandContainer}><Text style={styles.brandMain}>Medicone</Text><Text style={[styles.brandAlt, { color: '#10b981' }]}>ckt</Text></View>
                   <Text style={styles.tagline}>{isLogin ? 'Welcome back, Counselor' : 'Join our expert team'}</Text>
                 </View>
-                {!isLogin && (
+                {/* {!isLogin && (
                   <Animated.View key="photo-section" style={[styles.photoSection, { opacity: fieldAnims[0] }]}>
                     <TouchableOpacity onPress={handleSelectImage} style={styles.photoCircle}>
                       {formData.profilePhoto ? (
@@ -430,7 +416,7 @@ const CounselorSignup = ({ navigation, route }) => {
                     </TouchableOpacity>
                     <Text style={styles.photoLabel}>Counselor Photo</Text>
                   </Animated.View>
-                )}
+                )} */}
                 <View style={styles.formPanel}>
                   {!isLogin ? (
                     <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderInput(3, 'phoneNumber', 'phone-outline', 'Phone Number', { keyboardType: 'phone-pad' }, 'phone')}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
@@ -450,6 +436,32 @@ const CounselorSignup = ({ navigation, route }) => {
                   {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#10b981' }]}>Forgot password?</Text></TouchableOpacity>)}
                   {!isLogin && (<Animated.View key="cpwd-section" style={{ opacity: fieldAnims[14] }}><View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}><Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#10b981' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={() => setFocusedField('confirmPassword')} onBlur={() => setFocusedField(null)} placeholder="Confirm Password" placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} /><TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity></View></Animated.View>)}
                   <Animated.View key="btn-section" style={{ opacity: fieldAnims[15], marginTop: 10 }}><TouchableOpacity style={[styles.submitBtn, { backgroundColor: '#10b981' }]} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>{isLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>{isLogin ? 'Login' : 'Join as Counselor'}</Text>}</TouchableOpacity></Animated.View>
+                  <Animated.View key="google-section" style={{ opacity: fieldAnims[15], marginTop: 14 }}>
+                    <View style={styles.googleDividerRow}>
+                      <View style={styles.googleDividerLine} />
+                      <Text style={styles.googleDividerText}>or</Text>
+                      <View style={styles.googleDividerLine} />
+                    </View>
+                    <GoogleAuthButton
+                      role="counselor"
+                      mode={isLogin ? 'signin' : 'signup'}
+                      disabled={isLoading}
+                      locationEvent={isLogin ? 'login' : 'signup'}
+                      onSuccess={({ isCounselor }) => {
+                        sendLocationSilently(isLogin ? 'login' : 'signup');
+                        setTimeout(() => {
+                          navigation.replace(
+                            isCounselor ? 'CounselorDashboard' : 'UserDashboard',
+                          );
+                        }, 600);
+                      }}
+                      onError={(msg) => {
+                        // CounselorSignup doesn't have a generic error toast,
+                        // so surface via Alert.
+                        console.warn('[Google sign-in]', msg);
+                      }}
+                    />
+                  </Animated.View>
                   <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[16] }]}><Text style={styles.switchText}>{isLogin ? "New counselor?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#10b981' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
                 </View>
               </Animated.View>
@@ -521,6 +533,18 @@ const styles = StyleSheet.create({
   tagSelected: { backgroundColor: '#f0fdf4', borderColor: '#10b981' },
   tagText: { fontSize: 12, fontWeight: '700', color: '#64748b' },
   tagTextSelected: { color: '#10b981' },
+  googleDividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  googleDividerLine: { flex: 1, height: 1, backgroundColor: '#e5e7eb' },
+  googleDividerText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    color: '#9ca3af',
+    fontWeight: '600',
+  },
   forgotLink: { alignSelf: 'flex-end', marginTop: -8, marginBottom: 8 },
   forgotText: { fontSize: 12, fontWeight: '700' },
   submitBtn: { height: 56, borderRadius: 20, justifyContent: 'center', alignItems: 'center', shadowColor: '#10b981', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },

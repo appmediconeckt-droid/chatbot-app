@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   StatusBar,
   Platform,
+  Animated,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -23,6 +24,40 @@ const PAYMENT_METHODS = [
   { id: 'bank', label: 'NetBanking', icon: 'account-balance' },
   { id: 'wallet', label: 'Wallet', icon: 'account-balance-wallet' },
 ];
+
+const WalletSkeleton = () => {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 850, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 850, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [anim]);
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
+  return (
+    <View style={walletSkel.wrap}>
+      <Animated.View style={[walletSkel.headerTitle, { opacity }]} />
+      <Animated.View style={[walletSkel.headerSub, { opacity }]} />
+      <Animated.View style={[walletSkel.balanceCard, { opacity }]} />
+      <View style={walletSkel.statsRow}>
+        <Animated.View style={[walletSkel.statBox, { opacity }]} />
+        <Animated.View style={[walletSkel.statBox, { opacity }]} />
+        <Animated.View style={[walletSkel.statBox, { opacity }]} />
+      </View>
+      <Animated.View style={[walletSkel.summaryCard, { opacity }]} />
+      <View style={walletSkel.tabs}>
+        <Animated.View style={[walletSkel.tabPill, { opacity }]} />
+        <Animated.View style={[walletSkel.tabPill, { opacity }]} />
+      </View>
+      <Animated.View style={[walletSkel.bigCard, { opacity }]} />
+      <Animated.View style={[walletSkel.supportCard, { opacity }]} />
+    </View>
+  );
+};
 
 const WalletDashboard = ({ userData = {} }) => {
   const insets = useSafeAreaInsets();
@@ -326,18 +361,21 @@ const WalletDashboard = ({ userData = {} }) => {
 
   if (fetching) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <View style={styles.safeArea}>
         <StatusBar barStyle="dark-content" backgroundColor="#f4f7ff" />
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#1d4ed8" />
-          <Text style={styles.loadingText}>Loading wallet...</Text>
-        </View>
-      </SafeAreaView>
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          <WalletSkeleton />
+        </ScrollView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <View style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#f4f7ff" />
       <ScrollView
         style={styles.container}
@@ -372,21 +410,23 @@ const WalletDashboard = ({ userData = {} }) => {
         {activeTab === 'add-money' ? renderAddMoney() : renderTransactions()}
         {renderSupport()}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+    width: '100%',
     backgroundColor: '#f4f7ff',
   },
   container: {
     flex: 1,
+    width: '100%',
     backgroundColor: '#f4f7ff',
-    marginTop:-30
   },
   content: {
+    width: '100%',
     paddingHorizontal: 16,
     flexGrow: 1,
   },
@@ -402,7 +442,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   header: {
-    marginTop: Platform.OS === 'ios' ? 8 : 12,
+    marginTop: 0,
     marginBottom: 18,
   },
   headerTitle: {
@@ -859,6 +899,79 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 12,
+  },
+});
+
+const walletSkel = StyleSheet.create({
+  wrap: {
+    width: '100%',
+    paddingTop: 12,
+  },
+  headerTitle: {
+    width: 180,
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: '#dbe2ea',
+    marginBottom: 10,
+  },
+  headerSub: {
+    width: '70%',
+    height: 12,
+    borderRadius: 4,
+    backgroundColor: '#e6ebf2',
+    marginBottom: 18,
+  },
+  balanceCard: {
+    width: '100%',
+    height: 160,
+    borderRadius: 24,
+    backgroundColor: '#dbe2ea',
+    marginBottom: 16,
+  },
+  statsRow: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  statBox: {
+    flex: 1,
+    height: 84,
+    borderRadius: 16,
+    backgroundColor: '#dbe2ea',
+  },
+  summaryCard: {
+    width: '100%',
+    height: 130,
+    borderRadius: 18,
+    backgroundColor: '#dbe2ea',
+    marginBottom: 16,
+  },
+  tabs: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  tabPill: {
+    flex: 1,
+    height: 40,
+    borderRadius: 999,
+    backgroundColor: '#dbe2ea',
+  },
+  bigCard: {
+    width: '100%',
+    height: 320,
+    borderRadius: 20,
+    backgroundColor: '#dbe2ea',
+    marginBottom: 16,
+  },
+  supportCard: {
+    width: '100%',
+    height: 80,
+    borderRadius: 16,
+    backgroundColor: '#dbe2ea',
+    marginBottom: 24,
   },
 });
 

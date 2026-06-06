@@ -1,5 +1,5 @@
 // CounselorRequestChat.js - React Native Version
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import {
   Alert,
   Platform,
   useWindowDimensions,
+  Animated,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -26,6 +27,78 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 const { width, height } = Dimensions.get('window');
+
+const CounselorListSkeleton = () => {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 850, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 850, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [anim]);
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
+  return (
+    <View style={counselorSkel.wrap}>
+      <View style={counselorSkel.searchBox}>
+        <Animated.View style={[counselorSkel.searchInner, { opacity }]} />
+      </View>
+      {[1, 2, 3, 4, 5, 6].map((i) => (
+        <View key={i} style={counselorSkel.card}>
+          <Animated.View style={[counselorSkel.avatar, { opacity }]} />
+          <View style={counselorSkel.body}>
+            <Animated.View style={[counselorSkel.lineLg, { opacity }]} />
+            <Animated.View style={[counselorSkel.lineMd, { opacity }]} />
+            <View style={counselorSkel.metaRow}>
+              <Animated.View style={[counselorSkel.metaChip, { opacity }]} />
+              <Animated.View style={[counselorSkel.metaChip, { opacity }]} />
+            </View>
+          </View>
+          <Animated.View style={[counselorSkel.button, { opacity }]} />
+        </View>
+      ))}
+    </View>
+  );
+};
+
+const counselorSkel = {
+  wrap: { flex: 1, width: '100%', paddingHorizontal: 16, paddingTop: 12 },
+  searchBox: { width: '100%', marginBottom: 14 },
+  searchInner: {
+    width: '100%',
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#e2e8f0',
+  },
+  card: {
+    width: '100%',
+    flexDirection: 'row',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 10,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#eef2f7',
+    alignItems: 'center',
+  },
+  avatar: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#e2e8f0' },
+  body: { flex: 1, minWidth: 0, gap: 7 },
+  lineLg: { width: '70%', height: 13, borderRadius: 4, backgroundColor: '#e2e8f0' },
+  lineMd: { width: '50%', height: 11, borderRadius: 4, backgroundColor: '#edf1f5' },
+  metaRow: { flexDirection: 'row', gap: 6, marginTop: 2 },
+  metaChip: { width: 50, height: 16, borderRadius: 999, backgroundColor: '#edf1f5' },
+  button: { width: 60, height: 30, borderRadius: 15, backgroundColor: '#e2e8f0' },
+};
+const resolveOnlineStatus = (person) => {
+  const explicitOnline = person?.isOnline ?? person?.online;
+  if (typeof explicitOnline === 'boolean') return explicitOnline;
+  if (typeof explicitOnline === 'string') return ['online','true','1','yes'].includes(String(explicitOnline).toLowerCase());
+  return false;
+};
 
 const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const navigation = useNavigation();
@@ -130,7 +203,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         id: counselor.id,
         name: counselor.name,
         specialization: counselor.specialization,
-        online: counselor.available,
+        online: counselor.online ?? counselor.available,
       },
     });
   };
@@ -158,29 +231,30 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const fetchCounselors = async () => {
     try {
       setRefreshing(true);
-      const response = await axios.get(`${API_BASE_URL}/api/auth/counsellors`);
+      const authToken = await getAuthToken();
+      const response = await axios.get(`${API_BASE_URL}/api/chat/counselors`, {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      });
 
-      if (response.data.success) {
-        const formattedCounselors = response.data.counsellors.map((c) => ({
-          id: c._id,
-          name: c.fullName,
-          specialization: c.specialization?.join(" , ") || "General",
-          experience: `${c.experience || 0} years`,
-          rating: c.rating || 4.5,
-          online: c.isActive,
-          available: c.isActive,
-          avatar: getProfilePhotoUrl(c) || getInitials(c.fullName),
-          avatarType: getProfilePhotoUrl(c) ? 'image' : 'text',
-          responseTime: "< 10 seconds",
-          profilePhoto: c.profilePhoto,
-          email: c.email,
-          phone: c.phoneNumber,
-          location: c.location,
-        }));
+      const list = response.data?.counselors || response.data?.counsellors || [];
+      const formattedCounselors = list.map((c) => ({
+        id: c._id,
+        name: c.fullName,
+        specialization: Array.isArray(c.specialization) ? c.specialization.join(' , ') : (c.specialization || 'General'),
+        experience: `${c.experience || 0} years`,
+        rating: c.rating || 4.5,
+        online: resolveOnlineStatus(c),
+        available: resolveOnlineStatus(c),
+        avatar: getProfilePhotoUrl(c) || getInitials(c.fullName),
+        avatarType: getProfilePhotoUrl(c) ? 'image' : 'text',
+        responseTime: '< 10 seconds',
+        profilePhoto: c.profilePhoto,
+        email: c.email,
+        phone: c.phoneNumber,
+        location: c.location,
+      }));
 
-        setCounselors(formattedCounselors);
-      }
-
+      setCounselors(formattedCounselors);
       await fetchAcceptedChats();
     } catch (error) {
       console.error("Error fetching counselors:", error);
@@ -251,7 +325,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
   // Handle Chat Now click
   const handleChatNow = (counselor) => {
-    if (!counselor.available) {
+    if (!counselor.online && !counselor.available) {
       Alert.alert(
         'Counselor Unavailable',
         `${counselor.name} is currently not available. Please try later.`
@@ -687,6 +761,17 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
     </>
   );
 
+  const showInitialSkeleton = refreshing && counselors.length === 0;
+
+  if (showInitialSkeleton) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+        <CounselorListSkeleton />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
@@ -974,6 +1059,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 const styles = {
   container: {
     flex: 1,
+    width: '100%',
     backgroundColor: '#f8f9fa',
   },
   header: {
@@ -1244,9 +1330,7 @@ const styles = {
     fontWeight: '700',
     color: '#166534',
   },
-  unavailableCard: {
-    opacity: 0.6,
-  },
+  unavailableCard: {},
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1287,7 +1371,7 @@ const styles = {
     backgroundColor: '#10b981',
   },
   offline: {
-    backgroundColor: '#ef4444',
+    backgroundColor: '#9ca3af',
   },
   statusContainer: {
     paddingHorizontal: 8,

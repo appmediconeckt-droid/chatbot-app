@@ -47,15 +47,40 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
+// Endpoints where a 401 means "wrong credentials / not logged in" rather than
+// "session expired" — refreshing for these would loop or surface confusing
+// errors during logout flows.
+const NO_REFRESH_PATHS = [
+  '/api/auth/login',
+  '/api/auth/logout',
+  '/api/auth/refresh-token',
+  '/api/auth/google',
+  '/api/auth/verify-login-otp',
+];
+
 axiosInstance.interceptors.response.use(
   (response) => {
     return response;
   },
   async (error) => {
     const originalRequest = error.config;
+    const url = originalRequest?.url || '';
+    const isAuthRoute = NO_REFRESH_PATHS.some((p) => url.includes(p));
 
     // Handle 401 errors (unauthorized)
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !isAuthRoute
+    ) {
+      // Skip refresh entirely if no token exists — propagate the original 401
+      // so the caller sees "Unauthorized", not a fabricated
+      // "No refresh token available" message.
+      const refreshToken = await AsyncStorage.getItem('refreshToken');
+      if (!refreshToken) {
+        return Promise.reject(error);
+      }
+
       console.log('🔥 401 Interceptor triggered');
 
       if (isRefreshing) {
@@ -75,12 +100,6 @@ axiosInstance.interceptors.response.use(
 
       try {
         console.log('🔄 Calling refresh-token API');
-        
-        const refreshToken = await AsyncStorage.getItem('refreshToken');
-        
-        if (!refreshToken) {
-          throw new Error('No refresh token available');
-        }
 
         const response = await axios.post(
           `${API_BASE_URL}/api/auth/refresh-token`,

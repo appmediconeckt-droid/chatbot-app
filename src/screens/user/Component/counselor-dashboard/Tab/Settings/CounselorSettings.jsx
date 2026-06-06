@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,141 +6,420 @@ import {
   TouchableOpacity,
   StyleSheet,
   Linking,
-  Alert,
+  Switch,
   Dimensions,
+  Animated,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  TextInput,
+  ActivityIndicator,
 } from 'react-native';
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Feather from 'react-native-vector-icons/Feather';
 
-const { width } = Dimensions.get('window');
+const useShimmer = () => {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 850, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 850, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [anim]);
+  return anim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
+};
 
-const SECTIONS = [
-  {
-    title: 'Account',
-    items: [
-      {
-        id: 'profile',
-        icon: 'user',
-        iconBg: '#eef1ff',
-        iconColor: '#2c50cd',
-        label: 'Edit Profile',
-        subtitle: 'Personal & professional details',
-      },
-      {
-        id: 'change_password',
-        icon: 'lock',
-        iconBg: '#fff7ed',
-        iconColor: '#f97316',
-        label: 'Change Password',
-        subtitle: 'Update your login password',
-      },
-      {
-        id: 'availability',
-        icon: 'calendar',
-        iconBg: '#f0fdf4',
-        iconColor: '#16a34a',
-        label: 'Availability Schedule',
-        subtitle: 'Set your working hours & days',
-      },
-      {
-        id: 'consultation_mode',
-        icon: 'video',
-        iconBg: '#fdf4ff',
-        iconColor: '#9333ea',
-        label: 'Consultation Mode',
-        subtitle: 'Online, in-person or both',
-      },
-    ],
-  },
-  {
-    title: 'Privacy & Security',
-    items: [
-      {
-        id: 'two_factor',
-        icon: 'shield',
-        iconBg: '#f0fdf4',
-        iconColor: '#16a34a',
-        label: 'Two-Factor Authentication',
-        subtitle: 'Add an extra layer of security',
-      },
-      {
-        id: 'active_sessions',
-        icon: 'monitor',
-        iconBg: '#eef1ff',
-        iconColor: '#2c50cd',
-        label: 'Active Sessions',
-        subtitle: 'Manage your logged-in devices',
-      },
-      {
-        id: 'anonymous_mode',
-        icon: 'eye-off',
-        iconBg: '#fff7ed',
-        iconColor: '#f97316',
-        label: 'Anonymous Patient Names',
-        subtitle: 'Always show anonymous names',
-      },
-    ],
-  },
-  {
-    title: 'Support',
-    items: [
-      {
-        id: 'help',
-        icon: 'help-circle',
-        iconBg: '#eef1ff',
-        iconColor: '#2c50cd',
-        label: 'Help & FAQ',
-        subtitle: 'Common questions & guides',
-      },
-      {
-        id: 'contact',
-        icon: 'mail',
-        iconBg: '#f0fdf4',
-        iconColor: '#16a34a',
-        label: 'Contact Support',
-        subtitle: 'Reach our support team',
-      },
-      {
-        id: 'feedback',
-        icon: 'edit-2',
-        iconBg: '#fdf4ff',
-        iconColor: '#9333ea',
-        label: 'Send Feedback',
-        subtitle: 'Help us improve the app',
-      },
-    ],
-  },
-  {
-    title: 'Legal',
-    items: [
-      {
-        id: 'terms',
-        icon: 'file-text',
-        iconBg: '#f8fafc',
-        iconColor: '#64748b',
-        label: 'Terms & Conditions',
-        subtitle: 'Read our terms of service',
-      },
-      {
-        id: 'privacy',
-        icon: 'lock',
-        iconBg: '#f8fafc',
-        iconColor: '#64748b',
-        label: 'Privacy Policy',
-        subtitle: 'How we handle your data',
-      },
-    ],
-  },
-];
+const SettingsSkeleton = () => {
+  const opacity = useShimmer();
+  const SkRow = () => (
+    <View style={skel.row}>
+      <Animated.View style={[skel.iconBox, { opacity }]} />
+      <View style={skel.body}>
+        <Animated.View style={[skel.lineLg, { opacity }]} />
+        <Animated.View style={[skel.lineSm, { opacity }]} />
+      </View>
+      <Animated.View style={[skel.trailDot, { opacity }]} />
+    </View>
+  );
+  const SkSection = ({ rows = 3 }) => (
+    <View style={skel.section}>
+      <Animated.View style={[skel.sectionLabel, { opacity }]} />
+      <View style={skel.card}>
+        {Array.from({ length: rows }).map((_, i) => (
+          <SkRow key={i} />
+        ))}
+      </View>
+    </View>
+  );
+  return (
+    <View style={skel.wrap}>
+      <View style={skel.quickRow}>
+        {[1, 2, 3, 4].map((i) => (
+          <View key={i} style={skel.quickItem}>
+            <Animated.View style={[skel.quickIcon, { opacity }]} />
+            <Animated.View style={[skel.quickLabel, { opacity }]} />
+          </View>
+        ))}
+      </View>
+      <SkSection rows={4} />
+      <SkSection rows={2} />
+      <SkSection rows={3} />
+    </View>
+  );
+};
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const API_BASE_URL = 'https://chatbot-backend-js25.onrender.com';
+
+const formatName = (full) => {
+  if (!full) return '';
+  const trimmed = String(full).trim();
+  if (!trimmed) return '';
+  return /^(dr\.?|mr\.?|mrs\.?|ms\.?)\s/i.test(trimmed)
+    ? trimmed
+    : `Dr. ${trimmed}`;
+};
+
+const firstName = (full) => {
+  const name = formatName(full).replace(/^(dr\.?|mr\.?|mrs\.?|ms\.?)\s+/i, '');
+  return name.split(/\s+/)[0] || '';
+};
+
+const formatConsultationMode = (modes) => {
+  if (!Array.isArray(modes) || modes.length === 0) return 'Not set';
+  if (modes.length === 1) return modes[0];
+  if (modes.length === 2) return modes.join(' & ');
+  return `All ${modes.length}`;
+};
+
+const INITIAL_PW_FORM = { otp: '', password: '', confirmPassword: '', oldPassword: '', newPassword: '', confirmNewPassword: '' };
 
 const CounselorSettings = ({ onNavigate, onLogout }) => {
+  const [autoAccept, setAutoAccept] = useState(false);
+  const [twoFactor, setTwoFactor] = useState(true);
+  const [counselor, setCounselor] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const handlePress = (id) => {
-    if (id === 'profile') { onNavigate?.('profile'); return; }
-    if (id === 'contact') { Linking.openURL('mailto:support@mediconnect.com'); return; }
-    Alert.alert('Coming Soon', 'This feature will be available in the next update.');
+  // Password modal state
+  const [pwModal, setPwModal] = useState(false);
+  const [pwMode, setPwMode] = useState('change'); // 'change' | 'set'
+  const [pwForm, setPwForm] = useState(INITIAL_PW_FORM);
+  const [otpSent, setOtpSent] = useState(false);
+  const [pwLoading, setPwLoading] = useState(false);
+  const [pwNotice, setPwNotice] = useState({ type: '', msg: '' });
+  const [showOld, setShowOld] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const openPwModal = (mode) => {
+    setPwMode(mode);
+    setPwForm(INITIAL_PW_FORM);
+    setOtpSent(false);
+    setPwNotice({ type: '', msg: '' });
+    setShowOld(false); setShowNew(false); setShowConfirm(false);
+    setPwModal(true);
   };
 
+  const setPw = (key, val) =>
+    setPwForm((prev) => ({ ...prev, [key]: key === 'otp' ? val.replace(/\D/g, '') : val }));
+
+  const handleSendOtp = async () => {
+    setPwNotice({ type: '', msg: '' });
+    const email = counselor?.email?.trim().toLowerCase();
+    if (!email) { setPwNotice({ type: 'error', msg: 'Email not found.' }); return; }
+    setPwLoading(true);
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/auth/generateOtp`, { email });
+      if (res.data?.success) {
+        setOtpSent(true);
+        setPwNotice({ type: 'success', msg: res.data.message || 'OTP sent to your email.' });
+      } else {
+        setPwNotice({ type: 'error', msg: res.data?.message || 'Failed to send OTP.' });
+      }
+    } catch (err) {
+      setPwNotice({ type: 'error', msg: err.response?.data?.message || err.message || 'Failed to send OTP.' });
+    } finally { setPwLoading(false); }
+  };
+
+  const handleSetPassword = async () => {
+    setPwNotice({ type: '', msg: '' });
+    if (!otpSent) { setPwNotice({ type: 'error', msg: 'Please request an OTP first.' }); return; }
+    if (!pwForm.otp || pwForm.otp.length !== 6) { setPwNotice({ type: 'error', msg: 'Enter the 6-digit OTP.' }); return; }
+    if (pwForm.password.length < 6) { setPwNotice({ type: 'error', msg: 'Password must be at least 6 characters.' }); return; }
+    if (pwForm.password !== pwForm.confirmPassword) { setPwNotice({ type: 'error', msg: 'Passwords do not match.' }); return; }
+    setPwLoading(true);
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/auth/set-password-by-otp`, {
+        email: counselor?.email?.trim().toLowerCase(),
+        otp: pwForm.otp,
+        password: pwForm.password,
+      });
+      if (res.data?.success) {
+        setPwNotice({ type: 'success', msg: res.data.message || 'Password set successfully.' });
+        setPwForm(INITIAL_PW_FORM);
+        setOtpSent(false);
+        setPwModal(false);
+      } else {
+        setPwNotice({ type: 'error', msg: res.data?.message || 'Failed to set password.' });
+      }
+    } catch (err) {
+      setPwNotice({ type: 'error', msg: err.response?.data?.message || err.message || 'Failed to set password.' });
+    } finally { setPwLoading(false); }
+  };
+
+  const handleChangePassword = async () => {
+    setPwNotice({ type: '', msg: '' });
+    if (!pwForm.oldPassword) { setPwNotice({ type: 'error', msg: 'Enter your current password.' }); return; }
+    if (pwForm.newPassword.length < 6) { setPwNotice({ type: 'error', msg: 'New password must be at least 6 characters.' }); return; }
+    if (pwForm.newPassword !== pwForm.confirmNewPassword) { setPwNotice({ type: 'error', msg: 'Passwords do not match.' }); return; }
+    if (pwForm.oldPassword === pwForm.newPassword) { setPwNotice({ type: 'error', msg: 'New password must differ from current.' }); return; }
+    setPwLoading(true);
+    try {
+      const token = await AsyncStorage.getItem('token') || await AsyncStorage.getItem('accessToken');
+      const res = await axios.post(`${API_BASE_URL}/api/auth/changePassword`,
+        { oldPassword: pwForm.oldPassword, newPassword: pwForm.newPassword },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (res.data?.success) {
+        setPwNotice({ type: 'success', msg: res.data.message || 'Password changed successfully.' });
+        setPwForm(INITIAL_PW_FORM);
+      } else throw new Error(res.data?.message || 'Failed to change password.');
+    } catch (err) {
+      setPwNotice({ type: 'error', msg: err.response?.data?.message || err.message || 'Failed to change password.' });
+    } finally { setPwLoading(false); }
+  };
+
+  useEffect(() => {
+    fetchCounselor();
+  }, []);
+
+  const fetchCounselor = async () => {
+    try {
+      setLoading(true);
+      const counsellorId = await AsyncStorage.getItem('counsellorId');
+      const token = await AsyncStorage.getItem('token');
+      if (!counsellorId) {
+        setLoading(false);
+        return;
+      }
+      const res = await axios.get(
+        `${API_BASE_URL}/api/auth/counsellors/${counsellorId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.data?.success && res.data.counsellor) {
+        setCounselor(res.data.counsellor);
+      }
+    } catch (err) {
+      console.error('Settings: failed to load counselor', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNav = (id) => {
+    if (id === 'profile') return onNavigate?.('profile');
+    if (id === 'change_password') return openPwModal('change');
+    if (id === 'add_password') return openPwModal('set');
+    if (id === 'contact')
+      return Linking.openURL('mailto:support@mediconnect.com');
+    if (id === 'help') return Linking.openURL('https://mediconnect.com/help');
+    if (id === 'terms') return Linking.openURL('https://mediconnect.com/terms');
+    if (id === 'privacy')
+      return Linking.openURL('https://mediconnect.com/privacy');
+  };
+
+  const profileName =
+    formatName(counselor?.fullName || counselor?.name) || 'Your Profile';
+  const profileSubtitle =
+    counselor?.email ||
+    counselor?.phoneNumber ||
+    counselor?.phone ||
+    'Personal & professional details';
+  const consultationValue = formatConsultationMode(counselor?.consultationMode);
+  const payoutSubtitle = counselor?.payoutAccount?.maskedNumber
+    ? `${counselor.payoutAccount.bankName || 'Bank'} •••• ${counselor.payoutAccount.maskedNumber}`
+    : 'Add a bank account for payouts';
+  const payoutBadge = counselor?.payoutAccount?.verified ? 'Verified' : null;
+  const isCounselorOnline =
+    counselor?.isActive === true ||
+    counselor?.isOnline === true ||
+    counselor?.online === true ||
+    String(counselor?.status || '').toLowerCase() === 'online';
+  const availabilitySubtitle = counselor?.availability?.summary
+    ? counselor.availability.summary
+    : isCounselorOnline
+      ? 'Currently accepting sessions'
+      : 'Set your working hours';
+  const availabilityBadge = isCounselorOnline ? 'Online' : 'Offline';
+
+  const SECTIONS = [
+    {
+      title: 'Account',
+      items: [
+        {
+          id: 'profile',
+          icon: 'user',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: 'Edit Profile',
+          subtitle: profileSubtitle,
+          value: firstName(counselor?.fullName || counselor?.name) || null,
+          type: 'nav',
+        },
+        {
+          id: 'availability',
+          icon: 'calendar',
+          iconBg: '#DCFCE7',
+          iconColor: '#16A34A',
+          label: 'Availability Schedule',
+          subtitle: availabilitySubtitle,
+          badge: availabilityBadge,
+          badgeColor: '#16a34a',
+          type: 'nav',
+        },
+        {
+          id: 'consultation_mode',
+          icon: 'video',
+          iconBg: '#EFF6FF',
+          iconColor: '#0D9488',
+          label: 'Consultation Mode',
+          subtitle:
+            Array.isArray(counselor?.consultationMode) &&
+            counselor.consultationMode.length > 0
+              ? counselor.consultationMode.join(', ')
+              : 'Video, Voice & Chat',
+          value: consultationValue,
+          type: 'nav',
+        },
+        {
+          id: 'payout',
+          icon: 'credit-card',
+          iconBg: '#ecfeff',
+          iconColor: '#0D9488',
+          label: 'Payout Account',
+          subtitle: payoutSubtitle,
+          badge: payoutBadge,
+          badgeColor: '#0D9488',
+          type: 'nav',
+        },
+        {
+          id: 'auto_accept',
+          icon: 'check-circle',
+          iconBg: '#FFFBEB',
+          iconColor: '#D97706',
+          label: 'Auto-Accept Requests',
+          subtitle: 'Within your working hours',
+          type: 'switch',
+          value: autoAccept,
+          onChange: setAutoAccept,
+        },
+      ],
+    },
+    {
+      title: 'Privacy & Security',
+      items: [
+        {
+          id: 'change_password',
+          icon: 'lock',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: 'Change Password',
+          subtitle: 'Update your current password',
+          type: 'nav',
+        },
+        {
+          id: 'add_password',
+          icon: 'key',
+          iconBg: '#EFF6FF',
+          iconColor: '#0D9488',
+          label: 'Add Password by OTP',
+          subtitle: 'Set a password via email OTP',
+          type: 'nav',
+        },
+        {
+          id: 'two_factor',
+          icon: 'shield',
+          iconBg: '#DCFCE7',
+          iconColor: '#16A34A',
+          label: 'Two-Factor Authentication',
+          subtitle: 'Extra security on login',
+          type: 'switch',
+          value: twoFactor,
+          onChange: setTwoFactor,
+        },
+        {
+          id: 'data_export',
+          icon: 'download',
+          iconBg: '#ecfeff',
+          iconColor: '#0D9488',
+          label: 'Download My Data',
+          subtitle: 'Get a copy of all your data',
+          type: 'nav',
+        },
+      ],
+    },
+    {
+      title: 'Support',
+      items: [
+        {
+          id: 'help',
+          icon: 'help-circle',
+          iconBg: '#FEF3C7',
+          iconColor: '#D97706',
+          label: 'Help & FAQ',
+          subtitle: 'Common questions & guides',
+          type: 'nav',
+        },
+        {
+          id: 'contact',
+          icon: 'mail',
+          iconBg: '#DCFCE7',
+          iconColor: '#16A34A',
+          label: 'Contact Support',
+          subtitle: 'support@mediconnect.com',
+          type: 'nav',
+        },
+        {
+          id: 'feedback',
+          icon: 'edit-2',
+          iconBg: '#EFF6FF',
+          iconColor: '#0D9488',
+          label: 'Send Feedback',
+          subtitle: 'Help us improve the app',
+          type: 'nav',
+        },
+      ],
+    },
+    {
+      title: 'Legal',
+      items: [
+        {
+          id: 'terms',
+          icon: 'file-text',
+          iconBg: '#F9FAFB',
+          iconColor: '#6B7280',
+          label: 'Terms & Conditions',
+          subtitle: 'Read our terms of service',
+          type: 'nav',
+        },
+        {
+          id: 'privacy',
+          icon: 'lock',
+          iconBg: '#F9FAFB',
+          iconColor: '#6B7280',
+          label: 'Privacy Policy',
+          subtitle: 'How we handle your data',
+          type: 'nav',
+        },
+      ],
+    },
+  ];
+
   return (
+    <>
     <ScrollView
       style={styles.container}
       showsVerticalScrollIndicator={false}
@@ -149,48 +428,123 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Settings</Text>
-        <Text style={styles.headerSub}>Manage your account & preferences</Text>
+        <Text style={styles.headerSub}>
+          {loading ? 'Loading your account…' : `Signed in as ${profileName}`}
+        </Text>
       </View>
 
+      {/* Quick actions */}
+      {!loading && (
+        <View style={styles.quickRow}>
+          {[
+            { id: 'profile', icon: 'user', color: '#2563EB', bg: '#EFF6FF', label: 'Profile' },
+            { id: 'availability', icon: 'calendar', color: '#0D9488', bg: '#F0FDFA', label: 'Schedule' },
+            { id: 'payout', icon: 'credit-card', color: '#7C3AED', bg: '#F5F3FF', label: 'Payout' },
+            { id: 'help', icon: 'help-circle', color: '#D97706', bg: '#FFFBEB', label: 'Help' },
+          ].map((q) => (
+            <TouchableOpacity
+              key={q.id}
+              style={styles.quickItem}
+              activeOpacity={0.7}
+              onPress={() => handleNav(q.id)}
+            >
+              <View style={[styles.quickIcon, { backgroundColor: q.bg }]}>
+                <Feather name={q.icon} size={18} color={q.color} />
+              </View>
+              <Text style={styles.quickLabel}>{q.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {loading && <SettingsSkeleton />}
+
       {/* Sections */}
-      {SECTIONS.map((section) => (
+      {!loading && SECTIONS.map((section) => (
         <View key={section.title} style={styles.section}>
           <Text style={styles.sectionLabel}>{section.title}</Text>
           <View style={styles.card}>
-            {section.items.map((item, idx) => (
-              <TouchableOpacity
-                key={item.id}
-                style={[
-                  styles.row,
-                  idx < section.items.length - 1 && styles.rowDivider,
-                ]}
-                onPress={() => handlePress(item.id)}
-                activeOpacity={0.65}
-              >
-                <View style={[styles.iconBox, { backgroundColor: item.iconBg }]}>
-                  <Feather name={item.icon} size={18} color={item.iconColor} />
-                </View>
+            {section.items.map((item, idx) => {
+              const isLast = idx === section.items.length - 1;
+              const RowWrap = item.type === 'switch' ? View : TouchableOpacity;
+              const rowProps =
+                item.type === 'switch'
+                  ? {}
+                  : { onPress: () => handleNav(item.id), activeOpacity: 0.65 };
+              return (
+                <RowWrap
+                  key={item.id}
+                  style={[styles.row, !isLast && styles.rowDivider]}
+                  {...rowProps}
+                >
+                  <View style={[styles.iconBox, { backgroundColor: item.iconBg }]}>
+                    <Feather name={item.icon} size={18} color={item.iconColor} />
+                  </View>
 
-                <View style={styles.rowBody}>
-                  <Text style={styles.rowLabel}>{item.label}</Text>
-                  <Text style={styles.rowSub}>{item.subtitle}</Text>
-                </View>
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowLabel}>{item.label}</Text>
+                    {!!item.subtitle && (
+                      <Text style={styles.rowSub} numberOfLines={1}>
+                        {item.subtitle}
+                      </Text>
+                    )}
+                  </View>
 
-                <Feather name="chevron-right" size={16} color="#d1d5db" />
-              </TouchableOpacity>
-            ))}
+                  {item.type === 'switch' ? (
+                    <Switch
+                      value={item.value}
+                      onValueChange={item.onChange}
+                      trackColor={{ false: '#e2e8f0', true: '#0D9488' }}
+                      thumbColor={'#ffffff'}
+                      ios_backgroundColor="#e2e8f0"
+                    />
+                  ) : (
+                    <View style={styles.rowTrail}>
+                      {!!item.badge && (
+                        <View
+                          style={[
+                            styles.rowBadge,
+                            { backgroundColor: `${item.badgeColor}1A` },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.rowBadgeText,
+                              { color: item.badgeColor },
+                            ]}
+                          >
+                            {item.badge}
+                          </Text>
+                        </View>
+                      )}
+                      {!!item.value && !item.badge && (
+                        <Text style={styles.rowValue} numberOfLines={1}>
+                          {item.value}
+                        </Text>
+                      )}
+                      <Feather name="chevron-right" size={16} color="#cbd5e1" />
+                    </View>
+                  )}
+                </RowWrap>
+              );
+            })}
           </View>
         </View>
       ))}
 
       {/* App version card */}
+      {!loading && (
+        <>
       <View style={styles.versionCard}>
         <View style={[styles.iconBox, { backgroundColor: '#f1f5f9' }]}>
           <Feather name="info" size={18} color="#94a3b8" />
         </View>
         <View style={styles.rowBody}>
           <Text style={styles.rowLabel}>App Version</Text>
-          <Text style={styles.rowSub}>Mediconnect Counselor v1.0.0</Text>
+          <Text style={styles.rowSub}>Mediconnect Counselor v1.2.4 (Build 248)</Text>
+        </View>
+        <View style={styles.versionPill}>
+          <Text style={styles.versionPillText}>Latest</Text>
         </View>
       </View>
 
@@ -207,7 +561,134 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
       </TouchableOpacity>
 
       <Text style={styles.footer}>© 2025 Mediconnect. All rights reserved.</Text>
+        </>
+      )}
     </ScrollView>
+
+    {/* Password Modal */}
+    <Modal visible={pwModal} animationType="slide" transparent onRequestClose={() => setPwModal(false)}>
+      <KeyboardAvoidingView style={pwStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={pwStyles.sheet}>
+          {/* Sheet header */}
+          <View style={pwStyles.sheetHeader}>
+            <View>
+              <Text style={pwStyles.sheetTitle}>
+                {pwMode === 'set' ? 'Add Password by OTP' : 'Change Password'}
+              </Text>
+              <Text style={pwStyles.sheetSub}>
+                {pwMode === 'set' ? 'Set your password using email OTP verification' : 'Update your account password'}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setPwModal(false)} style={pwStyles.closeBtn}>
+              <Feather name="x" size={20} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={pwStyles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            {/* Notice */}
+            {!!pwNotice.msg && (
+              <View style={[pwStyles.notice, pwNotice.type === 'error' ? pwStyles.noticeError : pwStyles.noticeSuccess]}>
+                <Feather name={pwNotice.type === 'error' ? 'alert-circle' : 'check-circle'} size={14} color={pwNotice.type === 'error' ? '#dc2626' : '#16a34a'} />
+                <Text style={[pwStyles.noticeText, { color: pwNotice.type === 'error' ? '#dc2626' : '#16a34a' }]}>{pwNotice.msg}</Text>
+              </View>
+            )}
+
+            {pwMode === 'set' ? (
+              <>
+                {/* Email + Send OTP */}
+                <View style={pwStyles.field}>
+                  <Text style={pwStyles.label}>Email</Text>
+                  <View style={pwStyles.shell}>
+                    <Feather name="mail" size={15} color="#94a3b8" />
+                    <Text style={pwStyles.emailText} numberOfLines={1}>{counselor?.email || '—'}</Text>
+                    <TouchableOpacity style={pwStyles.otpBtn} onPress={handleSendOtp} disabled={pwLoading}>
+                      {pwLoading && !otpSent
+                        ? <ActivityIndicator size={12} color="#fff" />
+                        : <Text style={pwStyles.otpBtnText}>{otpSent ? 'Resend' : 'Send OTP'}</Text>
+                      }
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                {otpSent && (
+                  <View style={pwStyles.field}>
+                    <Text style={pwStyles.label}>OTP Code</Text>
+                    <View style={pwStyles.shell}>
+                      <Feather name="hash" size={15} color="#94a3b8" />
+                      <TextInput
+                        style={pwStyles.input}
+                        value={pwForm.otp}
+                        onChangeText={(v) => setPw('otp', v)}
+                        keyboardType="number-pad"
+                        maxLength={6}
+                        placeholder="6-digit OTP"
+                        placeholderTextColor="#94a3b8"
+                      />
+                    </View>
+                  </View>
+                )}
+                <View style={pwStyles.field}>
+                  <Text style={pwStyles.label}>New Password</Text>
+                  <View style={pwStyles.shell}>
+                    <Feather name="lock" size={15} color="#94a3b8" />
+                    <TextInput style={pwStyles.input} value={pwForm.password} onChangeText={(v) => setPw('password', v)} secureTextEntry={!showNew} placeholder="Minimum 6 characters" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TouchableOpacity onPress={() => setShowNew((x) => !x)}><Feather name={showNew ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
+                  </View>
+                </View>
+                <View style={pwStyles.field}>
+                  <Text style={pwStyles.label}>Confirm Password</Text>
+                  <View style={pwStyles.shell}>
+                    <Feather name="lock" size={15} color="#94a3b8" />
+                    <TextInput style={pwStyles.input} value={pwForm.confirmPassword} onChangeText={(v) => setPw('confirmPassword', v)} secureTextEntry={!showConfirm} placeholder="Re-enter password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TouchableOpacity onPress={() => setShowConfirm((x) => !x)}><Feather name={showConfirm ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
+                  </View>
+                </View>
+                <TouchableOpacity style={[pwStyles.submitBtn, (pwLoading || !otpSent) && pwStyles.submitDisabled]} onPress={handleSetPassword} disabled={pwLoading || !otpSent}>
+                  {pwLoading ? <ActivityIndicator color="#fff" /> : (
+                    <><Feather name="save" size={16} color="#fff" /><Text style={pwStyles.submitText}>Save Password</Text></>
+                  )}
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <View style={pwStyles.field}>
+                  <Text style={pwStyles.label}>Current Password</Text>
+                  <View style={pwStyles.shell}>
+                    <Feather name="lock" size={15} color="#94a3b8" />
+                    <TextInput style={pwStyles.input} value={pwForm.oldPassword} onChangeText={(v) => setPw('oldPassword', v)} secureTextEntry={!showOld} placeholder="Enter current password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TouchableOpacity onPress={() => setShowOld((x) => !x)}><Feather name={showOld ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={pwStyles.field}>
+                  <Text style={pwStyles.label}>New Password</Text>
+                  <View style={pwStyles.shell}>
+                    <Feather name="lock" size={15} color="#94a3b8" />
+                    <TextInput style={pwStyles.input} value={pwForm.newPassword} onChangeText={(v) => setPw('newPassword', v)} secureTextEntry={!showNew} placeholder="Minimum 6 characters" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TouchableOpacity onPress={() => setShowNew((x) => !x)}><Feather name={showNew ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={pwStyles.field}>
+                  <Text style={pwStyles.label}>Confirm New Password</Text>
+                  <View style={pwStyles.shell}>
+                    <Feather name="lock" size={15} color="#94a3b8" />
+                    <TextInput style={pwStyles.input} value={pwForm.confirmNewPassword} onChangeText={(v) => setPw('confirmNewPassword', v)} secureTextEntry={!showConfirm} placeholder="Re-enter new password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TouchableOpacity onPress={() => setShowConfirm((x) => !x)}><Feather name={showConfirm ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
+                  </View>
+                </View>
+
+                <TouchableOpacity style={[pwStyles.submitBtn, pwLoading && pwStyles.submitDisabled]} onPress={handleChangePassword} disabled={pwLoading}>
+                  {pwLoading ? <ActivityIndicator color="#fff" /> : (
+                    <><Feather name="check-circle" size={16} color="#fff" /><Text style={pwStyles.submitText}>Change Password</Text></>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+    </>
   );
 };
 
@@ -216,7 +697,8 @@ export default CounselorSettings;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f1f5f9',
+    width: '100%',
+    backgroundColor: '#F8FAFC',
   },
   scrollContent: {
     paddingBottom: 48,
@@ -224,54 +706,89 @@ const styles = StyleSheet.create({
 
   /* ── Header ── */
   header: {
+    width: '100%',
     backgroundColor: '#ffffff',
     paddingHorizontal: 20,
     paddingTop: 24,
     paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    marginBottom: 16,
+    borderBottomWidth: 3,
+    borderBottomColor: '#2563EB',
   },
   headerTitle: {
     fontSize: 26,
-    fontWeight: '700',
-    fontFamily: 'Manrope',
-    color: '#0f172a',
-    letterSpacing: 0.2,
+    fontWeight: '800',
+    color: '#111827',
+    letterSpacing: 0.1,
   },
   headerSub: {
     fontSize: 13,
-    fontFamily: 'Manrope',
-    color: '#94a3b8',
-    marginTop: 3,
+    color: '#6B7280',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+
+  /* ── Quick actions ── */
+  quickRow: {
+    width: '100%',
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 10,
+    backgroundColor: '#F0F4FF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#C7D2FE',
+  },
+  quickItem: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+  },
+  quickIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  quickLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
   },
 
   /* ── Section ── */
   section: {
+    width: '100%',
     marginBottom: 8,
+    marginTop: 16,
   },
   sectionLabel: {
     fontSize: 11,
-    fontWeight: '700',
-    fontFamily: 'Manrope',
-    color: '#94a3b8',
-    letterSpacing: 1.2,
+    fontWeight: '800',
+    color: '#2563EB',
+    letterSpacing: 1.4,
     textTransform: 'uppercase',
     paddingHorizontal: 20,
-    marginBottom: 6,
+    marginBottom: 8,
   },
 
   /* ── Card ── */
   card: {
-    backgroundColor: '#ffffff',
     width: '100%',
+    backgroundColor: '#ffffff',
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: '#e8ecf0',
+    borderColor: '#E5E7EB',
   },
 
   /* ── Row ── */
   row: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
@@ -279,13 +796,13 @@ const styles = StyleSheet.create({
   },
   rowDivider: {
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#F3F4F6',
   },
 
   iconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 42,
+    height: 42,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
@@ -293,41 +810,76 @@ const styles = StyleSheet.create({
 
   rowBody: {
     flex: 1,
+    minWidth: 0,
   },
   rowLabel: {
     fontSize: 14,
     fontWeight: '600',
-    fontFamily: 'Manrope',
-    color: '#0f172a',
+    color: '#111827',
   },
   rowSub: {
     fontSize: 12,
-    fontFamily: 'Manrope',
-    color: '#94a3b8',
+    color: '#9CA3AF',
     marginTop: 2,
+  },
+  rowTrail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    maxWidth: '40%',
+  },
+  rowValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6B7280',
+    maxWidth: 110,
+  },
+  rowBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  rowBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
 
   /* ── Version Card ── */
   versionCard: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    width: '100%',
     paddingHorizontal: 20,
     paddingVertical: 15,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: '#e8ecf0',
-    marginTop: 8,
-    marginBottom: 24,
+    borderColor: '#E5E7EB',
+    marginTop: 16,
+    marginBottom: 20,
+  },
+  versionPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#DCFCE7',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  versionPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#16A34A',
+    letterSpacing: 0.4,
   },
 
   /* ── Sign Out ── */
   signOutBtn: {
     marginHorizontal: 20,
     borderRadius: 14,
-    backgroundColor: '#fff5f5',
-    borderWidth: 1,
+    backgroundColor: '#fff1f2',
+    borderWidth: 1.5,
     borderColor: '#fecaca',
     marginBottom: 20,
     overflow: 'hidden',
@@ -342,16 +894,197 @@ const styles = StyleSheet.create({
   signOutText: {
     fontSize: 15,
     fontWeight: '700',
-    fontFamily: 'Manrope',
-    color: '#e53935',
+    color: '#ef4444',
   },
 
   /* ── Footer ── */
   footer: {
     textAlign: 'center',
     fontSize: 11,
-    fontFamily: 'Manrope',
-    color: '#cbd5e1',
+    color: '#9CA3AF',
     marginBottom: 8,
   },
+});
+
+const skel = StyleSheet.create({
+  wrap: {
+    width: '100%',
+    paddingTop: 4,
+  },
+  quickRow: {
+    width: '100%',
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 10,
+  },
+  quickItem: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e8ecf0',
+  },
+  quickIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#e2e8f0',
+    marginBottom: 8,
+  },
+  quickLabel: {
+    width: 42,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#e2e8f0',
+  },
+  section: {
+    width: '100%',
+    marginBottom: 12,
+  },
+  sectionLabel: {
+    height: 8,
+    width: 90,
+    borderRadius: 4,
+    backgroundColor: '#e2e8f0',
+    marginLeft: 20,
+    marginBottom: 10,
+  },
+  card: {
+    width: '100%',
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#e8ecf0',
+  },
+  row: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  iconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#e2e8f0',
+    marginRight: 14,
+  },
+  body: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+  },
+  lineLg: {
+    height: 12,
+    width: '55%',
+    borderRadius: 4,
+    backgroundColor: '#e2e8f0',
+  },
+  lineSm: {
+    height: 9,
+    width: '75%',
+    borderRadius: 4,
+    backgroundColor: '#edf1f5',
+  },
+  trailDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    backgroundColor: '#e2e8f0',
+  },
+});
+
+const pwStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(4,47,46,0.5)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: '90%',
+    borderTopWidth: 3,
+    borderColor: '#2563EB',
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  sheetTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
+  sheetSub: { fontSize: 12, color: '#64748b', marginTop: 3, maxWidth: '85%' },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#EFF6FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  body: { padding: 20, paddingBottom: 36 },
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+  },
+  noticeError: { backgroundColor: '#fef2f2' },
+  noticeSuccess: { backgroundColor: '#f0fdf4' },
+  noticeText: { flex: 1, fontSize: 13, fontWeight: '500' },
+  field: { marginBottom: 14 },
+  label: { fontSize: 13, fontWeight: '700', color: '#334155', marginBottom: 6 },
+  shell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    minHeight: 48,
+  },
+  input: { flex: 1, color: '#111827', fontSize: 14, paddingVertical: 10 },
+  emailText: { flex: 1, color: '#64748b', fontSize: 14 },
+  otpBtn: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  otpBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  submitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#2563EB',
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 8,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  submitDisabled: { opacity: 0.7 },
+  submitText: { color: '#fff', fontWeight: '800', fontSize: 15 },
 });

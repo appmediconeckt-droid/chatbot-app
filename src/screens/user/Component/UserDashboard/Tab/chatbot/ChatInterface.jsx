@@ -20,11 +20,65 @@ import {
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import socketService from '../../../../../../services/socketService';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import safeVibrate from '../../../../../../utils/safeVibrate';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 const { width: screenWidth } = Dimensions.get('window');
+
+const ChatListSkeleton = () => {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 850, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 850, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [anim]);
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
+  return (
+    <View style={chatSkel.wrap}>
+      {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+        <View key={i} style={chatSkel.row}>
+          <Animated.View style={[chatSkel.avatar, { opacity }]} />
+          <View style={chatSkel.body}>
+            <Animated.View style={[chatSkel.nameLine, { opacity }]} />
+            <Animated.View style={[chatSkel.msgLine, { opacity }]} />
+          </View>
+          <Animated.View style={[chatSkel.time, { opacity }]} />
+        </View>
+      ))}
+    </View>
+  );
+};
+
+const chatSkel = {
+  wrap: { flex: 1, width: '100%', paddingHorizontal: 14, paddingTop: 8 },
+  row: {
+    flexDirection: 'row',
+    width: '100%',
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F2F5',
+  },
+  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#e2e8f0' },
+  body: { flex: 1, marginLeft: 14, gap: 8 },
+  nameLine: { width: '45%', height: 15, borderRadius: 5, backgroundColor: '#e2e8f0' },
+  msgLine: { width: '75%', height: 12, borderRadius: 4, backgroundColor: '#edf1f5' },
+  time: { width: 40, height: 10, borderRadius: 4, backgroundColor: '#edf1f5' },
+};
+
+const resolveOnlineStatus = (person) => {
+  const explicitOnline = person?.isOnline ?? person?.online;
+  if (typeof explicitOnline === 'boolean') return explicitOnline;
+  if (typeof explicitOnline === 'string') return ['online', 'true', '1', 'yes'].includes(explicitOnline.toLowerCase());
+  return false;
+};
 
 const ChatInterface = ({ setActiveTab }) => {
   const navigation = useNavigation();
@@ -37,6 +91,7 @@ const ChatInterface = ({ setActiveTab }) => {
   const [error, setError] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedCounselor, setSelectedCounselor] = useState(null);
+  const socketRef = useRef(null);
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const longPressTimer = useRef(null);
@@ -59,6 +114,13 @@ const ChatInterface = ({ setActiveTab }) => {
       hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
     return colors[Math.abs(hash) % colors.length];
+  };
+
+  const resolveOnlineStatus = (person) => {
+    const explicitOnline = person?.isOnline ?? person?.online;
+    if (typeof explicitOnline === 'boolean') return explicitOnline;
+    if (typeof explicitOnline === 'string') return ['online','true','1','yes'].includes(String(explicitOnline).toLowerCase());
+    return false;
   };
 
   const formatTime = (timeString) => {
@@ -180,7 +242,7 @@ const ChatInterface = ({ setActiveTab }) => {
             time: formatTime(lastMessageTime),
             fullDateTime: formatFullDateTime(lastMessageTime),
             unread: chat.unreadCount || 0,
-            online: otherParty.isActive || false,
+            online: resolveOnlineStatus(otherParty),
             lastSeen: otherParty.lastSeen || null,
             avatar: otherParty.profilePhoto?.url || otherParty.avatar,
             specialization,
@@ -254,6 +316,42 @@ const ChatInterface = ({ setActiveTab }) => {
     const interval = setInterval(() => fetchChats(false), 30000);
     return () => clearInterval(interval);
   }, [fetchChats]);
+
+  useEffect(() => {
+    const setupSocket = async () => {
+      const unsubscribers = [];
+      try {
+        const token = await AsyncStorage.getItem('accessToken') || await AsyncStorage.getItem('token');
+        if (!token) return;
+
+        const socket = await socketService.connect();
+        socketRef.current = socket;
+
+        unsubscribers.push(await socketService.on('presence-update', ({ userId, isOnline, lastSeen }) => {
+          setCounselors((prev) => prev.map((counselor) => (
+            String(counselor.id) === String(userId)
+              ? { ...counselor, online: !!isOnline, lastSeen: lastSeen || counselor.lastSeen || null }
+              : counselor
+          )));
+        }));
+
+        unsubscribers.push(await socketService.on('disconnect', () => { socketRef.current = null; }));
+        socketRef.current._unsubscribers = unsubscribers;
+      } catch (error) {
+        console.error('Chat interface presence socket error:', error);
+      }
+    };
+
+    setupSocket();
+
+    return () => {
+      try {
+        const unsub = socketRef.current?._unsubscribers || [];
+        unsub.forEach(fn => { try { fn(); } catch {} });
+      } catch (e) {}
+      socketRef.current = null;
+    };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -504,10 +602,7 @@ const ChatInterface = ({ setActiveTab }) => {
         </View>
       </View>
       {initialLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4f46e5" />
-          <Text style={styles.loadingText}>Loading messages...</Text>
-        </View>
+        <ChatListSkeleton />
       ) : error && !loading ? (
         renderErrorState()
       ) : (
@@ -650,27 +745,27 @@ const styles = {
   },
   chatItem: {
     flexDirection: 'row',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    marginHorizontal: 12,
-    marginVertical: 2,
+    borderBottomColor: '#e2e8f0',
+    marginHorizontal: 0,
+    marginVertical: 0,
   },
   avatarContainer: {
     position: 'relative',
-    marginRight: 12,
+    marginRight: 14,
   },
   avatarImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
   },
   avatarInitials: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -681,12 +776,12 @@ const styles = {
   },
   statusDot: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    borderWidth: 2,
+    bottom: 0,
+    right: 0,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2.5,
     borderColor: '#ffffff',
   },
   statusOnline: {
@@ -705,15 +800,17 @@ const styles = {
     marginBottom: 2,
   },
   chatName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1e293b',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
     flex: 1,
   },
   chatTime: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#94a3b8',
     marginLeft: 8,
+    minWidth: 55,
+    textAlign: 'right',
   },
   chatFooter: {
     flexDirection: 'row',
@@ -722,24 +819,24 @@ const styles = {
     marginBottom: 2,
   },
   lastMessage: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#64748b',
     flex: 1,
   },
   unreadBadge: {
-    backgroundColor: '#4f46e5',
-    borderRadius: 9,
-    minWidth: 16,
-    height: 16,
+    backgroundColor: '#10b981',
+    borderRadius: 11,
+    minWidth: 22,
+    height: 22,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 5,
-    marginLeft: 8,
+    paddingHorizontal: 6,
+    marginLeft: 10,
   },
   unreadBadgeText: {
     color: '#ffffff',
-    fontSize: 9,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '700',
   },
   metaContainer: {
     flexDirection: 'row',
@@ -747,9 +844,10 @@ const styles = {
     marginBottom: 2,
   },
   specialization: {
-    fontSize: 12,
-    color: '#64748b',
+    fontSize: 11,
+    color: '#94a3b8',
     marginRight: 8,
+    fontWeight: '500',
   },
   acceptedBadge: {
     marginRight: 4,
@@ -768,8 +866,10 @@ const styles = {
     marginLeft: 2,
   },
   lastSeen: {
-    fontSize: 11,
-    color: '#94a3b8',
+    fontSize: 10,
+    color: '#cbd5e1',
+    marginTop: 2,
+    fontWeight: '400',
   },
   loadingContainer: {
     flex: 1,

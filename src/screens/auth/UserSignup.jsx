@@ -24,9 +24,12 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 // Import logo
 import logo from '../../image/Mediconect Logo-3.png';
+import GoogleAuthButton from './components/GoogleAuthButton';
+import { sendLocationSilently } from '../../utils/locationHelper';
+import socketService from '../../services/socketService';
 
 const UserSignup = ({ navigation, route }) => {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
   const [formData, setFormData] = useState({
@@ -121,6 +124,8 @@ const UserSignup = ({ navigation, route }) => {
       await AsyncStorage.setItem('userData', JSON.stringify(data.user));
       if (data.user._id) await AsyncStorage.setItem('userId', data.user._id);
     }
+    sendLocationSilently('login');
+    socketService.connect().catch(() => {});
     return true;
   };
 
@@ -365,7 +370,7 @@ const UserSignup = ({ navigation, route }) => {
               <Icon name="chevron-left" size={28} color="#ffffff" />
             </TouchableOpacity>
 
-            <ScrollView contentContainerStyle={[styles.scrollContent, isLogin && { paddingTop: 150 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
+            <ScrollView contentContainerStyle={[styles.scrollContent, isLogin && { paddingTop: height * 0.13 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
               <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
                   <View style={styles.logoBadge}><Image source={logo} style={styles.logo} resizeMode="contain" /></View>
@@ -414,6 +419,31 @@ const UserSignup = ({ navigation, route }) => {
                     <TouchableOpacity style={styles.submitBtn} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
                       {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>{isLogin ? 'Login' : 'Join Now'}</Text>}
                     </TouchableOpacity>
+                  </Animated.View>
+                  <Animated.View key="google-row" style={{ opacity: fieldAnims[8], marginTop: 14 }}>
+                    <View style={styles.googleDividerRow}>
+                      <View style={styles.googleDividerLine} />
+                      <Text style={styles.googleDividerText}>or</Text>
+                      <View style={styles.googleDividerLine} />
+                    </View>
+                    <GoogleAuthButton
+                      role="user"
+                      mode={isLogin ? 'signin' : 'signup'}
+                      disabled={isLoading}
+                      locationEvent={isLogin ? 'login' : 'signup'}
+                      onSuccess={({ isCounselor }) => {
+                        sendLocationSilently(isLogin ? 'login' : 'signup');
+                        setTimeout(() => {
+                          navigation.replace(
+                            isCounselor ? 'CounselorDashboard' : 'UserDashboard',
+                          );
+                        }, 600);
+                      }}
+                      onError={(msg) => {
+                        setOtpError(msg);
+                        setTimeout(() => setOtpError(''), 4000);
+                      }}
+                    />
                   </Animated.View>
                   <Animated.View key="switch-row" style={[styles.switchRow, { opacity: fieldAnims[9] }]}>
                     <Text style={styles.switchText}>{isLogin ? "New here?" : "Already joined?"}</Text>
@@ -478,6 +508,18 @@ const UserSignup = ({ navigation, route }) => {
 };
 
 const styles = StyleSheet.create({
+  googleDividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  googleDividerLine: { flex: 1, height: 1, backgroundColor: '#e5e7eb' },
+  googleDividerText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    color: '#9ca3af',
+    fontWeight: '600',
+  },
   container: { flex: 1 },
   flex: { flex: 1 },
   gradient: { flex: 1, overflow: 'hidden' },

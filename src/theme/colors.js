@@ -1,0 +1,15 @@
+export const clinicColors = {
+  primary: '#4f46e5',
+  primaryLight: '#6366f1',
+  primaryDark: '#3730a3',
+  secondary: '#7c3aed',
+  background: '#f8fafc',
+  surface: '#ffffff',
+  border: '#e2e8f0',
+  text: '#0f172a',
+  textMuted: '#64748b',
+  subtleText: '#94a3b8',
+  success: '#10b981',
+  error: '#ef4444',
+  warning: '#f59e0b',
+};

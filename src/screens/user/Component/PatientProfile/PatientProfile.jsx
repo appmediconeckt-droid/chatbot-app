@@ -18,25 +18,49 @@ import * as ImagePicker from "react-native-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Ionicons from "react-native-vector-icons/Ionicons";
+import { useNavigation } from "@react-navigation/native";
 import { API_BASE_URL } from "../../../../axiosConfig";
+import { captureAndSendLocation } from "../../../../utils/locationHelper";
+import AvatarGenerator from "./AvatarGenerator";
+import AvatarBuilder from "./AvatarBuilder";
 
 const { width, height } = Dimensions.get("window");
 
 const PatientProfile = ({ onProfileUpdate }) => {
+  const navigation = useNavigation();
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [profileImage, setProfileImage] = useState(null);
   const [profileImageFile, setProfileImageFile] = useState(null);
+  const [showAvatarGen, setShowAvatarGen] = useState(false);
+  const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
   const [showNotification, setShowNotification] = useState({
     show: false,
     message: "",
     type: "",
   });
 
+  // ─── Profile-change OTP state (email + phone) ─────────────────────────
+  // Mirrors web's per-field OTP gating: backend won't accept an email/phone
+  // change unless the user has verified an OTP for the *exact* new value.
+  const blankChange = {
+    sending: false,
+    sent: false,
+    verifying: false,
+    verified: false,
+    verifiedValue: null,
+    otp: "",
+    error: "",
+  };
+  const [emailChange, setEmailChange] = useState(blankChange);
+  const [phoneChange, setPhoneChange] = useState(blankChange);
+  const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
+
   const [patientData, setPatientData] = useState({
     personalInfo: {
       id: "",
       name: "",
+      anonymous: "",
       age: null,
       gender: "",
       dateOfBirth: "",
@@ -118,6 +142,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
   const [editFormData, setEditFormData] = useState({
     name: "",
+    anonymous: "",
     age: "",
     gender: "",
     dateOfBirth: "",
@@ -197,6 +222,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
           personalInfo: {
             id: userData._id,
             name: userData.fullName || "",
+            anonymous: userData.anonymous || "",
             age: userData.age || null,
             gender: userData.gender || "",
             dateOfBirth: userData.dateOfBirth
@@ -288,6 +314,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
   const initializeEditForm = (data) => {
     setEditFormData({
       name: data.personalInfo.name || "",
+      anonymous: data.personalInfo.anonymous || "",
       age: data.personalInfo.age?.toString() || "",
       gender: normalizeGender(data.personalInfo.gender),
       dateOfBirth: data.personalInfo.dateOfBirth || "",
@@ -379,12 +406,181 @@ const PatientProfile = ({ onProfileUpdate }) => {
     showNotificationMessage("Profile picture will be removed on save", "success");
   };
 
+  const handleAvatarSelect = (avatarUrl) => {
+    setProfileImage(avatarUrl);
+    setProfileImageFile(null);
+  };
+
+  // ─── Profile-change OTP helpers ────────────────────────────────────────
+  const authHeaders = async () => {
+    const token =
+      (await AsyncStorage.getItem("accessToken")) ||
+      (await AsyncStorage.getItem("token"));
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  const isEmailDirty = () =>
+    String(editFormData?.email || "").trim().toLowerCase() !==
+    String(patientData?.personalInfo?.email || "").trim().toLowerCase();
+  const isPhoneDirty = () =>
+    String(editFormData?.phone || "").replace(/\D/g, "") !==
+    String(patientData?.personalInfo?.phone || "").replace(/\D/g, "");
+
+  const emailReady =
+    !isEmailDirty() ||
+    (emailChange.verified &&
+      emailChange.verifiedValue ===
+        String(editFormData?.email || "").trim().toLowerCase());
+  const phoneReady =
+    !isPhoneDirty() ||
+    (phoneChange.verified &&
+      phoneChange.verifiedValue ===
+        String(editFormData?.phone || "").replace(/\D/g, ""));
+
+  const sendChangeOtp = async (field) => {
+    const setState = field === "email" ? setEmailChange : setPhoneChange;
+    const newValue =
+      field === "email"
+        ? String(editFormData.email || "").trim().toLowerCase()
+        : String(editFormData.phone || "").replace(/\D/g, "");
+    setState((s) => ({ ...s, sending: true, error: "" }));
+    try {
+      const headers = await authHeaders();
+      const res = await axios.post(
+        `${API_BASE_URL}/api/auth/profile-change/send-otp`,
+        { field, newValue },
+        { headers, timeout: 15000 },
+      );
+      if (res.data?.success) {
+        setState({
+          sending: false,
+          sent: true,
+          verifying: false,
+          verified: false,
+          verifiedValue: null,
+          otp: "",
+          error: "",
+        });
+        showNotificationMessage(res.data.message || "OTP sent", "success");
+      } else {
+        throw new Error(res.data?.message || "Failed to send OTP");
+      }
+    } catch (err) {
+      let msg = err.response?.data?.message || err.message;
+      if (err?.response?.status === 404) {
+        msg =
+          "Backend route /api/auth/profile-change/send-otp not found. Deploy it on the backend first.";
+      }
+      setState((s) => ({ ...s, sending: false, error: msg }));
+      showNotificationMessage(msg, "error");
+    }
+  };
+
+  const verifyChangeOtp = async (field) => {
+    const setState = field === "email" ? setEmailChange : setPhoneChange;
+    const state = field === "email" ? emailChange : phoneChange;
+    const newValue =
+      field === "email"
+        ? String(editFormData.email || "").trim().toLowerCase()
+        : String(editFormData.phone || "").replace(/\D/g, "");
+    if (!state.otp || state.otp.length < 4) {
+      setState((s) => ({ ...s, error: "Enter the OTP first" }));
+      return;
+    }
+    setState((s) => ({ ...s, verifying: true, error: "" }));
+    try {
+      const headers = await authHeaders();
+      const res = await axios.post(
+        `${API_BASE_URL}/api/auth/profile-change/verify-otp`,
+        { field, newValue, otp: state.otp },
+        { headers },
+      );
+      if (res.data?.success) {
+        setState({
+          sending: false,
+          sent: false,
+          verifying: false,
+          verified: true,
+          verifiedValue: newValue,
+          otp: "",
+          error: "",
+        });
+        showNotificationMessage(
+          `${field === "email" ? "Email" : "Phone"} verified`,
+          "success",
+        );
+      } else {
+        throw new Error(res.data?.message || "Verification failed");
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message;
+      setState((s) => ({ ...s, verifying: false, error: msg }));
+      showNotificationMessage(msg, "error");
+    }
+  };
+
+  // Re-edit invalidates a prior verification — same UX as web.
+  useEffect(() => {
+    if (
+      emailChange.verified &&
+      emailChange.verifiedValue !==
+        String(editFormData?.email || "").trim().toLowerCase()
+    ) {
+      setEmailChange(blankChange);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editFormData?.email]);
+
+  useEffect(() => {
+    if (
+      phoneChange.verified &&
+      phoneChange.verifiedValue !==
+        String(editFormData?.phone || "").replace(/\D/g, "")
+    ) {
+      setPhoneChange(blankChange);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editFormData?.phone]);
+
+  // Reset when exiting edit mode.
+  useEffect(() => {
+    if (!isEditing) {
+      setEmailChange(blankChange);
+      setPhoneChange(blankChange);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing]);
+
+  const handleUpdateLocation = async () => {
+    setIsUpdatingLocation(true);
+    try {
+      await captureAndSendLocation("manual");
+      showNotificationMessage("Location updated successfully", "success");
+    } catch (err) {
+      showNotificationMessage(
+        err.message || "Failed to update location",
+        "error",
+      );
+    } finally {
+      setIsUpdatingLocation(false);
+    }
+  };
+
   const handleSaveProfile = async () => {
+    if (!emailReady) {
+      showNotificationMessage("Verify your new email via OTP first", "error");
+      return;
+    }
+    if (!phoneReady) {
+      showNotificationMessage("Verify your new phone via OTP first", "error");
+      return;
+    }
     try {
       setLoading(true);
       const formData = new FormData();
 
       formData.append("fullName", editFormData.name);
+      formData.append("anonymous", editFormData.anonymous || "");
       formData.append("email", editFormData.email);
       formData.append("phoneNumber", editFormData.phone);
       formData.append("age", editFormData.age.toString());
@@ -442,6 +638,12 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
       if (profileImageFile) {
         formData.append("profilePhoto", profileImageFile);
+      } else if (
+        profileImage &&
+        typeof profileImage === "string" &&
+        profileImage.startsWith("http")
+      ) {
+        formData.append("avatarUrl", profileImage);
       } else if (
         profileImage === null &&
         patientData.personalInfo.profilePhoto
@@ -587,6 +789,12 @@ const PatientProfile = ({ onProfileUpdate }) => {
         <View style={styles.infoItem}>
           <Text style={styles.infoLabel}>Full Name</Text>
           <Text style={styles.infoValue}>{patientData.personalInfo.name}</Text>
+        </View>
+        <View style={styles.infoItem}>
+          <Text style={styles.infoLabel}>Anonymous Name</Text>
+          <Text style={styles.infoValue}>
+            {patientData.personalInfo.anonymous || "Not specified"}
+          </Text>
         </View>
         <View style={styles.infoItem}>
           <Text style={styles.infoLabel}>Date of Birth</Text>
@@ -850,13 +1058,19 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     <TouchableOpacity style={styles.uploadBtn} onPress={handleImageUpload}>
                       <Text style={styles.uploadBtnText}>📷 Change Photo</Text>
                     </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.generateAvatarBtn}
+                      onPress={() => setShowAvatarBuilder(true)}
+                    >
+                      <Text style={styles.generateAvatarBtnText}>✨ Create Avatar</Text>
+                    </TouchableOpacity>
                     {(profileImage || patientData.personalInfo.profilePhoto) && (
                       <TouchableOpacity style={styles.removeBtn} onPress={handleRemoveImage}>
                         <Text style={styles.removeBtnText}>🗑️ Remove</Text>
                       </TouchableOpacity>
                     )}
                   </View>
-                  <Text style={styles.uploadHint}>JPG, PNG, GIF (max 5MB)</Text>
+                  <Text style={styles.uploadHint}>JPG, PNG, GIF (max 5MB) · or generate an avatar</Text>
                 </View>
               </View>
 
@@ -880,6 +1094,17 @@ const PatientProfile = ({ onProfileUpdate }) => {
                       editable={false}
                     />
                   </View>
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Anonymous Name</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={editFormData.anonymous}
+                    onChangeText={(text) => handleEditFormChange("anonymous", text)}
+                    placeholder="Used in anonymous chats"
+                    placeholderTextColor="#94a3b8"
+                  />
                 </View>
 
                 <View style={styles.formRow}>
@@ -957,26 +1182,145 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   </View>
                 </View>
 
-                <View style={styles.formRow}>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Email *</Text>
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Email *</Text>
+                  <View style={styles.verifyRow}>
                     <TextInput
-                      style={styles.input}
+                      style={[styles.input, styles.verifyInput]}
                       value={editFormData.email}
                       onChangeText={(text) => handleEditFormChange("email", text)}
                       keyboardType="email-address"
                       autoCapitalize="none"
                     />
+                    {isEmailDirty() && !emailChange.verified && (
+                      <TouchableOpacity
+                        style={[
+                          styles.verifyBtn,
+                          emailChange.sending && styles.verifyBtnDisabled,
+                        ]}
+                        onPress={() => sendChangeOtp("email")}
+                        disabled={emailChange.sending}
+                      >
+                        <Text style={styles.verifyBtnText}>
+                          {emailChange.sending
+                            ? "Sending…"
+                            : emailChange.sent
+                            ? "Resend"
+                            : "Verify"}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    {emailChange.verified && (
+                      <View style={styles.verifiedBadge}>
+                        <Ionicons name="checkmark-circle" size={18} color="#10b981" />
+                        <Text style={styles.verifiedText}>Verified</Text>
+                      </View>
+                    )}
                   </View>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Phone *</Text>
+                  {emailChange.sent && !emailChange.verified && (
+                    <View style={styles.otpRow}>
+                      <TextInput
+                        style={[styles.input, styles.otpInput]}
+                        value={emailChange.otp}
+                        onChangeText={(t) =>
+                          setEmailChange((s) => ({
+                            ...s,
+                            otp: t.replace(/\D/g, "").slice(0, 6),
+                          }))
+                        }
+                        keyboardType="number-pad"
+                        maxLength={6}
+                        placeholder="6-digit OTP"
+                        placeholderTextColor="#94a3b8"
+                      />
+                      <TouchableOpacity
+                        style={[
+                          styles.verifyBtn,
+                          styles.confirmBtn,
+                          emailChange.verifying && styles.verifyBtnDisabled,
+                        ]}
+                        onPress={() => verifyChangeOtp("email")}
+                        disabled={emailChange.verifying}
+                      >
+                        <Text style={styles.verifyBtnText}>
+                          {emailChange.verifying ? "Verifying…" : "Confirm"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {!!emailChange.error && (
+                    <Text style={styles.fieldErrorText}>{emailChange.error}</Text>
+                  )}
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Phone *</Text>
+                  <View style={styles.verifyRow}>
                     <TextInput
-                      style={styles.input}
+                      style={[styles.input, styles.verifyInput]}
                       value={editFormData.phone}
                       onChangeText={(text) => handleEditFormChange("phone", text)}
                       keyboardType="phone-pad"
                     />
+                    {isPhoneDirty() && !phoneChange.verified && (
+                      <TouchableOpacity
+                        style={[
+                          styles.verifyBtn,
+                          phoneChange.sending && styles.verifyBtnDisabled,
+                        ]}
+                        onPress={() => sendChangeOtp("phone")}
+                        disabled={phoneChange.sending}
+                      >
+                        <Text style={styles.verifyBtnText}>
+                          {phoneChange.sending
+                            ? "Sending…"
+                            : phoneChange.sent
+                            ? "Resend"
+                            : "Verify"}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    {phoneChange.verified && (
+                      <View style={styles.verifiedBadge}>
+                        <Ionicons name="checkmark-circle" size={18} color="#10b981" />
+                        <Text style={styles.verifiedText}>Verified</Text>
+                      </View>
+                    )}
                   </View>
+                  {phoneChange.sent && !phoneChange.verified && (
+                    <View style={styles.otpRow}>
+                      <TextInput
+                        style={[styles.input, styles.otpInput]}
+                        value={phoneChange.otp}
+                        onChangeText={(t) =>
+                          setPhoneChange((s) => ({
+                            ...s,
+                            otp: t.replace(/\D/g, "").slice(0, 6),
+                          }))
+                        }
+                        keyboardType="number-pad"
+                        maxLength={6}
+                        placeholder="6-digit OTP"
+                        placeholderTextColor="#94a3b8"
+                      />
+                      <TouchableOpacity
+                        style={[
+                          styles.verifyBtn,
+                          styles.confirmBtn,
+                          phoneChange.verifying && styles.verifyBtnDisabled,
+                        ]}
+                        onPress={() => verifyChangeOtp("phone")}
+                        disabled={phoneChange.verifying}
+                      >
+                        <Text style={styles.verifyBtnText}>
+                          {phoneChange.verifying ? "Verifying…" : "Confirm"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {!!phoneChange.error && (
+                    <Text style={styles.fieldErrorText}>{phoneChange.error}</Text>
+                  )}
                 </View>
               </View>
 
@@ -1288,6 +1632,24 @@ const PatientProfile = ({ onProfileUpdate }) => {
       >
         {renderNotification()}
         {renderProfileHeader()}
+        <View style={styles.locationCard}>
+          <View style={styles.locationCardLeft}>
+            <Ionicons name="location-outline" size={20} color="#1e3a8a" />
+            <Text style={styles.locationCardLabel}>Share my current location</Text>
+          </View>
+          <TouchableOpacity
+            style={[
+              styles.locationUpdateBtn,
+              isUpdatingLocation && styles.verifyBtnDisabled,
+            ]}
+            onPress={handleUpdateLocation}
+            disabled={isUpdatingLocation}
+          >
+            <Text style={styles.locationUpdateBtnText}>
+              {isUpdatingLocation ? "Updating…" : "Update"}
+            </Text>
+          </TouchableOpacity>
+        </View>
         <View style={styles.content}>
           {renderPersonalInfo()}
           {renderAddress()}
@@ -1297,11 +1659,178 @@ const PatientProfile = ({ onProfileUpdate }) => {
         </View>
       </ScrollView>
       {renderEditModal()}
+      <AvatarBuilder
+        visible={showAvatarBuilder}
+        onSelect={handleAvatarSelect}
+        onClose={() => setShowAvatarBuilder(false)}
+      />
     </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
+  verifyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  verifyInput: {
+    flex: 1,
+  },
+  verifyBtn: {
+    backgroundColor: "#2563eb",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  verifyBtnDisabled: {
+    opacity: 0.6,
+  },
+  confirmBtn: {
+    backgroundColor: "#10b981",
+  },
+  verifyBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  verifiedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+  },
+  verifiedText: {
+    marginLeft: 4,
+    color: "#10b981",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  otpRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+  },
+  otpInput: {
+    flex: 1,
+    letterSpacing: 4,
+    textAlign: "center",
+  },
+  fieldErrorText: {
+    color: "#dc2626",
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: "600",
+  },
+  locationCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#eff6ff",
+    borderColor: "#bfdbfe",
+    borderWidth: 1,
+    padding: 12,
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  locationCardLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  locationCardLabel: {
+    color: "#1e3a8a",
+    fontSize: 13,
+    fontWeight: "700",
+    marginLeft: 8,
+  },
+  locationUpdateBtn: {
+    backgroundColor: "#2563eb",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  locationUpdateBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  securityCard: {
+    backgroundColor: "#ffffff",
+    borderColor: "#dbeafe",
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  securityHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  securityIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#eff6ff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  securityTextWrap: {
+    flex: 1,
+  },
+  securityTitle: {
+    color: "#0f172a",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  securitySubtitle: {
+    color: "#64748b",
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 17,
+  },
+  securityActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+  securityButtonSecondary: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  securityButtonSecondaryText: {
+    color: "#2563eb",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  securityButtonPrimary: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 10,
+    backgroundColor: "#2563eb",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  securityButtonPrimaryText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "800",
+  },
   container: {
     flex: 1,
     backgroundColor: "#f8fafc",
@@ -1792,7 +2321,9 @@ const styles = StyleSheet.create({
   },
   uploadActions: {
     flexDirection: "row",
-    gap: 12,
+    gap: 8,
+    flexWrap: "wrap",
+    justifyContent: "center",
   },
   uploadBtn: {
     backgroundColor: "#eef2ff",
@@ -1803,6 +2334,23 @@ const styles = StyleSheet.create({
   uploadBtnText: {
     color: "#6366f1",
     fontWeight: "700",
+  },
+  generateAvatarBtn: {
+    backgroundColor: "#667eea",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  generateAvatarBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  uploadHint: {
+    fontSize: 12,
+    color: "#94a3b8",
+    marginTop: 8,
+    textAlign: "center",
   },
   removeBtn: {
     backgroundColor: "#fef2f2",

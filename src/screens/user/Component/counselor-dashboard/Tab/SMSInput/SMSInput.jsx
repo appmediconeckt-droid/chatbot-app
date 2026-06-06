@@ -10,31 +10,48 @@ import {
   ActivityIndicator,
   Modal,
   Dimensions,
+  Alert,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   StatusBar,
   InteractionManager,
   Image,
+  Linking,
+  useWindowDimensions,
 } from 'react-native';
-import { io } from 'socket.io-client';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import socketService from '../../../../../../services/socketService';
 import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import RNFS from 'react-native-fs';
+import { pick } from '@react-native-documents/picker';
 import VideoCallModal from '../../../UserDashboard/Tab/CallModal/VideoCallModal';
 import VoiceCallModal from '../../../UserDashboard/Tab/CallModal/VoiceCallModal';
 import useRingtone from '../../../../../../hooks/useRingtone';
 import { useIsFocused } from '@react-navigation/native';
+import useScreenshotPrevent from '../../../../../../utils/useScreenshotPrevent';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const AVATAR_COLORS = [
-  '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b',
-  '#10b981', '#ef4444', '#06b6d4', '#6366f1',
+  '#3b82f6', '#8b5cf6', '#DC2626', '#F59E0B',
+  '#10B981', '#0369A1', '#06B6D4', '#1E40AF',
 ];
 const getAvatarColor = (name) => {
   if (!name) return AVATAR_COLORS[0];
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+};
+
+// Returns true only for real user-uploaded photos — filters out generated avatars
+const isRealPhoto = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  if (url.includes('ui-avatars.com')) return false;
+  if (url.includes('dicebear')) return false;
+  if (url.includes('gravatar.com')) return false;
+  return true;
 };
 
 // Incoming Call Modal Component - Serenity Design
@@ -48,6 +65,7 @@ const IncomingCallModal = ({
   onJoinCall,
   onRejectCall,
 }) => {
+  const { width: winWidth } = useWindowDimensions();
   const [isJoining, setIsJoining] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
   const { stopRinging } = useRingtone();
@@ -109,7 +127,8 @@ const IncomingCallModal = ({
       <View style={styles.incomingCallOverlay}>
         <View style={[
           styles.incomingCallModal,
-          callType === "video" ? styles.videoCallModal : styles.voiceCallModal
+          callType === "video" ? styles.videoCallModal : styles.voiceCallModal,
+          { width: Math.min(winWidth * 0.88, 380) },
         ]}>
           <View style={styles.incomingCallContent}>
             <View style={styles.incomingCallerInfo}>
@@ -159,6 +178,7 @@ const IncomingCallModal = ({
 
 const SMSInput = ({ navigation, route }) => {
   const isFocused = useIsFocused();
+  useScreenshotPrevent();
   const location = route.params || {};
   const [message, setMessage] = useState("");
   const messagesContainerRef = useRef(null);
@@ -245,13 +265,14 @@ const SMSInput = ({ navigation, route }) => {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState(null);
   const [chatStatus, setChatStatus] = useState(null);
+  const [pendingAttachment, setPendingAttachment] = useState(null);
   
   // Counselor data states
   const [currentCounselor, setCurrentCounselor] = useState(null);
   const [counselorId, setCounselorId] = useState(null);
 
   // Get selected user from navigation state
-  const selectedUser = location?.selectedUser;
+  const [selectedUser, setSelectedUser] = useState(location?.selectedUser || null);
   const chatId = location?.chatId;
 
   const getAuthToken = async () => {
@@ -364,7 +385,8 @@ const SMSInput = ({ navigation, route }) => {
     const id = getSelectedUserId();
     return {
       id,
-      name: selectedUser?.name || selectedUser?.fullName || "User",
+      // Prefer anonymous handle when available (counselor should see anonymous name)
+      name: selectedUser?.anonymous || selectedUser?.anonName || selectedUser?.name || selectedUser?.fullName || "User",
       gender: selectedUser?.gender,
       phone: selectedUser?.phone || selectedUser?.phoneNumber,
       email: selectedUser?.email,
@@ -372,6 +394,88 @@ const SMSInput = ({ navigation, route }) => {
   };
 
   const userDetails = getUserDetails();
+
+  const resolveOnlineStatus = (person) => {
+    const explicitOnline = person?.isOnline ?? person?.online;
+    if (typeof explicitOnline === 'boolean') return explicitOnline;
+    if (typeof explicitOnline === 'string') return ['online','true','1','yes'].includes(String(explicitOnline).toLowerCase());
+    return false;
+  };
+
+  const getAttachmentUrl = (item) => {
+    const rawUrl = item?.attachmentUrl || item?.attachment || '';
+    if (!rawUrl || typeof rawUrl !== 'string') return '';
+    if (/^(https?:|file:|content:|data:)/i.test(rawUrl)) return rawUrl;
+    if (rawUrl.startsWith('/')) return `${API_BASE_URL}${rawUrl}`;
+    return `${API_BASE_URL}/${rawUrl}`;
+  };
+
+  const isImageAttachment = (item) => {
+    const url = getAttachmentUrl(item);
+    const name = String(item?.attachmentName || '');
+    const contentType = String(item?.attachmentType || item?.contentType || '').toLowerCase();
+    return (
+      contentType.startsWith('image/') ||
+      /\.(png|jpg|jpeg|gif|webp|heic|heif)(\?|$)/i.test(url) ||
+      /\.(png|jpg|jpeg|gif|webp|heic|heif)$/i.test(name) ||
+      /screenshot|photo|image/i.test(name)
+    );
+  };
+
+  const openAttachment = useCallback(async (uri) => {
+    if (!uri) return;
+    try {
+      if (Platform.OS === 'android') {
+        // Download to cache then open via FileProvider-safe content URI
+        const fileName = uri.split('/').pop().split('?')[0] || `attachment_${Date.now()}.pdf`;
+        const destPath = `${RNFS.CachesDirectoryPath}/${fileName}`;
+        const fileExists = await RNFS.exists(destPath);
+        if (!fileExists) {
+          const result = await RNFS.downloadFile({ fromUrl: uri, toFile: destPath }).promise;
+          if (result.statusCode !== 200) throw new Error('Download failed');
+        }
+        // Use intent URL so Android picks the right viewer app
+        const intentUrl = `intent://${destPath.replace('file://', '')}#Intent;action=android.intent.action.VIEW;type=application/pdf;scheme=file;end`;
+        const canOpen = await Linking.canOpenURL(intentUrl);
+        if (canOpen) {
+          await Linking.openURL(intentUrl);
+        } else {
+          // fallback: open original https URL in browser
+          await Linking.openURL(uri);
+        }
+      } else {
+        await Linking.openURL(uri);
+      }
+    } catch (error) {
+      console.error('Error opening attachment:', error);
+      try { await Linking.openURL(uri); } catch (_) {
+        Alert.alert('Cannot Open File', 'No app found to open this file. Please install a PDF viewer app.', [{ text: 'OK' }]);
+      }
+    }
+  }, []);
+
+  const handlePickAttachment = useCallback(async () => {
+    if (isSending) return;
+
+    try {
+      const [picked] = await pick();
+      if (!picked?.uri) {
+        Alert.alert('Attachment', 'Unable to read selected file.');
+        return;
+      }
+
+      setPendingAttachment({
+        uri: picked.uri,
+        name: picked.name || `file_${Date.now()}`,
+        type: picked.type || picked.mimeType || 'application/octet-stream',
+        size: picked.size || picked.fileSize || 0,
+      });
+    } catch (error) {
+      if (error?.code === 'OPERATION_CANCELED') return;
+      console.error('Attachment pick error:', error);
+      Alert.alert('Attachment', 'Failed to pick file. Please try again.');
+    }
+  }, [isSending]);
   const USER_ID = userDetails.id;
   const USER_NAME = userDetails.name;
 
@@ -404,6 +508,15 @@ const SMSInput = ({ navigation, route }) => {
       messagesContainerRef.current.scrollToOffset({ offset: 0, animated });
     } catch (_) {}
   }, []);
+
+  // Keep newest message visible whenever the keyboard appears (WhatsApp-style).
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const sub = Keyboard.addListener(showEvt, () => {
+      scrollToBottom(true);
+    });
+    return () => sub.remove();
+  }, [scrollToBottom]);
 
   const handleMessagesScroll = useCallback((event) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -470,6 +583,7 @@ const SMSInput = ({ navigation, route }) => {
           }),
           fullTime: msg.createdAt,
           contentType: msg.contentType,
+          attachmentType: msg.attachmentType || msg.contentType || null,
           attachmentUrl: msg.attachmentUrl || null,
           attachmentName: msg.attachmentName || null,
           isRead: msg.isRead,
@@ -532,14 +646,33 @@ const SMSInput = ({ navigation, route }) => {
       const apiChatId = getChatIdForAPI();
       const token = await getAuthToken();
       let response;
+      const inferMimeType = (name = "") => {
+        const lowerName = String(name).toLowerCase();
+        if (lowerName.endsWith(".png")) return "image/png";
+        if (lowerName.endsWith(".webp")) return "image/webp";
+        if (lowerName.endsWith(".gif")) return "image/gif";
+        if (lowerName.endsWith(".heic")) return "image/heic";
+        if (lowerName.endsWith(".heif")) return "image/heif";
+        return "image/jpeg";
+      };
+
       if (file) {
         const formData = new FormData();
+        const attachmentName = file.name || file.fileName || `attachment_${Date.now()}.jpg`;
+        const attachmentType = file.type && file.type !== "application/octet-stream"
+          ? file.type
+          : inferMimeType(attachmentName);
+
         if (messageContent.trim()) formData.append("content", messageContent.trim());
-        formData.append("attachment", file);
+        formData.append("attachment", {
+          uri: file.uri,
+          name: attachmentName,
+          type: attachmentType,
+        });
         response = await axios.post(
           `${API_BASE_URL}/api/chat/chat/${apiChatId}/message`,
           formData,
-          { headers: { Authorization: token ? `Bearer ${token}` : "" } }
+          { headers: { Authorization: token ? `Bearer ${token}` : "", "Content-Type": "multipart/form-data" } }
         );
       } else {
         response = await axios.post(
@@ -560,25 +693,30 @@ const SMSInput = ({ navigation, route }) => {
   };
 
   const handleSendMessage = async () => {
-    if (!message.trim() || !selectedUser || isSending) return;
+    if ((message.trim() === "" && !pendingAttachment) || !selectedUser || isSending) return;
     const messageText = message.trim();
+    const attachmentToSend = pendingAttachment;
     const tempMessage = {
       id: `temp_${Date.now()}`,
-      text: messageText,
+      text: messageText || `📎 ${attachmentToSend?.name || "Attachment"}`,
       sender: "me",
       senderRole: "counsellor",
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       createdAt: new Date().toISOString(),
       status: "sending",
       isTemporary: true,
+      attachmentName: attachmentToSend?.name || null,
+      attachmentUrl: attachmentToSend?.uri || null,
+      attachmentType: attachmentToSend?.type || null,
     };
     shouldAutoScrollRef.current = true;
     setMessages(prev => [...prev, tempMessage]);
     setMessage("");
+    setPendingAttachment(null);
     setIsSending(true);
     setError(null);
     try {
-      const sentMsg = await sendMessageToAPI({ messageContent: messageText });
+      const sentMsg = await sendMessageToAPI({ messageContent: messageText, file: attachmentToSend });
       setMessages(prev => {
         // If socket already replaced the temp bubble, just remove any remaining temp
         const confirmedId = sentMsg?.id || sentMsg?._id || sentMsg?.messageId;
@@ -598,6 +736,9 @@ const SMSInput = ({ navigation, route }) => {
           time: new Date(sentMsg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           fullTime: sentMsg.createdAt,
           contentType: sentMsg.contentType,
+          attachmentType: sentMsg.attachmentType || sentMsg.contentType || attachmentToSend?.type || null,
+          attachmentUrl: sentMsg.attachmentUrl || null,
+          attachmentName: sentMsg.attachmentName || null,
           isRead: sentMsg.isRead,
           status: "sent",
         }];
@@ -982,94 +1123,103 @@ const SMSInput = ({ navigation, route }) => {
       if (!apiChatId || !selectedUser || !counselorId) return;
       const token = await getAuthToken();
       if (!token) return;
-      
-      const socket = io(API_BASE_URL, {
-        auth: { token },
-        transports: ["polling", "websocket"],
-        reconnection: true,
-        reconnectionAttempts: 8,
-        reconnectionDelay: 800,
-        timeout: 20000,
-      });
-      chatSocketRef.current = socket;
-      
-      socket.on("connect", () => {
-        setIsSocketConnected(true);
-        console.log("Chat socket connected");
-        socket.emit("join-chat", { chatId: apiChatId });
-      });
 
-      socket.on("disconnect", () => {
-        setIsSocketConnected(false);
-      });
-      
-      socket.on("new-message", (messageData) => {
-        shouldAutoScrollRef.current = true;
-        const incomingId = messageData.id || messageData._id || messageData.messageId;
-        const isOwnMessage = messageData.senderRole === "counsellor" && String(messageData.senderId) === String(counselorId);
+      const unsubscribers = [];
+      try {
+        const socket = await socketService.connect();
+        chatSocketRef.current = socket;
+        setIsSocketConnected(!!socket?.connected);
 
-        setMessages(prev => {
-          // Dedup by messageId or id
-          const alreadyExists = prev.some(msg =>
-            (msg.messageId && messageData.messageId && msg.messageId === messageData.messageId) ||
-            (msg.id && incomingId && !String(msg.id).startsWith('temp_') && msg.id === incomingId)
-          );
-          if (alreadyExists) return prev;
+        const onConnect = () => {
+          setIsSocketConnected(true);
+          console.log('Chat socket connected (shared)');
+          socket.emit('join-chat', { chatId: apiChatId });
+        };
 
-          // For own messages: replace temp bubble instead of adding a new one
-          if (isOwnMessage) {
-            const tempIndex = prev.findIndex(msg => msg.isTemporary);
-            if (tempIndex !== -1) {
-              const next = [...prev];
-              next[tempIndex] = {
-                id: incomingId,
-                messageId: messageData.messageId,
-                text: messageData.content,
-                sender: "me",
-                senderRole: "counsellor",
-                time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                fullTime: messageData.createdAt,
-                contentType: messageData.contentType,
-                isRead: messageData.isRead,
-                status: "sent",
-              };
-              return next;
+        unsubscribers.push(await socketService.on('connect', onConnect));
+        unsubscribers.push(await socketService.on('disconnect', () => setIsSocketConnected(false)));
+
+        unsubscribers.push(await socketService.on('presence-update', ({ userId, isOnline, lastSeen }) => {
+          const selectedUserId = normalizeObjectId(getSelectedUserId());
+          if (!selectedUserId || String(userId) !== String(selectedUserId)) return;
+          setSelectedUser((prev) => prev ? { ...prev, online: !!isOnline, status: isOnline ? 'online' : 'offline', lastSeen: lastSeen || prev.lastSeen || null } : prev);
+        }));
+
+        unsubscribers.push(await socketService.on('new-message', (messageData) => {
+          shouldAutoScrollRef.current = true;
+          const incomingId = messageData.id || messageData._id || messageData.messageId;
+          const isOwnMessage = messageData.senderRole === 'counsellor' && String(messageData.senderId) === String(counselorId);
+
+          setMessages(prev => {
+            const alreadyExists = prev.some(msg => (msg.messageId && messageData.messageId && msg.messageId === messageData.messageId) || (msg.id && incomingId && !String(msg.id).startsWith('temp_') && msg.id === incomingId));
+            if (alreadyExists) return prev;
+            if (isOwnMessage) {
+              const tempIndex = prev.findIndex(msg => msg.isTemporary);
+              if (tempIndex !== -1) {
+                const next = [...prev];
+                next[tempIndex] = {
+                  id: incomingId,
+                  messageId: messageData.messageId,
+                  text: messageData.content,
+                  sender: 'me',
+                  senderRole: 'counsellor',
+                  time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  fullTime: messageData.createdAt,
+                  contentType: messageData.contentType,
+                  attachmentType: messageData.attachmentType || messageData.contentType || null,
+                  attachmentUrl: messageData.attachmentUrl || null,
+                  attachmentName: messageData.attachmentName || null,
+                  isRead: messageData.isRead,
+                  status: 'sent',
+                };
+                return next;
+              }
             }
-            // No temp bubble — add normally (e.g. sent from another device)
-          }
+            return [...prev, {
+              id: incomingId,
+              messageId: messageData.messageId,
+              text: messageData.content,
+              sender: isOwnMessage ? 'me' : 'user',
+              senderRole: messageData.senderRole,
+              time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              fullTime: messageData.createdAt,
+              contentType: messageData.contentType,
+              attachmentType: messageData.attachmentType || messageData.contentType || null,
+              attachmentUrl: messageData.attachmentUrl || null,
+              attachmentName: messageData.attachmentName || null,
+              isRead: messageData.isRead,
+              status: 'sent',
+            }];
+          });
+        }));
 
-          return [...prev, {
-            id: incomingId,
-            messageId: messageData.messageId,
-            text: messageData.content,
-            sender: isOwnMessage ? "me" : "user",
-            senderRole: messageData.senderRole,
-            time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            fullTime: messageData.createdAt,
-            contentType: messageData.contentType,
-            isRead: messageData.isRead,
-            status: "sent",
-          }];
-        });
-      });
-      
-      socket.on("user-typing", ({ userRole, isTyping: typing }) => {
-        if (userRole === "user") setRemoteIsTyping(typing);
-      });
+        unsubscribers.push(await socketService.on('user-typing', ({ userRole, isTyping: typing }) => {
+          if (userRole === 'user') setRemoteIsTyping(typing);
+        }));
 
-      socket.on("connect_error", (error) => {
-        setIsSocketConnected(false);
-        console.error("Counselor chat socket connect error:", error?.message || error);
-      });
-    };
-    
-    setupSocket();
-    
-    return () => {
-      if (chatSocketRef.current) {
-        chatSocketRef.current.disconnect();
-        chatSocketRef.current = null;
+        unsubscribers.push(await socketService.on('messages-read', () => {
+          setMessages((prev) => prev.map((msg) => (msg.sender === 'me' ? { ...msg, isRead: true } : msg)));
+        }));
+
+        unsubscribers.push(await socketService.on('connect_error', (error) => {
+          setIsSocketConnected(false);
+          console.error('Counselor chat shared socket connect error:', error?.message || error);
+        }));
+
+        chatSocketRef.current._unsubscribers = unsubscribers;
+      } catch (err) {
+        console.error('Failed to setup shared chat socket:', err);
       }
+    };
+
+    setupSocket();
+
+    return () => {
+      try {
+        const unsub = chatSocketRef.current?._unsubscribers || [];
+        unsub.forEach(fn => { try { fn(); } catch {} });
+      } catch (e) {}
+      chatSocketRef.current = null;
       setIsSocketConnected(false);
     };
   }, [chatId, selectedUser, counselorId, USER_ID]);
@@ -1096,24 +1246,74 @@ const SMSInput = ({ navigation, route }) => {
   const renderMessageStatus = (message) => {
     if (message.sender !== "me") return null;
     switch (message.status) {
-      case "sending": return <Text style={styles.messageStatusSending}>⌛ Sending...</Text>;
-      case "sent": return <Text style={styles.messageStatusSent}>✓ Sent</Text>;
-      case "error": return <Text style={styles.messageStatusError}>⚠️ Failed</Text>;
-      default: return null;
+      case "sending":
+        return <Text style={styles.messageStatusSending}>⌛</Text>;
+      case "sent":
+        return (
+          <View style={styles.messageStatusIconWrap}>
+            <Ionicons
+              name={message.isRead ? "checkmark-done" : "checkmark"}
+              size={message.isRead ? 14 : 13}
+              color={message.isRead ? "#BFDBFE" : "rgba(255,255,255,0.55)"}
+            />
+          </View>
+        );
+      case "error":
+        return <Text style={styles.messageStatusError}>⚠️ Failed</Text>;
+      default:
+        return null;
     }
   };
 
   const renderMessage = ({ item }) => {
     const isMe = item.sender === "me";
+    const userPhoto = selectedUser?.profilePhoto;
+    const userInitial = (USER_NAME?.charAt(0) || 'U').toUpperCase();
+    const avatarBg = getAvatarColor(USER_NAME);
 
     return (
       <View style={[styles.messageBubble, isMe ? styles.messageRight : styles.messageLeft]}>
+        {/* Avatar — left side for user messages */}
+        {!isMe && (
+          <View style={[styles.msgAvatar, { backgroundColor: avatarBg }]}>
+            {isRealPhoto(userPhoto) ? (
+              <Image source={{ uri: userPhoto }} style={styles.msgAvatarPhoto} />
+            ) : (
+              <Text style={styles.msgAvatarText}>{userInitial}</Text>
+            )}
+          </View>
+        )}
+
         <View style={[styles.messageContent, isMe ? styles.userMessageContent : styles.counselorMessageContent]}>
-          <Text style={[styles.messageText, isMe ? styles.userMessageText : styles.counselorMessageText]}>
-            {item.text}
-          </Text>
+          {!!item.text && (
+            <Text style={[styles.messageText, isMe ? styles.userMessageText : styles.counselorMessageText]}>
+              {item.text}
+            </Text>
+          )}
+          {(item.attachmentName || item.attachmentUrl) && (() => {
+            const url = getAttachmentUrl(item);
+            const name = item.attachmentName || '';
+            const imageAttachment = isImageAttachment(item);
+            if (imageAttachment && url) {
+              return (
+                <TouchableOpacity activeOpacity={0.9} onPress={() => openAttachment(url)}>
+                  <Image source={{ uri: url }} style={styles.attachmentImage} resizeMode="cover" />
+                </TouchableOpacity>
+              );
+            }
+            return (
+              <TouchableOpacity activeOpacity={0.85} onPress={() => openAttachment(url)}>
+                <View style={[styles.attachmentBubble, isMe ? styles.userAttachmentBubble : styles.counselorAttachmentBubble]}>
+                  <Ionicons name="document-text-outline" size={16} color={isMe ? '#FFFFFF' : '#2563EB'} />
+                  <Text style={[styles.attachmentBubbleText, isMe ? styles.userAttachmentBubbleText : styles.counselorAttachmentBubbleText]} numberOfLines={1}>
+                    📎 {name || 'Attachment'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })()}
           <View style={styles.messageFooter}>
-            <Text style={styles.messageTime}>{item.time}</Text>
+            <Text style={[styles.messageTime, isMe && styles.messageTimeMine]}>{item.time}</Text>
             {renderMessageStatus(item)}
           </View>
         </View>
@@ -1137,23 +1337,32 @@ const SMSInput = ({ navigation, route }) => {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-    >
-      <StatusBar barStyle="dark-content" backgroundColor="#f7f9fb" translucent={false} />
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar barStyle="light-content" backgroundColor="#2563EB" translucent={false} />
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoid}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
+        enabled
+      >
       <View style={styles.chatBoxMain}>
         {/* Header - MediConeckt Design */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-              <Ionicons name="arrow-back" size={24} color="#081625" />
+              <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
             </TouchableOpacity>
             <View style={styles.userInfo}>
               <View style={[styles.userAvatar, { backgroundColor: getAvatarColor(USER_NAME) }]}>
-                <Text style={styles.avatarInitial}>{(USER_NAME?.charAt(0) || 'U').toUpperCase()}</Text>
-                <View style={[styles.activeDot, { backgroundColor: selectedUser?.status === "online" ? "#4caf50" : "#94a3b8" }]} />
+                {isRealPhoto(selectedUser?.profilePhoto) ? (
+                  <Image
+                    source={{ uri: selectedUser.profilePhoto }}
+                    style={styles.userAvatarPhoto}
+                  />
+                ) : (
+                  <Text style={styles.avatarInitial}>{(USER_NAME?.charAt(0) || 'U').toUpperCase()}</Text>
+                )}
+                <View style={[styles.activeDot, { backgroundColor: resolveOnlineStatus(selectedUser) ? "#4caf50" : "#9CA3AF" }]} />
               </View>
               <View style={styles.userDetails}>
                 <Text style={styles.userName}>{USER_NAME}</Text>
@@ -1162,7 +1371,7 @@ const SMSInput = ({ navigation, route }) => {
                     <Text style={styles.typingText}>Typing...</Text>
                   ) : (
                     <Text style={styles.statusText}>
-                      {selectedUser?.status === "online" ? "Online" : "Offline"}
+                      {resolveOnlineStatus(selectedUser) ? "Online" : "Offline"}
                     </Text>
                   )}
                 </Text>
@@ -1175,14 +1384,14 @@ const SMSInput = ({ navigation, route }) => {
               onPress={initiateVoiceCall}
               disabled={isInitiatingCall}
             >
-              <Ionicons name="call" size={20} color="#2c50cd" />
+              <Ionicons name="call" size={19} color="#FFFFFF" />
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionBtn, isInitiatingCall && styles.actionBtnDisabled]}
               onPress={initiateVideoCall}
               disabled={isInitiatingCall}
             >
-              <Ionicons name="videocam" size={20} color="#2c50cd" />
+              <Ionicons name="videocam" size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
         </View>
@@ -1199,7 +1408,7 @@ const SMSInput = ({ navigation, route }) => {
 
         {isLoadingMessages && messages.length === 0 ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#2c50cd" />
+            <ActivityIndicator size="large" color="#2563EB" />
             <Text style={styles.loadingText}>Loading messages...</Text>
           </View>
         ) : error && messages.length === 0 ? (
@@ -1263,11 +1472,26 @@ const SMSInput = ({ navigation, route }) => {
 
         {/* Input Area - MediConeckt Design */}
         <View style={styles.inputArea}>
-          <View style={styles.inputGroup}>
+          <View style={styles.inputAreaInner}>
+          {pendingAttachment && (
+            <View style={styles.attachmentPreview}>
+              <Ionicons name="attach" size={16} color="#2563EB" />
+              <Text style={styles.attachmentPreviewText} numberOfLines={1}>
+                {pendingAttachment.name}
+              </Text>
+              <TouchableOpacity onPress={() => setPendingAttachment(null)}>
+                <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+          )}
+          <View style={[styles.inputGroup, isSending && styles.inputGroupDisabled]}>
+            <TouchableOpacity style={styles.attachBtn} onPress={handlePickAttachment} disabled={isSending}>
+              <Ionicons name="add" size={22} color="#2563EB" />
+            </TouchableOpacity>
             <View style={styles.inputWrapper}>
               <TextInput
                 style={styles.textInput}
-                placeholder={isSending ? "Sending..." : `Message ${USER_NAME}...`}
+                placeholder={isSending ? "Sending..." : `Message`}
                 placeholderTextColor="#8492a5"
                 value={message}
                 onChangeText={setMessage}
@@ -1278,13 +1502,14 @@ const SMSInput = ({ navigation, route }) => {
             <TouchableOpacity
               style={[
                 styles.sendBtn,
-                message.trim() && !isSending ? styles.sendBtnActive : styles.sendBtnDisabled,
+                ((message.trim() !== "" || pendingAttachment) && !isSending) ? styles.sendBtnActive : styles.sendBtnDisabled,
               ]}
               onPress={handleSendMessage}
-              disabled={!message.trim() || isSending}
+              disabled={((message.trim() === "" && !pendingAttachment) || isSending)}
             >
-              <Ionicons name="send" size={20} color="#ffffff" />
+              <Ionicons name="send" size={20} color="#FFFFFF" />
             </TouchableOpacity>
+          </View>
           </View>
         </View>
       </View>
@@ -1315,31 +1540,34 @@ const SMSInput = ({ navigation, route }) => {
         onJoinCall={handleJoinIncomingCall}
         onRejectCall={handleRejectIncomingCall}
       />
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f7fb',
-    // marginTop:-30
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+  },
+  keyboardAvoid: {
+    flex: 1,
   },
   chatBoxMain: {
     flex: 1,
-    backgroundColor: '#f5f7fb',
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0,
+    backgroundColor: '#EFF6FF',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f7fb',
+    backgroundColor: '#F8FAFC',
   },
   emptyState: {
     alignItems: 'center',
     padding: 32,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
     margin: 24,
     shadowColor: '#000',
@@ -1356,12 +1584,12 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#1e293b',
+    color: '#111827',
     marginBottom: 6,
   },
   emptyText: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#6B7280',
     textAlign: 'center',
     marginBottom: 24,
     lineHeight: 20,
@@ -1369,16 +1597,16 @@ const styles = StyleSheet.create({
   backToListBtn: {
     paddingHorizontal: 24,
     paddingVertical: 10,
-    backgroundColor: '#2c50cd',
+    backgroundColor: '#2563EB',
     borderRadius: 24,
-    shadowColor: '#2c50cd',
+    shadowColor: '#2563EB',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 3,
   },
   backToListBtnText: {
-    color: '#ffffff',
+    color: '#FFFFFF',
     fontWeight: '600',
     fontSize: 13,
   },
@@ -1386,97 +1614,101 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 2,
-    elevation: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#2563EB',
+    shadowColor: '#1D4ED8',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 4,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    minWidth: 0,
   },
   backButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#f1f5f9',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 4,
   },
   userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    gap: 12,
+    gap: 10,
+    minWidth: 0,
   },
   userAvatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 4,
-    elevation: 3,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  userAvatarPhoto: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    resizeMode: 'cover',
   },
   avatarInitial: {
-    fontSize: 20,
+    fontSize: 14,
     fontWeight: '700',
-    color: '#ffffff',
-    letterSpacing: 0.5,
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
   },
   activeDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
     position: 'absolute',
-    bottom: 2,
-    right: 2,
-    borderWidth: 2,
-    borderColor: '#ffffff',
+    bottom: 0,
+    right: 0,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
   },
   userDetails: {
     flex: 1,
+    minWidth: 0,
   },
   userName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0f172a',
-    marginBottom: 2,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 1,
   },
   profileStatus: {
-    fontSize: 12,
+    fontSize: 11,
   },
   statusText: {
-    color: '#64748b',
+    color: 'rgba(255,255,255,0.75)',
     fontWeight: '500',
   },
   typingText: {
-    color: '#2c50cd',
-    fontWeight: '500',
+    color: '#BFDBFE',
+    fontWeight: '600',
   },
   callButtons: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 4,
   },
   actionBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f1f5f9',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
   },
   actionBtnDisabled: {
     opacity: 0.4,
@@ -1484,7 +1716,7 @@ const styles = StyleSheet.create({
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fef2f2',
+    backgroundColor: '#FEF2F2',
     paddingHorizontal: 16,
     paddingVertical: 10,
     marginHorizontal: 16,
@@ -1499,7 +1731,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     flex: 1,
-    color: '#dc2626',
+    color: '#DC2626',
     fontSize: 12,
     fontWeight: '500',
   },
@@ -1508,35 +1740,39 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#f5f7fb',
+    backgroundColor: '#F1F5F9',
   },
   loadingText: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#6B7280',
     fontWeight: '500',
   },
   messagesArea: {
     flex: 1,
-    backgroundColor: '#f5f7fb',
+    width: '100%',
+    backgroundColor: '#F1F5F9',
   },
   messagesList: {
-    paddingHorizontal: 0,
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    paddingHorizontal: 14,
     paddingVertical: 16,
-    gap: 8,
+    gap: 6,
     flexGrow: 1,
   },
   welcomeCard: {
     flexDirection: 'row',
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
     gap: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
+    shadowOpacity: 0.06,
     shadowRadius: 6,
-    elevation: 1,
+    elevation: 2,
   },
   welcomeAvatar: {
     width: 52,
@@ -1553,7 +1789,7 @@ const styles = StyleSheet.create({
   welcomeInitials: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#ffffff',
+    color: '#FFFFFF',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -1561,30 +1797,30 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   welcomeTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#0f172a',
-    marginBottom: 4,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1E3A8A',
+    marginBottom: 3,
   },
   welcomeDesc: {
     fontSize: 12,
-    color: '#475569',
+    color: '#64748B',
     marginBottom: 4,
-    lineHeight: 16,
+    lineHeight: 17,
   },
   welcomeTime: {
     fontSize: 10,
-    color: '#94a3b8',
+    color: '#94A3B8',
     fontWeight: '500',
   },
   errorMessage: {
     alignItems: 'center',
     paddingTop: 80,
-    backgroundColor: '#f5f7fb',
+    backgroundColor: '#F8FAFC',
   },
   retryBtn: {
     marginTop: 16,
-    color: '#2c50cd',
+    color: '#2563EB',
     fontWeight: '600',
     fontSize: 14,
   },
@@ -1601,12 +1837,12 @@ const styles = StyleSheet.create({
   emptyMessagesText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#64748b',
+    color: '#6B7280',
     marginBottom: 6,
   },
   emptyMessagesSubtext: {
     fontSize: 12,
-    color: '#94a3b8',
+    color: '#9CA3AF',
     marginTop: 2,
     textAlign: 'center',
   },
@@ -1614,13 +1850,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 8,
+    marginTop: 4,
     marginBottom: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#f1f5f9',
+    marginLeft: 38,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
     alignSelf: 'flex-start',
-    borderRadius: 20,
+    borderRadius: 18,
+    borderBottomLeftRadius: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
   },
   typingDots: {
     flexDirection: 'row',
@@ -1631,7 +1874,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#94a3b8',
+    backgroundColor: '#2563EB',
     opacity: 0.6,
   },
   typingDotDelay1: {
@@ -1642,101 +1885,211 @@ const styles = StyleSheet.create({
   },
   typingLabel: {
     fontSize: 11,
-    color: '#64748b',
+    color: '#6B7280',
     fontStyle: 'italic',
   },
   messageBubble: {
-    maxWidth: '100%',
-    marginBottom: 4,
-    paddingHorizontal: 12,
+    width: '100%',
+    marginBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
   },
   messageRight: {
-    alignSelf: 'flex-end',
+    justifyContent: 'flex-end',
   },
   messageLeft: {
-    alignSelf: 'flex-start',
+    justifyContent: 'flex-start',
+  },
+  msgAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    flexShrink: 0,
+  },
+  msgAvatarPhoto: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    resizeMode: 'cover',
+  },
+  msgAvatarText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   messageContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 22,
-    maxWidth: '82%',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 18,
+    maxWidth: screenWidth >= 600 ? 500 : '80%',
   },
   userMessageContent: {
-    backgroundColor: '#2c50cd',
+    backgroundColor: '#1D4ED8',
     borderBottomRightRadius: 4,
-    shadowColor: '#2c50cd',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
+    shadowColor: '#1E3A8A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 4,
   },
   counselorMessageContent: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e9ecef',
+    backgroundColor: '#FFFFFF',
     borderBottomLeftRadius: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.02,
-    shadowRadius: 2,
-    elevation: 0.5,
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
   messageText: {
-    fontSize: 16,
-    lineHeight: 23,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '400',
   },
   userMessageText: {
-    color: '#ffffff',
+    color: '#FFFFFF',
   },
   counselorMessageText: {
-    color: '#1e293b',
+    color: '#1E293B',
   },
   messageFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
     marginTop: 4,
-    gap: 4,
+    gap: 3,
   },
   messageTime: {
-    fontSize: 11,
-    color: '#94a3b8',
+    fontSize: 10,
+    color: '#94A3B8',
     fontWeight: '500',
+  },
+  messageTimeMine: {
+    color: 'rgba(255,255,255,0.55)',
   },
   messageStatusSending: {
     fontSize: 11,
-    color: '#f59e0b',
+    color: '#F59E0B',
     fontWeight: '500',
+  },
+  messageStatusIconWrap: {
+    width: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   messageStatusSent: {
     fontSize: 11,
-    color: '#10b981',
+    color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  messageStatusRead: {
+    fontSize: 11,
+    color: '#0D9488',
     fontWeight: '500',
   },
   messageStatusError: {
     fontSize: 11,
-    color: '#ef4444',
+    color: '#EF4444',
     fontWeight: '500',
   },
-  inputArea: {
-    paddingHorizontal: 0,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e9ecef',
-    backgroundColor: '#ffffff',
+  attachmentImage: {
+    width: 220,
+    height: 180,
+    borderRadius: 12,
+    marginTop: 6,
   },
-  inputGroup: {
+  attachmentBubble: {
+    marginTop: 8,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#f8fafc',
-    borderRadius: 28,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    gap: 4,
+  },
+  userAttachmentBubble: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  counselorAttachmentBubble: {
+    backgroundColor: '#F3F4F6',
+  },
+  attachmentBubbleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
+  userAttachmentBubbleText: {
+    color: '#FFFFFF',
+  },
+  counselorAttachmentBubbleText: {
+    color: '#374151',
+  },
+  inputArea: {
+    width: '100%',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  inputAreaInner: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+  },
+  attachmentPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 10,
+    gap: 8,
+  },
+  attachmentPreviewText: {
+    flex: 1,
+    color: '#111827',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  inputGroupDisabled: {
+    opacity: 0.7,
+    backgroundColor: '#FFFFFF',
+  },
+  inputGroup: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 26,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#CBD5E1',
+  },
+  attachBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
   },
   inputWrapper: {
     flex: 1,
@@ -1746,41 +2099,43 @@ const styles = StyleSheet.create({
   textInput: {
     flex: 1,
     fontSize: 14,
-    color: '#1e293b',
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    maxHeight: 100,
+    lineHeight: 20,
+    color: '#111827',
+    paddingVertical: Platform.OS === 'ios' ? 6 : 4,
+    paddingHorizontal: 8,
+    maxHeight: 120,
+    minHeight: 36,
+    textAlignVertical: 'center',
   },
   sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
   },
   sendBtnActive: {
-    backgroundColor: '#2c50cd',
-    shadowColor: '#2c50cd',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 3,
+    backgroundColor: '#1D4ED8',
+    shadowColor: '#1E3A8A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 5,
+    elevation: 5,
   },
   sendBtnDisabled: {
-    backgroundColor: '#cbd5e1',
+    backgroundColor: '#CBD5E1',
     opacity: 0.7,
   },
   // Incoming Call Modal Styles
   incomingCallOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(15,23,42,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   incomingCallModal: {
-    width: screenWidth * 0.85,
     maxWidth: 360,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 24,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -1791,11 +2146,11 @@ const styles = StyleSheet.create({
   },
   videoCallModal: {
     borderTopWidth: 3,
-    borderTopColor: '#2c50cd',
+    borderTopColor: '#2563EB',
   },
   voiceCallModal: {
     borderTopWidth: 3,
-    borderTopColor: '#10b981',
+    borderTopColor: '#0D9488',
   },
   incomingCallContent: {
     padding: 24,
@@ -1821,24 +2176,24 @@ const styles = StyleSheet.create({
   avatarInitialLarge: {
     fontSize: 38,
     fontWeight: '800',
-    color: '#ffffff',
+    color: '#FFFFFF',
     letterSpacing: 1,
   },
   incomingCallerName: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#0f172a',
+    color: '#111827',
     marginBottom: 4,
   },
   incomingCallType: {
     fontSize: 13,
-    color: '#64748b',
+    color: '#6B7280',
     marginBottom: 8,
     fontWeight: '500',
   },
   incomingCallMessage: {
     fontSize: 12,
-    color: '#2c50cd',
+    color: '#2563EB',
     fontWeight: '500',
   },
   incomingCallControls: {
@@ -1858,13 +2213,13 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   acceptBtn: {
-    backgroundColor: '#2c50cd',
+    backgroundColor: '#2563EB',
   },
   rejectBtn: {
-    backgroundColor: '#dc2626',
+    backgroundColor: '#DC2626',
   },
   incomingCallBtnText: {
-    color: '#ffffff',
+    color: '#FFFFFF',
     fontWeight: '600',
     fontSize: 13,
   },

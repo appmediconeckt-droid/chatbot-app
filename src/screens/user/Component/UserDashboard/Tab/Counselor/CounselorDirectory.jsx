@@ -19,7 +19,7 @@ import {
   KeyboardAvoidingView,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { io } from "socket.io-client";
+import socketService from "../../../../../../services/socketService";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import api, { API_BASE_URL } from "../../../../../../axiosConfig";
 
@@ -130,20 +130,15 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       setError("");
       setIsLoading(true);
       
-      console.log("Fetching counselors from:", `${API_BASE_URL}/api/auth/counsellors`);
-      
-      const response = await api.get("/api/auth/counsellors");
-      console.log("Response status:", response.status);
-      
+      const response = await api.get("/api/chat/counselors");
+
       let counselors = [];
-      if (response.data?.counsellors) {
-        counselors = response.data.counsellors;
-      } else if (response.data?.counselors) {
+      if (response.data?.counselors) {
         counselors = response.data.counselors;
+      } else if (response.data?.counsellors) {
+        counselors = response.data.counsellors;
       } else if (Array.isArray(response.data)) {
         counselors = response.data;
-      } else if (response.data?.data && Array.isArray(response.data.data)) {
-        counselors = response.data.data;
       }
       
       console.log("Number of counselors fetched:", counselors.length);
@@ -157,8 +152,8 @@ const CounselorDirectoryScreen = ({ navigation }) => {
           specialization: Array.isArray(c.specialization) ? c.specialization.join(", ") : (c.specialization || "General"),
           experience: c.experience || 0,
           rating: c.rating || 4.5,
-          online: c.isOnline || false,
-          available: c.isActive !== false,
+          online: Boolean(c.isOnline),
+          available: Boolean(c.isActive),
           lastSeen: c.lastSeen || null,
           profilePhoto: profilePhotoUrl,
           avatarType: profilePhotoUrl ? "image" : "text",
@@ -181,6 +176,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
           .map(c => c.location)
           .filter(l => l && l !== "Online" && l.trim())
       )];
+      // Use server-provided fields only: isOnline for live presence, isActive for availability setting
       setUniqueLocations(locations);
       
     } catch (err) {
@@ -200,6 +196,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
     let socket = null;
     
     const setupSocket = async () => {
+      const unsubscribers = [];
       try {
         const token = await AsyncStorage.getItem("accessToken") || await AsyncStorage.getItem("token");
         if (!token) {
@@ -207,45 +204,34 @@ const CounselorDirectoryScreen = ({ navigation }) => {
           return;
         }
 
-        socket = io(API_BASE_URL, {
-          auth: { token },
-          transports: ["websocket", "polling"],
-          reconnection: true,
-          reconnectionAttempts: 5,
-          reconnectionDelay: 1000,
-        });
-        
+        const socket = await socketService.connect();
         socketRef.current = socket;
 
-        socket.on("connect", () => {
-          console.log("Socket connected successfully");
-        });
+        unsubscribers.push(await socketService.on('connect', () => console.log('Socket connected successfully')));
+        unsubscribers.push(await socketService.on('presence-update', ({ userId, isOnline, lastSeen }) => {
+          console.log('[presence] event userId=', userId, 'isOnline=', isOnline);
+          setCounselorsData((prev) => {
+            const matched = prev.find((c) => String(c.id) === String(userId));
+            if (!matched) {
+              console.log('[presence] event for unknown counselor:', userId, 'have:', prev.map((c) => c.id));
+            }
+            return prev.map((counselor) => String(counselor.id) === String(userId) ? { ...counselor, online: isOnline, lastSeen } : counselor);
+          });
+        }));
 
-        socket.on("presence-update", ({ userId, isOnline, lastSeen }) => {
-          setCounselorsData((prev) =>
-            prev.map((counselor) =>
-              String(counselor.id) === String(userId)
-                ? { ...counselor, online: isOnline, lastSeen }
-                : counselor
-            )
-          );
-        });
+        unsubscribers.push(await socketService.on('connect_error', (err) => console.error('Socket connection error:', err?.message || err)));
 
-        socket.on("connect_error", (err) => {
-          console.error("Socket connection error:", err.message);
-        });
-
+        socketRef.current._unsubscribers = unsubscribers;
       } catch (error) {
-        console.error("Error setting up socket:", error);
+        console.error('Error setting up socket:', error);
       }
     };
 
     setupSocket();
-    
+
     return () => {
-      if (socket) {
-        socket.disconnect();
-      }
+      try { const unsub = socketRef.current?._unsubscribers || []; unsub.forEach(fn => { try { fn(); } catch {} }); } catch (e) {}
+      if (socketRef.current) socketRef.current = null;
     };
   }, []);
 
@@ -528,11 +514,6 @@ const CounselorDirectoryScreen = ({ navigation }) => {
             )}
           </View>
           
-          <View style={[styles.availabilityBadge, counselor.online && styles.availabilityOnline]}>
-            <Text style={styles.availabilityText}>
-              {counselor.online ? "Online" : "Offline"}
-            </Text>
-          </View>
         </View>
 
         <View style={styles.tagsContainer}>

@@ -11,22 +11,26 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
+  Keyboard,
   Platform,
   StyleSheet,
   Dimensions,
   Animated,
+  Easing,
   StatusBar,
+  PermissionsAndroid,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation } from "@react-navigation/native";
 import axios from "axios";
-import { API_BASE_URL } from "../../../../../axiosConfig";
-import { io } from "socket.io-client";
+import axiosInstance, { API_BASE_URL } from "../../../../../axiosConfig";
+import socketService from "../../../../../services/socketService";
 import Icon from "react-native-vector-icons/FontAwesome5";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import LinearGradient from 'react-native-linear-gradient';
+import { BlurView } from "@react-native-community/blur";
 import safeVibrate from "../../../../../utils/safeVibrate";
 import { forceStopRingtone, startIncomingRingtone } from "../../../../../hooks/useRingtone";
 import ChatInterface from "../Tab/chatbot/ChatInterface";
@@ -36,10 +40,29 @@ import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
 import RealVideoCallModal from "../Tab/CallModal/VideoCallModal";
 import RealVoiceCallModal from "../Tab/CallModal/VoiceCallModal";
+import HelpSupport from "../Tab/HelpSupport/HelpSupport";
+import PrivacyPolicy from "../Tab/PrivacyPolicy/PrivacyPolicy";
+import UserAccountSettings from "../Tab/UserAccountSettings";
 
 const { width, height } = Dimensions.get("window");
 
+const AI_WELCOME_MESSAGE = "Hi! Welcome back 💙 How are you feeling right now?";
+const AI_WELCOME_QUICK_REPLIES = ["😢 Low", "😐 Okay", "🙂 Good", "✨ Great"];
+
 // Improved ChatPopup Component
+const VOICE_LANGUAGES = [
+  { label: 'English (India)', code: 'en-IN' },
+  { label: 'English (US)', code: 'en-US' },
+  { label: 'Hindi', code: 'hi-IN' },
+  { label: 'Tamil', code: 'ta-IN' },
+  { label: 'Telugu', code: 'te-IN' },
+  { label: 'Kannada', code: 'kn-IN' },
+  { label: 'Malayalam', code: 'ml-IN' },
+  { label: 'Bengali', code: 'bn-IN' },
+  { label: 'Gujarati', code: 'gu-IN' },
+  { label: 'Marathi', code: 'mr-IN' },
+];
+
 const ChatPopup = ({
   messages,
   newMessage,
@@ -47,11 +70,153 @@ const ChatPopup = ({
   sendMessage,
   isLoading,
   onClose,
+  onReset,
+  showResetConfirm,
+  onCancelReset,
+  onConfirmReset,
   onCounselorPress,
-}) => (
-  <Modal animationType="slide" transparent={true} visible={true}>
+  sendQuickReply,
+  selectedLang,
+  setSelectedLang,
+  onLangChange,
+}) => {
+  const [speakingId, setSpeakingId] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [showLangPicker, setShowLangPicker] = useState(false);
+  const inputRef = useRef(null);
+  const scrollViewRef = useRef(null);
+  const sendMessageRef = useRef(sendMessage);
+  const setNewMessageRef = useRef(setNewMessage);
+  const micPulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
+  useEffect(() => { setNewMessageRef.current = setNewMessage; }, [setNewMessage]);
+
+  // Track keyboard height so popup fills exactly the space above the keyboard
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (e) => setKeyboardHeight(e.endCoordinates.height));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+
+  // Auto-scroll to bottom whenever a new message arrives or AI starts typing
+  useEffect(() => {
+    scrollViewRef.current?.scrollToEnd({ animated: true });
+  }, [messages, isLoading]);
+
+  // Pulse animation while recording
+  useEffect(() => {
+    if (isRecording) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(micPulse, { toValue: 1.3, duration: 600, useNativeDriver: true }),
+          Animated.timing(micPulse, { toValue: 1, duration: 600, useNativeDriver: true }),
+        ])
+      ).start();
+    } else {
+      micPulse.stopAnimation();
+      micPulse.setValue(1);
+    }
+  }, [isRecording]);
+
+  // Wire up STT listeners from native SpeechModule
+  useEffect(() => {
+    const Speech = require('../../../../../utils/SpeechBridge');
+
+    const unsubResult = Speech.onSttResult((transcript) => {
+      if (transcript) setNewMessageRef.current(transcript);
+      setIsRecording(false);
+    });
+    const unsubStart = Speech.onSttStart(() => setIsRecording(true));
+    const unsubEnd = Speech.onSttEnd(() => setIsRecording(false));
+    const unsubError = Speech.onSttError((code) => {
+      if (code !== 'no-match' && code !== 'timeout') {
+        console.warn('[STT] error:', code);
+      }
+      setIsRecording(false);
+    });
+    const unsubTts = Speech.onTtsDone(() => setSpeakingId(null));
+
+    Speech.initTts();
+
+    return () => {
+      unsubResult(); unsubStart(); unsubEnd(); unsubError(); unsubTts();
+      Speech.destroyRecognizer();
+      Speech.stopSpeaking();
+    };
+  }, []);
+
+  const toggleRecording = async () => {
+    const Speech = require('../../../../../utils/SpeechBridge');
+
+    if (isRecording) {
+      try { await Speech.stopListening(); } catch (_) {}
+      setIsRecording(false);
+      return;
+    }
+
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+          {
+            title: 'Microphone Permission',
+            message: 'This app needs microphone access for voice input.',
+            buttonPositive: 'Allow',
+          }
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          Alert.alert('Permission needed', 'Allow microphone access for voice input.');
+          return;
+        }
+      } catch (err) {
+        console.warn('[STT] permission error:', err);
+        return;
+      }
+    }
+
+    try {
+      await Speech.destroyRecognizer();
+      await Speech.startListening(selectedLang);
+    } catch (e) {
+      console.warn('[STT] start error:', e?.message ?? e);
+      setIsRecording(false);
+      Alert.alert('Voice Error', e?.message?.includes('available')
+        ? 'Speech recognition is not available on this device.'
+        : 'Could not start voice input. Please try again.');
+    }
+  };
+
+  const stopSpeaking = () => {
+    const Speech = require('../../../../../utils/SpeechBridge');
+    Speech.stopSpeaking().catch(() => {});
+    setSpeakingId(null);
+  };
+
+  const speakMessage = async (messageId, text) => {
+    if (speakingId === messageId) { stopSpeaking(); return; }
+    stopSpeaking();
+    const Speech = require('../../../../../utils/SpeechBridge');
+    setSpeakingId(messageId);
+    try {
+      await Speech.speakText(text, selectedLang);
+    } catch (err) {
+      console.warn('[TTS] error:', err?.message ?? err);
+      setSpeakingId(null);
+    }
+  };
+
+  return (
+  <Modal animationType="slide" transparent={true} visible={true} statusBarTranslucent>
     <View style={styles.chatPopupOverlay}>
-      <View style={styles.chatPopup}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.chatPopupBackdrop} />
+      </TouchableWithoutFeedback>
+      <View style={[styles.chatPopup, {
+        height: keyboardHeight > 0 ? height - keyboardHeight - 40 : 630,
+        marginBottom: keyboardHeight,
+      }]}>
         <LinearGradient
           colors={['#667eea', '#764ba2']}
           start={{ x: 0, y: 0 }}
@@ -70,14 +235,36 @@ const ChatPopup = ({
               <Text style={styles.chatStatus}>Online • Always Here for You</Text>
             </View>
           </View>
-          <TouchableOpacity onPress={onClose} style={styles.chatCloseBtn}>
-            <MaterialIcons name="close" size={20} color="white" />
-          </TouchableOpacity>
+          <View style={styles.chatHeaderActions}>
+            {onReset && (
+              <TouchableOpacity
+                onPress={onReset}
+                style={[styles.chatIconBtn, isLoading && styles.chatIconBtnDisabled]}
+                disabled={isLoading}
+                accessibilityLabel="Reset chat"
+              >
+                <MaterialIcons name="refresh" size={20} color="white" />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={onClose}
+              style={styles.chatIconBtn}
+              accessibilityLabel="Close chat"
+            >
+              <MaterialIcons name="close" size={20} color="white" />
+            </TouchableOpacity>
+          </View>
         </LinearGradient>
 
-        <ScrollView style={styles.chatPopupBody}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.chatPopupBody}
+          contentContainerStyle={styles.chatPopupBodyContent}
+        >
           {messages.map((message) => {
             const textParts = String(message.text || "").split(/(\[.*?\])/g);
+            const isAiMsg = message.sender === "ai";
+            const isSpeaking = speakingId === message.id;
 
             return (
               <View
@@ -87,7 +274,7 @@ const ChatPopup = ({
                   message.sender === "user" && styles.chatMessageWrapperUser,
                 ]}
               >
-                {message.sender === "ai" && (
+                {isAiMsg && (
                   <LinearGradient
                     colors={['#667eea', '#764ba2']}
                     style={[styles.chatAvatar, styles.chatAvatarSmall]}
@@ -95,35 +282,70 @@ const ChatPopup = ({
                     <MaterialIcons name="auto-awesome" size={14} color="white" />
                   </LinearGradient>
                 )}
-                <View
-                  style={[
-                    styles.chatBubble,
-                    message.sender === "user" && styles.chatBubbleUser,
-                  ]}
-                >
-                  <Text
+                <View style={{ flex: 1 }}>
+                  <View
                     style={[
-                      styles.chatBubbleText,
-                      message.sender === "user" && styles.chatBubbleTextUser,
+                      styles.chatBubble,
+                      message.sender === "user" && styles.chatBubbleUser,
                     ]}
                   >
-                    {textParts.map((part, index) => {
-                      if (part.startsWith("[") && part.endsWith("]")) {
-                        const counselorName = part.slice(1, -1).trim();
-                        return (
-                          <Text
-                            key={`${message.id}_${index}`}
-                            style={styles.chatCounselorMention}
-                            onPress={() => onCounselorPress?.(counselorName)}
+                    <Text
+                      style={[
+                        styles.chatBubbleText,
+                        message.sender === "user" && styles.chatBubbleTextUser,
+                      ]}
+                    >
+                      {textParts.map((part, index) => {
+                        if (part.startsWith("[") && part.endsWith("]")) {
+                          const counselorName = part.slice(1, -1).trim();
+                          return (
+                            <Text
+                              key={`${message.id}_${index}`}
+                              style={styles.chatCounselorMention}
+                              onPress={() => onCounselorPress?.(counselorName)}
+                            >
+                              {counselorName}
+                            </Text>
+                          );
+                        }
+                        return <Text key={`${message.id}_${index}`}>{part}</Text>;
+                      })}
+                    </Text>
+                    {isAiMsg && Array.isArray(message.quickReplies) && message.quickReplies.length > 0 && (
+                      <View style={styles.quickRepliesWrap}>
+                        {message.quickReplies.map((reply) => (
+                          <TouchableOpacity
+                            key={reply}
+                            style={[
+                              styles.quickReplyBtn,
+                              isLoading && styles.quickReplyBtnDisabled,
+                            ]}
+                            activeOpacity={0.8}
+                            disabled={isLoading}
+                            onPress={() => sendQuickReply?.(reply)}
                           >
-                            {counselorName}
-                          </Text>
-                        );
-                      }
-
-                      return <Text key={`${message.id}_${index}`}>{part}</Text>;
-                    })}
-                  </Text>
+                            <Text style={styles.quickReplyText}>{reply}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                  {isAiMsg && (
+                    <TouchableOpacity
+                      style={styles.speakBtn}
+                      onPress={() => speakMessage(message.id, message.text)}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialIcons
+                        name={isSpeaking ? "stop-circle" : "volume-up"}
+                        size={14}
+                        color={isSpeaking ? "#ef4444" : "#667eea"}
+                      />
+                      <Text style={[styles.speakBtnText, isSpeaking && { color: '#ef4444' }]}>
+                        {isSpeaking ? "Stop" : "Listen"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
                 {message.sender === "user" && (
                   <View style={[styles.chatAvatar, styles.chatAvatarSmall, styles.userAvatar]}>
@@ -153,26 +375,127 @@ const ChatPopup = ({
         </ScrollView>
 
         <View style={styles.chatPopupFooter}>
+          <TouchableOpacity
+            style={styles.langBtn}
+            onPress={() => setShowLangPicker(true)}
+            activeOpacity={0.8}
+          >
+            <MaterialIcons name="language" size={16} color="#667eea" />
+            <Text style={styles.langBtnText} numberOfLines={1}>
+              {VOICE_LANGUAGES.find(l => l.code === selectedLang)?.label?.split(' ')[0] || 'EN'}
+            </Text>
+          </TouchableOpacity>
           <TextInput
+            ref={inputRef}
             style={styles.chatInput}
             placeholder="Type your message..."
             placeholderTextColor="#999"
             value={newMessage}
             onChangeText={setNewMessage}
-            onSubmitEditing={sendMessage}
+            onSubmitEditing={() => sendMessage(newMessage)}
+            returnKeyType="send"
           />
           <TouchableOpacity
+            style={[styles.micBtn, isRecording && styles.micBtnActive]}
+            onPress={toggleRecording}
+            activeOpacity={0.8}
+          >
+            <Animated.View style={{ transform: [{ scale: micPulse }] }}>
+              <MaterialIcons
+                name={isRecording ? "mic" : "mic-none"}
+                size={20}
+                color={isRecording ? "#fff" : "#667eea"}
+              />
+            </Animated.View>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[styles.sendBtn, (!newMessage.trim() || isLoading) && styles.sendBtnDisabled]}
-            onPress={sendMessage}
+            onPress={() => sendMessage(newMessage)}
             disabled={!newMessage.trim() || isLoading}
           >
             <MaterialIcons name="send" size={18} color="white" />
           </TouchableOpacity>
         </View>
+        {/* Language picker modal */}
+        <Modal
+          transparent
+          visible={showLangPicker}
+          animationType="fade"
+          onRequestClose={() => setShowLangPicker(false)}
+        >
+          <TouchableOpacity
+            style={styles.langPickerOverlay}
+            activeOpacity={1}
+            onPress={() => setShowLangPicker(false)}
+          >
+            <View style={styles.langPickerCard}>
+              <Text style={styles.langPickerTitle}>Select Voice Language</Text>
+              {VOICE_LANGUAGES.map((lang) => (
+                <TouchableOpacity
+                  key={lang.code}
+                  style={[styles.langPickerItem, selectedLang === lang.code && styles.langPickerItemActive]}
+                  onPress={() => {
+                    setShowLangPicker(false);
+                    if (lang.code !== selectedLang) {
+                      setSelectedLang(lang.code);
+                      onLangChange?.(lang.code);
+                    }
+                  }}
+                >
+                  <Text style={[styles.langPickerItemText, selectedLang === lang.code && styles.langPickerItemTextActive]}>
+                    {lang.label}
+                  </Text>
+                  {selectedLang === lang.code && (
+                    <MaterialIcons name="check" size={18} color="#667eea" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+        {showResetConfirm && (
+          <View style={styles.resetConfirmOverlay}>
+            <View style={styles.resetConfirmCard}>
+              <LinearGradient
+                colors={['#667eea', '#764ba2']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.resetConfirmIcon}
+              >
+                <MaterialIcons name="refresh" size={26} color="#ffffff" />
+              </LinearGradient>
+              <Text style={styles.resetConfirmTitle}>Start a fresh chat?</Text>
+              <Text style={styles.resetConfirmText}>
+                This clears the current AI chat and starts again with the welcome mood options.
+              </Text>
+              <View style={styles.resetConfirmActions}>
+                <TouchableOpacity
+                  style={[styles.resetConfirmBtn, styles.resetCancelBtn]}
+                  onPress={onCancelReset}
+                  disabled={isLoading}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.resetCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.resetConfirmBtn, styles.resetStartBtn, isLoading && styles.resetBtnDisabled]}
+                  onPress={onConfirmReset}
+                  disabled={isLoading}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.resetStartText}>
+                    {isLoading ? "Starting..." : "Start Fresh"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
       </View>
     </View>
   </Modal>
-);
+  );
+};
 
 // Call Modal Component
 const CallModal = ({
@@ -187,26 +510,53 @@ const CallModal = ({
 }) => {
   const [isAccepting, setIsAccepting] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
+
+  // Animations: spring scale-in for card, pulse on avatar, three expanding
+  // wave rings around the avatar, gentle float on the card, button press scale.
+  const scaleAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const floatAnim = useRef(new Animated.Value(0)).current;
+  const ring1 = useRef(new Animated.Value(0)).current;
+  const ring2 = useRef(new Animated.Value(0)).current;
+  const ring3 = useRef(new Animated.Value(0)).current;
+  const buttonScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (isOpen) {
+      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, tension: 65, friction: 8 }).start();
       Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.1,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: true,
-          }),
+          Animated.timing(pulseAnim, { toValue: 1.08, duration: 900, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
         ])
       ).start();
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(floatAnim, { toValue: 1, duration: 2200, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+          Animated.timing(floatAnim, { toValue: 0, duration: 2200, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        ])
+      ).start();
+      const ringLoop = (val, delay) =>
+        Animated.loop(
+          Animated.sequence([
+            Animated.delay(delay),
+            Animated.timing(val, { toValue: 1, duration: 1800, useNativeDriver: true, easing: Easing.out(Easing.ease) }),
+            Animated.timing(val, { toValue: 0, duration: 0, useNativeDriver: true }),
+          ])
+        );
+      ringLoop(ring1, 0).start();
+      ringLoop(ring2, 600).start();
+      ringLoop(ring3, 1200).start();
+    } else {
+      scaleAnim.setValue(0);
+      pulseAnim.setValue(1);
+      floatAnim.setValue(0);
+      ring1.setValue(0); ring2.setValue(0); ring3.setValue(0);
     }
-  }, [isOpen, pulseAnim]);
+  }, [isOpen, scaleAnim, pulseAnim, floatAnim, ring1, ring2, ring3]);
+
+  const pressIn = () => Animated.spring(buttonScale, { toValue: 0.92, useNativeDriver: true, tension: 120, friction: 6 }).start();
+  const pressOut = () => Animated.spring(buttonScale, { toValue: 1, useNativeDriver: true, tension: 120, friction: 6 }).start();
 
   const handleAccept = async () => {
     if (isAccepting) return;
@@ -232,56 +582,226 @@ const CallModal = ({
 
   const displayName = callData?.from?.fullName || callerName || "Counselor";
   const profilePhoto = callData?.from?.profilePhoto || callerImage;
+  const displayInitial = (displayName?.charAt(0) || "C").toUpperCase();
+  const isVideo = callType === "video";
+
+  const ringStyle = (val) => ({
+    transform: [{ scale: val.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] }) }],
+    opacity: val.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 0.55, 0] }),
+  });
+  const floatY = floatAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -6] });
+
+  // User gradient: purple / pink (counselor uses teal/blue — keeps each role distinct)
+  const cardGradient = ["rgba(102, 126, 234, 0.92)", "rgba(118, 75, 162, 0.92)", "rgba(190, 75, 200, 0.85)"];
+  const avatarGradient = ["#a78bfa", "#ec4899"];
+  const acceptGradient = ["#10b981", "#059669"];
 
   return (
-    <Modal transparent={true} visible={isOpen} animationType="fade">
-      <View style={styles.callModalOverlay}>
-        <View style={styles.callModal}>
-          <View style={styles.callModalContent}>
-            <View style={styles.callerInfo}>
-              <Animated.View style={[styles.callerAvatar, { transform: [{ scale: pulseAnim }] }]}>
-                {profilePhoto ? (
-                  <Image source={{ uri: profilePhoto }} style={styles.callerAvatarImage} />
-                ) : (
-                  <MaterialIcons name="person" size={44} color="white" />
-                )}
+    <Modal transparent visible={isOpen} animationType="fade" onRequestClose={onClose}>
+      <View style={styles.callBackdrop}>
+        <BlurView
+          style={StyleSheet.absoluteFill}
+          blurType="dark"
+          blurAmount={18}
+          reducedTransparencyFallbackColor="#000"
+        />
+        <View style={styles.callBackdropTint} />
+
+        <Animated.View
+          style={[
+            styles.glassCard,
+            { transform: [{ scale: scaleAnim }, { translateY: floatY }] },
+          ]}
+        >
+          <LinearGradient
+            colors={cardGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.glassCardGradient}
+          >
+            <View style={styles.callTopRow}>
+              <View style={styles.callTopPill}>
+                <Ionicons name={isVideo ? "videocam" : "call"} size={12} color="#fdf4ff" />
+                <Text style={styles.callTopPillText}>
+                  {isVideo ? "Incoming video call" : "Incoming voice call"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.avatarWrap}>
+              <Animated.View style={[styles.waveRing, ringStyle(ring1)]} />
+              <Animated.View style={[styles.waveRing, ringStyle(ring2)]} />
+              <Animated.View style={[styles.waveRing, ringStyle(ring3)]} />
+
+              <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+                <LinearGradient
+                  colors={avatarGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.avatarGradient}
+                >
+                  {profilePhoto ? (
+                    <Image source={{ uri: profilePhoto }} style={styles.avatarImage} />
+                  ) : (
+                    <Text style={styles.avatarInitial}>{displayInitial}</Text>
+                  )}
+                </LinearGradient>
               </Animated.View>
-              <Text style={styles.callerName}>{displayName}</Text>
-              <Text style={styles.callType}>
-                {callType === "video" ? "📹 Video Call" : "📞 Voice Call"}
-              </Text>
             </View>
 
-            <View style={styles.callControls}>
-              <TouchableOpacity
-                style={[styles.callBtn, styles.rejectBtn]}
-                onPress={handleReject}
-                disabled={isRejecting}
-              >
-                <MaterialIcons name="call-end" size={22} color="white" />
-                <Text style={styles.callBtnText}>
-                  {isRejecting ? "Rejecting..." : "Decline"}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.callBtn, styles.acceptBtn]}
-                onPress={handleAccept}
-                disabled={isAccepting}
-              >
-                <MaterialIcons name="call" size={22} color="white" />
-                <Text style={styles.callBtnText}>
-                  {isAccepting ? "Accepting..." : "Accept"}
-                </Text>
-              </TouchableOpacity>
+            <Text style={styles.callerName} numberOfLines={1}>{displayName}</Text>
+            <View style={styles.ringingRow}>
+              <View style={styles.ringingDot} />
+              <Text style={styles.ringingText}>Ringing…</Text>
             </View>
-          </View>
-        </View>
+
+            <View style={styles.actionsRow}>
+              <View style={styles.actionCol}>
+                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+                  <TouchableOpacity
+                    onPress={handleReject}
+                    onPressIn={pressIn}
+                    onPressOut={pressOut}
+                    activeOpacity={0.85}
+                    disabled={isRejecting}
+                    style={[styles.fab, styles.fabReject]}
+                  >
+                    {isRejecting ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <MaterialIcons name="call-end" size={28} color="#fff" />
+                    )}
+                  </TouchableOpacity>
+                </Animated.View>
+                <Text style={styles.actionLabel}>
+                  {isRejecting ? "Declining…" : "Decline"}
+                </Text>
+              </View>
+
+              <View style={styles.actionCol}>
+                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+                  <TouchableOpacity
+                    onPress={handleAccept}
+                    onPressIn={pressIn}
+                    onPressOut={pressOut}
+                    activeOpacity={0.9}
+                    disabled={isAccepting}
+                  >
+                    <LinearGradient
+                      colors={acceptGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={[styles.fab, styles.fabAccept]}
+                    >
+                      {isAccepting ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <MaterialIcons name={isVideo ? "videocam" : "call"} size={28} color="#fff" />
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </Animated.View>
+                <Text style={styles.actionLabel}>
+                  {isAccepting ? "Connecting…" : "Accept"}
+                </Text>
+              </View>
+            </View>
+          </LinearGradient>
+        </Animated.View>
       </View>
     </Modal>
   );
 };
 
+
+
+const AppointmentsSkeleton = () => {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 850, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 850, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [anim]);
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.78] });
+  const S = aptSkelStyles;
+  return (
+    <View style={S.wrap}>
+      {[1, 2, 3].map((i) => (
+        <View key={i} style={S.card}>
+          {/* accent bar — matches aptCardAccent: height 4, width 100% */}
+          <Animated.View style={[S.accentBar, { opacity }]} />
+
+          {/* header row — matches appointmentCardHeader */}
+          <View style={S.header}>
+            {/* avatar — matches aptAvatarWrap 54×54, borderRadius 16 */}
+            <Animated.View style={[S.avatar, { opacity }]} />
+            {/* name + specialization — matches appointmentMetaColumn */}
+            <View style={S.meta}>
+              <Animated.View style={[S.lineLg, { opacity }]} />
+              <Animated.View style={[S.lineMd, { opacity }]} />
+            </View>
+            {/* status pill — matches aptStatusPill */}
+            <Animated.View style={[S.statusPill, { opacity }]} />
+          </View>
+
+          {/* divider — matches aptDivider */}
+          <View style={S.divider} />
+
+          {/* date row — matches appointmentDateRow */}
+          <View style={S.dateRow}>
+            <Animated.View style={[S.iconBox, { opacity }]} />
+            <Animated.View style={[S.dateLine, { opacity }]} />
+            <Animated.View style={[S.dot, { opacity }]} />
+            <Animated.View style={[S.iconBox, { opacity }]} />
+            <Animated.View style={[S.timeLine, { opacity }]} />
+          </View>
+
+          {/* action row — matches appointmentActionRow */}
+          <View style={S.actionRow}>
+            <Animated.View style={[S.btnLeft, { opacity }]} />
+            <Animated.View style={[S.btnRight, { opacity }]} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+};
+
+const aptSkelStyles = StyleSheet.create({
+  wrap: { width: '100%', gap: 12 },
+  card: {
+    width: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#4f46e5',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.09,
+    shadowRadius: 18,
+    elevation: 4,
+  },
+  accentBar: { height: 4, width: '100%', backgroundColor: '#e2e8f0' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingTop: 14 },
+  avatar: { width: 54, height: 54, borderRadius: 16, backgroundColor: '#e2e8f0' },
+  meta: { flex: 1, gap: 8 },
+  lineLg: { width: '65%', height: 14, borderRadius: 4, backgroundColor: '#e2e8f0' },
+  lineMd: { width: '45%', height: 11, borderRadius: 4, backgroundColor: '#edf1f5' },
+  statusPill: { width: 62, height: 24, borderRadius: 999, backgroundColor: '#edf1f5' },
+  divider: { height: 1, backgroundColor: '#f1f5f9', marginHorizontal: 16, marginTop: 14 },
+  dateRow: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 16, paddingVertical: 12 },
+  iconBox: { width: 24, height: 24, borderRadius: 8, backgroundColor: '#edf1f5' },
+  dateLine: { width: 80, height: 12, borderRadius: 4, backgroundColor: '#e2e8f0' },
+  dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#e2e8f0', marginHorizontal: 4 },
+  timeLine: { width: 44, height: 12, borderRadius: 4, backgroundColor: '#e2e8f0' },
+  actionRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingBottom: 16 },
+  btnLeft: { flex: 1, height: 42, borderRadius: 13, backgroundColor: '#edf1f5' },
+  btnRight: { flex: 1, height: 42, borderRadius: 13, backgroundColor: '#e2e8f0' },
+});
 
 const MyAppointmentsPanel = ({ onBookPress }) => {
   const [appointments, setAppointments] = useState([]);
@@ -295,12 +815,7 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
   const fetchAppointments = useCallback(async () => {
     try {
       setLoadingAppointments(true);
-      const token =
-        (await AsyncStorage.getItem("token")) ||
-        (await AsyncStorage.getItem("accessToken"));
-      const response = await axios.get(`${API_BASE_URL}/api/appointments`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await axiosInstance.get('/api/appointments');
       setAppointments(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
       console.error("Error fetching appointments:", err);
@@ -314,43 +829,40 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
     fetchAppointments();
 
     const connectSocket = async () => {
-      const token =
-        (await AsyncStorage.getItem("token")) ||
-        (await AsyncStorage.getItem("accessToken"));
+      const token = (await AsyncStorage.getItem("token")) || (await AsyncStorage.getItem("accessToken"));
       const userId = await AsyncStorage.getItem("userId");
       if (!token) return;
 
-      const socket = io(API_BASE_URL, {
-        transports: ["polling", "websocket"],
-        auth: { token },
-        reconnection: true,
-      });
-      socketRef.current = socket;
+      const unsubscribers = [];
+      try {
+        const socket = await socketService.connect();
+        socketRef.current = socket;
 
-      socket.on("connect", () => {
-        if (userId) socket.emit("join-user-room", { userId });
-      });
+        if (userId) socket.emit('join-user-room', { userId });
 
-      // Re-fetch on any appointment change event
-      const refresh = () => fetchAppointments();
-      socket.on("appointment-booked", refresh);
-      socket.on("appointment-updated", refresh);
-      socket.on("appointment-confirmed", refresh);
-      socket.on("appointment-cancelled", refresh);
-      socket.on("appointment-status-changed", refresh);
-      
-      // 🔄 Listen for appointment call initiation and status updates
-      socket.on("appointment-call-initiated", refresh);
-      socket.on("appointment-status-updated", refresh);
+        const refresh = () => fetchAppointments();
+        unsubscribers.push(await socketService.on('appointment-booked', refresh));
+        unsubscribers.push(await socketService.on('appointment-updated', refresh));
+        unsubscribers.push(await socketService.on('appointment-confirmed', refresh));
+        unsubscribers.push(await socketService.on('appointment-cancelled', refresh));
+        unsubscribers.push(await socketService.on('appointment-status-changed', refresh));
+        unsubscribers.push(await socketService.on('appointment-call-initiated', refresh));
+        unsubscribers.push(await socketService.on('appointment-status-updated', refresh));
+
+        socketRef.current._unsubscribers = unsubscribers;
+      } catch (err) {
+        console.error('Failed to connect shared socket for appointments:', err);
+      }
     };
 
     connectSocket();
 
     return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
+      try {
+        const unsub = socketRef.current?._unsubscribers || [];
+        unsub.forEach(fn => { try { fn(); } catch {} });
+      } catch (e) {}
+      socketRef.current = null;
     };
   }, [fetchAppointments]);
 
@@ -441,10 +953,7 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
 
       <ScrollView contentContainerStyle={styles.appointmentsList} showsVerticalScrollIndicator={false}>
         {loadingAppointments ? (
-          <View style={styles.appointmentLoaderWrap}>
-            <ActivityIndicator size="large" color="#4f46e5" />
-            <Text style={styles.appointmentLoaderText}>Loading appointments...</Text>
-          </View>
+          <AppointmentsSkeleton />
         ) : displayApts.length === 0 ? (
           <View style={styles.appointmentEmptyCard}>
             <MaterialIcons name="event-busy" size={40} color="#c7d2fe" />
@@ -566,9 +1075,13 @@ export default function UserDashboard() {
   const [deleteSuccess, setDeleteSuccess] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [aiSessionId, setAiSessionId] = useState(null);
   const [showMoreModal, setShowMoreModal] = useState(false);
+  const [showHelpSupport, setShowHelpSupport] = useState(false);
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showResetChatConfirm, setShowResetChatConfirm] = useState(false);
 
   // Call Modal States
   const [showCallModal, setShowCallModal] = useState(false);
@@ -597,13 +1110,8 @@ export default function UserDashboard() {
     profilePhoto: "",
   });
 
-  const [chatMessages, setChatMessages] = useState([
-    {
-      id: 1,
-      text: "Hello! I'm your AI health assistant. How can I help you today?",
-      sender: "ai",
-    },
-  ]);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [selectedLang, setSelectedLang] = useState('en-IN');
 
   const handleAIContactClick = (name) => {
     setTargetCounselor(name);
@@ -626,6 +1134,92 @@ export default function UserDashboard() {
       setUnreadCount(0);
     }
   }, [chatOpen]);
+
+  const startAiChat = useCallback(async (lang) => {
+    setIsLoading(true);
+    try {
+      const response = await axiosInstance.post(
+        '/api/ai-chat/send-message',
+        { message: "hi", history: [], language: lang }
+      );
+
+      if (response.data?.success) {
+        if (response.data.data?.sessionId) {
+          setAiSessionId(response.data.data.sessionId);
+        }
+
+        setChatMessages([
+          {
+            id: Date.now(),
+            text: response.data.data?.aiResponse || AI_WELCOME_MESSAGE,
+            sender: "ai",
+            quickReplies: response.data.data?.quickReplies || AI_WELCOME_QUICK_REPLIES,
+          },
+        ]);
+      } else {
+        throw new Error("Invalid AI kickoff response");
+      }
+    } catch (err) {
+      console.warn("[AI-CHAT] kickoff failed:", err.message);
+      setChatMessages([
+        {
+          id: Date.now(),
+          text: AI_WELCOME_MESSAGE,
+          sender: "ai",
+          quickReplies: AI_WELCOME_QUICK_REPLIES,
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!chatOpen) return;
+    if (chatMessages.length > 0) return;
+    if (isLoading) return;
+
+    void startAiChat(selectedLang);
+  }, [chatOpen, chatMessages.length, isLoading, startAiChat, selectedLang]);
+
+  const handleResetChat = useCallback(() => {
+    if (isLoading) return;
+    setShowResetChatConfirm(true);
+  }, [isLoading]);
+
+  const cancelResetChat = useCallback(() => {
+    if (isLoading) return;
+    setShowResetChatConfirm(false);
+  }, [isLoading]);
+
+  const confirmResetChat = useCallback(async () => {
+    if (isLoading) return;
+
+    setShowResetChatConfirm(false);
+    setIsLoading(true);
+    try {
+      await axiosInstance.delete('/api/ai-chat/my-history');
+    } catch (err) {
+      console.warn("[AI-CHAT] reset history failed:", err.message);
+    }
+
+    setAiSessionId(null);
+    setNewMessage("");
+    setChatMessages([]);
+    await startAiChat(selectedLang);
+  }, [isLoading, startAiChat]);
+
+  const handleLangChange = useCallback(async (newLang) => {
+    if (isLoading) return;
+    setIsLoading(true);
+    try {
+      await axiosInstance.delete('/api/ai-chat/my-history');
+    } catch (_) {}
+    setAiSessionId(null);
+    setNewMessage("");
+    setChatMessages([]);
+    await startAiChat(newLang);
+  }, [isLoading, startAiChat]);
 
   // Track call IDs already handled so the same call never rings twice
   const handledCallIdsRef = useRef(new Set());
@@ -653,16 +1247,10 @@ export default function UserDashboard() {
         if (Date.now() < pollBlockedUntilRef.current) return;
         if (showCallModalRef.current || isVideoModalOpenRef.current || isVoiceModalOpenRef.current) return;
 
-        const token =
-          (await AsyncStorage.getItem('accessToken')) ||
-          (await AsyncStorage.getItem('token'));
         const storedUserId = await AsyncStorage.getItem('userId');
-        if (!token || !storedUserId) return;
+        if (!storedUserId) return;
 
-        const response = await axios.get(
-          `${API_BASE_URL}/api/video/calls/pending/${storedUserId}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        const response = await axiosInstance.get(`/api/video/calls/pending/${storedUserId}`);
         if (!isMounted) return;
 
         const callsList = response.data.pendingRequests || [];
@@ -723,16 +1311,10 @@ export default function UserDashboard() {
 
     const checkStillPending = async () => {
       try {
-        const token =
-          (await AsyncStorage.getItem('accessToken')) ||
-          (await AsyncStorage.getItem('token'));
         const storedUserId = await AsyncStorage.getItem('userId');
-        if (!token || !storedUserId || cancelled) return;
+        if (!storedUserId || cancelled) return;
 
-        const response = await axios.get(
-          `${API_BASE_URL}/api/video/calls/pending/${storedUserId}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        const response = await axiosInstance.get(`/api/video/calls/pending/${storedUserId}`);
         if (cancelled) return;
 
         const callsList = response.data.pendingRequests || [];
@@ -766,13 +1348,9 @@ export default function UserDashboard() {
   const fetchUserData = async () => {
     try {
       const storedUserId = await AsyncStorage.getItem("userId");
-      const token = await AsyncStorage.getItem("token");
-
       if (!storedUserId) return;
 
-      const response = await axios.get(`${API_BASE_URL}/api/auth/getUser/${storedUserId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await axiosInstance.get(`/api/auth/getUser/${storedUserId}`);
 
       if (response.data.success) {
         const user = response.data.user;
@@ -788,80 +1366,58 @@ export default function UserDashboard() {
     }
   };
 
-  const sendMessage = async () => {
-    if (!newMessage.trim()) return;
+  const sendMessage = async (messageText = newMessage) => {
+    const sourceText = typeof messageText === "string" ? messageText : newMessage;
+    const trimmedMessage = sourceText.trim();
+    if (!trimmedMessage) return;
 
     const userMessage = {
       id: Date.now(),
-      text: newMessage,
+      text: trimmedMessage,
       sender: "user",
     };
-    setChatMessages((prev) => [...prev, userMessage]);
+    setChatMessages((prev) => [
+      ...prev.map((msg) =>
+        msg.sender === "ai" && msg.quickReplies ? { ...msg, quickReplies: null } : msg
+      ),
+      userMessage,
+    ]);
     setNewMessage("");
     setIsLoading(true);
 
     try {
-      const token = (await AsyncStorage.getItem("token")) || (await AsyncStorage.getItem("accessToken"));
-
       const history = chatMessages.slice(-10).map((msg) => ({
         role: msg.sender === "user" ? "user" : "assistant",
         content: msg.text,
       }));
 
-      const response = await axios.post(
-        `${API_BASE_URL}/api/ai-chat`,
-        {
-          message: userMessage.text,
-          history,
-        },
-        {
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            "Content-Type": "application/json",
-          },
-          timeout: 10000,
+      const response = await axiosInstance.post('/api/ai-chat/send-message', {
+        message: userMessage.text,
+        history,
+        sessionId: aiSessionId,
+        language: selectedLang,
+      });
+
+      if (response.data?.success) {
+        if (response.data.data?.sessionId) {
+          setAiSessionId(response.data.data.sessionId);
         }
-      );
-
-      const aiResponseText =
-        response.data?.data?.aiResponse ||
-        response.data?.reply ||
-        response.data?.response ||
-        response.data?.message ||
-        response.data?.text ||
-        "I'm here to help. Could you please rephrase that?";
-
-      if (response.data?.success || aiResponseText) {
         const aiMessage = {
           id: Date.now() + 1,
-          text: aiResponseText,
+          text: response.data.data?.aiResponse,
           sender: "ai",
+          quickReplies: response.data.data?.quickReplies || null,
         };
         setChatMessages((prev) => [...prev, aiMessage]);
       } else {
-        const fallbackMessage = {
-          id: Date.now() + 1,
-          text: "I'm here to help. Could you please rephrase that?",
-          sender: "ai",
-        };
-        setChatMessages((prev) => [...prev, fallbackMessage]);
+        throw new Error("Invalid AI response");
       }
     } catch (error) {
-      console.error("Chat API error:", error);
+      console.error("AI Chat error:", error);
 
-      if (error.response && error.response.status === 401) {
-        console.log("Authentication failed - token may be expired");
-      }
-
-      const aiResponses = [
-        "I understand. Would you like to try some breathing exercises?",
-        "Thank you for sharing. How long have you been feeling this way?",
-        "I'm here to listen. Would you like me to suggest some coping strategies?",
-        "Would you like me to connect you with a mental health professional?",
-      ];
       const aiMessage = {
         id: Date.now() + 1,
-        text: aiResponses[Math.floor(Math.random() * aiResponses.length)],
+        text: "I'm sorry, I'm having trouble connecting to the medical server. Please try again later.",
         sender: "ai",
       };
       setChatMessages((prev) => [...prev, aiMessage]);
@@ -873,19 +1429,19 @@ export default function UserDashboard() {
     }
   };
 
+  const sendQuickReply = async (replyText) => {
+    await sendMessage(replyText);
+  };
+
   const handleMenuItemClick = (id) => {
+    setShowMoreModal(false);
+    setShowProfileMenu(false);
     switchDashboardTab(id);
-    if (isMobile) {
-      setShowMoreModal(false);
-      setShowProfileMenu(false);
-    }
   };
 
   const handleProfileClick = () => {
+    setShowProfileMenu(false);
     switchDashboardTab("profile");
-    if (isMobile) {
-      setShowProfileMenu(false);
-    }
   };
 
   const switchDashboardTab = (tabId) => {
@@ -896,25 +1452,11 @@ export default function UserDashboard() {
 
   const handleLogout = async () => {
     try {
-      const accessToken = await AsyncStorage.getItem("accessToken");
       const refreshToken = await AsyncStorage.getItem("refreshToken");
-      const token = await AsyncStorage.getItem("token");
-
-      if (accessToken || token) {
-        try {
-          await axios.post(
-            `${API_BASE_URL}/api/auth/logout`,
-            { refreshToken },
-            {
-              headers: {
-                Authorization: `Bearer ${accessToken || token}`,
-                "Content-Type": "application/json"
-              }
-            }
-          );
-        } catch (apiError) {
-          console.error("Backend logout error:", apiError);
-        }
+      try {
+        await axiosInstance.post('/api/auth/logout', { refreshToken });
+      } catch (apiError) {
+        console.error("Backend logout error:", apiError);
       }
 
       await AsyncStorage.clear();
@@ -941,22 +1483,20 @@ export default function UserDashboard() {
     setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
     pollBlockedUntilRef.current = Date.now() + 6000;
     try {
-      const token = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
       const storedUserId = await AsyncStorage.getItem('userId');
-      if (!token || !storedUserId) return;
+      if (!storedUserId) return;
 
-      const acceptRes = await axios.put(
-        API_BASE_URL + '/api/video/calls/' + callId + '/accept',
-        { acceptorId: storedUserId, acceptorType: 'user' },
-        { headers: { Authorization: 'Bearer ' + token } }
+      const acceptRes = await axiosInstance.put(
+        '/api/video/calls/' + callId + '/accept',
+        { acceptorId: storedUserId, acceptorType: 'user' }
       );
       if (!acceptRes.data?.success) return;
 
       let detailedCall = null;
       try {
-        const detailsRes = await axios.get(
-          API_BASE_URL + '/api/video/calls/' + callId + '/details',
-          { params: { userId: storedUserId, userType: 'user' }, headers: { Authorization: 'Bearer ' + token } }
+        const detailsRes = await axiosInstance.get(
+          '/api/video/calls/' + callId + '/details',
+          { params: { userId: storedUserId, userType: 'user' } }
         );
         detailedCall = detailsRes.data?.call || null;
       } catch (_) {}
@@ -1000,13 +1540,11 @@ export default function UserDashboard() {
     // Block polling so the backend has time to process the reject before we poll again
     pollBlockedUntilRef.current = Date.now() + 6000;
     try {
-      const token = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
       const storedUserId = await AsyncStorage.getItem('userId');
-      if (token && storedUserId && callId) {
-        await axios.put(
-          API_BASE_URL + '/api/video/calls/' + callId + '/reject',
-          { userId: storedUserId, reason: 'declined' },
-          { headers: { Authorization: 'Bearer ' + token } }
+      if (storedUserId && callId) {
+        await axiosInstance.put(
+          '/api/video/calls/' + callId + '/reject',
+          { userId: storedUserId, reason: 'declined' }
         ).catch(() => {});
       }
     } catch (_) {}
@@ -1034,6 +1572,8 @@ export default function UserDashboard() {
         return <CallHistory />;
       case "profile":
         return <PatientProfile />;
+      case "settings":
+        return <UserAccountSettings onNavigateBack={() => setActive("Chat")} />;
       default:
         return <ChatInterface />;
     }
@@ -1075,13 +1615,11 @@ export default function UserDashboard() {
         callData={selectedCall}
         onEndCall={async (callId) => {
           try {
-            const token = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
             const storedUserId = await AsyncStorage.getItem('userId');
-            if (token && storedUserId && callId) {
-              await axios.put(
-                API_BASE_URL + '/api/video/calls/' + callId + '/end',
-                { userId: storedUserId, endedBy: 'user' },
-                { headers: { Authorization: 'Bearer ' + token } }
+            if (storedUserId && callId) {
+              await axiosInstance.put(
+                '/api/video/calls/' + callId + '/end',
+                { userId: storedUserId, endedBy: 'user' }
               ).catch(() => {});
             }
           } catch (_) {}
@@ -1100,13 +1638,11 @@ export default function UserDashboard() {
         callData={selectedCall}
         onEndCall={async (callId) => {
           try {
-            const token = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
             const storedUserId = await AsyncStorage.getItem('userId');
-            if (token && storedUserId && callId) {
-              await axios.put(
-                API_BASE_URL + '/api/video/calls/' + callId + '/end',
-                { userId: storedUserId, endedBy: 'user' },
-                { headers: { Authorization: 'Bearer ' + token } }
+            if (storedUserId && callId) {
+              await axiosInstance.put(
+                '/api/video/calls/' + callId + '/end',
+                { userId: storedUserId, endedBy: 'user' }
               ).catch(() => {});
             }
           } catch (_) {}
@@ -1157,6 +1693,13 @@ export default function UserDashboard() {
           <MaterialIcons name="person" size={18} color="#4A90E2" />
           <Text style={styles.dropdownItemText}>My Profile</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.dropdownItem}
+          onPress={() => { setShowProfileMenu(false); setActive("settings"); }}
+        >
+          <MaterialIcons name="settings" size={18} color="#64748b" />
+          <Text style={styles.dropdownItemText}>Settings</Text>
+        </TouchableOpacity>
         <View style={styles.dropdownDivider} />
         <TouchableOpacity
           style={[styles.dropdownItem, styles.logoutDropdownItem]}
@@ -1182,10 +1725,12 @@ export default function UserDashboard() {
         activeOpacity={0.8}
       >
         <LinearGradient
-          colors={['#7c83fd', '#4e56cc']}
+          colors={['#4f46e5', '#7c3aed', '#9333ea']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={styles.aiButtonGradient}
         >
-          <MaterialIcons name="auto-awesome" size={24} color="white" />
+          <MaterialIcons name="auto-awesome" size={30} color="white" />
           <Text style={styles.aiButtonText}>AI</Text>
         </LinearGradient>
         {unreadCount > 0 && !chatOpen && (
@@ -1203,8 +1748,19 @@ export default function UserDashboard() {
           setNewMessage={setNewMessage}
           sendMessage={sendMessage}
           isLoading={isLoading}
-          onClose={() => setChatOpen(false)}
+          onClose={() => {
+            setShowResetChatConfirm(false);
+            setChatOpen(false);
+          }}
+          onReset={handleResetChat}
+          showResetConfirm={showResetChatConfirm}
+          onCancelReset={cancelResetChat}
+          onConfirmReset={confirmResetChat}
           onCounselorPress={handleAIContactClick}
+          sendQuickReply={sendQuickReply}
+          selectedLang={selectedLang}
+          setSelectedLang={setSelectedLang}
+          onLangChange={handleLangChange}
         />
       )}
 
@@ -1353,9 +1909,20 @@ export default function UserDashboard() {
                       <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
                     </TouchableOpacity>
 
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.premiumListItem}
-                      onPress={() => Alert.alert("Support", "Support feature coming soon!")}
+                      onPress={() => { setShowMoreModal(false); setActive("settings"); }}
+                    >
+                      <View style={[styles.premiumListIcon, { backgroundColor: '#eef2ff' }]}>
+                        <MaterialIcons name="settings" size={20} color="#4f46e5" />
+                      </View>
+                      <Text style={styles.premiumListText}>Account Settings</Text>
+                      <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.premiumListItem}
+                      onPress={() => { setShowMoreModal(false); setShowHelpSupport(true); }}
                     >
                       <View style={[styles.premiumListIcon, { backgroundColor: '#f0fdf4' }]}>
                         <MaterialIcons name="help-outline" size={20} color="#22c55e" />
@@ -1364,9 +1931,9 @@ export default function UserDashboard() {
                       <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
                     </TouchableOpacity>
 
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.premiumListItem}
-                      onPress={() => Alert.alert("Privacy", "Privacy Policy coming soon!")}
+                      onPress={() => { setShowMoreModal(false); setShowPrivacyPolicy(true); }}
                     >
                       <View style={[styles.premiumListIcon, { backgroundColor: '#faf5ff' }]}>
                         <MaterialIcons name="security" size={20} color="#a855f7" />
@@ -1395,6 +1962,16 @@ export default function UserDashboard() {
       </Modal>
 
       {/* LOGOUT CONFIRM MODAL */}
+      {/* Help & Support full-screen modal */}
+      <Modal visible={showHelpSupport} animationType="slide" transparent={false} onRequestClose={() => setShowHelpSupport(false)}>
+        <HelpSupport onClose={() => setShowHelpSupport(false)} />
+      </Modal>
+
+      {/* Privacy Policy full-screen modal */}
+      <Modal visible={showPrivacyPolicy} animationType="slide" transparent={false} onRequestClose={() => setShowPrivacyPolicy(false)}>
+        <PrivacyPolicy onClose={() => setShowPrivacyPolicy(false)} />
+      </Modal>
+
       <Modal transparent={true} visible={showLogoutConfirm} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModal}>
@@ -1929,36 +2506,36 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 
-  // AI FLOATING BUTTON - Matching screen.png
+  // AI FLOATING BUTTON
   aiButton: {
     position: "absolute",
     bottom: 100,
     right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    shadowColor: "#7c83fd",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 10,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    shadowColor: "#4f46e5",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    elevation: 12,
     zIndex: 999,
   },
   aiButtonGradient: {
     width: "100%",
     height: "100%",
-    borderRadius: 28,
+    borderRadius: 31,
     justifyContent: "center",
     alignItems: "center",
     flexDirection: "column",
+    gap: 2,
   },
   aiButtonText: {
     color: "#ffffff",
-    fontSize: 9,
-    fontWeight: "bold",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginTop: 2,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+    marginTop: 1,
   },
   aiUnreadBadge: {
     position: "absolute",
@@ -2029,20 +2606,21 @@ const styles = StyleSheet.create({
 
   // Chat Popup Styles
   chatPopupOverlay: {
-    position: "absolute",
-    bottom: 90,
-    right: 20,
-    left: 20,
-    zIndex: 1000,
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  chatPopupBackdrop: {
+    flex: 1,
+    minHeight: 0,
   },
   chatPopup: {
     backgroundColor: "#ffffff",
-    borderRadius: 20,
-    height: 480,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     overflow: "hidden",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
     shadowRadius: 16,
     elevation: 12,
   },
@@ -2088,7 +2666,12 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.9)",
     marginTop: 2,
   },
-  chatCloseBtn: {
+  chatHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  chatIconBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -2096,10 +2679,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  chatIconBtnDisabled: {
+    opacity: 0.45,
+  },
   chatPopupBody: {
     flex: 1,
     padding: 16,
     backgroundColor: "#f8f9fa",
+  },
+  chatPopupBodyContent: {
+    paddingBottom: 8,
   },
   chatMessageWrapper: {
     flexDirection: "row",
@@ -2140,13 +2729,184 @@ const styles = StyleSheet.create({
   chatBubbleTextUser: {
     color: "#ffffff",
   },
+  quickRepliesWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
+  quickReplyBtn: {
+    minWidth: 92,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 18,
+    backgroundColor: "#eef2ff",
+    borderWidth: 1,
+    borderColor: "#c7d2fe",
+    alignItems: "center",
+  },
+  quickReplyBtnDisabled: {
+    opacity: 0.5,
+  },
+  quickReplyText: {
+    color: "#4f46e5",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  resetConfirmOverlay: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 22,
+    backgroundColor: "rgba(15, 23, 42, 0.48)",
+  },
+  resetConfirmCard: {
+    width: "100%",
+    maxWidth: 330,
+    borderRadius: 22,
+    padding: 20,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(226, 232, 240, 0.9)",
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.22,
+    shadowRadius: 24,
+    elevation: 18,
+  },
+  resetConfirmIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  resetConfirmTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#111827",
+    textAlign: "center",
+  },
+  resetConfirmText: {
+    marginTop: 8,
+    color: "#64748b",
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  resetConfirmActions: {
+    width: "100%",
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 18,
+  },
+  resetConfirmBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  resetCancelBtn: {
+    backgroundColor: "#f1f5f9",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  resetStartBtn: {
+    backgroundColor: "#667eea",
+  },
+  resetBtnDisabled: {
+    opacity: 0.6,
+  },
+  resetCancelText: {
+    color: "#475569",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  resetStartText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "800",
+  },
   chatPopupFooter: {
     padding: 12,
     backgroundColor: "#ffffff",
     borderTopWidth: 1,
     borderTopColor: "#eaeaea",
     flexDirection: "row",
+    alignItems: "center",
     gap: 8,
+  },
+  langBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: "#f0f0ff",
+    borderWidth: 1,
+    borderColor: "#c7c7f5",
+    minWidth: 52,
+  },
+  langBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#667eea",
+  },
+  langPickerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  langPickerCard: {
+    width: "82%",
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  langPickerTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1e293b",
+    textAlign: "center",
+    marginBottom: 10,
+    paddingHorizontal: 12,
+  },
+  langPickerItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginHorizontal: 4,
+  },
+  langPickerItemActive: {
+    backgroundColor: "#f0f0ff",
+  },
+  langPickerItemText: {
+    fontSize: 14,
+    color: "#334155",
+    fontWeight: "500",
+  },
+  langPickerItemTextActive: {
+    color: "#667eea",
+    fontWeight: "700",
   },
   chatInput: {
     flex: 1,
@@ -2156,6 +2916,20 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     fontSize: 14,
     backgroundColor: "#f8f9fa",
+  },
+  micBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: "#667eea",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f0f0ff",
+  },
+  micBtnActive: {
+    backgroundColor: "#ef4444",
+    borderColor: "#ef4444",
   },
   sendBtn: {
     width: 44,
@@ -2168,6 +2942,24 @@ const styles = StyleSheet.create({
   sendBtnDisabled: {
     opacity: 0.5,
   },
+  speakBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+    marginLeft: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "#f0f0ff",
+    alignSelf: "flex-start",
+  },
+  speakBtnText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#667eea",
+  },
+
   loadingDots: {
     flexDirection: "row",
     gap: 6,
@@ -2180,74 +2972,153 @@ const styles = StyleSheet.create({
   },
 
   // Call Modal Styles
-  callModalOverlay: {
+  // ─── Glass incoming-call popup (rich animations) ──────────────────────────
+  callBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.85)",
     justifyContent: "center",
     alignItems: "center",
+    paddingHorizontal: 20,
   },
-  callModal: {
-    backgroundColor: "rgba(255,255,255,0.95)",
-    borderRadius: 24,
-    width: width * 0.9,
-    maxWidth: 360,
-    overflow: "hidden",
+  callBackdropTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(20, 12, 40, 0.45)",
   },
-  callModalContent: {
-    padding: 24,
-    alignItems: "center",
-  },
-  callerInfo: {
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  callerAvatar: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: "#667eea",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  callerAvatarImage: {
+  glassCard: {
     width: "100%",
-    height: "100%",
-    borderRadius: 45,
+    maxWidth: 380,
+    borderRadius: 28,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.45,
+    shadowRadius: 30,
+    elevation: 20,
   },
-  callerName: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#1e1b3a",
-    marginBottom: 4,
+  glassCardGradient: {
+    paddingHorizontal: 26,
+    paddingTop: 22,
+    paddingBottom: 28,
+    alignItems: "center",
   },
-  callType: {
-    fontSize: 14,
-    color: "#667eea",
-  },
-  callControls: {
+  callTopRow: {
     flexDirection: "row",
-    gap: 16,
+    justifyContent: "center",
+    marginBottom: 18,
   },
-  callBtn: {
-    flexDirection: "column",
+  callTopPill: {
+    flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 40,
-    minWidth: 100,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
   },
-  acceptBtn: {
-    backgroundColor: "#22c55e",
+  callTopPillText: {
+    color: "#fdf4ff",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
-  rejectBtn: {
+  avatarWrap: {
+    width: 150,
+    height: 150,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+  waveRing: {
+    position: "absolute",
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.55)",
+  },
+  avatarGradient: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.35)",
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 55,
+  },
+  avatarInitial: {
+    fontSize: 44,
+    fontWeight: "800",
+    color: "#ffffff",
+    letterSpacing: 0.5,
+  },
+  callerName: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#ffffff",
+    letterSpacing: 0.3,
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  ringingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 26,
+  },
+  ringingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#fda4af",
+  },
+  ringingText: {
+    color: "rgba(253, 244, 255, 0.85)",
+    fontSize: 13,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+  },
+  actionsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
+  actionCol: {
+    alignItems: "center",
+    gap: 10,
+  },
+  fab: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  fabReject: {
     backgroundColor: "#ef4444",
   },
-  callBtnText: {
+  fabAccept: {},
+  actionLabel: {
     color: "#ffffff",
     fontSize: 12,
     fontWeight: "600",
+    letterSpacing: 0.4,
   },
 
   // Video Call Modal Styles

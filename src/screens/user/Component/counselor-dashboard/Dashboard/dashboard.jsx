@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
+  Image,
   View,
   Text,
   TextInput,
@@ -10,7 +11,6 @@ import {
   ActivityIndicator,
   Dimensions,
   Platform,
-  Image,
   Animated,
   Easing,
   RefreshControl,
@@ -23,13 +23,16 @@ import { useIsFocused, useNavigation } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios, { API_BASE_URL } from "../../../../../axiosConfig";
 import { getAuthToken, getCounsellorId } from "../../../../auth/authUtils";
-import { io } from "socket.io-client";
+import socketService from "../../../../../services/socketService";
+import { launchImageLibrary } from 'react-native-image-picker';
 
-// Icons (using only FontAwesome6 - no MaterialIcons)
+// Icons
 import Icon from "react-native-vector-icons/FontAwesome6";
 import Feather from "react-native-vector-icons/Feather";
 import LinearGradient from "react-native-linear-gradient";
 import Ionicons from "react-native-vector-icons/Ionicons";
+import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+import { BlurView } from "@react-native-community/blur";
 
 // Custom Hooks
 import useVibration from "../../../../../hooks/useVibration";
@@ -59,8 +62,17 @@ const IncomingCallModal = ({
 }) => {
   const [isAccepting, setIsAccepting] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
+
+  // Animations: spring scale-in for card, pulse on avatar, three expanding
+  // wave rings around the avatar, and a subtle vertical float on the card.
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const floatAnim = useRef(new Animated.Value(0)).current;
+  const ring1 = useRef(new Animated.Value(0)).current;
+  const ring2 = useRef(new Animated.Value(0)).current;
+  const ring3 = useRef(new Animated.Value(0)).current;
+  const buttonScale = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
     if (isOpen) {
       Animated.spring(scaleAnim, {
@@ -69,40 +81,66 @@ const IncomingCallModal = ({
         tension: 65,
         friction: 8,
       }).start();
-      startPulse();
+
+      // Avatar breathing pulse
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1.08, duration: 900, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        ])
+      ).start();
+
+      // Card float
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(floatAnim, { toValue: 1, duration: 2200, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+          Animated.timing(floatAnim, { toValue: 0, duration: 2200, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        ])
+      ).start();
+
+      // Three rings, staggered, looping forever
+      const ringLoop = (val, delay) =>
+        Animated.loop(
+          Animated.sequence([
+            Animated.delay(delay),
+            Animated.timing(val, { toValue: 1, duration: 1800, useNativeDriver: true, easing: Easing.out(Easing.ease) }),
+            Animated.timing(val, { toValue: 0, duration: 0, useNativeDriver: true }),
+          ])
+        );
+      ringLoop(ring1, 0).start();
+      ringLoop(ring2, 600).start();
+      ringLoop(ring3, 1200).start();
     } else {
       scaleAnim.setValue(0);
       pulseAnim.setValue(1);
+      floatAnim.setValue(0);
+      ring1.setValue(0); ring2.setValue(0); ring3.setValue(0);
     }
   }, [isOpen]);
 
-  const startPulse = () => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.1,
-          duration: 800,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
-        }),
-      ])
-    ).start();
+  const pressIn = () => {
+    Animated.spring(buttonScale, { toValue: 0.92, useNativeDriver: true, tension: 120, friction: 6 }).start();
+  };
+  const pressOut = () => {
+    Animated.spring(buttonScale, { toValue: 1, useNativeDriver: true, tension: 120, friction: 6 }).start();
   };
 
   if (!isOpen) return null;
 
-  const getDisplayName = () => {
-    if (callData?.from?.anonymous) return callData.from.anonymous;
-    if (callerName) return callerName;
-    return "User";
-  };
-  const displayInitial = (getDisplayName()?.charAt(0) || "A").toUpperCase();
+  // Match web behavior: prefer the anonymous handle, fall back to whatever
+  // name the parent passed (already filtered by the API), and finally "User".
+// Replace this function in IncomingCallModal:
+const getDisplayName = () => {
+  // ✅ IMPORTANT FIX: Match web logic - prioritize anonymous fields
+  // Backend already filters real names for counselor view
+  if (callData?.from?.anonymous) return callData.from.anonymous;
+  if (callData?.from?.anonName) return callData.from.anonName;
+  if (callData?.from?.anonymousName) return callData.from.anonymousName;
+  if (callData?.anonymous) return callData.anonymous;
+  if (callerName) return callerName;
+  return "Anonymous";
+};
+  const displayInitial = (getDisplayName()?.charAt(0) || "U").toUpperCase();
 
   const handleAccept = async () => {
     setIsAccepting(true);
@@ -120,117 +158,261 @@ const IncomingCallModal = ({
     setIsRejecting(false);
   };
 
+  const profilePhoto = callData?.from?.profilePhoto || callerImage;
+  const isVideo = callType === "video";
+
+  // Wave ring interpolations (expand out + fade)
+  const ringStyle = (val) => ({
+    transform: [{
+      scale: val.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] }),
+    }],
+    opacity: val.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 0.55, 0] }),
+  });
+
+  const floatY = floatAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -6] });
+
+  // Counselor gradient: blue theme
+  const cardGradient = ["rgba(30, 64, 175, 0.94)", "rgba(37, 99, 235, 0.90)", "rgba(29, 78, 216, 0.94)"];
+  const avatarGradient = ["#2563EB", "#1E40AF"];
+  const acceptGradient = ["#3B82F6", "#1D4ED8"];
+
   return (
-    <Modal transparent visible={isOpen} animationType="fade">
-      <View style={styles.incomingCallOverlay}>
+    <Modal transparent visible={isOpen} animationType="fade" onRequestClose={onClose}>
+      {/* Dimmed blurred backdrop */}
+      <View style={styles.callBackdrop}>
+        <BlurView
+          style={StyleSheet.absoluteFill}
+          blurType="dark"
+          blurAmount={18}
+          reducedTransparencyFallbackColor="#000"
+        />
+        <View style={styles.callBackdropTint} />
+
         <Animated.View
           style={[
-            styles.incomingCallModal,
-            { transform: [{ scale: scaleAnim }] },
+            styles.glassCard,
+            { transform: [{ scale: scaleAnim }, { translateY: floatY }] },
           ]}
         >
-          <View style={styles.incomingCallHeader}>
-            <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-              <View style={styles.incomingCallAvatar}>
-                <Text style={styles.avatarInitialLarge}>{displayInitial}</Text>
+          {/* Gradient sheen layer */}
+          <LinearGradient
+            colors={cardGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.glassCardGradient}
+          >
+            {/* Top label */}
+            <View style={styles.callTopRow}>
+              <View style={styles.callTopPill}>
+                <Ionicons name={isVideo ? "videocam" : "call"} size={12} color="#ecfeff" />
+                <Text style={styles.callTopPillText}>
+                  {isVideo ? "Incoming video call" : "Incoming voice call"}
+                </Text>
               </View>
-            </Animated.View>
-            <Text style={styles.incomingCallerName}>{getDisplayName()}</Text>
-            <Text style={styles.incomingCallType}>
-              {callType === "video" ? "ðŸ“¹ Video Call" : "ðŸ“ž Voice Call"}
-            </Text>
-            <Text style={styles.incomingCallStatus}>Incoming call...</Text>
-            {!!callData?.requestedAt && (
-              <Text style={styles.incomingCallTime}>
-                {new Date(callData.requestedAt).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </Text>
-            )}
-          </View>
+            </View>
 
-          <View style={styles.incomingCallActions}>
-            <TouchableOpacity
-              style={[styles.incomingCallBtn, styles.rejectBtn]}
-              onPress={handleReject}
-              disabled={isRejecting}
-            >
-              {isRejecting ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Icon name="phone-slash" size={20} color="#fff" />
-              )}
-              <Text style={styles.incomingCallBtnText}>Decline</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.incomingCallBtn, styles.acceptBtn]}
-              onPress={handleAccept}
-              disabled={isAccepting}
-            >
-              {isAccepting ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Icon name="phone" size={20} color="#fff" />
-              )}
-              <Text style={styles.incomingCallBtnText}>Accept</Text>
-            </TouchableOpacity>
-          </View>
+            {/* Avatar with three expanding wave rings */}
+            <View style={styles.avatarWrap}>
+              <Animated.View style={[styles.waveRing, ringStyle(ring1)]} />
+              <Animated.View style={[styles.waveRing, ringStyle(ring2)]} />
+              <Animated.View style={[styles.waveRing, ringStyle(ring3)]} />
+
+              <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+                <LinearGradient
+                  colors={avatarGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.avatarGradient}
+                >
+                  {profilePhoto ? (
+                    <Image source={{ uri: profilePhoto }} style={styles.avatarImage} />
+                  ) : (
+                    <Text style={styles.avatarInitial}>{displayInitial}</Text>
+                  )}
+                </LinearGradient>
+              </Animated.View>
+            </View>
+
+            {/* Name + state */}
+            <Text style={styles.callerName} numberOfLines={1}>{getDisplayName()}</Text>
+            <View style={styles.ringingRow}>
+              <View style={styles.ringingDot} />
+              <Text style={styles.ringingText}>Ringing…</Text>
+            </View>
+
+            {/* Action row */}
+            <View style={styles.actionsRow}>
+              {/* Decline */}
+              <View style={styles.actionCol}>
+                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+                  <TouchableOpacity
+                    onPress={handleReject}
+                    onPressIn={pressIn}
+                    onPressOut={pressOut}
+                    activeOpacity={0.85}
+                    disabled={isRejecting}
+                    style={[styles.fab, styles.fabReject]}
+                  >
+                    {isRejecting ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <MaterialIcons name="call-end" size={28} color="#fff" />
+                    )}
+                  </TouchableOpacity>
+                </Animated.View>
+                <Text style={styles.actionLabel}>
+                  {isRejecting ? "Declining…" : "Decline"}
+                </Text>
+              </View>
+
+              {/* Accept */}
+              <View style={styles.actionCol}>
+                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+                  <TouchableOpacity
+                    onPress={handleAccept}
+                    onPressIn={pressIn}
+                    onPressOut={pressOut}
+                    activeOpacity={0.9}
+                    disabled={isAccepting}
+                  >
+                    <LinearGradient
+                      colors={acceptGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={[styles.fab, styles.fabAccept]}
+                    >
+                      {isAccepting ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <MaterialIcons name={isVideo ? "videocam" : "call"} size={28} color="#fff" />
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </Animated.View>
+                <Text style={styles.actionLabel}>
+                  {isAccepting ? "Connecting…" : "Accept"}
+                </Text>
+              </View>
+            </View>
+          </LinearGradient>
         </Animated.View>
       </View>
     </Modal>
   );
 };
 
-// â”€â”€â”€ Appointment Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating }) => {
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+// Friendly relative label for a date: "Today", "Tomorrow", or weekday/date.
+const friendlyDateLabel = (d) => {
+  if (!d) return "—";
+  const date = new Date(d);
+  const now = new Date();
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOf(date) - startOf(now)) / 86400000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Tomorrow";
+  if (diffDays === -1) return "Yesterday";
+  return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+};
+
+const isSameDay = (a, b) => {
+  if (!a || !b) return false;
+  const x = new Date(a), y = new Date(b);
+  return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
+};
+
+// ─── Appointment Card ────────────────────────────────────────────────────────
+const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating, index = 0 }) => {
   const isUpdating = updating === apt._id;
   const isPending = apt.status === "pending";
   const isConfirmed = apt.status === "confirmed";
   const isCanceled = apt.status === "canceled";
 
-  const patientName = apt.patient?.anonymous || apt.patient?.fullName || "Anonymous User";
+  // Entrance animation — staggered fade-up so cards appear sequentially.
+  const entry = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(entry, {
+      toValue: 1,
+      duration: 320,
+      delay: Math.min(index, 6) * 55,
+      useNativeDriver: true,
+      easing: Easing.out(Easing.cubic),
+    }).start();
+  }, [entry, index]);
+  const translateY = entry.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
+
+  const patientName =
+    apt.patient?.anonymous ||
+    apt.patient?.fullName ||
+    "Anonymous User";
   const initials = patientName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
 
-  const requestedDate = apt.date
-    ? new Date(apt.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
-    : "—";
+  const requestedDate = friendlyDateLabel(apt.date);
   const requestedTime = apt.date
     ? new Date(apt.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "—";
+  const isToday = apt.date ? isSameDay(apt.date, new Date()) : false;
 
-  const statusColor = isPending ? "#f59e0b" : isConfirmed ? "#10b981" : "#ef4444";
-  const statusBg = isPending ? "#fef3c7" : isConfirmed ? "#d1fae5" : "#fee2e2";
-  const statusLabel = isPending ? "PENDING" : isConfirmed ? "CONFIRMED" : "CANCELED";
+  // Minimal status palette — muted, low-saturation tones for a calm aesthetic.
+  const statusColor = isPending ? "#b45309" : isConfirmed ? "#047857" : "#b91c1c";
+  const statusBg = isPending ? "#fef7e6" : isConfirmed ? "#ecfdf5" : "#fef2f2";
+  const statusLabel = isPending ? "Pending" : isConfirmed ? "Confirmed" : "Canceled";
+  const statusDot = isPending ? "#f59e0b" : isConfirmed ? "#2563EB" : "#ef4444";
 
-  const avatarColors = isPending
-    ? ["#f59e0b", "#d97706"]
+  // Avatar gradient — soft pastel tones, status-aware but minimal.
+  const avatarColors = isCanceled
+    ? ["#fca5a5", "#f87171"]
     : isConfirmed
-    ? ["#10b981", "#059669"]
-    : ["#ef4444", "#dc2626"];
+    ? ["#E0F2FE", "#BAE6FD"]
+    : ["#E0F2FE", "#BAE6FD"];
 
   return (
-    <View style={aptStyles.card}>
-      {/* Top gradient accent bar */}
-      <LinearGradient colors={avatarColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={aptStyles.cardAccent} />
+    <Animated.View style={[aptStyles.card, { opacity: entry, transform: [{ translateY }] }]}>
+      {/* Status side-accent (left vertical bar, subtle status tint) */}
+      <View style={[aptStyles.cardSideAccent, { backgroundColor: statusDot + '55' }]} />
 
       <View style={aptStyles.cardBody}>
-        {/* Header row: avatar + info + badge */}
+        {/* Header row: avatar ring + info + badge */}
         <View style={aptStyles.cardHeader}>
-          <LinearGradient colors={avatarColors} style={aptStyles.avatarCircle}>
-            <Text style={aptStyles.avatarInitials}>{initials || "?"}</Text>
-          </LinearGradient>
+          {/* Gradient ring around avatar */}
+          <View style={aptStyles.avatarRingOuter}>
+            <LinearGradient colors={avatarColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={aptStyles.avatarRing}>
+              <View style={aptStyles.avatarInner}>
+                <Text style={aptStyles.avatarInitials}>{initials || "?"}</Text>
+              </View>
+            </LinearGradient>
+            {isToday && <View style={aptStyles.todayDot} />}
+          </View>
 
           <View style={aptStyles.patientInfo}>
             <Text style={aptStyles.patientName} numberOfLines={1}>{patientName}</Text>
             <View style={aptStyles.consultTag}>
-              <Ionicons name="medical" size={10} color="#667eea" />
-              <Text style={aptStyles.consultTagText}>CONSULTATION</Text>
+              <Ionicons name="medkit-outline" size={11} color="#94a3b8" />
+              <Text style={aptStyles.consultTagText}>Consultation</Text>
             </View>
           </View>
 
-          <View style={[aptStyles.statusBadge, { backgroundColor: statusBg }]}>
+          <View style={[aptStyles.statusBadge, { backgroundColor: statusBg, borderColor: statusColor + "22" }]}>
+            <View style={[aptStyles.statusBadgeDot, { backgroundColor: statusDot }]} />
             <Text style={[aptStyles.statusText, { color: statusColor }]}>{statusLabel}</Text>
+          </View>
+        </View>
+
+        {/* Date/time pill — bigger, hero block */}
+        <View style={aptStyles.dateTimeBlock}>
+          <View style={aptStyles.dateTimeIcon}>
+            <Ionicons name="calendar" size={16} color="#2563EB" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={aptStyles.dateTimePrimary}>
+              {requestedDate}
+              {requestedTime !== "—" ? `  •  ${requestedTime}` : ""}
+            </Text>
+            {apt.date && (
+              <Text style={aptStyles.dateTimeSecondary}>
+                {new Date(apt.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+              </Text>
+            )}
           </View>
         </View>
 
@@ -238,15 +420,9 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating }) => 
         {apt.notes && apt.notes.trim() !== "" && (
           <View style={aptStyles.notesBox}>
             <Ionicons name="chatbubble-ellipses-outline" size={13} color="#94a3b8" />
-            <Text style={aptStyles.notesText}>{apt.notes}</Text>
+            <Text style={aptStyles.notesText} numberOfLines={3}>{apt.notes}</Text>
           </View>
         )}
-
-        {/* Date/time row */}
-        <View style={aptStyles.timeRow}>
-          <Ionicons name="calendar-outline" size={13} color="#667eea" />
-          <Text style={aptStyles.timeValue}>{requestedDate} · {requestedTime}</Text>
-        </View>
 
         {/* Actions */}
         {isPending && (
@@ -255,12 +431,13 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating }) => 
               style={aptStyles.rejectActionBtn}
               onPress={() => onReject(apt._id)}
               disabled={isUpdating}
+              activeOpacity={0.85}
             >
               {isUpdating ? (
                 <ActivityIndicator size="small" color="#ef4444" />
               ) : (
                 <>
-                  <Ionicons name="close" size={15} color="#ef4444" />
+                  <Ionicons name="close" size={16} color="#ef4444" />
                   <Text style={aptStyles.rejectBtnText}>Decline</Text>
                 </>
               )}
@@ -270,13 +447,19 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating }) => 
               style={aptStyles.acceptActionBtn}
               onPress={() => onAccept(apt._id)}
               disabled={isUpdating}
+              activeOpacity={0.9}
             >
-              <LinearGradient colors={["#667eea", "#764ba2"]} style={aptStyles.acceptBtnGradient}>
+              <LinearGradient
+                colors={["#2563EB", "#0D9488"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={aptStyles.acceptBtnGradient}
+              >
                 {isUpdating ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <>
-                    <Ionicons name="checkmark" size={15} color="#fff" />
+                    <Ionicons name="checkmark" size={16} color="#fff" />
                     <Text style={aptStyles.acceptBtnText}>Accept</Text>
                   </>
                 )}
@@ -286,15 +469,32 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating }) => 
         )}
 
         {isConfirmed && (
-          <TouchableOpacity style={aptStyles.videoCallBtn} onPress={() => onVideoCall(apt)}>
-            <LinearGradient colors={["#0f766e", "#0d9488"]} style={aptStyles.videoCallBtnGradient}>
-              <Ionicons name="videocam" size={15} color="#fff" />
+          <TouchableOpacity
+            style={aptStyles.videoCallBtn}
+            onPress={() => onVideoCall(apt)}
+            activeOpacity={0.9}
+          >
+            <LinearGradient
+              colors={["#2563EB", "#1E3A8A"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={aptStyles.videoCallBtnGradient}
+            >
+              <Ionicons name="videocam" size={16} color="#fff" />
               <Text style={aptStyles.videoCallBtnText}>Start Video Call</Text>
+              <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.8)" />
             </LinearGradient>
           </TouchableOpacity>
         )}
+
+        {isCanceled && (
+          <View style={aptStyles.canceledNote}>
+            <Ionicons name="information-circle-outline" size={13} color="#94a3b8" />
+            <Text style={aptStyles.canceledNoteText}>This appointment was canceled.</Text>
+          </View>
+        )}
       </View>
-    </View>
+    </Animated.View>
   );
 };
 
@@ -315,7 +515,8 @@ const AppointmentSkeletonCard = () => {
 
   return (
     <View style={aptStyles.card}>
-      <Animated.View style={[aptStyles.cardAccent, aptStyles.skelAccentColor, { opacity: opacity }]} />
+      {/* Left vertical accent matching the new card layout */}
+      <View style={[aptStyles.cardSideAccent, aptStyles.skelAccentColor]} />
       <View style={aptStyles.cardBody}>
         <View style={aptStyles.cardHeader}>
           <Animated.View style={[aptStyles.skelAvatar, { opacity: opacity }]} />
@@ -365,6 +566,8 @@ export default function CounselorDashboard() {
   const [counsellorId, setCounsellorId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [earningsLoading, setEarningsLoading] = useState(true);
+  const earningsShimmerAnim = useRef(new Animated.Value(0)).current;
   // Ref mirrors for modal states — lets polling interval use stable [] deps
   // without going stale on state changes.
   const showIncomingCallModalRef = useRef(false);
@@ -399,6 +602,25 @@ export default function CounselorDashboard() {
       startIncomingRingtone(true);
     }
   }, [isFocused, showIncomingCallModal]);
+
+  // Earnings shimmer: pulse loop + reset on tab open
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(earningsShimmerAnim, { toValue: 1, duration: 850, useNativeDriver: true }),
+        Animated.timing(earningsShimmerAnim, { toValue: 0, duration: 850, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [earningsShimmerAnim]);
+
+  useEffect(() => {
+    if (activeTab !== "earnings") return;
+    setEarningsLoading(true);
+    const t = setTimeout(() => setEarningsLoading(false), 750);
+    return () => clearTimeout(t);
+  }, [activeTab]);
 
   // If caller ends/cancels while incoming modal is open, stop ringtone and close modal.
   useEffect(() => {
@@ -504,24 +726,24 @@ export default function CounselorDashboard() {
       const token = (await AsyncStorage.getItem("accessToken")) || (await AsyncStorage.getItem("token"));
       const counsellorId = await getCounsellorId();
       if (!token) return;
-      const socket = io(API_BASE_URL, {
-        transports: ["polling", "websocket"],
-        auth: { token },
-        reconnection: true,
-      });
-      aptSocketRef.current = socket;
-      socket.on("connect", () => {
-        if (counsellorId) socket.emit("join-counsellor-room", { counsellorId });
-      });
-      const refresh = () => fetchAppointments(true);
-      socket.on("appointment-booked", refresh);
-      socket.on("appointment-updated", refresh);
-      socket.on("appointment-new", refresh);
-      socket.on("appointment-status-changed", refresh);
+      const unsubscribers = [];
+      try {
+        const socket = await socketService.connect();
+        aptSocketRef.current = socket;
+        if (counsellorId) socket.emit('join-counsellor-room', { counsellorId });
+        const refresh = () => fetchAppointments(true);
+        unsubscribers.push(await socketService.on('appointment-booked', refresh));
+        unsubscribers.push(await socketService.on('appointment-updated', refresh));
+        unsubscribers.push(await socketService.on('appointment-new', refresh));
+        unsubscribers.push(await socketService.on('appointment-status-changed', refresh));
+        aptSocketRef.current._unsubscribers = unsubscribers;
+      } catch (err) {
+        console.error('Failed to connect appointment socket (shared):', err);
+      }
     };
     connectAptSocket();
     return () => {
-      aptSocketRef.current?.disconnect();
+      try { const unsub = aptSocketRef.current?._unsubscribers || []; unsub.forEach(fn => { try { fn(); } catch {} }); } catch (e) {}
       aptSocketRef.current = null;
     };
   }, [fetchAppointments]);
@@ -639,19 +861,26 @@ export default function CounselorDashboard() {
 
       if (response.data?.success) {
         const rawCall = response.data.callData || {};
+        // Match web: prefer anonymous handle, fall back to backend-provided
+        // displayName/fullName, finally "User".
+        const displayName =
+          patientInfo.anonymous ||
+          patientInfo.displayName ||
+          patientInfo.fullName ||
+          "User";
+
         const callData = {
           id: rawCall?.id || rawCall?._id || response.data.callId,
           callId: response.data.callId,
           roomId: response.data.roomId,
-          // Counselor side: never show real user name/photo.
-          name: patientInfo.anonymous || patientInfo.displayName || "Anonymous User",
-          profilePic: null,
+          name: displayName,
+          profilePic: patientInfo.profilePhoto || patientInfo.image || null,
           isIncoming: false,
           callType: "video",
           type: "video",
           status: response.data.status || "ringing",
           currentUserId: storedCounsellorId,
-          currentUserType: "counsellor",
+          currentUserType: "counsellour",
           apiCallData: rawCall,
           initiator: rawCall?.initiator,
           receiver: rawCall?.receiver,
@@ -778,78 +1007,88 @@ export default function CounselorDashboard() {
   };
 
   // â”€â”€ Handle Accept Incoming Call â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const handleAcceptIncomingCall = async (callData) => {
-    // Stop ringtone immediately — synchronous, fires before any await
-    forceStopRingtone();
-    setShowIncomingCallModal(false);
-    setIncomingCallData(null);
-    const result = await acceptCall(callData.callId);
-    if (result?.success) {
-      const token = await getAuthToken();
-      const counsellorId = await getCounsellorId();
-      if (!token || !counsellorId) {
-        showToast("Session expired. Please login again.", "error");
-        return;
-      }
-      let detailedCall = null;
-      try {
-        const detailsResponse = await axios.get(
-          `${API_BASE_URL}/api/video/calls/${callData.callId}/details`,
-          {
-            params: { userId: counsellorId, userType: "counsellor" },
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
-        detailedCall = detailsResponse.data?.call || null;
-      } catch (detailsError) {
-        console.warn("Could not fetch accepted call details:", detailsError);
-      }
-
-      const incomingType = String(
-        callData.callType || detailedCall?.type || "video"
-      ).toLowerCase();
-      const modalType = incomingType === "audio" ? "voice" : incomingType;
-      const initiatorIdStr = String(detailedCall?.initiator?.id || detailedCall?.initiator?._id || '');
-      const remoteParticipant = detailedCall
-        ? initiatorIdStr === String(counsellorId)
-          ? detailedCall.receiver
-          : detailedCall.initiator
-        : callData?.from || null;
-
-      const acceptedCallData = {
-        id: detailedCall?.id || detailedCall?._id || callData.callId,
-        callId: callData.callId,
-        roomId: result.data?.roomId || detailedCall?.roomId || callData.roomId,
-        name:
-          remoteParticipant?.anonymous ||
-          remoteParticipant?.anonName ||
-          remoteParticipant?.anonymousName ||
-          callData.name,
-        isIncoming: true,
-        status: result.data?.status || detailedCall?.status || "active",
-        type: modalType,
-        callType: modalType,
-        // Counselor side: never show real user photo.
-        profilePic: null,
-        phoneNumber:
-          remoteParticipant?.phoneNumber || remoteParticipant?.phone || "",
-        apiCallData: detailedCall,
-        initiator: detailedCall?.initiator || callData.initiator,
-        receiver: detailedCall?.receiver,
-        initiatorId: detailedCall?.initiator?.id || detailedCall?.initiator?._id,
-        receiverId: detailedCall?.receiver?.id || detailedCall?.receiver?._id,
-        currentUserId: counsellorId,
-        currentUserType: "counsellor",
-        from: callData.from,
-      };
-
-      setSelectedCall(acceptedCallData);
-      if (modalType === "video") setIsVideoModalOpen(true);
-      else setIsVoiceModalOpen(true);
-    } else {
-      showToast("Failed to accept call. Please try again.", "error");
+ const handleAcceptIncomingCall = async (callData) => {
+  // Stop ringtone immediately
+  forceStopRingtone();
+  setShowIncomingCallModal(false);
+  setIncomingCallData(null);
+  const result = await acceptCall(callData.callId);
+  if (result?.success) {
+    const token = await getAuthToken();
+    const counsellorId = await getCounsellorId();
+    if (!token || !counsellorId) {
+      showToast("Session expired. Please login again.", "error");
+      return;
     }
-  };
+    let detailedCall = null;
+    try {
+      const detailsResponse = await axios.get(
+        `${API_BASE_URL}/api/video/calls/${callData.callId}/details`,
+        {
+          params: { userId: counsellorId, userType: "counsellor" },
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      detailedCall = detailsResponse.data?.call || null;
+    } catch (detailsError) {
+      console.warn("Could not fetch accepted call details:", detailsError);
+    }
+
+    const incomingType = String(
+      callData.callType || detailedCall?.type || "video"
+    ).toLowerCase();
+    const modalType = incomingType === "audio" ? "voice" : incomingType;
+    const initiatorIdStr = String(detailedCall?.initiator?.id || detailedCall?.initiator?._id || '');
+    const remoteParticipant = detailedCall
+      ? initiatorIdStr === String(counsellorId)
+        ? detailedCall.receiver
+        : detailedCall.initiator
+      : callData?.from || null;
+
+    // ✅ IMPORTANT FIX: Match web logic - prioritize anonymous fields
+    let displayName = "User";
+    if (remoteParticipant?.anonymous) {
+      displayName = remoteParticipant.anonymous;
+    } else if (remoteParticipant?.anonName) {
+      displayName = remoteParticipant.anonName;
+    } else if (remoteParticipant?.anonymousName) {
+      displayName = remoteParticipant.anonymousName;
+    } else if (remoteParticipant?.displayName) {
+      displayName = remoteParticipant.displayName;
+    } else if (remoteParticipant?.fullName) {
+      displayName = remoteParticipant.fullName;
+    } else if (callData.name) {
+      displayName = callData.name;
+    }
+
+    const acceptedCallData = {
+      id: detailedCall?.id || detailedCall?._id || callData.callId,
+      callId: callData.callId,
+      roomId: result.data?.roomId || detailedCall?.roomId || callData.roomId,
+      name: displayName,  // Now uses anonymous name as priority
+      isIncoming: true,
+      status: result.data?.status || detailedCall?.status || "active",
+      type: modalType,
+      callType: modalType,
+      profilePic: remoteParticipant?.profilePhoto || remoteParticipant?.image || callData.image || null,
+      phoneNumber: remoteParticipant?.phoneNumber || remoteParticipant?.phone || "",
+      apiCallData: detailedCall,
+      initiator: detailedCall?.initiator || callData.initiator,
+      receiver: detailedCall?.receiver,
+      initiatorId: detailedCall?.initiator?.id || detailedCall?.initiator?._id,
+      receiverId: detailedCall?.receiver?.id || detailedCall?.receiver?._id,
+      currentUserId: counsellorId,
+      currentUserType: "counsellour",
+      from: callData.from,
+    };
+
+    setSelectedCall(acceptedCallData);
+    if (modalType === "video") setIsVideoModalOpen(true);
+    else setIsVoiceModalOpen(true);
+  } else {
+    showToast("Failed to accept call. Please try again.", "error");
+  }
+};
 
   const handleRejectIncomingCall = async (callId) => {
     forceStopRingtone();
@@ -859,80 +1098,163 @@ export default function CounselorDashboard() {
   };
 
   // â”€â”€ Fetch Waiting Calls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // const fetchWaitingCalls = async () => {
+  //   try {
+  //     const token = await getAuthToken();
+  //     const counsellorId = await getCounsellorId();
+  //     if (!counsellorId || !token) return;
+
+  //     const response = await axios.get(
+  //       `${API_BASE_URL}/api/video/calls/pending/${counsellorId}`,
+  //       { headers: { Authorization: `Bearer ${token}` } }
+  //     );
+
+  //     const callsList =
+  //       response.data.pendingRequests ||
+  //       response.data.waitingCalls ||
+  //       response.data.calls;
+
+  //     if (response.data?.success && callsList?.length > 0) {
+  //       setWaitingCalls(callsList);
+  //       const waitingCall =
+  //         callsList.find(
+  //           (call) =>
+  //             !call.status ||
+  //             call.status === "waiting" ||
+  //             call.status === "ringing"
+  //         ) || callsList[0];
+
+  //       if (
+  //         waitingCall &&
+  //         !showIncomingCallModalRef.current &&
+  //         !isVideoModalOpenRef.current &&
+  //         !isVoiceModalOpenRef.current
+  //       ) {
+  //         const fromData = waitingCall.from || waitingCall.initiator || {};
+  //         // Match web: prefer anonymous handle from the API, then displayName,
+  //         // and finally "Anonymous". Backend already filters real names for
+  //         // the counselor view, so we trust the field it provides.
+  //         const displayName =
+  //           fromData.anonymous ||
+  //           fromData.anonName ||
+  //           fromData.anonymousName ||
+  //           fromData.displayName ||
+  //           "Anonymous";
+
+  //         setIncomingCallData({
+  //           callId: waitingCall.callId || waitingCall.id || waitingCall._id,
+  //           roomId: waitingCall.roomId,
+  //           name: displayName,
+  //           image: fromData.profilePhoto || fromData.image || null,
+  //           callType: waitingCall.callType || "video",
+  //           from: fromData,
+  //           initiator: waitingCall.initiator,
+  //           requestedAt: waitingCall.requestedAt,
+  //           expiresAt: waitingCall.expiresAt,
+  //         });
+
+  //         setShowIncomingCallModal(true);
+  //         safeVibrate([320, 160, 320]);
+  //       }
+  //     } else {
+  //       setWaitingCalls([]);
+  //     }
+  //   } catch (error) {
+  //     const status = error?.response?.status;
+  //     if (status === 401) {
+  //       showToast("Session expired. Please login again.", "error");
+  //       isPollingRef.current = false;
+  //       setIsPolling(false);
+  //       return;
+  //     }
+  //     console.error("Error fetching waiting calls:", error);
+  //   }
+  // };
   const fetchWaitingCalls = async () => {
-    try {
-      const token = await getAuthToken();
-      const counsellorId = await getCounsellorId();
-      if (!counsellorId || !token) return;
+  try {
+    const token = await getAuthToken();
+    const counsellorId = await getCounsellorId();
+    if (!counsellorId || !token) return;
 
-      const response = await axios.get(
-        `${API_BASE_URL}/api/video/calls/pending/${counsellorId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+    const response = await axios.get(
+      `${API_BASE_URL}/api/video/calls/pending/${counsellorId}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
 
-      const callsList =
-        response.data.pendingRequests ||
-        response.data.waitingCalls ||
-        response.data.calls;
+    const callsList =
+      response.data.pendingRequests ||
+      response.data.waitingCalls ||
+      response.data.calls;
 
-      if (response.data?.success && callsList?.length > 0) {
-        setWaitingCalls(callsList);
-        const waitingCall =
-          callsList.find(
-            (call) =>
-              !call.status ||
-              call.status === "waiting" ||
-              call.status === "ringing"
-          ) || callsList[0];
+    if (response.data?.success && callsList?.length > 0) {
+      setWaitingCalls(callsList);
+      const waitingCall =
+        callsList.find(
+          (call) =>
+            !call.status ||
+            call.status === "waiting" ||
+            call.status === "ringing"
+        ) || callsList[0];
 
-        if (
-          waitingCall &&
-          !showIncomingCallModalRef.current &&
-          !isVideoModalOpenRef.current &&
-          !isVoiceModalOpenRef.current
-        ) {
-          const fromData = waitingCall.from || waitingCall.initiator || {};
-          const displayName =
-            fromData.anonymous ||
-            fromData.anonName ||
-            fromData.anonymousName ||
-            fromData.displayName ||
-            "Anonymous";
-
-          let initiatorAvatar = "ðŸ‘¤";
-          if (fromData.gender === "female") initiatorAvatar = "ðŸ‘©";
-          else if (fromData.gender === "male") initiatorAvatar = "ðŸ‘¨";
-
-          setIncomingCallData({
-            callId: waitingCall.callId || waitingCall.id || waitingCall._id,
-            roomId: waitingCall.roomId,
-            name: displayName,
-            // Counselor side: never show the caller's real photo here (privacy).
-            image: null,
-            callType: waitingCall.callType || "video",
-            from: fromData,
-            initiator: waitingCall.initiator,
-            requestedAt: waitingCall.requestedAt,
-            expiresAt: waitingCall.expiresAt,
-          });
-
-          setShowIncomingCallModal(true);
-          safeVibrate([320, 160, 320]);
+      if (
+        waitingCall &&
+        !showIncomingCallModalRef.current &&
+        !isVideoModalOpenRef.current &&
+        !isVoiceModalOpenRef.current
+      ) {
+        const fromData = waitingCall.from || waitingCall.initiator || {};
+        
+        // ✅ IMPORTANT FIX: Match web logic - prefer anonymous field
+        // The backend already filters real names for counselor view
+        let displayName = "Anonymous";
+        
+        // Check for anonymous fields first (these are what the backend provides)
+        if (fromData.anonymous) {
+          displayName = fromData.anonymous;
+        } else if (fromData.anonName) {
+          displayName = fromData.anonName;
+        } else if (fromData.anonymousName) {
+          displayName = fromData.anonymousName;
+        } else if (fromData.isAnonymous && typeof fromData.isAnonymous === 'string') {
+          displayName = fromData.isAnonymous;
+        } 
+        // ONLY fall back to displayName/fullName if anonymous fields don't exist
+        // (but backend should always provide anonymous for counselor view)
+        else if (fromData.displayName) {
+          displayName = fromData.displayName;
+        } else if (fromData.fullName) {
+          displayName = fromData.fullName;
         }
-      } else {
-        setWaitingCalls([]);
+
+        setIncomingCallData({
+          callId: waitingCall.callId || waitingCall.id || waitingCall._id,
+          roomId: waitingCall.roomId,
+          name: displayName,  // Now uses anonymous name as priority
+          image: fromData.profilePhoto || fromData.image || null,
+          callType: waitingCall.callType || "video",
+          from: fromData,
+          initiator: waitingCall.initiator,
+          requestedAt: waitingCall.requestedAt,
+          expiresAt: waitingCall.expiresAt,
+        });
+
+        setShowIncomingCallModal(true);
+        safeVibrate([320, 160, 320]);
       }
-    } catch (error) {
-      const status = error?.response?.status;
-      if (status === 401) {
-        showToast("Session expired. Please login again.", "error");
-        isPollingRef.current = false;
-        setIsPolling(false);
-        return;
-      }
-      console.error("Error fetching waiting calls:", error);
+    } else {
+      setWaitingCalls([]);
     }
-  };
+  } catch (error) {
+    const status = error?.response?.status;
+    if (status === 401) {
+      showToast("Session expired. Please login again.", "error");
+      isPollingRef.current = false;
+      setIsPolling(false);
+      return;
+    }
+    console.error("Error fetching waiting calls:", error);
+  }
+};
 
   // Keep ref mirrors in sync so the stable polling interval reads current values.
   useEffect(() => { showIncomingCallModalRef.current = showIncomingCallModal; }, [showIncomingCallModal]);
@@ -1187,13 +1509,34 @@ export default function CounselorDashboard() {
           else if (data.profilePhoto.publicId)
             profilePhotoUrl = `https://res.cloudinary.com/dfll8lwos/image/upload/${data.profilePhoto.publicId}`;
         }
+        const missingFields = [];
+        if (!data.specialization || (Array.isArray(data.specialization) && data.specialization.length === 0)) missingFields.push('Specialization');
+        if (!data.experience) missingFields.push('Experience');
+        if (!data.qualification && !data.education) missingFields.push('Qualification');
+        if (!data.location) missingFields.push('Location');
+
+        // Fetch accepted chats count for patient count
+        let acceptedChatsCount = 0;
+        try {
+          const chatsRes = await axios.get(
+            `${API_BASE_URL}/api/chat/chats`,
+            { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+          );
+          const chats = chatsRes.data?.chats || [];
+          acceptedChatsCount = chats.filter(
+            (c) => String(c.status || "").toLowerCase() === "accepted"
+          ).length;
+        } catch (e) {
+          // non-critical — keep 0
+        }
+
         setCounselorData({
           name: data.fullName || data.name,
           specialization: Array.isArray(data.specialization)
             ? data.specialization.join(", ")
             : data.specialization,
-          experience: `${data.experience || 0} years`,
-          patients: 0,
+          experience: parseInt(data.experience) || null,
+          patients: acceptedChatsCount,
           rating: data.rating || 4.5,
           email: data.email,
           phoneNumber: data.phoneNumber,
@@ -1207,6 +1550,8 @@ export default function CounselorDashboard() {
           location: data.location,
           consultationMode: data.consultationMode,
           profilePhoto: profilePhotoUrl,
+          profileCompleted: data.profileCompleted === true,
+          missingFields,
         });
       } catch (error) {
         console.error("Error fetching counsellor:", error);
@@ -1223,6 +1568,30 @@ export default function CounselorDashboard() {
     await fetchWaitingCalls();
     if (activeTab === "appointments") await fetchAppointments();
     setRefreshing(false);
+  };
+
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  const handleSidebarPhotoEdit = () => {
+    launchImageLibrary({ mediaType: 'photo', quality: 0.8 }, async (res) => {
+      if (res.didCancel || res.errorCode || !res.assets?.[0]) return;
+      const asset = res.assets[0];
+      try {
+        setPhotoUploading(true);
+        const token = await getAuthToken();
+        const id = await getCounsellorId();
+        const formData = new FormData();
+        formData.append('profilePhoto', { uri: asset.uri, type: asset.type, name: asset.fileName || 'photo.jpg' });
+        await axios.patch(`${API_BASE_URL}/api/auth/update/${id}`, formData, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+        });
+        setCounselorData((prev) => ({ ...prev, profilePhoto: asset.uri }));
+      } catch (e) {
+        Alert.alert('Upload failed', 'Could not update profile photo. Please try again.');
+      } finally {
+        setPhotoUploading(false);
+      }
+    });
   };
 
   const navItems = [
@@ -1253,7 +1622,7 @@ export default function CounselorDashboard() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#2c50cd" />
+        <ActivityIndicator size="large" color="#2563EB" />
       </View>
     );
   }
@@ -1261,7 +1630,7 @@ export default function CounselorDashboard() {
   // â”€â”€ Appointments Tab Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderAppointmentsTab = () => {
     const filterTabs = [
-      { key: 'all', label: 'All', icon: 'list' },
+      { key: 'all', label: 'All', icon: 'apps-outline' },
       { key: 'pending', label: 'Pending', icon: 'time-outline' },
       { key: 'confirmed', label: 'Confirmed', icon: 'checkmark-circle-outline' },
       { key: 'canceled', label: 'Canceled', icon: 'close-circle-outline' },
@@ -1275,32 +1644,92 @@ export default function CounselorDashboard() {
     const countFor = (key) =>
       key === "all" ? appointments.length : appointments.filter((a) => a.status === key).length;
 
+    // Stats
+    const pendingCount = appointments.filter((a) => a.status === "pending").length;
+    const confirmedCount = appointments.filter((a) => a.status === "confirmed").length;
+    const todayCount = appointments.filter((a) => isSameDay(a.date, new Date())).length;
+
+    // Greeting
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+    const firstName =
+      (counselorData?.name || "").split(" ")[0] ||
+      (counselorData?.name) ||
+      "Counselor";
+
     return (
       <ScrollView
-        style={{ flex: 1 }}
+        style={aptStyles.scrollOuter}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={aptStyles.scrollContent}
         refreshControl={
           <RefreshControl
             refreshing={loadingAppointments && appointments.length > 0}
             onRefresh={fetchAppointments}
-            colors={["#667eea"]}
-            tintColor="#667eea"
+            colors={["#1E3A8A", "#2563EB"]}
+            tintColor="#2563EB"
           />
         }
       >
-        {/* Header */}
-        <View style={aptStyles.tabHeader}>
-          <View>
-            <Text style={aptStyles.tabTitle}>Appointments</Text>
-            <Text style={aptStyles.tabSubtitle}>{appointments.length} total requests</Text>
+        {/* Inset section: hero, title, filters keep horizontal breathing room.
+            The card list below this wrapper stays edge-to-edge. */}
+        <View style={aptStyles.insetSection}>
+        {/* ── Hero ─────────────────────────────────────────────────────────── */}
+        <LinearGradient
+          colors={["#1E3A8A", "#2563EB", "#0D9488"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={aptStyles.hero}
+        >
+          {/* Decorative blurred blobs */}
+          <View style={aptStyles.heroBlob1} />
+          <View style={aptStyles.heroBlob2} />
+
+          <View style={aptStyles.heroTopRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={aptStyles.heroGreeting}>{greeting},</Text>
+              <Text style={aptStyles.heroName} numberOfLines={1}>{firstName}</Text>
+            </View>
+            <TouchableOpacity
+              style={aptStyles.heroRefreshBtn}
+              onPress={() => fetchAppointments()}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="refresh" size={18} color="#ffffff" />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity style={aptStyles.refreshIconBtn} onPress={fetchAppointments}>
-            <Ionicons name="refresh-outline" size={20} color="#667eea" />
-          </TouchableOpacity>
+
+          <Text style={aptStyles.heroSubtitle}>
+            {todayCount > 0
+              ? `${todayCount} appointment${todayCount === 1 ? "" : "s"} scheduled for today`
+              : `${appointments.length} total appointment${appointments.length === 1 ? "" : "s"}`}
+          </Text>
+
+          {/* Inline mini-summary bar */}
+          <View style={aptStyles.heroSummaryBar}>
+            <View style={aptStyles.heroSummaryItem}>
+              <Text style={aptStyles.heroSummaryNum}>{pendingCount}</Text>
+              <Text style={aptStyles.heroSummaryLabel}>Pending</Text>
+            </View>
+            <View style={aptStyles.heroSummaryDivider} />
+            <View style={aptStyles.heroSummaryItem}>
+              <Text style={aptStyles.heroSummaryNum}>{confirmedCount}</Text>
+              <Text style={aptStyles.heroSummaryLabel}>Confirmed</Text>
+            </View>
+            <View style={aptStyles.heroSummaryDivider} />
+            <View style={aptStyles.heroSummaryItem}>
+              <Text style={aptStyles.heroSummaryNum}>{todayCount}</Text>
+              <Text style={aptStyles.heroSummaryLabel}>Today</Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        {/* ── Section title + filter chips ────────────────────────────────── */}
+        <View style={aptStyles.sectionTitleRow}>
+          <Text style={aptStyles.sectionTitle}>All Requests</Text>
+          <Text style={aptStyles.sectionCount}>{filteredApts.length} shown</Text>
         </View>
 
-        {/* Filter chips */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1310,34 +1739,58 @@ export default function CounselorDashboard() {
           {filterTabs.map((ft) => {
             const isActive = aptFilter === ft.key;
             const count = countFor(ft.key);
+
+            if (isActive) {
+              return (
+                <TouchableOpacity
+                  key={ft.key}
+                  activeOpacity={0.9}
+                  onPress={() => setAptFilter(ft.key)}
+                >
+                  <LinearGradient
+                    colors={["#2563EB", "#0D9488"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[aptStyles.filterChip, aptStyles.filterChipActive]}
+                  >
+                    <Ionicons name={ft.icon} size={14} color="#ffffff" style={{ marginRight: 6 }} />
+                    <Text style={[aptStyles.filterChipText, aptStyles.filterChipTextActive]}>
+                      {ft.label}
+                    </Text>
+                    {count > 0 && (
+                      <View style={[aptStyles.filterChipBadge, aptStyles.filterChipBadgeActive]}>
+                        <Text style={[aptStyles.filterChipBadgeText, aptStyles.filterChipBadgeTextActive]}>
+                          {count}
+                        </Text>
+                      </View>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              );
+            }
+
             return (
               <TouchableOpacity
                 key={ft.key}
-                style={[aptStyles.filterChip, isActive && aptStyles.filterChipActive]}
+                style={aptStyles.filterChip}
                 onPress={() => setAptFilter(ft.key)}
+                activeOpacity={0.8}
               >
-                <Ionicons
-                  name={ft.icon}
-                  size={13}
-                  color={isActive ? "#ffffff" : "#475569"}
-                  style={{ marginRight: 4 }}
-                />
-                <Text style={[aptStyles.filterChipText, isActive && aptStyles.filterChipTextActive]}>
-                  {ft.label}
-                </Text>
+                <Ionicons name={ft.icon} size={14} color="#475569" style={{ marginRight: 6 }} />
+                <Text style={aptStyles.filterChipText}>{ft.label}</Text>
                 {count > 0 && (
-                  <View style={[aptStyles.filterChipBadge, isActive && aptStyles.filterChipBadgeActive]}>
-                    <Text style={[aptStyles.filterChipBadgeText, isActive && aptStyles.filterChipBadgeTextActive]}>
-                      {count}
-                    </Text>
+                  <View style={aptStyles.filterChipBadge}>
+                    <Text style={aptStyles.filterChipBadgeText}>{count}</Text>
                   </View>
                 )}
               </TouchableOpacity>
             );
           })}
         </ScrollView>
+        </View>
+        {/* end of inset section — list below is edge-to-edge */}
 
-        {/* Loading state */}
+        {/* ── List / loading / empty ──────────────────────────────────────── */}
         {loadingAppointments && appointments.length === 0 ? (
           <View style={aptStyles.listContainer}>
             {[0, 1, 2, 3].map((i) => (
@@ -1345,28 +1798,39 @@ export default function CounselorDashboard() {
             ))}
           </View>
         ) : filteredApts.length === 0 ? (
-          <View style={aptStyles.emptyState}>
-            <View style={aptStyles.emptyIconWrap}>
-              <Ionicons name="calendar-outline" size={40} color="#667eea" />
-            </View>
+          <View style={[aptStyles.emptyState, { paddingHorizontal: 14 }]}>
+            <LinearGradient
+              colors={["#F0F9FF", "#E0F2FE"]}
+              style={aptStyles.emptyIconWrap}
+            >
+              <Ionicons name="calendar-outline" size={44} color="#2563EB" />
+            </LinearGradient>
             <Text style={aptStyles.emptyTitle}>No appointments found</Text>
             <Text style={aptStyles.emptyText}>
               {aptFilter === "pending"
-                ? "No pending appointment requests right now."
+                ? "No pending appointment requests right now. New requests will appear here."
                 : aptFilter === "confirmed"
-                ? "No confirmed appointments yet."
+                ? "No confirmed appointments yet. Accepted requests will show up here."
                 : aptFilter === "canceled"
                 ? "No canceled appointments."
                 : "No appointments to show yet."}
             </Text>
-            <Text style={aptStyles.refreshHint}>Pull down to refresh</Text>
+            <TouchableOpacity
+              style={aptStyles.emptyRefreshBtn}
+              onPress={() => fetchAppointments()}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="refresh" size={14} color="#2563EB" />
+              <Text style={aptStyles.emptyRefreshText}>Refresh</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <View style={aptStyles.listContainer}>
-            {filteredApts.map((apt) => (
+            {filteredApts.map((apt, idx) => (
               <AppointmentCard
                 key={apt._id}
                 apt={apt}
+                index={idx}
                 onAccept={(id) => handleUpdateAppointmentStatus(id, "confirmed")}
                 onReject={(id) => handleUpdateAppointmentStatus(id, "canceled")}
                 onVideoCall={handleInitiateVideoCallFromApt}
@@ -1399,24 +1863,62 @@ export default function CounselorDashboard() {
         );
       case "patients":
         return <PatientRequests />;
-      case "earnings":
+      case "earnings": {
+        const shimmerOpacity = earningsShimmerAnim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.35, 0.75],
+        });
+        if (earningsLoading) {
+          return (
+            <ScrollView
+              style={styles.earningsScroll}
+              contentContainerStyle={styles.earningsScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.earningsSection}>
+                <View style={styles.earningsSectionHeader}>
+                  <View style={styles.earningsSectionHeaderText}>
+                    <Animated.View style={[styles.earnSkTitle, { opacity: shimmerOpacity }]} />
+                    <Animated.View style={[styles.earnSkSubtitle, { opacity: shimmerOpacity }]} />
+                  </View>
+                  <Animated.View style={[styles.earnSkPill, { opacity: shimmerOpacity }]} />
+                </View>
+                <Animated.View style={[styles.earnSkHero, { opacity: shimmerOpacity }]} />
+                <View style={styles.earningsMiniGrid}>
+                  <Animated.View style={[styles.earnSkMini, { opacity: shimmerOpacity }]} />
+                  <Animated.View style={[styles.earnSkMini, { opacity: shimmerOpacity }]} />
+                </View>
+                <View style={styles.earningsCardRow}>
+                  <Animated.View style={[styles.earnSkCard, { opacity: shimmerOpacity }]} />
+                  <Animated.View style={[styles.earnSkCard, { opacity: shimmerOpacity }]} />
+                </View>
+                <Animated.View style={[styles.earnSkList, { opacity: shimmerOpacity }]} />
+              </View>
+            </ScrollView>
+          );
+        }
         return (
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.earningsScroll}
+            contentContainerStyle={styles.earningsScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
             <View style={styles.earningsSection}>
               <View style={styles.earningsSectionHeader}>
-                <View>
+                <View style={styles.earningsSectionHeaderText}>
                   <Text style={styles.earningsSectionTitle}>Earnings</Text>
                   <Text style={styles.earningsSectionSubtitle}>
                     Your payout overview at a glance
                   </Text>
                 </View>
                 <View style={styles.earningsPeriodPill}>
+                  <Icon name="calendar" size={11} color="#2563EB" />
                   <Text style={styles.earningsPeriodPillText}>This month</Text>
                 </View>
               </View>
 
               <LinearGradient
-                colors={['#667eea', '#4f46e5', '#312e81']}
+                colors={['#2563EB', '#0D9488', '#1E3A8A']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.earningsHeroCard}
@@ -1449,6 +1951,20 @@ export default function CounselorDashboard() {
                     <Text style={styles.earningsHeroMetaValue}>₹15,750</Text>
                   </View>
                 </View>
+
+                <TouchableOpacity
+                  style={styles.earningsWithdrawBtn}
+                  activeOpacity={0.85}
+                  onPress={() =>
+                    Alert.alert(
+                      "Withdraw",
+                      "₹15,750 will be transferred to your linked bank account within 2-3 business days."
+                    )
+                  }
+                >
+                  <Icon name="arrow-up-right-from-square" size={13} color="#2563EB" />
+                  <Text style={styles.earningsWithdrawBtnText}>Withdraw Funds</Text>
+                </TouchableOpacity>
               </LinearGradient>
 
               <View style={styles.earningsMiniGrid}>
@@ -1482,9 +1998,57 @@ export default function CounselorDashboard() {
                   <Text style={styles.earningsBadge}>45 sessions completed</Text>
                 </View>
               </View>
+
+              <View style={styles.earningsBreakdownCard}>
+                <View style={styles.earningsBreakdownHeader}>
+                  <Text style={styles.earningsBreakdownTitle}>Recent Transactions</Text>
+                  <TouchableOpacity activeOpacity={0.7}>
+                    <Text style={styles.earningsBreakdownLink}>View all</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {[
+                  { name: "Riya Sharma", type: "Video session", amount: "+\u20B91,200", date: "Today, 10:24 AM", color: "#16a34a", icon: "video" },
+                  { name: "Arjun Mehta", type: "Voice session", amount: "+\u20B9800", date: "Yesterday, 6:10 PM", color: "#2563eb", icon: "phone" },
+                  { name: "Neha Verma", type: "Chat session", amount: "+\u20B9450", date: "12 May, 4:42 PM", color: "#9333ea", icon: "message" },
+                  { name: "Withdrawal", type: "To HDFC \u2022\u2022\u2022\u2022 4421", amount: "-\u20B95,000", date: "10 May, 2:15 PM", color: "#ef4444", icon: "building-columns" },
+                ].map((tx, i, arr) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.earningsTxnRow,
+                      i < arr.length - 1 && styles.earningsTxnRowDivider,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.earningsTxnIcon,
+                        { backgroundColor: `${tx.color}1A` },
+                      ]}
+                    >
+                      <Icon name={tx.icon} size={14} color={tx.color} />
+                    </View>
+                    <View style={styles.earningsTxnBody}>
+                      <Text style={styles.earningsTxnName}>{tx.name}</Text>
+                      <Text style={styles.earningsTxnMeta}>
+                        {tx.type} {'\u2022'} {tx.date}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.earningsTxnAmount,
+                        { color: tx.amount.startsWith("-") ? "#ef4444" : "#16a34a" },
+                      ]}
+                    >
+                      {tx.amount}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             </View>
           </ScrollView>
         );
+      }
       case "messages":
         return <Messagesou />;
       case "profile":
@@ -1538,30 +2102,112 @@ export default function CounselorDashboard() {
         {/* Desktop Sidebar */}
         {!isMobile && (
           <View style={styles.sidebar}>
+            {/* Sidebar Brand Header */}
+            <View style={styles.sidebarBrand}>
+              <View style={styles.sidebarBrandIcon}>
+                <Image
+                  source={require('../../../../../image/Mediconect Logo-3.png')}
+                  style={styles.sidebarBrandLogoImg}
+                  resizeMode="contain"
+                />
+              </View>
+              <Text style={styles.sidebarBrandText}>Mediconeckt</Text>
+              <View style={styles.sidebarBrandPill}>
+                <Text style={styles.sidebarBrandPillText}>PRO</Text>
+              </View>
+            </View>
             {/* Profile */}
             <View style={styles.sidebarHeader}>
               <View style={styles.profileContainer}>
-                {counselorData?.profilePhoto ? (
-                  <Image
-                    source={{ uri: counselorData.profilePhoto }}
-                    style={styles.profileAvatar}
-                  />
-                ) : (
-                  <View style={styles.profileAvatarPlaceholder}>
-                    <Icon name="user" size={28} color="#8492a5" />
+                {/* Avatar with blue ring — tap to edit photo */}
+                <TouchableOpacity
+                  onPress={handleSidebarPhotoEdit}
+                  activeOpacity={0.8}
+                  style={{ alignItems: 'center' }}
+                >
+                  <View style={styles.avatarOuterRing}>
+                    {counselorData?.profilePhoto ? (
+                      <Image
+                        source={{ uri: counselorData.profilePhoto }}
+                        style={styles.profileAvatarImage}
+                      />
+                    ) : (
+                      <LinearGradient
+                        colors={["#2563EB", "#1D4ED8"]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.profileAvatarGradient}
+                      >
+                        <Text style={styles.profileAvatarInitial}>
+                          {(counselorData?.name || "C").charAt(0).toUpperCase()}
+                        </Text>
+                      </LinearGradient>
+                    )}
+                    {/* Camera edit badge */}
+                    <View style={styles.avatarEditBadge}>
+                      {photoUploading
+                        ? <ActivityIndicator size={10} color="#fff" />
+                        : <Feather name="camera" size={10} color="#ffffff" />}
+                    </View>
                   </View>
-                )}
-                <Text style={styles.profileName}>
+                </TouchableOpacity>
+
+                {/* Name */}
+                <Text style={styles.profileName} numberOfLines={1}>
                   {counselorData?.name || "Counselor"}
                 </Text>
-                <Text style={styles.profileSpecialization}>
-                  {counselorData?.specialization || "Not specified"}
+
+                {/* Specialization */}
+                <Text style={styles.profileSpecialization} numberOfLines={1}>
+                  {counselorData?.specialization || "Mental Health"}
                 </Text>
-                <View style={styles.ratingBadge}>
-                  <Icon name="star" size={12} color="#f5a623" />
-                  <Text style={styles.ratingText}>
-                    {counselorData?.rating || 0}
-                  </Text>
+
+                {/* Rating + Experience row */}
+                <View style={styles.profileMetaRow}>
+                  <View style={styles.ratingBadge}>
+                    <Icon name="star" size={11} color="#FBBF24" />
+                    <Text style={styles.ratingText}>
+                      {counselorData?.rating || "4.5"}
+                    </Text>
+                  </View>
+                  {counselorData?.experience ? (
+                    <View style={styles.expBadge}>
+                      <Icon name="briefcase" size={10} color="#6366F1" />
+                      <Text style={styles.expText}>
+                        {counselorData.experience} yrs
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                {/* Online status pill */}
+                <View style={styles.onlineStatusPill}>
+                  <View style={styles.onlineStatusDot} />
+                  <Text style={styles.onlineStatusText}>Available</Text>
+                </View>
+
+                {/* Quick stats strip */}
+                <View style={styles.profileStatsStrip}>
+                  <View style={styles.profileStatItem}>
+                    <Text style={styles.profileStatNum}>
+                      {counselorData?.patients || "0"}
+                    </Text>
+                    <Text style={styles.profileStatLabel}>Patients</Text>
+                  </View>
+                  <View style={styles.profileStatDivider} />
+                  <View style={styles.profileStatItem}>
+                    <Text style={styles.profileStatNum}>
+                      {counselorData?.languages?.length || "0"}
+                    </Text>
+                    <Text style={styles.profileStatLabel}>Languages</Text>
+                  </View>
+                  <View style={styles.profileStatDivider} />
+                  <View style={styles.profileStatItem}>
+                    <Text style={styles.profileStatNum}>
+                      {counselorData?.specializations?.length || "0"}
+                    </Text>
+                    <Text style={styles.profileStatLabel}>Specialties</Text>
+                  </View>
                 </View>
               </View>
             </View>
@@ -1580,7 +2226,7 @@ export default function CounselorDashboard() {
                   <Icon
                     name={item.icon}
                     size={18}
-                    color={activeTab === item.id ? "#ffffff" : "#8492a5"}
+                    color={activeTab === item.id ? "#FFFFFF" : "#6B7280"}
                   />
                   <Text
                     style={[
@@ -1628,18 +2274,21 @@ export default function CounselorDashboard() {
                 activeOpacity={0.7}
               >
                 {showMobileMenu ? (
-                  <Feather name="x" size={26} color="#1A1A1A" strokeWidth={3} />
+                  <Feather name="x" size={24} color="#2563EB" />
                 ) : (
-                  <Icon name="bars" size={20} color="#1A1A1A" />
+                  <Icon name="bars" size={20} color="#2563EB" />
                 )}
               </TouchableOpacity>
 
               <View style={styles.mobileTitle}>
-                <Image
-                  source={require("../../../../../image/Mediconect Logo-3.png")}
-                  style={styles.mobileHeaderLogo}
-                  resizeMode="contain"
-                />
+                <View style={styles.mobileTitleBadge}>
+                  <Image
+                    source={require('../../../../../image/Mediconect Logo-3.png')}
+                    style={styles.mobileTitleLogoImg}
+                    resizeMode="contain"
+                  />
+                </View>
+                <Text style={styles.mobileTitleText}>Mediconeckt</Text>
               </View>
 
               <TouchableOpacity
@@ -1647,7 +2296,7 @@ export default function CounselorDashboard() {
                 onPress={() => setShowLogoutConfirm(true)}
                 activeOpacity={0.5}
               >
-                <Feather name="log-out" size={20} color="#1A1A1A" />
+                <Feather name="log-out" size={20} color="#2563EB" />
               </TouchableOpacity>
             </View>
           </View>
@@ -1661,27 +2310,79 @@ export default function CounselorDashboard() {
               {/* Profile */}
               <View style={styles.sidebarHeader}>
                 <View style={styles.profileContainer}>
-                  {counselorData?.profilePhoto ? (
-                    <Image
-                      source={{ uri: counselorData.profilePhoto }}
-                      style={styles.profileAvatar}
-                    />
-                  ) : (
-                    <View style={styles.profileAvatarPlaceholder}>
-                      <Icon name="user" size={44} color="#8492a5" />
+                  <TouchableOpacity onPress={handleSidebarPhotoEdit} activeOpacity={0.8} style={{ alignItems: 'center' }}>
+                    <View style={styles.avatarOuterRing}>
+                      {counselorData?.profilePhoto ? (
+                        <Image
+                          source={{ uri: counselorData.profilePhoto }}
+                          style={styles.profileAvatarImage}
+                        />
+                      ) : (
+                        <LinearGradient
+                          colors={["#2563EB", "#1D4ED8"]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.profileAvatarGradient}
+                        >
+                          <Text style={styles.profileAvatarInitial}>
+                            {(counselorData?.name || "C").charAt(0).toUpperCase()}
+                          </Text>
+                        </LinearGradient>
+                      )}
+                      <View style={styles.avatarEditBadge}>
+                        {photoUploading
+                          ? <ActivityIndicator size={10} color="#fff" />
+                          : <Feather name="camera" size={10} color="#ffffff" />}
+                      </View>
                     </View>
-                  )}
-                  <Text style={styles.profileName}>
+                  </TouchableOpacity>
+                  <Text style={styles.profileName} numberOfLines={1}>
                     {counselorData?.name || "Counselor"}
                   </Text>
-                  <Text style={styles.profileSpecialization}>
-                    {counselorData?.specialization || "Not specified"}
+                  <Text style={styles.profileSpecialization} numberOfLines={1}>
+                    {counselorData?.specialization || "Mental Health"}
                   </Text>
-                  <View style={styles.ratingBadge}>
-                    <Icon name="star" size={15} color="#f5a623" />
-                    <Text style={styles.ratingText}>
-                      {counselorData?.rating || 0}
-                    </Text>
+                  <View style={styles.profileMetaRow}>
+                    <View style={styles.ratingBadge}>
+                      <Icon name="star" size={11} color="#FBBF24" />
+                      <Text style={styles.ratingText}>
+                        {counselorData?.rating || "4.5"}
+                      </Text>
+                    </View>
+                    {counselorData?.experience ? (
+                      <View style={styles.expBadge}>
+                        <Icon name="briefcase" size={10} color="#6366F1" />
+                        <Text style={styles.expText}>
+                          {counselorData.experience} yrs
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={styles.onlineStatusPill}>
+                    <View style={styles.onlineStatusDot} />
+                    <Text style={styles.onlineStatusText}>Available</Text>
+                  </View>
+                  <View style={styles.profileStatsStrip}>
+                    <View style={styles.profileStatItem}>
+                      <Text style={styles.profileStatNum}>
+                        {counselorData?.patients || "0"}
+                      </Text>
+                      <Text style={styles.profileStatLabel}>Patients</Text>
+                    </View>
+                    <View style={styles.profileStatDivider} />
+                    <View style={styles.profileStatItem}>
+                      <Text style={styles.profileStatNum}>
+                        {counselorData?.languages?.length || "0"}
+                      </Text>
+                      <Text style={styles.profileStatLabel}>Languages</Text>
+                    </View>
+                    <View style={styles.profileStatDivider} />
+                    <View style={styles.profileStatItem}>
+                      <Text style={styles.profileStatNum}>
+                        {counselorData?.specializations?.length || "0"}
+                      </Text>
+                      <Text style={styles.profileStatLabel}>Specialties</Text>
+                    </View>
                   </View>
                 </View>
               </View>
@@ -1700,7 +2401,7 @@ export default function CounselorDashboard() {
                     <Icon
                       name={item.icon}
                       size={24}
-                      color={activeTab === item.id ? "#ffffff" : "#8492a5"}
+                      color={activeTab === item.id ? "#FFFFFF" : "#6B7280"}
                     />
                     <Text
                       style={[
@@ -1715,7 +2416,7 @@ export default function CounselorDashboard() {
                         <Text style={styles.mobileNavBadgeText}>{item.badge}</Text>
                       </View>
                     )}
-                    <Feather name="chevron-right" size={18} color="#2e3d50" />
+                    <Feather name="chevron-right" size={18} color="#D1D5DB" />
                   </TouchableOpacity>
                 ))}
               </View>
@@ -1759,7 +2460,7 @@ export default function CounselorDashboard() {
                 <Icon
                   name={item.icon}
                   size={20}
-                  color={activeTab === item.id ? "#ffffff" : "#94A3B8"}
+                  color={activeTab === item.id ? "#2563EB" : "#9CA3AF"}
                 />
                 <Text
                   style={[
@@ -1790,9 +2491,37 @@ export default function CounselorDashboard() {
             styles.mainContent,
             isMobile && styles.mainContentMobile,
             isMobile && { marginTop: topInset + MOBILE_HEADER_BAR_HEIGHT },
+            { flexDirection: 'column' },
           ]}
         >
-          {renderTabContent()}
+          {/* Profile incomplete banner */}
+          {counselorData && !counselorData.profileCompleted && (
+            <TouchableOpacity
+              style={profileBanner.wrap}
+              onPress={() => setActiveTab('profile')}
+              activeOpacity={0.85}
+            >
+              <View style={profileBanner.left}>
+                <View style={profileBanner.iconWrap}>
+                  <Icon name="exclamation-triangle" size={16} color="#92400e" />
+                </View>
+                <View style={profileBanner.textWrap}>
+                  <Text style={profileBanner.title}>Complete your profile to appear in the directory</Text>
+                  {counselorData.missingFields && counselorData.missingFields.length > 0 && (
+                    <Text style={profileBanner.missing}>
+                      Missing: {counselorData.missingFields.join(' · ')}
+                    </Text>
+                  )}
+                </View>
+              </View>
+              <View style={profileBanner.btn}>
+                <Text style={profileBanner.btnText}>Complete Now</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          <View style={{ flex: 1 }}>
+            {renderTabContent()}
+          </View>
         </View>
 
         {/* Chat Request Modal */}
@@ -1922,40 +2651,141 @@ export default function CounselorDashboard() {
 
 // â”€â”€â”€ Appointment-specific Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const aptStyles = StyleSheet.create({
+  // Cancel out the parent's horizontal padding so cards reach the screen edges.
+  // The ScrollView uses this on `style` (not contentContainerStyle) so the
+  // negative margin doesn't get pinched off by overflow:hidden on the content.
+  scrollOuter: {
+    flex: 1,
+  },
   scrollContent: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 0,
     paddingTop: 14,
     paddingBottom: 100,
   },
-  // Tab header
-  tabHeader: {
+  // Wraps the hero, section title and filter chips so they keep their normal
+  // horizontal breathing room. The card list below stays edge-to-edge.
+  insetSection: {
+    paddingHorizontal: 14,
+  },
+
+  // ─── Hero ──────────────────────────────────────────────────────────────────
+  hero: {
+    borderRadius: 22,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 18,
+    overflow: 'hidden',
+    marginBottom: 14,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  heroBlob1: {
+    position: 'absolute',
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    top: -60,
+    right: -40,
+  },
+  heroBlob2: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    bottom: -30,
+    left: -20,
+  },
+  heroTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-    paddingHorizontal: 2,
   },
-  tabTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#111827',
-    letterSpacing: 0.3,
-  },
-  tabSubtitle: {
-    fontSize: 12,
-    color: '#6b7280',
+  heroGreeting: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.85)',
     fontWeight: '500',
+  },
+  heroName: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: 0.2,
     marginTop: 2,
   },
-  refreshIconBtn: {
-    width: 38,
-    height: 38,
+  heroRefreshBtn: {
+    width: 40,
+    height: 40,
     borderRadius: 12,
-    backgroundColor: '#eef2ff',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Filter chips
+  heroSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.92)',
+    marginTop: 8,
+  },
+  heroSummaryBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  heroSummaryItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  heroSummaryNum: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#ffffff',
+  },
+  heroSummaryLabel: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.85)',
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginTop: 2,
+  },
+  heroSummaryDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+
+  // ─── Section title ────────────────────────────────────────────────────────
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: 0.2,
+  },
+  sectionCount: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+
+  // ─── Filter chips ─────────────────────────────────────────────────────────
   filterScroll: {
     marginBottom: 14,
   },
@@ -1966,126 +2796,213 @@ const aptStyles = StyleSheet.create({
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     borderRadius: 999,
     backgroundColor: '#ffffff',
-    borderWidth: 1.2,
-    borderColor: '#d1d5db',
-    gap: 4,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   filterChipActive: {
-    backgroundColor: '#667eea',
-    borderColor: '#667eea',
+    borderColor: '#2563EB',
+    shadowColor: '#2563EB',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
   },
   filterChipText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#475569',
   },
   filterChipTextActive: {
     color: '#ffffff',
   },
   filterChipBadge: {
-    backgroundColor: '#e5e7eb',
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+    backgroundColor: '#F0F9FF',
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
-    marginLeft: 2,
+    paddingHorizontal: 6,
+    marginLeft: 6,
   },
   filterChipBadgeActive: {
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(255,255,255,0.28)',
   },
   filterChipBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#475569',
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#2563EB',
   },
   filterChipBadgeTextActive: {
     color: '#ffffff',
   },
-  // List
+
+  // ─── List ─────────────────────────────────────────────────────────────────
   listContainer: {
-    gap: 10,
+    gap: 12,
     marginTop: 2,
   },
-  // Card
+
+  // ─── Card (minimal, flat, soft shadow) ────────────────────────────────────
   card: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: '#000',
+    shadowColor: '#0f172a',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.04,
     shadowRadius: 8,
-    elevation: 2,
+    elevation: 1,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: '#f1f5f9',
+    flexDirection: 'row',
   },
+  cardSideAccent: {
+    width: 3,
+    backgroundColor: '#e5e7eb',
+  },
+  // Kept for the skeleton card (uses cardAccent as a top bar)
   cardAccent: {
     height: 4,
     width: '100%',
   },
   cardBody: {
+    flex: 1,
     paddingHorizontal: 14,
     paddingTop: 14,
-    paddingBottom: 4,
-    gap: 10,
+    paddingBottom: 6,
+    gap: 12,
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  // Avatar
-  avatarCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+
+  // ─── Avatar with gradient ring ────────────────────────────────────────────
+  avatarRingOuter: {
+    width: 54,
+    height: 54,
+    position: 'relative',
+  },
+  avatarRing: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInner: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarInitials: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
-    color: '#ffffff',
+    color: '#475569',
+    letterSpacing: 0.2,
   },
-  // Patient info
+  todayDot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#22c55e',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+
+  // ─── Patient info ────────────────────────────────────────────────────────
   patientInfo: {
     flex: 1,
-    gap: 3,
+    gap: 4,
   },
   patientName: {
     fontSize: 15,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: 0.1,
   },
   consultTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 5,
   },
   consultTagText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#667eea',
-    letterSpacing: 0.5,
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#94a3b8',
+    letterSpacing: 0.2,
   },
-  // Status badge
+
+  // ─── Status badge ────────────────────────────────────────────────────────
   statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 999,
+    borderWidth: 1,
+  },
+  statusBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   statusText: {
     fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
-  // Notes
+
+  // ─── Date/time block (minimal — no background, just a top divider) ───────
+  dateTimeBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingTop: 10,
+    paddingBottom: 2,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  dateTimeIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateTimePrimary: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1f2937',
+    letterSpacing: 0.1,
+  },
+  dateTimeSecondary: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+
+  // ─── Notes ───────────────────────────────────────────────────────────────
   notesBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -2094,34 +3011,20 @@ const aptStyles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     borderLeftWidth: 3,
-    borderLeftColor: '#c7d2fe',
+    borderLeftColor: '#E0F2FE',
   },
   notesText: {
     flex: 1,
     fontSize: 12,
     color: '#526071',
-    fontStyle: 'italic',
     lineHeight: 17,
   },
-  // Time row
-  timeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
-  },
-  timeValue: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#374151',
-  },
-  // Action buttons
+
+  // ─── Action buttons ──────────────────────────────────────────────────────
   actions: {
     flexDirection: 'row',
     gap: 10,
-    paddingBottom: 14,
+    paddingBottom: 12,
     paddingTop: 2,
   },
   rejectActionBtn: {
@@ -2130,7 +3033,7 @@ const aptStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 11,
+    paddingVertical: 12,
     borderRadius: 12,
     backgroundColor: '#fff5f5',
     borderWidth: 1.5,
@@ -2138,89 +3041,120 @@ const aptStyles = StyleSheet.create({
   },
   rejectBtnText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#ef4444',
+    letterSpacing: 0.3,
   },
   acceptActionBtn: {
     flex: 1,
     borderRadius: 12,
     overflow: 'hidden',
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 2,
   },
   acceptBtnGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 11,
+    paddingVertical: 12,
     borderRadius: 12,
   },
   acceptBtnText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#ffffff',
+    letterSpacing: 0.3,
   },
-  // Video call button
+
+  // ─── Video call button ───────────────────────────────────────────────────
   videoCallBtn: {
     borderRadius: 12,
     overflow: 'hidden',
-    marginBottom: 14,
-    shadowColor: '#0f766e',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
+    marginBottom: 12,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
     shadowRadius: 6,
-    elevation: 3,
+    elevation: 2,
   },
   videoCallBtnGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 12,
+    paddingVertical: 13,
     borderRadius: 12,
   },
   videoCallBtnText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#ffffff',
+    letterSpacing: 0.3,
   },
-  // Empty state
+
+  // ─── Canceled note ───────────────────────────────────────────────────────
+  canceledNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingBottom: 12,
+  },
+  canceledNoteText: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '500',
+  },
+
+  // ─── Empty state ─────────────────────────────────────────────────────────
   emptyState: {
     alignItems: 'center',
     paddingVertical: 56,
-    gap: 10,
+    gap: 12,
   },
   emptyIconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#eef2ff',
+    width: 86,
+    height: 86,
+    borderRadius: 43,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
   },
   emptyTitle: {
     fontSize: 17,
-    fontWeight: '700',
-    color: '#374151',
+    fontWeight: '800',
+    color: '#0f172a',
   },
   emptyText: {
     fontSize: 13,
-    color: '#6b7280',
+    color: '#64748b',
     textAlign: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 28,
     lineHeight: 20,
   },
-  refreshHint: {
-    fontSize: 12,
-    color: '#9ca3af',
+  emptyRefreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1,
+    borderColor: '#99f6e4',
     marginTop: 4,
   },
-  // Skeleton
+  emptyRefreshText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2563EB',
+  },
+
+  // ─── Skeleton ────────────────────────────────────────────────────────────
   skelAccentColor: {
     backgroundColor: '#e0e7ff',
   },
@@ -2277,25 +3211,67 @@ const aptStyles = StyleSheet.create({
 });
 
 // â”€â”€â”€ Main Styles (unchanged from original) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const profileBanner = StyleSheet.create({
+  wrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F0F9FF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#BAE6FD',
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    gap: 10,
+  },
+  left: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10 },
+  iconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#E0F2FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  textWrap: { flex: 1 },
+  title: { fontSize: 12, fontWeight: '700', color: '#1E3A8A', lineHeight: 17 },
+  missing: { fontSize: 11, color: '#2563EB', marginTop: 2 },
+  btn: {
+    backgroundColor: '#2563EB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    flexShrink: 0,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  btnText: { fontSize: 11, fontWeight: '700', color: '#ffffff' },
+});
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#f7f9fb",
+    backgroundColor: "#F8FAFC",
   },
   container: {
     flex: 1,
-    backgroundColor: "#f7f9fb",
+    backgroundColor: "#F8FAFC",
     flexDirection: "row",
   },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f7f9fb",
+    backgroundColor: "#F8FAFC",
   },
+
+  // ─── Sidebar ─────────────────────────────────────────────────────────────
   sidebar: {
     width: 260,
-    backgroundColor: "#081625",
+    backgroundColor: "#FFFFFF",
     flexDirection: "column",
     position: "absolute",
     left: 0,
@@ -2303,137 +3279,325 @@ const styles = StyleSheet.create({
     marginTop: 22,
     bottom: 0,
     zIndex: 999,
-    shadowColor: "#0e1d2b",
+    shadowColor: "#000",
     shadowOffset: { width: 2, height: 0 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
+    borderRightWidth: 1,
+    borderRightColor: "#E5E7EB",
   },
-  sidebarHeader: {
-    paddingHorizontal: 20,
-    paddingTop: 28,
-    paddingBottom: 24,
+
+  // Brand strip
+  sidebarBrand: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#1d2b3a",
+    borderBottomColor: "#F3F4F6",
+  },
+  sidebarBrandIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: "#2563EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sidebarBrandLogoImg: {
+    width: 24,
+    height: 24,
+  },
+  sidebarBrandText: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    flex: 1,
+    letterSpacing: 0.3,
+  },
+  sidebarBrandPill: {
+    backgroundColor: "#EFF6FF",
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+  },
+  sidebarBrandPillText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#2563EB",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+
+  // Profile section
+  sidebarHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
     alignItems: "center",
   },
   profileContainer: {
     alignItems: "center",
+    position: "relative",
+    width: "100%",
   },
-  profileAvatar: {
+  // Outer ring — bigger, blue glow
+  avatarOuterRing: {
     width: 100,
     height: 100,
     borderRadius: 50,
-    marginBottom: 14,
     borderWidth: 3,
-    borderColor: "#2c50cd",
+    borderColor: "#2563EB",
+    padding: 3,
+    marginBottom: 12,
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+    position: 'relative',
   },
-  profileAvatarPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: "#1d2b3a",
-    borderWidth: 3,
-    borderColor: "#2c50cd",
+  avatarEditBadge: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  // Real photo
+  profileAvatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 44,
+  },
+  // Gradient initials fallback
+  profileAvatarGradient: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 44,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 14,
+  },
+  profileAvatarInitial: {
+    fontSize: 36,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: 0.5,
+  },
+  // Online dot — repositioned for bigger avatar
+  onlineDot: {
+    position: "absolute",
+    top: 72,
+    right: 76,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#22C55E",
+    borderWidth: 2.5,
+    borderColor: "#FFFFFF",
   },
   profileName: {
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: "700",
-    fontFamily: "Manrope",
-    color: "#ffffff",
-    marginBottom: 5,
+    color: "#111827",
+    marginBottom: 2,
     textAlign: "center",
+    letterSpacing: 0.1,
+    paddingHorizontal: 8,
   },
   profileSpecialization: {
-    fontSize: 14,
-    fontFamily: "Manrope",
-    color: "#8492a5",
-    marginBottom: 12,
+    fontSize: 11,
+    color: "#6B7280",
+    marginBottom: 8,
     textAlign: "center",
+    fontWeight: "500",
+    paddingHorizontal: 8,
+  },
+  // Rating + experience row
+  profileMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 10,
   },
   ratingBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-    borderRadius: 9999,
+    gap: 4,
+    backgroundColor: "#FFFBEB",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
   },
   ratingText: {
-    fontSize: 14,
-    fontWeight: "600",
-    fontFamily: "Manrope",
-    color: "#f5a623",
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#D97706",
   },
+  expBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#EEF2FF",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: "#C7D2FE",
+  },
+  expText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#6366F1",
+  },
+  // Online status pill
+  onlineStatusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#F0FDF4",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    marginBottom: 12,
+  },
+  onlineStatusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#22C55E",
+  },
+  onlineStatusText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#16A34A",
+  },
+  // Quick stats strip
+  profileStatsStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    width: "100%",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  profileStatItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+  profileStatNum: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  profileStatLabel: {
+    fontSize: 9,
+    color: "#9CA3AF",
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginTop: 1,
+  },
+  profileStatDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: "#E5E7EB",
+  },
+
+  // ─── Sidebar Nav ─────────────────────────────────────────────────────────
   sidebarNav: {
-    paddingHorizontal: 14,
-    paddingTop: 16,
-    gap: 8,
+    paddingHorizontal: 10,
+    paddingTop: 12,
+    gap: 2,
   },
   navItem: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
     borderRadius: 10,
-    gap: 10,
+    gap: 12,
     position: "relative",
   },
   navItemActive: {
-    backgroundColor: "#2c50cd",
+    backgroundColor: "#2563EB",
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 4,
   },
   navLabel: {
     fontSize: 14,
-    fontWeight: "600",
-    fontFamily: "Manrope",
-    color: "#8492a5",
+    fontWeight: "500",
+    color: "#6B7280",
     flex: 1,
   },
   navLabelActive: {
-    color: "#ffffff",
-  },
-  navLabelLogout: {
-    color: "#e53935",
+    color: "#FFFFFF",
     fontWeight: "700",
   },
+  navLabelLogout: {
+    color: "#F87171",
+    fontWeight: "600",
+  },
   sidebarFooter: {
-    paddingHorizontal: 14,
-    paddingTop: 12,
+    paddingHorizontal: 10,
+    paddingTop: 10,
     paddingBottom: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
   },
   mobileNavDivider: {
     height: 1,
-    backgroundColor: "#1d2b3a",
+    backgroundColor: "#F3F4F6",
     marginHorizontal: 14,
     marginTop: 12,
     marginBottom: 12,
   },
   navItemLogout: {
-    backgroundColor: "rgba(229, 57, 53, 0.08)",
+    backgroundColor: "#FFF5F5",
     borderWidth: 1,
-    borderColor: "rgba(229, 57, 53, 0.18)",
+    borderColor: "#FECACA",
   },
   navBadge: {
     position: "absolute",
-    right: 12,
-    backgroundColor: "#ba1a1a",
-    minWidth: 20,
-    height: 20,
+    right: 10,
+    backgroundColor: "#EF4444",
+    minWidth: 19,
+    height: 19,
     borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 4,
   },
   navBadgeText: {
-    color: "#ffffff",
-    fontSize: 11,
-    fontWeight: "600",
-    fontFamily: "Manrope",
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
   },
+
+  // ─── Mobile Header ────────────────────────────────────────────────────────
   mobileHeader: {
     position: "absolute",
     top: 0,
@@ -2442,40 +3606,86 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     zIndex: 998,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
     shadowRadius: 6,
     elevation: 4,
     borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
+    borderBottomColor: "#E5E7EB",
   },
   mobileHeaderBar: {
-    paddingHorizontal: 20,
-    paddingBottom: 4,
+    paddingHorizontal: 14,
+    paddingBottom: 6,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   menuToggle: {
-    width: 36,
-    height: 36,
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: "#F3F4F6",
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
-  menuToggleClose: {},
+  menuToggleClose: {
+    backgroundColor: "#EFF6FF",
+    borderColor: "#DBEAFE",
+  },
+  mobileTitle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flex: 1,
+    justifyContent: "center",
+  },
+  mobileTitleBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: "#2563EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mobileTitleLogoImg: {
+    width: 18,
+    height: 18,
+  },
   mobileTitleText: {
-    fontSize: 18,
-    fontWeight: "700",
-    fontFamily: "Manrope",
-    color: "#1A1A1A",
-    letterSpacing: -0.3,
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#111827",
+    letterSpacing: 0.1,
+  },
+  mobileTitleRolePill: {
+    backgroundColor: "#EFF6FF",
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+  },
+  mobileTitleRoleText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#2563EB",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
   },
   mobileLogoutBtn: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
+
+  // ─── Mobile Menu Overlay ──────────────────────────────────────────────────
   mobileMenuOverlay: {
     position: "absolute",
     top: 60,
@@ -2490,106 +3700,123 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     bottom: 0,
-    width: 300,
-    backgroundColor: "#081625",
+    width: 290,
+    backgroundColor: "#FFFFFF",
     flexDirection: "column",
     shadowColor: "#000",
-    shadowOffset: { width: 4, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
+    shadowOffset: { width: 6, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
+    elevation: 16,
   },
   mobileNav: {
-    paddingHorizontal: 14,
-    paddingTop: 16,
-    gap: 6,
+    paddingHorizontal: 10,
+    paddingTop: 12,
+    gap: 2,
   },
   mobileNavItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderRadius: 14,
-    gap: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 10,
+    gap: 14,
   },
   mobileNavItemActive: {
-    backgroundColor: "#2c50cd",
+    backgroundColor: "#2563EB",
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   mobileNavLabel: {
-    fontSize: 17,
-    fontWeight: "600",
-    fontFamily: "Manrope",
-    color: "#8492a5",
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#6B7280",
     flex: 1,
   },
   mobileNavLabelActive: {
-    color: "#ffffff",
-  },
-  mobileNavLabelLogout: {
-    color: "#e53935",
+    color: "#FFFFFF",
     fontWeight: "700",
   },
+  mobileNavLabelLogout: {
+    color: "#F87171",
+    fontWeight: "600",
+  },
   mobileNavItemLogout: {
-    backgroundColor: "rgba(229, 57, 53, 0.08)",
+    backgroundColor: "#FFF5F5",
     borderWidth: 1,
-    borderColor: "rgba(229, 57, 53, 0.18)",
+    borderColor: "#FECACA",
   },
   mobileNavBadge: {
-    backgroundColor: "#ba1a1a",
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+    backgroundColor: "#EF4444",
+    minWidth: 19,
+    height: 19,
+    borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 4,
-    marginRight: 8,
+    marginRight: 4,
   },
   mobileNavBadgeText: {
-    color: "#ffffff",
-    fontSize: 11,
-    fontWeight: "600",
-    fontFamily: "Manrope",
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
   },
+
+  // ─── Mobile Bottom Nav ────────────────────────────────────────────────────
+  // Pure white bottom nav — clean like most modern mobile apps
   mobileBottomNav: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "#081625",
+    backgroundColor: "#FFFFFF",
     flexDirection: "row",
     justifyContent: "space-around",
-    paddingTop: 6,
-    paddingBottom: Platform.OS === "ios" ? 20 : 6,
-    paddingHorizontal: 2,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === "ios" ? 24 : 8,
+    paddingHorizontal: 4,
     borderTopWidth: 1,
-    borderTopColor: "#334155",
+    borderTopColor: "#E5E7EB",
     zIndex: 996,
-    height: Platform.OS === "ios" ? 82 : 68,
+    height: Platform.OS === "ios" ? 84 : 66,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 12,
   },
   bottomNavItem: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 2,
-    gap: 2,
+    gap: 3,
     overflow: "hidden",
+    borderRadius: 10,
+    marginHorizontal: 2,
+    paddingVertical: 4,
+  },
+  bottomNavItemActive: {
+    backgroundColor: "#EFF6FF",
   },
   bottomNavLabel: {
     fontSize: 10,
-    fontFamily: "Manrope",
     fontWeight: "500",
-    color: "#94A3B8",
+    color: "#9CA3AF",
     textAlign: "center",
   },
   bottomNavLabelActive: {
-    color: "#ffffff",
-    fontWeight: "600",
+    color: "#2563EB",
+    fontWeight: "700",
   },
   bottomNavBadge: {
     position: "absolute",
-    top: 4,
-    right: "30%",
-    backgroundColor: "#E53E3E",
+    top: 2,
+    right: "18%",
+    backgroundColor: "#EF4444",
     minWidth: 16,
     height: 16,
     borderRadius: 8,
@@ -2598,61 +3825,123 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
   },
   bottomNavBadgeText: {
-    color: "#ffffff",
-    fontSize: 10,
-    fontWeight: "600",
-    fontFamily: "Manrope",
+    color: "#FFFFFF",
+    fontSize: 9,
+    fontWeight: "700",
   },
+
+  // ─── Main Content ─────────────────────────────────────────────────────────
   mainContent: {
     flex: 1,
     marginLeft: 280,
-    backgroundColor: "#f7f9fb",
+    backgroundColor: "#F8FAFC",
   },
   mainContentMobile: {
     marginLeft: 0,
     marginTop: 0,
-    marginBottom: Platform.OS === "ios" ? 82 : 68,
-    paddingHorizontal: 20,
+    marginBottom: Platform.OS === "ios" ? 84 : 68,
+    paddingHorizontal: 0,
   },
   comingSoon: {
     backgroundColor: "#ffffff",
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 48,
+    marginHorizontal: 16,
+    marginTop: 16,
     alignItems: "center",
-    shadowColor: "#0e1d2b",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: "#F0F9FF",
   },
   comingSoonTitle: {
     fontSize: 20,
-    fontWeight: "600",
-    fontFamily: "Manrope",
-    color: "#191c1e",
+    fontWeight: "700",
+    color: "#0f172a",
     marginTop: 16,
     marginBottom: 8,
   },
   comingSoonText: {
     fontSize: 14,
-    fontFamily: "Manrope",
-    color: "#44474c",
+    color: "#64748b",
     textAlign: "center",
+    lineHeight: 20,
+  },
+  earningsScroll: {
+    flex: 1,
+    width: "100%",
+    backgroundColor: "#F8FAFC",
+  },
+  earningsScrollContent: {
+    paddingBottom: 32,
+  },
+  earnSkTitle: {
+    width: 140,
+    height: 22,
+    borderRadius: 6,
+    backgroundColor: "#e2e8f0",
+  },
+  earnSkSubtitle: {
+    width: 200,
+    height: 12,
+    borderRadius: 4,
+    backgroundColor: "#edf1f5",
+    marginTop: 8,
+  },
+  earnSkPill: {
+    width: 90,
+    height: 28,
+    borderRadius: 999,
+    backgroundColor: "#e2e8f0",
+  },
+  earnSkHero: {
+    width: "100%",
+    height: 220,
+    borderRadius: 24,
+    backgroundColor: "#dbe1ea",
+  },
+  earnSkMini: {
+    flex: 1,
+    height: 86,
+    borderRadius: 18,
+    backgroundColor: "#e2e8f0",
+  },
+  earnSkCard: {
+    flex: 1,
+    height: 110,
+    borderRadius: 18,
+    backgroundColor: "#e2e8f0",
+  },
+  earnSkList: {
+    width: "100%",
+    height: 260,
+    borderRadius: 20,
+    backgroundColor: "#e2e8f0",
   },
   earningsSection: {
+    width: "100%",
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 24,
-    gap: 14,
+    paddingBottom: 16,
+    gap: 16,
   },
   earningsSectionHeader: {
+    width: "100%",
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+    flexWrap: "wrap",
+  },
+  earningsSectionHeaderText: {
+    flex: 1,
+    minWidth: 0,
   },
   earningsSectionTitle: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: "800",
     color: "#0f172a",
     letterSpacing: -0.3,
@@ -2663,19 +3952,23 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   earningsPeriodPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: "#eef2ff",
+    backgroundColor: "#F0F9FF",
     borderWidth: 1,
-    borderColor: "#c7d2fe",
+    borderColor: "#BAE6FD",
   },
   earningsPeriodPillText: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#4f46e5",
+    color: "#2563EB",
   },
   earningsHeroCard: {
+    width: "100%",
     borderRadius: 24,
     padding: 20,
     shadowColor: "#0f172a",
@@ -2683,6 +3976,28 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 18,
     elevation: 10,
+  },
+  earningsWithdrawBtn: {
+    marginTop: 16,
+    backgroundColor: "#ffffff",
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  earningsWithdrawBtnText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#2563EB",
+    letterSpacing: 0.2,
   },
   earningsHeroTopRow: {
     flexDirection: "row",
@@ -2759,6 +4074,7 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   earningsMiniGrid: {
+    width: "100%",
     flexDirection: "row",
     gap: 12,
   },
@@ -2794,6 +4110,7 @@ const styles = StyleSheet.create({
     color: "#0f172a",
   },
   earningsCardRow: {
+    width: "100%",
     flexDirection: "row",
     gap: 12,
   },
@@ -2838,9 +4155,78 @@ const styles = StyleSheet.create({
   earningsBadgeWarning: {
     color: "#f97316",
   },
+  earningsBreakdownCard: {
+    width: "100%",
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  earningsBreakdownHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+    paddingBottom: 8,
+  },
+  earningsBreakdownTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#0f172a",
+    letterSpacing: -0.2,
+  },
+  earningsBreakdownLink: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#2563EB",
+  },
+  earningsTxnRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    gap: 12,
+  },
+  earningsTxnRowDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  earningsTxnIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  earningsTxnBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  earningsTxnName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  earningsTxnMeta: {
+    fontSize: 11,
+    color: "#94a3b8",
+    marginTop: 2,
+  },
+  earningsTxnAmount: {
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  // ─── Chat Request Modal ──────────────────────────────────────────────────
   requestModalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
+    backgroundColor: "rgba(15,23,42,0.35)",
     justifyContent: "flex-start",
     alignItems: "flex-end",
   },
@@ -2851,13 +4237,15 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH - 32,
     maxWidth: 380,
     backgroundColor: "#ffffff",
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: "hidden",
-    shadowColor: "#0e1d2b",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 10,
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 22,
+    elevation: 14,
+    borderWidth: 1,
+    borderColor: "#E0F2FE",
   },
   requestModalHeader: {
     flexDirection: "row",
@@ -2865,7 +4253,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: "#2c50cd",
+    backgroundColor: "#2563EB",
   },
   requestHeaderLeft: {
     flexDirection: "row",
@@ -2879,18 +4267,20 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
   },
   requestModalTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    fontFamily: "Manrope",
+    fontSize: 15,
+    fontWeight: "700",
     color: "#ffffff",
+    letterSpacing: 0.1,
   },
   requestTimer: {
-    fontSize: 12,
-    fontFamily: "Manrope",
+    fontSize: 11,
     color: "rgba(255,255,255,0.8)",
     marginTop: 2,
+    fontWeight: "500",
   },
   requestModalBody: {
     padding: 20,
@@ -2903,39 +4293,42 @@ const styles = StyleSheet.create({
   },
   requestPatientName: {
     fontSize: 16,
-    fontWeight: "600",
-    fontFamily: "Manrope",
-    color: "#191c1e",
+    fontWeight: "700",
+    color: "#0f172a",
   },
   requestTypeBadge: {
-    backgroundColor: "#e0e3e5",
+    backgroundColor: "#F0F9FF",
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 20,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: "#BAE6FD",
   },
   requestTypeText: {
     fontSize: 11,
-    fontWeight: "500",
-    fontFamily: "Manrope",
-    color: "#44474c",
+    fontWeight: "600",
+    color: "#2563EB",
   },
   requestMessage: {
-    backgroundColor: "#f2f4f6",
+    backgroundColor: "#f8fffe",
     padding: 12,
     borderRadius: 12,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#F0F9FF",
+    borderLeftWidth: 3,
+    borderLeftColor: "#2563EB",
   },
   requestMessageText: {
     fontSize: 13,
-    fontFamily: "Manrope",
-    color: "#44474c",
-    lineHeight: 18,
+    color: "#334155",
+    lineHeight: 19,
   },
   requestTime: {
     fontSize: 11,
-    fontFamily: "Manrope",
-    color: "#74777c",
+    color: "#94a3b8",
     textAlign: "right",
+    fontWeight: "500",
   },
   requestModalFooter: {
     flexDirection: "row",
@@ -2943,7 +4336,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 20,
     borderTopWidth: 1,
-    borderTopColor: "#e0e3e5",
+    borderTopColor: "#F8FAFC",
     paddingTop: 16,
   },
   requestBtn: {
@@ -2952,49 +4345,66 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 12,
+    paddingVertical: 13,
     borderRadius: 12,
   },
   requestReject: {
-    backgroundColor: "#fee2e2",
+    backgroundColor: "#fff1f2",
+    borderWidth: 1.5,
+    borderColor: "#fecaca",
   },
   requestAccept: {
-    backgroundColor: "#2c50cd",
+    backgroundColor: "#2563EB",
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   requestBtnText: {
     fontSize: 14,
-    fontWeight: "600",
-    fontFamily: "Manrope",
+    fontWeight: "700",
+    color: "#ef4444",
   },
   requestAcceptText: {
     color: "#ffffff",
   },
   requestProgress: {
     height: 4,
-    backgroundColor: "#e0e3e5",
+    backgroundColor: "#F0F9FF",
   },
   requestProgressBar: {
     height: "100%",
-    backgroundColor: "#2c50cd",
+    backgroundColor: "#2563EB",
   },
+
+  // ─── Logout Modal ────────────────────────────────────────────────────────
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(15,23,42,0.5)",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
   },
   modalContent: {
     backgroundColor: "#ffffff",
-    borderRadius: 16,
+    borderRadius: 24,
     width: "100%",
-    maxWidth: 400,
+    maxWidth: 380,
+    shadowColor: "#1E40AF",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 16,
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
   },
   mobileTitle: {
     flexDirection: "row",
     alignItems: "center",
     flex: 1,
     justifyContent: "center",
+    gap: 6,
   },
   mobileHeaderLogo: {
     width: 24,
@@ -3002,23 +4412,23 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   logoutModal: {
-    padding: 24,
+    padding: 28,
     alignItems: "center",
   },
   logoutTitle: {
     fontSize: 20,
-    fontWeight: "700",
-    fontFamily: "Manrope",
-    color: "#191c1e",
-    marginTop: 16,
+    fontWeight: "800",
+    color: "#0f172a",
+    marginTop: 14,
     marginBottom: 8,
+    letterSpacing: -0.2,
   },
   logoutText: {
     fontSize: 14,
-    fontFamily: "Manrope",
-    color: "#44474c",
+    color: "#64748b",
     marginBottom: 24,
     textAlign: "center",
+    lineHeight: 20,
   },
   modalActions: {
     flexDirection: "row",
@@ -3027,114 +4437,183 @@ const styles = StyleSheet.create({
   },
   cancelBtn: {
     flex: 1,
-    backgroundColor: "#e0e3e5",
-    paddingVertical: 12,
-    borderRadius: 12,
+    backgroundColor: "#EFF6FF",
+    paddingVertical: 13,
+    borderRadius: 14,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
   },
   cancelBtnText: {
     fontSize: 14,
-    fontWeight: "500",
-    fontFamily: "Manrope",
-    color: "#191c1e",
+    fontWeight: "700",
+    color: "#1E40AF",
   },
   confirmBtn: {
     flex: 1,
-    backgroundColor: "#ba1a1a",
-    paddingVertical: 12,
-    borderRadius: 12,
+    backgroundColor: "#DC2626",
+    paddingVertical: 13,
+    borderRadius: 14,
     alignItems: "center",
+    shadowColor: "#DC2626",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   confirmBtnText: {
     fontSize: 14,
-    fontWeight: "500",
-    fontFamily: "Manrope",
+    fontWeight: "700",
     color: "#ffffff",
   },
-  incomingCallOverlay: {
+  // ─── Glass incoming-call popup (rich animations) ──────────────────────────
+  callBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    paddingHorizontal: 20,
   },
-  incomingCallModal: {
-    backgroundColor: "#2c50cd",
-    borderRadius: 24,
-    padding: 32,
+  callBackdropTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(8, 20, 32, 0.45)",
+  },
+  glassCard: {
     width: "100%",
-    maxWidth: 400,
+    maxWidth: 380,
+    borderRadius: 28,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.45,
+    shadowRadius: 30,
+    elevation: 20,
+  },
+  glassCardGradient: {
+    paddingHorizontal: 26,
+    paddingTop: 22,
+    paddingBottom: 28,
     alignItems: "center",
   },
-  incomingCallHeader: {
-    alignItems: "center",
+  callTopRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginBottom: 18,
   },
-  incomingCallAvatar: {
-    marginBottom: 16,
+  callTopPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  callTopPillText: {
+    color: "#ecfeff",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  avatarWrap: {
+    width: 150,
+    height: 150,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+  waveRing: {
+    position: "absolute",
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.55)",
+  },
+  avatarGradient: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.35)",
+    overflow: "hidden",
   },
   avatarImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 3,
-    borderColor: "#ffffff",
+    width: "100%",
+    height: "100%",
+    borderRadius: 55,
   },
-  avatarEmojiLarge: {
-    fontSize: 80,
-  },
-  avatarInitialLarge: {
-    fontSize: 36,
+  avatarInitial: {
+    fontSize: 44,
     fontWeight: "800",
-    fontFamily: "Manrope",
     color: "#ffffff",
+    letterSpacing: 0.5,
   },
-  incomingCallerName: {
+  callerName: {
     fontSize: 24,
-    fontWeight: "600",
-    fontFamily: "Manrope",
+    fontWeight: "700",
     color: "#ffffff",
-    marginBottom: 8,
+    letterSpacing: 0.3,
+    marginBottom: 6,
+    textAlign: "center",
   },
-  incomingCallType: {
-    fontSize: 16,
-    fontFamily: "Manrope",
-    color: "rgba(255,255,255,0.9)",
-    marginBottom: 4,
-  },
-  incomingCallStatus: {
-    fontSize: 14,
-    fontFamily: "Manrope",
-    color: "rgba(255,255,255,0.8)",
-  },
-  incomingCallTime: {
-    fontSize: 12,
-    fontFamily: "Manrope",
-    color: "rgba(255,255,255,0.75)",
-    marginTop: 6,
-  },
-  incomingCallActions: {
-    flexDirection: "row",
-    gap: 20,
-    marginTop: 32,
-  },
-  incomingCallBtn: {
+  ringingRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 40,
+    marginBottom: 26,
   },
-  rejectBtn: {
-    backgroundColor: "#ba1a1a",
+  ringingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#86efac",
   },
-  acceptBtn: {
-    backgroundColor: "#2e7d32",
-  },
-  incomingCallBtnText: {
-    fontSize: 16,
+  ringingText: {
+    color: "rgba(236, 254, 255, 0.85)",
+    fontSize: 13,
     fontWeight: "600",
-    fontFamily: "Manrope",
+    letterSpacing: 0.3,
+  },
+  actionsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
+  actionCol: {
+    alignItems: "center",
+    gap: 10,
+  },
+  fab: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  fabReject: {
+    backgroundColor: "#ef4444",
+  },
+  fabAccept: {
+    // gradient applied inline
+  },
+  actionLabel: {
     color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.4,
   },
 });

@@ -16,6 +16,8 @@ class MainApplication : Application(), ReactApplication {
       packageList =
         PackageList(this).packages.apply {
           add(InCallManagerPackage())
+          add(SpeechPackage())
+          add(ScreenshotPreventPackage())
         },
     )
   }

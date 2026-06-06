@@ -1,5 +1,5 @@
 // CounselorProfile.jsx - Modern Full Width Design
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,11 +13,14 @@ import {
   Platform,
   KeyboardAvoidingView,
   Dimensions,
+  Animated,
 } from 'react-native';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import LinearGradient from 'react-native-linear-gradient';
+import { useNavigation } from '@react-navigation/native';
 import safeVibrate from '../../../../../../utils/safeVibrate';
 
 const { width } = Dimensions.get('window');
@@ -38,6 +41,7 @@ const normalizeBloodGroup = (value) => {
 };
 
 const CounselorProfile = () => {
+  const navigation = useNavigation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -63,7 +67,7 @@ const CounselorProfile = () => {
     activeClients: 0,
     qualification: '',
     consultationMode: [],
-    isActive: true,
+    isActive: false,
     profileCompleted: false,
     age: null,
     gender: '',
@@ -93,6 +97,9 @@ const CounselorProfile = () => {
 
   const [isEditing, setIsEditing] = useState(false);
   const [editedData, setEditedData] = useState(counselor);
+  const [clientsCount, setClientsCount] = useState(0);
+  const [sessionsCount, setSessionsCount] = useState(0);
+  const progressAnim = useRef(new Animated.Value(0)).current;
   const [newLanguage, setNewLanguage] = useState('');
   const [newSpecialization, setNewSpecialization] = useState('');
   const [newConsultationMode, setNewConsultationMode] = useState('');
@@ -107,7 +114,52 @@ const CounselorProfile = () => {
 
   useEffect(() => {
     fetchCounselorProfile();
+    fetchStatsData();
   }, []);
+
+  const fetchStatsData = async () => {
+    try {
+      const counsellorId = await AsyncStorage.getItem('counsellorId');
+      const token = await AsyncStorage.getItem('accessToken') || await AsyncStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      // Clients = accepted chats
+      const chatsRes = await axios.get(`${API_BASE_URL}/api/chat/chats`, { headers });
+      const chats = chatsRes.data?.chats || [];
+      const accepted = chats.filter(c => String(c.status || '').toLowerCase() === 'accepted').length;
+      setClientsCount(accepted);
+
+      // Sessions = completed video calls
+      try {
+        const callsRes = await axios.get(`${API_BASE_URL}/api/video/calls/history/${counsellorId}`, { headers });
+        const calls = callsRes.data?.calls || callsRes.data?.history || [];
+        setSessionsCount(Array.isArray(calls) ? calls.length : 0);
+      } catch {
+        // endpoint may not exist — keep 0
+      }
+    } catch (e) {
+      // non-critical
+    }
+  };
+
+  const calcProfileCompletion = (data) => {
+    const fields = [
+      { key: 'fullName', check: v => !!v },
+      { key: 'email', check: v => !!v },
+      { key: 'phoneNumber', check: v => !!v },
+      { key: 'profilePhotoUrl', check: v => !!v },
+      { key: 'specialization', check: v => Array.isArray(v) && v.length > 0 },
+      { key: 'experience', check: v => !!v && v > 0 },
+      { key: 'qualification', check: v => !!v },
+      { key: 'location', check: v => !!v },
+      { key: 'aboutMe', check: v => !!v },
+      { key: 'languages', check: v => Array.isArray(v) && v.length > 0 },
+      { key: 'consultationMode', check: v => Array.isArray(v) && v.length > 0 },
+      { key: 'gender', check: v => !!v },
+    ];
+    const filled = fields.filter(f => f.check(data[f.key])).length;
+    return Math.round((filled / fields.length) * 100);
+  };
 
   const fetchCounselorProfile = async () => {
     try {
@@ -158,7 +210,11 @@ const CounselorProfile = () => {
           activeClients: userData.activeClients || 0,
           qualification: userData.qualification || '',
           consultationMode: Array.isArray(userData.consultationMode) ? userData.consultationMode : [],
-          isActive: userData.isActive || true,
+          isActive:
+            userData.isActive === true ||
+            userData.isOnline === true ||
+            userData.online === true ||
+            String(userData.status || '').toLowerCase() === 'online',
           profileCompleted: userData.profileCompleted || false,
           age: userData.age || null,
           gender: normalizeGender(userData.gender),
@@ -175,6 +231,12 @@ const CounselorProfile = () => {
 
         setCounselor(formattedData);
         setEditedData(formattedData);
+        const pct = calcProfileCompletion(formattedData);
+        Animated.timing(progressAnim, {
+          toValue: pct / 100,
+          duration: 900,
+          useNativeDriver: false,
+        }).start();
       } else {
         setError(response.data.message || 'Failed to load profile data');
       }
@@ -378,13 +440,18 @@ const CounselorProfile = () => {
   const StarRating = ({ rating, size = 14 }) => {
     const stars = [];
     for (let i = 1; i <= 5; i++) {
+      const filled = i <= Math.round(rating);
       stars.push(
-        <Icon
-          key={i}
-          name={i <= Math.round(rating) ? 'star' : 'star-border'}
-          size={size}
-          color={i <= Math.round(rating) ? '#F59E0B' : '#D1D5DB'}
-        />
+        <View key={i} style={{ position: 'relative', width: size + 2, height: size + 2, alignItems: 'center', justifyContent: 'center' }}>
+          {filled ? (
+            <Icon name="star" size={size} color="#2563EB" />
+          ) : (
+            <>
+              <Icon name="star" size={size} color="#ffffff" />
+              <Icon name="star-border" size={size} color="#2563EB" style={{ position: 'absolute' }} />
+            </>
+          )}
+        </View>
       );
     }
     return <View style={styles.starRow}>{stars}</View>;
@@ -393,7 +460,7 @@ const CounselorProfile = () => {
   if (loading && !counselor._id) {
     return (
       <View style={styles.loadingScreen}>
-        <ActivityIndicator size="large" color="#10B981" />
+        <ActivityIndicator size="large" color="#94A3B8" />
         <Text style={styles.loadingText}>Loading your profile...</Text>
       </View>
     );
@@ -420,16 +487,12 @@ const CounselorProfile = () => {
         )}
 
         {/* Profile Header - Full Width */}
-        <View style={styles.profileHeader}>
-          {/* Background Gradient */}
-          <View style={styles.headerBackground}>
-            <LinearGradient 
-              colors={['#F0FDF4', '#ECFDF5']} 
-              start={{ x: 0, y: 0 }} 
-              end={{ x: 1, y: 1 }} 
-            />
-          </View>
-          
+        <LinearGradient
+          colors={['#EFF6FF', '#DBEAFE', '#FFFFFF']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.profileHeader}
+        >
           <View style={styles.headerContent}>
             {/* Avatar Section */}
             <View style={styles.avatarSection}>
@@ -452,10 +515,6 @@ const CounselorProfile = () => {
                   </TouchableOpacity>
                 )}
               </View>
-              <View style={styles.statusBadge}>
-                <View style={[styles.statusDot, counselor.isActive ? styles.activeDot : styles.inactiveDot]} />
-                <Text style={styles.statusText}>{counselor.isActive ? 'Available' : 'Away'}</Text>
-              </View>
             </View>
 
             {/* Info Section */}
@@ -473,7 +532,7 @@ const CounselorProfile = () => {
               )}
               
               <View style={styles.codeRow}>
-                <Icon name="verified" size={14} color="#10B981" />
+                <Icon name="verified" size={14} color="#2563EB" />
                 <Text style={styles.counselorCode}>{counselor.uniqueCode}</Text>
               </View>
               
@@ -516,535 +575,293 @@ const CounselorProfile = () => {
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Icon name="video-call" size={18} color="#6B7280" />
-                <Text style={styles.statValue}>{counselor.totalSessions || 0}</Text>
+                <Icon name="video-call" size={18} color="#2563EB" />
+                <Text style={styles.statValue}>{sessionsCount}</Text>
                 <Text style={styles.statLabel}>Sessions</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Icon name="people" size={18} color="#6B7280" />
-                <Text style={styles.statValue}>{counselor.activeClients || 0}</Text>
+                <Icon name="people" size={18} color="#2563EB" />
+                <Text style={styles.statValue}>{clientsCount}</Text>
                 <Text style={styles.statLabel}>Clients</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Icon name="work" size={18} color="#6B7280" />
+                <Icon name="work-history" size={18} color="#2563EB" />
                 <Text style={styles.statValue}>{counselor.experience || 0}y</Text>
                 <Text style={styles.statLabel}>Experience</Text>
               </View>
             </View>
+
           </View>
-        </View>
+        </LinearGradient>
 
-        {/* Tabs - Full Width */}
-        <View style={styles.tabsContainer}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'professional' && styles.activeTab]}
-            onPress={() => handleTabPress('professional')}
-          >
-            <Icon name="work" size={18} color={activeTab === 'professional' ? '#10B981' : '#9CA3AF'} />
-            <Text style={[styles.tabText, activeTab === 'professional' && styles.activeTabText]}>
-              Work
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'personal' && styles.activeTab]}
-            onPress={() => handleTabPress('personal')}
-          >
-            <Icon name="person" size={18} color={activeTab === 'personal' ? '#10B981' : '#9CA3AF'} />
-            <Text style={[styles.tabText, activeTab === 'personal' && styles.activeTabText]}>
-              Personal
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'contact' && styles.activeTab]}
-            onPress={() => handleTabPress('contact')}
-          >
-            <Icon name="contact-phone" size={18} color={activeTab === 'contact' ? '#10B981' : '#9CA3AF'} />
-            <Text style={[styles.tabText, activeTab === 'contact' && styles.activeTabText]}>
-              Contact
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Tab Content - Full Width Cards */}
-        <View style={styles.tabContent}>
-          {activeTab === 'professional' && (
-            <>
-              {/* Bio */}
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Icon name="description" size={22} color="#10B981" />
-                  <Text style={styles.cardTitle}>Professional Bio</Text>
+        {/* Profile Completion Card */}
+        {(() => {
+          const pct = calcProfileCompletion(counselor);
+          const barColor = '#2563EB';
+          const bgColor = '#EFF6FF';
+          const borderColor = '#DBEAFE';
+          return (
+            <View style={[styles.completionWrap, { backgroundColor: bgColor, borderColor }]}>
+              <View style={styles.completionHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Icon name={pct === 100 ? 'check-circle' : 'person'} size={16} color={barColor} />
+                  <Text style={styles.completionLabel}>Profile Completion</Text>
                 </View>
+                <Text style={[styles.completionPct, { color: barColor }]}>{pct}%</Text>
+              </View>
+              <View style={styles.completionTrack}>
+                <Animated.View style={[styles.completionFill, {
+                  backgroundColor: barColor,
+                  width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                }]} />
+              </View>
+              {pct < 100 && (
+                <Text style={styles.completionHint}>
+                  {pct < 50 ? 'Add specialization, experience & location to get discovered' :
+                   pct < 80 ? 'Almost there! Fill remaining fields to appear in search' :
+                   'Just a few fields left to complete your profile'}
+                </Text>
+              )}
+            </View>
+          );
+        })()}
+
+        {/* All profile content — no tabs */}
+        <View style={styles.tabContent}>
+          {/* Personal info card — age, gender, blood group, email, phone, location, address */}
+          <View style={styles.card}>
+            <View style={styles.detailRow}>
+              <Icon name="cake" size={18} color="#2563EB" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Age</Text>
                 {isEditing ? (
-                  <TextInput
-                    style={[styles.input, styles.textArea]}
-                    value={editedData.aboutMe || ''}
-                    onChangeText={(value) => handleInputChange('aboutMe', value)}
-                    placeholder="Share your professional journey and expertise..."
-                    placeholderTextColor="#9CA3AF"
-                    multiline
-                    numberOfLines={5}
-                  />
+                  <TextInput style={styles.input} value={editedData.age?.toString() || ''} onChangeText={(v) => handleInputChange('age', parseInt(v) || 0)} placeholder="Your age" placeholderTextColor="#9CA3AF" keyboardType="numeric" />
                 ) : (
-                  <Text style={styles.bodyText}>
-                    {counselor.aboutMe || '✨ No bio added yet. Tell clients about your background and approach.'}
+                  <Text style={styles.detailValue}>{counselor.age || 'Not specified'}</Text>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Icon name="wc" size={18} color="#7C3AED" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Gender</Text>
+                {isEditing ? (
+                  <View style={styles.genderSelector}>
+                    {['male', 'female', 'other'].map(g => (
+                      <TouchableOpacity key={g} onPress={() => handleInputChange('gender', g)} style={[styles.genderOption, editedData.gender === g && styles.genderOptionActive]}>
+                        <Text style={[styles.genderText, editedData.gender === g && styles.genderTextActive]}>{g.charAt(0).toUpperCase() + g.slice(1)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.detailValue}>{counselor.gender ? counselor.gender.charAt(0).toUpperCase() + counselor.gender.slice(1) : 'Not specified'}</Text>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Icon name="bloodtype" size={18} color="#DC2626" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Blood Group</Text>
+                {isEditing ? (
+                  <TextInput style={styles.input} value={editedData.bloodGroup || ''} onChangeText={(v) => handleInputChange('bloodGroup', v)} placeholder="e.g., A+" placeholderTextColor="#9CA3AF" />
+                ) : (
+                  <Text style={styles.detailValue}>{counselor.bloodGroup || 'Not specified'}</Text>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Icon name="email" size={18} color="#2563EB" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Email</Text>
+                {isEditing ? (
+                  <TextInput style={styles.input} value={editedData.email || ''} onChangeText={(v) => handleInputChange('email', v)} placeholder="Your email" placeholderTextColor="#9CA3AF" keyboardType="email-address" autoCapitalize="none" />
+                ) : (
+                  <Text style={styles.detailValue}>{counselor.email || 'Not specified'}</Text>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Icon name="phone" size={18} color="#3B82F6" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Phone</Text>
+                {isEditing ? (
+                  <TextInput style={styles.input} value={editedData.phoneNumber || ''} onChangeText={(v) => handleInputChange('phoneNumber', v)} placeholder="Your phone" placeholderTextColor="#9CA3AF" keyboardType="phone-pad" />
+                ) : (
+                  <Text style={styles.detailValue}>{counselor.phoneNumber || 'Not specified'}</Text>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Icon name="location-on" size={18} color="#DC2626" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Location</Text>
+                {isEditing ? (
+                  <TextInput style={styles.input} value={editedData.location || ''} onChangeText={(v) => handleInputChange('location', v)} placeholder="Your location" placeholderTextColor="#9CA3AF" />
+                ) : (
+                  <Text style={styles.detailValue}>{counselor.location || 'Not specified'}</Text>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Icon name="home" size={18} color="#D97706" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Address</Text>
+                {isEditing ? (
+                  <View style={styles.addressForm}>
+                    <TextInput style={styles.input} value={editedData.address?.line1 || ''} onChangeText={(v) => handleNestedInputChange('address', 'line1', v)} placeholder="Line 1" placeholderTextColor="#9CA3AF" />
+                    <TextInput style={styles.input} value={editedData.address?.line2 || ''} onChangeText={(v) => handleNestedInputChange('address', 'line2', v)} placeholder="Line 2" placeholderTextColor="#9CA3AF" />
+                    <View style={styles.dateRow}>
+                      <TextInput style={[styles.input, styles.flexInput]} value={editedData.address?.city || ''} onChangeText={(v) => handleNestedInputChange('address', 'city', v)} placeholder="City" placeholderTextColor="#9CA3AF" />
+                      <TextInput style={[styles.input, styles.flexInput]} value={editedData.address?.state || ''} onChangeText={(v) => handleNestedInputChange('address', 'state', v)} placeholder="State" placeholderTextColor="#9CA3AF" />
+                    </View>
+                    <View style={styles.dateRow}>
+                      <TextInput style={[styles.input, styles.flexInput]} value={editedData.address?.pincode || ''} onChangeText={(v) => handleNestedInputChange('address', 'pincode', v)} placeholder="Pincode" placeholderTextColor="#9CA3AF" keyboardType="numeric" />
+                      <TextInput style={[styles.input, styles.flexInput]} value={editedData.address?.country || ''} onChangeText={(v) => handleNestedInputChange('address', 'country', v)} placeholder="Country" placeholderTextColor="#9CA3AF" />
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={styles.detailValue}>
+                    {counselor.address?.line1 ? [counselor.address.line1, counselor.address.city, counselor.address.state, counselor.address.country].filter(Boolean).join(', ') : 'Not specified'}
                   </Text>
                 )}
               </View>
+            </View>
+          </View>
 
-              {/* Specializations */}
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Icon name="psychology" size={22} color="#10B981" />
-                  <Text style={styles.cardTitle}>Specializations</Text>
+          {/* Bio */}
+          <View style={styles.card}>
+            {isEditing ? (
+              <TextInput style={[styles.input, styles.textArea]} value={editedData.aboutMe || ''} onChangeText={(v) => handleInputChange('aboutMe', v)} placeholder="Share your professional journey and expertise..." placeholderTextColor="#9CA3AF" multiline numberOfLines={5} />
+            ) : (
+              <Text style={styles.bodyText}>{counselor.aboutMe || '✨ No bio added yet.'}</Text>
+            )}
+          </View>
+
+          {/* Specializations */}
+          <View style={styles.card}>
+            <View style={styles.chipContainer}>
+              {(isEditing ? editedData.specialization : counselor.specialization).map((spec, i) => (
+                <View key={i} style={styles.chip}>
+                  <Text style={styles.chipText}>{spec}</Text>
+                  {isEditing && <TouchableOpacity onPress={() => handleRemoveSpecialization(spec)}><Icon name="close" size={14} color="#94A3B8" /></TouchableOpacity>}
                 </View>
-                <View style={styles.chipContainer}>
-                  {(isEditing ? editedData.specialization : counselor.specialization).map((spec, i) => (
-                    <View key={i} style={styles.chip}>
-                      <Text style={styles.chipText}>{spec}</Text>
-                      {isEditing && (
-                        <TouchableOpacity onPress={() => handleRemoveSpecialization(spec)}>
-                          <Icon name="close" size={14} color="#10B981" />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  ))}
-                </View>
-                {isEditing && (
-                  <View style={styles.addRow}>
-                    <TextInput
-                      style={[styles.input, styles.flexInput]}
-                      value={newSpecialization}
-                      onChangeText={setNewSpecialization}
-                      placeholder="Add specialization..."
-                      placeholderTextColor="#9CA3AF"
-                      onSubmitEditing={handleAddSpecialization}
-                    />
-                    <TouchableOpacity onPress={handleAddSpecialization} style={styles.addBtn}>
-                      <Icon name="add" size={20} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                )}
+              ))}
+            </View>
+            {isEditing && (
+              <View style={styles.addRow}>
+                <TextInput style={[styles.input, styles.flexInput]} value={newSpecialization} onChangeText={setNewSpecialization} placeholder="Add specialization..." placeholderTextColor="#9CA3AF" onSubmitEditing={handleAddSpecialization} />
+                <TouchableOpacity onPress={handleAddSpecialization} style={styles.addBtn}><Icon name="add" size={20} color="#fff" /></TouchableOpacity>
               </View>
+            )}
+          </View>
 
-              {/* Education & Experience */}
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Icon name="school" size={22} color="#10B981" />
-                  <Text style={styles.cardTitle}>Education & Experience</Text>
-                </View>
-                
-                <View style={styles.detailRow}>
-                  <Icon name="menu-book" size={18} color="#9CA3AF" />
-                  <View style={styles.detailContent}>
-                    <Text style={styles.detailLabel}>Education</Text>
-                    {isEditing ? (
-                      <TextInput
-                        style={styles.input}
-                        value={editedData.education || ''}
-                        onChangeText={(value) => handleInputChange('education', value)}
-                        placeholder="Your qualifications"
-                        placeholderTextColor="#9CA3AF"
-                      />
-                    ) : (
-                      <Text style={styles.detailValue}>{counselor.education || 'Not specified'}</Text>
-                    )}
-                  </View>
-                </View>
-
-                <View style={styles.detailRow}>
-                  <Icon name="work" size={18} color="#9CA3AF" />
-                  <View style={styles.detailContent}>
-                    <Text style={styles.detailLabel}>Years of Experience</Text>
-                    {isEditing ? (
-                      <TextInput
-                        style={styles.input}
-                        value={editedData.experience?.toString() || ''}
-                        onChangeText={(value) => handleInputChange('experience', parseInt(value) || 0)}
-                        placeholder="Years"
-                        placeholderTextColor="#9CA3AF"
-                        keyboardType="numeric"
-                      />
-                    ) : (
-                      <Text style={styles.detailValue}>{counselor.experience} years</Text>
-                    )}
-                  </View>
-                </View>
-              </View>
-
-              {/* Consultation Mode */}
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Icon name="videocam" size={22} color="#10B981" />
-                  <Text style={styles.cardTitle}>Consultation Mode</Text>
-                </View>
-                <View style={styles.chipContainer}>
-                  {(isEditing ? editedData.consultationMode : counselor.consultationMode).map((mode, i) => (
-                    <View key={i} style={[styles.chip, styles.modeChip]}>
-                      <Icon
-                        name={mode === 'online' ? 'wifi' : mode === 'offline' ? 'location-on' : 'sync'}
-                        size={14}
-                        color="#059669"
-                      />
-                      <Text style={styles.modeChipText}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</Text>
-                      {isEditing && (
-                        <TouchableOpacity onPress={() => handleRemoveConsultationMode(mode)}>
-                          <Icon name="close" size={14} color="#059669" />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  ))}
-                </View>
-                {isEditing && (
-                  <View style={styles.modeSelector}>
-                    {['online', 'offline', 'both'].map(mode => (
-                      <TouchableOpacity
-                        key={mode}
-                        onPress={() => setNewConsultationMode(mode)}
-                        style={[styles.modeOption, newConsultationMode === mode && styles.modeOptionActive]}
-                      >
-                        <Text style={[styles.modeOptionText, newConsultationMode === mode && styles.modeOptionTextActive]}>
-                          {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                    <TouchableOpacity onPress={handleAddConsultationMode} style={styles.smallAddBtn}>
-                      <Icon name="add" size={18} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-
-              {/* Languages */}
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Icon name="language" size={22} color="#10B981" />
-                  <Text style={styles.cardTitle}>Languages</Text>
-                </View>
-                <View style={styles.chipContainer}>
-                  {(isEditing ? editedData.languages : counselor.languages).map((lang, i) => (
-                    <View key={i} style={[styles.chip, styles.langChip]}>
-                      <Text style={styles.langChipText}>{lang}</Text>
-                      {isEditing && (
-                        <TouchableOpacity onPress={() => handleRemoveLanguage(lang)}>
-                          <Icon name="close" size={14} color="#8B5CF6" />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  ))}
-                </View>
-                {isEditing && (
-                  <View style={styles.addRow}>
-                    <TextInput
-                      style={[styles.input, styles.flexInput]}
-                      value={newLanguage}
-                      onChangeText={setNewLanguage}
-                      placeholder="Add language..."
-                      placeholderTextColor="#9CA3AF"
-                      onSubmitEditing={handleAddLanguage}
-                    />
-                    <TouchableOpacity onPress={handleAddLanguage} style={styles.addBtn}>
-                      <Icon name="add" size={20} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-
-              {/* Certifications */}
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Icon name="verified" size={22} color="#10B981" />
-                  <Text style={styles.cardTitle}>Certifications</Text>
-                </View>
-                {(isEditing ? editedData.certifications : counselor.certifications).map((cert, i) => (
-                  <View key={cert._id || i} style={styles.certCard}>
-                    <View style={styles.certHeader}>
-                      <Icon name="workspace-premium" size={18} color="#10B981" />
-                      <Text style={styles.certName}>{cert.name}</Text>
-                      {isEditing && (
-                        <TouchableOpacity onPress={() => handleRemoveCertification(cert._id)}>
-                          <Icon name="delete-outline" size={18} color="#EF4444" />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                    <View style={styles.certDetails}>
-                      <Text style={styles.certDetail}>Issued by: {cert.issuedBy || 'N/A'}</Text>
-                      <Text style={styles.certDetail}>Issue: {cert.issueDate ? formatDate(cert.issueDate) : 'N/A'}</Text>
-                      <Text style={styles.certDetail}>Expiry: {cert.expiryDate ? formatDate(cert.expiryDate) : 'N/A'}</Text>
-                    </View>
-                  </View>
-                ))}
-                {isEditing && (
-                  <View style={styles.addCertForm}>
-                    <Text style={styles.addCertTitle}>Add New Certification</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={newCertification.name}
-                      onChangeText={(value) => setNewCertification(prev => ({ ...prev, name: value }))}
-                      placeholder="Certification name *"
-                      placeholderTextColor="#9CA3AF"
-                    />
-                    <TextInput
-                      style={styles.input}
-                      value={newCertification.issuedBy}
-                      onChangeText={(value) => setNewCertification(prev => ({ ...prev, issuedBy: value }))}
-                      placeholder="Issued by"
-                      placeholderTextColor="#9CA3AF"
-                    />
-                    <View style={styles.dateRow}>
-                      <TextInput
-                        style={[styles.input, styles.flexInput]}
-                        value={newCertification.issueDate}
-                        onChangeText={(value) => setNewCertification(prev => ({ ...prev, issueDate: value }))}
-                        placeholder="Issue date"
-                        placeholderTextColor="#9CA3AF"
-                      />
-                      <TextInput
-                        style={[styles.input, styles.flexInput]}
-                        value={newCertification.expiryDate}
-                        onChangeText={(value) => setNewCertification(prev => ({ ...prev, expiryDate: value }))}
-                        placeholder="Expiry date"
-                        placeholderTextColor="#9CA3AF"
-                      />
-                    </View>
-                    <TouchableOpacity onPress={handleAddCertification} style={styles.addCertBtn}>
-                      <Text style={styles.addCertBtnText}>Add Certification</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            </>
-          )}
-
-          {activeTab === 'personal' && (
-            <>
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Icon name="person" size={22} color="#10B981" />
-                  <Text style={styles.cardTitle}>Personal Details</Text>
-                </View>
-
-                <View style={styles.detailRow}>
-                  <Icon name="cake" size={18} color="#9CA3AF" />
-                  <View style={styles.detailContent}>
-                    <Text style={styles.detailLabel}>Age</Text>
-                    {isEditing ? (
-                      <TextInput
-                        style={styles.input}
-                        value={editedData.age?.toString() || ''}
-                        onChangeText={(value) => handleInputChange('age', parseInt(value) || 0)}
-                        placeholder="Your age"
-                        placeholderTextColor="#9CA3AF"
-                        keyboardType="numeric"
-                      />
-                    ) : (
-                      <Text style={styles.detailValue}>{counselor.age || 'Not specified'}</Text>
-                    )}
-                  </View>
-                </View>
-
-                <View style={styles.detailRow}>
-                  <Icon name="wc" size={18} color="#9CA3AF" />
-                  <View style={styles.detailContent}>
-                    <Text style={styles.detailLabel}>Gender</Text>
-                    {isEditing ? (
-                      <View style={styles.genderSelector}>
-                        {['male', 'female', 'other'].map(g => (
-                          <TouchableOpacity
-                            key={g}
-                            onPress={() => handleInputChange('gender', g)}
-                            style={[styles.genderOption, editedData.gender === g && styles.genderOptionActive]}
-                          >
-                            <Text style={[styles.genderText, editedData.gender === g && styles.genderTextActive]}>
-                              {g.charAt(0).toUpperCase() + g.slice(1)}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    ) : (
-                      <Text style={styles.detailValue}>
-                        {counselor.gender ? counselor.gender.charAt(0).toUpperCase() + counselor.gender.slice(1) : 'Not specified'}
-                      </Text>
-                    )}
-                  </View>
-                </View>
-
-                <View style={styles.detailRow}>
-                  <Icon name="bloodtype" size={18} color="#9CA3AF" />
-                  <View style={styles.detailContent}>
-                    <Text style={styles.detailLabel}>Blood Group</Text>
-                    {isEditing ? (
-                      <TextInput
-                        style={styles.input}
-                        value={editedData.bloodGroup || ''}
-                        onChangeText={(value) => handleInputChange('bloodGroup', value)}
-                        placeholder="e.g., A+"
-                        placeholderTextColor="#9CA3AF"
-                      />
-                    ) : (
-                      <Text style={styles.detailValue}>{counselor.bloodGroup || 'Not specified'}</Text>
-                    )}
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Icon name="location-on" size={22} color="#10B981" />
-                  <Text style={styles.cardTitle}>Address</Text>
-                </View>
+          {/* Education & Experience */}
+          <View style={styles.card}>
+            <View style={styles.detailRow}>
+              <Icon name="menu-book" size={18} color="#7C3AED" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Education</Text>
                 {isEditing ? (
-                  <View style={styles.addressForm}>
-                    <TextInput
-                      style={styles.input}
-                      value={editedData.address?.line1 || ''}
-                      onChangeText={(value) => handleNestedInputChange('address', 'line1', value)}
-                      placeholder="Address Line 1"
-                      placeholderTextColor="#9CA3AF"
-                    />
-                    <TextInput
-                      style={styles.input}
-                      value={editedData.address?.line2 || ''}
-                      onChangeText={(value) => handleNestedInputChange('address', 'line2', value)}
-                      placeholder="Address Line 2"
-                      placeholderTextColor="#9CA3AF"
-                    />
-                    <View style={styles.dateRow}>
-                      <TextInput 
-                        style={[styles.input, styles.flexInput]} 
-                        value={editedData.address?.city || ''} 
-                        onChangeText={(value) => handleNestedInputChange('address', 'city', value)} 
-                        placeholder="City" 
-                        placeholderTextColor="#9CA3AF" 
-                      />
-                      <TextInput 
-                        style={[styles.input, styles.flexInput]} 
-                        value={editedData.address?.state || ''} 
-                        onChangeText={(value) => handleNestedInputChange('address', 'state', value)} 
-                        placeholder="State" 
-                        placeholderTextColor="#9CA3AF" 
-                      />
-                    </View>
-                    <View style={styles.dateRow}>
-                      <TextInput 
-                        style={[styles.input, styles.flexInput]} 
-                        value={editedData.address?.pincode || ''} 
-                        onChangeText={(value) => handleNestedInputChange('address', 'pincode', value)} 
-                        placeholder="Pincode" 
-                        placeholderTextColor="#9CA3AF" 
-                        keyboardType="numeric" 
-                      />
-                      <TextInput 
-                        style={[styles.input, styles.flexInput]} 
-                        value={editedData.address?.country || ''} 
-                        onChangeText={(value) => handleNestedInputChange('address', 'country', value)} 
-                        placeholder="Country" 
-                        placeholderTextColor="#9CA3AF" 
-                      />
-                    </View>
-                  </View>
+                  <TextInput style={styles.input} value={editedData.education || ''} onChangeText={(v) => handleInputChange('education', v)} placeholder="Your qualifications" placeholderTextColor="#9CA3AF" />
                 ) : (
-                  <View>
-                    {counselor.address?.line1 ? (
-                      <>
-                        <View style={styles.addressLine}>
-                          <Icon name="home" size={16} color="#6B7280" />
-                          <Text style={styles.addressText}>{counselor.address.line1}</Text>
-                        </View>
-                        {counselor.address.line2 && (
-                          <View style={styles.addressLine}>
-                            <Icon name="apartment" size={16} color="#6B7280" />
-                            <Text style={styles.addressText}>{counselor.address.line2}</Text>
-                          </View>
-                        )}
-                        <View style={styles.addressLine}>
-                          <Icon name="location-city" size={16} color="#6B7280" />
-                          <Text style={styles.addressText}>
-                            {[counselor.address.city, counselor.address.state, counselor.address.pincode].filter(Boolean).join(', ')}
-                          </Text>
-                        </View>
-                        <View style={styles.addressLine}>
-                          <Icon name="public" size={16} color="#6B7280" />
-                          <Text style={styles.addressText}>{counselor.address.country}</Text>
-                        </View>
-                      </>
-                    ) : (
-                      <Text style={styles.bodyText}>No address provided</Text>
-                    )}
-                  </View>
+                  <Text style={styles.detailValue}>{counselor.education || 'Not specified'}</Text>
                 )}
-              </View>
-            </>
-          )}
-
-          {activeTab === 'contact' && (
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Icon name="contact-phone" size={22} color="#10B981" />
-                <Text style={styles.cardTitle}>Contact Information</Text>
-              </View>
-
-              <View style={styles.detailRow}>
-                <Icon name="email" size={18} color="#9CA3AF" />
-                <View style={styles.detailContent}>
-                  <Text style={styles.detailLabel}>Email Address</Text>
-                  {isEditing ? (
-                    <TextInput 
-                      style={styles.input} 
-                      value={editedData.email || ''} 
-                      onChangeText={(value) => handleInputChange('email', value)} 
-                      placeholder="Your email address" 
-                      placeholderTextColor="#9CA3AF" 
-                      keyboardType="email-address" 
-                    />
-                  ) : (
-                    <Text style={styles.detailValue}>{counselor.email || 'Not specified'}</Text>
-                  )}
-                </View>
-              </View>
-
-              <View style={styles.detailRow}>
-                <Icon name="phone" size={18} color="#9CA3AF" />
-                <View style={styles.detailContent}>
-                  <Text style={styles.detailLabel}>Phone Number</Text>
-                  {isEditing ? (
-                    <TextInput 
-                      style={styles.input} 
-                      value={editedData.phoneNumber || ''} 
-                      onChangeText={(value) => handleInputChange('phoneNumber', value)} 
-                      placeholder="Your phone number" 
-                      placeholderTextColor="#9CA3AF" 
-                      keyboardType="phone-pad" 
-                    />
-                  ) : (
-                    <Text style={styles.detailValue}>{counselor.phoneNumber || 'Not specified'}</Text>
-                  )}
-                </View>
-              </View>
-
-              <View style={styles.detailRow}>
-                <Icon name="location-on" size={18} color="#9CA3AF" />
-                <View style={styles.detailContent}>
-                  <Text style={styles.detailLabel}>Location</Text>
-                  {isEditing ? (
-                    <TextInput 
-                      style={styles.input} 
-                      value={editedData.location || ''} 
-                      onChangeText={(value) => handleInputChange('location', value)} 
-                      placeholder="Your location" 
-                      placeholderTextColor="#9CA3AF" 
-                    />
-                  ) : (
-                    <Text style={styles.detailValue}>{counselor.location || 'Not specified'}</Text>
-                  )}
-                </View>
               </View>
             </View>
-          )}
+            <View style={styles.detailRow}>
+              <Icon name="work" size={18} color="#D97706" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>Experience</Text>
+                {isEditing ? (
+                  <TextInput style={styles.input} value={editedData.experience?.toString() || ''} onChangeText={(v) => handleInputChange('experience', parseInt(v) || 0)} placeholder="Years" placeholderTextColor="#9CA3AF" keyboardType="numeric" />
+                ) : (
+                  <Text style={styles.detailValue}>{counselor.experience} years</Text>
+                )}
+              </View>
+            </View>
+          </View>
+
+          {/* Consultation Mode */}
+          <View style={styles.card}>
+            <View style={styles.chipContainer}>
+              {(isEditing ? editedData.consultationMode : counselor.consultationMode).map((mode, i) => (
+                <View key={i} style={[styles.chip, styles.modeChip]}>
+                  <Icon name={mode === 'online' ? 'wifi' : mode === 'offline' ? 'location-on' : 'sync'} size={14} color="#2563EB" />
+                  <Text style={styles.modeChipText}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</Text>
+                  {isEditing && <TouchableOpacity onPress={() => handleRemoveConsultationMode(mode)}><Icon name="close" size={14} color="#2563EB" /></TouchableOpacity>}
+                </View>
+              ))}
+            </View>
+            {isEditing && (
+              <View style={styles.modeSelector}>
+                {['online', 'offline', 'both'].map(mode => (
+                  <TouchableOpacity key={mode} onPress={() => setNewConsultationMode(mode)} style={[styles.modeOption, newConsultationMode === mode && styles.modeOptionActive]}>
+                    <Text style={[styles.modeOptionText, newConsultationMode === mode && styles.modeOptionTextActive]}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity onPress={handleAddConsultationMode} style={styles.smallAddBtn}><Icon name="add" size={18} color="#fff" /></TouchableOpacity>
+              </View>
+            )}
+          </View>
+
+          {/* Languages */}
+          <View style={styles.card}>
+            <View style={styles.chipContainer}>
+              {(isEditing ? editedData.languages : counselor.languages).map((lang, i) => (
+                <View key={i} style={[styles.chip, styles.langChip]}>
+                  <Text style={styles.langChipText}>{lang}</Text>
+                  {isEditing && <TouchableOpacity onPress={() => handleRemoveLanguage(lang)}><Icon name="close" size={14} color="#2563EB" /></TouchableOpacity>}
+                </View>
+              ))}
+            </View>
+            {isEditing && (
+              <View style={styles.addRow}>
+                <TextInput style={[styles.input, styles.flexInput]} value={newLanguage} onChangeText={setNewLanguage} placeholder="Add language..." placeholderTextColor="#9CA3AF" onSubmitEditing={handleAddLanguage} />
+                <TouchableOpacity onPress={handleAddLanguage} style={styles.addBtn}><Icon name="add" size={20} color="#fff" /></TouchableOpacity>
+              </View>
+            )}
+          </View>
+
+          {/* Certifications */}
+          <View style={styles.card}>
+            {(isEditing ? editedData.certifications : counselor.certifications).map((cert, i) => (
+              <View key={cert._id || i} style={styles.certCard}>
+                <View style={styles.certHeader}>
+                  <Icon name="workspace-premium" size={18} color="#D97706" />
+                  <Text style={styles.certName}>{cert.name}</Text>
+                  {isEditing && <TouchableOpacity onPress={() => handleRemoveCertification(cert._id)}><Icon name="delete-outline" size={18} color="#EF4444" /></TouchableOpacity>}
+                </View>
+                <View style={styles.certDetails}>
+                  <Text style={styles.certDetail}>Issued by: {cert.issuedBy || 'N/A'}</Text>
+                  <Text style={styles.certDetail}>Issue: {cert.issueDate ? formatDate(cert.issueDate) : 'N/A'}</Text>
+                  <Text style={styles.certDetail}>Expiry: {cert.expiryDate ? formatDate(cert.expiryDate) : 'N/A'}</Text>
+                </View>
+              </View>
+            ))}
+            {isEditing && (
+              <View style={styles.addCertForm}>
+                <Text style={styles.addCertTitle}>Add New Certification</Text>
+                <TextInput style={styles.input} value={newCertification.name} onChangeText={(v) => setNewCertification(prev => ({ ...prev, name: v }))} placeholder="Certification name *" placeholderTextColor="#9CA3AF" />
+                <TextInput style={styles.input} value={newCertification.issuedBy} onChangeText={(v) => setNewCertification(prev => ({ ...prev, issuedBy: v }))} placeholder="Issued by" placeholderTextColor="#9CA3AF" />
+                <View style={styles.dateRow}>
+                  <TextInput style={[styles.input, styles.flexInput]} value={newCertification.issueDate} onChangeText={(v) => setNewCertification(prev => ({ ...prev, issueDate: v }))} placeholder="Issue date" placeholderTextColor="#9CA3AF" />
+                  <TextInput style={[styles.input, styles.flexInput]} value={newCertification.expiryDate} onChangeText={(v) => setNewCertification(prev => ({ ...prev, expiryDate: v }))} placeholder="Expiry date" placeholderTextColor="#9CA3AF" />
+                </View>
+                <TouchableOpacity onPress={handleAddCertification} style={styles.addCertBtn}>
+                  <Text style={styles.addCertBtnText}>Add Certification</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
         </View>
 
         {/* Bottom Spacing */}
@@ -1058,12 +875,11 @@ const CounselorProfile = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
-     marginTop:-32,
+    backgroundColor: '#FFFFFF',
   },
   scrollContent: {
     paddingBottom: 40,
-    paddingTop: 8,
+    paddingTop: 0,
   },
   fullWidth: {
     width: '100%',
@@ -1072,16 +888,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#FFFFFF',
   },
   loadingText: {
     marginTop: 12,
     fontSize: 15,
-    color: '#6B7280',
-    fontWeight: '500',
+    color: '#2563EB',
+    fontWeight: '600',
   },
 
-  // Banner - Full Width
+  // Banner
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1090,13 +906,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginHorizontal: 16,
     marginBottom: 12,
+    marginTop: 12,
     borderRadius: 14,
   },
   successBanner: {
-    backgroundColor: '#10B981',
+    backgroundColor: '#2563EB',
   },
   errorBanner: {
-    backgroundColor: '#EF4444',
+    backgroundColor: '#ef4444',
   },
   bannerText: {
     color: '#fff',
@@ -1105,21 +922,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // Profile Header
+  // Profile Header — dark teal background
   profileHeader: {
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 0,
+    backgroundColor: '#FFFFFF',
     marginHorizontal: 0,
-    marginTop: 4,
+    marginTop: 0,
     borderRadius: 0,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 6,
   },
   headerContent: {
-    paddingVertical: 24,
+    paddingVertical: 28,
     paddingHorizontal: 16,
   },
   avatarSection: {
@@ -1134,45 +950,52 @@ const styles = StyleSheet.create({
     width: 110,
     height: 110,
     borderRadius: 55,
-    borderWidth: 3,
-    borderColor: '#6366F1',
+    borderWidth: 4,
+    borderColor: '#2563EB',
   },
   avatarPlaceholder: {
     width: 110,
     height: 110,
     borderRadius: 55,
-    backgroundColor: '#EEF2FF',
+    backgroundColor: '#2563EB',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 3,
-    borderColor: '#6366F1',
+    borderColor: 'rgba(255,255,255,0.5)',
+    shadowColor: '#1D4ED8',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
   },
   avatarLetter: {
     fontSize: 44,
     fontWeight: '800',
-    color: '#4F46E5',
+    color: '#FFFFFF',
   },
   editPhotoBtn: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: '#6366F1',
+    backgroundColor: '#2563EB',
     width: 36,
     height: 36,
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 3,
-    borderColor: '#fff',
+    borderColor: '#1D4ED8',
   },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
   },
   statusDot: {
     width: 8,
@@ -1180,13 +1003,13 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   activeDot: {
-    backgroundColor: '#10B981',
+    backgroundColor: '#22c55e',
   },
   inactiveDot: {
-    backgroundColor: '#F59E0B',
+    backgroundColor: '#f59e0b',
   },
   statusText: {
-    color: '#374151',
+    color: '#1E3A8A',
     fontSize: 12,
     fontWeight: '600',
   },
@@ -1199,7 +1022,7 @@ const styles = StyleSheet.create({
   counselorName: {
     fontSize: 26,
     fontWeight: '800',
-    color: '#0F172A',
+    color: '#1E3A8A',
     marginBottom: 6,
     textAlign: 'center',
     paddingHorizontal: 8,
@@ -1210,7 +1033,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
     borderBottomWidth: 2,
-    borderBottomColor: '#10B981',
+    borderBottomColor: '#2563EB',
     paddingVertical: 4,
     textAlign: 'center',
     marginBottom: 4,
@@ -1225,7 +1048,7 @@ const styles = StyleSheet.create({
   },
   counselorCode: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#64748B',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   specializationRow: {
@@ -1235,15 +1058,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   specBadge: {
-    backgroundColor: '#EEF2FF',
+    backgroundColor: 'rgba(37,99,235,0.1)',
     paddingHorizontal: 11,
     paddingVertical: 5,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#E0E7FF',
+    borderColor: '#DBEAFE',
   },
   specBadgeText: {
-    color: '#4F46E5',
+    color: '#1E3A8A',
     fontSize: 12,
     fontWeight: '600',
   },
@@ -1259,19 +1082,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#6366F1',
-    paddingHorizontal: 20,
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 28,
     paddingVertical: 11,
     borderRadius: 12,
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-    alignSelf: 'stretch',
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 4,
+    alignSelf: 'center',
     justifyContent: 'center',
-     width: '30%',
-     marginLeft:98
   },
   editBtnText: {
     color: '#fff',
@@ -1287,12 +1108,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#6366F1',
+    backgroundColor: '#2563EB',
     paddingHorizontal: 20,
     paddingVertical: 11,
     borderRadius: 12,
     flex: 1,
     justifyContent: 'center',
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 3,
   },
   saveBtnText: {
     color: '#fff',
@@ -1309,9 +1135,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     flex: 1,
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   cancelBtnText: {
-    color: '#64748B',
+    color: '#475569',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -1320,9 +1148,9 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingTop: 16,
+    paddingTop: 18,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopColor: '#E2E8F0',
   },
   statItem: {
     alignItems: 'center',
@@ -1332,16 +1160,18 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#0F172A',
+    color: '#1E3A8A',
   },
   statLabel: {
     fontSize: 10,
-    color: '#6B7280',
-    fontWeight: '500',
+    color: '#64748B',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   statDivider: {
     width: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E2E8F0',
   },
   starRow: {
     flexDirection: 'row',
@@ -1378,22 +1208,100 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   activeTab: {
-    backgroundColor: '#EEF2FF',
+    backgroundColor: '#EFF6FF',
     borderBottomWidth: 0,
   },
   tabText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#94A3B8',
+    color: '#9CA3AF',
   },
   activeTabText: {
-    color: '#4F46E5',
+    color: '#2563EB',
   },
 
   // Tab Content
   tabContent: {
     paddingHorizontal: 0,
     paddingVertical: 12,
+  },
+  securityCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#EFF6FF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  securityHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  securityIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  securityTextWrap: {
+    flex: 1,
+  },
+  securityTitle: {
+    color: '#111827',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  securitySubtitle: {
+    color: '#6B7280',
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 17,
+  },
+  securityActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  securityButtonSecondary: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  securityButtonSecondaryText: {
+    color: '#2563EB',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  securityButtonPrimary: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 10,
+    backgroundColor: '#2563EB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  securityButtonPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
   },
 
   // Cards
@@ -1419,18 +1327,18 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: '#F3F4F6',
   },
   cardTitle: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#1E293B',
+    color: '#1F2937',
   },
 
   // Typography
   bodyText: {
     fontSize: 14,
-    color: '#64748B',
+    color: '#6B7280',
     lineHeight: 22,
   },
 
@@ -1442,8 +1350,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     paddingVertical: 11,
     fontSize: 14,
-    backgroundColor: '#F8FAFC',
-    color: '#1E293B',
+    backgroundColor: '#FFFFFF',
+    color: '#1F2937',
   },
   textArea: {
     minHeight: 100,
@@ -1463,28 +1371,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#EEF2FF',
+    backgroundColor: '#EFF6FF',
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E0E7FF',
+    borderColor: '#DBEAFE',
     maxWidth: '100%',
   },
   chipText: {
     fontSize: 13,
-    color: '#4F46E5',
+    color: '#2563EB',
     fontWeight: '600',
     flexShrink: 1,
     flexWrap: 'wrap',
   },
   modeChip: {
-    backgroundColor: '#DCFCE7',
-    borderColor: '#BBF7D0',
+    backgroundColor: '#EFF6FF',
+    borderColor: '#DBEAFE',
   },
   modeChipText: {
     fontSize: 13,
-    color: '#166534',
+    color: '#2563EB',
     fontWeight: '600',
     flexShrink: 1,
     flexWrap: 'wrap',
@@ -1495,7 +1403,7 @@ const styles = StyleSheet.create({
   },
   langChipText: {
     fontSize: 13,
-    color: '#7C3AED',
+    color: '#2563EB',
     fontWeight: '600',
     flexShrink: 1,
     flexWrap: 'wrap',
@@ -1508,7 +1416,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   addBtn: {
-    backgroundColor: '#6366F1',
+    backgroundColor: '#2563EB',
     width: 44,
     height: 44,
     borderRadius: 12,
@@ -1516,7 +1424,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   smallAddBtn: {
-    backgroundColor: '#6366F1',
+    backgroundColor: '#2563EB',
     width: 40,
     height: 40,
     borderRadius: 10,
@@ -1535,7 +1443,7 @@ const styles = StyleSheet.create({
   },
   detailLabel: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: '#9CA3AF',
     fontWeight: '700',
     marginBottom: 4,
     textTransform: 'uppercase',
@@ -1543,7 +1451,7 @@ const styles = StyleSheet.create({
   },
   detailValue: {
     fontSize: 15,
-    color: '#1E293B',
+    color: '#1F2937',
     fontWeight: '600',
     flexShrink: 1,
     flexWrap: 'wrap',
@@ -1565,12 +1473,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   modeOptionActive: {
-    backgroundColor: '#6366F1',
-    borderColor: '#6366F1',
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
   },
   modeOptionText: {
     fontSize: 13,
-    color: '#64748B',
+    color: '#6B7280',
     fontWeight: '600',
   },
   modeOptionTextActive: {
@@ -1591,12 +1499,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   genderOptionActive: {
-    backgroundColor: '#6366F1',
-    borderColor: '#6366F1',
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
   },
   genderText: {
     fontSize: 13,
-    color: '#64748B',
+    color: '#6B7280',
     fontWeight: '600',
   },
   genderTextActive: {
@@ -1625,12 +1533,12 @@ const styles = StyleSheet.create({
 
   // Certifications
   certCard: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 14,
     marginBottom: 12,
     borderLeftWidth: 3,
-    borderLeftColor: '#6366F1',
+    borderLeftColor: '#2563EB',
   },
   certHeader: {
     flexDirection: 'row',
@@ -1640,7 +1548,7 @@ const styles = StyleSheet.create({
   certName: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#0F172A',
+    color: '#111827',
     flex: 1,
     flexShrink: 1,
     flexWrap: 'wrap',
@@ -1652,26 +1560,26 @@ const styles = StyleSheet.create({
   },
   certDetail: {
     fontSize: 12,
-    color: '#64748B',
+    color: '#6B7280',
   },
   addCertForm: {
     gap: 12,
     marginTop: 14,
     padding: 16,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     borderWidth: 1.5,
     borderStyle: 'dashed',
-    borderColor: '#C7D2FE',
+    borderColor: '#DBEAFE',
   },
   addCertTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#0F172A',
+    color: '#111827',
     marginBottom: 6,
   },
   addCertBtn: {
-    backgroundColor: '#6366F1',
+    backgroundColor: '#2563EB',
     paddingVertical: 13,
     borderRadius: 10,
     alignItems: 'center',
@@ -1681,11 +1589,62 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-});
 
-// LinearGradient component (add this at the bottom of the file or import)
-const LinearGradient = ({ colors, start, end, children }) => (
-  <View style={[StyleSheet.absoluteFill, { backgroundColor: colors[0] }]} />
-);
+  // Card section icon box
+  cardIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 2,
+  },
+
+  // ─── Profile Completion ───────────────────────────────────────────────────
+  completionWrap: {
+    marginHorizontal: 0,
+    marginTop: 0,
+    marginBottom: 0,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    borderTopWidth: 0,
+  },
+  completionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  completionLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E3A8A',
+  },
+  completionPct: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#2563EB',
+  },
+  completionTrack: {
+    height: 8,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  completionFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  completionHint: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 6,
+    lineHeight: 15,
+  },
+
+});
 
 export default CounselorProfile;
