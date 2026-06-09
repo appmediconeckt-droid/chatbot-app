@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   View,
   Text,
@@ -8,26 +9,28 @@ import {
   ActivityIndicator,
   StyleSheet,
   Dimensions,
-  Platform,
   StatusBar,
   Animated,
   Image,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import LinearGradient from 'react-native-linear-gradient';
-import axios from 'axios';
+import {
+
+  getAnonymousParticipantId,
+
+  getAnonymousUserAvatar,
+
+  getAnonymousUserDisplay,
+
+} from '../../../../../../utils/anonymousUser'; 
 import socketService from '../../../../../../services/socketService';
-import useRingtone from '../../../../../../hooks/useRingtone';
-import safeVibrate from '../../../../../../utils/safeVibrate';
-import VideoCallModal from '../../../UserDashboard/Tab/CallModal/VideoCallModal';
-import VoiceCallModal from '../../../UserDashboard/Tab/CallModal/VoiceCallModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const API_BASE_URL = 'https://chatbot-backend-js25.onrender.com';
 
+// ─── Skeleton ────────────────────────────────────────────────────────────────
 const SkeletonItem = () => {
   const shimmerAnim = useRef(new Animated.Value(0)).current;
 
@@ -40,10 +43,7 @@ const SkeletonItem = () => {
     ).start();
   }, []);
 
-  const opacity = shimmerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.3, 0.7],
-  });
+  const opacity = shimmerAnim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.7] });
 
   return (
     <View style={styles.skeletonRow}>
@@ -57,20 +57,57 @@ const SkeletonItem = () => {
   );
 };
 
+// ─── Avatar with photo + onError fallback ─────────────────────────────────────
+const AVATAR_BG_COLORS = ['#4f46e5','#0891b2','#059669','#b45309','#c2410c','#7e22ce','#be123c','#1e40af'];
+const getAvatarBg = (name) => {
+  if (!name) return AVATAR_BG_COLORS[0];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_BG_COLORS[Math.abs(hash) % AVATAR_BG_COLORS.length];
+};
+
+const ChatListAvatar = ({ avatarUrl, avatar, name }) => {
+  const [failed, setFailed] = useState(false);
+
+  if (avatarUrl && !failed) {
+    return (
+      <Image
+        source={{ uri: avatarUrl }}
+        style={avatarStyles.img}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <View
+      style={[
+        avatarStyles.fallback,
+        { backgroundColor: getAvatarBg(name) },
+      ]}
+    >
+      <Text style={avatarStyles.fallbackText}>
+        {avatar || getAnonymousUserAvatar({ name })}
+      </Text>
+    </View>
+  );
+};
+
+const avatarStyles = StyleSheet.create({
+  img: { width: 52, height: 52, borderRadius: 26, resizeMode: 'cover' },
+  fallback: { width: 52, height: 52, borderRadius: 26, justifyContent: 'center', alignItems: 'center' },
+  fallbackText: { fontSize: 26 },
+});
+
+// ─── Main Component ──────────────────────────────────────────────────────────
 const SMSList = () => {
+  const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState('');
   const [users, setUsers] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigation = useNavigation();
-  const [showIncomingCallModal, setShowIncomingCallModal] = useState(false);
-  const [incomingCallData, setIncomingCallData] = useState(null);
-  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
-  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
-  const [selectedCall, setSelectedCall] = useState(null);
-  const { startRinging: startIncomingRing, stopRinging: stopIncomingRing } = useRingtone();
-  const pollingIntervalRef = useRef(null);
   const socketRef = useRef(null);
 
   const handleSessionExpired = useCallback(() => {
@@ -81,36 +118,12 @@ const SMSList = () => {
     });
   }, [navigation]);
 
-  const getIdentityAssets = (name) => {
-    const assets = [
-      { colors: ['#2563EB', '#0D9488'], icon: 'planet' },
-      { colors: ['#0D9488', '#1E40AF'], icon: 'leaf' },
-      { colors: ['#0D9488', '#2563EB'], icon: 'sunny' },
-      { colors: ['#2563EB', '#1E3A8A'], icon: 'heart' },
-      { colors: ['#0D9488', '#2563EB'], icon: 'water' },
-      { colors: ['#0D9488', '#1E40AF'], icon: 'moon' },
-    ];
-    if (!name) return assets[0];
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    return assets[Math.abs(hash) % assets.length];
-  };
-
-  const getInitials = (name) => {
-    if (!name) return 'U';
-    const parts = name.trim().split(/\s+/);
-    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
-  };
-
   const formatTime = (timeString) => {
     if (!timeString) return '';
     try {
       const messageTime = new Date(timeString);
       const now = new Date();
-      const diffMs = now - messageTime;
-      const diffDays = Math.floor(diffMs / 86400000);
-
+      const diffDays = Math.floor((now - messageTime) / 86400000);
       if (diffDays === 0) return messageTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
       if (diffDays === 1) return 'Yesterday';
       return messageTime.toLocaleDateString([], { month: '2-digit', day: '2-digit' });
@@ -118,11 +131,34 @@ const SMSList = () => {
   };
 
   const resolveOnlineStatus = (person) => {
-    const explicitOnline = person?.isOnline ?? person?.online;
-    if (typeof explicitOnline === 'boolean') return explicitOnline;
-    if (typeof explicitOnline === 'string') return ['online','true','1','yes'].includes(String(explicitOnline).toLowerCase());
+    const v = person?.isOnline ?? person?.online;
+    if (typeof v === 'boolean') return v;
+    if (typeof v === 'string') return ['online', 'true', '1', 'yes'].includes(v.toLowerCase());
     return false;
   };
+
+  // const resolveProfilePhoto = (otherParty) => {
+  //   // Try every field name the backend might use for a user's photo
+  //   const p =
+  //     otherParty.profilePhoto ||
+  //     otherParty.avatarUrl ||
+  //     otherParty.avatar ||
+  //     otherParty.profilePic ||
+  //     otherParty.photo ||
+  //     otherParty.image ||
+  //     otherParty.picture ||
+  //     null;
+  //   if (!p) return null;
+  //   // p can be a Cloudinary object { secure_url, url } or a plain string
+  //   const raw = (typeof p === 'object')
+  //     ? (p.secure_url || p.url || null)
+  //     : p;
+  //   if (!raw || typeof raw !== 'string') return null;
+  //   if (raw.includes('ui-avatars.com') || raw.includes('dicebear') || raw.includes('gravatar')) return null;
+  //   if (raw.startsWith('http')) return raw;
+  //   if (raw.startsWith('/')) return `${API_BASE_URL}${raw}`;
+  //   return null;
+  // };
 
   const fetchChats = useCallback(async () => {
     const token = await AsyncStorage.getItem('token') || await AsyncStorage.getItem('accessToken');
@@ -135,48 +171,72 @@ const SMSList = () => {
       if (response.status === 401) return handleSessionExpired();
       const data = await response.json();
 
-      const transformedUsers = (data.chats || []).map((chat) => {
-        const otherParty = chat.otherParty || {};
-        const displayName = otherParty.anonymous || otherParty.name || 'Anonymous User';
-        const lastMessageTime = chat.lastMessage?.createdAt || chat.updatedAt || chat.startedAt;
-        return {
-          id: chat.chatId,
-          chatId: chat.chatId,
-          userId: otherParty._id || otherParty.id || otherParty.userId,
-          receiverId: otherParty._id || otherParty.id || otherParty.userId,
-          name: displayName,
-          gender: otherParty.gender,
-          profilePhoto: (() => {
-            const p = otherParty.profilePhoto || otherParty.avatar || otherParty.profilePic || otherParty.photo;
-            if (!p) return null;
-            const url = p.url || (typeof p === 'string' ? p : null);
-            if (!url) return null;
-            // Only show real uploaded photos — skip generated avatars
-            if (url.includes('ui-avatars.com') || url.includes('dicebear') || url.includes('gravatar')) return null;
-            if (url.startsWith('http')) return url;
-            return null;
-          })(),
-          lastMessage: chat.lastMessage?.content || 'No messages yet',
-          time: formatTime(lastMessageTime),
-          lastActivityAt: lastMessageTime,
-          unread: chat.unreadCount || 0,
-          status: String(chat.status || 'pending').toLowerCase(),
-          online: resolveOnlineStatus(otherParty),
-          lastSeen: otherParty.lastSeen || null,
-        };
-      });
+      // DEBUG: log first chat's otherParty so you can see exact field names in Metro logs
+      if (data.chats?.length > 0) {
+        console.log('[ChatList] otherParty sample:', JSON.stringify(data.chats[0].otherParty, null, 2));
+      }
 
-      transformedUsers.sort((a, b) => new Date(b.lastActivityAt) - new Date(a.lastActivityAt));
-      setUsers(transformedUsers);
-      setLoading(false);
+   const transformed = (data.chats || []).map((chat) => {
+  const otherParty = chat.otherParty || {};
+
+  const anonymousUser =
+    getAnonymousUserDisplay(otherParty);
+
+  const actualUserId =
+    getAnonymousParticipantId({
+      ...otherParty,
+      userId: chat.userId,
+    }) || chat.userId;
+
+  const lastMessageTime =
+    chat.lastMessage?.createdAt ||
+    chat.updatedAt ||
+    chat.startedAt;
+
+  return {
+    id: chat.chatId,
+    chatId: chat.chatId,
+
+    userId: actualUserId,
+    receiverId: actualUserId,
+
+    name: anonymousUser.name,
+    gender: anonymousUser.gender,
+
+    avatar: anonymousUser.avatar,
+    avatarUrl: anonymousUser.avatarUrl,
+
+    lastMessage:
+      chat.lastMessage?.content || t('messages:noMessages'),
+
+    time: formatTime(lastMessageTime),
+
+    lastActivityAt: lastMessageTime,
+
+    unread: chat.unreadCount || 0,
+
+    status: String(
+      chat.status || 'pending'
+    ).toLowerCase(),
+
+    online: resolveOnlineStatus(otherParty),
+
+    lastSeen: otherParty.lastSeen || null,
+  };
+});
+
+      transformed.sort((a, b) => new Date(b.lastActivityAt) - new Date(a.lastActivityAt));
+      setUsers(transformed);
     } catch (err) {
       setError(err.message);
+    } finally {
       setLoading(false);
     }
   }, [handleSessionExpired]);
 
   useFocusEffect(useCallback(() => { fetchChats(); }, [fetchChats]));
 
+  // Presence socket — update online status in real-time
   useEffect(() => {
     const setupSocket = async () => {
       const unsubscribers = [];
@@ -188,30 +248,33 @@ const SMSList = () => {
         socketRef.current = socket;
 
         unsubscribers.push(await socketService.on('presence-update', ({ userId, isOnline, lastSeen }) => {
-          setUsers((prev) => prev.map((item) => (
+          setUsers((prev) => prev.map((item) =>
             String(item.userId || item.receiverId || item.id) === String(userId)
               ? { ...item, online: !!isOnline, lastSeen: lastSeen || item.lastSeen || null }
               : item
-          )));
+          ));
         }));
 
         unsubscribers.push(await socketService.on('disconnect', () => { socketRef.current = null; }));
         socketRef.current._unsubscribers = unsubscribers;
-      } catch (error) {
-        console.error('Messages presence socket error:', error);
+      } catch (err) {
+        console.error('Messages presence socket error:', err);
       }
     };
 
     setupSocket();
 
     return () => {
-      try { const unsub = socketRef.current?._unsubscribers || []; unsub.forEach(fn => { try { fn(); } catch {} }); } catch (e) {}
+      try {
+        const unsub = socketRef.current?._unsubscribers || [];
+        unsub.forEach(fn => { try { fn(); } catch {} });
+      } catch (_) {}
       socketRef.current = null;
     };
   }, []);
 
-  const filteredUsers = users.filter((user) =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredUsers = users.filter((u) =>
+    u.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleUserClick = (user) => {
@@ -220,27 +283,22 @@ const SMSList = () => {
   };
 
   const renderUserItem = ({ item }) => {
-    const { colors, icon } = getIdentityAssets(item.name);
-    const hasRealPhoto = item.profilePhoto &&
-      !item.profilePhoto.includes('ui-avatars.com') &&
-      !item.profilePhoto.includes('dicebear') &&
-      !item.profilePhoto.includes('gravatar.com');
-
     return (
       <TouchableOpacity
         style={[styles.chatRow, selectedChatId === item.chatId && styles.chatRowSelected]}
         onPress={() => handleUserClick(item)}
         activeOpacity={0.75}
       >
-        <View style={styles.avatarWrapper}>
-          {hasRealPhoto ? (
-            <Image source={{ uri: item.profilePhoto }} style={styles.avatarImage} />
-          ) : (
-            <LinearGradient colors={colors} style={styles.avatarCircle}>
-              <Ionicons name={icon} size={20} color="#FFFFFF" />
-            </LinearGradient>
-          )}
-          {item.online && <View style={styles.onlineBadge} />}
+        {/* avatarOuter has no overflow:hidden so the online badge is not clipped */}
+        <View style={styles.avatarOuter}>
+          <View style={styles.avatarWrapper}>
+            <ChatListAvatar
+  avatarUrl={item.avatarUrl}
+  avatar={item.avatar}
+  name={item.name}
+/>
+          </View>
+          <View style={[styles.onlineBadge, { backgroundColor: item.online ? '#22c55e' : '#9CA3AF' }]} />
         </View>
 
         <View style={styles.rowContent}>
@@ -248,9 +306,10 @@ const SMSList = () => {
             <Text style={styles.nameText} numberOfLines={1}>{item.name}</Text>
             <Text style={[styles.timeText, item.unread > 0 && styles.timeActive]}>{item.time}</Text>
           </View>
-
           <View style={styles.rowFooter}>
-            <Text style={[styles.messageText, item.unread > 0 && styles.messageUnread]} numberOfLines={1}>{item.lastMessage}</Text>
+            <Text style={[styles.messageText, item.unread > 0 && styles.messageUnread]} numberOfLines={1}>
+              {item.lastMessage}
+            </Text>
             {item.unread > 0 && (
               <View style={styles.unreadBadge}>
                 <Text style={styles.unreadCount}>{item.unread > 99 ? '99+' : item.unread}</Text>
@@ -265,49 +324,45 @@ const SMSList = () => {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
-      
-     <View style={styles.searchSection}>
-  <View style={styles.searchContainer}>
-    
-    <View style={styles.searchIconWrap}>
-      <Ionicons
-        name="search-outline"
-        size={18}
-        color="#2563EB"
-      />
-    </View>
 
-    <TextInput
-      style={styles.searchInput}
-      placeholder="Search messages..."
-      placeholderTextColor="#9CA3AF"
-      value={searchTerm}
-      onChangeText={setSearchTerm}
-      returnKeyType="search"
-      autoCorrect={false}
-      autoCapitalize="none"
-    />
-
-    {searchTerm.length > 0 && (
-      <TouchableOpacity
-        style={styles.searchClearButton}
-        onPress={() => setSearchTerm('')}
-        activeOpacity={0.7}
-      >
-        <Ionicons
-          name="close"
-          size={14}
-          color="#9CA3AF"
-        />
-      </TouchableOpacity>
-    )}
-
-  </View>
-</View>
+      <View style={styles.searchSection}>
+        <View style={styles.searchContainer}>
+          <View style={styles.searchIconWrap}>
+            <Ionicons name="search-outline" size={18} color="#2563EB" />
+          </View>
+          <TextInput
+            style={styles.searchInput}
+            placeholder={t('messages:searchMessages')}
+            placeholderTextColor="#9CA3AF"
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          {searchTerm.length > 0 && (
+            <TouchableOpacity
+              style={styles.searchClearButton}
+              onPress={() => setSearchTerm('')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close" size={14} color="#9CA3AF" />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
 
       {loading && users.length === 0 ? (
         <View style={styles.shimmerContainer}>
           {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => <SkeletonItem key={i} />)}
+        </View>
+      ) : error && users.length === 0 ? (
+        <View style={styles.empty}>
+          <Ionicons name="alert-circle-outline" size={40} color="#94A3B8" />
+          <Text style={styles.emptyText}>{t('messages:failedToLoad')}</Text>
+          <TouchableOpacity onPress={fetchChats} style={styles.retryBtn}>
+            <Text style={styles.retryText}>{t('common:retry')}</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -318,7 +373,7 @@ const SMSList = () => {
           contentContainerStyle={styles.list}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyText}>No chats found</Text>
+              <Text style={styles.emptyText}>{t('messages:noChatsFound')}</Text>
             </View>
           }
         />
@@ -334,7 +389,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
   },
 
-  // ─── Search Section ───────────────────────────────────────────────────────
+  // ─── Search ───────────────────────────────────────────────────────────────
   searchSection: {
     width: '100%',
     paddingHorizontal: 14,
@@ -385,8 +440,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#E2E8F0',
   },
 
-  // ─── List ────────────────────────────────────────────────────────────────
-  list: { width: '100%', paddingBottom: 100, paddingHorizontal: 0 },
+  // ─── List ─────────────────────────────────────────────────────────────────
+  list: { width: '100%', paddingBottom: 100 },
   chatRow: {
     flexDirection: 'row',
     width: '100%',
@@ -399,18 +454,21 @@ const styles = StyleSheet.create({
   },
   chatRowSelected: { backgroundColor: '#EFF6FF' },
 
-  // ─── Avatar ──────────────────────────────────────────────────────────────
-  avatarWrapper: { position: 'relative' },
-  avatarCircle: {
+  // ─── Avatar ───────────────────────────────────────────────────────────────
+  // avatarOuter: no overflow:hidden so the online badge corner dot is NOT clipped
+  avatarOuter: {
+    position: 'relative',
+    width: 52,
+    height: 52,
+    marginRight: 13,
+  },
+  // avatarWrapper: clips the photo/gradient to a circle
+  avatarWrapper: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    justifyContent: 'center',
-    alignItems: 'center',
     overflow: 'hidden',
   },
-  avatarImage: { width: 52, height: 52, borderRadius: 26, resizeMode: 'cover' },
-  initialsText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
   onlineBadge: {
     position: 'absolute',
     bottom: 1,
@@ -423,8 +481,8 @@ const styles = StyleSheet.create({
     borderColor: '#FFFFFF',
   },
 
-  // ─── Row content ─────────────────────────────────────────────────────────
-  rowContent: { flex: 1, marginLeft: 13, justifyContent: 'center' },
+  // ─── Row content ──────────────────────────────────────────────────────────
+  rowContent: { flex: 1, justifyContent: 'center' },
   rowHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -445,12 +503,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 6,
-    marginLeft: 6,
   },
   unreadCount: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
 
   // ─── Skeleton ─────────────────────────────────────────────────────────────
-  shimmerContainer: { flex: 1, width: '100%', paddingHorizontal: 0 },
+  shimmerContainer: { flex: 1, width: '100%' },
   skeletonRow: {
     flexDirection: 'row',
     width: '100%',
@@ -467,9 +524,16 @@ const styles = StyleSheet.create({
   skeletonText: { width: '70%', height: 10, borderRadius: 6, backgroundColor: '#E2E8F0' },
   skeletonTime: { width: 38, height: 10, borderRadius: 6, backgroundColor: '#E2E8F0' },
 
-  // ─── Empty ────────────────────────────────────────────────────────────────
-  empty: { flex: 1, alignItems: 'center', marginTop: 100 },
-  emptyText: { fontSize: 15, color: '#94a3b8', fontWeight: '500' },
+  // ─── Empty / Error ────────────────────────────────────────────────────────
+  empty: { flex: 1, alignItems: 'center', marginTop: 100, gap: 12 },
+  emptyText: { fontSize: 15, color: '#94A3B8', fontWeight: '500' },
+  retryBtn: {
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    backgroundColor: '#2563EB',
+    borderRadius: 20,
+  },
+  retryText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
 });
 
 export default SMSList;

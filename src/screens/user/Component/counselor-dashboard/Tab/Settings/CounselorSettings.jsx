@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigation } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -98,6 +100,8 @@ const formatConsultationMode = (modes) => {
 const INITIAL_PW_FORM = { otp: '', password: '', confirmPassword: '', oldPassword: '', newPassword: '', confirmNewPassword: '' };
 
 const CounselorSettings = ({ onNavigate, onLogout }) => {
+  const navigation = useNavigation();
+  const { t } = useTranslation();
   const [autoAccept, setAutoAccept] = useState(false);
   const [twoFactor, setTwoFactor] = useState(true);
   const [counselor, setCounselor] = useState(null);
@@ -223,6 +227,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
     if (id === 'profile') return onNavigate?.('profile');
     if (id === 'change_password') return openPwModal('change');
     if (id === 'add_password') return openPwModal('set');
+    if (id === 'app_lock') return navigation.navigate('PinSetup');
     if (id === 'contact')
       return Linking.openURL('mailto:support@mediconnect.com');
     if (id === 'help') return Linking.openURL('https://mediconnect.com/help');
@@ -251,20 +256,20 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
   const availabilitySubtitle = counselor?.availability?.summary
     ? counselor.availability.summary
     : isCounselorOnline
-      ? 'Currently accepting sessions'
-      : 'Set your working hours';
-  const availabilityBadge = isCounselorOnline ? 'Online' : 'Offline';
+      ? t('counselor:currentlyOnline')
+      : t('counselor:setWorkingHours');
+  const availabilityBadge = isCounselorOnline ? t('common:online') : t('common:offline');
 
   const SECTIONS = [
     {
-      title: 'Account',
+      title: t('settings:account'),
       items: [
         {
           id: 'profile',
           icon: 'user',
           iconBg: '#EFF6FF',
           iconColor: '#2563EB',
-          label: 'Edit Profile',
+          label: t('counselor:editProfile'),
           subtitle: profileSubtitle,
           value: firstName(counselor?.fullName || counselor?.name) || null,
           type: 'nav',
@@ -274,7 +279,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           icon: 'calendar',
           iconBg: '#DCFCE7',
           iconColor: '#16A34A',
-          label: 'Availability Schedule',
+          label: t('settings:availabilitySchedule'),
           subtitle: availabilitySubtitle,
           badge: availabilityBadge,
           badgeColor: '#16a34a',
@@ -285,7 +290,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           icon: 'video',
           iconBg: '#EFF6FF',
           iconColor: '#0D9488',
-          label: 'Consultation Mode',
+          label: t('counselor:consultationMode'),
           subtitle:
             Array.isArray(counselor?.consultationMode) &&
             counselor.consultationMode.length > 0
@@ -299,9 +304,9 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           icon: 'credit-card',
           iconBg: '#ecfeff',
           iconColor: '#0D9488',
-          label: 'Payout Account',
+          label: t('settings:payoutAccount'),
           subtitle: payoutSubtitle,
-          badge: payoutBadge,
+          badge: payoutBadge ? t('common:verified') : null,
           badgeColor: '#0D9488',
           type: 'nav',
         },
@@ -310,8 +315,8 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           icon: 'check-circle',
           iconBg: '#FFFBEB',
           iconColor: '#D97706',
-          label: 'Auto-Accept Requests',
-          subtitle: 'Within your working hours',
+          label: t('counselor:autoAccept'),
+          subtitle: t('counselor:withinWorkingHours'),
           type: 'switch',
           value: autoAccept,
           onChange: setAutoAccept,
@@ -319,15 +324,15 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
       ],
     },
     {
-      title: 'Privacy & Security',
+      title: t('settings:security'),
       items: [
         {
           id: 'change_password',
           icon: 'lock',
           iconBg: '#EFF6FF',
           iconColor: '#2563EB',
-          label: 'Change Password',
-          subtitle: 'Update your current password',
+          label: t('settings:changePassword'),
+          subtitle: t('settings:updatePassword'),
           type: 'nav',
         },
         {
@@ -335,8 +340,8 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           icon: 'key',
           iconBg: '#EFF6FF',
           iconColor: '#0D9488',
-          label: 'Add Password by OTP',
-          subtitle: 'Set a password via email OTP',
+          label: t('settings:addPassword'),
+          subtitle: t('settings:setPasswordOtp'),
           type: 'nav',
         },
         {
@@ -344,33 +349,42 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           icon: 'shield',
           iconBg: '#DCFCE7',
           iconColor: '#16A34A',
-          label: 'Two-Factor Authentication',
-          subtitle: 'Extra security on login',
+          label: t('settings:twoFactor'),
+          subtitle: t('settings:extraSecurity'),
           type: 'switch',
           value: twoFactor,
           onChange: setTwoFactor,
+        },
+        {
+          id: 'app_lock',
+          icon: 'smartphone',
+          iconBg: '#EDE9FE',
+          iconColor: '#7c3aed',
+          label: t('settings:appLock'),
+          subtitle: t('settings:pinFingerprint'),
+          type: 'nav',
         },
         {
           id: 'data_export',
           icon: 'download',
           iconBg: '#ecfeff',
           iconColor: '#0D9488',
-          label: 'Download My Data',
-          subtitle: 'Get a copy of all your data',
+          label: t('settings:downloadData'),
+          subtitle: t('settings:getCopyOfData'),
           type: 'nav',
         },
       ],
     },
     {
-      title: 'Support',
+      title: t('settings:support'),
       items: [
         {
           id: 'help',
           icon: 'help-circle',
           iconBg: '#FEF3C7',
           iconColor: '#D97706',
-          label: 'Help & FAQ',
-          subtitle: 'Common questions & guides',
+          label: t('settings:help'),
+          subtitle: t('settings:commonQuestions'),
           type: 'nav',
         },
         {
@@ -378,7 +392,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           icon: 'mail',
           iconBg: '#DCFCE7',
           iconColor: '#16A34A',
-          label: 'Contact Support',
+          label: t('settings:contactSupport'),
           subtitle: 'support@mediconnect.com',
           type: 'nav',
         },
@@ -387,21 +401,21 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           icon: 'edit-2',
           iconBg: '#EFF6FF',
           iconColor: '#0D9488',
-          label: 'Send Feedback',
-          subtitle: 'Help us improve the app',
+          label: t('settings:sendFeedback'),
+          subtitle: t('settings:helpUsImprove'),
           type: 'nav',
         },
       ],
     },
     {
-      title: 'Legal',
+      title: t('settings:legal'),
       items: [
         {
           id: 'terms',
           icon: 'file-text',
           iconBg: '#F9FAFB',
           iconColor: '#6B7280',
-          label: 'Terms & Conditions',
+          label: t('settings:termsOfService'),
           subtitle: 'Read our terms of service',
           type: 'nav',
         },
@@ -410,7 +424,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           icon: 'lock',
           iconBg: '#F9FAFB',
           iconColor: '#6B7280',
-          label: 'Privacy Policy',
+          label: t('settings:privacyPolicy'),
           subtitle: 'How we handle your data',
           type: 'nav',
         },
@@ -427,9 +441,9 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <Text style={styles.headerTitle}>{t('settings:settings')}</Text>
         <Text style={styles.headerSub}>
-          {loading ? 'Loading your account…' : `Signed in as ${profileName}`}
+          {loading ? t('counselor:loadingAccount') : t('counselor:signingInAs', { name: profileName })}
         </Text>
       </View>
 
@@ -437,10 +451,10 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
       {!loading && (
         <View style={styles.quickRow}>
           {[
-            { id: 'profile', icon: 'user', color: '#2563EB', bg: '#EFF6FF', label: 'Profile' },
-            { id: 'availability', icon: 'calendar', color: '#0D9488', bg: '#F0FDFA', label: 'Schedule' },
-            { id: 'payout', icon: 'credit-card', color: '#7C3AED', bg: '#F5F3FF', label: 'Payout' },
-            { id: 'help', icon: 'help-circle', color: '#D97706', bg: '#FFFBEB', label: 'Help' },
+            { id: 'profile', icon: 'user', color: '#2563EB', bg: '#EFF6FF', label: t('settings:profile') },
+            { id: 'availability', icon: 'calendar', color: '#0D9488', bg: '#F0FDFA', label: t('settings:schedule') },
+            { id: 'payout', icon: 'credit-card', color: '#7C3AED', bg: '#F5F3FF', label: t('settings:payout') },
+            { id: 'help', icon: 'help-circle', color: '#D97706', bg: '#FFFBEB', label: t('settings:help') },
           ].map((q) => (
             <TouchableOpacity
               key={q.id}
@@ -556,7 +570,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
       >
         <View style={styles.signOutInner}>
           <Feather name="log-out" size={18} color="#e53935" />
-          <Text style={styles.signOutText}>Sign Out</Text>
+          <Text style={styles.signOutText}>{t('counselor:signOut')}</Text>
         </View>
       </TouchableOpacity>
 
@@ -573,10 +587,10 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           <View style={pwStyles.sheetHeader}>
             <View>
               <Text style={pwStyles.sheetTitle}>
-                {pwMode === 'set' ? 'Add Password by OTP' : 'Change Password'}
+                {pwMode === 'set' ? t('settings:addPassword') : t('settings:changePassword')}
               </Text>
               <Text style={pwStyles.sheetSub}>
-                {pwMode === 'set' ? 'Set your password using email OTP verification' : 'Update your account password'}
+                {pwMode === 'set' ? t('settings:setPasswordOtp') : t('settings:updatePassword')}
               </Text>
             </View>
             <TouchableOpacity onPress={() => setPwModal(false)} style={pwStyles.closeBtn}>
@@ -597,21 +611,21 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
               <>
                 {/* Email + Send OTP */}
                 <View style={pwStyles.field}>
-                  <Text style={pwStyles.label}>Email</Text>
+                  <Text style={pwStyles.label}>{t('auth:email')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="mail" size={15} color="#94a3b8" />
                     <Text style={pwStyles.emailText} numberOfLines={1}>{counselor?.email || '—'}</Text>
                     <TouchableOpacity style={pwStyles.otpBtn} onPress={handleSendOtp} disabled={pwLoading}>
                       {pwLoading && !otpSent
                         ? <ActivityIndicator size={12} color="#fff" />
-                        : <Text style={pwStyles.otpBtnText}>{otpSent ? 'Resend' : 'Send OTP'}</Text>
+                        : <Text style={pwStyles.otpBtnText}>{otpSent ? t('auth:resendOtp') : t('auth:sendOtp')}</Text>
                       }
                     </TouchableOpacity>
                   </View>
                 </View>
                 {otpSent && (
                   <View style={pwStyles.field}>
-                    <Text style={pwStyles.label}>OTP Code</Text>
+                    <Text style={pwStyles.label}>{t('auth:enterOtp')}</Text>
                     <View style={pwStyles.shell}>
                       <Feather name="hash" size={15} color="#94a3b8" />
                       <TextInput
@@ -627,7 +641,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
                   </View>
                 )}
                 <View style={pwStyles.field}>
-                  <Text style={pwStyles.label}>New Password</Text>
+                  <Text style={pwStyles.label}>{t('auth:newPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
                     <TextInput style={pwStyles.input} value={pwForm.password} onChangeText={(v) => setPw('password', v)} secureTextEntry={!showNew} placeholder="Minimum 6 characters" placeholderTextColor="#94a3b8" autoCapitalize="none" />
@@ -635,7 +649,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
                   </View>
                 </View>
                 <View style={pwStyles.field}>
-                  <Text style={pwStyles.label}>Confirm Password</Text>
+                  <Text style={pwStyles.label}>{t('auth:confirmPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
                     <TextInput style={pwStyles.input} value={pwForm.confirmPassword} onChangeText={(v) => setPw('confirmPassword', v)} secureTextEntry={!showConfirm} placeholder="Re-enter password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
@@ -644,14 +658,14 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
                 </View>
                 <TouchableOpacity style={[pwStyles.submitBtn, (pwLoading || !otpSent) && pwStyles.submitDisabled]} onPress={handleSetPassword} disabled={pwLoading || !otpSent}>
                   {pwLoading ? <ActivityIndicator color="#fff" /> : (
-                    <><Feather name="save" size={16} color="#fff" /><Text style={pwStyles.submitText}>Save Password</Text></>
+                    <><Feather name="save" size={16} color="#fff" /><Text style={pwStyles.submitText}>{t('common:save')}</Text></>
                   )}
                 </TouchableOpacity>
               </>
             ) : (
               <>
                 <View style={pwStyles.field}>
-                  <Text style={pwStyles.label}>Current Password</Text>
+                  <Text style={pwStyles.label}>{t('auth:oldPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
                     <TextInput style={pwStyles.input} value={pwForm.oldPassword} onChangeText={(v) => setPw('oldPassword', v)} secureTextEntry={!showOld} placeholder="Enter current password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
@@ -660,7 +674,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
                 </View>
 
                 <View style={pwStyles.field}>
-                  <Text style={pwStyles.label}>New Password</Text>
+                  <Text style={pwStyles.label}>{t('auth:newPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
                     <TextInput style={pwStyles.input} value={pwForm.newPassword} onChangeText={(v) => setPw('newPassword', v)} secureTextEntry={!showNew} placeholder="Minimum 6 characters" placeholderTextColor="#94a3b8" autoCapitalize="none" />
@@ -669,7 +683,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
                 </View>
 
                 <View style={pwStyles.field}>
-                  <Text style={pwStyles.label}>Confirm New Password</Text>
+                  <Text style={pwStyles.label}>{t('auth:confirmPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
                     <TextInput style={pwStyles.input} value={pwForm.confirmNewPassword} onChangeText={(v) => setPw('confirmNewPassword', v)} secureTextEntry={!showConfirm} placeholder="Re-enter new password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
@@ -679,7 +693,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
 
                 <TouchableOpacity style={[pwStyles.submitBtn, pwLoading && pwStyles.submitDisabled]} onPress={handleChangePassword} disabled={pwLoading}>
                   {pwLoading ? <ActivityIndicator color="#fff" /> : (
-                    <><Feather name="check-circle" size={16} color="#fff" /><Text style={pwStyles.submitText}>Change Password</Text></>
+                    <><Feather name="check-circle" size={16} color="#fff" /><Text style={pwStyles.submitText}>{t('settings:changePassword')}</Text></>
                   )}
                 </TouchableOpacity>
               </>

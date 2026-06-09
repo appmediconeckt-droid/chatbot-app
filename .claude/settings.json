@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Start-Sleep -Seconds 3)",
+      "Bash(npx react-native *)",
+      "PowerShell(Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force)",
+      "PowerShell(Get-ExecutionPolicy -List)",
+      "PowerShell(cmd /c \"npx react-native run-android\" 2>&1)",
+      "PowerShell(cmd /c \"java -version\" 2>&1)",
+      "PowerShell(cmd /c \"where java\" 2>&1)",
+      "PowerShell(cmd /c \"C:\\\\chatbot-app\\\\android\\\\gradlew.bat --version\" 2>&1)",
+      "PowerShell(cmd /c \"cd /d C:\\\\chatbot-app\\\\android && call gradlew.bat --version\" 2>&1)"
+    ]
+  }
+}

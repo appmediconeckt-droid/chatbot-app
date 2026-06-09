@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   Image,
   View,
@@ -46,6 +47,7 @@ import VideoCallModal from "../../UserDashboard/Tab/CallModal/VideoCallModal";
 import VoiceCallModal from "../../UserDashboard/Tab/CallModal/VoiceCallModal";
 import safeVibrate from "../../../../../utils/safeVibrate";
 import { useToast } from "../../../../../components/common/ToastProvider";
+import LanguageSelector from '../../../../../components/common/LanguageSelector';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -60,6 +62,7 @@ const IncomingCallModal = ({
   onAccept,
   onReject,
 }) => {
+  const { t } = useTranslation();
   const [isAccepting, setIsAccepting] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
 
@@ -206,7 +209,7 @@ const getDisplayName = () => {
               <View style={styles.callTopPill}>
                 <Ionicons name={isVideo ? "videocam" : "call"} size={12} color="#ecfeff" />
                 <Text style={styles.callTopPillText}>
-                  {isVideo ? "Incoming video call" : "Incoming voice call"}
+                  {isVideo ? t('call:incomingVideoCall') : t('call:incomingVoiceCall')}
                 </Text>
               </View>
             </View>
@@ -261,7 +264,7 @@ const getDisplayName = () => {
                   </TouchableOpacity>
                 </Animated.View>
                 <Text style={styles.actionLabel}>
-                  {isRejecting ? "Declining…" : "Decline"}
+                  {isRejecting ? t('common:loading') : t('call:reject')}
                 </Text>
               </View>
 
@@ -290,7 +293,7 @@ const getDisplayName = () => {
                   </TouchableOpacity>
                 </Animated.View>
                 <Text style={styles.actionLabel}>
-                  {isAccepting ? "Connecting…" : "Accept"}
+                  {isAccepting ? t('call:connecting') : t('call:accept')}
                 </Text>
               </View>
             </View>
@@ -323,6 +326,7 @@ const isSameDay = (a, b) => {
 
 // ─── Appointment Card ────────────────────────────────────────────────────────
 const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating, index = 0 }) => {
+  const { t } = useTranslation();
   const isUpdating = updating === apt._id;
   const isPending = apt.status === "pending";
   const isConfirmed = apt.status === "confirmed";
@@ -438,7 +442,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating, index
               ) : (
                 <>
                   <Ionicons name="close" size={16} color="#ef4444" />
-                  <Text style={aptStyles.rejectBtnText}>Decline</Text>
+                  <Text style={aptStyles.rejectBtnText}>{t('counselor:decline')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -460,7 +464,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating, index
                 ) : (
                   <>
                     <Ionicons name="checkmark" size={16} color="#fff" />
-                    <Text style={aptStyles.acceptBtnText}>Accept</Text>
+                    <Text style={aptStyles.acceptBtnText}>{t('counselor:acceptRequest')}</Text>
                   </>
                 )}
               </LinearGradient>
@@ -481,7 +485,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating, index
               style={aptStyles.videoCallBtnGradient}
             >
               <Ionicons name="videocam" size={16} color="#fff" />
-              <Text style={aptStyles.videoCallBtnText}>Start Video Call</Text>
+              <Text style={aptStyles.videoCallBtnText}>{t('counselor:startVideoCall')}</Text>
               <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.8)" />
             </LinearGradient>
           </TouchableOpacity>
@@ -490,7 +494,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating, index
         {isCanceled && (
           <View style={aptStyles.canceledNote}>
             <Ionicons name="information-circle-outline" size={13} color="#94a3b8" />
-            <Text style={aptStyles.canceledNoteText}>This appointment was canceled.</Text>
+            <Text style={aptStyles.canceledNoteText}>{t('counselor:appointmentCanceled')}</Text>
           </View>
         )}
       </View>
@@ -541,6 +545,7 @@ const AppointmentSkeletonCard = () => {
 
 // â”€â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function CounselorDashboard() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const MOBILE_HEADER_BAR_HEIGHT = 56;
   const topInset = Platform.OS === "ios" ? insets.top : 0;
@@ -1598,19 +1603,19 @@ export default function CounselorDashboard() {
     {
       id: "messages",
       icon: "comments",
-      label: "Messages",
+      label: t('counselor:messages'),
       badge: pendingRequests.length,
     },
     {
       id: "appointments",
       icon: "calendar-alt",
-      label: "Appointment",
+      label: t('counselor:appointment'),
       badge: appointments.filter((a) => a.status === "pending").length,
     },
     // { id: "patients", icon: "users", label: "Patients", badge: 0 },
-    { id: "earnings", icon: "money-bill-wave", label: "Earnings", badge: 0 },
-    { id: "settings", icon: "sliders", label: "Settings", badge: 0 },
-    { id: "profile", icon: "chart-pie", label: "Profile", badge: 0 },
+    { id: "earnings", icon: "money-bill-wave", label: t('counselor:earnings'), badge: 0 },
+    { id: "settings", icon: "sliders", label: t('settings:settings'), badge: 0 },
+    { id: "profile", icon: "chart-pie", label: t('counselor:profile'), badge: 0 },
   ];
 
   const handleTabChange = (tabId) => {
@@ -1630,10 +1635,10 @@ export default function CounselorDashboard() {
   // â”€â”€ Appointments Tab Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderAppointmentsTab = () => {
     const filterTabs = [
-      { key: 'all', label: 'All', icon: 'apps-outline' },
-      { key: 'pending', label: 'Pending', icon: 'time-outline' },
-      { key: 'confirmed', label: 'Confirmed', icon: 'checkmark-circle-outline' },
-      { key: 'canceled', label: 'Canceled', icon: 'close-circle-outline' },
+      { key: 'all', label: t('common:all'), icon: 'apps-outline' },
+      { key: 'pending', label: t('common:pending'), icon: 'time-outline' },
+      { key: 'confirmed', label: t('common:confirmed'), icon: 'checkmark-circle-outline' },
+      { key: 'canceled', label: t('common:canceled'), icon: 'close-circle-outline' },
     ];
 
     const filteredApts =
@@ -2291,13 +2296,16 @@ export default function CounselorDashboard() {
                 <Text style={styles.mobileTitleText}>Mediconeckt</Text>
               </View>
 
-              <TouchableOpacity
-                style={styles.mobileLogoutBtn}
-                onPress={() => setShowLogoutConfirm(true)}
-                activeOpacity={0.5}
-              >
-                <Feather name="log-out" size={20} color="#2563EB" />
-              </TouchableOpacity>
+              <View style={styles.mobileHeaderActions}>
+                <LanguageSelector iconColor="#2563EB" iconSize={20} />
+                <TouchableOpacity
+                  style={styles.mobileLogoutBtn}
+                  onPress={() => setShowLogoutConfirm(true)}
+                  activeOpacity={0.5}
+                >
+                  <Feather name="log-out" size={20} color="#2563EB" />
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         )}
@@ -2616,15 +2624,14 @@ export default function CounselorDashboard() {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
+              <View style={styles.logoutModalAccent} />
               <View style={styles.logoutModal}>
-                <Icon
-                  name="triangle-exclamation"
-                  size={48}
-                  color="#f5a623"
-                />
-                <Text style={styles.logoutTitle}>Confirm Logout</Text>
+                <View style={styles.logoutIconWrap}>
+                  <Feather name="log-out" size={26} color="#DC2626" />
+                </View>
+                <Text style={styles.logoutTitle}>Sign Out?</Text>
                 <Text style={styles.logoutText}>
-                  Are you sure you want to logout?
+                  You'll be signed out of your counselor account. Your data is safe.
                 </Text>
                 <View style={styles.modalActions}>
                   <TouchableOpacity
@@ -2637,7 +2644,8 @@ export default function CounselorDashboard() {
                     style={styles.confirmBtn}
                     onPress={handleLogout}
                   >
-                    <Text style={styles.confirmBtnText}>Logout</Text>
+                    <Feather name="log-out" size={15} color="#ffffff" />
+                    <Text style={styles.confirmBtnText}>Sign Out</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -3674,6 +3682,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     textTransform: "uppercase",
   },
+  mobileHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   mobileLogoutBtn: {
     width: 38,
     height: 38,
@@ -4381,7 +4394,7 @@ const styles = StyleSheet.create({
   // ─── Logout Modal ────────────────────────────────────────────────────────
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(15,23,42,0.5)",
+    backgroundColor: "rgba(15,23,42,0.55)",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
@@ -4391,13 +4404,19 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     width: "100%",
     maxWidth: 380,
-    shadowColor: "#1E40AF",
+    shadowColor: "#2563EB",
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.18,
     shadowRadius: 24,
     elevation: 16,
-    borderWidth: 1,
-    borderColor: "#DBEAFE",
+    overflow: "hidden",
+  },
+  logoutModalAccent: {
+    height: 4,
+    backgroundColor: "#2563EB",
+    width: "100%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
   },
   mobileTitle: {
     flexDirection: "row",
@@ -4415,11 +4434,21 @@ const styles = StyleSheet.create({
     padding: 28,
     alignItems: "center",
   },
+  logoutIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1.5,
+    borderColor: "#FECACA",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
   logoutTitle: {
     fontSize: 20,
     fontWeight: "800",
     color: "#0f172a",
-    marginTop: 14,
     marginBottom: 8,
     letterSpacing: -0.2,
   },
@@ -4428,7 +4457,8 @@ const styles = StyleSheet.create({
     color: "#64748b",
     marginBottom: 24,
     textAlign: "center",
-    lineHeight: 20,
+    lineHeight: 21,
+    maxWidth: 260,
   },
   modalActions: {
     flexDirection: "row",
@@ -4447,14 +4477,17 @@ const styles = StyleSheet.create({
   cancelBtnText: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#1E40AF",
+    color: "#2563EB",
   },
   confirmBtn: {
     flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
     backgroundColor: "#DC2626",
     paddingVertical: 13,
     borderRadius: 14,
-    alignItems: "center",
     shadowColor: "#DC2626",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,

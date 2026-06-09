@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   View,
   Text,
@@ -28,6 +29,7 @@ const { width, height } = Dimensions.get("window");
 
 const PatientProfile = ({ onProfileUpdate }) => {
   const navigation = useNavigation();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [profileImage, setProfileImage] = useState(null);
@@ -697,7 +699,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
   };
 
   const formatDate = (dateString) => {
-    if (!dateString) return "Not specified";
+    if (!dateString) return t('profile:notSpecified');
     return new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
       month: "long",
@@ -747,7 +749,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
         </View>
 
         <View style={styles.profileMeta}>
-          <Text style={styles.heroKicker}>Patient Profile</Text>
+          <Text style={styles.heroKicker}>{t('profile:patientProfile')}</Text>
           <Text style={styles.name}>{patientData.personalInfo.name}</Text>
           <Text style={styles.heroSubtext} numberOfLines={1}>
             {patientData.personalInfo.email || patientData.personalInfo.phone || "Profile overview"}
@@ -760,17 +762,17 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
       <View style={styles.statsRow}>
         <View style={styles.statItem}>
-          <Text style={styles.statLabel}>Blood</Text>
+          <Text style={styles.statLabel}>{t('profile:blood')}</Text>
           <Text style={styles.statValue}>{patientData.personalInfo.bloodGroup || "O+"}</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
-          <Text style={styles.statLabel}>Age</Text>
+          <Text style={styles.statLabel}>{t('profile:age')}</Text>
           <Text style={styles.statValue}>{patientData.personalInfo.age || "--"}y</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
-          <Text style={styles.statLabel}>Gender</Text>
+          <Text style={styles.statLabel}>{t('profile:gender')}</Text>
           <Text style={styles.statValue}>{patientData.personalInfo.gender || "M"}</Text>
         </View>
       </View>
@@ -782,44 +784,44 @@ const PatientProfile = ({ onProfileUpdate }) => {
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleRow}>
           <Ionicons name="person-outline" size={20} color="#6366f1" />
-          <Text style={styles.cardTitle}>Personal Details</Text>
+          <Text style={styles.cardTitle}>{t('profile:personalDetails')}</Text>
         </View>
       </View>
       <View style={styles.infoGrid}>
         <View style={styles.infoItem}>
-          <Text style={styles.infoLabel}>Full Name</Text>
+          <Text style={styles.infoLabel}>{t('auth:fullName')}</Text>
           <Text style={styles.infoValue}>{patientData.personalInfo.name}</Text>
         </View>
         <View style={styles.infoItem}>
-          <Text style={styles.infoLabel}>Anonymous Name</Text>
+          <Text style={styles.infoLabel}>{t('profile:anonymousName')}</Text>
           <Text style={styles.infoValue}>
-            {patientData.personalInfo.anonymous || "Not specified"}
+            {patientData.personalInfo.anonymous || t('profile:notSpecified')}
           </Text>
         </View>
         <View style={styles.infoItem}>
-          <Text style={styles.infoLabel}>Date of Birth</Text>
+          <Text style={styles.infoLabel}>{t('profile:dateOfBirth')}</Text>
           <Text style={styles.infoValue}>
             {formatDate(patientData.personalInfo.dateOfBirth)}
           </Text>
         </View>
         <View style={styles.infoItem}>
-          <Text style={styles.infoLabel}>Gender</Text>
+          <Text style={styles.infoLabel}>{t('profile:gender')}</Text>
           <Text style={styles.infoValue}>
-            {patientData.personalInfo.gender || "Not specified"}
+            {patientData.personalInfo.gender || t('profile:notSpecified')}
           </Text>
         </View>
         <View style={styles.infoItem}>
-          <Text style={styles.infoLabel}>Blood Group</Text>
+          <Text style={styles.infoLabel}>{t('profile:bloodGroup')}</Text>
           <Text style={styles.infoValue}>
-            {patientData.personalInfo.bloodGroup || "Not specified"}
+            {patientData.personalInfo.bloodGroup || t('profile:notSpecified')}
           </Text>
         </View>
         <View style={styles.infoItem}>
-          <Text style={styles.infoLabel}>Email</Text>
+          <Text style={styles.infoLabel}>{t('auth:email')}</Text>
           <Text style={styles.infoValue}>{patientData.personalInfo.email}</Text>
         </View>
         <View style={styles.infoItem}>
-          <Text style={styles.infoLabel}>Phone</Text>
+          <Text style={styles.infoLabel}>{t('auth:phone')}</Text>
           <Text style={styles.infoValue}>{patientData.personalInfo.phone}</Text>
         </View>
       </View>
@@ -831,12 +833,12 @@ const PatientProfile = ({ onProfileUpdate }) => {
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleRow}>
           <Ionicons name="location-outline" size={20} color="#6366f1" />
-          <Text style={styles.cardTitle}>Address</Text>
+          <Text style={styles.cardTitle}>{t('profile:address')}</Text>
         </View>
       </View>
       <View style={styles.addressDisplay}>
         <Text style={styles.addressText}>
-          {patientData.personalInfo.address?.line1 || "No address provided"}
+          {patientData.personalInfo.address?.line1 || t('profile:noAddressProvided')}
         </Text>
         {patientData.personalInfo.address?.line2 && (
           <Text style={styles.addressText}>
@@ -865,14 +867,14 @@ const PatientProfile = ({ onProfileUpdate }) => {
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleRow}>
           <Ionicons name="alert-circle-outline" size={20} color="#f97316" />
-          <Text style={styles.cardTitle}>Emergency Contact</Text>
+          <Text style={styles.cardTitle}>{t('profile:emergencyContact')}</Text>
         </View>
       </View>
       <View style={styles.emergencyDisplay}>
         <Text style={styles.emergencyIcon}>🆘</Text>
         <View style={styles.emergencyDetails}>
           <Text style={styles.emergencyName}>
-            {patientData.personalInfo.emergencyContact?.name || "Not specified"}
+            {patientData.personalInfo.emergencyContact?.name || t('profile:notSpecified')}
           </Text>
           <Text style={styles.emergencyRelation}>
             {patientData.personalInfo.emergencyContact?.relation}
@@ -890,21 +892,21 @@ const PatientProfile = ({ onProfileUpdate }) => {
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleRow}>
           <Ionicons name="medical-outline" size={20} color="#10b981" />
-          <Text style={styles.cardTitle}>Medical History</Text>
+          <Text style={styles.cardTitle}>{t('profile:medicalHistory')}</Text>
         </View>
       </View>
       <View style={styles.medicalGrid}>
         <View style={styles.vitalCard}>
-          <Text style={styles.vitalTitle}>Vital Stats</Text>
+          <Text style={styles.vitalTitle}>{t('profile:vitalStats')}</Text>
           <View style={styles.vitalRows}>
             <View style={styles.vitalRow}>
-              <Text style={styles.vitalLabel}>Height</Text>
+              <Text style={styles.vitalLabel}>{t('profile:height')}</Text>
               <Text style={styles.vitalValue}>
                 {patientData.medicalInfo?.height || "--"} cm
               </Text>
             </View>
             <View style={styles.vitalRow}>
-              <Text style={styles.vitalLabel}>Weight</Text>
+              <Text style={styles.vitalLabel}>{t('profile:weight')}</Text>
               <Text style={styles.vitalValue}>
                 {patientData.medicalInfo?.weight || "--"} kg
               </Text>
@@ -914,7 +916,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
         <View style={styles.conditionsList}>
           {patientData.medicalInfo?.allergies?.length > 0 && (
             <View>
-              <Text style={styles.conditionsTitle}>Allergies</Text>
+              <Text style={styles.conditionsTitle}>{t('profile:allergies')}</Text>
               <View style={styles.tagsContainer}>
                 {patientData.medicalInfo.allergies.map((a, i) => (
                   <View key={i} style={styles.tag}>
@@ -926,7 +928,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
           )}
           {patientData.medicalInfo?.chronicConditions?.length > 0 && (
             <View>
-              <Text style={styles.conditionsTitle}>Chronic Conditions</Text>
+              <Text style={styles.conditionsTitle}>{t('profile:chronicConditions')}</Text>
               <View style={styles.tagsContainer}>
                 {patientData.medicalInfo.chronicConditions.map((c, i) => (
                   <View key={i} style={styles.tag}>
@@ -938,7 +940,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
           )}
           {patientData.medicalInfo?.currentMedications?.length > 0 && (
             <View>
-              <Text style={styles.conditionsTitle}>Current Medications</Text>
+              <Text style={styles.conditionsTitle}>{t('profile:currentMedications')}</Text>
               <View style={styles.tagsContainer}>
                 {patientData.medicalInfo.currentMedications.map((m, i) => (
                   <View key={i} style={styles.tag}>
@@ -951,7 +953,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
           {!patientData.medicalInfo?.allergies?.length &&
             !patientData.medicalInfo?.chronicConditions?.length &&
             !patientData.medicalInfo?.currentMedications?.length && (
-              <Text style={styles.noData}>No medical information provided</Text>
+              <Text style={styles.noData}>{t('profile:noMedicalInfo')}</Text>
             )}
         </View>
       </View>
@@ -963,7 +965,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleRow}>
           <Ionicons name="shield-checkmark-outline" size={20} color="#3b82f6" />
-          <Text style={styles.cardTitle}>Insurance Plans</Text>
+          <Text style={styles.cardTitle}>{t('profile:insurancePlans')}</Text>
         </View>
       </View>
       {patientData.insuranceInfo?.provider ? (
@@ -980,31 +982,31 @@ const PatientProfile = ({ onProfileUpdate }) => {
           </View>
           <View style={styles.insuranceDetails}>
             <View>
-              <Text style={styles.insuranceLabel}>Policy Number:</Text>
+              <Text style={styles.insuranceLabel}>{t('profile:policyNumber')}:</Text>
               <Text style={styles.insuranceValue}>
                 {patientData.insuranceInfo.policyNumber}
               </Text>
             </View>
             <View>
-              <Text style={styles.insuranceLabel}>Group Number:</Text>
+              <Text style={styles.insuranceLabel}>{t('profile:groupNumber')}:</Text>
               <Text style={styles.insuranceValue}>
                 {patientData.insuranceInfo.groupNumber}
               </Text>
             </View>
             <View>
-              <Text style={styles.insuranceLabel}>Coverage Amount:</Text>
+              <Text style={styles.insuranceLabel}>{t('profile:coverageAmount')}:</Text>
               <Text style={styles.insuranceValue}>
                 {patientData.insuranceInfo.coverageAmount}
               </Text>
             </View>
             <View>
-              <Text style={styles.insuranceLabel}>Validity:</Text>
+              <Text style={styles.insuranceLabel}>{t('profile:validity')}:</Text>
               <Text style={styles.insuranceValue}>
                 {formatDate(patientData.insuranceInfo.validityDate)}
               </Text>
             </View>
             <View>
-              <Text style={styles.insuranceLabel}>Nominee:</Text>
+              <Text style={styles.insuranceLabel}>{t('profile:nominee')}:</Text>
               <Text style={styles.insuranceValue}>
                 {patientData.insuranceInfo.nominee} (
                 {patientData.insuranceInfo.relationship})
@@ -1013,7 +1015,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
           </View>
         </View>
       ) : (
-        <Text style={styles.noData}>No insurance information added yet.</Text>
+        <Text style={styles.noData}>{t('profile:noInsuranceInfo')}</Text>
       )}
     </View>
   );
@@ -1028,7 +1030,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Edit Profile</Text>
+            <Text style={styles.modalTitle}>{t('settings:editProfile')}</Text>
             <TouchableOpacity onPress={handleCancelEdit} style={styles.closeModal}>
               <Text style={styles.closeModalText}>×</Text>
             </TouchableOpacity>
@@ -1038,7 +1040,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
             <View style={styles.modalBody}>
               {/* Profile Picture */}
               <View style={styles.formSection}>
-                <Text style={styles.sectionTitle}>Profile Picture</Text>
+                <Text style={styles.sectionTitle}>{t('profile:profilePicture')}</Text>
                 <View style={styles.profilePictureEdit}>
                   <View style={styles.avatarPreview}>
                     {profileImage || patientData.personalInfo.profilePhoto ? (
@@ -1056,17 +1058,17 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   </View>
                   <View style={styles.uploadActions}>
                     <TouchableOpacity style={styles.uploadBtn} onPress={handleImageUpload}>
-                      <Text style={styles.uploadBtnText}>📷 Change Photo</Text>
+                      <Text style={styles.uploadBtnText}>📷 {t('profile:changePhoto')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.generateAvatarBtn}
                       onPress={() => setShowAvatarBuilder(true)}
                     >
-                      <Text style={styles.generateAvatarBtnText}>✨ Create Avatar</Text>
+                      <Text style={styles.generateAvatarBtnText}>✨ {t('profile:createAvatar')}</Text>
                     </TouchableOpacity>
                     {(profileImage || patientData.personalInfo.profilePhoto) && (
                       <TouchableOpacity style={styles.removeBtn} onPress={handleRemoveImage}>
-                        <Text style={styles.removeBtnText}>🗑️ Remove</Text>
+                        <Text style={styles.removeBtnText}>🗑️ {t('common:delete')}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -1076,10 +1078,10 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
               {/* Personal Info */}
               <View style={styles.formSection}>
-                <Text style={styles.sectionTitle}>Personal Information</Text>
+                <Text style={styles.sectionTitle}>{t('profile:personalInformation')}</Text>
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Full Name *</Text>
+                    <Text style={styles.formLabel}>{t('auth:fullName')} *</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.name}
@@ -1087,7 +1089,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     />
                   </View>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Patient ID</Text>
+                    <Text style={styles.formLabel}>{t('profile:patientId')}</Text>
                     <TextInput
                       style={[styles.input, styles.readonly]}
                       value={patientData.personalInfo.id}
@@ -1097,7 +1099,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                 </View>
 
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Anonymous Name</Text>
+                  <Text style={styles.formLabel}>{t('profile:anonymousName')}</Text>
                   <TextInput
                     style={styles.input}
                     value={editFormData.anonymous}
@@ -1109,7 +1111,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Date of Birth *</Text>
+                    <Text style={styles.formLabel}>{t('profile:dateOfBirth')} *</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.dateOfBirth}
@@ -1119,7 +1121,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     />
                   </View>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Age</Text>
+                    <Text style={styles.formLabel}>{t('profile:age')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.age}
@@ -1131,7 +1133,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Gender *</Text>
+                    <Text style={styles.formLabel}>{t('profile:gender')} *</Text>
                     <View style={styles.selectContainer}>
                       {genders.map((gender) => (
                         <TouchableOpacity
@@ -1155,7 +1157,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     </View>
                   </View>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Blood Group</Text>
+                    <Text style={styles.formLabel}>{t('profile:bloodGroup')}</Text>
                     <View style={styles.selectContainer}>
                       {bloodGroups.map((bg) => (
                         <TouchableOpacity
@@ -1183,7 +1185,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                 </View>
 
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Email *</Text>
+                  <Text style={styles.formLabel}>{t('auth:email')} *</Text>
                   <View style={styles.verifyRow}>
                     <TextInput
                       style={[styles.input, styles.verifyInput]}
@@ -1203,10 +1205,10 @@ const PatientProfile = ({ onProfileUpdate }) => {
                       >
                         <Text style={styles.verifyBtnText}>
                           {emailChange.sending
-                            ? "Sending…"
+                            ? t('profile:sendingOtp')
                             : emailChange.sent
-                            ? "Resend"
-                            : "Verify"}
+                            ? t('profile:resend')
+                            : t('profile:verify')}
                         </Text>
                       </TouchableOpacity>
                     )}
@@ -1243,7 +1245,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                         disabled={emailChange.verifying}
                       >
                         <Text style={styles.verifyBtnText}>
-                          {emailChange.verifying ? "Verifying…" : "Confirm"}
+                          {emailChange.verifying ? t('profile:verifying') : t('common:confirm')}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -1254,7 +1256,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                 </View>
 
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Phone *</Text>
+                  <Text style={styles.formLabel}>{t('auth:phone')} *</Text>
                   <View style={styles.verifyRow}>
                     <TextInput
                       style={[styles.input, styles.verifyInput]}
@@ -1273,10 +1275,10 @@ const PatientProfile = ({ onProfileUpdate }) => {
                       >
                         <Text style={styles.verifyBtnText}>
                           {phoneChange.sending
-                            ? "Sending…"
+                            ? t('profile:sendingOtp')
                             : phoneChange.sent
-                            ? "Resend"
-                            : "Verify"}
+                            ? t('profile:resend')
+                            : t('profile:verify')}
                         </Text>
                       </TouchableOpacity>
                     )}
@@ -1313,7 +1315,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                         disabled={phoneChange.verifying}
                       >
                         <Text style={styles.verifyBtnText}>
-                          {phoneChange.verifying ? "Verifying…" : "Confirm"}
+                          {phoneChange.verifying ? t('profile:verifying') : t('common:confirm')}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -1326,9 +1328,9 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
               {/* Address */}
               <View style={styles.formSection}>
-                <Text style={styles.sectionTitle}>Address</Text>
+                <Text style={styles.sectionTitle}>{t('profile:address')}</Text>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Line 1</Text>
+                  <Text style={styles.formLabel}>{t('profile:addressLine1')}</Text>
                   <TextInput
                     style={styles.input}
                     value={editFormData.address.line1}
@@ -1336,7 +1338,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   />
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Line 2</Text>
+                  <Text style={styles.formLabel}>{t('profile:addressLine2')}</Text>
                   <TextInput
                     style={styles.input}
                     value={editFormData.address.line2}
@@ -1345,7 +1347,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                 </View>
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>City</Text>
+                    <Text style={styles.formLabel}>{t('profile:city')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.address.city}
@@ -1353,7 +1355,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     />
                   </View>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>State</Text>
+                    <Text style={styles.formLabel}>{t('profile:state')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.address.state}
@@ -1363,7 +1365,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                 </View>
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Pincode</Text>
+                    <Text style={styles.formLabel}>{t('profile:pincode')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.address.pincode}
@@ -1372,7 +1374,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     />
                   </View>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Country</Text>
+                    <Text style={styles.formLabel}>{t('profile:country')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.address.country}
@@ -1384,10 +1386,10 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
               {/* Emergency Contact */}
               <View style={styles.formSection}>
-                <Text style={styles.sectionTitle}>Emergency Contact</Text>
+                <Text style={styles.sectionTitle}>{t('profile:emergencyContact')}</Text>
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Name</Text>
+                    <Text style={styles.formLabel}>{t('auth:name')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.emergencyContact.name}
@@ -1395,7 +1397,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     />
                   </View>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Relation</Text>
+                    <Text style={styles.formLabel}>{t('profile:relation')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.emergencyContact.relation}
@@ -1404,7 +1406,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   </View>
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Phone</Text>
+                  <Text style={styles.formLabel}>{t('auth:phone')}</Text>
                   <TextInput
                     style={styles.input}
                     value={editFormData.emergencyContact.phone}
@@ -1416,10 +1418,10 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
               {/* Medical */}
               <View style={styles.formSection}>
-                <Text style={styles.sectionTitle}>Medical Information</Text>
+                <Text style={styles.sectionTitle}>{t('profile:medicalInformation')}</Text>
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Height (cm)</Text>
+                    <Text style={styles.formLabel}>{t('profile:heightCm')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.height}
@@ -1428,7 +1430,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     />
                   </View>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Weight (kg)</Text>
+                    <Text style={styles.formLabel}>{t('profile:weightKg')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.weight}
@@ -1438,7 +1440,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   </View>
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Allergies (comma separated)</Text>
+                  <Text style={styles.formLabel}>{t('profile:allergiesLabel')}</Text>
                   <TextInput
                     style={styles.input}
                     value={editFormData.allergies}
@@ -1448,7 +1450,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   />
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Chronic Conditions</Text>
+                  <Text style={styles.formLabel}>{t('profile:chronicConditions')}</Text>
                   <TextInput
                     style={styles.input}
                     value={editFormData.chronicConditions}
@@ -1458,7 +1460,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   />
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Current Medications</Text>
+                  <Text style={styles.formLabel}>{t('profile:currentMedications')}</Text>
                   <TextInput
                     style={styles.input}
                     value={editFormData.currentMedications}
@@ -1471,10 +1473,10 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
               {/* Insurance */}
               <View style={styles.formSection}>
-                <Text style={styles.sectionTitle}>Insurance Information</Text>
+                <Text style={styles.sectionTitle}>{t('profile:insuranceInformation')}</Text>
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Provider</Text>
+                    <Text style={styles.formLabel}>{t('profile:provider')}</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollPicker}>
                       {insuranceProviders.map((p) => (
                         <TouchableOpacity
@@ -1498,7 +1500,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     </ScrollView>
                   </View>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Insurance Type</Text>
+                    <Text style={styles.formLabel}>{t('profile:insuranceType')}</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollPicker}>
                       {insuranceTypes.map((t) => (
                         <TouchableOpacity
@@ -1525,7 +1527,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Policy Number</Text>
+                    <Text style={styles.formLabel}>{t('profile:policyNumber')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.policyNumber}
@@ -1533,7 +1535,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     />
                   </View>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Group Number</Text>
+                    <Text style={styles.formLabel}>{t('profile:groupNumber')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.groupNumber}
@@ -1544,7 +1546,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Coverage Amount</Text>
+                    <Text style={styles.formLabel}>{t('profile:coverageAmount')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.coverageAmount}
@@ -1554,7 +1556,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     />
                   </View>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Validity Date</Text>
+                    <Text style={styles.formLabel}>{t('profile:validityDate')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.validityDate}
@@ -1567,7 +1569,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Nominee</Text>
+                    <Text style={styles.formLabel}>{t('profile:nominee')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.nominee}
@@ -1575,7 +1577,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     />
                   </View>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Relationship</Text>
+                    <Text style={styles.formLabel}>{t('profile:relationship')}</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.relationship}
@@ -1593,7 +1595,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
               onPress={handleCancelEdit}
               disabled={loading}
             >
-              <Text style={styles.btnSecondaryText}>Cancel</Text>
+              <Text style={styles.btnSecondaryText}>{t('common:cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.btnPrimary}
@@ -1601,7 +1603,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
               disabled={loading}
             >
               <Text style={styles.btnPrimaryText}>
-                {loading ? "Saving..." : "Save Changes"}
+                {loading ? t('profile:saving') : t('profile:saveChanges')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1614,7 +1616,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#667eea" />
-        <Text style={styles.loadingText}>Loading profile...</Text>
+        <Text style={styles.loadingText}>{t('profile:loadingProfile')}</Text>
       </View>
     );
   }
@@ -1635,7 +1637,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
         <View style={styles.locationCard}>
           <View style={styles.locationCardLeft}>
             <Ionicons name="location-outline" size={20} color="#1e3a8a" />
-            <Text style={styles.locationCardLabel}>Share my current location</Text>
+            <Text style={styles.locationCardLabel}>{t('profile:shareLocation')}</Text>
           </View>
           <TouchableOpacity
             style={[
@@ -1646,7 +1648,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
             disabled={isUpdatingLocation}
           >
             <Text style={styles.locationUpdateBtnText}>
-              {isUpdatingLocation ? "Updating…" : "Update"}
+              {isUpdatingLocation ? t('profile:updating') : t('profile:update')}
             </Text>
           </TouchableOpacity>
         </View>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   View,
   Text,
@@ -38,6 +39,7 @@ import CounselorTable from "../Tab/Appointment/BookAppointment";
 import WalletDashboard from "../Tab/Wallet/WalletDashboard";
 import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
+import LanguageSelector from '../../../../../components/common/LanguageSelector';
 import RealVideoCallModal from "../Tab/CallModal/VideoCallModal";
 import RealVoiceCallModal from "../Tab/CallModal/VoiceCallModal";
 import HelpSupport from "../Tab/HelpSupport/HelpSupport";
@@ -508,6 +510,7 @@ const CallModal = ({
   onAcceptCall,
   onRejectCall,
 }) => {
+  const { t } = useTranslation();
   const [isAccepting, setIsAccepting] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
 
@@ -623,7 +626,7 @@ const CallModal = ({
               <View style={styles.callTopPill}>
                 <Ionicons name={isVideo ? "videocam" : "call"} size={12} color="#fdf4ff" />
                 <Text style={styles.callTopPillText}>
-                  {isVideo ? "Incoming video call" : "Incoming voice call"}
+                  {isVideo ? t('call:incomingVideoCall') : t('call:incomingVoiceCall')}
                 </Text>
               </View>
             </View>
@@ -674,7 +677,7 @@ const CallModal = ({
                   </TouchableOpacity>
                 </Animated.View>
                 <Text style={styles.actionLabel}>
-                  {isRejecting ? "Declining…" : "Decline"}
+                  {isRejecting ? t('common:loading') : t('call:reject')}
                 </Text>
               </View>
 
@@ -702,7 +705,7 @@ const CallModal = ({
                   </TouchableOpacity>
                 </Animated.View>
                 <Text style={styles.actionLabel}>
-                  {isAccepting ? "Connecting…" : "Accept"}
+                  {isAccepting ? t('call:connecting') : t('call:accept')}
                 </Text>
               </View>
             </View>
@@ -1065,6 +1068,7 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
 };
 
 export default function UserDashboard() {
+  const { t } = useTranslation();
   const navigation = useNavigation();
   const [active, setActive] = useState("Chat");
   const [chatOpen, setChatOpen] = useState(false);
@@ -1551,11 +1555,11 @@ export default function UserDashboard() {
   };
 
   const allMenuItems = [
-    { id: "Chat", icon: "chat", label: "Chat", type: "material" },
-    { id: "Counselor", icon: "psychology", label: "Counselor", type: "material" },
-    { id: "Appointment", icon: "event-available", label: "My Appointment", type: "material" },
-    { id: "Wallet", icon: "account-balance-wallet", label: "Wallet", type: "material" },
-    { id: "Video", icon: "history", label: "Call History", type: "material" },
+    { id: "Chat", icon: "chat", label: t('dashboard:chat'), type: "material" },
+    { id: "Counselor", icon: "psychology", label: t('dashboard:counselor'), type: "material" },
+    { id: "Appointment", icon: "event-available", label: t('dashboard:myAppointment'), type: "material" },
+    { id: "Wallet", icon: "account-balance-wallet", label: t('dashboard:wallet'), type: "material" },
+    { id: "Video", icon: "history", label: t('dashboard:callHistory'), type: "material" },
   ];
 
   const renderContent = () => {
@@ -1654,7 +1658,9 @@ export default function UserDashboard() {
   <View style={styles.headerLeft}>
     <Text style={styles.userName}>{userData.name || 'User'}</Text>
   </View>
-  <TouchableOpacity 
+  <View style={styles.headerRight}>
+    <LanguageSelector iconColor="#2563EB" iconSize={22} />
+  <TouchableOpacity
     style={styles.profileImageWrapper}
     onPress={() => setShowProfileMenu(!showProfileMenu)}
     activeOpacity={0.7}
@@ -1669,6 +1675,7 @@ export default function UserDashboard() {
       </View>
     )}
   </TouchableOpacity>
+  </View>
 
   {/* Profile Dropdown Menu */}
   {showProfileMenu && (
@@ -1778,7 +1785,7 @@ export default function UserDashboard() {
               color={active === "Chat" ? "#ffffff" : "#94a3b8"}
             />
           </View>
-          <Text style={[styles.navLabel, active === "Chat" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>Chat</Text>
+          <Text style={[styles.navLabel, active === "Chat" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>{t('dashboard:chat')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -1792,7 +1799,7 @@ export default function UserDashboard() {
               color={active === "Counselor" ? "#ffffff" : "#94a3b8"}
             />
           </View>
-          <Text style={[styles.navLabel, active === "Counselor" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>Counselor</Text>
+          <Text style={[styles.navLabel, active === "Counselor" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>{t('dashboard:counselor')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -1806,7 +1813,7 @@ export default function UserDashboard() {
               color={active === "Appointment" ? "#ffffff" : "#94a3b8"}
             />
           </View>
-          <Text style={[styles.navLabel, active === "Appointment" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>Appointment</Text>
+          <Text style={[styles.navLabel, active === "Appointment" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>{t('dashboard:myAppointment')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -1820,7 +1827,7 @@ export default function UserDashboard() {
               color={active === "Wallet" ? "#ffffff" : "#94a3b8"}
             />
           </View>
-          <Text style={[styles.navLabel, active === "Wallet" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>Wallet</Text>
+          <Text style={[styles.navLabel, active === "Wallet" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>{t('dashboard:wallet')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -2074,6 +2081,11 @@ const styles = StyleSheet.create({
   },
   headerLeft: {
     flex: 1,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   userName: {
     fontSize: 24,

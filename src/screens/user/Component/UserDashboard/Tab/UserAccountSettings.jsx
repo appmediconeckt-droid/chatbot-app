@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigation } from '@react-navigation/native';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -82,6 +84,8 @@ const Notice = ({ type, msg }) => {
 
 /* ── main component ───────────────────────────────────────────── */
 const UserAccountSettings = ({ onNavigateBack }) => {
+  const { t } = useTranslation();
+  const navigation = useNavigation();
   const [account, setAccount] = useState({ name: '', email: '', phone: '', authProvider: '', hasPassword: false });
   const [loadingAccount, setLoadingAccount] = useState(true);
   const [mode, setMode] = useState('change'); // 'change' | 'set'
@@ -242,7 +246,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
     return (
       <View style={s.center}>
         <ActivityIndicator size="large" color="#4f46e5" />
-        <Text style={s.loadingTxt}>Loading settings…</Text>
+        <Text style={s.loadingTxt}>{t('common:loading')}</Text>
       </View>
     );
   }
@@ -263,20 +267,20 @@ const UserAccountSettings = ({ onNavigateBack }) => {
             </TouchableOpacity>
           )}
           <View style={{ flex: 1 }}>
-            <Text style={s.title}>Account Settings</Text>
-            <Text style={s.subtitle}>Manage your login security</Text>
+            <Text style={s.title}>{t('settings:account')}</Text>
+            <Text style={s.subtitle}>{t('settings:security')}</Text>
           </View>
         </View>
 
         {/* Account info */}
         <View style={s.card}>
-          <Text style={s.cardTitle}>Account</Text>
+          <Text style={s.cardTitle}>{t('settings:account')}</Text>
           {[
-            { label: 'Name', val: account.name },
-            { label: 'Email', val: account.email },
-            { label: 'Phone', val: account.phone },
+            { label: t('auth:name'), val: account.name },
+            { label: t('auth:email'), val: account.email },
+            { label: t('auth:phone'), val: account.phone },
             { label: 'Login via', val: account.authProvider === 'google' ? 'Google' : 'Email & Password' },
-            { label: 'Password', val: account.hasPassword ? '●●●●●● (set)' : 'Not set yet' },
+            { label: t('auth:password'), val: account.hasPassword ? '●●●●●● (set)' : 'Not set yet' },
           ].map(({ label, val }) => (
             <View key={label} style={s.infoRow}>
               <Text style={s.infoKey}>{label}</Text>
@@ -333,7 +337,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                   >
                     {otpLoading
                       ? <ActivityIndicator size={12} color="#fff" />
-                      : <Text style={s.otpBtnTxt}>{otpSent ? 'Resend OTP' : 'Send OTP'}</Text>
+                      : <Text style={s.otpBtnTxt}>{otpSent ? t('auth:resendOtp') : t('auth:sendOtp')}</Text>
                     }
                   </TouchableOpacity>
                 </View>
@@ -359,7 +363,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
               )}
 
               <PwInput
-                label="New Password"
+                label={t('auth:newPassword')}
                 value={form.password}
                 onChange={(v) => setF('password', v)}
                 placeholder="Minimum 6 characters"
@@ -368,7 +372,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
               />
               <StrengthBar password={form.password} />
               <PwInput
-                label="Confirm Password"
+                label={t('auth:confirmPassword')}
                 value={form.confirmPassword}
                 onChange={(v) => setF('confirmPassword', v)}
                 placeholder="Re-enter password"
@@ -383,14 +387,14 @@ const UserAccountSettings = ({ onNavigateBack }) => {
               >
                 {pwLoading
                   ? <ActivityIndicator color="#fff" />
-                  : <><Feather name="save" size={16} color="#fff" /><Text style={s.submitTxt}>Save Password</Text></>
+                  : <><Feather name="save" size={16} color="#fff" /><Text style={s.submitTxt}>{t('common:save')}</Text></>
                 }
               </TouchableOpacity>
             </>
           ) : (
             <>
               <PwInput
-                label="Current Password"
+                label={t('auth:oldPassword')}
                 value={form.oldPassword}
                 onChange={(v) => setF('oldPassword', v)}
                 placeholder="Enter current password"
@@ -398,7 +402,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                 onToggle={() => setShowOld((x) => !x)}
               />
               <PwInput
-                label="New Password"
+                label={t('auth:newPassword')}
                 value={form.newPassword}
                 onChange={(v) => setF('newPassword', v)}
                 placeholder="Minimum 6 characters"
@@ -407,7 +411,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
               />
               <StrengthBar password={form.newPassword} />
               <PwInput
-                label="Confirm New Password"
+                label={t('auth:confirmPassword')}
                 value={form.confirmNewPassword}
                 onChange={(v) => setF('confirmNewPassword', v)}
                 placeholder="Re-enter new password"
@@ -423,12 +427,28 @@ const UserAccountSettings = ({ onNavigateBack }) => {
               >
                 {pwLoading
                   ? <ActivityIndicator color="#fff" />
-                  : <><Feather name="check-circle" size={16} color="#fff" /><Text style={s.submitTxt}>Change Password</Text></>
+                  : <><Feather name="check-circle" size={16} color="#fff" /><Text style={s.submitTxt}>{t('settings:changePassword')}</Text></>
                 }
               </TouchableOpacity>
             </>
           )}
         </View>
+
+        {/* App Lock */}
+        <TouchableOpacity
+          style={s.lockCard}
+          onPress={() => navigation.navigate('PinSetup')}
+          activeOpacity={0.8}
+        >
+          <View style={s.lockIconWrap}>
+            <Feather name="smartphone" size={18} color="#7c3aed" />
+          </View>
+          <View style={s.lockText}>
+            <Text style={s.lockTitle}>{t('settings:appLock')}</Text>
+            <Text style={s.lockSub}>{t('settings:pinFingerprint')}</Text>
+          </View>
+          <Feather name="chevron-right" size={18} color="#94a3b8" />
+        </TouchableOpacity>
 
         <Text style={s.footer}>© 2025 Mediconnect. All rights reserved.</Text>
       </ScrollView>
@@ -538,6 +558,36 @@ const s = StyleSheet.create({
   btnDisabled: { opacity: 0.5 },
 
   footer: { textAlign: 'center', fontSize: 11, color: '#cbd5e1', marginTop: 24 },
+
+  lockCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#e8ecf0',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+    gap: 12,
+  },
+  lockIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#EDE9FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  lockText: { flex: 1 },
+  lockTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  lockSub: { fontSize: 12, color: '#94a3b8', marginTop: 1 },
 });
 
 /* field styles */

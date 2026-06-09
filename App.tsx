@@ -8,7 +8,7 @@
 import { NewAppScreen } from '@react-native/new-app-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, StatusBar, StyleSheet, Text, useColorScheme, View, Platform } from 'react-native';
+import { ActivityIndicator, AppState, Image, StatusBar, StyleSheet, Text, useColorScheme, View, Platform } from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -38,6 +38,10 @@ import SetPasswordByOtp from './src/screens/account/SetPasswordByOtp';
 import safeVibrate from './src/utils/safeVibrate';
 import socketService from './src/services/socketService';
 import { CallProvider } from './src/screens/user/VideoCall/CallProvider';
+import AppLockScreen, { PIN_STORAGE_KEY } from './src/screens/auth/AppLockScreen';
+import PinSetupScreen from './src/screens/auth/PinSetupScreen';
+import './src/i18n';
+import i18n, { LANG_STORAGE_KEY } from './src/i18n';
 // Define your navigation param list
 // import { LogBox } from 'react-native';
 // LogBox.ignoreAllLogs(true);
@@ -58,6 +62,7 @@ export type RootStackParamList = {
   ChangePassword: undefined;
   SetPassword: undefined;
   SetPasswordByOtp: undefined;
+  PinSetup: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -78,13 +83,19 @@ const isLocationPermissionGranted = async (): Promise<boolean> => {
   }
 };
 
+// How long the app can stay in the background before re-locking (ms)
+const LOCK_TIMEOUT_MS = 30_000;
+
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
   const [bootRoute, setBootRoute] = useState<keyof RootStackParamList>('RoleSelector');
   const [bootDestination, setBootDestination] = useState<'UserDashboard' | 'CounselorDashboard'>('UserDashboard');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [isLocked, setIsLocked] = useState(false);
+  const [pinExists, setPinExists] = useState(false);
   const navigationRef = useRef<any>(null);
   const routeNameRef = useRef<string | undefined>(undefined);
+  const backgroundedAt = useRef<number | null>(null);
 
   useEffect(() => {
     const normalizeRole = (role: string | null) => {
@@ -108,6 +119,13 @@ function App() {
         if (!hasToken) {
           setBootRoute('RoleSelector');
           return;
+        }
+
+        // Show lock screen if the user has set up a PIN
+        const storedPin = await AsyncStorage.getItem(PIN_STORAGE_KEY);
+        if (storedPin) {
+          setPinExists(true);
+          setIsLocked(true);
         }
 
         // Establish the singleton presence socket so the backend marks this
@@ -152,11 +170,37 @@ function App() {
         console.warn('Session bootstrap failed, opening RoleSelector', error);
         setBootRoute('RoleSelector');
       } finally {
+        try {
+          const savedLang = await AsyncStorage.getItem(LANG_STORAGE_KEY);
+          if (savedLang && savedLang !== i18n.language) {
+            await i18n.changeLanguage(savedLang);
+          }
+        } catch {}
         setIsBootstrapping(false);
       }
     };
 
     bootstrapSessionRoute();
+  }, []);
+
+  // Re-lock when app returns from background after LOCK_TIMEOUT_MS
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (nextState) => {
+      if (nextState === 'background' || nextState === 'inactive') {
+        backgroundedAt.current = Date.now();
+      } else if (nextState === 'active' && backgroundedAt.current !== null) {
+        const elapsed = Date.now() - backgroundedAt.current;
+        backgroundedAt.current = null;
+        if (elapsed >= LOCK_TIMEOUT_MS) {
+          const storedPin = await AsyncStorage.getItem(PIN_STORAGE_KEY);
+          if (storedPin) {
+            setPinExists(true);
+            setIsLocked(true);
+          }
+        }
+      }
+    });
+    return () => sub.remove();
   }, []);
 
   if (isBootstrapping) {
@@ -232,8 +276,14 @@ function App() {
                 <Stack.Screen name='ChangePassword' component={ChangePassword} />
                 <Stack.Screen name='SetPassword' component={SetPassword} />
                 <Stack.Screen name='SetPasswordByOtp' component={SetPasswordByOtp} />
+                <Stack.Screen name='PinSetup' component={PinSetupScreen} />
           </Stack.Navigator>
         </NavigationContainer>
+
+        {/* ── App Lock overlay — renders above everything ── */}
+        {isLocked && !isBootstrapping && (
+          <AppLockScreen onSuccess={() => setIsLocked(false)} />
+        )}
       </ToastProvider>
       </CallProvider>
     </SafeAreaProvider>

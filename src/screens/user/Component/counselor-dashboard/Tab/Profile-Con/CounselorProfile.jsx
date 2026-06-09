@@ -15,6 +15,7 @@ import {
   Dimensions,
   Animated,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -42,6 +43,7 @@ const normalizeBloodGroup = (value) => {
 
 const CounselorProfile = () => {
   const navigation = useNavigation();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -431,7 +433,7 @@ const CounselorProfile = () => {
   };
 
   const formatDate = (dateString) => {
-    if (!dateString) return 'Not specified';
+    if (!dateString) return t('profile:notSpecified');
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric', month: 'long', day: 'numeric'
     });
@@ -461,7 +463,7 @@ const CounselorProfile = () => {
     return (
       <View style={styles.loadingScreen}>
         <ActivityIndicator size="large" color="#94A3B8" />
-        <Text style={styles.loadingText}>Loading your profile...</Text>
+        <Text style={styles.loadingText}>{t('profile:loadingYourProfile')}</Text>
       </View>
     );
   }
@@ -550,17 +552,17 @@ const CounselorProfile = () => {
               {!isEditing ? (
                 <TouchableOpacity onPress={() => setIsEditing(true)} style={styles.editBtn}>
                   <Icon name="edit" size={18} color="#fff" />
-                  <Text style={styles.editBtnText}>Edit</Text>
+                  <Text style={styles.editBtnText}>{t('common:edit')}</Text>
                 </TouchableOpacity>
               ) : (
                 <View style={styles.editActions}>
                   <TouchableOpacity onPress={handleSave} style={styles.saveBtn} disabled={loading}>
                     <Icon name="check" size={18} color="#fff" />
-                    <Text style={styles.saveBtnText}>Save</Text>
+                    <Text style={styles.saveBtnText}>{t('common:save')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={handleCancel} style={styles.cancelBtn}>
                     <Icon name="close" size={18} color="#6B7280" />
-                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                    <Text style={styles.cancelBtnText}>{t('common:cancel')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -571,25 +573,25 @@ const CounselorProfile = () => {
               <View style={styles.statItem}>
                 <StarRating rating={counselor.rating || 0} size={12} />
                 <Text style={styles.statValue}>{counselor.rating?.toFixed(1) || '0.0'}</Text>
-                <Text style={styles.statLabel}>Rating</Text>
+                <Text style={styles.statLabel}>{t('profile:rating')}</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
                 <Icon name="video-call" size={18} color="#2563EB" />
                 <Text style={styles.statValue}>{sessionsCount}</Text>
-                <Text style={styles.statLabel}>Sessions</Text>
+                <Text style={styles.statLabel}>{t('profile:sessions')}</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
                 <Icon name="people" size={18} color="#2563EB" />
                 <Text style={styles.statValue}>{clientsCount}</Text>
-                <Text style={styles.statLabel}>Clients</Text>
+                <Text style={styles.statLabel}>{t('profile:clients')}</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
                 <Icon name="work-history" size={18} color="#2563EB" />
                 <Text style={styles.statValue}>{counselor.experience || 0}y</Text>
-                <Text style={styles.statLabel}>Experience</Text>
+                <Text style={styles.statLabel}>{t('profile:experience')}</Text>
               </View>
             </View>
 
@@ -607,7 +609,7 @@ const CounselorProfile = () => {
               <View style={styles.completionHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Icon name={pct === 100 ? 'check-circle' : 'person'} size={16} color={barColor} />
-                  <Text style={styles.completionLabel}>Profile Completion</Text>
+                  <Text style={styles.completionLabel}>{t('profile:profileCompletion')}</Text>
                 </View>
                 <Text style={[styles.completionPct, { color: barColor }]}>{pct}%</Text>
               </View>
@@ -635,11 +637,11 @@ const CounselorProfile = () => {
             <View style={styles.detailRow}>
               <Icon name="cake" size={18} color="#2563EB" />
               <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Age</Text>
+                <Text style={styles.detailLabel}>{t('profile:age')}</Text>
                 {isEditing ? (
                   <TextInput style={styles.input} value={editedData.age?.toString() || ''} onChangeText={(v) => handleInputChange('age', parseInt(v) || 0)} placeholder="Your age" placeholderTextColor="#9CA3AF" keyboardType="numeric" />
                 ) : (
-                  <Text style={styles.detailValue}>{counselor.age || 'Not specified'}</Text>
+                  <Text style={styles.detailValue}>{counselor.age || t('profile:notSpecified')}</Text>
                 )}
               </View>
             </View>
@@ -647,7 +649,7 @@ const CounselorProfile = () => {
             <View style={styles.detailRow}>
               <Icon name="wc" size={18} color="#7C3AED" />
               <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Gender</Text>
+                <Text style={styles.detailLabel}>{t('profile:gender')}</Text>
                 {isEditing ? (
                   <View style={styles.genderSelector}>
                     {['male', 'female', 'other'].map(g => (
@@ -657,7 +659,7 @@ const CounselorProfile = () => {
                     ))}
                   </View>
                 ) : (
-                  <Text style={styles.detailValue}>{counselor.gender ? counselor.gender.charAt(0).toUpperCase() + counselor.gender.slice(1) : 'Not specified'}</Text>
+                  <Text style={styles.detailValue}>{counselor.gender ? counselor.gender.charAt(0).toUpperCase() + counselor.gender.slice(1) : t('profile:notSpecified')}</Text>
                 )}
               </View>
             </View>
@@ -665,11 +667,11 @@ const CounselorProfile = () => {
             <View style={styles.detailRow}>
               <Icon name="bloodtype" size={18} color="#DC2626" />
               <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Blood Group</Text>
+                <Text style={styles.detailLabel}>{t('profile:bloodGroup')}</Text>
                 {isEditing ? (
                   <TextInput style={styles.input} value={editedData.bloodGroup || ''} onChangeText={(v) => handleInputChange('bloodGroup', v)} placeholder="e.g., A+" placeholderTextColor="#9CA3AF" />
                 ) : (
-                  <Text style={styles.detailValue}>{counselor.bloodGroup || 'Not specified'}</Text>
+                  <Text style={styles.detailValue}>{counselor.bloodGroup || t('profile:notSpecified')}</Text>
                 )}
               </View>
             </View>
@@ -677,11 +679,11 @@ const CounselorProfile = () => {
             <View style={styles.detailRow}>
               <Icon name="email" size={18} color="#2563EB" />
               <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Email</Text>
+                <Text style={styles.detailLabel}>{t('auth:email')}</Text>
                 {isEditing ? (
                   <TextInput style={styles.input} value={editedData.email || ''} onChangeText={(v) => handleInputChange('email', v)} placeholder="Your email" placeholderTextColor="#9CA3AF" keyboardType="email-address" autoCapitalize="none" />
                 ) : (
-                  <Text style={styles.detailValue}>{counselor.email || 'Not specified'}</Text>
+                  <Text style={styles.detailValue}>{counselor.email || t('profile:notSpecified')}</Text>
                 )}
               </View>
             </View>
@@ -689,11 +691,11 @@ const CounselorProfile = () => {
             <View style={styles.detailRow}>
               <Icon name="phone" size={18} color="#3B82F6" />
               <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Phone</Text>
+                <Text style={styles.detailLabel}>{t('auth:phone')}</Text>
                 {isEditing ? (
                   <TextInput style={styles.input} value={editedData.phoneNumber || ''} onChangeText={(v) => handleInputChange('phoneNumber', v)} placeholder="Your phone" placeholderTextColor="#9CA3AF" keyboardType="phone-pad" />
                 ) : (
-                  <Text style={styles.detailValue}>{counselor.phoneNumber || 'Not specified'}</Text>
+                  <Text style={styles.detailValue}>{counselor.phoneNumber || t('profile:notSpecified')}</Text>
                 )}
               </View>
             </View>
@@ -701,11 +703,11 @@ const CounselorProfile = () => {
             <View style={styles.detailRow}>
               <Icon name="location-on" size={18} color="#DC2626" />
               <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Location</Text>
+                <Text style={styles.detailLabel}>{t('profile:location')}</Text>
                 {isEditing ? (
                   <TextInput style={styles.input} value={editedData.location || ''} onChangeText={(v) => handleInputChange('location', v)} placeholder="Your location" placeholderTextColor="#9CA3AF" />
                 ) : (
-                  <Text style={styles.detailValue}>{counselor.location || 'Not specified'}</Text>
+                  <Text style={styles.detailValue}>{counselor.location || t('profile:notSpecified')}</Text>
                 )}
               </View>
             </View>
@@ -713,7 +715,7 @@ const CounselorProfile = () => {
             <View style={styles.detailRow}>
               <Icon name="home" size={18} color="#D97706" />
               <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Address</Text>
+                <Text style={styles.detailLabel}>{t('profile:address')}</Text>
                 {isEditing ? (
                   <View style={styles.addressForm}>
                     <TextInput style={styles.input} value={editedData.address?.line1 || ''} onChangeText={(v) => handleNestedInputChange('address', 'line1', v)} placeholder="Line 1" placeholderTextColor="#9CA3AF" />
@@ -729,7 +731,7 @@ const CounselorProfile = () => {
                   </View>
                 ) : (
                   <Text style={styles.detailValue}>
-                    {counselor.address?.line1 ? [counselor.address.line1, counselor.address.city, counselor.address.state, counselor.address.country].filter(Boolean).join(', ') : 'Not specified'}
+                    {counselor.address?.line1 ? [counselor.address.line1, counselor.address.city, counselor.address.state, counselor.address.country].filter(Boolean).join(', ') : t('profile:notSpecified')}
                   </Text>
                 )}
               </View>
@@ -768,22 +770,22 @@ const CounselorProfile = () => {
             <View style={styles.detailRow}>
               <Icon name="menu-book" size={18} color="#7C3AED" />
               <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Education</Text>
+                <Text style={styles.detailLabel}>{t('profile:education')}</Text>
                 {isEditing ? (
                   <TextInput style={styles.input} value={editedData.education || ''} onChangeText={(v) => handleInputChange('education', v)} placeholder="Your qualifications" placeholderTextColor="#9CA3AF" />
                 ) : (
-                  <Text style={styles.detailValue}>{counselor.education || 'Not specified'}</Text>
+                  <Text style={styles.detailValue}>{counselor.education || t('profile:notSpecified')}</Text>
                 )}
               </View>
             </View>
             <View style={styles.detailRow}>
               <Icon name="work" size={18} color="#D97706" />
               <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>Experience</Text>
+                <Text style={styles.detailLabel}>{t('profile:experience')}</Text>
                 {isEditing ? (
                   <TextInput style={styles.input} value={editedData.experience?.toString() || ''} onChangeText={(v) => handleInputChange('experience', parseInt(v) || 0)} placeholder="Years" placeholderTextColor="#9CA3AF" keyboardType="numeric" />
                 ) : (
-                  <Text style={styles.detailValue}>{counselor.experience} years</Text>
+                  <Text style={styles.detailValue}>{counselor.experience} {t('profile:years')}</Text>
                 )}
               </View>
             </View>
@@ -840,15 +842,15 @@ const CounselorProfile = () => {
                   {isEditing && <TouchableOpacity onPress={() => handleRemoveCertification(cert._id)}><Icon name="delete-outline" size={18} color="#EF4444" /></TouchableOpacity>}
                 </View>
                 <View style={styles.certDetails}>
-                  <Text style={styles.certDetail}>Issued by: {cert.issuedBy || 'N/A'}</Text>
-                  <Text style={styles.certDetail}>Issue: {cert.issueDate ? formatDate(cert.issueDate) : 'N/A'}</Text>
-                  <Text style={styles.certDetail}>Expiry: {cert.expiryDate ? formatDate(cert.expiryDate) : 'N/A'}</Text>
+                  <Text style={styles.certDetail}>{t('profile:issuedBy')}: {cert.issuedBy || 'N/A'}</Text>
+                  <Text style={styles.certDetail}>{t('profile:issueDate')}: {cert.issueDate ? formatDate(cert.issueDate) : 'N/A'}</Text>
+                  <Text style={styles.certDetail}>{t('profile:expiryDate')}: {cert.expiryDate ? formatDate(cert.expiryDate) : 'N/A'}</Text>
                 </View>
               </View>
             ))}
             {isEditing && (
               <View style={styles.addCertForm}>
-                <Text style={styles.addCertTitle}>Add New Certification</Text>
+                <Text style={styles.addCertTitle}>{t('profile:addNewCertification')}</Text>
                 <TextInput style={styles.input} value={newCertification.name} onChangeText={(v) => setNewCertification(prev => ({ ...prev, name: v }))} placeholder="Certification name *" placeholderTextColor="#9CA3AF" />
                 <TextInput style={styles.input} value={newCertification.issuedBy} onChangeText={(v) => setNewCertification(prev => ({ ...prev, issuedBy: v }))} placeholder="Issued by" placeholderTextColor="#9CA3AF" />
                 <View style={styles.dateRow}>

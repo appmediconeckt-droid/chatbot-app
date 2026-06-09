@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
@@ -38,11 +39,44 @@ const AVATAR_COLORS = [
   '#3b82f6', '#8b5cf6', '#DC2626', '#F59E0B',
   '#10B981', '#0369A1', '#06B6D4', '#1E40AF',
 ];
+
 const getAvatarColor = (name) => {
   if (!name) return AVATAR_COLORS[0];
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+};
+
+const getAvatarEmoji = (gender) => {
+  if (gender === 'male') return '👨';
+  if (gender === 'female') return '👩';
+  return '👤';
+};
+
+// Resolves a profilePhoto value (string, Cloudinary object, or user object) to an absolute URL or null
+const resolvePhotoUrl = (photo) => {
+  if (!photo) return null;
+  // If it's a user/otherParty object, try all possible photo field names
+  if (typeof photo === 'object' && !photo.secure_url && !photo.url && !photo.public_id) {
+    const candidate =
+      photo.profilePhoto ||
+      photo.avatarUrl ||
+      photo.avatar ||
+      photo.profilePic ||
+      photo.image ||
+      photo.picture ||
+      null;
+    if (!candidate) return null;
+    return resolvePhotoUrl(candidate);
+  }
+  const raw = (typeof photo === 'object')
+    ? (photo.secure_url || photo.url || null)
+    : photo;
+  if (!raw || typeof raw !== 'string') return null;
+  if (raw.includes('ui-avatars.com') || raw.includes('dicebear') || raw.includes('gravatar.com')) return null;
+  if (raw.startsWith('http')) return raw;
+  if (raw.startsWith('/')) return `${API_BASE_URL}${raw}`;
+  return null;
 };
 
 // Returns true only for real user-uploaded photos — filters out generated avatars
@@ -65,6 +99,7 @@ const IncomingCallModal = ({
   onJoinCall,
   onRejectCall,
 }) => {
+  const { t } = useTranslation();
   const { width: winWidth } = useWindowDimensions();
   const [isJoining, setIsJoining] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
@@ -74,7 +109,6 @@ const IncomingCallModal = ({
     if (isJoining) return;
     setIsJoining(true);
     stopRinging();
-    // Close modal first so ringtone effect can't restart while accept API is in-flight.
     onClose();
     if (onJoinCall && callData) {
       try {
@@ -96,12 +130,10 @@ const IncomingCallModal = ({
     if (isRejecting) return;
     setIsRejecting(true);
     stopRinging();
-    // Close modal first so ringtone effect can't restart while reject API is in-flight.
     onClose();
     if (onRejectCall && callData) {
       try {
         await onRejectCall(callData.callId);
-        // already closed
       } catch (error) {
         console.error("Error rejecting call:", error);
       } finally {
@@ -153,7 +185,7 @@ const IncomingCallModal = ({
                 {isRejecting ? (
                   <ActivityIndicator size="small" color="white" />
                 ) : (
-                  <Text style={styles.incomingCallBtnText}>Decline</Text>
+                  <Text style={styles.incomingCallBtnText}>{t('call:reject')}</Text>
                 )}
               </TouchableOpacity>
 
@@ -165,7 +197,7 @@ const IncomingCallModal = ({
                 {isJoining ? (
                   <ActivityIndicator size="small" color="white" />
                 ) : (
-                  <Text style={styles.incomingCallBtnText}>Accept</Text>
+                  <Text style={styles.incomingCallBtnText}>{t('call:accept')}</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -177,6 +209,7 @@ const IncomingCallModal = ({
 };
 
 const SMSInput = ({ navigation, route }) => {
+  const { t } = useTranslation();
   const isFocused = useIsFocused();
   useScreenshotPrevent();
   const location = route.params || {};
@@ -383,13 +416,16 @@ const SMSInput = ({ navigation, route }) => {
 
   const getUserDetails = () => {
     const id = getSelectedUserId();
+    // Get photo from selectedUser with proper resolution
+    const profilePhotoUrl = resolvePhotoUrl(selectedUser);
+    
     return {
       id,
-      // Prefer anonymous handle when available (counselor should see anonymous name)
       name: selectedUser?.anonymous || selectedUser?.anonName || selectedUser?.name || selectedUser?.fullName || "User",
       gender: selectedUser?.gender,
       phone: selectedUser?.phone || selectedUser?.phoneNumber,
       email: selectedUser?.email,
+      profilePhoto: profilePhotoUrl,
     };
   };
 
@@ -426,7 +462,6 @@ const SMSInput = ({ navigation, route }) => {
     if (!uri) return;
     try {
       if (Platform.OS === 'android') {
-        // Download to cache then open via FileProvider-safe content URI
         const fileName = uri.split('/').pop().split('?')[0] || `attachment_${Date.now()}.pdf`;
         const destPath = `${RNFS.CachesDirectoryPath}/${fileName}`;
         const fileExists = await RNFS.exists(destPath);
@@ -434,13 +469,11 @@ const SMSInput = ({ navigation, route }) => {
           const result = await RNFS.downloadFile({ fromUrl: uri, toFile: destPath }).promise;
           if (result.statusCode !== 200) throw new Error('Download failed');
         }
-        // Use intent URL so Android picks the right viewer app
         const intentUrl = `intent://${destPath.replace('file://', '')}#Intent;action=android.intent.action.VIEW;type=application/pdf;scheme=file;end`;
         const canOpen = await Linking.canOpenURL(intentUrl);
         if (canOpen) {
           await Linking.openURL(intentUrl);
         } else {
-          // fallback: open original https URL in browser
           await Linking.openURL(uri);
         }
       } else {
@@ -476,15 +509,9 @@ const SMSInput = ({ navigation, route }) => {
       Alert.alert('Attachment', 'Failed to pick file. Please try again.');
     }
   }, [isSending]);
+  
   const USER_ID = userDetails.id;
   const USER_NAME = userDetails.name;
-
-  const getAvatarByGender = (gender) => {
-    if (gender === "male") return "👨";
-    if (gender === "female") return "👩";
-    return "👤";
-  };
-
 
   const getInitials = (name) => {
     if (!name) return "?";
@@ -527,8 +554,6 @@ const SMSInput = ({ navigation, route }) => {
   const handleMessagesContentSizeChange = useCallback(() => {
     if (!messages.length) return;
     if (shouldAutoScrollRef.current) {
-      // No animation on initial load — jumps straight to bottom without scrolling through history
-      // Animated only for new messages after initial load is done
       scrollToBottom(initialLoadDoneRef.current);
       initialLoadDoneRef.current = true;
     }
@@ -718,7 +743,6 @@ const SMSInput = ({ navigation, route }) => {
     try {
       const sentMsg = await sendMessageToAPI({ messageContent: messageText, file: attachmentToSend });
       setMessages(prev => {
-        // If socket already replaced the temp bubble, just remove any remaining temp
         const confirmedId = sentMsg?.id || sentMsg?._id || sentMsg?.messageId;
         const socketAlreadyAdded = confirmedId && prev.some(m =>
           !m.isTemporary && (m.id === confirmedId || (m.messageId && m.messageId === sentMsg?.messageId))
@@ -820,7 +844,7 @@ const SMSInput = ({ navigation, route }) => {
           name: selectedUser.name || USER_NAME,
           type: "video",
           callType: "video",
-          profilePic: getAvatarByGender(selectedUser.gender),
+          profilePic: getAvatarEmoji(userDetails.gender),
           phoneNumber: selectedUser.phone,
           status: response.data.status || "ringing",
           date: "Today",
@@ -915,7 +939,7 @@ const SMSInput = ({ navigation, route }) => {
           name: selectedUser.name || USER_NAME,
           type: "voice",
           callType: "audio",
-          profilePic: getAvatarByGender(selectedUser.gender),
+          profilePic: getAvatarEmoji(userDetails.gender),
           phoneNumber: selectedUser.phone,
           status: response.data.status || "ringing",
           date: "Today",
@@ -1068,7 +1092,6 @@ const SMSInput = ({ navigation, route }) => {
             callId: waitingCall.callId,
             roomId: waitingCall.roomId,
             name: displayName,
-            // Counselor side: never show the caller's real photo here (privacy).
             avatar: "👤",
             callType: waitingCall.callType || "video",
             requestMessage: waitingCall.requestMessage || `Incoming ${waitingCall.callType || "video"} call...`,
@@ -1079,7 +1102,6 @@ const SMSInput = ({ navigation, route }) => {
       } catch (error) {
         const status = error?.response?.status;
         if (status === 401) {
-          // Token expired and refresh failed (or user logged out). Stop polling to avoid spam.
           if (intervalId) clearInterval(intervalId);
           intervalId = null;
           return;
@@ -1242,7 +1264,6 @@ const SMSInput = ({ navigation, route }) => {
     }
   }, [callError]);
 
-
   const renderMessageStatus = (message) => {
     if (message.sender !== "me") return null;
     switch (message.status) {
@@ -1267,19 +1288,19 @@ const SMSInput = ({ navigation, route }) => {
 
   const renderMessage = ({ item }) => {
     const isMe = item.sender === "me";
-    const userPhoto = selectedUser?.profilePhoto;
     const userInitial = (USER_NAME?.charAt(0) || 'U').toUpperCase();
-    const avatarBg = getAvatarColor(USER_NAME);
 
     return (
       <View style={[styles.messageBubble, isMe ? styles.messageRight : styles.messageLeft]}>
         {/* Avatar — left side for user messages */}
         {!isMe && (
-          <View style={[styles.msgAvatar, { backgroundColor: avatarBg }]}>
-            {isRealPhoto(userPhoto) ? (
-              <Image source={{ uri: userPhoto }} style={styles.msgAvatarPhoto} />
+          <View style={[styles.msgAvatar, { backgroundColor: getAvatarColor(USER_NAME) }]}>
+            {userDetails.profilePhoto && isRealPhoto(userDetails.profilePhoto) ? (
+              <Image source={{ uri: userDetails.profilePhoto }} style={styles.msgAvatarPhoto} />
             ) : (
-              <Text style={styles.msgAvatarText}>{userInitial}</Text>
+              <Text style={styles.msgAvatarText}>
+                {getAvatarEmoji(userDetails.gender) || userInitial}
+              </Text>
             )}
           </View>
         )}
@@ -1353,25 +1374,29 @@ const SMSInput = ({ navigation, route }) => {
               <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
             </TouchableOpacity>
             <View style={styles.userInfo}>
-              <View style={[styles.userAvatar, { backgroundColor: getAvatarColor(USER_NAME) }]}>
-                {isRealPhoto(selectedUser?.profilePhoto) ? (
-                  <Image
-                    source={{ uri: selectedUser.profilePhoto }}
-                    style={styles.userAvatarPhoto}
-                  />
-                ) : (
-                  <Text style={styles.avatarInitial}>{(USER_NAME?.charAt(0) || 'U').toUpperCase()}</Text>
-                )}
+              <View style={styles.userAvatarWrapper}>
+                <View style={[styles.userAvatar, { backgroundColor: getAvatarColor(USER_NAME) }]}>
+                  {userDetails.profilePhoto && isRealPhoto(userDetails.profilePhoto) ? (
+                    <Image
+                      source={{ uri: userDetails.profilePhoto }}
+                      style={styles.userAvatarPhoto}
+                    />
+                  ) : (
+                    <Text style={styles.avatarInitial}>
+                      {getAvatarEmoji(userDetails.gender) || (USER_NAME?.charAt(0) || 'U').toUpperCase()}
+                    </Text>
+                  )}
+                </View>
                 <View style={[styles.activeDot, { backgroundColor: resolveOnlineStatus(selectedUser) ? "#4caf50" : "#9CA3AF" }]} />
               </View>
               <View style={styles.userDetails}>
                 <Text style={styles.userName}>{USER_NAME}</Text>
                 <Text style={styles.profileStatus}>
                   {remoteIsTyping ? (
-                    <Text style={styles.typingText}>Typing...</Text>
+                    <Text style={styles.typingText}>{t('messages:typing')}</Text>
                   ) : (
                     <Text style={styles.statusText}>
-                      {resolveOnlineStatus(selectedUser) ? "Online" : "Offline"}
+                      {resolveOnlineStatus(selectedUser) ? t('common:online') : t('common:offline')}
                     </Text>
                   )}
                 </Text>
@@ -1409,14 +1434,14 @@ const SMSInput = ({ navigation, route }) => {
         {isLoadingMessages && messages.length === 0 ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#2563EB" />
-            <Text style={styles.loadingText}>Loading messages...</Text>
+            <Text style={styles.loadingText}>{t('common:loadingMessages')}</Text>
           </View>
         ) : error && messages.length === 0 ? (
           <View style={styles.errorMessage}>
             <Text style={styles.errorIcon}>⚠️</Text>
             <Text style={styles.errorText}>{error}</Text>
             <TouchableOpacity onPress={fetchMessagesFromAPI}>
-              <Text style={styles.retryBtn}>Retry</Text>
+              <Text style={styles.retryBtn}>{t('common:retry')}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -1447,20 +1472,24 @@ const SMSInput = ({ navigation, route }) => {
             ListEmptyComponent={
               <View style={styles.emptyMessages}>
                 <Text style={styles.emptyMessagesIcon}>💬</Text>
-                <Text style={styles.emptyMessagesText}>No messages yet</Text>
-                <Text style={styles.emptyMessagesSubtext}>Start a conversation by sending a message</Text>
+                <Text style={styles.emptyMessagesText}>{t('messages:noMessages')}</Text>
+                <Text style={styles.emptyMessagesSubtext}>{t('messages:startConversation')}</Text>
               </View>
             }
             ListFooterComponent={
               <View style={styles.welcomeCard}>
                 <View style={[styles.welcomeAvatar, { backgroundColor: getAvatarColor(USER_NAME) }]}>
-                  <Text style={styles.welcomeInitials}>{getInitials(USER_NAME)}</Text>
+                  {userDetails.profilePhoto && isRealPhoto(userDetails.profilePhoto) ? (
+                    <Image source={{ uri: userDetails.profilePhoto }} style={styles.welcomeAvatarImage} />
+                  ) : (
+                    <Text style={styles.welcomeInitials}>
+                      {getAvatarEmoji(userDetails.gender) || getInitials(USER_NAME)}
+                    </Text>
+                  )}
                 </View>
                 <View style={styles.welcomeMsg}>
-                  <Text style={styles.welcomeTitle}>Chat with {USER_NAME}</Text>
-                  <Text style={styles.welcomeDesc}>
-                    This is a secure counseling chat. Reply in real time and keep the conversation supportive.
-                  </Text>
+                  <Text style={styles.welcomeTitle}>{t('messages:chatWith', { name: USER_NAME })}</Text>
+                  <Text style={styles.welcomeDesc}>{t('messages:secureChat')}</Text>
                   <Text style={styles.welcomeTime}>
                     {new Date().toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' })} at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </Text>
@@ -1491,7 +1520,7 @@ const SMSInput = ({ navigation, route }) => {
             <View style={styles.inputWrapper}>
               <TextInput
                 style={styles.textInput}
-                placeholder={isSending ? "Sending..." : `Message`}
+                placeholder={isSending ? t('common:sending') : t('messages:typeMessage')}
                 placeholderTextColor="#8492a5"
                 value={message}
                 onChangeText={setMessage}
@@ -1644,13 +1673,17 @@ const styles = StyleSheet.create({
     gap: 10,
     minWidth: 0,
   },
+  userAvatarWrapper: {
+    position: 'relative',
+    width: 40,
+    height: 40,
+  },
   userAvatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    position: 'relative',
     overflow: 'hidden',
     borderWidth: 2,
     borderColor: '#FFFFFF',
@@ -1785,6 +1818,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 4,
     elevation: 3,
+    overflow: 'hidden',
+  },
+  welcomeAvatarImage: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    resizeMode: 'cover',
   },
   welcomeInitials: {
     fontSize: 22,
@@ -1982,16 +2022,6 @@ const styles = StyleSheet.create({
     width: 16,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  messageStatusSent: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    fontWeight: '500',
-  },
-  messageStatusRead: {
-    fontSize: 11,
-    color: '#0D9488',
-    fontWeight: '500',
   },
   messageStatusError: {
     fontSize: 11,

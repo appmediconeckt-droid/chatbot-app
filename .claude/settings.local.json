@@ -13,7 +13,8 @@
       "PowerShell(Copy-Item \"c:\\\\chatbots\\\\src\\\\public\\\\rigntone.mp3\" \"c:\\\\chatbots\\\\android\\\\app\\\\src\\\\main\\\\res\\\\raw\\\\ringtone.mp3\" -Force)",
       "PowerShell(Copy-Item \"c:\\\\chatbots\\\\android\\\\app\\\\src\\\\main\\\\res\\\\raw\\\\ringtone.mp3\" \"c:\\\\chatbots\\\\android\\\\app\\\\src\\\\main\\\\res\\\\raw\\\\incallmanager_ringtone.mp3\" -Force)",
       "PowerShell(\\(Get-Content \"c:\\\\chatbots\\\\src\\\\screens\\\\user\\\\Component\\\\counselor-dashboard\\\\Dashboard\\\\dashboard.jsx\" | Measure-Object -Line\\).Lines)",
-      "Bash(./gradlew assembleRelease)"
+      "Bash(./gradlew assembleRelease)",
+      "Bash(adb -s emulator-5554 emu kill)"
     ]
   }
 }
