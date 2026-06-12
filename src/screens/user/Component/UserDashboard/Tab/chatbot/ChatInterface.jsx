@@ -18,6 +18,7 @@ import {
   Vibration,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import socketService from '../../../../../../services/socketService';
@@ -82,6 +83,7 @@ const resolveOnlineStatus = (person) => {
 
 const ChatInterface = ({ setActiveTab }) => {
   const navigation = useNavigation();
+  const { t } = useTranslation(['messages', 'common', 'dashboard']);
 
   const [counselors, setCounselors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -133,10 +135,10 @@ const ChatInterface = ({ setActiveTab }) => {
       const diffHours = Math.floor(diffMs / 3600000);
       const diffDays = Math.floor(diffMs / 86400000);
 
-      if (diffMins < 1) return 'Just now';
+      if (diffMins < 1) return t('messages:justNow', 'Just now');
       if (diffHours < 1) return `${diffMins}m ago`;
       if (diffDays === 0) return messageTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      if (diffDays === 1) return 'Yesterday';
+      if (diffDays === 1) return t('messages:yesterday', 'Yesterday');
       if (diffDays < 7) return messageTime.toLocaleDateString([], { weekday: 'short' });
       if (diffDays < 30) return `${diffDays}d ago`;
       return messageTime.toLocaleDateString([], { month: 'short', day: 'numeric' });
@@ -159,7 +161,7 @@ const ChatInterface = ({ setActiveTab }) => {
   };
 
   const formatLastSeen = (lastSeen) => {
-    if (!lastSeen) return 'Offline';
+    if (!lastSeen) return t('common:offline', 'Offline');
     try {
       const lastSeenTime = new Date(lastSeen);
       const now = new Date();
@@ -168,15 +170,15 @@ const ChatInterface = ({ setActiveTab }) => {
       const diffHours = Math.floor(diffMs / 3600000);
       const diffDays = Math.floor(diffMs / 86400000);
 
-      if (diffMins < 1) return 'Just now';
+      if (diffMins < 1) return t('messages:justNow', 'Just now');
       if (diffHours < 1) return `${diffMins} minutes ago`;
       if (diffHours === 1) return '1 hour ago';
       if (diffHours < 24) return `${diffHours} hours ago`;
-      if (diffDays === 1) return 'Yesterday';
+      if (diffDays === 1) return t('messages:yesterday', 'Yesterday');
       if (diffDays < 7) return `${diffDays} days ago`;
       return lastSeenTime.toLocaleDateString();
     } catch {
-      return 'Recently';
+      return t('messages:recently', 'Recently');
     }
   };
 
@@ -192,7 +194,7 @@ const ChatInterface = ({ setActiveTab }) => {
         latestFromArray?.content ||
         latestFromArray?.message ||
         latestFromArray?.text ||
-        'No messages yet'
+        t('messages:noMessages', 'No messages yet')
       );
     };
 
@@ -517,7 +519,7 @@ const ChatInterface = ({ setActiveTab }) => {
               {item.isExpired && (
                 <View style={styles.expiredBadge}>
                   <Ionicons name="time-outline" size={14} color="#f59e0b" />
-                  <Text style={styles.expiredText}>Expired</Text>
+                  <Text style={styles.expiredText}>{t('messages:expired', 'Expired')}</Text>
                 </View>
               )}
             </View>
@@ -539,23 +541,23 @@ const ChatInterface = ({ setActiveTab }) => {
         {searchTerm ? (
           <>
             <Ionicons name="search-outline" size={64} color="#cbd5e1" />
-            <Text style={styles.emptyTitle}>No counselors found</Text>
+            <Text style={styles.emptyTitle}>{t('messages:noCounselorsFound', 'No counselors found')}</Text>
             <Text style={styles.emptyText}>
-              No counselors matching "{searchTerm}"
+              {t('messages:noCounselorsMatching', 'No counselors matching "{{term}}"', { term: searchTerm })}
             </Text>
             <TouchableOpacity style={styles.clearButton} onPress={() => setSearchTerm('')}>
-              <Text style={styles.clearButtonText}>Clear search</Text>
+              <Text style={styles.clearButtonText}>{t('messages:clearSearch', 'Clear search')}</Text>
             </TouchableOpacity>
           </>
         ) : (
           <>
             <Ionicons name="chatbubbles-outline" size={64} color="#cbd5e1" />
-            <Text style={styles.emptyTitle}>No active chats yet</Text>
+            <Text style={styles.emptyTitle}>{t('messages:noActiveChats', 'No active chats yet')}</Text>
             <Text style={styles.emptyText}>
-              Start a conversation with a counselor
+              {t('messages:startConversationCounselor', 'Start a conversation with a counselor')}
             </Text>
             <TouchableOpacity style={styles.startButton} onPress={handleStartNewChat}>
-              <Text style={styles.startButtonText}>Start a new chat</Text>
+              <Text style={styles.startButtonText}>{t('messages:startNewChat', 'Start a new chat')}</Text>
             </TouchableOpacity>
           </>
         )}
@@ -570,7 +572,7 @@ const ChatInterface = ({ setActiveTab }) => {
         <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
         <Text style={styles.errorText}>{error}</Text>
         <TouchableOpacity style={styles.retryButton} onPress={() => fetchChats(false)}>
-          <Text style={styles.retryButtonText}>Retry</Text>
+          <Text style={styles.retryButtonText}>{t('common:retry', 'Retry')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -586,7 +588,7 @@ const ChatInterface = ({ setActiveTab }) => {
           </View>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search counselors..."
+            placeholder={t('messages:searchCounselors', 'Search counselors...')}
             placeholderTextColor="#94a3b8"
             value={searchTerm}
             onChangeText={setSearchTerm}
@@ -632,7 +634,7 @@ const ChatInterface = ({ setActiveTab }) => {
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowDeleteConfirm(false)}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Delete Chat</Text>
+              <Text style={styles.modalTitle}>{t('messages:deleteChat', 'Delete Chat')}</Text>
             </View>
             {selectedCounselor && (
               <View style={styles.modalBody}>
@@ -648,14 +650,14 @@ const ChatInterface = ({ setActiveTab }) => {
                   </View>
                 </View>
                 <Text style={styles.deleteMessage}>
-                  Are you sure you want to delete this chat?
+                  {t('messages:deleteChatConfirm', 'Are you sure you want to delete this chat?')}
                 </Text>
                 <Text style={styles.deleteWarning}>
-                  ⚠️ This action cannot be undone. All messages will be permanently deleted.
+                  {t('messages:deleteChatWarning', '⚠️ This action cannot be undone. All messages will be permanently deleted.')}
                 </Text>
                 {selectedCounselor.fullDateTime && (
                   <Text style={styles.chatTimeInfo}>
-                    Last message: {selectedCounselor.fullDateTime}
+                    {t('messages:lastMessageLabel', 'Last message')}: {selectedCounselor.fullDateTime}
                   </Text>
                 )}
               </View>
@@ -665,13 +667,13 @@ const ChatInterface = ({ setActiveTab }) => {
                 style={[styles.modalButton, styles.cancelButton]}
                 onPress={() => setShowDeleteConfirm(false)}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={styles.cancelButtonText}>{t('common:cancel', 'Cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalButton, styles.deleteButton]}
                 onPress={confirmDeleteChat}
               >
-                <Text style={styles.deleteButtonText}>Delete Chat</Text>
+                <Text style={styles.deleteButtonText}>{t('messages:deleteChat', 'Delete Chat')}</Text>
               </TouchableOpacity>
             </View>
           </View>

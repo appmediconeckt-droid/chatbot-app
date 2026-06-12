@@ -83,8 +83,8 @@ const isLocationPermissionGranted = async (): Promise<boolean> => {
   }
 };
 
-// How long the app can stay in the background before re-locking (ms)
-const LOCK_TIMEOUT_MS = 30_000;
+// Lock as soon as the user leaves the app and opens it again.
+const LOCK_TIMEOUT_MS = 0;
 
 function App() {
   const isDarkMode = useColorScheme() === 'dark';

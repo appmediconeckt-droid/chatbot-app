@@ -35,6 +35,8 @@
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Mediconect uses your location to help find counselors near you.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Mediconect uses Face ID to unlock the app.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Mediconect needs microphone access for voice input and video/voice calls.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

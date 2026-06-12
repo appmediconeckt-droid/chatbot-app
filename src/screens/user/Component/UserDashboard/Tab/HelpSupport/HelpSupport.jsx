@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   View,
   Text,
@@ -53,43 +54,41 @@ const FAQS = [
   },
 ];
 
-const CONTACT_OPTIONS = [
+const CONTACT_ACTIONS = [
   {
     icon: 'email',
-    label: 'Email Support',
-    value: SUPPORT_EMAIL,
-    desc: 'Response within 24 hours',
     color: '#3b82f6',
     bg: '#eff6ff',
     onPress: () => Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=Support%20Request%20-%20${APP_NAME}`),
+    labelKey: 'emailSupportLabel',
+    valueKey: null,
+    value: SUPPORT_EMAIL,
+    descKey: 'emailResponseTime',
   },
   {
     icon: 'admin-panel-settings',
-    label: 'Contact Admin',
-    value: ADMIN_EMAIL,
-    desc: 'For account or policy issues',
     color: '#8b5cf6',
     bg: '#f5f3ff',
     onPress: () => Linking.openURL(`mailto:${ADMIN_EMAIL}?subject=Admin%20Request%20-%20${APP_NAME}`),
+    labelKey: 'contactAdminLabel',
+    valueKey: null,
+    value: ADMIN_EMAIL,
+    descKey: 'adminIssueDesc',
   },
   {
     icon: 'chat',
-    label: 'Live Chat',
-    value: 'Available in-app',
-    desc: 'Use the AI chatbot for quick help',
     color: '#10b981',
     bg: '#f0fdf4',
     onPress: null,
+    labelKey: 'liveChatLabel',
+    valueKey: 'availableInApp',
+    value: null,
+    descKey: 'aiChatHelp',
   },
 ];
 
-const TIPS = [
-  { icon: 'wifi', text: 'Use a stable internet connection for calls' },
-  { icon: 'notifications-active', text: 'Enable notifications to not miss counselor replies' },
-  { icon: 'lock', text: 'Never share your OTP or password with anyone' },
-  { icon: 'location-on', text: 'Keep location enabled for better counselor matching' },
-  { icon: 'headset', text: 'Use headphones for better audio quality during calls' },
-];
+const TIP_ICONS = ['wifi', 'notifications-active', 'lock', 'location-on', 'headset'];
+const TIP_KEYS = ['tipStableNet', 'tipNotifications', 'tipNeverShare', 'tipLocation', 'tipHeadset'];
 
 const FAQItem = ({ item, index }) => {
   const [open, setOpen] = useState(false);
@@ -129,12 +128,13 @@ const FAQItem = ({ item, index }) => {
 };
 
 const HelpSupport = ({ onClose }) => {
+  const { t } = useTranslation();
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
 
   const handleSendEmail = () => {
     if (!subject.trim() || !message.trim()) {
-      Alert.alert('Missing Info', 'Please enter both a subject and message.');
+      Alert.alert(t('common:error'), 'Please enter both a subject and message.');
       return;
     }
     const body = encodeURIComponent(message.trim());
@@ -153,7 +153,7 @@ const HelpSupport = ({ onClose }) => {
         <TouchableOpacity onPress={onClose} style={s.backBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Help & Support</Text>
+        <Text style={s.headerTitle}>{t('settings:helpSupport')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -167,16 +167,14 @@ const HelpSupport = ({ onClose }) => {
           <View style={s.heroIcon}>
             <MaterialIcons name="support-agent" size={38} color="#3b82f6" />
           </View>
-          <Text style={s.heroTitle}>How can we help you?</Text>
-          <Text style={s.heroSub}>
-            Browse FAQs, contact our team, or send us a message directly.
-          </Text>
+          <Text style={s.heroTitle}>{t('settings:helpHeroTitle')}</Text>
+          <Text style={s.heroSub}>{t('settings:helpHeroSub')}</Text>
         </View>
 
         {/* Contact Options */}
-        <Text style={s.sectionTitle}>Contact Us</Text>
+        <Text style={s.sectionTitle}>{t('settings:contactUs')}</Text>
         <View style={s.contactGrid}>
-          {CONTACT_OPTIONS.map((opt, i) => (
+          {CONTACT_ACTIONS.map((opt, i) => (
             <TouchableOpacity
               key={i}
               style={s.contactCard}
@@ -187,28 +185,28 @@ const HelpSupport = ({ onClose }) => {
               <View style={[s.contactIconWrap, { backgroundColor: opt.bg }]}>
                 <MaterialIcons name={opt.icon} size={26} color={opt.color} />
               </View>
-              <Text style={s.contactLabel}>{opt.label}</Text>
-              <Text style={s.contactValue} numberOfLines={1}>{opt.value}</Text>
-              <Text style={s.contactDesc}>{opt.desc}</Text>
+              <Text style={s.contactLabel}>{t('settings:' + opt.labelKey)}</Text>
+              <Text style={s.contactValue} numberOfLines={1}>{opt.valueKey ? t('settings:' + opt.valueKey) : opt.value}</Text>
+              <Text style={s.contactDesc}>{t('settings:' + opt.descKey)}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
         {/* Quick Tips */}
-        <Text style={s.sectionTitle}>Quick Tips</Text>
+        <Text style={s.sectionTitle}>{t('settings:quickTips')}</Text>
         <View style={s.tipsCard}>
-          {TIPS.map((tip, i) => (
-            <View key={i} style={[s.tipRow, i < TIPS.length - 1 && s.tipBorder]}>
+          {TIP_KEYS.map((key, i) => (
+            <View key={i} style={[s.tipRow, i < TIP_KEYS.length - 1 && s.tipBorder]}>
               <View style={s.tipIconWrap}>
-                <MaterialIcons name={tip.icon} size={18} color="#3b82f6" />
+                <MaterialIcons name={TIP_ICONS[i]} size={18} color="#3b82f6" />
               </View>
-              <Text style={s.tipText}>{tip.text}</Text>
+              <Text style={s.tipText}>{t('settings:' + key)}</Text>
             </View>
           ))}
         </View>
 
         {/* FAQs */}
-        <Text style={s.sectionTitle}>Frequently Asked Questions</Text>
+        <Text style={s.sectionTitle}>{t('settings:frequentlyAsked')}</Text>
         <View style={s.faqList}>
           {FAQS.map((item, i) => (
             <FAQItem key={i} item={item} index={i} />
@@ -216,9 +214,9 @@ const HelpSupport = ({ onClose }) => {
         </View>
 
         {/* Send Message Form */}
-        <Text style={s.sectionTitle}>Send Us a Message</Text>
+        <Text style={s.sectionTitle}>{t('settings:sendUsMessage')}</Text>
         <View style={s.formCard}>
-          <Text style={s.formLabel}>Subject</Text>
+          <Text style={s.formLabel}>{t('settings:subject')}</Text>
           <TextInput
             style={s.formInput}
             value={subject}
@@ -226,7 +224,7 @@ const HelpSupport = ({ onClose }) => {
             placeholder="e.g., Issue with appointment booking"
             placeholderTextColor="#94a3b8"
           />
-          <Text style={[s.formLabel, { marginTop: 14 }]}>Message</Text>
+          <Text style={[s.formLabel, { marginTop: 14 }]}>{t('settings:yourMessage')}</Text>
           <TextInput
             style={[s.formInput, s.formTextArea]}
             value={message}
@@ -239,7 +237,7 @@ const HelpSupport = ({ onClose }) => {
           />
           <TouchableOpacity style={s.sendBtn} onPress={handleSendEmail} activeOpacity={0.85}>
             <MaterialIcons name="send" size={18} color="#fff" />
-            <Text style={s.sendBtnText}>Send via Email</Text>
+            <Text style={s.sendBtnText}>{t('settings:sendMessageBtn')}</Text>
           </TouchableOpacity>
           <Text style={s.formNote}>
             This will open your mail app pre-filled with your message.

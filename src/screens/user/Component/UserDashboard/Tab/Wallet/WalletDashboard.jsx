@@ -15,14 +15,15 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import { useTranslation } from 'react-i18next';
 import axiosInstance from '../../../../../../axiosConfig';
 
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000];
 const PAYMENT_METHODS = [
-  { id: 'upi', label: 'UPI', icon: 'payments' },
-  { id: 'card', label: 'Card', icon: 'credit-card' },
-  { id: 'bank', label: 'NetBanking', icon: 'account-balance' },
-  { id: 'wallet', label: 'Wallet', icon: 'account-balance-wallet' },
+  { id: 'upi', labelKey: 'wallet:upi', icon: 'payments' },
+  { id: 'card', labelKey: 'wallet:card', icon: 'credit-card' },
+  { id: 'bank', labelKey: 'wallet:netbanking', icon: 'account-balance' },
+  { id: 'wallet', labelKey: 'wallet:walletPayment', icon: 'account-balance-wallet' },
 ];
 
 const WalletSkeleton = () => {
@@ -61,6 +62,7 @@ const WalletSkeleton = () => {
 
 const WalletDashboard = ({ userData = {} }) => {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation(['wallet', 'common']);
   const [amount, setAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('upi');
   const [balance, setBalance] = useState(0);
@@ -83,7 +85,7 @@ const WalletDashboard = ({ userData = {} }) => {
       setSpendingSummary(response?.data?.spendingSummary || { total: 0, breakdown: [] });
     } catch (error) {
       console.error('Error fetching wallet data:', error);
-      Alert.alert('Wallet', 'Failed to load wallet data.');
+      Alert.alert('Wallet', t('wallet:walletFailedToLoad'));
     } finally {
       setFetching(false);
     }
@@ -92,7 +94,7 @@ const WalletDashboard = ({ userData = {} }) => {
   const handlePayment = async () => {
     const numericAmount = Number(amount);
     if (!numericAmount || numericAmount <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter a valid amount.');
+      Alert.alert(t('wallet:invalidAmount'), t('wallet:pleaseEnterValidAmount'));
       return;
     }
 
@@ -112,15 +114,15 @@ const WalletDashboard = ({ userData = {} }) => {
       });
 
       if (verifyRes?.data?.success) {
-        Alert.alert('Success', 'Funds added successfully.');
+        Alert.alert(t('wallet:success'), t('wallet:fundsAddedSuccessfully'));
         setAmount('');
         await fetchWalletData();
       } else {
-        Alert.alert('Payment Failed', 'Verification failed. Please try again.');
+        Alert.alert(t('wallet:paymentFailed'), t('wallet:verificationFailed'));
       }
     } catch (error) {
       console.error('Payment initialization failed:', error);
-      Alert.alert('Payment Error', error?.response?.data?.message || 'Could not initiate payment.');
+      Alert.alert(t('wallet:paymentError'), error?.response?.data?.message || t('wallet:couldNotInitiatePayment'));
     } finally {
       setLoading(false);
     }
@@ -173,7 +175,7 @@ const WalletDashboard = ({ userData = {} }) => {
         </View>
       </View>
 
-      <Text style={styles.balanceLabel}>Available Balance</Text>
+      <Text style={styles.balanceLabel}>{t('wallet:availableBalance')}</Text>
       <Text style={styles.balanceAmount}>{formatCurrency(balance)}</Text>
 
       <View style={styles.cardFooter}>
@@ -187,11 +189,11 @@ const WalletDashboard = ({ userData = {} }) => {
       <View style={styles.cardButtonsRow}>
         <TouchableOpacity style={styles.primaryMiniAction} onPress={() => setActiveTab('add-money')}>
           <MaterialIcons name="add-circle-outline" size={16} color="#1e40af" />
-          <Text style={styles.primaryMiniActionText}>Add Funds</Text>
+          <Text style={styles.primaryMiniActionText}>{t('wallet:addFunds')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.ghostMiniAction} onPress={() => setActiveTab('transactions')}>
           <MaterialIcons name="history" size={16} color="#ffffff" />
-          <Text style={styles.ghostMiniActionText}>View History</Text>
+          <Text style={styles.ghostMiniActionText}>{t('wallet:viewHistory')}</Text>
         </TouchableOpacity>
       </View>
     </LinearGradient>
@@ -200,15 +202,15 @@ const WalletDashboard = ({ userData = {} }) => {
   const renderStats = () => (
     <View style={styles.statsGrid}>
       <View style={styles.statCard}>
-        <Text style={styles.statLabel}>Credits</Text>
+        <Text style={styles.statLabel}>{t('wallet:credits')}</Text>
         <Text style={[styles.statValue, { color: '#0f766e' }]}>{formatCurrency(stats.creditTotal)}</Text>
       </View>
       <View style={styles.statCard}>
-        <Text style={styles.statLabel}>Spent</Text>
+        <Text style={styles.statLabel}>{t('wallet:spent')}</Text>
         <Text style={[styles.statValue, { color: '#b91c1c' }]}>{formatCurrency(stats.debitTotal)}</Text>
       </View>
       <View style={styles.statCard}>
-        <Text style={styles.statLabel}>Completed</Text>
+        <Text style={styles.statLabel}>{t('wallet:completed')}</Text>
         <Text style={[styles.statValue, { color: '#1d4ed8' }]}>{stats.completed}</Text>
       </View>
     </View>
@@ -216,7 +218,7 @@ const WalletDashboard = ({ userData = {} }) => {
 
   const renderSpendingSummary = () => (
     <View style={styles.cardSection}>
-      <Text style={styles.sectionTitle}>Spending Summary</Text>
+      <Text style={styles.sectionTitle}>{t('wallet:spendingSummary')}</Text>
       {spendingSummary.breakdown?.length ? (
         spendingSummary.breakdown.map((item, index) => (
           <View key={`${item.label}-${index}`} style={styles.progressItem}>
@@ -238,10 +240,10 @@ const WalletDashboard = ({ userData = {} }) => {
           </View>
         ))
       ) : (
-        <Text style={styles.emptyHint}>No spending recorded this month.</Text>
+        <Text style={styles.emptyHint}>{t('wallet:noSpendingRecorded')}</Text>
       )}
       <View style={styles.summaryFooter}>
-        <Text style={styles.summaryFooterLabel}>Total spent this month</Text>
+        <Text style={styles.summaryFooterLabel}>{t('wallet:totalSpentThisMonth')}</Text>
         <Text style={styles.summaryFooterValue}>{formatCurrency(spendingSummary.total)}</Text>
       </View>
     </View>
@@ -249,8 +251,8 @@ const WalletDashboard = ({ userData = {} }) => {
 
   const renderAddMoney = () => (
     <View style={styles.cardSection}>
-      <Text style={styles.sectionTitle}>Add Money</Text>
-      <Text style={styles.sectionSubtitle}>Fast and secure wallet top-up</Text>
+      <Text style={styles.sectionTitle}>{t('wallet:addMoney')}</Text>
+      <Text style={styles.sectionSubtitle}>{t('wallet:fastSecureWalletTopup')}</Text>
 
       <View style={styles.inputBox}>
         <Text style={styles.currencyPrefix}>Rs</Text>
@@ -272,7 +274,7 @@ const WalletDashboard = ({ userData = {} }) => {
         ))}
       </View>
 
-      <Text style={styles.inputLabel}>Payment Method</Text>
+      <Text style={styles.inputLabel}>{t('wallet:paymentMethod')}</Text>
       <View style={styles.methodGrid}>
         {PAYMENT_METHODS.map((method) => {
           const isActive = paymentMethod === method.id;
@@ -283,7 +285,7 @@ const WalletDashboard = ({ userData = {} }) => {
               onPress={() => setPaymentMethod(method.id)}
             >
               <MaterialIcons name={method.icon} size={18} color={isActive ? '#1d4ed8' : '#64748b'} />
-              <Text style={[styles.methodText, isActive && styles.methodTextActive]}>{method.label}</Text>
+              <Text style={[styles.methodText, isActive && styles.methodTextActive]}>{t(method.labelKey)}</Text>
             </TouchableOpacity>
           );
         })}
@@ -294,7 +296,7 @@ const WalletDashboard = ({ userData = {} }) => {
         onPress={handlePayment}
         disabled={loading}
       >
-        {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.payBtnText}>Confirm and Add Funds</Text>}
+        {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.payBtnText}>{t('wallet:confirmAndAddFunds')}</Text>}
       </TouchableOpacity>
     </View>
   );
@@ -302,9 +304,9 @@ const WalletDashboard = ({ userData = {} }) => {
   const renderTransactions = () => (
     <View style={styles.cardSection}>
       <View style={styles.transactionsHeader}>
-        <Text style={styles.sectionTitle}>Transaction History</Text>
+        <Text style={styles.sectionTitle}>{t('wallet:transactionHistory')}</Text>
         <TouchableOpacity onPress={fetchWalletData}>
-          <Text style={styles.linkBtn}>Refresh</Text>
+          <Text style={styles.linkBtn}>{t('wallet:refresh')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -342,7 +344,7 @@ const WalletDashboard = ({ userData = {} }) => {
           );
         })
       ) : (
-        <Text style={styles.emptyHint}>No transactions found.</Text>
+        <Text style={styles.emptyHint}>{t('wallet:noTransactionsFound')}</Text>
       )}
     </View>
   );
@@ -350,11 +352,11 @@ const WalletDashboard = ({ userData = {} }) => {
   const renderSupport = () => (
     <View style={styles.supportCard}>
       <View style={{ flex: 1 }}>
-        <Text style={styles.supportLabel}>Need payment help?</Text>
-        <Text style={styles.supportText}>Support team is available 24x7 for wallet and payment issues.</Text>
+        <Text style={styles.supportLabel}>{t('wallet:needPaymentHelp')}</Text>
+        <Text style={styles.supportText}>{t('wallet:supportTeamAvailable')}</Text>
       </View>
       <TouchableOpacity style={styles.supportAction}>
-        <Text style={styles.supportActionText}>Support</Text>
+        <Text style={styles.supportActionText}>{t('wallet:support')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -384,8 +386,8 @@ const WalletDashboard = ({ userData = {} }) => {
         bounces
       >
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Wallet Overview</Text>
-          <Text style={styles.headerSubtitle}>Professional payment dashboard for your healthcare account.</Text>
+          <Text style={styles.headerTitle}>{t('wallet:walletOverview')}</Text>
+          <Text style={styles.headerSubtitle}>{t('wallet:professionalPaymentDashboard')}</Text>
         </View>
 
         {renderBalanceCard()}
@@ -397,13 +399,13 @@ const WalletDashboard = ({ userData = {} }) => {
             style={[styles.tabBtn, activeTab === 'add-money' && styles.tabBtnActive]}
             onPress={() => setActiveTab('add-money')}
           >
-            <Text style={[styles.tabBtnText, activeTab === 'add-money' && styles.tabBtnTextActive]}>Add Money</Text>
+            <Text style={[styles.tabBtnText, activeTab === 'add-money' && styles.tabBtnTextActive]}>{t('wallet:addMoney')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabBtn, activeTab === 'transactions' && styles.tabBtnActive]}
             onPress={() => setActiveTab('transactions')}
           >
-            <Text style={[styles.tabBtnText, activeTab === 'transactions' && styles.tabBtnTextActive]}>Transactions</Text>
+            <Text style={[styles.tabBtnText, activeTab === 'transactions' && styles.tabBtnTextActive]}>{t('wallet:transactionHistory')}</Text>
           </TouchableOpacity>
         </View>
 

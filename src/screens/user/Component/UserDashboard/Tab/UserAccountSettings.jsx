@@ -279,7 +279,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
             { label: t('auth:name'), val: account.name },
             { label: t('auth:email'), val: account.email },
             { label: t('auth:phone'), val: account.phone },
-            { label: 'Login via', val: account.authProvider === 'google' ? 'Google' : 'Email & Password' },
+            { label: t('settings:loginVia'), val: account.authProvider === 'google' ? 'Google' : 'Email & Password' },
             { label: t('auth:password'), val: account.hasPassword ? '●●●●●● (set)' : 'Not set yet' },
           ].map(({ label, val }) => (
             <View key={label} style={s.infoRow}>
@@ -296,9 +296,9 @@ const UserAccountSettings = ({ onNavigateBack }) => {
           {/* Tab toggle */}
           <View style={s.tabRow}>
             <View style={{ flex: 1 }}>
-              <Text style={s.cardTitle}>Password Security</Text>
+              <Text style={s.cardTitle}>{t('settings:passwordSecurity')}</Text>
               <Text style={s.cardSub}>
-                {mode === 'set' ? 'Add or reset password using email OTP' : 'Update your existing password'}
+                {mode === 'set' ? t('settings:setPasswordOtp') : t('settings:updatePassword')}
               </Text>
             </View>
             <View style={s.tabs}>
@@ -307,14 +307,14 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                 onPress={() => switchMode('set')}
                 activeOpacity={0.8}
               >
-                <Text style={[s.tabTxt, mode === 'set' && s.tabTxtActive]}>Add</Text>
+                <Text style={[s.tabTxt, mode === 'set' && s.tabTxtActive]}>{t('settings:addTab')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[s.tab, mode === 'change' && s.tabActive]}
                 onPress={() => switchMode('change')}
                 activeOpacity={0.8}
               >
-                <Text style={[s.tabTxt, mode === 'change' && s.tabTxtActive]}>Change</Text>
+                <Text style={[s.tabTxt, mode === 'change' && s.tabTxtActive]}>{t('settings:changeTab')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -325,7 +325,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
             <>
               {/* Email row + Send OTP button */}
               <View style={f.field}>
-                <Text style={f.label}>Your Email</Text>
+                <Text style={f.label}>{t('settings:yourEmail')}</Text>
                 <View style={f.row}>
                   <Feather name="mail" size={16} color="#94a3b8" style={f.icon} />
                   <Text style={f.readOnly} numberOfLines={1}>{account.email || '—'}</Text>
@@ -346,7 +346,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
               {/* OTP input — shown after OTP sent */}
               {otpSent && (
                 <View style={f.field}>
-                  <Text style={f.label}>OTP Code</Text>
+                  <Text style={f.label}>{t('settings:otpCodeLabel')}</Text>
                   <View style={f.row}>
                     <Feather name="hash" size={16} color="#94a3b8" style={f.icon} />
                     <TextInput

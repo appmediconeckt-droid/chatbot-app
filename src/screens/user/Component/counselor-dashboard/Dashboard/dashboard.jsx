@@ -48,6 +48,7 @@ import VoiceCallModal from "../../UserDashboard/Tab/CallModal/VoiceCallModal";
 import safeVibrate from "../../../../../utils/safeVibrate";
 import { useToast } from "../../../../../components/common/ToastProvider";
 import LanguageSelector from '../../../../../components/common/LanguageSelector';
+import { loadUserLanguage } from '../../../../../i18n';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -1567,6 +1568,11 @@ export default function CounselorDashboard() {
     fetchCounsellor();
   }, []);
 
+  // Reload counselor's language whenever this dashboard gains focus
+  useEffect(() => {
+    if (isFocused && counsellorId) loadUserLanguage(counsellorId, 'counsellor');
+  }, [isFocused, counsellorId]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchPendingRequests();
@@ -2179,7 +2185,7 @@ export default function CounselorDashboard() {
                     <View style={styles.expBadge}>
                       <Icon name="briefcase" size={10} color="#6366F1" />
                       <Text style={styles.expText}>
-                        {counselorData.experience} yrs
+                        {counselorData.experience} {t('counselor:yrs')}
                       </Text>
                     </View>
                   ) : null}
@@ -2188,7 +2194,7 @@ export default function CounselorDashboard() {
                 {/* Online status pill */}
                 <View style={styles.onlineStatusPill}>
                   <View style={styles.onlineStatusDot} />
-                  <Text style={styles.onlineStatusText}>Available</Text>
+                  <Text style={styles.onlineStatusText}>{t('counselor:available')}</Text>
                 </View>
 
                 {/* Quick stats strip */}
@@ -2197,21 +2203,21 @@ export default function CounselorDashboard() {
                     <Text style={styles.profileStatNum}>
                       {counselorData?.patients || "0"}
                     </Text>
-                    <Text style={styles.profileStatLabel}>Patients</Text>
+                    <Text style={styles.profileStatLabel}>{t('counselor:patientsLabel')}</Text>
                   </View>
                   <View style={styles.profileStatDivider} />
                   <View style={styles.profileStatItem}>
                     <Text style={styles.profileStatNum}>
                       {counselorData?.languages?.length || "0"}
                     </Text>
-                    <Text style={styles.profileStatLabel}>Languages</Text>
+                    <Text style={styles.profileStatLabel}>{t('counselor:languagesLabel')}</Text>
                   </View>
                   <View style={styles.profileStatDivider} />
                   <View style={styles.profileStatItem}>
                     <Text style={styles.profileStatNum}>
                       {counselorData?.specializations?.length || "0"}
                     </Text>
-                    <Text style={styles.profileStatLabel}>Specialties</Text>
+                    <Text style={styles.profileStatLabel}>{t('counselor:specialtiesLabel')}</Text>
                   </View>
                 </View>
               </View>
@@ -2262,7 +2268,7 @@ export default function CounselorDashboard() {
               >
                 <Feather name="log-out" size={18} color="#e53935" />
                 <Text style={[styles.navLabel, styles.navLabelLogout]}>
-                  Sign Out
+                  {t('counselor:signOut')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -2297,7 +2303,7 @@ export default function CounselorDashboard() {
               </View>
 
               <View style={styles.mobileHeaderActions}>
-                <LanguageSelector iconColor="#2563EB" iconSize={20} />
+                <LanguageSelector iconColor="#2563EB" iconSize={20} userId={counsellorId} role="counsellor" />
                 <TouchableOpacity
                   style={styles.mobileLogoutBtn}
                   onPress={() => setShowLogoutConfirm(true)}
@@ -2361,35 +2367,35 @@ export default function CounselorDashboard() {
                       <View style={styles.expBadge}>
                         <Icon name="briefcase" size={10} color="#6366F1" />
                         <Text style={styles.expText}>
-                          {counselorData.experience} yrs
+                          {counselorData.experience} {t('counselor:yrs')}
                         </Text>
                       </View>
                     ) : null}
                   </View>
                   <View style={styles.onlineStatusPill}>
                     <View style={styles.onlineStatusDot} />
-                    <Text style={styles.onlineStatusText}>Available</Text>
+                    <Text style={styles.onlineStatusText}>{t('counselor:available')}</Text>
                   </View>
                   <View style={styles.profileStatsStrip}>
                     <View style={styles.profileStatItem}>
                       <Text style={styles.profileStatNum}>
                         {counselorData?.patients || "0"}
                       </Text>
-                      <Text style={styles.profileStatLabel}>Patients</Text>
+                      <Text style={styles.profileStatLabel}>{t('counselor:patientsLabel')}</Text>
                     </View>
                     <View style={styles.profileStatDivider} />
                     <View style={styles.profileStatItem}>
                       <Text style={styles.profileStatNum}>
                         {counselorData?.languages?.length || "0"}
                       </Text>
-                      <Text style={styles.profileStatLabel}>Languages</Text>
+                      <Text style={styles.profileStatLabel}>{t('counselor:languagesLabel')}</Text>
                     </View>
                     <View style={styles.profileStatDivider} />
                     <View style={styles.profileStatItem}>
                       <Text style={styles.profileStatNum}>
                         {counselorData?.specializations?.length || "0"}
                       </Text>
-                      <Text style={styles.profileStatLabel}>Specialties</Text>
+                      <Text style={styles.profileStatLabel}>{t('counselor:specialtiesLabel')}</Text>
                     </View>
                   </View>
                 </View>
@@ -2442,7 +2448,7 @@ export default function CounselorDashboard() {
                 >
                   <Feather name="log-out" size={24} color="#e53935" />
                   <Text style={[styles.mobileNavLabel, styles.mobileNavLabelLogout]}>
-                    Sign Out
+                    {t('counselor:signOut')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -2629,23 +2635,23 @@ export default function CounselorDashboard() {
                 <View style={styles.logoutIconWrap}>
                   <Feather name="log-out" size={26} color="#DC2626" />
                 </View>
-                <Text style={styles.logoutTitle}>Sign Out?</Text>
+                <Text style={styles.logoutTitle}>{t('counselor:signOutQuestion')}</Text>
                 <Text style={styles.logoutText}>
-                  You'll be signed out of your counselor account. Your data is safe.
+                  {t('counselor:signOutMessage')}
                 </Text>
                 <View style={styles.modalActions}>
                   <TouchableOpacity
                     style={styles.cancelBtn}
                     onPress={() => setShowLogoutConfirm(false)}
                   >
-                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                    <Text style={styles.cancelBtnText}>{t('common:cancel')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.confirmBtn}
                     onPress={handleLogout}
                   >
                     <Feather name="log-out" size={15} color="#ffffff" />
-                    <Text style={styles.confirmBtnText}>Sign Out</Text>
+                    <Text style={styles.confirmBtnText}>{t('counselor:signOut')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>

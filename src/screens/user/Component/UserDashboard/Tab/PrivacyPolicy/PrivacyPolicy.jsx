@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   View,
   Text,
@@ -128,6 +129,7 @@ const SectionItem = ({ item }) => {
 };
 
 const PrivacyPolicy = ({ onClose }) => {
+  const { t } = useTranslation();
   return (
     <View style={s.root}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
@@ -137,7 +139,7 @@ const PrivacyPolicy = ({ onClose }) => {
         <TouchableOpacity onPress={onClose} style={s.backBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Privacy Policy</Text>
+        <Text style={s.headerTitle}>{t('settings:privacyPolicy')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -151,19 +153,17 @@ const PrivacyPolicy = ({ onClose }) => {
           <View style={s.heroIcon}>
             <MaterialIcons name="shield" size={38} color="#8b5cf6" />
           </View>
-          <Text style={s.heroTitle}>Your Privacy Matters</Text>
-          <Text style={s.heroSub}>
-            We are committed to protecting your personal data and your right to privacy.
-          </Text>
+          <Text style={s.heroTitle}>{t('settings:privacyMatters')}</Text>
+          <Text style={s.heroSub}>{t('settings:privacyHeroSub')}</Text>
           <View style={s.updatedBadge}>
             <MaterialIcons name="update" size={13} color="#6366f1" />
-            <Text style={s.updatedText}>Last updated: {LAST_UPDATED}</Text>
+            <Text style={s.updatedText}>{t('settings:lastUpdated')}: {LAST_UPDATED}</Text>
           </View>
         </View>
 
         {/* Quick Summary */}
         <View style={s.summaryCard}>
-          <Text style={s.summaryTitle}>Summary at a Glance</Text>
+          <Text style={s.summaryTitle}>{t('settings:summaryGlance')}</Text>
           {[
             { icon: 'verified-user', text: 'Your real identity is never revealed to counselors', color: '#10b981' },
             { icon: 'lock', text: 'All data is encrypted in transit and at rest', color: '#3b82f6' },
@@ -179,7 +179,7 @@ const PrivacyPolicy = ({ onClose }) => {
         </View>
 
         {/* Full Sections */}
-        <Text style={s.fullPolicyLabel}>Full Privacy Policy</Text>
+        <Text style={s.fullPolicyLabel}>{t('settings:fullPrivacyPolicyLabel')}</Text>
         <View style={s.sectionList}>
           {SECTIONS.map((section, i) => (
             <SectionItem key={i} item={section} />

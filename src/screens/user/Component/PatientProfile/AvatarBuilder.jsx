@@ -6,7 +6,7 @@ import {
 import * as ImagePicker from "react-native-image-picker";
 
 const { width: SW } = Dimensions.get("window");
-const BASE = "https://api.dicebear.com/7.x/avataaars/svg";
+const BASE = "https://api.dicebear.com/7.x/avataaars/png";
 
 // ─── Correct DiceBear v7 avataaars params (verified from schema.json) ─────────
 const SKIN_COLORS = [

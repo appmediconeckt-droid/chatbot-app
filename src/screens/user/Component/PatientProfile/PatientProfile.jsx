@@ -34,8 +34,10 @@ const PatientProfile = ({ onProfileUpdate }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [profileImage, setProfileImage] = useState(null);
   const [profileImageFile, setProfileImageFile] = useState(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
   const [showAvatarGen, setShowAvatarGen] = useState(false);
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
+  const [showAvatarChooser, setShowAvatarChooser] = useState(false);
   const [showNotification, setShowNotification] = useState({
     show: false,
     message: "",
@@ -408,9 +410,62 @@ const PatientProfile = ({ onProfileUpdate }) => {
     showNotificationMessage("Profile picture will be removed on save", "success");
   };
 
-  const handleAvatarSelect = (avatarUrl) => {
-    setProfileImage(avatarUrl);
-    setProfileImageFile(null);
+  // Upload either a picked photo file or a generated avatar URL immediately.
+  const uploadProfilePhoto = async (formData, successMsg) => {
+    try {
+      setPhotoUploading(true);
+      const response = await updatePatientProfile(formData);
+      if (response.data?.success) {
+        showNotificationMessage(successMsg, "success");
+        await fetchPatientProfile();
+        if (onProfileUpdate) onProfileUpdate();
+      } else {
+        showNotificationMessage(
+          response.data?.message || "Failed to update photo",
+          "error"
+        );
+      }
+    } catch (e) {
+      showNotificationMessage(
+        e.response?.data?.message || "Could not update photo. Please try again.",
+        "error"
+      );
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
+
+  // Generated avatar selected → save it immediately.
+  const handleAvatarSelect = async (avatarUrl) => {
+    setShowAvatarBuilder(false);
+    if (isEditing) {
+      // Inside the edit form, defer to the form's Save button.
+      setProfileImage(avatarUrl);
+      setProfileImageFile(null);
+      return;
+    }
+    const formData = new FormData();
+    formData.append("avatarUrl", avatarUrl);
+    await uploadProfilePhoto(formData, "Avatar updated!");
+  };
+
+  // Pick an image from the library and upload it immediately.
+  const handleUploadPhoto = () => {
+    setShowAvatarChooser(false);
+    ImagePicker.launchImageLibrary(
+      { mediaType: "photo", quality: 0.8 },
+      async (res) => {
+        if (res.didCancel || res.errorCode || !res.assets?.[0]) return;
+        const asset = res.assets[0];
+        const formData = new FormData();
+        formData.append("profilePhoto", {
+          uri: asset.uri,
+          type: asset.type || "image/jpeg",
+          name: asset.fileName || "photo.jpg",
+        });
+        await uploadProfilePhoto(formData, "Profile photo updated!");
+      }
+    );
   };
 
   // ─── Profile-change OTP helpers ────────────────────────────────────────
@@ -729,7 +784,12 @@ const PatientProfile = ({ onProfileUpdate }) => {
     <View style={[styles.card, styles.profileHeroCard]}>
       <View style={styles.headerTop}>
         <View style={styles.avatarWrapper}>
-          <View style={styles.avatar}>
+          <TouchableOpacity
+            style={styles.avatar}
+            onPress={() => setShowAvatarChooser(true)}
+            activeOpacity={0.85}
+            disabled={photoUploading}
+          >
             {patientData.personalInfo.profilePhoto ? (
               <Image
                 source={{ uri: patientData.personalInfo.profilePhoto }}
@@ -742,9 +802,19 @@ const PatientProfile = ({ onProfileUpdate }) => {
                 </Text>
               </View>
             )}
-          </View>
-          <TouchableOpacity style={styles.editBadge} onPress={openEditModal}>
-            <Ionicons name="pencil" size={16} color="white" />
+            {photoUploading && (
+              <View style={styles.avatarUploading}>
+                <ActivityIndicator size="small" color="#ffffff" />
+              </View>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.editBadge}
+            onPress={() => setShowAvatarChooser(true)}
+            activeOpacity={0.8}
+            disabled={photoUploading}
+          >
+            <Ionicons name="camera" size={15} color="white" />
           </TouchableOpacity>
         </View>
 
@@ -776,6 +846,15 @@ const PatientProfile = ({ onProfileUpdate }) => {
           <Text style={styles.statValue}>{patientData.personalInfo.gender || "M"}</Text>
         </View>
       </View>
+
+      <TouchableOpacity
+        style={styles.editProfileBtn}
+        onPress={openEditModal}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="create-outline" size={18} color="#ffffff" />
+        <Text style={styles.editProfileBtnText}>{t('profile:editProfile', 'Edit Profile')}</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -1666,6 +1745,63 @@ const PatientProfile = ({ onProfileUpdate }) => {
         onSelect={handleAvatarSelect}
         onClose={() => setShowAvatarBuilder(false)}
       />
+
+      {/* Avatar action chooser */}
+      <Modal
+        visible={showAvatarChooser}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAvatarChooser(false)}
+      >
+        <TouchableOpacity
+          style={styles.chooserOverlay}
+          activeOpacity={1}
+          onPress={() => setShowAvatarChooser(false)}
+        >
+          <View style={styles.chooserSheet}>
+            <View style={styles.chooserHandle} />
+            <Text style={styles.chooserTitle}>{t('profile:changePhoto', 'Change Profile Photo')}</Text>
+
+            <TouchableOpacity
+              style={styles.chooserOption}
+              onPress={() => { setShowAvatarChooser(false); setShowAvatarBuilder(true); }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.chooserIcon, { backgroundColor: '#eef2ff' }]}>
+                <Ionicons name="happy-outline" size={22} color="#6366f1" />
+              </View>
+              <View style={styles.chooserTextWrap}>
+                <Text style={styles.chooserOptionTitle}>{t('profile:createAvatar', 'Create Avatar')}</Text>
+                <Text style={styles.chooserOptionSub}>{t('profile:createAvatarSub', 'Build a custom cartoon avatar')}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.chooserOption}
+              onPress={handleUploadPhoto}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.chooserIcon, { backgroundColor: '#eff6ff' }]}>
+                <Ionicons name="image-outline" size={22} color="#2563eb" />
+              </View>
+              <View style={styles.chooserTextWrap}>
+                <Text style={styles.chooserOptionTitle}>{t('profile:uploadPhoto', 'Upload Photo')}</Text>
+                <Text style={styles.chooserOptionSub}>{t('profile:uploadPhotoSub', 'Choose from your gallery')}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.chooserCancel}
+              onPress={() => setShowAvatarChooser(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.chooserCancelText}>{t('common:cancel', 'Cancel')}</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -1905,6 +2041,77 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  avatarUploading: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  chooserOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.45)",
+    justifyContent: "flex-end",
+  },
+  chooserSheet: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 28,
+  },
+  chooserHandle: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#e2e8f0",
+    marginBottom: 16,
+  },
+  chooserTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0f172a",
+    marginBottom: 16,
+  },
+  chooserOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 12,
+  },
+  chooserIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  chooserTextWrap: {
+    flex: 1,
+  },
+  chooserOptionTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  chooserOptionSub: {
+    fontSize: 12.5,
+    color: "#94a3b8",
+    marginTop: 2,
+  },
+  chooserCancel: {
+    marginTop: 14,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: "#f1f5f9",
+    alignItems: "center",
+  },
+  chooserCancelText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#64748b",
+  },
   avatarPlaceholder: {
     flex: 1,
     justifyContent: "center",
@@ -1972,6 +2179,27 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: "#e2e8f0",
+  },
+  editProfileBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#2563eb",
+    borderRadius: 14,
+    paddingVertical: 13,
+    marginTop: 14,
+    shadowColor: "#2563eb",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  editProfileBtnText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
   statItem: {
     flex: 1,

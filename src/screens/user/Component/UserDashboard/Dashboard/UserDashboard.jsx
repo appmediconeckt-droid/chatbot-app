@@ -23,9 +23,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useIsFocused } from "@react-navigation/native";
 import axios from "axios";
 import axiosInstance, { API_BASE_URL } from "../../../../../axiosConfig";
+import { launchImageLibrary } from "react-native-image-picker";
 import socketService from "../../../../../services/socketService";
 import Icon from "react-native-vector-icons/FontAwesome5";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
@@ -39,7 +40,9 @@ import CounselorTable from "../Tab/Appointment/BookAppointment";
 import WalletDashboard from "../Tab/Wallet/WalletDashboard";
 import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
+import AvatarBuilder from "../../PatientProfile/AvatarBuilder";
 import LanguageSelector from '../../../../../components/common/LanguageSelector';
+import { loadUserLanguage } from '../../../../../i18n';
 import RealVideoCallModal from "../Tab/CallModal/VideoCallModal";
 import RealVoiceCallModal from "../Tab/CallModal/VoiceCallModal";
 import HelpSupport from "../Tab/HelpSupport/HelpSupport";
@@ -81,6 +84,7 @@ const ChatPopup = ({
   selectedLang,
   setSelectedLang,
   onLangChange,
+  userPhoto,
 }) => {
   const [speakingId, setSpeakingId] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -351,7 +355,11 @@ const ChatPopup = ({
                 </View>
                 {message.sender === "user" && (
                   <View style={[styles.chatAvatar, styles.chatAvatarSmall, styles.userAvatar]}>
-                    <Ionicons name="person-circle" size={18} color="#667eea" />
+                    {userPhoto ? (
+                      <Image source={{ uri: userPhoto }} style={{ width: '100%', height: '100%', borderRadius: 999 }} />
+                    ) : (
+                      <Ionicons name="person-circle" size={18} color="#667eea" />
+                    )}
                   </View>
                 )}
               </View>
@@ -1070,6 +1078,7 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
 export default function UserDashboard() {
   const { t } = useTranslation();
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
   const [active, setActive] = useState("Chat");
   const [chatOpen, setChatOpen] = useState(false);
   const [newMessage, setNewMessage] = useState("");
@@ -1116,6 +1125,9 @@ export default function UserDashboard() {
 
   const [chatMessages, setChatMessages] = useState([]);
   const [selectedLang, setSelectedLang] = useState('en-IN');
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [showAvatarChooser, setShowAvatarChooser] = useState(false);
+  const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
 
   const handleAIContactClick = (name) => {
     setTargetCounselor(name);
@@ -1132,6 +1144,11 @@ export default function UserDashboard() {
       useNativeDriver: true,
     }).start();
   }, []);
+
+  // Reload user's language whenever this dashboard gains focus
+  useEffect(() => {
+    if (isFocused && userId) loadUserLanguage(userId, 'user');
+  }, [isFocused, userId]);
 
   useEffect(() => {
     if (chatOpen) {
@@ -1354,6 +1371,8 @@ export default function UserDashboard() {
       const storedUserId = await AsyncStorage.getItem("userId");
       if (!storedUserId) return;
 
+      setUserId(storedUserId);
+
       const response = await axiosInstance.get(`/api/auth/getUser/${storedUserId}`);
 
       if (response.data.success) {
@@ -1368,6 +1387,59 @@ export default function UserDashboard() {
     } catch (error) {
       console.error("Error fetching user:", error);
     }
+  };
+
+  // Upload a profile photo (file) or generated avatar (url) from the header.
+  const uploadHeaderPhoto = async (formData, optimisticUri) => {
+    try {
+      setPhotoUploading(true);
+      const token =
+        (await AsyncStorage.getItem("accessToken")) ||
+        (await AsyncStorage.getItem("token"));
+      const storedUserId = await AsyncStorage.getItem("userId");
+      const response = await axios.patch(
+        `${API_BASE_URL}/api/auth/update/${storedUserId}`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+      if (response.data?.success) {
+        if (optimisticUri) setUserData((prev) => ({ ...prev, profilePhoto: optimisticUri }));
+        fetchUserData();
+      }
+    } catch (e) {
+      console.error("Header photo upload failed:", e);
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
+
+  // Pick an image from the library and upload it.
+  const handleHeaderUploadPhoto = () => {
+    setShowAvatarChooser(false);
+    launchImageLibrary({ mediaType: "photo", quality: 0.8 }, async (res) => {
+      if (res.didCancel || res.errorCode || !res.assets?.[0]) return;
+      const asset = res.assets[0];
+      const formData = new FormData();
+      formData.append("profilePhoto", {
+        uri: asset.uri,
+        type: asset.type || "image/jpeg",
+        name: asset.fileName || "photo.jpg",
+      });
+      await uploadHeaderPhoto(formData, asset.uri);
+    });
+  };
+
+  // Generated avatar selected → save it.
+  const handleHeaderAvatarSelect = async (avatarUrl) => {
+    setShowAvatarBuilder(false);
+    const formData = new FormData();
+    formData.append("avatarUrl", avatarUrl);
+    await uploadHeaderPhoto(formData, avatarUrl);
   };
 
   const sendMessage = async (messageText = newMessage) => {
@@ -1653,72 +1725,89 @@ export default function UserDashboard() {
         }}
       />
 
-      {/* HEADER - Exactly matching screen.png */}
+      {/* HEADER */}
       <View style={styles.header}>
-  <View style={styles.headerLeft}>
-    <Text style={styles.userName}>{userData.name || 'User'}</Text>
-  </View>
-  <View style={styles.headerRight}>
-    <LanguageSelector iconColor="#2563EB" iconSize={22} />
-  <TouchableOpacity
-    style={styles.profileImageWrapper}
-    onPress={() => setShowProfileMenu(!showProfileMenu)}
-    activeOpacity={0.7}
-  >
-    {userData.profilePhoto ? (
-      <Image source={{ uri: userData.profilePhoto }} style={styles.profileImageHeader} />
-    ) : (
-      <View style={styles.profileImagePlaceholderHeader}>
-        <Text style={styles.profileInitialsHeader}>
-          {userData.name?.charAt(0) || 'U'}
-        </Text>
-      </View>
-    )}
-  </TouchableOpacity>
-  </View>
-
-  {/* Profile Dropdown Menu */}
-  {showProfileMenu && (
-    <Animated.View style={[styles.profileDropdown, { opacity: headerAnim }]}>
-      <View style={styles.dropdownHeader}>
-        {userData.profilePhoto ? (
-          <Image source={{ uri: userData.profilePhoto }} style={styles.dropdownAvatar} />
-        ) : (
-          <View style={styles.dropdownAvatarPlaceholder}>
-            <Text style={styles.dropdownAvatarText}>
-              {userData.name?.charAt(0) || 'U'}
-            </Text>
+        <TouchableOpacity
+          style={styles.headerLeft}
+          onPress={() => setShowProfileMenu(!showProfileMenu)}
+          activeOpacity={0.8}
+        >
+          <View style={styles.profileImageWrapper}>
+            {userData.profilePhoto ? (
+              <Image source={{ uri: userData.profilePhoto }} style={styles.profileImageHeader} />
+            ) : (
+              <View style={styles.profileImagePlaceholderHeader}>
+                <Text style={styles.profileInitialsHeader}>
+                  {userData.name?.charAt(0)?.toUpperCase() || 'U'}
+                </Text>
+              </View>
+            )}
+            <View style={styles.onlineDot} />
           </View>
-        )}
-        <View style={styles.dropdownUserInfo}>
-          <Text style={styles.dropdownUserName}>{userData.name}</Text>
-          <Text style={styles.dropdownUserEmail}>{userData.email}</Text>
+          <View style={styles.headerNameWrap}>
+            <Text style={styles.headerName} numberOfLines={1}>{userData.name || 'User'}</Text>
+          </View>
+        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <LanguageSelector iconColor="#2563EB" iconSize={20} userId={userId} role="user" />
         </View>
+
+        {/* Profile Dropdown Menu */}
+        {showProfileMenu && (
+          <Animated.View style={[styles.profileDropdown, { opacity: headerAnim }]}>
+            <View style={styles.dropdownHeader}>
+              <TouchableOpacity
+                style={styles.dropdownAvatarWrap}
+                onPress={() => setShowAvatarChooser(true)}
+                activeOpacity={0.8}
+                disabled={photoUploading}
+              >
+                {userData.profilePhoto ? (
+                  <Image source={{ uri: userData.profilePhoto }} style={styles.dropdownAvatar} />
+                ) : (
+                  <View style={styles.dropdownAvatarPlaceholder}>
+                    <Text style={styles.dropdownAvatarText}>
+                      {userData.name?.charAt(0)?.toUpperCase() || 'U'}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.dropdownAvatarBadge}>
+                  {photoUploading ? (
+                    <ActivityIndicator size={11} color="#ffffff" />
+                  ) : (
+                    <MaterialIcons name="camera-alt" size={12} color="#ffffff" />
+                  )}
+                </View>
+              </TouchableOpacity>
+              <View style={styles.dropdownUserInfo}>
+                <Text style={styles.dropdownUserName}>{userData.name}</Text>
+                <Text style={styles.dropdownUserEmail}>{userData.email}</Text>
+              </View>
+            </View>
+            <View style={styles.dropdownItems}>
+              <TouchableOpacity style={styles.dropdownItem} onPress={handleProfileClick}>
+                <MaterialIcons name="person" size={18} color="#2563EB" />
+                <Text style={styles.dropdownItemText}>{t('settings:myProfile')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.dropdownItem}
+                onPress={() => { setShowProfileMenu(false); setActive("settings"); }}
+              >
+                <MaterialIcons name="settings" size={18} color="#64748b" />
+                <Text style={styles.dropdownItemText}>{t('settings:settings')}</Text>
+              </TouchableOpacity>
+              <View style={styles.dropdownDivider} />
+              <TouchableOpacity
+                style={[styles.dropdownItem, styles.logoutDropdownItem]}
+                onPress={() => setShowLogoutConfirm(true)}
+              >
+                <MaterialIcons name="logout" size={18} color="#ef4444" />
+                <Text style={[styles.dropdownItemText, styles.logoutText]}>{t('auth:logout')}</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        )}
       </View>
-      <View style={styles.dropdownItems}>
-        <TouchableOpacity style={styles.dropdownItem} onPress={handleProfileClick}>
-          <MaterialIcons name="person" size={18} color="#4A90E2" />
-          <Text style={styles.dropdownItemText}>My Profile</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.dropdownItem}
-          onPress={() => { setShowProfileMenu(false); setActive("settings"); }}
-        >
-          <MaterialIcons name="settings" size={18} color="#64748b" />
-          <Text style={styles.dropdownItemText}>Settings</Text>
-        </TouchableOpacity>
-        <View style={styles.dropdownDivider} />
-        <TouchableOpacity
-          style={[styles.dropdownItem, styles.logoutDropdownItem]}
-          onPress={() => setShowLogoutConfirm(true)}
-        >
-          <MaterialIcons name="logout" size={18} color="#ef4444" />
-          <Text style={[styles.dropdownItemText, styles.logoutText]}>Logout</Text>
-        </TouchableOpacity>
-      </View>
-    </Animated.View>
-  )}
-</View>
 
       {/* MAIN CONTENT */}
       <View style={styles.contentContainer}>
@@ -1768,6 +1857,7 @@ export default function UserDashboard() {
           selectedLang={selectedLang}
           setSelectedLang={setSelectedLang}
           onLangChange={handleLangChange}
+          userPhoto={userData.profilePhoto}
         />
       )}
 
@@ -1837,7 +1927,7 @@ export default function UserDashboard() {
           <View style={styles.navIconWrapper}>
             <MaterialIcons name="more-horiz" size={24} color="#94a3b8" />
           </View>
-          <Text style={styles.navLabel} numberOfLines={1} adjustsFontSizeToFit>More</Text>
+          <Text style={styles.navLabel} numberOfLines={1} adjustsFontSizeToFit>{t('settings:more')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -1856,7 +1946,7 @@ export default function UserDashboard() {
                 >
                   <View style={styles.premiumHeaderLine} />
                   <View style={styles.premiumHeaderTitleRow}>
-                    <Text style={styles.premiumMoreTitle}>Settings & More</Text>
+                    <Text style={styles.premiumMoreTitle}>{t('settings:settingsAndMore')}</Text>
                     <TouchableOpacity 
                       onPress={() => setShowMoreModal(false)}
                       style={styles.premiumCloseBtn}
@@ -1872,7 +1962,7 @@ export default function UserDashboard() {
                   showsVerticalScrollIndicator={false}
                 >
                   <View style={styles.premiumMoreSection}>
-                    <Text style={styles.premiumSectionTitle}>Dashboard Services</Text>
+                    <Text style={styles.premiumSectionTitle}>{t('settings:dashboardServices')}</Text>
                     {allMenuItems.map((item) => (
                       <TouchableOpacity
                         key={item.id}
@@ -1901,7 +1991,7 @@ export default function UserDashboard() {
                   </View>
 
                   <View style={styles.premiumMoreSection}>
-                    <Text style={styles.premiumSectionTitle}>Account Settings</Text>
+                    <Text style={styles.premiumSectionTitle}>{t('settings:accountSettings')}</Text>
                     <TouchableOpacity 
                       style={styles.premiumListItem}
                       onPress={() => {
@@ -1912,7 +2002,7 @@ export default function UserDashboard() {
                       <View style={[styles.premiumListIcon, { backgroundColor: '#eff6ff' }]}>
                         <MaterialIcons name="person" size={20} color="#3b82f6" />
                       </View>
-                      <Text style={styles.premiumListText}>My Profile</Text>
+                      <Text style={styles.premiumListText}>{t('settings:myProfile')}</Text>
                       <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
                     </TouchableOpacity>
 
@@ -1923,7 +2013,7 @@ export default function UserDashboard() {
                       <View style={[styles.premiumListIcon, { backgroundColor: '#eef2ff' }]}>
                         <MaterialIcons name="settings" size={20} color="#4f46e5" />
                       </View>
-                      <Text style={styles.premiumListText}>Account Settings</Text>
+                      <Text style={styles.premiumListText}>{t('settings:accountSettings')}</Text>
                       <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
                     </TouchableOpacity>
 
@@ -1934,7 +2024,7 @@ export default function UserDashboard() {
                       <View style={[styles.premiumListIcon, { backgroundColor: '#f0fdf4' }]}>
                         <MaterialIcons name="help-outline" size={20} color="#22c55e" />
                       </View>
-                      <Text style={styles.premiumListText}>Help & Support</Text>
+                      <Text style={styles.premiumListText}>{t('settings:helpSupport')}</Text>
                       <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
                     </TouchableOpacity>
 
@@ -1945,7 +2035,7 @@ export default function UserDashboard() {
                       <View style={[styles.premiumListIcon, { backgroundColor: '#faf5ff' }]}>
                         <MaterialIcons name="security" size={20} color="#a855f7" />
                       </View>
-                      <Text style={styles.premiumListText}>Privacy Policy</Text>
+                      <Text style={styles.premiumListText}>{t('settings:privacyPolicy')}</Text>
                       <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
                     </TouchableOpacity>
                   </View>
@@ -1959,7 +2049,7 @@ export default function UserDashboard() {
                       }}
                     >
                       <MaterialIcons name="logout" size={20} color="#ffffff" />
-                      <Text style={styles.premiumLogoutText}>Logout Account</Text>
+                      <Text style={styles.premiumLogoutText}>{t('settings:logoutAccount')}</Text>
                     </TouchableOpacity>
                   </View>
                 </ScrollView>
@@ -1983,23 +2073,23 @@ export default function UserDashboard() {
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModal}>
             <View style={styles.confirmModalHeader}>
-              <Text style={styles.confirmModalTitle}>Confirm Logout</Text>
+              <Text style={styles.confirmModalTitle}>{t('settings:confirmLogout')}</Text>
             </View>
             <View style={styles.confirmModalBody}>
-              <Text style={styles.confirmModalText}>Are you sure you want to logout?</Text>
+              <Text style={styles.confirmModalText}>{t('settings:logoutConfirm')}</Text>
             </View>
             <View style={styles.confirmModalFooter}>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.cancelBtn]}
                 onPress={() => setShowLogoutConfirm(false)}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <Text style={styles.cancelBtnText}>{t('common:cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.confirmLogoutBtn]}
                 onPress={handleLogout}
               >
-                <Text style={styles.confirmLogoutBtnText}>Logout</Text>
+                <Text style={styles.confirmLogoutBtnText}>{t('auth:logout')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2011,25 +2101,23 @@ export default function UserDashboard() {
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModal}>
             <View style={styles.confirmModalHeader}>
-              <Text style={styles.confirmModalTitle}>Delete Account</Text>
+              <Text style={styles.confirmModalTitle}>{t('settings:deleteAccount')}</Text>
             </View>
             <View style={styles.confirmModalBody}>
-              <Text style={styles.confirmModalText}>
-                This action cannot be undone. All your data will be permanently deleted.
-              </Text>
+              <Text style={styles.confirmModalText}>{t('settings:deleteWarning')}</Text>
             </View>
             <View style={styles.confirmModalFooter}>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.cancelBtn]}
                 onPress={() => setShowDeleteConfirm(false)}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <Text style={styles.cancelBtnText}>{t('common:cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.deleteBtn]}
                 onPress={handleDeleteConfirm}
               >
-                <Text style={styles.deleteBtnText}>Delete Account</Text>
+                <Text style={styles.deleteBtnText}>{t('settings:deleteAccount')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2052,6 +2140,69 @@ export default function UserDashboard() {
           </View>
         </View>
       </Modal>
+
+      {/* Avatar action chooser (from header popup) */}
+      <Modal
+        visible={showAvatarChooser}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAvatarChooser(false)}
+      >
+        <TouchableOpacity
+          style={styles.avatarChooserOverlay}
+          activeOpacity={1}
+          onPress={() => setShowAvatarChooser(false)}
+        >
+          <View style={styles.avatarChooserSheet}>
+            <View style={styles.avatarChooserHandle} />
+            <Text style={styles.avatarChooserTitle}>{t('profile:changePhoto', 'Change Profile Photo')}</Text>
+
+            <TouchableOpacity
+              style={styles.avatarChooserOption}
+              onPress={() => { setShowAvatarChooser(false); setShowAvatarBuilder(true); }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.avatarChooserIcon, { backgroundColor: '#eef2ff' }]}>
+                <MaterialIcons name="face" size={22} color="#6366f1" />
+              </View>
+              <View style={styles.avatarChooserTextWrap}>
+                <Text style={styles.avatarChooserOptionTitle}>{t('profile:createAvatar', 'Create Avatar')}</Text>
+                <Text style={styles.avatarChooserOptionSub}>{t('profile:createAvatarSub', 'Build a custom cartoon avatar')}</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.avatarChooserOption}
+              onPress={handleHeaderUploadPhoto}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.avatarChooserIcon, { backgroundColor: '#eff6ff' }]}>
+                <MaterialIcons name="image" size={22} color="#2563eb" />
+              </View>
+              <View style={styles.avatarChooserTextWrap}>
+                <Text style={styles.avatarChooserOptionTitle}>{t('profile:uploadPhoto', 'Upload Photo')}</Text>
+                <Text style={styles.avatarChooserOptionSub}>{t('profile:uploadPhotoSub', 'Choose from your gallery')}</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.avatarChooserCancel}
+              onPress={() => setShowAvatarChooser(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.avatarChooserCancelText}>{t('common:cancel', 'Cancel')}</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <AvatarBuilder
+        visible={showAvatarBuilder}
+        onSelect={handleHeaderAvatarSelect}
+        onClose={() => setShowAvatarBuilder(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -2062,69 +2213,84 @@ const styles = StyleSheet.create({
     backgroundColor: "#f7f9fb",
   },
 
- header: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 10 : 10,
-    paddingBottom: 15,
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 10 : 12,
+    paddingBottom: 12,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    borderBottomColor: '#eef2f7',
+    shadowColor: '#4f46e5',
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowRadius: 10,
+    elevation: 4,
     zIndex: 100,
   },
   headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
+    gap: 11,
+  },
+  headerNameWrap: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  headerName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: 0.2,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
-  userName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1e293b',
-  },
-  
-  // Profile Image - Matching iOS style
+
+  // Profile Image
   profileImageWrapper: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
-    overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: '#f0f0f0',
-    backgroundColor: '#f1f5f9',
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 2,
+    borderColor: '#2563EB',
+    backgroundColor: '#eff6ff',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#4A90E2',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
   },
   profileImageHeader: {
     width: '100%',
     height: '100%',
+    borderRadius: 23,
   },
   profileImagePlaceholderHeader: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#4A90E2',
+    borderRadius: 23,
+    backgroundColor: '#2563EB',
     justifyContent: 'center',
     alignItems: 'center',
   },
   profileInitialsHeader: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 17,
+    fontWeight: '700',
     color: '#ffffff',
+  },
+  onlineDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    backgroundColor: '#22c55e',
+    borderWidth: 2.5,
+    borderColor: '#ffffff',
   },
 
   // Profile Dropdown - Matching iOS style
@@ -2154,22 +2320,103 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  dropdownAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    borderWidth: 2,
-    borderColor: '#4A90E2',
+  avatarChooserOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.45)',
+    justifyContent: 'flex-end',
   },
-  dropdownAvatarPlaceholder: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#4A90E2',
+  avatarChooserSheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 28,
+  },
+  avatarChooserHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#e2e8f0',
+    marginBottom: 16,
+  },
+  avatarChooserTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 16,
+  },
+  avatarChooserOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 12,
+  },
+  avatarChooserIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarChooserTextWrap: {
+    flex: 1,
+  },
+  avatarChooserOptionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  avatarChooserOptionSub: {
+    fontSize: 12.5,
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  avatarChooserCancel: {
+    marginTop: 14,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+  },
+  avatarChooserCancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  dropdownAvatarWrap: {
+    position: 'relative',
+  },
+  dropdownAvatarBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#2563EB',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: '#4A90E2',
+    borderColor: '#ffffff',
+  },
+  dropdownAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: '#2563EB',
+  },
+  dropdownAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#2563EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#2563EB',
   },
   dropdownAvatarText: {
     fontSize: 20,

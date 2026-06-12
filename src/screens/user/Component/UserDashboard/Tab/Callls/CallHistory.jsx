@@ -72,8 +72,10 @@ const callIconName = (type) => (type === "video" ? "videocam-outline" : "call-ou
 
 const getProfilePhotoUrl = (call) => {
   if (!call) return null;
-  const photo = call.profilePic || call.profilePhoto || call.avatar;
+  // Prefer the real photo fields; profilePic may hold just an initial letter.
+  let photo = call.profilePhoto || call.avatar || call.profilePic;
   if (!photo) return null;
+  if (typeof photo === "object") photo = photo.url || photo.uri || null;
   if (typeof photo === "string") {
     if (photo.startsWith("http")) return photo;
     if (photo.startsWith("/")) return `${API_BASE_URL}${photo}`;
@@ -111,6 +113,53 @@ const CallHistory = () => {
     };
 
     loadSession().catch(() => { });
+  }, []);
+
+  // Call-history records have no photo; look up each unique counterparty's
+  // profile photo and merge it into the rows.
+  const enrichWithProfilePhotos = useCallback(async (calls, token) => {
+    const unique = {};
+    calls.forEach((c) => {
+      if (c.counterPartyId && !getProfilePhotoUrl(c)) {
+        unique[c.counterPartyId] = c.counterPartyType;
+      }
+    });
+    const ids = Object.keys(unique);
+    if (!ids.length) return;
+
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+    const photoMap = {};
+    await Promise.all(
+      ids.map(async (id) => {
+        const type = String(unique[id] || '').toLowerCase();
+        const endpoint =
+          type === 'counsellor' || type === 'counselor'
+            ? `${API_BASE_URL}/api/auth/counsellors/${id}`
+            : `${API_BASE_URL}/api/auth/getUser/${id}`;
+        try {
+          const res = await axios.get(endpoint, { headers });
+          const data = res.data?.counsellor || res.data?.user || res.data || {};
+          const photo =
+            data?.profilePhoto?.url ||
+            (typeof data?.profilePhoto === 'string' ? data.profilePhoto : null) ||
+            data?.profilePhotoUrl ||
+            null;
+          if (photo) photoMap[id] = photo;
+        } catch {
+          /* ignore individual lookup failures */
+        }
+      }),
+    );
+
+    if (Object.keys(photoMap).length) {
+      setCallsData((prev) =>
+        prev.map((c) =>
+          photoMap[c.counterPartyId]
+            ? { ...c, profilePhoto: photoMap[c.counterPartyId] }
+            : c,
+        ),
+      );
+    }
   }, []);
 
   const fetchCallHistory = useCallback(async () => {
@@ -166,6 +215,19 @@ const CallHistory = () => {
                 : '--:--',
             duration: Number(call.duration) > 0 ? formatCallDuration(call.duration) : null,
             profilePic: avatarLabel,
+            profilePhoto:
+              call.withPhoto ||
+              call.withProfilePhoto ||
+              call.withProfilePic ||
+              call.withAvatar ||
+              call.profilePhoto ||
+              call.avatar ||
+              call.photo ||
+              call.withUser?.profilePhoto ||
+              call.participant?.profilePhoto ||
+              call.counsellor?.profilePhoto ||
+              call.user?.profilePhoto ||
+              null,
             missed,
             counterPartyId: call.withId,
             counterPartyType: normalizeRole(call.withType),
@@ -181,6 +243,9 @@ const CallHistory = () => {
         });
 
       setCallsData(normalizedCalls);
+
+      // The history API doesn't return counterparty photos — fetch them and merge.
+      enrichWithProfilePhotos(normalizedCalls, token);
     } catch (error) {
       setCallError(
         error?.response?.data?.error ||
@@ -190,7 +255,7 @@ const CallHistory = () => {
     } finally {
       setIsLoadingCalls(false);
     }
-  }, [currentUserId]);
+  }, [currentUserId, enrichWithProfilePhotos]);
 
   useEffect(() => {
     fetchCallHistory().catch(() => { });

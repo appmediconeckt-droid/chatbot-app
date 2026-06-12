@@ -7,82 +7,144 @@ import {
   Modal,
   FlatList,
   StyleSheet,
-  Platform,
   Animated,
+  Dimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import i18n, { LANGUAGES, LANG_STORAGE_KEY } from '../../i18n';
+import i18n, { LANGUAGES, saveUserLanguage, LANG_STORAGE_KEY } from '../../i18n';
 
-const GlobeIcon = ({ color = '#2563EB', size = 22 }) => (
-  <Text style={{ fontSize: size, color, lineHeight: size + 2 }}>🌐</Text>
-);
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-export default function LanguageSelector({ iconColor, iconSize }) {
+const LANG_ACCENT = {
+  en: '#3B82F6',
+  hi: '#F97316',
+  mr: '#8B5CF6',
+  ta: '#10B981',
+  pa: '#F59E0B',
+  bn: '#EC4899',
+  gu: '#06B6D4',
+  kn: '#EF4444',
+  ml: '#6366F1',
+  te: '#0EA5E9',
+  ur: '#14B8A6',
+};
+
+export default function LanguageSelector({ iconColor, iconSize, userId, role }) {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
-  const [scale] = useState(new Animated.Value(0.9));
+  const [scale] = useState(new Animated.Value(0.88));
+  const [opacity] = useState(new Animated.Value(0));
   const currentLang = i18n.language || 'en';
 
   const open = useCallback(() => {
     setVisible(true);
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true, tension: 160, friction: 9 }).start();
-  }, [scale]);
+    Animated.parallel([
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true, tension: 140, friction: 8 }),
+      Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+    ]).start();
+  }, [scale, opacity]);
 
   const close = useCallback(() => {
-    Animated.timing(scale, { toValue: 0.9, duration: 140, useNativeDriver: true }).start(() =>
-      setVisible(false)
-    );
-  }, [scale]);
+    Animated.parallel([
+      Animated.timing(scale, { toValue: 0.88, duration: 150, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 0, duration: 150, useNativeDriver: true }),
+    ]).start(() => setVisible(false));
+  }, [scale, opacity]);
 
   const selectLanguage = useCallback(
     async (code) => {
       if (code === currentLang) { close(); return; }
-      await i18n.changeLanguage(code);
-      await AsyncStorage.setItem(LANG_STORAGE_KEY, code);
+      if (userId && role) {
+        await saveUserLanguage(userId, role, code);
+      } else {
+        await AsyncStorage.setItem(LANG_STORAGE_KEY, code);
+        await i18n.changeLanguage(code);
+      }
       close();
     },
-    [currentLang, close]
+    [currentLang, close, userId, role]
   );
 
-  const renderItem = ({ item }) => {
+  const renderItem = ({ item, index }) => {
     const isActive = item.code === currentLang;
+    const accent = LANG_ACCENT[item.code] || '#3B82F6';
+    const initial = item.native.charAt(0);
+
     return (
       <TouchableOpacity
         style={[styles.langRow, isActive && styles.langRowActive]}
         onPress={() => selectLanguage(item.code)}
-        activeOpacity={0.7}
+        activeOpacity={0.65}
       >
+        {isActive && <View style={[styles.activeBar, { backgroundColor: accent }]} />}
+
+        <View style={[styles.langBadge, { backgroundColor: accent + '20', borderColor: accent + '40' }]}>
+          <Text style={[styles.langBadgeText, { color: accent }]}>{initial}</Text>
+        </View>
+
         <View style={styles.langLabels}>
-          <Text style={[styles.langNative, isActive && styles.langNativeActive]}>{item.native}</Text>
+          <Text style={[styles.langNative, isActive && { color: accent }]}>{item.native}</Text>
           <Text style={styles.langEnglish}>{item.label}</Text>
         </View>
-        {isActive && <Text style={styles.checkmark}>✓</Text>}
+
+        {isActive ? (
+          <View style={[styles.checkCircle, { backgroundColor: accent }]}>
+            <Text style={styles.checkMark}>✓</Text>
+          </View>
+        ) : (
+          <View style={styles.checkCircleEmpty} />
+        )}
       </TouchableOpacity>
     );
   };
 
   return (
     <>
-      <TouchableOpacity onPress={open} style={styles.trigger} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-        <GlobeIcon color={iconColor || '#2563EB'} size={iconSize || 22} />
+      <TouchableOpacity
+        onPress={open}
+        style={styles.trigger}
+        activeOpacity={0.7}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Text style={{ fontSize: iconSize || 22, lineHeight: (iconSize || 22) + 2 }}>🌐</Text>
       </TouchableOpacity>
 
       <Modal visible={visible} transparent animationType="none" onRequestClose={close} statusBarTranslucent>
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={close} />
-        <Animated.View style={[styles.sheet, { transform: [{ scale }] }]}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>{t('language:selectLanguage')}</Text>
-            <TouchableOpacity onPress={close} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={styles.closeBtn}>✕</Text>
+
+        <Animated.View style={[styles.sheet, { transform: [{ scale }], opacity }]}>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <View style={styles.headerIconWrap}>
+                <Text style={styles.headerIcon}>🌐</Text>
+              </View>
+              <View>
+                <Text style={styles.headerTitle}>{t('language:selectLanguage')}</Text>
+                <Text style={styles.headerSub}>Choose your preferred language</Text>
+              </View>
+            </View>
+            <TouchableOpacity onPress={close} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.closeBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Divider */}
+          <View style={styles.divider} />
+
           <FlatList
             data={LANGUAGES}
             keyExtractor={(item) => item.code}
             renderItem={renderItem}
             showsVerticalScrollIndicator={false}
             bounces={false}
+            style={styles.list}
           />
+
+          {/* Bottom pill */}
+          <View style={styles.footer}>
+            <View style={styles.footerPill} />
+          </View>
         </Animated.View>
       </Modal>
     </>
@@ -97,75 +159,165 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
   },
   sheet: {
     position: 'absolute',
-    top: '18%',
+    top: '13%',
     alignSelf: 'center',
-    width: '82%',
-    backgroundColor: '#fff',
-    borderRadius: 18,
-    paddingBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 20,
-    elevation: 16,
+    width: '88%',
+    maxHeight: SCREEN_HEIGHT * 0.72,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.22,
+    shadowRadius: 28,
+    elevation: 20,
   },
-  sheetHeader: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    paddingTop: 20,
+    paddingBottom: 16,
+    backgroundColor: '#F8FAFF',
   },
-  sheetTitle: {
-    fontSize: 17,
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerIcon: {
+    fontSize: 20,
+  },
+  headerTitle: {
+    fontSize: 16,
     fontWeight: '700',
-    color: '#1E293B',
-    letterSpacing: 0.2,
+    color: '#0F172A',
+    letterSpacing: 0.1,
+  },
+  headerSub: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 1,
   },
   closeBtn: {
-    fontSize: 16,
-    color: '#94A3B8',
-    fontWeight: '600',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeBtnText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginHorizontal: 0,
+  },
+  list: {
+    flexGrow: 0,
   },
   langRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 13,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
     borderBottomWidth: 1,
-    borderBottomColor: '#F8FAFC',
+    borderBottomColor: '#F1F5F9',
+    position: 'relative',
+    backgroundColor: '#FFFFFF',
   },
   langRowActive: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: '#F8FAFF',
+  },
+  activeBar: {
+    position: 'absolute',
+    left: 0,
+    top: 8,
+    bottom: 8,
+    width: 3,
+    borderRadius: 2,
+  },
+  langBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 13,
+    flexShrink: 0,
+  },
+  langBadgeText: {
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   langLabels: {
     flex: 1,
   },
   langNative: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#1E293B',
-    marginBottom: 2,
-  },
-  langNativeActive: {
-    color: '#2563EB',
+    lineHeight: 20,
   },
   langEnglish: {
     fontSize: 12,
     color: '#94A3B8',
     fontWeight: '400',
+    marginTop: 1,
   },
-  checkmark: {
-    fontSize: 17,
-    color: '#2563EB',
-    fontWeight: '700',
+  checkCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginLeft: 8,
+    flexShrink: 0,
+  },
+  checkMark: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '800',
+    lineHeight: 14,
+  },
+  checkCircleEmpty: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    marginLeft: 8,
+    flexShrink: 0,
+  },
+  footer: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  footerPill: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E2E8F0',
   },
 });

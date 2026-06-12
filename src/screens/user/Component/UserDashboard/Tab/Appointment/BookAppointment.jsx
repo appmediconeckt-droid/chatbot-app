@@ -21,6 +21,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { useTranslation } from 'react-i18next';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -102,6 +103,7 @@ const resolveOnlineStatus = (person) => {
 
 const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const navigation = useNavigation();
+  const { t } = useTranslation(['appointment', 'common']);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isSmallPhone = screenWidth < 420;
   const listBottomSpace = isSmallPhone ? 120 : 100;
@@ -327,8 +329,8 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const handleChatNow = (counselor) => {
     if (!counselor.online && !counselor.available) {
       Alert.alert(
-        'Counselor Unavailable',
-        `${counselor.name} is currently not available. Please try later.`
+        t('appointment:counselorUnavailable'),
+        `${counselor.name} ${t('appointment:notAvailableNow')}`
       );
       return;
     }
@@ -409,7 +411,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
       const existingAcceptedChat = acceptedChatsByCounselorId[String(counselorId)];
 
       if (!counselorId) {
-        Alert.alert("Error", "Counselor not selected");
+        Alert.alert(t('appointment:counselorNotSelected'), t('appointment:counselorNotSelectedMessage'));
         return;
       }
 
@@ -449,7 +451,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
       }
 
       if (response.data.success) {
-        Alert.alert("Request Sent", "Session request sent. You can open chat once counselor accepts.");
+        Alert.alert(t('appointment:sessionRequestSent'), t('appointment:sessionRequestMessage'));
         setShowUserModal(false);
       }
     } catch (error) {
@@ -477,7 +479,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         }
       }
 
-      Alert.alert("Error", apiErrorMessage);
+      Alert.alert(t('common:error'), apiErrorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -485,17 +487,17 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
   const handleConfirmBooking = async () => {
     if (!bookingDateTime || Number.isNaN(bookingDateTime.getTime())) {
-      Alert.alert('Invalid Date', 'Please choose a valid appointment date and time.');
+      Alert.alert(t('appointment:invalidDate'), t('appointment:pleaseChooseValidDateTime'));
       return;
     }
 
     if (bookingDateTime.getTime() <= Date.now()) {
-      Alert.alert('Invalid Time', 'Please choose a future date and time for the appointment.');
+      Alert.alert(t('appointment:invalidTime'), t('appointment:pleaseChooseFutureDateTime'));
       return;
     }
 
     if (!bookingNotes.trim()) {
-      Alert.alert('Clinical Notes Required', 'Please add your reason for booking this appointment.');
+      Alert.alert(t('appointment:clinicalNotesRequired'), t('appointment:pleaseAddReasonForBooking'));
       return;
     }
 
@@ -525,12 +527,12 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         `Your appointment request was sent to ${selectedCounselorForRequest?.name || 'the counselor'}.`,
       );
 
-      Alert.alert('Booked Successfully', 'Appointment request sent. The counselor has been notified.');
+      Alert.alert(t('appointment:bookedSuccessfully'), t('appointment:appointmentRequestSent'));
       setShowBookingModal(false);
       setBookingNotes('');
     } catch (error) {
       console.error('Error booking appointment:', error);
-      Alert.alert('Booking Failed', error?.response?.data?.message || 'Failed to book appointment.');
+      Alert.alert(t('appointment:bookingFailed'), error?.response?.data?.message || t('appointment:failedToBook'));
     } finally {
       setIsLoading(false);
     }
@@ -578,7 +580,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
             <Text style={styles.rowName} numberOfLines={1}>{item.name}</Text>
             {acceptedChatsByCounselorId[String(item.id)]?.chatId ? (
               <View style={styles.acceptedBadgeInline}>
-                <Text style={styles.acceptedBadgeText}>Accepted</Text>
+                <Text style={styles.acceptedBadgeText}>{t('appointment:accepted', 'Accepted')}</Text>
               </View>
             ) : null}
           </View>
@@ -610,10 +612,10 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
           >
             <Text style={styles.chatButtonText}>
               {!item.available
-                ? 'Unavailable'
+                ? t('common:offline')
                 : acceptedChatsByCounselorId[String(item.id)]?.chatId
-                  ? 'Chat Now'
-                  : 'Send Request'}
+                  ? t('appointment:chatNow')
+                  : t('appointment:sessionRequestWillBeSent')}
             </Text>
           </LinearGradient>
         </TouchableOpacity>
@@ -624,7 +626,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
           activeOpacity={0.85}
         >
           <LinearGradient colors={['#0f766e', '#0d9488']} style={styles.bookButtonGradient}>
-            <Text style={styles.bookButtonText}>Schedule</Text>
+            <Text style={styles.bookButtonText}>{t('appointment:schedule')}</Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>
@@ -697,7 +699,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         <TextInput
           value={searchQuery}
           onChangeText={setSearchQuery}
-          placeholder="Search counselor by name, specialization, or location"
+          placeholder={t('appointment:searchCounselorPlaceholder', 'Search counselor by name, specialization, or location')}
           placeholderTextColor="#9ca3af"
           style={styles.searchInput}
         />
@@ -717,14 +719,14 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
       </View>
       
       <View style={styles.sortRow}>
-        <Text style={styles.sortLabel}>Sort:</Text>
+        <Text style={styles.sortLabel}>{t('appointment:sort')}</Text>
         <TouchableOpacity
           style={[styles.sortChip, sortBy === 'name' && styles.sortChipActive]}
           onPress={() => setSortBy('name')}
         >
           <View style={styles.sortChipContent}>
             <Ionicons name="text" size={12} color={sortBy === 'name' ? '#4338ca' : '#475569'} />
-            <Text style={[styles.sortChipText, sortBy === 'name' && styles.sortChipTextActive]}>Name</Text>
+            <Text style={[styles.sortChipText, sortBy === 'name' && styles.sortChipTextActive]}>{t('appointment:name')}</Text>
           </View>
         </TouchableOpacity>
         <TouchableOpacity
@@ -733,7 +735,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         >
           <View style={styles.sortChipContent}>
             <Ionicons name="star" size={12} color={sortBy === 'rating' ? '#4338ca' : '#475569'} />
-            <Text style={[styles.sortChipText, sortBy === 'rating' && styles.sortChipTextActive]}>Rating</Text>
+            <Text style={[styles.sortChipText, sortBy === 'rating' && styles.sortChipTextActive]}>{t('appointment:rating')}</Text>
           </View>
         </TouchableOpacity>
         <TouchableOpacity
@@ -742,7 +744,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         >
           <View style={styles.sortChipContent}>
             <Ionicons name="briefcase" size={12} color={sortBy === 'experience' ? '#4338ca' : '#475569'} />
-            <Text style={[styles.sortChipText, sortBy === 'experience' && styles.sortChipTextActive]}>Experience</Text>
+            <Text style={[styles.sortChipText, sortBy === 'experience' && styles.sortChipTextActive]}>{t('appointment:experience')}</Text>
           </View>
         </TouchableOpacity>
       </View>
@@ -825,9 +827,9 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
               >
                 <Text style={styles.userInfoIcon}>🔒</Text>
                 <View style={styles.userInfoDetails}>
-                  <Text style={styles.userInfoLabel}>You are chatting anonymously as:</Text>
+                  <Text style={styles.userInfoLabel}>{t('appointment:chatting')}</Text>
                   <Text style={styles.userInfoName}>
-                    {isLoading ? 'Loading...' : userAnonymous || 'Loading...'}
+                    {isLoading ? t('common:loading') : userAnonymous || t('common:loading')}
                   </Text>
                   <Text style={styles.userInfoNote}>
                     This anonymous name will be shown to the counselor
@@ -869,13 +871,13 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
               <View style={styles.modalInfo}>
                 {selectedCounselorForRequest && acceptedChatsByCounselorId[String(selectedCounselorForRequest.id)]?.chatId ? (
                   <>
-                    <Text style={styles.modalInfoText}>You already have an accepted chat with this counselor.</Text>
-                    <Text style={styles.modalInfoText}>Tap Chat Now to continue your conversation.</Text>
+                    <Text style={styles.modalInfoText}>{t('appointment:youAlreadyHaveChat')}</Text>
+                    <Text style={styles.modalInfoText}>{t('appointment:tapChatNowToContinue')}</Text>
                   </>
                 ) : (
                   <>
-                    <Text style={styles.modalInfoText}>Your session request will be sent to the counselor.</Text>
-                    <Text style={styles.modalInfoText}>You can chat once counselor accepts your request.</Text>
+                    <Text style={styles.modalInfoText}>{t('appointment:sessionRequestWillBeSent')}</Text>
+                    <Text style={styles.modalInfoText}>{t('appointment:youCanChatOnceAccepts')}</Text>
                   </>
                 )}
                 <Text style={styles.modalInfoText}>
@@ -901,10 +903,10 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                 >
                   <Text style={styles.submitButtonText}>
                     {isLoading
-                      ? 'Loading...'
+                      ? t('common:loading')
                       : selectedCounselorForRequest && acceptedChatsByCounselorId[String(selectedCounselorForRequest.id)]?.chatId
-                        ? 'Chat Now'
-                        : 'Send Request'}
+                        ? t('appointment:chatNow')
+                        : t('appointment:sessionRequestWillBeSent')}
                   </Text>
                 </LinearGradient>
               </TouchableOpacity>
@@ -932,7 +934,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
             <ScrollView showsVerticalScrollIndicator={false}>
               <View style={styles.modalInfo}>
-                <Text style={styles.modalSectionTitle}>Appointment Date & Time</Text>
+                <Text style={styles.modalSectionTitle}>{t('appointment:appointmentDate')}</Text>
                 <View style={styles.dateTimeRow}>
                   <TouchableOpacity
                     style={styles.dateTimeCard}
@@ -946,7 +948,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                   >
                     <View style={styles.dateTimeCardHeader}>
                       <Ionicons name="calendar-outline" size={16} color="#334155" />
-                      <Text style={styles.dateTimeCardLabel}>Date</Text>
+                      <Text style={styles.dateTimeCardLabel}>{t('appointment:date')}</Text>
                     </View>
                     <Text style={styles.dateTimeCardValue}>{bookingDateLabel}</Text>
                   </TouchableOpacity>
@@ -963,7 +965,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                   >
                     <View style={styles.dateTimeCardHeader}>
                       <Ionicons name="time-outline" size={16} color="#334155" />
-                      <Text style={styles.dateTimeCardLabel}>Time</Text>
+                      <Text style={styles.dateTimeCardLabel}>{t('appointment:time')}</Text>
                     </View>
                     <Text style={styles.dateTimeCardValue}>{bookingTimeLabel}</Text>
                   </TouchableOpacity>
@@ -1011,14 +1013,14 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                   />
                 ) : null}
 
-                <Text style={[styles.modalSectionTitle, { marginTop: 14 }]}>Clinical Notes / Reason</Text>
+                <Text style={[styles.modalSectionTitle, { marginTop: 14 }]}>{t('appointment:clinicalNotes')}</Text>
                 <TextInput
                   style={styles.modalTextArea}
                   multiline
                   numberOfLines={4}
                   value={bookingNotes}
                   onChangeText={setBookingNotes}
-                  placeholder="Share what you want to discuss in this session..."
+                  placeholder={t('appointment:sessionReasonPlaceholder', 'Share what you want to discuss in this session...')}
                   placeholderTextColor="#94a3b8"
                 />
 
@@ -1034,7 +1036,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                   disabled={isLoading}
                 >
                   <LinearGradient colors={['#64748b', '#475569']} style={styles.chatButtonGradient}>
-                    <Text style={styles.chatButtonText}>Cancel</Text>
+                    <Text style={styles.chatButtonText}>{t('common:cancel')}</Text>
                   </LinearGradient>
                 </TouchableOpacity>
 
@@ -1044,7 +1046,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                   disabled={isLoading}
                 >
                   <LinearGradient colors={['#0f766e', '#0d9488']} style={styles.bookButtonGradient}>
-                    <Text style={styles.bookButtonText}>{isLoading ? 'Booking...' : 'Confirm'}</Text>
+                    <Text style={styles.bookButtonText}>{isLoading ? t('appointment:booking') : t('common:confirm')}</Text>
                   </LinearGradient>
                 </TouchableOpacity>
               </View>

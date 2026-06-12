@@ -22,6 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const { width, height } = Dimensions.get('window');
 const PIN_LENGTH = 4;
 export const PIN_STORAGE_KEY = 'appLockPin';
+export const BIOMETRIC_LOCK_STORAGE_KEY = 'appLockBiometricEnabled';
 
 // ─── Keypad layout ────────────────────────────────────────────────────────────
 const KEYPAD = [
@@ -149,7 +150,12 @@ const keyS = StyleSheet.create({
  *   onCancel    — () => void  (shown in setup/confirm modes)
  *   confirmPin  — string       (required in confirm mode)
  */
-const AppLockScreen = ({ mode = 'unlock', onSuccess, onCancel, confirmPin }) => {
+const AppLockScreen = ({
+  mode = 'unlock',
+  onSuccess,
+  onCancel = undefined,
+  confirmPin = undefined,
+}) => {
   const { t } = useTranslation();
   const [pin, setPin] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -185,7 +191,7 @@ const AppLockScreen = ({ mode = 'unlock', onSuccess, onCancel, confirmPin }) => 
       }
     }, 350); // slight delay so the screen finishes sliding in
     return () => clearTimeout(timer);
-  }, [mode, triggerSuccess]);
+  }, [mode]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
   const resetDots = useCallback((keepFilled = false) => {
