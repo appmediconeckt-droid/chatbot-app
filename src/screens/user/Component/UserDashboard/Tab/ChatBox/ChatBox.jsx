@@ -1287,7 +1287,7 @@ const ChatBox = () => {
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 44 : 0}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 60}
         style={styles.keyboardAvoid}
         enabled
       >
@@ -2035,8 +2035,8 @@ const styles = StyleSheet.create({
   inputArea: {
     width: '100%',
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 10,
+    paddingTop: 12,
+    paddingBottom: 16,
     borderTopWidth: 1,
     borderTopColor: "#e6e8ea",
     backgroundColor: "#ffffff",
