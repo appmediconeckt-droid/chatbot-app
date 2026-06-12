@@ -16,6 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useTranslation } from 'react-i18next';
+import RazorpayCheckout from 'react-native-razorpay';
 import axiosInstance from '../../../../../../axiosConfig';
 
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000];
@@ -100,17 +101,58 @@ const WalletDashboard = ({ userData = {} }) => {
 
     setLoading(true);
     try {
+      // Create order on backend
       const { data: orderData } = await axiosInstance.post('/api/wallet/create-order', {
         amount: numericAmount,
         paymentMethod,
       });
 
-      // Razorpay native checkout can be plugged here when SDK is added.
-      // For now we keep backend flow complete by verifying with a simulated payment id.
+      // Open Razorpay checkout with React Native SDK
+      const options = {
+        description: 'Wallet Top-up',
+        image: 'https://your-logo-url.com/logo.png',
+        currency: 'INR',
+        key_id: 'rzp_test_SVLlb7lHwVw9cy', // Test key - replace with your key
+        amount: orderData?.amount || numericAmount * 100,
+        order_id: orderData?.order_id,
+        name: 'Mediconeckt',
+        prefill: {
+          email: userData?.email || '',
+          contact: userData?.phone || '',
+          name: userData?.name || '',
+        },
+        theme: { color: '#4648d4' },
+      };
+
+      RazorpayCheckout.open(options)
+        .then((data) => {
+          // Payment successful
+          verifyPayment(orderData?.order_id, data.razorpay_payment_id, data.razorpay_signature);
+        })
+        .catch((error) => {
+          console.error('Razorpay Error:', error);
+          Alert.alert(
+            t('wallet:paymentFailed'),
+            error?.description || t('wallet:paymentCancelled')
+          );
+          setLoading(false);
+        });
+    } catch (error) {
+      console.error('Payment initialization failed:', error);
+      Alert.alert(
+        t('wallet:paymentError'),
+        error?.response?.data?.message || t('wallet:couldNotInitiatePayment')
+      );
+      setLoading(false);
+    }
+  };
+
+  const verifyPayment = async (orderId, paymentId, signature) => {
+    try {
       const verifyRes = await axiosInstance.post('/api/wallet/verify-payment', {
-        razorpay_order_id: orderData?.order_id,
-        razorpay_payment_id: `pay_${Date.now()}`,
-        razorpay_signature: 'mobile_preview_signature',
+        razorpay_order_id: orderId,
+        razorpay_payment_id: paymentId,
+        razorpay_signature: signature,
       });
 
       if (verifyRes?.data?.success) {
@@ -121,8 +163,8 @@ const WalletDashboard = ({ userData = {} }) => {
         Alert.alert(t('wallet:paymentFailed'), t('wallet:verificationFailed'));
       }
     } catch (error) {
-      console.error('Payment initialization failed:', error);
-      Alert.alert(t('wallet:paymentError'), error?.response?.data?.message || t('wallet:couldNotInitiatePayment'));
+      console.error('Payment verification failed:', error);
+      Alert.alert(t('wallet:verificationError'), error?.response?.data?.message || 'Verification failed');
     } finally {
       setLoading(false);
     }
