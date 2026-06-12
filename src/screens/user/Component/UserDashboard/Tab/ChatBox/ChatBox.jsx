@@ -1854,14 +1854,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     marginBottom: 4,
     width: "100%",
+    paddingHorizontal: 0,
   },
   messageRowLeft: {
     justifyContent: "flex-start",
-    paddingRight: 40,
+    paddingRight: 0,
   },
   messageRowRight: {
     justifyContent: "flex-end",
-    paddingLeft: 40,
+    paddingLeft: 0,
   },
   messageAvatarContainer: {
     width: 36,
@@ -1894,6 +1895,7 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     maxWidth: "85%",
+    minWidth: "auto",
   },
   messageRight: {
     alignSelf: "flex-end",
@@ -1905,6 +1907,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 24,
+    flexWrap: "wrap",
   },
   userMessageContent: {
     backgroundColor: "#2c50cd",
@@ -1925,6 +1928,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontFamily: Platform.OS === "ios" ? "Manrope" : "System",
+    flexWrap: "wrap",
   },
   userMessageText: {
     color: "#ffffff",
