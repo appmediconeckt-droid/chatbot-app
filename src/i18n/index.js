@@ -17,6 +17,7 @@ import ja from './locales/ja.json';
 import de from './locales/de.json';
 import deCh from './locales/de-CH.json';
 import th from './locales/th.json';
+import ko from './locales/ko.json';
 
 // Indian Languages
 import mr from './locales/mr.json';
@@ -70,6 +71,7 @@ export const LANGUAGES = [
   { code: 'de', label: 'German',     native: 'Deutsch',           region: 'world' },
   { code: 'th', label: 'Thai',       native: 'ไทย',               region: 'world' },
   { code: 'de-CH', label: 'German (Switzerland)', native: 'Deutsch (Schweiz)', region: 'world' },
+  { code: 'ko', label: 'Korean', native: '한국어', region: 'world' },
 
   // Indian & South Asian Languages
   { code: 'mr', label: 'Marathi',    native: 'मराठी',             region: 'indian' },
@@ -86,7 +88,7 @@ export const LANGUAGES = [
 
 const resources = {
   en, hi,
-  zh, es, fr, ar, pt, ru, ja, de, deCh, th,
+  zh, es, fr, ar, pt, ru, ja, de, deCh, th, ko,
   mr, ta, pa, bn, gu, kn, ml, te, ur, ne
 };
 
