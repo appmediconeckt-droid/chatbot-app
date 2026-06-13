@@ -60,30 +60,30 @@ export const LANGUAGES = [
   { code: 'en', label: 'English',    native: 'English',           region: 'priority' },
   { code: 'hi', label: 'Hindi',      native: 'हिन्दी',            region: 'priority' },
 
-  // World Languages
-  { code: 'zh', label: 'Chinese',    native: '中文',              region: 'world' },
-  { code: 'es', label: 'Spanish',    native: 'Español',           region: 'world' },
-  { code: 'fr', label: 'French',     native: 'Français',          region: 'world' },
+  // World Languages (Alphabetical)
   { code: 'ar', label: 'Arabic',     native: 'العربية',           region: 'world' },
+  { code: 'zh', label: 'Chinese',    native: '中文',              region: 'world' },
+  { code: 'fr', label: 'French',     native: 'Français',          region: 'world' },
+  { code: 'de', label: 'German',     native: 'Deutsch',           region: 'world' },
+  { code: 'de-CH', label: 'German (Switzerland)', native: 'Deutsch (Schweiz)', region: 'world' },
+  { code: 'ja', label: 'Japanese',   native: '日本語',            region: 'world' },
+  { code: 'ko', label: 'Korean',     native: '한국어',            region: 'world' },
   { code: 'pt', label: 'Portuguese', native: 'Português',         region: 'world' },
   { code: 'ru', label: 'Russian',    native: 'Русский',           region: 'world' },
-  { code: 'ja', label: 'Japanese',   native: '日本語',            region: 'world' },
-  { code: 'de', label: 'German',     native: 'Deutsch',           region: 'world' },
+  { code: 'es', label: 'Spanish',    native: 'Español',           region: 'world' },
   { code: 'th', label: 'Thai',       native: 'ไทย',               region: 'world' },
-  { code: 'de-CH', label: 'German (Switzerland)', native: 'Deutsch (Schweiz)', region: 'world' },
-  { code: 'ko', label: 'Korean', native: '한국어', region: 'world' },
 
-  // Indian & South Asian Languages
-  { code: 'mr', label: 'Marathi',    native: 'मराठी',             region: 'indian' },
-  { code: 'ta', label: 'Tamil',      native: 'தமிழ்',             region: 'indian' },
-  { code: 'pa', label: 'Punjabi',    native: 'ਪੰਜਾਬੀ',            region: 'indian' },
+  // Indian & South Asian Languages (Alphabetical)
   { code: 'bn', label: 'Bengali',    native: 'বাংলা',             region: 'indian' },
   { code: 'gu', label: 'Gujarati',   native: 'ગુજરાતી',           region: 'indian' },
   { code: 'kn', label: 'Kannada',    native: 'ಕನ್ನಡ',             region: 'indian' },
   { code: 'ml', label: 'Malayalam',  native: 'മലയാളം',           region: 'indian' },
+  { code: 'mr', label: 'Marathi',    native: 'मराठी',             region: 'indian' },
+  { code: 'ne', label: 'Nepali',     native: 'नेपाली',            region: 'indian' },
+  { code: 'pa', label: 'Punjabi',    native: 'ਪੰਜਾਬੀ',            region: 'indian' },
+  { code: 'ta', label: 'Tamil',      native: 'தமிழ்',             region: 'indian' },
   { code: 'te', label: 'Telugu',     native: 'తెలుగు',            region: 'indian' },
   { code: 'ur', label: 'Urdu',       native: 'اردو',              region: 'indian' },
-  { code: 'ne', label: 'Nepali',     native: 'नेपाली',            region: 'indian' },
 ];
 
 const resources = {
