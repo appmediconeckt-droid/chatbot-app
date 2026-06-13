@@ -8,6 +8,7 @@ import {
   StyleSheet,
   StatusBar,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -72,15 +73,25 @@ const callIconName = (type) => (type === "video" ? "videocam-outline" : "call-ou
 
 const getProfilePhotoUrl = (call) => {
   if (!call) return null;
-  // Prefer the real photo fields; profilePic may hold just an initial letter.
-  let photo = call.profilePhoto || call.avatar || call.profilePic;
+  // Prefer profilePhoto (which contains the actual photo after enrichment)
+  // Fall back to avatar or any other photo field
+  const photo = call.profilePhoto || call.avatar || call.photo;
   if (!photo) return null;
-  if (typeof photo === "object") photo = photo.url || photo.uri || null;
+
+  // Handle string URLs
   if (typeof photo === "string") {
     if (photo.startsWith("http")) return photo;
     if (photo.startsWith("/")) return `${API_BASE_URL}${photo}`;
     if (photo.length > 5) return `${API_BASE_URL}/${photo}`; // Likely a filename
   }
+
+  // Handle object formats
+  if (typeof photo === "object") {
+    if (photo.url) return photo.url;
+    if (photo.uri) return photo.uri;
+    if (photo.publicId) return `https://res.cloudinary.com/dfll8lwos/image/upload/${photo.publicId}`;
+  }
+
   return null;
 };
 
