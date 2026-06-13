@@ -136,9 +136,12 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role }) 
             data={LANGUAGES}
             keyExtractor={(item) => item.code}
             renderItem={renderItem}
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator={true}
+            scrollIndicatorInsets={{ right: 2 }}
             bounces={false}
+            nestedScrollEnabled={true}
             style={styles.list}
+            scrollEnabled={true}
           />
 
           {/* Bottom pill */}
@@ -163,18 +166,19 @@ const styles = StyleSheet.create({
   },
   sheet: {
     position: 'absolute',
-    top: '13%',
-    alignSelf: 'center',
-    width: '88%',
-    maxHeight: SCREEN_HEIGHT * 0.72,
+    top: '20%',
+    left: '6%',
+    right: '6%',
+    maxHeight: SCREEN_HEIGHT * 0.65,
+    minHeight: 300,
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
+    borderRadius: 20,
     overflow: 'hidden',
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.22,
-    shadowRadius: 28,
-    elevation: 20,
+    shadowOpacity: 0.25,
+    shadowRadius: 32,
+    elevation: 25,
   },
   header: {
     flexDirection: 'row',
@@ -233,6 +237,8 @@ const styles = StyleSheet.create({
   },
   list: {
     flexGrow: 0,
+    maxHeight: SCREEN_HEIGHT * 0.50,
+    paddingHorizontal: 0,
   },
   langRow: {
     flexDirection: 'row',
