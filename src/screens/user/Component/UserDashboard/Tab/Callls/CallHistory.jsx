@@ -477,7 +477,13 @@ const CallHistory = () => {
       >
         <View style={styles.callAvatar}>
           {profileUrl ? (
-            <Image source={{ uri: profileUrl }} style={styles.callAvatarImage} />
+            <Image
+              source={{ uri: profileUrl }}
+              style={styles.callAvatarImage}
+              onError={() => {
+                // Fallback if image fails to load
+              }}
+            />
           ) : (
             <View style={[styles.callAvatarPlaceholder, { backgroundColor: isMissed ? "#fee2e2" : "#eef2ff" }]}>
               <Text style={[styles.callAvatarText, { color: isMissed ? "#ef4444" : "#2c50cd" }]}>{call.profilePic}</Text>
