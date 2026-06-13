@@ -115,12 +115,30 @@ const CallHistory = () => {
     loadSession().catch(() => { });
   }, []);
 
-  // Call-history records have no photo; look up each unique counterparty's
-  // profile photo and merge it into the rows.
-  const enrichWithProfilePhotos = useCallback(async (calls, token) => {
+  // Extract photo URL from various formats
+  const extractPhotoUrl = (profilePhoto) => {
+    if (!profilePhoto) return null;
+    if (typeof profilePhoto === 'string') {
+      if (profilePhoto.startsWith('http')) return profilePhoto;
+      if (profilePhoto.startsWith('/')) return `${API_BASE_URL}${profilePhoto}`;
+      return null;
+    }
+    if (typeof profilePhoto === 'object') {
+      if (profilePhoto.url) return profilePhoto.url;
+      if (profilePhoto.uri) return profilePhoto.uri;
+      if (profilePhoto.publicId) {
+        return `https://res.cloudinary.com/dfll8lwos/image/upload/${profilePhoto.publicId}`;
+      }
+    }
+    return null;
+  };
+
+  // Call-history records have no photo or name; look up each unique counterparty's
+  // profile data and merge it into the rows.
+  const enrichWithProfileData = useCallback(async (calls, token) => {
     const unique = {};
     calls.forEach((c) => {
-      if (c.counterPartyId && !getProfilePhotoUrl(c)) {
+      if (c.counterPartyId) {
         unique[c.counterPartyId] = c.counterPartyType;
       }
     });
@@ -128,7 +146,7 @@ const CallHistory = () => {
     if (!ids.length) return;
 
     const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-    const photoMap = {};
+    const profileDataMap = {};
     await Promise.all(
       ids.map(async (id) => {
         const type = String(unique[id] || '').toLowerCase();
@@ -139,23 +157,26 @@ const CallHistory = () => {
         try {
           const res = await axios.get(endpoint, { headers });
           const data = res.data?.counsellor || res.data?.user || res.data || {};
-          const photo =
-            data?.profilePhoto?.url ||
-            (typeof data?.profilePhoto === 'string' ? data.profilePhoto : null) ||
-            data?.profilePhotoUrl ||
-            null;
-          if (photo) photoMap[id] = photo;
+          const photo = extractPhotoUrl(data?.profilePhoto);
+          const fullName = data?.fullName || data?.displayName || data?.name;
+
+          if (photo || fullName) {
+            profileDataMap[id] = {
+              ...(photo && { profilePhoto: photo }),
+              ...(fullName && { name: fullName }),
+            };
+          }
         } catch {
           /* ignore individual lookup failures */
         }
       }),
     );
 
-    if (Object.keys(photoMap).length) {
+    if (Object.keys(profileDataMap).length) {
       setCallsData((prev) =>
         prev.map((c) =>
-          photoMap[c.counterPartyId]
-            ? { ...c, profilePhoto: photoMap[c.counterPartyId] }
+          profileDataMap[c.counterPartyId]
+            ? { ...c, ...profileDataMap[c.counterPartyId] }
             : c,
         ),
       );
@@ -244,8 +265,8 @@ const CallHistory = () => {
 
       setCallsData(normalizedCalls);
 
-      // The history API doesn't return counterparty photos — fetch them and merge.
-      enrichWithProfilePhotos(normalizedCalls, token);
+      // The history API doesn't return counterparty photos/names — fetch them and merge.
+      enrichWithProfileData(normalizedCalls, token);
     } catch (error) {
       setCallError(
         error?.response?.data?.error ||
@@ -255,7 +276,7 @@ const CallHistory = () => {
     } finally {
       setIsLoadingCalls(false);
     }
-  }, [currentUserId, enrichWithProfilePhotos]);
+  }, [currentUserId, enrichWithProfileData]);
 
   useEffect(() => {
     fetchCallHistory().catch(() => { });
