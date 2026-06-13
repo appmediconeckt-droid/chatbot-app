@@ -22,6 +22,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import socketService from "../../../../../../services/socketService";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import api, { API_BASE_URL } from "../../../../../../axiosConfig";
+import StarRating from "../../../../../../components/StarRating";
 
 const { width, height } = Dimensions.get("window");
 
@@ -151,7 +152,9 @@ const CounselorDirectoryScreen = ({ navigation }) => {
           name: c.fullName || c.name || "Counselor",
           specialization: Array.isArray(c.specialization) ? c.specialization.join(", ") : (c.specialization || "General"),
           experience: c.experience || 0,
-          rating: c.rating || 4.5,
+          // Real aggregate rating from the backend (0 when not yet rated).
+          rating: Number(c.rating ?? c.averageRating ?? 0),
+          ratingCount: Number(c.ratingCount ?? c.totalRatings ?? c.reviewsCount ?? 0),
           online: Boolean(c.isOnline),
           available: Boolean(c.isActive),
           lastSeen: c.lastSeen || null,
@@ -509,6 +512,16 @@ const CounselorDirectoryScreen = ({ navigation }) => {
             <Text style={styles.specialization} numberOfLines={1}>
               {counselor.specialization}
             </Text>
+            {counselor.ratingCount > 0 ? (
+              <StarRating
+                rating={counselor.rating}
+                count={counselor.ratingCount}
+                size={14}
+                style={styles.ratingRow}
+              />
+            ) : (
+              <Text style={styles.newBadgeText}>✨ New counselor</Text>
+            )}
             {location !== "Online" && (
               <Text style={styles.locationText}>📍 {location}</Text>
             )}
@@ -527,7 +540,9 @@ const CounselorDirectoryScreen = ({ navigation }) => {
         <View style={styles.statsGrid}>
           <View style={styles.statItem}>
             <Text style={styles.statLabel}>Rating</Text>
-            <Text style={styles.statValue}>★ {counselor.rating?.toFixed(1) || "0"}</Text>
+            <Text style={styles.statValue}>
+              {counselor.ratingCount > 0 ? `★ ${counselor.rating.toFixed(1)}` : "New"}
+            </Text>
           </View>
           <View style={styles.statItem}>
             <Text style={styles.statLabel}>Experience</Text>
@@ -868,6 +883,14 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                     <View style={styles.counselorPreviewInfo}>
                       <Text style={styles.counselorPreviewName}>{selectedCounselor.name}</Text>
                       <Text style={styles.counselorPreviewSpecialization}>{selectedCounselor.specialization}</Text>
+                      {selectedCounselor.ratingCount > 0 && (
+                        <StarRating
+                          rating={selectedCounselor.rating}
+                          count={selectedCounselor.ratingCount}
+                          size={14}
+                          showValue={true}
+                        />
+                      )}
                       {selectedCounselor.location && selectedCounselor.location !== "Online" && (
                         <Text style={styles.counselorPreviewLocation}>📍 {selectedCounselor.location}</Text>
                       )}
@@ -1138,6 +1161,15 @@ const styles = StyleSheet.create({
   specialization: {
     fontSize: 13,
     color: "#64748B",
+  },
+  ratingRow: {
+    marginTop: 4,
+  },
+  newBadgeText: {
+    fontSize: 12,
+    color: "#2c50cd",
+    fontWeight: "600",
+    marginTop: 4,
   },
   locationText: {
     fontSize: 12,

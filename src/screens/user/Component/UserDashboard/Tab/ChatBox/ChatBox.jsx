@@ -33,6 +33,8 @@ import VideoCallModal from "../CallModal/VideoCallModal";
 import VoiceCallModal from "../CallModal/VoiceCallModal";
 import useRingtone from "../../../../../../hooks/useRingtone";
 import useScreenshotPrevent from "../../../../../../utils/useScreenshotPrevent";
+import RatingModal from "../../../../../../components/RatingModal";
+import ratingService from "../../../../../../services/ratingService";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -253,6 +255,13 @@ const ChatBox = () => {
   const [counselorAvatarFailed, setCounselorAvatarFailed] = useState(false);
   const [chatStatus, setChatStatus] = useState(null);
 
+  // ─── Counselor rating (shown after a session ends) ───────────────────────
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratingSubmitting, setRatingSubmitting] = useState(false);
+  const [ratingTarget, setRatingTarget] = useState(null);
+  // Guards against prompting twice for the same ended session.
+  const ratingPromptedRef = useRef(false);
+
   const flatListRef = useRef(null);
   const messageInputRef = useRef(null);
   const chatSocketRef = useRef(null);
@@ -440,6 +449,106 @@ const ChatBox = () => {
     }
 
     return fallbackChatIdRef.current;
+  };
+
+  // ─── Rating flow ─────────────────────────────────────────────────────────
+  // Open the rating popup for the just-ended session and persist it as pending
+  // so the in-app 24h reminder can re-prompt if the user ignores it.
+  const triggerRatingPrompt = useCallback(async () => {
+    if (ratingPromptedRef.current) return;
+    const counselorIdResolved = resolveCounselorId();
+    if (!counselorIdResolved) return;
+    ratingPromptedRef.current = true;
+    const target = {
+      counselorId: counselorIdResolved,
+      counselorName:
+        currentCounselor?.displayName || currentCounselor?.name || "Counselor",
+      counselorPhoto: getProfilePhotoUrl(currentCounselor),
+      chatId: getChatIdForAPI(),
+    };
+    setRatingTarget(target);
+    setShowRatingModal(true);
+    await ratingService.savePendingRating(target);
+  }, [currentCounselor]);
+
+  // User taps "End Session": tell the backend, flip the local status to "ended"
+  // (which surfaces the banner) and prompt for a rating.
+  // Show rating popup when user navigates away from chat
+  const handleBackNavigation = async () => {
+    const counselorIdResolved = resolveCounselorId();
+    const apiChatId = getChatIdForAPI();
+
+    // Check if user has already rated THIS COUNSELOR (not just this session)
+    const alreadyRatedCounselor = await ratingService.isAlreadyRated(counselorIdResolved);
+    if (alreadyRatedCounselor || ratingPromptedRef.current) {
+      // Already rated this counselor, allow navigation back
+      return false;
+    }
+
+    // Check if there's a pending rating for this session
+    const allPending = await ratingService.getAllPendingRatings();
+    const hasPendingRating = allPending.some(r => r.chatId === apiChatId);
+
+    if (hasPendingRating && !ratingPromptedRef.current) {
+      // Still need to rate this session, show popup
+      ratingPromptedRef.current = true;
+      const target = {
+        counselorId: counselorIdResolved,
+        counselorName: currentCounselor?.displayName || currentCounselor?.name || "Counselor",
+        counselorPhoto: getProfilePhotoUrl(currentCounselor),
+        chatId: apiChatId,
+      };
+      setRatingTarget(target);
+      setShowRatingModal(true);
+      return true; // Don't navigate back yet
+    }
+
+    return false; // Allow navigation
+  };
+
+  // In-app 24h reminder: on screen open, re-prompt for any session whose rating
+  // was ignored more than 24h ago. (A push notification will cover this too once
+  // FCM is wired — see ratingService.registerDeviceToken.)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const due = await ratingService.getDuePendingRating();
+      if (!cancelled && due && !ratingPromptedRef.current) {
+        ratingPromptedRef.current = true;
+        setRatingTarget(due);
+        setShowRatingModal(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSubmitRating = async ({ stars, comment }) => {
+    if (!ratingTarget) return;
+    setRatingSubmitting(true);
+    try {
+      await ratingService.submitRating({
+        counselorId: ratingTarget.counselorId,
+        stars,
+        comment,
+        chatId: ratingTarget.chatId,
+      });
+      setShowRatingModal(false);
+      Alert.alert("Thank you!", "Your rating helps others find the right counselor.");
+    } catch (e) {
+      console.log("submitRating failed:", e?.message);
+      Alert.alert("Couldn't submit", "Please try again in a moment.");
+    } finally {
+      setRatingSubmitting(false);
+    }
+  };
+
+  const handleDismissRating = () => {
+    setShowRatingModal(false);
+    // Navigate back without rating (will re-prompt on next visit to this chat)
+    ratingPromptedRef.current = false;
+    navigation.goBack();
   };
 
   // Call API actions
@@ -1295,7 +1404,7 @@ const ChatBox = () => {
           {/* Header - Serenity & Trust Design */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
-              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+              <TouchableOpacity onPress={async () => { const shouldBlock = await handleBackNavigation(); if (!shouldBlock) navigation.goBack(); }} style={styles.backBtn}>
                 <Ionicons name="arrow-back" size={22} color="#081625" />
               </TouchableOpacity>
               <View style={styles.userDetails}>
@@ -1562,6 +1671,16 @@ const ChatBox = () => {
         callData={selectedCall}
         currentUser={currentUser}
         onEndCall={handleEndCall}
+      />
+
+      {/* Rate-your-counselor popup, shown after a session ends */}
+      <RatingModal
+        visible={showRatingModal}
+        counselorName={ratingTarget?.counselorName || counselorName}
+        counselorPhoto={ratingTarget?.counselorPhoto || counselorProfilePhoto}
+        submitting={ratingSubmitting}
+        onSubmit={handleSubmitRating}
+        onDismiss={handleDismissRating}
       />
     </SafeAreaView>
   );

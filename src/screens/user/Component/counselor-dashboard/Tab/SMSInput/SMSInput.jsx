@@ -526,6 +526,10 @@ const SMSInput = ({ navigation, route }) => {
     }
   };
 
+  // ─── End session ─────────────────────────────────────────────────────────
+  // Counselor ends the session. The backend should mark the chat "ended" and
+  // emit the existing `chat-status-update` event so the user's app shows its
+  // rating popup. We update our own status locally for immediate feedback.
   // ─── Call initiation and handling ────────────────────────────────────────
   const initiateVideoCall = async () => {
     if (!selectedUser || !counselorId) {

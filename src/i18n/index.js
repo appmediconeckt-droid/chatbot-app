@@ -15,6 +15,8 @@ import pt from './locales/pt.json';
 import ru from './locales/ru.json';
 import ja from './locales/ja.json';
 import de from './locales/de.json';
+import deCh from './locales/de-CH.json';
+import th from './locales/th.json';
 
 // Indian Languages
 import mr from './locales/mr.json';
@@ -26,6 +28,7 @@ import kn from './locales/kn.json';
 import ml from './locales/ml.json';
 import te from './locales/te.json';
 import ur from './locales/ur.json';
+import ne from './locales/ne.json';
 
 export const LANG_STORAGE_KEY = 'appLanguage';
 
@@ -65,8 +68,10 @@ export const LANGUAGES = [
   { code: 'ru', label: 'Russian',    native: 'Русский',           region: 'world' },
   { code: 'ja', label: 'Japanese',   native: '日本語',            region: 'world' },
   { code: 'de', label: 'German',     native: 'Deutsch',           region: 'world' },
+  { code: 'th', label: 'Thai',       native: 'ไทย',               region: 'world' },
+  { code: 'de-CH', label: 'German (Switzerland)', native: 'Deutsch (Schweiz)', region: 'world' },
 
-  // Indian Languages
+  // Indian & South Asian Languages
   { code: 'mr', label: 'Marathi',    native: 'मराठी',             region: 'indian' },
   { code: 'ta', label: 'Tamil',      native: 'தமிழ்',             region: 'indian' },
   { code: 'pa', label: 'Punjabi',    native: 'ਪੰਜਾਬੀ',            region: 'indian' },
@@ -76,12 +81,13 @@ export const LANGUAGES = [
   { code: 'ml', label: 'Malayalam',  native: 'മലയാളം',           region: 'indian' },
   { code: 'te', label: 'Telugu',     native: 'తెలుగు',            region: 'indian' },
   { code: 'ur', label: 'Urdu',       native: 'اردو',              region: 'indian' },
+  { code: 'ne', label: 'Nepali',     native: 'नेपाली',            region: 'indian' },
 ];
 
 const resources = {
   en, hi,
-  zh, es, fr, ar, pt, ru, ja, de,
-  mr, ta, pa, bn, gu, kn, ml, te, ur
+  zh, es, fr, ar, pt, ru, ja, de, deCh, th,
+  mr, ta, pa, bn, gu, kn, ml, te, ur, ne
 };
 
 i18n
