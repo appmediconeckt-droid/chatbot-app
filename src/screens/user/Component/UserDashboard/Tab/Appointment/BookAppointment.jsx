@@ -21,7 +21,8 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { useTranslation } from 'react-i18next';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -103,7 +104,7 @@ const resolveOnlineStatus = (person) => {
 
 const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const navigation = useNavigation();
-  const { t } = useTranslation(['appointment', 'common']);
+  const { t } = useLanguageRender();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isSmallPhone = screenWidth < 420;
   const listBottomSpace = isSmallPhone ? 120 : 100;
@@ -1025,7 +1026,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                 />
 
                 <Text style={styles.privacyNote}>
-                  Appointment request will be sent instantly to the counselor for confirmation.
+                  Sent to the counselor for confirmation.
                 </Text>
               </View>
 

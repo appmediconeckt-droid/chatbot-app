@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import {
   View,
   Text,
@@ -101,7 +102,7 @@ const avatarStyles = StyleSheet.create({
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 const SMSList = () => {
-  const { t } = useTranslation();
+  const { t } = useLanguageRender();
   const [searchTerm, setSearchTerm] = useState('');
   const [users, setUsers] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
@@ -307,9 +308,11 @@ const SMSList = () => {
             <Text style={[styles.timeText, item.unread > 0 && styles.timeActive]}>{item.time}</Text>
           </View>
           <View style={styles.rowFooter}>
-            <Text style={[styles.messageText, item.unread > 0 && styles.messageUnread]} numberOfLines={1}>
-              {item.lastMessage}
-            </Text>
+            <TranslatedMessageBubble
+              text={item.lastMessage || ''}
+              style={[styles.messageText, item.unread > 0 && styles.messageUnread]}
+              numberOfLines={1}
+            />
             {item.unread > 0 && (
               <View style={styles.unreadBadge}>
                 <Text style={styles.unreadCount}>{item.unread > 99 ? '99+' : item.unread}</Text>

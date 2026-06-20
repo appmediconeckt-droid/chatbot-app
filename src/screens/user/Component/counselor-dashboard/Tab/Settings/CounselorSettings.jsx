@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import { useNavigation } from '@react-navigation/native';
 import {
   View,
@@ -101,7 +102,7 @@ const INITIAL_PW_FORM = { otp: '', password: '', confirmPassword: '', oldPasswor
 
 const CounselorSettings = ({ onNavigate, onLogout }) => {
   const navigation = useNavigation();
-  const { t } = useTranslation();
+  const { t } = useLanguageRender();
   const [autoAccept, setAutoAccept] = useState(false);
   const [twoFactor, setTwoFactor] = useState(true);
   const [counselor, setCounselor] = useState(null);

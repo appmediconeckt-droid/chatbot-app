@@ -18,11 +18,14 @@ import {
   Alert,
   KeyboardAvoidingView,
 } from "react-native";
+import useLanguageRender from "../../../../../../hooks/useLanguageRender";
+import TranslatedMessageBubble from "../../../../../../components/TranslatedMessageBubble";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import socketService from "../../../../../../services/socketService";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import api, { API_BASE_URL } from "../../../../../../axiosConfig";
 import StarRating from "../../../../../../components/StarRating";
+import { useAutoTranslate } from "../../../../../../hooks/useAutoTranslate";
 
 const { width, height } = Dimensions.get("window");
 
@@ -70,6 +73,7 @@ const getProfilePhotoUrl = (counselor) => {
 };
 
 const CounselorDirectoryScreen = ({ navigation }) => {
+  const { t } = useLanguageRender();
   const [searchTerm, setSearchTerm] = useState("");
   const [searchLocation, setSearchLocation] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -539,17 +543,17 @@ const CounselorDirectoryScreen = ({ navigation }) => {
 
         <View style={styles.statsGrid}>
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Rating</Text>
+            <TranslatedMessageBubble text={t('profile:rating')} style={styles.statLabel} />
             <Text style={styles.statValue}>
-              {counselor.ratingCount > 0 ? `★ ${counselor.rating.toFixed(1)}` : "New"}
+              {counselor.ratingCount > 0 ? `★ ${counselor.rating.toFixed(1)}` : t('profile:notSpecified')}
             </Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Experience</Text>
+            <Text style={styles.statLabel}>{t('profile:experience')}</Text>
             <Text style={styles.statValue}>{counselor.experience || 0}y</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Response</Text>
+            <Text style={styles.statLabel}>{t('common:continue')}</Text>
             <Text style={styles.statValue}>{counselor.responseTime || "< 10s"}</Text>
           </View>
         </View>
@@ -570,7 +574,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
               disabled={!counselor.available}
             >
               <Text style={styles.actionBtnText}>
-                {counselor.available ? "💬 Chat Now" : "🔴 Unavailable"}
+                {counselor.available ? "💬 " + t('appointment:chatNow') : "🔴 " + t('counselor:available')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -616,7 +620,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                 <Text style={styles.searchIcon}>🔍</Text>
                 <TextInput
                   style={styles.searchInput}
-                  placeholder="Search by name, specialization..."
+                  placeholder={t('messages:searchCounselors')}
                   placeholderTextColor="#94A3B8"
                   value={searchTerm}
                   onChangeText={setSearchTerm}
@@ -900,7 +904,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
               )}
 
               <View style={styles.infoBox}>
-                <Text style={styles.infoText}>⏳ Your request will be sent to the counselor</Text>
+                <Text style={styles.infoText}>⏳ Sends a request to the counselor</Text>
                 <Text style={styles.infoText}>✅ You'll be notified when they accept</Text>
                 <Text style={styles.infoText}>💬 Average response time: {selectedCounselor?.responseTime || "< 10 seconds"}</Text>
                 <Text style={[styles.infoText, styles.privacyNote]}>🔒 You are chatting anonymously. Your real identity is protected.</Text>
@@ -912,7 +916,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                 disabled={isSubmitting}
               >
                 <Text style={styles.submitButtonText}>
-                  {isSubmitting ? "Sending..." : "Send Chat Request"}
+                  {isSubmitting ? "Sending..." : "Send Request"}
                 </Text>
               </TouchableOpacity>
             </ScrollView>

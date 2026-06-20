@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -18,36 +18,38 @@ const STAR_LABELS = ["", "Poor", "Fair", "Good", "Very good", "Excellent"];
 /**
  * RatingModal
  *
- * Popup shown after a counseling session ends. Lets the user pick 1-5 stars and
- * (optionally) leave a comment. "Maybe later" dismisses without rating — the
- * caller is responsible for scheduling the 24h re-prompt.
+ * Eligibility-driven rating popup. Lets the user pick 1-5 stars and leave an
+ * optional review. Three actions:
+ *   - Submit rating        → onSubmit({ rating, review })
+ *   - Remind me later      → onRemindLater()    (backend hides for 7 days)
+ *   - Never ask again      → onNeverAskAgain()   (backend hides permanently)
+ *
+ * The parent should pass a fresh `key` per open so star/review reset.
  *
  * Props:
- *   visible        bool
- *   counselorName  string
- *   counselorPhoto string|null
- *   submitting     bool      shows a spinner on the submit button
- *   onSubmit       ({ stars, comment }) => void
- *   onDismiss      () => void   "Maybe later" / close
+ *   visible          bool
+ *   counselorName    string
+ *   counselorPhoto   string|null
+ *   submitting       bool
+ *   success          bool      show success state after submit
+ *   onSubmit         ({ rating, review }) => void
+ *   onRemindLater    () => void
+ *   onNeverAskAgain  () => void
+ *   onClose          () => void   (X / back = remind later by default)
  */
 const RatingModal = ({
   visible,
   counselorName = "your counselor",
   counselorPhoto,
   submitting = false,
+  success = false,
   onSubmit,
-  onDismiss,
+  onRemindLater,
+  onNeverAskAgain,
+  onClose,
 }) => {
-  const [stars, setStars] = useState(0);
-  const [comment, setComment] = useState("");
-
-  // Reset whenever the popup is re-opened for a new session.
-  useEffect(() => {
-    if (visible) {
-      setStars(0);
-      setComment("");
-    }
-  }, [visible]);
+  const [rating, setRating] = useState(0);
+  const [review, setReview] = useState("");
 
   const initials = (counselorName || "C")
     .split(" ")
@@ -57,9 +59,11 @@ const RatingModal = ({
     .join("")
     .toUpperCase();
 
+  const busy = submitting;
+
   const handleSubmit = () => {
-    if (stars < 1 || submitting) return;
-    onSubmit?.({ stars, comment });
+    if (rating < 1 || busy) return;
+    onSubmit?.({ rating, review });
   };
 
   return (
@@ -67,81 +71,103 @@ const RatingModal = ({
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={() => !submitting && onDismiss?.()}
+      onRequestClose={() => !busy && onClose?.()}
     >
       <View style={styles.overlay}>
         <View style={styles.card}>
-          {/* Close */}
-          <TouchableOpacity
-            style={styles.closeBtn}
-            onPress={() => !submitting && onDismiss?.()}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="close" size={22} color="#9AA5B1" />
-          </TouchableOpacity>
+          {success ? (
+            <View style={styles.successWrap}>
+              <Text style={styles.successIcon}>🎉</Text>
+              <Text style={styles.title}>Thank you!</Text>
+              <Text style={styles.subtitle}>Your rating has been submitted.</Text>
+            </View>
+          ) : (
+            <>
+              {/* Close = remind later */}
+              <TouchableOpacity
+                style={styles.closeBtn}
+                onPress={() => !busy && onClose?.()}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={22} color="#9AA5B1" />
+              </TouchableOpacity>
 
-          {/* Avatar */}
-          <View style={styles.avatarWrap}>
-            {counselorPhoto ? (
-              <Image source={{ uri: counselorPhoto }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarFallback]}>
-                <Text style={styles.avatarText}>{initials}</Text>
+              {/* Avatar */}
+              <View style={styles.avatarWrap}>
+                {counselorPhoto ? (
+                  <Image source={{ uri: counselorPhoto }} style={styles.avatar} />
+                ) : (
+                  <View style={[styles.avatar, styles.avatarFallback]}>
+                    <Text style={styles.avatarText}>{initials}</Text>
+                  </View>
+                )}
               </View>
-            )}
-          </View>
 
-          <Text style={styles.title}>Rate your session</Text>
-          <Text style={styles.subtitle}>
-            How was your session with{" "}
-            <Text style={styles.counselorName}>{counselorName}</Text>?
-          </Text>
+              <Text style={styles.title}>Rate your counselor</Text>
+              <Text style={styles.subtitle}>
+                How was your experience with{" "}
+                <Text style={styles.counselorName}>{counselorName}</Text>?
+              </Text>
 
-          {/* Stars */}
-          <View style={styles.starsRow}>
-            <StarRating
-              rating={stars}
-              onChange={setStars}
-              size={40}
-              showValue={false}
-            />
-          </View>
-          <Text style={styles.starLabel}>{STAR_LABELS[stars] || "Tap a star to rate"}</Text>
+              {/* Stars */}
+              <View style={styles.starsRow}>
+                <StarRating
+                  rating={rating}
+                  onChange={setRating}
+                  size={40}
+                  showValue={false}
+                />
+              </View>
+              <Text style={styles.starLabel}>
+                {STAR_LABELS[rating] || "Tap a star to rate"}
+              </Text>
 
-          {/* Optional comment */}
-          <TextInput
-            style={styles.input}
-            placeholder="Add a comment (optional)"
-            placeholderTextColor="#9AA5B1"
-            value={comment}
-            onChangeText={setComment}
-            multiline
-            maxLength={500}
-            textAlignVertical="top"
-          />
+              {/* Optional review */}
+              <TextInput
+                style={styles.input}
+                placeholder="Add a review (optional)"
+                placeholderTextColor="#9AA5B1"
+                value={review}
+                onChangeText={setReview}
+                multiline
+                maxLength={500}
+                textAlignVertical="top"
+                editable={!busy}
+              />
 
-          {/* Submit */}
-          <TouchableOpacity
-            style={[styles.submitBtn, (stars < 1 || submitting) && styles.submitBtnDisabled]}
-            onPress={handleSubmit}
-            disabled={stars < 1 || submitting}
-            activeOpacity={0.85}
-          >
-            {submitting ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.submitText}>Submit rating</Text>
-            )}
-          </TouchableOpacity>
+              {/* Submit */}
+              <TouchableOpacity
+                style={[styles.submitBtn, (rating < 1 || busy) && styles.submitBtnDisabled]}
+                onPress={handleSubmit}
+                disabled={rating < 1 || busy}
+                activeOpacity={0.85}
+              >
+                {busy ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.submitText}>Submit rating</Text>
+                )}
+              </TouchableOpacity>
 
-          {/* Maybe later */}
-          <TouchableOpacity
-            style={styles.laterBtn}
-            onPress={() => !submitting && onDismiss?.()}
-            disabled={submitting}
-          >
-            <Text style={styles.laterText}>Maybe later</Text>
-          </TouchableOpacity>
+              {/* Remind me later */}
+              <TouchableOpacity
+                style={styles.laterBtn}
+                onPress={() => !busy && onRemindLater?.()}
+                disabled={busy}
+              >
+                <Text style={styles.laterText}>Remind me later</Text>
+              </TouchableOpacity>
+
+              {/* Never ask again */}
+              <TouchableOpacity
+                style={styles.neverBtn}
+                onPress={() => !busy && onNeverAskAgain?.()}
+                disabled={busy}
+              >
+                <Text style={styles.neverText}>Never ask again</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </View>
     </Modal>
@@ -259,6 +285,22 @@ const styles = StyleSheet.create({
     color: "#9AA5B1",
     fontSize: 14,
     fontWeight: "600",
+  },
+  neverBtn: {
+    paddingVertical: 8,
+  },
+  neverText: {
+    color: "#C0392B",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  successWrap: {
+    alignItems: "center",
+    paddingVertical: 24,
+  },
+  successIcon: {
+    fontSize: 44,
+    marginBottom: 8,
   },
 });
 

@@ -6,6 +6,7 @@ import {
   TextInput,
   ScrollView,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Image,
   Modal,
   ActivityIndicator,
@@ -38,6 +39,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
   const [showAvatarGen, setShowAvatarGen] = useState(false);
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
   const [showAvatarChooser, setShowAvatarChooser] = useState(false);
+  const [showBloodGroupDropdown, setShowBloodGroupDropdown] = useState(false);
   const [showNotification, setShowNotification] = useState({
     show: false,
     message: "",
@@ -1237,29 +1239,15 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   </View>
                   <View style={styles.formGroup}>
                     <Text style={styles.formLabel}>{t('profile:bloodGroup')}</Text>
-                    <View style={styles.selectContainer}>
-                      {bloodGroups.map((bg) => (
-                        <TouchableOpacity
-                          key={bg}
-                          style={[
-                            styles.selectOption,
-                            normalizeBloodGroup(editFormData.bloodGroup) === bg &&
-                              styles.selectOptionActive,
-                          ]}
-                          onPress={() => handleEditFormChange("bloodGroup", bg)}
-                        >
-                          <Text
-                            style={[
-                              styles.selectOptionText,
-                              normalizeBloodGroup(editFormData.bloodGroup) === bg &&
-                                styles.selectOptionTextActive,
-                            ]}
-                          >
-                            {bg}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                    <TouchableOpacity
+                      style={styles.dropdownButton}
+                      onPress={() => setShowBloodGroupDropdown(true)}
+                    >
+                      <Text style={styles.dropdownButtonText}>
+                        {editFormData.bloodGroup || "Select Blood Group"}
+                      </Text>
+                      <Ionicons name="chevron-down" size={20} color="#64748b" />
+                    </TouchableOpacity>
                   </View>
                 </View>
 
@@ -1740,6 +1728,50 @@ const PatientProfile = ({ onProfileUpdate }) => {
         </View>
       </ScrollView>
       {renderEditModal()}
+
+      {/* Blood Group Dropdown Modal */}
+      <Modal
+        visible={showBloodGroupDropdown}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowBloodGroupDropdown(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowBloodGroupDropdown(false)}>
+          <View style={styles.dropdownOverlay}>
+            <View style={styles.dropdownContent}>
+              <Text style={styles.dropdownTitle}>Select Blood Group</Text>
+              <ScrollView showsVerticalScrollIndicator={false} style={styles.dropdownList}>
+                {bloodGroups.map((bg) => (
+                  <TouchableOpacity
+                    key={bg}
+                    style={[
+                      styles.dropdownItem,
+                      normalizeBloodGroup(editFormData.bloodGroup) === bg && styles.dropdownItemSelected,
+                    ]}
+                    onPress={() => {
+                      handleEditFormChange("bloodGroup", bg);
+                      setShowBloodGroupDropdown(false);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.dropdownItemText,
+                        normalizeBloodGroup(editFormData.bloodGroup) === bg && styles.dropdownItemTextSelected,
+                      ]}
+                    >
+                      {bg}
+                    </Text>
+                    {normalizeBloodGroup(editFormData.bloodGroup) === bg && (
+                      <Ionicons name="checkmark" size={20} color="#2c50cd" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       <AvatarBuilder
         visible={showAvatarBuilder}
         onSelect={handleAvatarSelect}
@@ -2473,11 +2505,10 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   formRow: {
-    flexDirection: "row",
-    gap: 16,
+    width: "100%",
   },
   formGroup: {
-    flex: 1,
+    width: "100%",
     marginBottom: 16,
   },
   formLabel: {
@@ -2595,31 +2626,98 @@ const styles = StyleSheet.create({
   selectContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginTop: 6,
+    gap: 10,
+    marginTop: 8,
   },
   selectOption: {
-    minHeight: 38,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
     backgroundColor: "#f1f5f9",
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: "#e2e8f0",
     alignItems: "center",
     justifyContent: "center",
+    flex: 1,
+    minWidth: "30%",
   },
   selectOptionActive: {
     backgroundColor: "#6366f1",
     borderColor: "#4f46e5",
   },
   selectOptionText: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "600",
     color: "#64748b",
   },
   selectOptionTextActive: {
     color: "white",
+  },
+  dropdownButton: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  dropdownButtonText: {
+    fontSize: 15,
+    color: "#1e293b",
+    fontWeight: "500",
+    flex: 1,
+  },
+  dropdownOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  dropdownContent: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    maxHeight: "60%",
+    width: "85%",
+    paddingHorizontal: 0,
+    overflow: "hidden",
+  },
+  dropdownTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#081625",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+  },
+  dropdownList: {
+    maxHeight: "100%",
+  },
+  dropdownItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  dropdownItemSelected: {
+    backgroundColor: "#f0f4ff",
+  },
+  dropdownItemText: {
+    fontSize: 15,
+    color: "#475569",
+    fontWeight: "500",
+    flex: 1,
+  },
+  dropdownItemTextSelected: {
+    color: "#2c50cd",
+    fontWeight: "700",
   },
   scrollPicker: {
     marginVertical: 4,

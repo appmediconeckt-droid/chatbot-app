@@ -15,7 +15,8 @@ import {
   Dimensions,
   Animated,
 } from 'react-native';
-import { useTranslation } from 'react-i18next';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -43,7 +44,7 @@ const normalizeBloodGroup = (value) => {
 
 const CounselorProfile = () => {
   const navigation = useNavigation();
-  const { t } = useTranslation();
+  const { t } = useLanguageRender();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');

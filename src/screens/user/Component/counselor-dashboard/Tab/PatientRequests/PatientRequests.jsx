@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import {
   View,
   Text,
@@ -12,6 +14,7 @@ import {
 const { width: screenWidth } = Dimensions.get('window');
 
 const PatientRequests = () => {
+  const { t } = useTranslation();
   // Sample patient requests data
   const [patients, setPatients] = useState([
     {

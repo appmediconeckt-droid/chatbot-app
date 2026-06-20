@@ -22,6 +22,9 @@ import CounselorSignup from './src/screens/auth/CounselorSignup';
 import RoleSelector from "./src/screens/auth/RoleSelector";
 import OTPVerification from "./src/screens/auth/OTPVerification";
 import LocationGate from "./src/screens/auth/LocationGate";
+import ForgotPasswordScreen from "./src/screens/auth/ForgotPasswordScreen";
+import ForgotPasswordOTPScreen from "./src/screens/auth/ForgotPasswordOTPScreen";
+import ResetPasswordScreen from "./src/screens/auth/ResetPasswordScreen";
 import { PermissionsAndroid } from 'react-native';
 
 import UserDashboard from './src/screens/user/Component/UserDashboard/Dashboard/UserDashboard';
@@ -42,6 +45,7 @@ import AppLockScreen, { PIN_STORAGE_KEY } from './src/screens/auth/AppLockScreen
 import PinSetupScreen from './src/screens/auth/PinSetupScreen';
 import './src/i18n';
 import i18n, { LANG_STORAGE_KEY } from './src/i18n';
+import { LanguageProvider } from './src/contexts/LanguageContext';
 // Define your navigation param list
 // import { LogBox } from 'react-native';
 // LogBox.ignoreAllLogs(true);
@@ -63,6 +67,9 @@ export type RootStackParamList = {
   SetPassword: undefined;
   SetPasswordByOtp: undefined;
   PinSetup: undefined;
+  ForgotPassword: undefined;
+  ForgotPasswordOTP: { email: string };
+  ResetPassword: { email: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -233,8 +240,9 @@ function App() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <CallProvider>
-      <ToastProvider>
+      <LanguageProvider>
+        <CallProvider>
+          <ToastProvider>
         <NavigationContainer
           ref={navigationRef}
           onReady={() => {
@@ -261,6 +269,9 @@ function App() {
             <Stack.Screen name="UserSignup" component={UserSignup} />
             <Stack.Screen name="RoleSelector" component={RoleSelector} />
             <Stack.Screen name="Login" component={Login} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+            <Stack.Screen name="ForgotPasswordOTP" component={ForgotPasswordOTPScreen} />
+            <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
             <Stack.Screen name='CounselorSignup' component={CounselorSignup} />
               <Stack.Screen name='OTPVerification' component={OTPVerification} />
             <Stack.Screen
@@ -284,8 +295,9 @@ function App() {
         {isLocked && !isBootstrapping && (
           <AppLockScreen onSuccess={() => setIsLocked(false)} />
         )}
-      </ToastProvider>
-      </CallProvider>
+          </ToastProvider>
+        </CallProvider>
+      </LanguageProvider>
     </SafeAreaProvider>
   );
 }

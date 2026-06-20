@@ -26,6 +26,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, useIsFocused } from "@react-navigation/native";
 import axios from "axios";
 import axiosInstance, { API_BASE_URL } from "../../../../../axiosConfig";
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { launchImageLibrary } from "react-native-image-picker";
 import socketService from "../../../../../services/socketService";
 import Icon from "react-native-vector-icons/FontAwesome5";
@@ -42,6 +43,7 @@ import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
 import AvatarBuilder from "../../PatientProfile/AvatarBuilder";
 import LanguageSelector from '../../../../../components/common/LanguageSelector';
+import RatingPrompt from '../../../../../components/RatingPrompt';
 import { loadUserLanguage } from '../../../../../i18n';
 import RealVideoCallModal from "../Tab/CallModal/VideoCallModal";
 import RealVoiceCallModal from "../Tab/CallModal/VoiceCallModal";
@@ -815,6 +817,7 @@ const aptSkelStyles = StyleSheet.create({
 });
 
 const MyAppointmentsPanel = ({ onBookPress }) => {
+  const { t } = useTranslation();
   const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(true);
   const [activeTab, setActiveTab] = useState("Upcoming");
@@ -1034,9 +1037,9 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
                   <Text style={styles.appointmentDetailsText}>View Details</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.appointmentBookBtn} onPress={onBookPress}>
+                <TouchableOpacity style={styles.appointmentBookBtn} onPress={() => onBookPress(apt)}>
                   <MaterialIcons name="add-circle-outline" size={15} color="#ffffff" />
-                  <Text style={styles.appointmentBookText}>Book New</Text>
+                  <Text style={styles.appointmentBookText}>Book Now</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1059,7 +1062,7 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
               <MaterialIcons name="close" size={20} color="#64748b" />
             </TouchableOpacity>
 
-            <Text style={styles.appointmentDetailsTitle}>Appointment Details</Text>
+            <Text style={styles.appointmentDetailsTitle}>{t('appointment:appointmentDate')}</Text>
             <Text style={styles.appointmentDetailsLine}>
               Date: {selectedApt ? new Date(selectedApt.date).toLocaleDateString("en-US") : "-"}
             </Text>
@@ -1095,6 +1098,14 @@ export default function UserDashboard() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showResetChatConfirm, setShowResetChatConfirm] = useState(false);
+  // Direct booking modal state (opened from appointment "Book Now" button)
+  const [showDirectBookingModal, setShowDirectBookingModal] = useState(false);
+  const [directBookCounselor, setDirectBookCounselor] = useState(null);
+  const [directBookDateTime, setDirectBookDateTime] = useState(new Date());
+  const [directBookNotes, setDirectBookNotes] = useState("");
+  const [directBookLoading, setDirectBookLoading] = useState(false);
+  const [showDirectDatePicker, setShowDirectDatePicker] = useState(false);
+  const [showDirectTimePicker, setShowDirectTimePicker] = useState(false);
 
   // Call Modal States
   const [showCallModal, setShowCallModal] = useState(false);
@@ -1634,6 +1645,62 @@ export default function UserDashboard() {
     { id: "Video", icon: "history", label: t('dashboard:callHistory'), type: "material" },
   ];
 
+  const handleDirectDateChange = (event, selectedDate) => {
+    if (selectedDate) {
+      const newDate = new Date(directBookDateTime);
+      newDate.setFullYear(selectedDate.getFullYear());
+      newDate.setMonth(selectedDate.getMonth());
+      newDate.setDate(selectedDate.getDate());
+      setDirectBookDateTime(newDate);
+    }
+    if (Platform.OS === 'android') {
+      setShowDirectDatePicker(false);
+    }
+  };
+
+  const handleDirectTimeChange = (event, selectedTime) => {
+    if (selectedTime) {
+      const newDate = new Date(directBookDateTime);
+      newDate.setHours(selectedTime.getHours());
+      newDate.setMinutes(selectedTime.getMinutes());
+      setDirectBookDateTime(newDate);
+    }
+    if (Platform.OS === 'android') {
+      setShowDirectTimePicker(false);
+    }
+  };
+
+  const handleDirectBooking = async () => {
+    if (!directBookCounselor) return;
+
+    try {
+      setDirectBookLoading(true);
+      const counselorId = directBookCounselor._id || directBookCounselor.id || directBookCounselor.counselorId;
+
+      await axiosInstance.post('/api/appointments', {
+        counselorId,
+        date: directBookDateTime.toISOString(),
+        notes: directBookNotes.trim(),
+      });
+
+      Alert.alert(
+        t('appointment:bookedSuccessfully', 'Appointment Booked'),
+        `Your appointment request was sent to ${directBookCounselor.fullName || directBookCounselor.name || 'the counselor'}.`
+      );
+      setShowDirectBookingModal(false);
+      setDirectBookNotes('');
+      setDirectBookDateTime(new Date());
+    } catch (error) {
+      console.error('Error booking appointment:', error);
+      Alert.alert(
+        t('appointment:bookingFailed', 'Booking Failed'),
+        error?.response?.data?.message || t('appointment:failedToBook', 'Failed to book appointment')
+      );
+    } finally {
+      setDirectBookLoading(false);
+    }
+  };
+
   const renderContent = () => {
     switch (active) {
       case "Chat":
@@ -1641,7 +1708,19 @@ export default function UserDashboard() {
       case "Counselor":
         return <CounselorTable initialSearchQuery={targetCounselor} />;
       case "Appointment":
-        return <MyAppointmentsPanel onBookPress={() => setActive("Counselor")} />;
+        return (
+          <MyAppointmentsPanel
+            onBookPress={(apt) => {
+              const c = apt?.counselor || apt;
+              setDirectBookCounselor(c);
+              const nextSlot = new Date();
+              nextSlot.setHours(nextSlot.getHours() + 1);
+              setDirectBookDateTime(nextSlot);
+              setDirectBookNotes("");
+              setShowDirectBookingModal(true);
+            }}
+          />
+        );
       case "Wallet":
         return <WalletDashboard />;
       case "Video":
@@ -1662,6 +1741,7 @@ export default function UserDashboard() {
         backgroundColor="#ffffff"
         translucent={false}
       />
+      <RatingPrompt triggerKey={active} />
 
       <CallModal
         isOpen={showCallModal}
@@ -2203,6 +2283,127 @@ export default function UserDashboard() {
         onSelect={handleHeaderAvatarSelect}
         onClose={() => setShowAvatarBuilder(false)}
       />
+
+      {/* Direct Booking Modal - opened from appointment "Book Now" button */}
+      <Modal
+        visible={showDirectBookingModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowDirectBookingModal(false)}
+      >
+        <View style={styles.directBookingOverlay}>
+          <View style={styles.directBookingContent}>
+            <View style={styles.directBookingHeader}>
+              <Text style={styles.directBookingTitle}>
+                {directBookCounselor ? `Book with Dr. ${directBookCounselor.fullName || directBookCounselor.name}` : "Book Appointment"}
+              </Text>
+              <TouchableOpacity onPress={() => setShowDirectBookingModal(false)}>
+                <Text style={styles.directBookingClose}>×</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={styles.directBookingScroll}>
+              <Text style={styles.directBookingLabel}>Date</Text>
+              <TouchableOpacity
+                style={styles.directBookingInput}
+                onPress={() => {
+                  setShowDirectDatePicker(true);
+                  if (Platform.OS === 'ios') {
+                    setShowDirectTimePicker(false);
+                  }
+                }}
+              >
+                <Text>{directBookDateTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</Text>
+              </TouchableOpacity>
+
+              <Text style={styles.directBookingLabel}>Time</Text>
+              <TouchableOpacity
+                style={styles.directBookingInput}
+                onPress={() => {
+                  setShowDirectTimePicker(true);
+                  if (Platform.OS === 'ios') {
+                    setShowDirectDatePicker(false);
+                  }
+                }}
+              >
+                <Text>{directBookDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+              </TouchableOpacity>
+
+              {(showDirectDatePicker || showDirectTimePicker) && Platform.OS === 'ios' && (
+                <View style={styles.directBookingPickerWrap}>
+                  {showDirectDatePicker && (
+                    <DateTimePicker
+                      value={directBookDateTime}
+                      mode="date"
+                      display="spinner"
+                      minimumDate={new Date()}
+                      onChange={handleDirectDateChange}
+                    />
+                  )}
+                  {showDirectTimePicker && (
+                    <DateTimePicker
+                      value={directBookDateTime}
+                      mode="time"
+                      display="spinner"
+                      onChange={handleDirectTimeChange}
+                    />
+                  )}
+                </View>
+              )}
+
+              {showDirectDatePicker && Platform.OS === 'android' && (
+                <DateTimePicker
+                  value={directBookDateTime}
+                  mode="date"
+                  display="default"
+                  minimumDate={new Date()}
+                  onChange={handleDirectDateChange}
+                />
+              )}
+
+              {showDirectTimePicker && Platform.OS === 'android' && (
+                <DateTimePicker
+                  value={directBookDateTime}
+                  mode="time"
+                  display="default"
+                  onChange={handleDirectTimeChange}
+                />
+              )}
+
+              <Text style={styles.directBookingLabel}>Notes</Text>
+              <TextInput
+                style={styles.directBookingTextArea}
+                multiline
+                numberOfLines={4}
+                value={directBookNotes}
+                onChangeText={setDirectBookNotes}
+                placeholder="Share what you want to discuss..."
+                placeholderTextColor="#94a3b8"
+              />
+
+              <Text style={styles.directBookingHint}>Sent to the counselor for confirmation.</Text>
+            </ScrollView>
+
+            <View style={styles.directBookingActions}>
+              <TouchableOpacity
+                style={styles.directBookingCancelBtn}
+                onPress={() => setShowDirectBookingModal(false)}
+              >
+                <Text style={styles.directBookingCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.directBookingSendBtn, directBookLoading && styles.directBookingSendBtnDisabled]}
+                onPress={handleDirectBooking}
+                disabled={directBookLoading}
+              >
+                <Text style={styles.directBookingSendText}>
+                  {directBookLoading ? 'Sending...' : 'Send Request'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -2293,32 +2494,44 @@ const styles = StyleSheet.create({
     borderColor: '#ffffff',
   },
 
-  // Profile Dropdown - Matching iOS style
+  // Dim backdrop behind the full-width dropdown (tap to close)
+  dropdownBackdrop: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 66 : 70,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    zIndex: 200,
+    elevation: 20,
+  },
+  // Profile Dropdown - full width, with a small gap below the navbar
   profileDropdown: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 70 : 65,
-    right: 15,
-    width: 280,
+    top: Platform.OS === 'ios' ? 70 : 72,
+    left: 0,
+    right: 0,
     backgroundColor: '#ffffff',
-    borderRadius: 12,
+    borderRadius: 18,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-    zIndex: 101,
+    shadowRadius: 14,
+    elevation: 21,
+    zIndex: 201,
     borderWidth: 1,
-    borderColor: '#f0f0f0',
+    borderColor: '#eef2f7',
   },
   dropdownHeader: {
-    padding: 16,
-    backgroundColor: '#ffffff',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    backgroundColor: '#f8fafc',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#eef2f7',
   },
   avatarChooserOverlay: {
     flex: 1,
@@ -2437,17 +2650,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   dropdownItems: {
-    paddingVertical: 8,
+    width: '100%',
+    paddingVertical: 6,
   },
   dropdownItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    padding: 14,
-    paddingHorizontal: 16,
+    alignSelf: 'stretch',
+    gap: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
   },
   dropdownItemText: {
-    fontSize: 14,
+    flex: 1,
+    fontSize: 15,
     color: '#1e293b',
     fontWeight: '500',
   },
@@ -3718,5 +3934,113 @@ const styles = StyleSheet.create({
   },
   successTitle: {
     color: "#10b981",
+  },
+  directBookingOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  directBookingContent: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "90%",
+    paddingBottom: 20,
+  },
+  directBookingHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+  },
+  directBookingTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#081625",
+    flex: 1,
+  },
+  directBookingClose: {
+    fontSize: 28,
+    color: "#64748b",
+    paddingLeft: 10,
+  },
+  directBookingScroll: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  directBookingPickerWrap: {
+    marginVertical: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  directBookingLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#334155",
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  directBookingInput: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    justifyContent: "center",
+  },
+  directBookingTextArea: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontFamily: Platform.OS === "ios" ? "Manrope" : "System",
+    fontSize: 14,
+    color: "#081625",
+    textAlignVertical: "top",
+    minHeight: 100,
+  },
+  directBookingHint: {
+    fontSize: 12,
+    color: "#64748b",
+    marginTop: 16,
+    fontStyle: "italic",
+  },
+  directBookingActions: {
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  directBookingCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    alignItems: "center",
+  },
+  directBookingCancelText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#475569",
+  },
+  directBookingSendBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "#2c50cd",
+    alignItems: "center",
+  },
+  directBookingSendBtnDisabled: {
+    backgroundColor: "#cbd5e1",
+  },
+  directBookingSendText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#ffffff",
   },
 });

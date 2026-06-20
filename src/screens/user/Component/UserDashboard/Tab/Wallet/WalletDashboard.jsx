@@ -15,7 +15,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import { useTranslation } from 'react-i18next';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import RazorpayCheckout from 'react-native-razorpay';
 import axiosInstance from '../../../../../../axiosConfig';
 
@@ -62,8 +63,8 @@ const WalletSkeleton = () => {
 };
 
 const WalletDashboard = ({ userData = {} }) => {
+  const { t } = useLanguageRender();
   const insets = useSafeAreaInsets();
-  const { t } = useTranslation(['wallet', 'common']);
   const [amount, setAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('upi');
   const [balance, setBalance] = useState(0);
@@ -212,12 +213,12 @@ const WalletDashboard = ({ userData = {} }) => {
           <View style={styles.chipDot} />
         </View>
         <View style={styles.cardBrandWrap}>
-          <Text style={styles.cardBrand}>MediWallet</Text>
+          <Text style={styles.cardBrand}>{t('wallet:walletOverview')}</Text>
           <Text style={styles.cardTier}>Premium Health</Text>
         </View>
       </View>
 
-      <Text style={styles.balanceLabel}>{t('wallet:availableBalance')}</Text>
+      <TranslatedMessageBubble text={t('wallet:availableBalance')} style={styles.balanceLabel} />
       <Text style={styles.balanceAmount}>{formatCurrency(balance)}</Text>
 
       <View style={styles.cardFooter}>
@@ -441,7 +442,7 @@ const WalletDashboard = ({ userData = {} }) => {
             style={[styles.tabBtn, activeTab === 'add-money' && styles.tabBtnActive]}
             onPress={() => setActiveTab('add-money')}
           >
-            <Text style={[styles.tabBtnText, activeTab === 'add-money' && styles.tabBtnTextActive]}>{t('wallet:addMoney')}</Text>
+            <TranslatedMessageBubble text={t('wallet:addMoney')} style={[styles.tabBtnText, activeTab === 'add-money' && styles.tabBtnTextActive]} />
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabBtn, activeTab === 'transactions' && styles.tabBtnActive]}

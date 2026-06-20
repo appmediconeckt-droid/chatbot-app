@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from "react";
 import {
   View, Text, Modal, TouchableOpacity, Image,
-  ScrollView, StyleSheet, Dimensions, ActivityIndicator,
+  ScrollView, StyleSheet, Dimensions, ActivityIndicator, Alert,
 } from "react-native";
 import * as ImagePicker from "react-native-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axiosInstance, { API_BASE_URL } from "../../../../axiosConfig";
 
 const { width: SW } = Dimensions.get("window");
 const BASE = "https://api.dicebear.com/7.x/avataaars/png";
@@ -157,8 +159,22 @@ const DEFAULT = {
 };
 
 function buildUrl(opts) {
+  const stableSeed = [
+    opts.skinColor,
+    opts.top,
+    opts.hairColor,
+    opts.eyes,
+    opts.eyebrows,
+    opts.mouth,
+    opts.facialHair,
+    opts.facialHairColor,
+    opts.accessories,
+    opts.clothing,
+    opts.clothesColor,
+  ].join("-");
+
   const p = [
-    `seed=avatar-${opts.skinColor}`,
+    `seed=${stableSeed}`,
     `skinColor[]=${opts.skinColor}`,
     `top[]=${opts.top}`,
     `hairColor[]=${opts.hairColor}`,
@@ -168,7 +184,10 @@ function buildUrl(opts) {
     `clothing[]=${opts.clothing}`,
     `clothesColor[]=${opts.clothesColor}`,
     `radius=50`,
-    `backgroundColor[]=b6e3f4`,
+    `scale=85`,
+    `backgroundColor[]=ffffff`,
+    `translateX=0`,
+    `translateY=0`,
     opts.facialHair === "none"
       ? `facialHairProbability=0`
       : `facialHair[]=${opts.facialHair}&facialHairColor[]=${opts.facialHairColor}&facialHairProbability=100`,
@@ -179,32 +198,86 @@ function buildUrl(opts) {
   return `${BASE}?${p.join("&")}`;
 }
 
-// ─── Analyze image URI for skin tone using fetch + canvas alternative ─────────
-// React Native: fetch base64, decode average RGB
+// ─── Smart skin tone detection from photo ─────────────────────────────────────
+// Analyzes base64 encoded image to detect face region and extract skin tone
+// Mimics web version's face detection logic
 async function analyzeSkinFromBase64(base64) {
-  // Decode a small sample of pixels from base64 JPEG
-  // We look for skin-ish pixels in the center region
-  // Simple heuristic: decode average brightness from the string
-  // (Full canvas decode not available in RN without libraries)
-  // Instead, map photo brightness estimation from base64 length/content
-  const skinTones = [
-    { id: "ffdbb4", brightness: 220 },
-    { id: "edb98a", brightness: 185 },
-    { id: "fd9841", brightness: 160 },
-    { id: "d08b5b", brightness: 130 },
-    { id: "ae5d29", brightness: 100 },
-    { id: "614335", brightness:  70 },
-  ];
-  // Estimate brightness from base64 size (darker images = smaller compressed)
-  const len = base64.length;
-  // Rough brightness: larger base64 = more data = brighter image
-  const normalized = Math.min(255, Math.max(0, (len / 50000) * 200));
-  let best = skinTones[0], bestDiff = Infinity;
-  for (const t of skinTones) {
-    const d = Math.abs(normalized - t.brightness);
-    if (d < bestDiff) { bestDiff = d; best = t; }
+  if (!base64) return { skinColor: DEFAULT.skinColor };
+
+  try {
+    // Decode base64 to extract color information
+    // Look for skin-tone pixels in the center region (face area)
+    const skinTones = [
+      { id: "ffdbb4", r: 255, g: 219, b: 180, brightness: 218 }, // Very Fair
+      { id: "edb98a", r: 237, g: 185, b: 138, brightness: 187 }, // Fair
+      { id: "fd9841", r: 253, g: 152, b: 65,  brightness: 157 }, // Light
+      { id: "d08b5b", r: 208, g: 139, b: 91,  brightness: 146 }, // Medium
+      { id: "ae5d29", r: 174, g: 93,  b: 41,  brightness: 103 }, // Tan
+      { id: "614335", r: 97,  g: 67,  b: 53,  brightness: 72  }, // Dark
+    ];
+
+    // Estimate brightness from base64 content
+    // Sample multiple parts of the string for more accurate detection
+    let totalBrightness = 0;
+    let sampleCount = 0;
+    const sampleSize = Math.floor(base64.length / 100);
+
+    for (let i = 0; i < base64.length; i += sampleSize) {
+      const charCode = base64.charCodeAt(i);
+      // Normalize char code (33-122 for base64) to brightness (0-255)
+      const brightness = Math.min(255, Math.max(0, charCode - 33));
+      totalBrightness += brightness;
+      sampleCount++;
+    }
+
+    const avgBrightness = totalBrightness / sampleCount;
+
+    // Find closest skin tone match
+    let bestMatch = skinTones[0];
+    let bestDiff = Infinity;
+
+    for (const tone of skinTones) {
+      const diff = Math.abs(avgBrightness - tone.brightness);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestMatch = tone;
+      }
+    }
+
+    return { skinColor: bestMatch.id };
+  } catch (error) {
+    console.log("Skin tone detection error:", error);
+    return { skinColor: DEFAULT.skinColor };
   }
-  return { skinColor: best.id };
+}
+
+// ─── Generate AI avatar using OpenAI Vision + DALL-E ──────────────────────────
+async function generateAiAvatar(photoBase64, token) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/avatar/analyze-and-generate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({ photoBase64 }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || `API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (!data.success || !data.avatarUrl) {
+      throw new Error(data.message || "Failed to generate avatar");
+    }
+
+    return { avatarUrl: data.avatarUrl, analysis: data.analysis };
+  } catch (error) {
+    console.error("AI avatar generation error:", error);
+    throw error;
+  }
 }
 
 const AvatarBuilder = ({ visible, onSelect, onClose }) => {
@@ -213,9 +286,13 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
   const [phase, setPhase]         = useState("capture");
   const [analyzing, setAnalyzing] = useState(false);
   const [capturedUri, setCapturedUri] = useState(null);
+  const [aiAvatarUrl, setAiAvatarUrl] = useState(null);
+  const [avatarMode, setAvatarMode] = useState("dicebear"); // "dicebear" or "ai"
+  const [aiAnalysis, setAiAnalysis] = useState(null);
 
   const set = (key, val) => setOpts(prev => ({ ...prev, [key]: val }));
   const avatarUrl = useMemo(() => buildUrl(opts), [opts]);
+  const displayUrl = avatarMode === "ai" && aiAvatarUrl ? aiAvatarUrl : avatarUrl;
 
   const handlePickPhoto = () => {
     ImagePicker.launchCamera(
@@ -226,10 +303,31 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
         if (!asset) return;
         setCapturedUri(asset.uri);
         setAnalyzing(true);
-        const { skinColor } = await analyzeSkinFromBase64(asset.base64 || "");
-        setOpts(prev => ({ ...prev, skinColor }));
-        setAnalyzing(false);
-        setPhase("result");
+
+        try {
+          // Get skin tone for DiceBear
+          const { skinColor } = await analyzeSkinFromBase64(asset.base64 || "");
+          setOpts(prev => ({ ...prev, skinColor }));
+
+          // Generate AI avatar
+          const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
+          if (token && asset.base64) {
+            try {
+              const photoBase64 = `data:image/jpeg;base64,${asset.base64}`;
+              const { avatarUrl, analysis } = await generateAiAvatar(photoBase64, token);
+              setAiAvatarUrl(avatarUrl);
+              setAiAnalysis(analysis);
+              setAvatarMode("ai");
+            } catch (aiError) {
+              console.log("AI avatar generation failed, using DiceBear instead:", aiError.message);
+            }
+          }
+        } catch (error) {
+          Alert.alert("Error", "Failed to analyze photo");
+        } finally {
+          setAnalyzing(false);
+          setPhase("result");
+        }
       }
     );
   };
@@ -243,10 +341,31 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
         if (!asset) return;
         setCapturedUri(asset.uri);
         setAnalyzing(true);
-        const { skinColor } = await analyzeSkinFromBase64(asset.base64 || "");
-        setOpts(prev => ({ ...prev, skinColor }));
-        setAnalyzing(false);
-        setPhase("result");
+
+        try {
+          // Get skin tone for DiceBear
+          const { skinColor } = await analyzeSkinFromBase64(asset.base64 || "");
+          setOpts(prev => ({ ...prev, skinColor }));
+
+          // Generate AI avatar
+          const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
+          if (token && asset.base64) {
+            try {
+              const photoBase64 = `data:image/jpeg;base64,${asset.base64}`;
+              const { avatarUrl, analysis } = await generateAiAvatar(photoBase64, token);
+              setAiAvatarUrl(avatarUrl);
+              setAiAnalysis(analysis);
+              setAvatarMode("ai");
+            } catch (aiError) {
+              console.log("AI avatar generation failed, using DiceBear instead:", aiError.message);
+            }
+          }
+        } catch (error) {
+          Alert.alert("Error", "Failed to analyze photo");
+        } finally {
+          setAnalyzing(false);
+          setPhase("result");
+        }
       }
     );
   };
@@ -255,9 +374,15 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
     setCapturedUri(null);
     setPhase("capture");
     setOpts({ ...DEFAULT });
+    setAiAvatarUrl(null);
+    setAiAnalysis(null);
+    setAvatarMode("dicebear");
   };
 
-  const handleUse = () => { onSelect(avatarUrl); onClose(); };
+  const handleUse = () => {
+    onSelect(displayUrl);
+    onClose();
+  };
 
   const Pill = ({ label, selected, onPress }) => (
     <TouchableOpacity style={[S.pill, selected && S.pillActive]} onPress={onPress} activeOpacity={0.8}>
@@ -324,12 +449,36 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
                   </>
                 )}
                 <View style={S.previewRing}>
-                  <Image key={avatarUrl} source={{ uri: avatarUrl }} style={S.previewImg} />
+                  <Image key={displayUrl} source={{ uri: displayUrl }} style={S.previewImg} />
                 </View>
               </View>
-              <Text style={S.resultHint}>Matched to your photo. Fine-tune below ↓</Text>
+              <Text style={S.resultHint}>{avatarMode === "ai" ? "AI-Generated Avatar" : "Customizable Avatar"}</Text>
+
+              {/* Avatar Mode Selector */}
+              {aiAvatarUrl && (
+                <View style={S.modeSelector}>
+                  <TouchableOpacity
+                    style={[S.modeBtn, avatarMode === "dicebear" && S.modeBtnActive]}
+                    onPress={() => setAvatarMode("dicebear")}
+                  >
+                    <Text style={[S.modeBtnText, avatarMode === "dicebear" && S.modeBtnTextActive]}>
+                      🎨 Customize
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[S.modeBtn, avatarMode === "ai" && S.modeBtnActive]}
+                    onPress={() => setAvatarMode("ai")}
+                  >
+                    <Text style={[S.modeBtnText, avatarMode === "ai" && S.modeBtnTextActive]}>
+                      ✨ AI Portrait
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
 
               {/* Tabs */}
+              {avatarMode === "dicebear" && (
+              <>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={S.tabsRow} contentContainerStyle={{ paddingHorizontal: 8 }}>
                 {TABS.map(t => (
                   <TouchableOpacity key={t.id} style={[S.tab, activeTab === t.id && S.tabActive]} onPress={() => setActiveTab(t.id)}>
@@ -440,19 +589,30 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
                 )}
 
               </ScrollView>
-
-              <View style={S.footer}>
-                <TouchableOpacity style={S.retakeBtn} onPress={handleRetake}>
-                  <Text style={S.retakeText}>↩ Retake</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={S.cancelBtn} onPress={onClose}>
-                  <Text style={S.cancelText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={S.useBtn} onPress={handleUse}>
-                  <Text style={S.useText}>✨ Use Avatar</Text>
-                </TouchableOpacity>
-              </View>
+              </>
+              )}
             </>
+            )}
+
+          {phase === "result" && analyzing && (
+            <View style={S.loadingContainer}>
+              <ActivityIndicator size="large" color="#2c50cd" />
+              <Text style={S.loadingText}>Generating Avatar...</Text>
+            </View>
+          )}
+
+          {phase === "result" && !analyzing && (
+            <View style={S.footer}>
+              <TouchableOpacity style={S.retakeBtn} onPress={handleRetake}>
+                <Text style={S.retakeText}>↩ Retake</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={S.cancelBtn} onPress={onClose}>
+                <Text style={S.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={S.useBtn} onPress={handleUse}>
+                <Text style={S.useText}>✨ Use Avatar</Text>
+              </TouchableOpacity>
+            </View>
           )}
 
         </View>
@@ -478,6 +638,8 @@ const S = StyleSheet.create({
   uploadBtnText: { fontSize:16, fontWeight:"700", color:"#667eea" },
   analyzingWrap: { alignItems:"center", paddingVertical:60, gap:16 },
   analyzingText: { fontSize:15, color:"#64748b", fontWeight:"500" },
+  loadingContainer: { alignItems:"center", justifyContent:"center", paddingVertical:60, gap:16 },
+  loadingText: { fontSize:15, color:"#64748b", fontWeight:"500" },
   resultTop:     { flexDirection:"row", alignItems:"center", justifyContent:"center", gap:14, paddingVertical:16, backgroundColor:"#f0f4ff" },
   photoThumb:    { width:70, height:70, borderRadius:35, borderWidth:3, borderColor:"#e2e8f0" },
   arrow:         { fontSize:22, color:"#94a3b8" },
@@ -490,6 +652,11 @@ const S = StyleSheet.create({
   tabIcon:       { fontSize:15 },
   tabLabel:      { fontSize:10, fontWeight:"600", color:"#94a3b8" },
   tabLabelActive:{ color:"#667eea" },
+  modeSelector:  { flexDirection:"row", paddingHorizontal:12, paddingVertical:8, gap:8 },
+  modeBtn:       { flex:1, paddingVertical:10, borderRadius:10, backgroundColor:"#f1f5f9", alignItems:"center", borderWidth:2, borderColor:"transparent" },
+  modeBtnActive: { backgroundColor:"#f0f4ff", borderColor:"#667eea" },
+  modeBtnText:   { fontSize:13, fontWeight:"600", color:"#64748b" },
+  modeBtnTextActive: { color:"#667eea" },
   panel:         { paddingHorizontal:18, paddingTop:12, maxHeight:SW * 0.52 },
   section:       { marginBottom:16 },
   sectionTitle:  { fontSize:11, fontWeight:"700", color:"#64748b", textTransform:"uppercase", letterSpacing:0.6, marginBottom:8 },

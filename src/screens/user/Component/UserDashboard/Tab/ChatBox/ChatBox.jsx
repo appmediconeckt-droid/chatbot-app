@@ -20,6 +20,7 @@ import {
   Linking,
   useWindowDimensions,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import socketService from '../../../../../../services/socketService';
 import axios from "axios";
 import { API_BASE_URL } from "../../../../../../axiosConfig";
@@ -33,8 +34,8 @@ import VideoCallModal from "../CallModal/VideoCallModal";
 import VoiceCallModal from "../CallModal/VoiceCallModal";
 import useRingtone from "../../../../../../hooks/useRingtone";
 import useScreenshotPrevent from "../../../../../../utils/useScreenshotPrevent";
-import RatingModal from "../../../../../../components/RatingModal";
-import ratingService from "../../../../../../services/ratingService";
+import { useAutoTranslate } from "../../../../../../hooks/useAutoTranslate";
+import TranslatedMessageBubble from "../../../../../../components/TranslatedMessageBubble";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -255,13 +256,6 @@ const ChatBox = () => {
   const [counselorAvatarFailed, setCounselorAvatarFailed] = useState(false);
   const [chatStatus, setChatStatus] = useState(null);
 
-  // ─── Counselor rating (shown after a session ends) ───────────────────────
-  const [showRatingModal, setShowRatingModal] = useState(false);
-  const [ratingSubmitting, setRatingSubmitting] = useState(false);
-  const [ratingTarget, setRatingTarget] = useState(null);
-  // Guards against prompting twice for the same ended session.
-  const ratingPromptedRef = useRef(false);
-
   const flatListRef = useRef(null);
   const messageInputRef = useRef(null);
   const chatSocketRef = useRef(null);
@@ -289,7 +283,24 @@ const ChatBox = () => {
   }, []);
 
   const resolveCurrentUserId = () => currentUser?.id || currentUser?._id || null;
-  const resolveCounselorId = () => currentCounselor?.id?.toString() || currentCounselor?._id?.toString() || counselorId || currentChat?.counselorId?.toString() || null;
+  const resolveCounselorId = () => {
+    const id =
+      currentCounselor?.id?.toString() ||
+      currentCounselor?._id?.toString() ||
+      counselorId ||
+      currentChat?.counselorId?.toString() ||
+      null;
+
+    if (!id) {
+      console.warn("❌ resolveCounselorId: No counselor ID found!");
+      console.log("  currentCounselor:", currentCounselor);
+      console.log("  counselorId param:", counselorId);
+      console.log("  currentChat:", currentChat);
+    } else {
+      console.log("✅ resolveCounselorId resolved to:", id);
+    }
+    return id;
+  };
 
   const isRealPhoto = (url) => {
     if (!url || typeof url !== 'string') return false;
@@ -451,105 +462,6 @@ const ChatBox = () => {
     return fallbackChatIdRef.current;
   };
 
-  // ─── Rating flow ─────────────────────────────────────────────────────────
-  // Open the rating popup for the just-ended session and persist it as pending
-  // so the in-app 24h reminder can re-prompt if the user ignores it.
-  const triggerRatingPrompt = useCallback(async () => {
-    if (ratingPromptedRef.current) return;
-    const counselorIdResolved = resolveCounselorId();
-    if (!counselorIdResolved) return;
-    ratingPromptedRef.current = true;
-    const target = {
-      counselorId: counselorIdResolved,
-      counselorName:
-        currentCounselor?.displayName || currentCounselor?.name || "Counselor",
-      counselorPhoto: getProfilePhotoUrl(currentCounselor),
-      chatId: getChatIdForAPI(),
-    };
-    setRatingTarget(target);
-    setShowRatingModal(true);
-    await ratingService.savePendingRating(target);
-  }, [currentCounselor]);
-
-  // User taps "End Session": tell the backend, flip the local status to "ended"
-  // (which surfaces the banner) and prompt for a rating.
-  // Show rating popup when user navigates away from chat
-  const handleBackNavigation = async () => {
-    const counselorIdResolved = resolveCounselorId();
-    const apiChatId = getChatIdForAPI();
-
-    // Check if user has already rated THIS COUNSELOR (not just this session)
-    const alreadyRatedCounselor = await ratingService.isAlreadyRated(counselorIdResolved);
-    if (alreadyRatedCounselor || ratingPromptedRef.current) {
-      // Already rated this counselor, allow navigation back
-      return false;
-    }
-
-    // Check if there's a pending rating for this session
-    const allPending = await ratingService.getAllPendingRatings();
-    const hasPendingRating = allPending.some(r => r.chatId === apiChatId);
-
-    if (hasPendingRating && !ratingPromptedRef.current) {
-      // Still need to rate this session, show popup
-      ratingPromptedRef.current = true;
-      const target = {
-        counselorId: counselorIdResolved,
-        counselorName: currentCounselor?.displayName || currentCounselor?.name || "Counselor",
-        counselorPhoto: getProfilePhotoUrl(currentCounselor),
-        chatId: apiChatId,
-      };
-      setRatingTarget(target);
-      setShowRatingModal(true);
-      return true; // Don't navigate back yet
-    }
-
-    return false; // Allow navigation
-  };
-
-  // In-app 24h reminder: on screen open, re-prompt for any session whose rating
-  // was ignored more than 24h ago. (A push notification will cover this too once
-  // FCM is wired — see ratingService.registerDeviceToken.)
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const due = await ratingService.getDuePendingRating();
-      if (!cancelled && due && !ratingPromptedRef.current) {
-        ratingPromptedRef.current = true;
-        setRatingTarget(due);
-        setShowRatingModal(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleSubmitRating = async ({ stars, comment }) => {
-    if (!ratingTarget) return;
-    setRatingSubmitting(true);
-    try {
-      await ratingService.submitRating({
-        counselorId: ratingTarget.counselorId,
-        stars,
-        comment,
-        chatId: ratingTarget.chatId,
-      });
-      setShowRatingModal(false);
-      Alert.alert("Thank you!", "Your rating helps others find the right counselor.");
-    } catch (e) {
-      console.log("submitRating failed:", e?.message);
-      Alert.alert("Couldn't submit", "Please try again in a moment.");
-    } finally {
-      setRatingSubmitting(false);
-    }
-  };
-
-  const handleDismissRating = () => {
-    setShowRatingModal(false);
-    // Navigate back without rating (will re-prompt on next visit to this chat)
-    ratingPromptedRef.current = false;
-    navigation.goBack();
-  };
 
   // Call API actions
   const handleAcceptCall = async (callId) => {
@@ -875,37 +787,108 @@ const ChatBox = () => {
   // Delete whole chat (clear all messages permanently)
   const deleteWholeChat = async () => {
     const apiChatId = getChatIdForAPI();
-    try {
-      const token = await AsyncStorage.getItem("token");
-      // Try endpoint that clears messages for a chat
-      await axios.delete(`${API_BASE_URL}/api/chat/chat/${apiChatId}/messages`, {
-        headers: { Authorization: token ? `Bearer ${token}` : undefined },
-      });
-    } catch (err) {
-      // Fallback: try deleting the chat resource itself
-      try {
-        const token = await AsyncStorage.getItem("token");
-        await axios.delete(`${API_BASE_URL}/api/chat/chats/${apiChatId}`, {
-          headers: { Authorization: token ? `Bearer ${token}` : undefined },
-        });
-      } catch (err2) {
-        console.error("Delete chat failed:", err2?.response || err2.message || err2);
-        Alert.alert("Delete chat", "Could not delete chat on server. Clearing locally.");
-      }
-    }
 
-    // Clear locally regardless of server result
-    setMessages([]);
-    try {
-      const savedChats = JSON.parse(await AsyncStorage.getItem("activeChats") || "[]");
-      const updatedChats = savedChats.map(c => (c.chatId === apiChatId || String(c.id) === String(currentChat?.id)) ? { ...c, messages: [] } : c);
-      await AsyncStorage.setItem("activeChats", JSON.stringify(updatedChats));
-    } catch (e) {
-      // ignore storage errors
-    }
-    // close options if open
-    setShowOptions(false);
-    return true;
+    // Show confirmation dialog
+    Alert.alert(
+      "Clear Chat",
+      "Are you sure you want to delete all messages? You can start a new conversation after.",
+      [
+        {
+          text: "Cancel",
+          onPress: () => console.log("Cancel Pressed"),
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          onPress: async () => {
+            try {
+              const token = await AsyncStorage.getItem("token") ||
+                             await AsyncStorage.getItem("accessToken");
+
+              if (!apiChatId) {
+                Alert.alert("Error", "Chat ID not found");
+                return false;
+              }
+
+              console.log(`🗑️ Attempting to clear chat: ${apiChatId}`);
+
+              // Use CORRECT backend endpoint: DELETE /api/chat/clear/:chatId
+              const response = await axios.delete(
+                `${API_BASE_URL}/api/chat/clear/${apiChatId}`,
+                {
+                  headers: {
+                    Authorization: token ? `Bearer ${token}` : undefined,
+                    'Content-Type': 'application/json',
+                  },
+                }
+              );
+
+              console.log('✅ Chat cleared on server:', response.data);
+
+              // Clear messages in UI
+              setMessages([]);
+              setNewMessage('');
+
+              // Reset chat to active state ✅
+              setChatStatus('active');
+
+              // Update local storage - RESET CHAT STATUS
+              try {
+                const savedChats = JSON.parse(
+                  await AsyncStorage.getItem("activeChats") || "[]"
+                );
+                const updatedChats = savedChats.map(c =>
+                  (c.chatId === apiChatId || String(c.id) === String(currentChat?.id))
+                    ? {
+                        ...c,
+                        messages: [],
+                        unread: 0,
+                        status: 'active', // ✅ Reset to active for new conversation
+                        lastMessage: null,
+                        lastMessageAt: null
+                      }
+                    : c
+                );
+                await AsyncStorage.setItem("activeChats", JSON.stringify(updatedChats));
+                console.log('✅ Local storage updated - Chat reset to active');
+              } catch (storageErr) {
+                console.error("Storage update error:", storageErr);
+              }
+
+              // Reset currentChat state
+              setCurrentChat(prev => prev ? {
+                ...prev,
+                messages: [],
+                status: 'active',
+                lastMessage: null,
+                lastMessageAt: null
+              } : null);
+
+              // Close options menu
+              setShowOptions(false);
+
+              // Show success message
+              Alert.alert("Success", "Chat cleared! You can now start a new conversation.");
+              return true;
+
+            } catch (error) {
+              console.error("❌ Delete chat failed:", error?.response?.data || error.message);
+
+              const errorMsg = error?.response?.data?.error ||
+                             error.message ||
+                             "Failed to clear chat on server";
+
+              Alert.alert(
+                "Error",
+                `Could not clear chat: ${errorMsg}`
+              );
+              return false;
+            }
+          },
+          style: "destructive",
+        },
+      ]
+    );
   };
 
   const handlePickAttachment = useCallback(async () => {
@@ -1304,9 +1287,11 @@ const ChatBox = () => {
         <View style={[styles.messageBubble, isUser ? styles.messageRight : styles.messageLeft]}>
           <View style={[styles.messageContent, isUser ? styles.userMessageContent : styles.counselorMessageContent]}>
             {!!item.text && (
-              <Text style={[styles.messageText, isUser ? styles.userMessageText : styles.counselorMessageText]}>
-                {item.text}
-              </Text>
+              <TranslatedMessageBubble
+                text={item.text}
+                isUser={isUser}
+                style={[styles.messageText, isUser ? styles.userMessageText : styles.counselorMessageText]}
+              />
             )}
             {(item.attachmentName || item.attachmentUrl) && (() => {
               const url = getAttachmentUrl(item);
@@ -1396,7 +1381,9 @@ const ChatBox = () => {
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 60}
+        // Android: keep height behavior (it does the lift), but use a 0 offset
+        // so the input sits directly on the keyboard with no extra gap.
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
         style={styles.keyboardAvoid}
         enabled
       >
@@ -1404,7 +1391,7 @@ const ChatBox = () => {
           {/* Header - Serenity & Trust Design */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
-              <TouchableOpacity onPress={async () => { const shouldBlock = await handleBackNavigation(); if (!shouldBlock) navigation.goBack(); }} style={styles.backBtn}>
+              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                 <Ionicons name="arrow-back" size={22} color="#081625" />
               </TouchableOpacity>
               <View style={styles.userDetails}>
@@ -1671,16 +1658,6 @@ const ChatBox = () => {
         callData={selectedCall}
         currentUser={currentUser}
         onEndCall={handleEndCall}
-      />
-
-      {/* Rate-your-counselor popup, shown after a session ends */}
-      <RatingModal
-        visible={showRatingModal}
-        counselorName={ratingTarget?.counselorName || counselorName}
-        counselorPhoto={ratingTarget?.counselorPhoto || counselorProfilePhoto}
-        submitting={ratingSubmitting}
-        onSubmit={handleSubmitRating}
-        onDismiss={handleDismissRating}
       />
     </SafeAreaView>
   );
@@ -2013,8 +1990,8 @@ const styles = StyleSheet.create({
     height: 32,
   },
   messageBubble: {
-    maxWidth: "85%",
-    minWidth: "auto",
+    maxWidth: "80%",
+    flexShrink: 1,
   },
   messageRight: {
     alignSelf: "flex-end",
@@ -2023,10 +2000,13 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   messageContent: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "flex-end",
+    justifyContent: "flex-end",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 24,
-    flexWrap: "wrap",
   },
   userMessageContent: {
     backgroundColor: "#2c50cd",
@@ -2047,7 +2027,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontFamily: Platform.OS === "ios" ? "Manrope" : "System",
-    flexWrap: "wrap",
+    flexShrink: 1,
   },
   userMessageText: {
     color: "#ffffff",
@@ -2089,9 +2069,9 @@ const styles = StyleSheet.create({
   messageFooter: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
     gap: 2,
-    marginTop: 2,
+    marginLeft: 8,
+    paddingBottom: 1,
   },
   messageTime: {
     fontSize: 10,

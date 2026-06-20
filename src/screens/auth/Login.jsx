@@ -14,12 +14,14 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { useTranslation } from 'react-i18next';
 import { API_BASE_URL } from '../../axiosConfig';
 import GoogleAuthButton from './components/GoogleAuthButton';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 
 const Login = ({ navigation, route }) => {
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -34,6 +36,21 @@ const Login = ({ navigation, route }) => {
   const [otpSent, setOtpSent] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Forgot Password Modal States
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [fpEmail, setFpEmail] = useState('');
+  const [fpLoading, setFpLoading] = useState(false);
+  const [fpResending, setFpResending] = useState(false);
+  const [fpError, setFpError] = useState('');
+  const [fpSuccess, setFpSuccess] = useState('');
+  const [fpStep, setFpStep] = useState('email'); // 'email', 'otp', 'reset'
+  const [fpOtp, setFpOtp] = useState('');
+  const [fpNewPassword, setFpNewPassword] = useState('');
+  const [fpConfirmPassword, setFpConfirmPassword] = useState('');
+  const [fpShowPassword, setFpShowPassword] = useState(false);
+  const [fpShowConfirmPassword, setFpShowConfirmPassword] = useState(false);
+  const [fpResendTimer, setFpResendTimer] = useState(60);
 
   const normalizeRole = (role) => {
     const value = String(role || '').trim().toLowerCase();
@@ -56,6 +73,22 @@ const Login = ({ navigation, route }) => {
     loadRememberedUser();
   }, []);
 
+  // Forgot Password OTP resend countdown timer (matches web — 60s)
+  useEffect(() => {
+    if (fpStep === 'otp' && fpResendTimer > 0) {
+      const timer = setInterval(() => {
+        setFpResendTimer((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [fpStep, fpResendTimer]);
+
   const loadRememberedUser = async () => {
     try {
       const rememberedUserId = await AsyncStorage.getItem('rememberedUserId');
@@ -70,12 +103,12 @@ const Login = ({ navigation, route }) => {
 
   const validateEmail = () => {
     if (!email) {
-      setErrorMessage('Please enter your email');
+      setErrorMessage(t('auth:enterEmail'));
       return false;
     }
     const emailRegex = /\S+@\S+\.\S+/;
     if (!emailRegex.test(email)) {
-      setErrorMessage('Please enter a valid email address');
+      setErrorMessage(t('auth:enterEmail'));
       return false;
     }
     return true;
@@ -84,7 +117,7 @@ const Login = ({ navigation, route }) => {
   const handleLogin = async () => {
     if (!validateEmail()) return;
     if (!password) {
-      setErrorMessage('Please enter your password');
+      setErrorMessage(t('auth:enterPassword'));
       return;
     }
 
@@ -188,7 +221,7 @@ const Login = ({ navigation, route }) => {
         await AsyncStorage.removeItem('rememberedUserId');
       }
 
-      setSuccessMessage('Login successful! Redirecting...');
+      setSuccessMessage(t('auth:login') + ' ' + t('common:success'));
 
       socketService.connect().catch(() => {});
 
@@ -317,6 +350,158 @@ const Login = ({ navigation, route }) => {
     }
   };
 
+  // ========== FORGOT PASSWORD HANDLERS (mirrors web chatbot exactly) ==========
+
+  // STEP 1 — Send OTP (web: ForgotPassword.jsx handleSubmit)
+  const handleForgotPasswordSendOTP = async () => {
+    setFpError('');
+
+    if (!fpEmail.trim()) {
+      setFpError('Please enter your email address');
+      return;
+    }
+
+    if (!/\S+@\S+\.\S+/.test(fpEmail)) {
+      setFpError('Please enter a valid email address');
+      return;
+    }
+
+    try {
+      setFpLoading(true);
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/send-forgot-password-otp`,
+        { email: fpEmail },
+        { withCredentials: true }
+      );
+
+      if (response.data.success) {
+        setFpOtp('');
+        setFpResendTimer(60);
+        setFpStep('otp');
+      } else {
+        setFpError(response.data.message || 'Failed to send OTP');
+      }
+    } catch (err) {
+      setFpError(err.response?.data?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setFpLoading(false);
+    }
+  };
+
+  // STEP 2 — Verify OTP (web: ForgotPasswordOTP.jsx handleVerify)
+  const handleForgotPasswordVerifyOTP = async () => {
+    setFpError('');
+
+    if (!fpOtp || fpOtp.length !== 6) {
+      setFpError('Please enter a valid 6-digit OTP');
+      return;
+    }
+
+    try {
+      setFpLoading(true);
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/verify-forgot-password-otp`,
+        { email: fpEmail, otp: fpOtp },
+        { withCredentials: true }
+      );
+
+      if (response.data.success) {
+        setFpSuccess('OTP verified successfully! Redirecting...');
+        setTimeout(() => {
+          setFpSuccess('');
+          setFpNewPassword('');
+          setFpConfirmPassword('');
+          setFpStep('reset');
+        }, 1200);
+      } else {
+        setFpError(response.data.message || 'Invalid OTP');
+      }
+    } catch (err) {
+      setFpError(err.response?.data?.message || 'Verification failed. Please try again.');
+    } finally {
+      setFpLoading(false);
+    }
+  };
+
+  // STEP 2 — Resend OTP (web: ForgotPasswordOTP.jsx handleResend)
+  const handleForgotPasswordResendOTP = async () => {
+    setFpError('');
+    try {
+      setFpResending(true);
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/send-forgot-password-otp`,
+        { email: fpEmail },
+        { withCredentials: true }
+      );
+
+      if (response.data.success) {
+        setFpResendTimer(60);
+      } else {
+        setFpError(response.data.message || 'Failed to resend OTP');
+      }
+    } catch (err) {
+      setFpError(err.response?.data?.message || 'Failed to resend OTP. Please try again.');
+    } finally {
+      setFpResending(false);
+    }
+  };
+
+  // STEP 3 — Reset Password (web: ResetPassword.jsx handleSubmit)
+  const handleForgotPasswordReset = async () => {
+    setFpError('');
+
+    if (!fpNewPassword) {
+      setFpError('Please enter a new password');
+      return;
+    }
+
+    if (fpNewPassword.length < 3) {
+      setFpError('Password must be at least 3 characters');
+      return;
+    }
+
+    if (fpNewPassword !== fpConfirmPassword) {
+      setFpError('Passwords do not match');
+      return;
+    }
+
+    try {
+      setFpLoading(true);
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/reset-password`,
+        { email: fpEmail, newPassword: fpNewPassword, confirmPassword: fpConfirmPassword },
+        { withCredentials: true }
+      );
+
+      if (response.data.success) {
+        setFpSuccess('Password reset successfully! Redirecting to login...');
+        setTimeout(() => {
+          closeForgotPasswordModal();
+        }, 1500);
+      } else {
+        setFpError(response.data.message || 'Failed to reset password');
+      }
+    } catch (err) {
+      setFpError(err.response?.data?.message || 'Failed to reset password. Please try again.');
+    } finally {
+      setFpLoading(false);
+    }
+  };
+
+  const closeForgotPasswordModal = () => {
+    setShowForgotPasswordModal(false);
+    setFpStep('email');
+    setFpEmail('');
+    setFpOtp('');
+    setFpNewPassword('');
+    setFpConfirmPassword('');
+    setFpError('');
+    setFpSuccess('');
+    setFpShowPassword(false);
+    setFpShowConfirmPassword(false);
+    setFpResendTimer(60);
+  };
+
   return (
     <KeyboardAvoidingView 
       style={styles.container}
@@ -329,19 +514,19 @@ const Login = ({ navigation, route }) => {
             <View style={styles.logoContainer}>
               <Text style={styles.logoText}>Mediconeckt</Text>
             </View>
-            <Text style={styles.title}>Welcome Back</Text>
-            <Text style={styles.subtitle}>Login with your email and password</Text>
+            <Text style={styles.title}>{t('auth:welcomeBack')}</Text>
+            <Text style={styles.subtitle}>{t('auth:login')} {t('common:or')} {t('auth:email')}</Text>
           </View>
 
           {/* Form Section */}
           <View style={styles.formContainer}>
             {/* Email Input */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>{t('auth:email')}</Text>
               <View style={styles.inputWrapper}>
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter your email"
+                  placeholder={t('auth:enterEmail')}
                   value={email}
                   onChangeText={(text) => {
                     setEmail(text);
@@ -357,11 +542,11 @@ const Login = ({ navigation, route }) => {
 
             {/* Password Input */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Password</Text>
+              <Text style={styles.label}>{t('auth:password')}</Text>
               <View style={styles.inputWrapper}>
                 <TextInput
                   style={[styles.input, styles.passwordInput]}
-                  placeholder="Enter your password"
+                  placeholder={t('auth:enterPassword')}
                   value={password}
                   onChangeText={(text) => {
                     setPassword(text);
@@ -389,11 +574,18 @@ const Login = ({ navigation, route }) => {
                 <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
                   {rememberMe && <Text style={styles.checkmark}>✓</Text>}
                 </View>
-                <Text style={styles.checkboxLabel}>Remember me</Text>
+                <Text style={styles.checkboxLabel}>{t('common:confirm')}</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity onPress={() => navigation.navigate('SetPasswordByOtp')}>
-                <Text style={styles.forgotPassword}>Forgot Password?</Text>
+
+              <TouchableOpacity
+                onPress={() => {
+                  console.log('FORGOT PASSWORD TAPPED - opening modal');
+                  setShowForgotPasswordModal(true);
+                }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                activeOpacity={0.6}
+              >
+                <Text style={styles.forgotPassword}>{t('auth:forgotPassword')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -406,14 +598,14 @@ const Login = ({ navigation, route }) => {
               {isLoading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.loginButtonText}>Login</Text>
+                <Text style={styles.loginButtonText}>{t('auth:login')}</Text>
               )}
             </TouchableOpacity>
 
             {/* Divider */}
             <View style={styles.dividerRow}>
               <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or continue with</Text>
+              <Text style={styles.dividerText}>{t('auth:orContinueWith')}</Text>
               <View style={styles.dividerLine} />
             </View>
 
@@ -424,7 +616,7 @@ const Login = ({ navigation, route }) => {
               disabled={isLoading}
               locationEvent="login"
               onSuccess={({ isCounselor }) => {
-                setSuccessMessage('Login successful! Redirecting...');
+                setSuccessMessage(t('auth:login') + ' ' + t('common:success'));
                 const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
                 setTimeout(() => {
                   navigation.replace('LocationGate', { destination });
@@ -461,9 +653,9 @@ const Login = ({ navigation, route }) => {
 
             {/* Sign Up Link */}
             <View style={styles.footer}>
-              <Text style={styles.footerText}>Don't have an account? </Text>
+              <Text style={styles.footerText}>{t('auth:dontHaveAccount')} </Text>
               <TouchableOpacity onPress={() => navigation.navigate('RoleSelector')}>
-                <Text style={styles.signUpLink}> Sign Up</Text>
+                <Text style={styles.signUpLink}> {t('auth:signup')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -534,6 +726,223 @@ const Login = ({ navigation, route }) => {
                 </View>
               )}
             </View>
+          </View>
+        </Modal>
+
+        {/* ========== FORGOT PASSWORD MODAL ========== */}
+        <Modal
+          visible={showForgotPasswordModal}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={closeForgotPasswordModal}
+        >
+          <View style={styles.fpModalOverlay}>
+            <ScrollView
+              contentContainerStyle={styles.fpModalScroll}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.fpModalContent}>
+                {/* Close Button */}
+                <TouchableOpacity
+                  style={styles.fpCloseBtn}
+                  onPress={closeForgotPasswordModal}
+                >
+                  <Text style={styles.fpCloseBtnText}>×</Text>
+                </TouchableOpacity>
+
+                {/* ===== STEP 1: EMAIL ===== */}
+                {fpStep === 'email' && (
+                  <View style={styles.fpStep}>
+                    <View style={styles.fpIconWrap}>
+                      <Text style={styles.fpIcon}>✉️</Text>
+                    </View>
+                    <Text style={styles.fpTitle}>Forgot Password</Text>
+                    <Text style={styles.fpSubtitle}>
+                      Enter your registered email to receive a password reset OTP
+                    </Text>
+
+                    {fpError ? <Text style={styles.fpError}>⚠️ {fpError}</Text> : null}
+
+                    <Text style={styles.fpLabel}>Email Address *</Text>
+                    <TextInput
+                      style={styles.fpInput}
+                      placeholder="Enter your registered email"
+                      placeholderTextColor="#94a3b8"
+                      value={fpEmail}
+                      onChangeText={(text) => {
+                        setFpEmail(text);
+                        setFpError('');
+                      }}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      editable={!fpLoading}
+                    />
+
+                    <TouchableOpacity
+                      style={[styles.fpButton, fpLoading && styles.fpButtonDisabled]}
+                      onPress={handleForgotPasswordSendOTP}
+                      disabled={fpLoading}
+                    >
+                      <Text style={styles.fpButtonText}>
+                        {fpLoading ? 'Sending OTP...' : 'Send Reset OTP'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.fpFooter}>
+                      <Text style={styles.fpFooterText}>Remember your password? </Text>
+                      <TouchableOpacity onPress={closeForgotPasswordModal}>
+                        <Text style={styles.fpFooterLink}>Back to Login</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {/* ===== STEP 2: OTP VERIFICATION ===== */}
+                {fpStep === 'otp' && (
+                  <View style={styles.fpStep}>
+                    <View style={styles.fpIconWrap}>
+                      <Text style={styles.fpIcon}>✉️</Text>
+                    </View>
+                    <Text style={styles.fpTitle}>Verify OTP</Text>
+                    <Text style={styles.fpSubtitle}>Enter the 6-digit code sent to</Text>
+                    <Text style={styles.fpEmailDisplay}>{fpEmail}</Text>
+
+                    {fpError ? <Text style={styles.fpError}>⚠️ {fpError}</Text> : null}
+                    {fpSuccess ? <Text style={styles.fpSuccess}>✓ {fpSuccess}</Text> : null}
+
+                    <Text style={styles.fpLabel}>OTP Code *</Text>
+                    <TextInput
+                      style={[styles.fpInput, styles.fpOtpInput]}
+                      placeholder="000000"
+                      placeholderTextColor="#cbd5e1"
+                      value={fpOtp}
+                      onChangeText={(text) => {
+                        setFpOtp(text.replace(/[^0-9]/g, '').slice(0, 6));
+                        setFpError('');
+                      }}
+                      keyboardType="number-pad"
+                      maxLength={6}
+                      editable={!fpLoading && !fpSuccess}
+                    />
+
+                    <TouchableOpacity
+                      style={[styles.fpButton, (fpLoading || !fpOtp) && styles.fpButtonDisabled]}
+                      onPress={handleForgotPasswordVerifyOTP}
+                      disabled={fpLoading || fpSuccess || !fpOtp}
+                    >
+                      <Text style={styles.fpButtonText}>
+                        {fpLoading ? 'Verifying...' : 'Verify OTP'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* Resend OTP with 60s timer (matches web) */}
+                    <TouchableOpacity
+                      style={styles.fpResendBtn}
+                      onPress={handleForgotPasswordResendOTP}
+                      disabled={fpResending || fpResendTimer > 0 || fpSuccess}
+                    >
+                      <Text
+                        style={[
+                          styles.fpResendText,
+                          (fpResendTimer > 0 || fpResending) && styles.fpResendTextDisabled,
+                        ]}
+                      >
+                        {fpResending
+                          ? 'Sending...'
+                          : fpResendTimer > 0
+                          ? `Resend in ${fpResendTimer}s`
+                          : 'Resend OTP'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.fpFooter}>
+                      <Text style={styles.fpFooterText}>Wrong email? </Text>
+                      <TouchableOpacity onPress={() => { setFpStep('email'); setFpError(''); }}>
+                        <Text style={styles.fpFooterLink}>Go back</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {/* ===== STEP 3: RESET PASSWORD ===== */}
+                {fpStep === 'reset' && (
+                  <View style={styles.fpStep}>
+                    <View style={styles.fpIconWrap}>
+                      <Text style={styles.fpIcon}>🔒</Text>
+                    </View>
+                    <Text style={styles.fpTitle}>Reset Password</Text>
+                    <Text style={styles.fpSubtitle}>Create a new password for your account</Text>
+                    <Text style={styles.fpEmailDisplay}>{fpEmail}</Text>
+
+                    {fpError ? <Text style={styles.fpError}>⚠️ {fpError}</Text> : null}
+                    {fpSuccess ? <Text style={styles.fpSuccess}>✓ {fpSuccess}</Text> : null}
+
+                    {/* New Password */}
+                    <Text style={styles.fpLabel}>New Password *</Text>
+                    <View style={styles.fpPasswordWrapper}>
+                      <TextInput
+                        style={styles.fpPasswordInput}
+                        placeholder="Enter new password"
+                        placeholderTextColor="#94a3b8"
+                        value={fpNewPassword}
+                        onChangeText={(text) => {
+                          setFpNewPassword(text);
+                          setFpError('');
+                        }}
+                        secureTextEntry={!fpShowPassword}
+                        editable={!fpLoading && !fpSuccess}
+                      />
+                      <TouchableOpacity
+                        style={styles.fpEyeBtn}
+                        onPress={() => setFpShowPassword(!fpShowPassword)}
+                      >
+                        <Text style={styles.fpEyeText}>{fpShowPassword ? '🙈' : '👁️'}</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Confirm Password */}
+                    <Text style={styles.fpLabel}>Confirm Password *</Text>
+                    <View style={styles.fpPasswordWrapper}>
+                      <TextInput
+                        style={styles.fpPasswordInput}
+                        placeholder="Confirm new password"
+                        placeholderTextColor="#94a3b8"
+                        value={fpConfirmPassword}
+                        onChangeText={(text) => {
+                          setFpConfirmPassword(text);
+                          setFpError('');
+                        }}
+                        secureTextEntry={!fpShowConfirmPassword}
+                        editable={!fpLoading && !fpSuccess}
+                      />
+                      <TouchableOpacity
+                        style={styles.fpEyeBtn}
+                        onPress={() => setFpShowConfirmPassword(!fpShowConfirmPassword)}
+                      >
+                        <Text style={styles.fpEyeText}>{fpShowConfirmPassword ? '🙈' : '👁️'}</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <TouchableOpacity
+                      style={[styles.fpButton, (fpLoading || fpSuccess) && styles.fpButtonDisabled]}
+                      onPress={handleForgotPasswordReset}
+                      disabled={fpLoading || fpSuccess}
+                    >
+                      <Text style={styles.fpButtonText}>
+                        {fpLoading ? 'Resetting Password...' : 'Reset Password'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.fpFooter}>
+                      <Text style={styles.fpFooterText}>Remember your password? </Text>
+                      <TouchableOpacity onPress={closeForgotPasswordModal}>
+                        <Text style={styles.fpFooterLink}>Back to Login</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </View>
+            </ScrollView>
           </View>
         </Modal>
       </ScrollView>
@@ -802,6 +1211,200 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // ========== FORGOT PASSWORD MODAL STYLES ==========
+  fpModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  fpModalScroll: {
+    flexGrow: 1,
+    justifyContent: 'flex-end',
+  },
+  fpModalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 36,
+  },
+  fpCloseBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-end',
+    marginBottom: 8,
+  },
+  fpCloseBtnText: {
+    fontSize: 28,
+    color: '#666',
+    fontWeight: '300',
+    lineHeight: 30,
+  },
+  fpStep: {
+    paddingBottom: 10,
+    alignItems: 'center',
+  },
+  fpIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#f0f4ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  fpIcon: {
+    fontSize: 32,
+  },
+  fpTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#081625',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  fpSubtitle: {
+    fontSize: 14,
+    color: '#64748b',
+    marginBottom: 6,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  fpEmailDisplay: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#2c50cd',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  fpError: {
+    color: '#dc2626',
+    backgroundColor: '#fef2f2',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#ef4444',
+    fontSize: 13,
+    fontWeight: '500',
+    alignSelf: 'stretch',
+  },
+  fpSuccess: {
+    color: '#16a34a',
+    backgroundColor: '#f0fdf4',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#22c55e',
+    fontSize: 13,
+    fontWeight: '500',
+    alignSelf: 'stretch',
+  },
+  fpLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#334155',
+    marginBottom: 8,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+  },
+  fpInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    marginBottom: 16,
+    color: '#1e293b',
+    backgroundColor: '#f8fafc',
+    alignSelf: 'stretch',
+  },
+  fpOtpInput: {
+    textAlign: 'center',
+    fontSize: 24,
+    letterSpacing: 8,
+    fontWeight: '700',
+  },
+  fpPasswordWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    marginBottom: 16,
+    alignSelf: 'stretch',
+  },
+  fpPasswordInput: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    color: '#1e293b',
+  },
+  fpEyeBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  fpEyeText: {
+    fontSize: 20,
+  },
+  fpButton: {
+    backgroundColor: '#2c50cd',
+    borderRadius: 12,
+    paddingVertical: 15,
+    alignItems: 'center',
+    marginBottom: 12,
+    alignSelf: 'stretch',
+    elevation: 2,
+    shadowColor: '#2c50cd',
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  fpButtonDisabled: {
+    opacity: 0.6,
+  },
+  fpButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  fpResendBtn: {
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  fpResendText: {
+    color: '#2c50cd',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  fpResendTextDisabled: {
+    color: '#94a3b8',
+  },
+  fpFooter: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  fpFooterText: {
+    fontSize: 14,
+    color: '#64748b',
+  },
+  fpFooterLink: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2c50cd',
   },
 });
 

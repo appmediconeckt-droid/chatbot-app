@@ -1,0 +1,259 @@
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                    RATING POPUP FLOW - COMPLETE DIAGRAM                        ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                                BEFORE (❌ BROKEN)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌─────────────────────────┐
+  │ User Opens Chat Screen  │
+  └──────────┬──────────────┘
+             │
+             ├─→ [NO INIT] ❌
+             │   Pending rating NOT saved
+             │
+             ▼
+  User Tries to Leave Chat
+             │
+    ┌────────┴────────┐
+    │                 │
+  TAPS BUTTON    HARDWARE BACK / SWIPE
+    │                 │
+    ▼                 ▼
+  ✅ Works       ❌ BROKEN
+  Popup shows    No popup
+                 User leaves
+                 without rating
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                                AFTER (✅ FIXED)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌──────────────────────────┐
+  │ User Opens Chat Screen   │
+  └──────────┬───────────────┘
+             │
+             ▼
+  ┌──────────────────────────────────────────┐
+  │ useEffect (Line 508) [FIX #1]            │
+  │ savePendingRating() called ✅            │
+  │ "Mark this chat as needs rating"         │
+  │ AsyncStorage: {chatId, counselorId, ...} │
+  └──────────────────────────────────────────┘
+             │
+             ▼
+  User Tries to Leave Chat
+             │
+    ┌────────┼────────┬──────────────┐
+    │        │        │              │
+  TAP     HARD     SWIPE         PROGRAMMATIC
+  BTN     BACK     BACK          NAV
+    │        │        │              │
+    ▼        ▼        ▼              ▼
+  ┌──────────────────────────────────────────┐
+  │ beforeRemove Listener (Line 540) [FIX #2]│
+  │ Intercepts ALL navigation attempts ✅     │
+  │ Calls handleBackNavigation()              │
+  └──────────┬───────────────────────────────┘
+             │
+             ▼
+  ┌──────────────────────────────────────────┐
+  │ handleBackNavigation() (Line 477)        │
+  │ Checks:                                  │
+  │ 1. Already rated this counselor?         │
+  │ 2. Is there pending rating for this chat?│
+  └──────────┬───────────────────────────────┘
+             │
+        ┌────┴────┐
+        │          │
+      YES        NO
+       │          │
+       ▼          ▼
+    Skip      Show
+    Popup     Popup
+     │         │
+     │         ▼
+     │    ┌─────────────────────┐
+     │    │ Rating Modal Opens   │
+     │    │ • Star rating        │
+     │    │ • Comment (opt)      │
+     │    │ • Submit button      │
+     │    │ • Maybe later button │
+     │    └──────┬─────┬────────┘
+     │           │     │
+     │      ┌────┘     └────┐
+     │      │               │
+     │   SUBMIT        MAYBE LATER
+     │      │               │
+     │      ▼               ▼
+     │   ┌──────────────┐  ┌──────────────┐
+     │   │ 1. API call  │  │ 1. Close     │
+     │   │ 2. "Thank    │  │ 2. Reset     │
+     │   │    you!"     │  │ 3. Navigate  │
+     │   │ 3. Navigate  │  │    back      │
+     │   │    back      │  │ 4. 24h re-  │
+     │   │ [FIX #3] ✅  │  │    prompt    │
+     │   └──────────────┘  └──────────────┘
+     │           │              │
+     └───────────┼──────────────┘
+                 │
+                 ▼
+    ┌─────────────────────────────┐
+    │ User Back to Chat List      │
+    │ Next time:                  │
+    │ • No popup (already rated) ✅
+    │ • Can leave freely          │
+    └─────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                          DETAILED: handleBackNavigation()
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const handleBackNavigation = async () => {
+
+  // STEP 1: Get IDs
+  const counselorId = resolveCounselorId();
+  const chatId = getChatIdForAPI();
+
+  // STEP 2: Check if already rated THIS COUNSELOR
+  const alreadyRated = await ratingService.isAlreadyRated(counselorId);
+  if (alreadyRated) {
+    return false; ✅ Allow navigation, no popup
+  }
+
+  // STEP 3: Get all pending ratings from AsyncStorage
+  const allPending = await ratingService.getAllPendingRatings();
+  // Returns: [{chatId: "abc123", counselorId: "A", ...}, ...]
+
+  // STEP 4: Check if THIS CHAT has pending rating
+  const hasPending = allPending.some(r => r.chatId === chatId);
+
+  if (hasPending && !ratingPromptedRef.current) {
+    // STEP 5: Show the popup
+    setRatingTarget(pendingData);
+    setShowRatingModal(true);
+    ratingPromptedRef.current = true;
+    return true; ❌ Block navigation, show popup
+  }
+
+  // STEP 6: No pending rating
+  return false; ✅ Allow navigation, no popup
+};
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    DETAILED: beforeRemove Listener [FIX #2]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+useEffect(() => {
+
+  const unsubscribe = navigation.addListener('beforeRemove', async (e) => {
+    //        👆 Fired when screen about to be removed
+    //           • Hardware back button pressed
+    //           • Swipe back gesture
+    //           • navigation.goBack() called
+    //           • Any navigation away from this screen
+
+    // GUARD 1: Skip if modal already showing
+    if (showRatingModal || ratingPromptedRef.current) {
+      return; // Don't interfere with existing popup
+    }
+
+    // GUARD 2: Call the rating check function
+    const shouldBlock = await handleBackNavigation();
+    //                  👆 Does all the logic above
+
+    // GUARD 3: If rating pending, prevent navigation
+    if (shouldBlock) {
+      e.preventDefault(); // ❌ Stop the back action
+      // Rating modal is shown by handleBackNavigation()
+    }
+    // If shouldBlock is false, listener does nothing
+    // Navigation continues normally ✅
+  });
+
+  // Cleanup: Unsubscribe when component unmounts
+  return unsubscribe;
+
+}, [navigation, showRatingModal]);
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                           DATA FLOW: AsyncStorage
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+On Mount (Line 508):
+  savePendingRating({chatId: "abc123", counselorId: "A"})
+                    ↓
+                    AsyncStorage
+                    @pending_ratings = [
+                      {
+                        chatId: "abc123",
+                        counselorId: "A",
+                        counselorName: "Dr. Smith",
+                        sessionEndedAt: 1718439600000,
+                        lastPromptedAt: 1718439600000,
+                        dismissCount: 0
+                      }
+                    ]
+
+
+On Back Attempt:
+  getAllPendingRatings()
+           ↓
+  Reads AsyncStorage @pending_ratings
+           ↓
+  Returns array of pending ratings
+           ↓
+  Check if current chatId in the list
+           ↓
+  YES → Show popup
+  NO  → Allow navigation
+
+
+On Rating Submit:
+  submitRating({stars: 4, comment: "Great!"})
+           ↓
+  POST /api/counselors/A/ratings
+           ↓
+  Backend stores rating
+           ↓
+  Frontend: markAsRated(counselorId)
+           ↓
+  AsyncStorage @rated_counselors = ["A"]
+           ↓
+  Frontend: removePendingRating(chatId)
+           ↓
+  AsyncStorage @pending_ratings = []
+
+
+On Next Visit:
+  Open same counselor's chat
+           ↓
+  savePendingRating() called again
+           ↓
+  Check: isAlreadyRated("A")?
+           ↓
+  YES → Skip rating popup
+           ↓
+  User can leave freely ✅
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 KEY FIXES SUMMARY:
+
+[FIX #1] Initialize pending rating on mount (Line 508)
+         ✅ Marks chat as needing rating
+
+[FIX #2] Hardware back button listener (Line 540)
+         ✅ Intercepts all navigation attempts
+
+[FIX #3] Auto-navigate after rating (Line 571)
+         ✅ Better UX, no extra taps needed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

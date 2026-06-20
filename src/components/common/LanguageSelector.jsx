@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   View,
@@ -9,9 +9,11 @@ import {
   StyleSheet,
   Animated,
   Dimensions,
+  TextInput,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import i18n, { LANGUAGES, saveUserLanguage, LANG_STORAGE_KEY } from '../../i18n';
+import { useLanguageContext } from '../../contexts/LanguageContext';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -30,11 +32,28 @@ const LANG_ACCENT = {
 };
 
 export default function LanguageSelector({ iconColor, iconSize, userId, role }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const { language: contextLang, setLanguage: setContextLanguage } = useLanguageContext();
   const [visible, setVisible] = useState(false);
   const [scale] = useState(new Animated.Value(0.88));
   const [opacity] = useState(new Animated.Value(0));
-  const currentLang = i18n.language || 'en';
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedLang, setSelectedLang] = useState(i18n.language || 'en-US');
+
+  // Use context language, which is always in sync
+  const currentLang = contextLang || selectedLang || 'en-US';
+
+  const filteredLanguages = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return LANGUAGES;
+
+    return LANGUAGES.filter(lang =>
+      [lang.label, lang.name, lang.code]
+        .join(' ')
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [searchQuery]);
 
   const open = useCallback(() => {
     setVisible(true);
@@ -48,27 +67,50 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role }) 
     Animated.parallel([
       Animated.timing(scale, { toValue: 0.88, duration: 150, useNativeDriver: true }),
       Animated.timing(opacity, { toValue: 0, duration: 150, useNativeDriver: true }),
-    ]).start(() => setVisible(false));
+    ]).start(() => {
+      setVisible(false);
+      setSearchQuery('');
+    });
   }, [scale, opacity]);
 
   const selectLanguage = useCallback(
     async (code) => {
-      if (code === currentLang) { close(); return; }
-      if (userId && role) {
-        await saveUserLanguage(userId, role, code);
-      } else {
-        await AsyncStorage.setItem(LANG_STORAGE_KEY, code);
-        await i18n.changeLanguage(code);
+      if (code === currentLang) {
+        close();
+        return;
       }
-      close();
+      try {
+        console.log(`[LanguageSelector] 🌐 Changing language to: ${code}`);
+
+        // Use the context's setLanguage for persistence and i18n change
+        // This handles both the state update and storage
+        await setContextLanguage(code);
+
+        // Add small delay to ensure state updates propagate
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Also save user-specific language if userId and role are available
+        if (userId && role) {
+          console.log(`[LanguageSelector] Saving user-specific language: ${code}`);
+          await saveUserLanguage(userId, role, code);
+        }
+
+        console.log(`[LanguageSelector] ✅ Language changed successfully to: ${code}`);
+        setSelectedLang(code);
+        close();
+      } catch (error) {
+        console.error('[LanguageSelector] ❌ Failed to change language:', error);
+        // Revert on error
+        setSelectedLang(currentLang);
+      }
     },
-    [currentLang, close, userId, role]
+    [currentLang, close, userId, role, setContextLanguage]
   );
 
   const renderItem = ({ item, index }) => {
     const isActive = item.code === currentLang;
     const accent = LANG_ACCENT[item.code] || '#3B82F6';
-    const initial = item.native.charAt(0);
+    const initial = item.name?.charAt(0) || item.label?.charAt(0) || '?';
 
     return (
       <TouchableOpacity
@@ -83,7 +125,7 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role }) 
         </View>
 
         <View style={styles.langLabels}>
-          <Text style={[styles.langNative, isActive && { color: accent }]}>{item.native}</Text>
+          <Text style={[styles.langNative, isActive && { color: accent }]}>{item.name || item.label}</Text>
           <Text style={styles.langEnglish}>{item.label}</Text>
         </View>
 
@@ -132,17 +174,44 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role }) 
           {/* Divider */}
           <View style={styles.divider} />
 
-          <FlatList
-            data={LANGUAGES}
-            keyExtractor={(item) => item.code}
-            renderItem={renderItem}
-            showsVerticalScrollIndicator={true}
-            scrollIndicatorInsets={{ right: 2 }}
-            bounces={false}
-            nestedScrollEnabled={true}
-            style={styles.list}
-            scrollEnabled={true}
-          />
+          {/* Search Box */}
+          <View style={styles.searchContainer}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder={t('search_language') || 'Search languages...'}
+              placeholderTextColor="#94A3B8"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery ? (
+              <TouchableOpacity
+                style={styles.clearButton}
+                onPress={() => setSearchQuery('')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.clearButtonText}>✕</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {filteredLanguages.length > 0 ? (
+            <FlatList
+              data={filteredLanguages}
+              keyExtractor={(item) => item.code}
+              renderItem={renderItem}
+              showsVerticalScrollIndicator={true}
+              scrollIndicatorInsets={{ right: 2 }}
+              bounces={false}
+              nestedScrollEnabled={true}
+              style={styles.list}
+              scrollEnabled={true}
+            />
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No languages found</Text>
+            </View>
+          )}
 
           {/* Bottom pill */}
           <View style={styles.footer}>
@@ -235,6 +304,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#E2E8F0',
     marginHorizontal: 0,
   },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  searchIcon: {
+    fontSize: 16,
+    marginRight: 10,
+    color: '#94A3B8',
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#0F172A',
+    paddingVertical: 8,
+  },
+  clearButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  clearButtonText: {
+    fontSize: 18,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
   list: {
     flexGrow: 0,
     maxHeight: SCREEN_HEIGHT * 0.50,
@@ -314,6 +412,17 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     marginLeft: 8,
     flexShrink: 0,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#94A3B8',
+    fontWeight: '500',
   },
   footer: {
     alignItems: 'center',

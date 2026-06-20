@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import {
   View,
   Text,
@@ -19,6 +21,7 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 const { width: screenWidth } = Dimensions.get('window');
 
 const Dashboard = () => {
+  const { t } = useLanguageRender();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [appointments, setAppointments] = useState([]);

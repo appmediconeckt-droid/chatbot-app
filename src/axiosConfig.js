@@ -2,8 +2,19 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Base URL for API - Change this to your actual server URL
-export const API_BASE_URL = 'https://chatbot-backend-js25.onrender.com';
+// API endpoints for different environments
+const API_ENDPOINTS = {
+  DEV_TUNNEL: 'https://ggr8bl1d-5001.inc1.devtunnels.ms',
+  LOCAL_5001: 'http://localhost:5001',
+  LOCAL_5000: 'http://localhost:5000',
+  LOCAL_3000: 'http://localhost:3000',
+};
+
+// Base URL for API - Change here to switch between environments
+// NOTE: On a real phone / Android emulator, 'localhost' points to the device,
+// NOT your PC. Use DEV_TUNNEL so the app can reach your backend.
+// Options: 'DEV_TUNNEL' (phone/emulator), 'LOCAL_5001' (iOS sim / web only)
+export const API_BASE_URL = API_ENDPOINTS.DEV_TUNNEL;
 
 // Create axios instance with default config
 const axiosInstance = axios.create({
