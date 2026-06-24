@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import i18n from '../i18n';
-import { translationService } from '../i18n/translationService';
 
 const LanguageContext = createContext();
 const LANG_STORAGE_KEY = 'appLanguage';

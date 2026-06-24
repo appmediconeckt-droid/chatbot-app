@@ -3,8 +3,10 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // API endpoints for different environments
+// NOTE: no trailing slash — callers append `/api/...`, so a trailing slash here
+// would produce a double slash (`...ms//api/...`) and break routing.
 const API_ENDPOINTS = {
-  DEV_TUNNEL: 'https://ggr8bl1d-5001.inc1.devtunnels.ms',
+  DEV_TUNNEL: 'https://hdwmh4fv-5001.inc1.devtunnels.ms',
   LOCAL_5001: 'http://localhost:5001',
   LOCAL_5000: 'http://localhost:5000',
   LOCAL_3000: 'http://localhost:3000',
@@ -14,7 +16,8 @@ const API_ENDPOINTS = {
 // NOTE: On a real phone / Android emulator, 'localhost' points to the device,
 // NOT your PC. Use DEV_TUNNEL so the app can reach your backend.
 // Options: 'DEV_TUNNEL' (phone/emulator), 'LOCAL_5001' (iOS sim / web only)
-export const API_BASE_URL = API_ENDPOINTS.DEV_TUNNEL;
+// Strip any accidental trailing slash so URL joins never double up.
+export const API_BASE_URL = API_ENDPOINTS.DEV_TUNNEL.replace(/\/+$/, '');
 
 // Create axios instance with default config
 const axiosInstance = axios.create({
