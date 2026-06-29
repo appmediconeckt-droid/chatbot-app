@@ -8,8 +8,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const API_ENDPOINTS = {
   // Must match the SAME backend the web frontend uses (chatbot/.env.local)
   // so OTP / email / forgot-password behave identically to web.
-  DEV_TUNNEL: 'https://ggr8bl1d-5001.inc1.devtunnels.ms/',
   RAILWAY: 'https://chatbot-backend-production-ea76.up.railway.app',
+  DEV_TUNNEL: 'https://ggr8bl1d-5001.inc1.devtunnels.ms/',
+  
   LOCAL_5001: 'http://localhost:5001',
   LOCAL_5000: 'http://localhost:5000',
   LOCAL_3000: 'http://localhost:3000',

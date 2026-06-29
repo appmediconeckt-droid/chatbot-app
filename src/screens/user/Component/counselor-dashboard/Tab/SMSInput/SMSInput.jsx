@@ -907,13 +907,6 @@ const SMSInput = ({ navigation, route }) => {
   }, [callError]);
 
   // ─── Scroll handling ─────────────────────────────────────────────────────
-<<<<<<< HEAD
-  // Merge text messages + call entries into one newest-first timeline (inverted list).
-  const messagesForList = useMemo(
-    () => mergeTimelineForInverted(messages, callHistory),
-    [messages, callHistory],
-  );
-=======
   const messagesForList = useMemo(() => {
     const merged = getMergedTimeline();
     // inject day-separator sentinels
@@ -929,7 +922,6 @@ const SMSInput = ({ navigation, route }) => {
     });
     return [...withDays].reverse();
   }, [getMergedTimeline]);
->>>>>>> a2b2b39c3c781d6b6126b6afbb6fd38b08c91196
   const scrollToBottom = useCallback((animated = true) => {
     messagesContainerRef.current?.scrollToOffset({ offset: 0, animated });
   }, []);
@@ -997,9 +989,6 @@ const SMSInput = ({ navigation, route }) => {
   };
 
   const renderMessage = ({ item }) => {
-<<<<<<< HEAD
-    if (item.isCall) return renderCallItem(item);
-=======
     if (item.isDaySeparator) {
       return (
         <View style={styles.daySeparatorRow}>
@@ -1026,7 +1015,6 @@ const SMSInput = ({ navigation, route }) => {
       );
     }
 
->>>>>>> a2b2b39c3c781d6b6126b6afbb6fd38b08c91196
     const isMe = item.sender === "me";
     return (
       <View style={[styles.messageBubble, isMe ? styles.messageRight : styles.messageLeft]}>
