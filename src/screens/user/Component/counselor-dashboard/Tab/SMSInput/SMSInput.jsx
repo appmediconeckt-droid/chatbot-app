@@ -448,6 +448,61 @@ const SMSInput = ({ navigation, route }) => {
     }
   };
 
+  // ─── Call History ────────────────────────────────────────────────────────
+  const fetchCallHistory = useCallback(async () => {
+    try {
+      const token = await getAuthToken();
+      const userId = USER_ID;
+      const cId = counselorId;
+      if (!userId || !cId) { setCallHistory([]); return; }
+      const response = await axios.get(`${API_BASE_URL}/api/video/calls/history/${cId}`, {
+        params: { peerId: userId, peerType: 'user', page: 1, limit: 100 },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const callsData = response.data?.calls || response.data?.history || [];
+      const formatted = callsData
+        .filter((c) => String(c.withId || c.receiverId || c.peerId || c.receiver?.id || c.peer?.id) === String(userId))
+        .map((c) => ({
+          id: c.id || c._id || `call_${Date.now()}_${Math.random()}`,
+          isCall: true,
+          type: c.callType === 'audio' ? 'voice' : 'video',
+          direction: (c.role === 'initiator' || c.initiator?.id === cId) ? 'outgoing' : 'incoming',
+          status: c.status || 'completed',
+          time: new Date(c.timestamp || c.createdAt || c.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          fullTime: c.timestamp || c.createdAt || c.startedAt,
+          duration: c.duration || null,
+        }));
+      setCallHistory(formatted);
+    } catch { setCallHistory([]); }
+  }, [USER_ID, counselorId]);
+
+  // ─── Merged timeline (messages + calls sorted oldest→newest) ────────────
+  const getMergedTimeline = useCallback(() => {
+    return [...messages, ...callHistory].sort((a, b) => {
+      const tA = a.fullTime || a.createdAt || a.timestamp;
+      const tB = b.fullTime || b.createdAt || b.timestamp;
+      return new Date(tA) - new Date(tB);
+    });
+  }, [messages, callHistory]);
+
+  const getItemDayKey = (item) => {
+    const ts = item?.fullTime || item?.createdAt || item?.timestamp;
+    const d = new Date(ts);
+    return Number.isNaN(d.getTime()) ? null : d.toDateString();
+  };
+
+  const formatItemDay = (item) => {
+    const ts = item?.fullTime || item?.createdAt || item?.timestamp;
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return null;
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return 'Today';
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  };
+
   // ─── Sending messages ───────────────────────────────────────────────────
   const sendMessageToAPI = async ({ messageContent = "", file = null }) => {
     try {
@@ -693,7 +748,10 @@ const SMSInput = ({ navigation, route }) => {
   // ─── Effects ─────────────────────────────────────────────────────────────
   useEffect(() => { loadCounselorData(); }, []);
   useEffect(() => {
-    if (selectedUser && counselorId) fetchMessagesFromAPI();
+    if (selectedUser && counselorId) {
+      fetchMessagesFromAPI();
+      fetchCallHistory();
+    }
   }, [selectedUser, chatId, counselorId]);
 
   // Load call history for this conversation and merge it into the thread.
@@ -849,11 +907,29 @@ const SMSInput = ({ navigation, route }) => {
   }, [callError]);
 
   // ─── Scroll handling ─────────────────────────────────────────────────────
+<<<<<<< HEAD
   // Merge text messages + call entries into one newest-first timeline (inverted list).
   const messagesForList = useMemo(
     () => mergeTimelineForInverted(messages, callHistory),
     [messages, callHistory],
   );
+=======
+  const messagesForList = useMemo(() => {
+    const merged = getMergedTimeline();
+    // inject day-separator sentinels
+    const withDays = [];
+    let lastDay = null;
+    merged.forEach((item) => {
+      const day = getItemDayKey(item);
+      if (day && day !== lastDay) {
+        withDays.push({ id: `day_${day}`, isDaySeparator: true, label: formatItemDay(item) });
+        lastDay = day;
+      }
+      withDays.push(item);
+    });
+    return [...withDays].reverse();
+  }, [getMergedTimeline]);
+>>>>>>> a2b2b39c3c781d6b6126b6afbb6fd38b08c91196
   const scrollToBottom = useCallback((animated = true) => {
     messagesContainerRef.current?.scrollToOffset({ offset: 0, animated });
   }, []);
@@ -921,7 +997,36 @@ const SMSInput = ({ navigation, route }) => {
   };
 
   const renderMessage = ({ item }) => {
+<<<<<<< HEAD
     if (item.isCall) return renderCallItem(item);
+=======
+    if (item.isDaySeparator) {
+      return (
+        <View style={styles.daySeparatorRow}>
+          <View style={styles.daySeparatorLine} />
+          <Text style={styles.daySeparatorLabel}>{item.label}</Text>
+          <View style={styles.daySeparatorLine} />
+        </View>
+      );
+    }
+
+    if (item.isCall) {
+      const isOutgoing = item.direction === 'outgoing';
+      const isVideo = item.type === 'video';
+      return (
+        <View style={[styles.callBubble, isOutgoing ? styles.callBubbleRight : styles.callBubbleLeft]}>
+          <Ionicons name={isVideo ? 'videocam' : 'call'} size={14} color={isOutgoing ? '#2c50cd' : '#526071'} style={{ marginRight: 6 }} />
+          <Text style={styles.callBubbleText}>
+            {isOutgoing ? 'Outgoing' : 'Incoming'} {isVideo ? 'video' : 'voice'} call
+          </Text>
+          <Text style={styles.callBubbleMeta}>
+            {item.time}{item.duration ? ` · ${item.duration}` : ''}
+          </Text>
+        </View>
+      );
+    }
+
+>>>>>>> a2b2b39c3c781d6b6126b6afbb6fd38b08c91196
     const isMe = item.sender === "me";
     return (
       <View style={[styles.messageBubble, isMe ? styles.messageRight : styles.messageLeft]}>
@@ -1170,6 +1275,14 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: 14, color: '#6B7280', fontWeight: '500' },
   messagesArea: { flex: 1, width: '100%', backgroundColor: '#F1F5F9' },
   messagesList: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: 14, paddingVertical: 16, gap: 6, flexGrow: 1 },
+  daySeparatorRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 10 },
+  daySeparatorLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
+  daySeparatorLabel: { marginHorizontal: 8, fontSize: 11, fontWeight: '700', color: '#475569', backgroundColor: '#e2e8f0', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  callBubble: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, marginVertical: 3, maxWidth: '85%', borderWidth: 1 },
+  callBubbleRight: { alignSelf: 'flex-end', backgroundColor: '#e8eaff', borderColor: '#c7d2fe' },
+  callBubbleLeft: { alignSelf: 'flex-start', backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
+  callBubbleText: { flex: 1, fontSize: 13, color: '#334155' },
+  callBubbleMeta: { fontSize: 11, color: '#64748b', marginLeft: 6 },
   errorMessage: { alignItems: 'center', paddingTop: 80, backgroundColor: '#F8FAFC' },
   retryBtn: { marginTop: 16, color: '#2563EB', fontWeight: '600', fontSize: 14 },
   emptyMessages: { alignItems: 'center', paddingTop: 60, paddingHorizontal: 40 },

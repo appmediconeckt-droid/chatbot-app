@@ -75,7 +75,6 @@ import pt from './locales/pt-PT.json';
 import ru from './locales/ru-RU.json';
 import ja from './locales/ja-JP.json';
 import de from './locales/de-DE.json';
-import deCh from './locales/de-DE.json';
 import th from './locales/th-TH.json';
 import ko from './locales/ko-KR.json';
 import mr from './locales/mr-IN.json';
@@ -101,7 +100,9 @@ export const getUserLangStorageKey = (userId, role) => {
 export const loadUserLanguage = async (userId, role) => {
   const key = getUserLangStorageKey(userId, role);
   const storedLang = await AsyncStorage.getItem(key);
-  const langToUse = storedLang || 'en'; // default English
+  // Fall back to the global app language, then to en-US
+  const globalLang = await AsyncStorage.getItem(LANG_STORAGE_KEY);
+  const langToUse = storedLang || globalLang || 'en-US';
   await i18n.changeLanguage(langToUse);
   return langToUse;
 };
@@ -201,72 +202,98 @@ export const LEGACY_LANGUAGES = [
   { code: 'ur', label: 'Urdu', native: 'اردو', region: 'indian' },
 ];
 
+// Each JSON file has all namespaces nested inside it, e.g. { "common": {...}, "dashboard": {...} }
+// i18next resources must be structured as { locale: { ns: translations } }
+// so we spread each file's top-level keys as the namespaces for that locale.
+const buildResources = (json) => ({ ...json });
+
 const resources = {
   // English variants
-  'en-US': enUS,
-  'en-GB': enGB,
-  'en-IN': enIN,
+  'en-US': buildResources(enUS),
+  'en-GB': buildResources(enGB),
+  'en-IN': buildResources(enIN),
 
   // Indian languages
-  'hi-IN': hiIN,
-  'ur-IN': urIN,
-  'ta-IN': taIN,
-  'te-IN': teIN,
-  'kn-IN': knIN,
-  'ml-IN': mlIN,
-  'bn-IN': bnIN,
-  'gu-IN': guIN,
-  'mr-IN': mrIN,
-  'pa-IN': paIN,
-  'as-IN': asIN,
-  'or-IN': orIN,
-  'ne-NP': neNP,
-  'si-LK': siLK,
+  'hi-IN': buildResources(hiIN),
+  'ur-IN': buildResources(urIN),
+  'ta-IN': buildResources(taIN),
+  'te-IN': buildResources(teIN),
+  'kn-IN': buildResources(knIN),
+  'ml-IN': buildResources(mlIN),
+  'bn-IN': buildResources(bnIN),
+  'gu-IN': buildResources(guIN),
+  'mr-IN': buildResources(mrIN),
+  'pa-IN': buildResources(paIN),
+  'as-IN': buildResources(asIN),
+  'or-IN': buildResources(orIN),
+  'ne-NP': buildResources(neNP),
+  'si-LK': buildResources(siLK),
 
   // World languages
-  'ar-SA': arSA,
-  'zh-CN': zhCN,
-  'zh-TW': zhTW,
-  'ja-JP': jaJP,
-  'ko-KR': koKR,
-  'id-ID': idID,
-  'ms-MY': msMY,
-  'th-TH': thTH,
-  'vi-VN': viVN,
-  'fil-PH': filPH,
-  'fa-IR': faIR,
-  'he-IL': heIL,
-  'tr-TR': trTR,
-  'ru-RU': ruRU,
-  'uk-UA': ukUA,
-  'pl-PL': plPL,
-  'cs-CZ': csCZ,
-  'sk-SK': skSK,
-  'hu-HU': huHU,
-  'ro-RO': roRO,
-  'bg-BG': bgBG,
-  'el-GR': elGR,
-  'de-DE': deDE,
-  'nl-NL': nlNL,
-  'fr-FR': frFR,
-  'es-ES': esES,
-  'pt-PT': ptPT,
-  'pt-BR': ptBR,
-  'it-IT': itIT,
-  'sv-SE': svSE,
-  'da-DK': daDK,
-  'fi-FI': fiFI,
-  'no-NO': noNO,
-  'af-ZA': afZA,
-  'sw-KE': swKE,
-  'am-ET': amET,
-  'ha-NG': haNG,
-  'yo-NG': yoNG,
-  'zu-ZA': zuZA,
+  'ar-SA': buildResources(arSA),
+  'zh-CN': buildResources(zhCN),
+  'zh-TW': buildResources(zhTW),
+  'ja-JP': buildResources(jaJP),
+  'ko-KR': buildResources(koKR),
+  'id-ID': buildResources(idID),
+  'ms-MY': buildResources(msMY),
+  'th-TH': buildResources(thTH),
+  'vi-VN': buildResources(viVN),
+  'fil-PH': buildResources(filPH),
+  'fa-IR': buildResources(faIR),
+  'he-IL': buildResources(heIL),
+  'tr-TR': buildResources(trTR),
+  'ru-RU': buildResources(ruRU),
+  'uk-UA': buildResources(ukUA),
+  'pl-PL': buildResources(plPL),
+  'cs-CZ': buildResources(csCZ),
+  'sk-SK': buildResources(skSK),
+  'hu-HU': buildResources(huHU),
+  'ro-RO': buildResources(roRO),
+  'bg-BG': buildResources(bgBG),
+  'el-GR': buildResources(elGR),
+  'de-DE': buildResources(deDE),
+  'nl-NL': buildResources(nlNL),
+  'fr-FR': buildResources(frFR),
+  'es-ES': buildResources(esES),
+  'pt-PT': buildResources(ptPT),
+  'pt-BR': buildResources(ptBR),
+  'it-IT': buildResources(itIT),
+  'sv-SE': buildResources(svSE),
+  'da-DK': buildResources(daDK),
+  'fi-FI': buildResources(fiFI),
+  'no-NO': buildResources(noNO),
+  'af-ZA': buildResources(afZA),
+  'sw-KE': buildResources(swKE),
+  'am-ET': buildResources(amET),
+  'ha-NG': buildResources(haNG),
+  'yo-NG': buildResources(yoNG),
+  'zu-ZA': buildResources(zuZA),
 
-  // Legacy codes for backward compatibility
-  en, hi, ar, zh, es, fr, pt, ru, ja, de, deCh, th, ko,
-  mr, ta, pa, bn, gu, kn, ml, te, ur, ne
+  // Legacy short codes — point to same data as full codes
+  en: buildResources(enUS),
+  hi: buildResources(hiIN),
+  ar: buildResources(arSA),
+  zh: buildResources(zhCN),
+  es: buildResources(esES),
+  fr: buildResources(frFR),
+  pt: buildResources(ptPT),
+  ru: buildResources(ruRU),
+  ja: buildResources(jaJP),
+  de: buildResources(deDE),
+  'de-CH': buildResources(deDE),
+  th: buildResources(thTH),
+  ko: buildResources(koKR),
+  mr: buildResources(mrIN),
+  ta: buildResources(taIN),
+  pa: buildResources(paIN),
+  bn: buildResources(bnIN),
+  gu: buildResources(guIN),
+  kn: buildResources(knIN),
+  ml: buildResources(mlIN),
+  te: buildResources(teIN),
+  ur: buildResources(urIN),
+  ne: buildResources(neNP),
 };
 
 i18n
@@ -281,14 +308,9 @@ i18n
     compatibilityJSON: 'v4',
     react: {
       useSuspense: false,
-      bindI18n: 'languageChanged',
+      bindI18n: 'languageChanged loaded',
       bindI18nStore: 'added removed',
-      // Force re-render on language change
       transEmptyNodeValue: '',
-    },
-    // Ensure proper language change detection
-    detection: {
-      order: ['localStorage', 'navigator'],
     },
   });
 

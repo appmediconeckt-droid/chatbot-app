@@ -1141,10 +1141,10 @@ export default function UserDashboard() {
     setIsLoading(true);
     try {
       const response = await axiosInstance.post(
-        '/api/ai-chat/send-message',
+        '/api/ai/message',
         { message: "hi", history: [], language: lang }
       );
-
+ 
       if (response.data?.success) {
         if (response.data.data?.sessionId) {
           setAiSessionId(response.data.data.sessionId);
@@ -1464,7 +1464,7 @@ export default function UserDashboard() {
         content: msg.text,
       }));
 
-      const response = await axiosInstance.post('/api/ai-chat/send-message', {
+      const response = await axiosInstance.post('/api/ai/message', {
         message: userMessage.text,
         history,
         sessionId: aiSessionId,

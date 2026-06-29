@@ -3,6 +3,8 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // API endpoints for different environments
+// NOTE: no trailing slash — callers append `/api/...`, so a trailing slash here
+// would produce a double slash (`...ms//api/...`) and break routing.
 const API_ENDPOINTS = {
   // Must match the SAME backend the web frontend uses (chatbot/.env.local)
   // so OTP / email / forgot-password behave identically to web.

@@ -441,10 +441,29 @@ const ChatBox = () => {
   // Chat UX: use an inverted list so the newest message appears at the bottom
   // without needing an initial scroll-to-end (more reliable on Android).
   const messagesForList = useMemo(() => {
+<<<<<<< HEAD
     if (!messages?.length && !callHistory?.length) return [];
     // Merge text messages + call entries into one timeline. Returns newest-first,
     // which is what the inverted FlatList expects.
     return mergeTimelineForInverted(messages, callHistory);
+=======
+    const merged = [...messages, ...callHistory].sort((a, b) => {
+      const tA = a.fullTime || a.createdAt || a.timestamp;
+      const tB = b.fullTime || b.createdAt || b.timestamp;
+      return new Date(tA) - new Date(tB);
+    });
+    const withDays = [];
+    let lastDay = null;
+    merged.forEach((item) => {
+      const day = getItemDayKey(item);
+      if (day && day !== lastDay) {
+        withDays.push({ id: `day_${day}`, isDaySeparator: true, label: formatItemDay(item) });
+        lastDay = day;
+      }
+      withDays.push(item);
+    });
+    return [...withDays].reverse();
+>>>>>>> a2b2b39c3c781d6b6126b6afbb6fd38b08c91196
   }, [messages, callHistory]);
 
   const handleMessagesScroll = useCallback((event) => {
@@ -630,6 +649,7 @@ const ChatBox = () => {
     }
   };
 
+<<<<<<< HEAD
   // Load the call history for THIS conversation and merge it into the thread.
   const loadCallHistory = async () => {
     try {
@@ -644,6 +664,50 @@ const ChatBox = () => {
     } catch (_) {
       // Non-fatal — chat still renders without call entries.
     }
+=======
+  const fetchCallHistory = useCallback(async () => {
+    try {
+      const userId = resolveCurrentUserId();
+      const peerId = resolveCounselorId();
+      if (!userId || !peerId) { setCallHistory([]); return; }
+      const token = await AsyncStorage.getItem("accessToken") || await AsyncStorage.getItem("token");
+      const response = await axios.get(`${API_BASE_URL}/api/video/calls/history/${userId}`, {
+        params: { page: 1, limit: 100 },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const matching = (response.data?.history || [])
+        .filter((c) => String(c.withId) === String(peerId))
+        .map((c) => ({
+          id: c.id || c._id || `call_${Date.now()}_${Math.random()}`,
+          isCall: true,
+          type: String(c.type || '').toLowerCase() === 'video' ? 'video' : 'voice',
+          direction: c.role === 'initiator' ? 'outgoing' : 'incoming',
+          status: c.status || 'completed',
+          time: new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          fullTime: c.timestamp,
+          duration: c.duration || null,
+        }));
+      setCallHistory(matching);
+    } catch { setCallHistory([]); }
+  }, []);
+
+  const getItemDayKey = (item) => {
+    const ts = item?.fullTime || item?.createdAt;
+    const d = new Date(ts);
+    return Number.isNaN(d.getTime()) ? null : d.toDateString();
+  };
+
+  const formatItemDay = (item) => {
+    const ts = item?.fullTime || item?.createdAt;
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return null;
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return 'Today';
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+>>>>>>> a2b2b39c3c781d6b6126b6afbb6fd38b08c91196
   };
 
   const loadMessagesFromLocalStorage = async () => {
@@ -1128,6 +1192,7 @@ const ChatBox = () => {
         // Fetch from API silently if we already have messages, otherwise show loader
         const silentFetch = messages.length > 0 || (chat && chat.messages && chat.messages.length > 0);
         await fetchMessagesFromAPI(silentFetch);
+        fetchCallHistory();
         
         // Auto focus keyboard after loading
         setTimeout(() => {
@@ -1347,7 +1412,36 @@ const ChatBox = () => {
   };
 
   const renderMessage = ({ item, index }) => {
+<<<<<<< HEAD
     if (item.isCall) return renderCallItem(item);
+=======
+    if (item.isDaySeparator) {
+      return (
+        <View style={styles.daySeparatorRow}>
+          <View style={styles.daySeparatorLine} />
+          <Text style={styles.daySeparatorLabel}>{item.label}</Text>
+          <View style={styles.daySeparatorLine} />
+        </View>
+      );
+    }
+
+    if (item.isCall) {
+      const isOutgoing = item.direction === 'outgoing';
+      const isVideo = item.type === 'video';
+      return (
+        <View style={[styles.callBubble, isOutgoing ? styles.callBubbleRight : styles.callBubbleLeft]}>
+          <Ionicons name={isVideo ? 'videocam' : 'call'} size={14} color={isOutgoing ? '#2c50cd' : '#526071'} style={{ marginRight: 6 }} />
+          <Text style={styles.callBubbleText}>
+            {isOutgoing ? 'Outgoing' : 'Incoming'} {isVideo ? 'video' : 'voice'} call
+          </Text>
+          <Text style={styles.callBubbleMeta}>
+            {item.time}{item.duration ? ` · ${item.duration}` : ''}
+          </Text>
+        </View>
+      );
+    }
+
+>>>>>>> a2b2b39c3c781d6b6126b6afbb6fd38b08c91196
     const isUser = item.sender === "user";
 
     return (
@@ -2004,6 +2098,14 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     gap: 12,
   },
+  daySeparatorRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 10 },
+  daySeparatorLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
+  daySeparatorLabel: { marginHorizontal: 8, fontSize: 11, fontWeight: '700', color: '#475569', backgroundColor: '#e2e8f0', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  callBubble: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, marginVertical: 3, maxWidth: '85%', borderWidth: 1 },
+  callBubbleRight: { alignSelf: 'flex-end', backgroundColor: '#e8eaff', borderColor: '#c7d2fe' },
+  callBubbleLeft: { alignSelf: 'flex-start', backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
+  callBubbleText: { flex: 1, fontSize: 13, color: '#334155' },
+  callBubbleMeta: { fontSize: 11, color: '#64748b', marginLeft: 6 },
   welcomeCard: {
     flexDirection: "row",
     backgroundColor: "#eceef0",

@@ -44,7 +44,6 @@ import { CallProvider } from './src/screens/user/VideoCall/CallProvider';
 import AppLockScreen, { PIN_STORAGE_KEY } from './src/screens/auth/AppLockScreen';
 import PinSetupScreen from './src/screens/auth/PinSetupScreen';
 import './src/i18n';
-import i18n, { LANG_STORAGE_KEY } from './src/i18n';
 import { LanguageProvider } from './src/contexts/LanguageContext';
 // Define your navigation param list
 // import { LogBox } from 'react-native';
@@ -177,12 +176,6 @@ function App() {
         console.warn('Session bootstrap failed, opening RoleSelector', error);
         setBootRoute('RoleSelector');
       } finally {
-        try {
-          const savedLang = await AsyncStorage.getItem(LANG_STORAGE_KEY);
-          if (savedLang && savedLang !== i18n.language) {
-            await i18n.changeLanguage(savedLang);
-          }
-        } catch {}
         setIsBootstrapping(false);
       }
     };
