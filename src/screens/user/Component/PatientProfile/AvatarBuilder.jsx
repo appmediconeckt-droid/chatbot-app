@@ -198,6 +198,67 @@ function buildUrl(opts) {
   return `${BASE}?${p.join("&")}`;
 }
 
+// ─── Map OpenAI face analysis → DiceBear cartoon options ─────────────────────
+// Turns the backend's facial analysis into matching avataaars options so the
+// cartoon resembles the person (skin, hair, beard, glasses, expression).
+const SKIN_MAP = {
+  "very fair": "ffdbb4", fair: "edb98a", light: "fd9841",
+  medium: "d08b5b", tan: "ae5d29", dark: "614335",
+};
+const HAIR_COLOR_MAP = {
+  black: "2c1b18", "dark brown": "4a312c", brown: "724133", auburn: "a55728",
+  blonde: "b58143", "light blonde": "d6b370", silver: "e8e1e1", gray: "e8e1e1",
+  grey: "e8e1e1", white: "ecdcbf", red: "c93305", pink: "f59797",
+};
+const FACIAL_HAIR_MAP = {
+  none: "none", "light beard": "beardLight", "medium beard": "beardMedium",
+  "full beard": "beardMajestic", moustache: "moustacheFancy",
+};
+
+function pickHairStyle(a) {
+  const len = String(a.hairLength || "").toLowerCase();
+  const type = String(a.hairType || "").toLowerCase();
+  const isLong = ["medium", "long", "very long"].includes(len);
+  const female = a.gender === "female";
+  if (type === "curly" || type === "coily") return isLong ? "curly" : "shortCurly";
+  if (type === "wavy") return isLong ? "curvy" : "shortWaved";
+  if (isLong || female) return female ? "straight01" : "longButNotTooLong";
+  return "shortFlat";
+}
+
+function pickAccessory(a) {
+  if (!a.glasses) return "none";
+  const g = String(a.glassesType || "").toLowerCase();
+  if (g.includes("sun")) return "sunglasses";
+  if (g.includes("aviator")) return "wayfarers";
+  return "prescription01";
+}
+
+function mapAnalysisToOptions(a, base = DEFAULT) {
+  const opts = { ...base };
+  if (!a || typeof a !== "object") return opts;
+
+  const skin = SKIN_MAP[String(a.skinTone || "").toLowerCase()];
+  if (skin) opts.skinColor = skin;
+
+  const hc = HAIR_COLOR_MAP[String(a.hairColor || "").toLowerCase()];
+  if (hc) { opts.hairColor = hc; opts.facialHairColor = hc; }
+
+  opts.top = pickHairStyle(a);
+
+  const fh = FACIAL_HAIR_MAP[String(a.facialHair || "").toLowerCase()];
+  if (fh) opts.facialHair = fh;
+
+  opts.accessories = pickAccessory(a);
+
+  const exp = String(a.expression || "").toLowerCase();
+  if (exp.includes("smile") || exp.includes("happy")) { opts.eyes = "happy"; opts.mouth = "smile"; }
+  else if (exp.includes("serious")) { opts.eyes = "default"; opts.mouth = "serious"; }
+  else if (exp.includes("neutral")) { opts.eyes = "default"; opts.mouth = "default"; }
+
+  return opts;
+}
+
 // ─── Smart skin tone detection from photo ─────────────────────────────────────
 // Analyzes base64 encoded image to detect face region and extract skin tone
 // Mimics web version's face detection logic
@@ -251,33 +312,27 @@ async function analyzeSkinFromBase64(base64) {
   }
 }
 
-// ─── Generate AI avatar using OpenAI Vision + DALL-E ──────────────────────────
+// ─── Analyze face + generate realistic portrait (same as web) ─────────────────
+// Returns the realistic AI portrait AND the analysis (used to also match the
+// customizable cartoon). avatarUrl may be null if generation fails — caller
+// falls back to the cartoon.
 async function generateAiAvatar(photoBase64, token) {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/avatar/analyze-and-generate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
-      },
-      body: JSON.stringify({ photoBase64 }),
-    });
+  const response = await fetch(`${API_BASE_URL}/api/avatar/analyze-and-generate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
+    body: JSON.stringify({ photoBase64 }),
+  });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || `API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    if (!data.success || !data.avatarUrl) {
-      throw new Error(data.message || "Failed to generate avatar");
-    }
-
-    return { avatarUrl: data.avatarUrl, analysis: data.analysis };
-  } catch (error) {
-    console.error("AI avatar generation error:", error);
-    throw error;
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.message || `API error: ${response.status}`);
   }
+
+  const data = await response.json();
+  return { avatarUrl: data.avatarUrl || null, analysis: data.analysis || {} };
 }
 
 const AvatarBuilder = ({ visible, onSelect, onClose }) => {
@@ -296,7 +351,9 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
 
   const handlePickPhoto = () => {
     ImagePicker.launchCamera(
-      { mediaType: "photo", cameraType: "front", quality: 0.7, includeBase64: true },
+      // maxWidth/maxHeight 512 keeps the base64 payload small (~<200kb) to match
+      // the web (which sends a 512px canvas) and stay under the backend body limit.
+      { mediaType: "photo", cameraType: "front", quality: 0.6, includeBase64: true, maxWidth: 512, maxHeight: 512 },
       async (res) => {
         if (res.didCancel || res.errorCode) return;
         const asset = res.assets?.[0];
@@ -309,17 +366,22 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
           const { skinColor } = await analyzeSkinFromBase64(asset.base64 || "");
           setOpts(prev => ({ ...prev, skinColor }));
 
-          // Generate AI avatar
+          // Analyze the face → realistic portrait (default) + matching cartoon.
           const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
           if (token && asset.base64) {
             try {
               const photoBase64 = `data:image/jpeg;base64,${asset.base64}`;
               const { avatarUrl, analysis } = await generateAiAvatar(photoBase64, token);
-              setAiAvatarUrl(avatarUrl);
               setAiAnalysis(analysis);
-              setAvatarMode("ai");
+              // Make the customizable cartoon match the analyzed features too.
+              setOpts(prev => mapAnalysisToOptions(analysis, { ...prev }));
+              // Show the realistic AI portrait by default (like the web).
+              if (avatarUrl) {
+                setAiAvatarUrl(avatarUrl);
+                setAvatarMode("ai");
+              }
             } catch (aiError) {
-              console.log("AI avatar generation failed, using DiceBear instead:", aiError.message);
+              console.log("AI avatar failed, using cartoon instead:", aiError.message);
             }
           }
         } catch (error) {
@@ -334,7 +396,8 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
 
   const handleUploadPhoto = () => {
     ImagePicker.launchImageLibrary(
-      { mediaType: "photo", quality: 0.7, includeBase64: true },
+      // Resize to 512px so the base64 payload stays under the backend's 200kb limit.
+      { mediaType: "photo", quality: 0.6, includeBase64: true, maxWidth: 512, maxHeight: 512 },
       async (res) => {
         if (res.didCancel || res.errorCode) return;
         const asset = res.assets?.[0];
@@ -347,17 +410,22 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
           const { skinColor } = await analyzeSkinFromBase64(asset.base64 || "");
           setOpts(prev => ({ ...prev, skinColor }));
 
-          // Generate AI avatar
+          // Analyze the face → realistic portrait (default) + matching cartoon.
           const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
           if (token && asset.base64) {
             try {
               const photoBase64 = `data:image/jpeg;base64,${asset.base64}`;
               const { avatarUrl, analysis } = await generateAiAvatar(photoBase64, token);
-              setAiAvatarUrl(avatarUrl);
               setAiAnalysis(analysis);
-              setAvatarMode("ai");
+              // Make the customizable cartoon match the analyzed features too.
+              setOpts(prev => mapAnalysisToOptions(analysis, { ...prev }));
+              // Show the realistic AI portrait by default (like the web).
+              if (avatarUrl) {
+                setAiAvatarUrl(avatarUrl);
+                setAvatarMode("ai");
+              }
             } catch (aiError) {
-              console.log("AI avatar generation failed, using DiceBear instead:", aiError.message);
+              console.log("AI avatar failed, using cartoon instead:", aiError.message);
             }
           }
         } catch (error) {

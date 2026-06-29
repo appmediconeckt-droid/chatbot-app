@@ -21,6 +21,12 @@ import {
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Feather from 'react-native-vector-icons/Feather';
+import { API_BASE_URL } from '../../../../../../axiosConfig';
+import HelpSupport from '../../../UserDashboard/Tab/HelpSupport/HelpSupport';
+import PrivacyPolicy from '../../../UserDashboard/Tab/PrivacyPolicy/PrivacyPolicy';
+import CounselorWallet from '../Wallet/CounselorWallet';
+
+const TERMS_URL = 'https://mediconeckt.com/terms-of-use/';
 
 const useShimmer = () => {
   const anim = useRef(new Animated.Value(0)).current;
@@ -75,7 +81,6 @@ const SettingsSkeleton = () => {
 };
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const API_BASE_URL = 'https://chatbot-backend-js25.onrender.com';
 
 const formatName = (full) => {
   if (!full) return '';
@@ -91,22 +96,78 @@ const firstName = (full) => {
   return name.split(/\s+/)[0] || '';
 };
 
-const formatConsultationMode = (modes) => {
-  if (!Array.isArray(modes) || modes.length === 0) return 'Not set';
-  if (modes.length === 1) return modes[0];
-  if (modes.length === 2) return modes.join(' & ');
-  return `All ${modes.length}`;
-};
-
 const INITIAL_PW_FORM = { otp: '', password: '', confirmPassword: '', oldPassword: '', newPassword: '', confirmNewPassword: '' };
+
+// Availability status options. Frontend-only for now — the choice is persisted
+// in AsyncStorage and shown in the UI. Wire `key` to a backend status field
+// later (model currently only has the isOnline boolean).
+const AVAILABILITY_KEY = 'counselorAvailabilityStatus';
+const AVAIL_STATUSES = [
+  { key: 'online',  label: 'Online',  color: '#16A34A', bg: '#DCFCE7', icon: 'check-circle', desc: 'Available — accepting new clients' },
+  { key: 'busy',    label: 'Busy',    color: '#DC2626', bg: '#FEE2E2', icon: 'minus-circle', desc: 'In a session — not taking new requests' },
+  { key: 'away',    label: 'Away',    color: '#D97706', bg: '#FEF3C7', icon: 'clock',        desc: 'Stepped away — back shortly' },
+  { key: 'offline', label: 'Offline', color: '#6B7280', bg: '#F3F4F6', icon: 'power',        desc: 'Not available right now' },
+];
+
+const FEEDBACK_CATEGORIES = [
+  { key: 'bug', label: 'Bug', icon: 'alert-triangle' },
+  { key: 'suggestion', label: 'Suggestion', icon: 'zap' },
+  { key: 'other', label: 'Other', icon: 'message-circle' },
+];
 
 const CounselorSettings = ({ onNavigate, onLogout }) => {
   const navigation = useNavigation();
   const { t } = useLanguageRender();
-  const [autoAccept, setAutoAccept] = useState(false);
-  const [twoFactor, setTwoFactor] = useState(true);
   const [counselor, setCounselor] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Availability status (frontend-only, persisted locally)
+  const [availStatus, setAvailStatus] = useState('online');
+  const [availModal, setAvailModal] = useState(false);
+
+  // In-app info screens
+  const [showHelp, setShowHelp] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showWallet, setShowWallet] = useState(false);
+
+  // Feedback modal state
+  const [feedbackModal, setFeedbackModal] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] = useState('suggestion');
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackNotice, setFeedbackNotice] = useState({ type: '', msg: '' });
+
+  const handleSubmitFeedback = async () => {
+    if (!feedbackMessage.trim()) {
+      setFeedbackNotice({ type: 'error', msg: 'Please enter your feedback.' });
+      return;
+    }
+    setFeedbackLoading(true);
+    setFeedbackNotice({ type: '', msg: '' });
+    try {
+      const token =
+        (await AsyncStorage.getItem('token')) ||
+        (await AsyncStorage.getItem('accessToken'));
+      const res = await axios.post(
+        `${API_BASE_URL}/api/feedback`,
+        { category: feedbackCategory, message: feedbackMessage.trim() },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (res.data?.success) {
+        setFeedbackNotice({ type: 'success', msg: res.data.message || 'Thank you for your feedback!' });
+        setFeedbackMessage('');
+      } else {
+        setFeedbackNotice({ type: 'error', msg: res.data?.error || 'Failed to send feedback.' });
+      }
+    } catch (err) {
+      setFeedbackNotice({
+        type: 'error',
+        msg: err.response?.data?.error || err.message || 'Failed to send feedback.',
+      });
+    } finally {
+      setFeedbackLoading(false);
+    }
+  };
 
   // Password modal state
   const [pwModal, setPwModal] = useState(false);
@@ -199,7 +260,38 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
 
   useEffect(() => {
     fetchCounselor();
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(AVAILABILITY_KEY);
+        if (saved && AVAIL_STATUSES.some((s) => s.key === saved)) {
+          setAvailStatus(saved);
+        }
+      } catch (err) {
+        console.log('Failed to load availability status', err);
+      }
+    })();
   }, []);
+
+  const handleSelectAvailability = async (key) => {
+    const prev = availStatus;
+    setAvailStatus(key); // optimistic
+    setAvailModal(false);
+    try {
+      await AsyncStorage.setItem(AVAILABILITY_KEY, key);
+      const token =
+        (await AsyncStorage.getItem('token')) ||
+        (await AsyncStorage.getItem('accessToken'));
+      await axios.patch(
+        `${API_BASE_URL}/api/chat/availability`,
+        { status: key },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+    } catch (err) {
+      console.log('Failed to update availability status', err);
+      setAvailStatus(prev); // revert on failure
+      try { await AsyncStorage.setItem(AVAILABILITY_KEY, prev); } catch {}
+    }
+  };
 
   const fetchCounselor = async () => {
     try {
@@ -216,6 +308,12 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
       );
       if (res.data?.success && res.data.counsellor) {
         setCounselor(res.data.counsellor);
+        // Server is the source of truth for availability — override local cache.
+        const serverStatus = res.data.counsellor.availabilityStatus;
+        if (serverStatus && AVAIL_STATUSES.some((s) => s.key === serverStatus)) {
+          setAvailStatus(serverStatus);
+          AsyncStorage.setItem(AVAILABILITY_KEY, serverStatus).catch(() => {});
+        }
       }
     } catch (err) {
       console.error('Settings: failed to load counselor', err);
@@ -226,15 +324,20 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
 
   const handleNav = (id) => {
     if (id === 'profile') return onNavigate?.('profile');
+    if (id === 'payout') return setShowWallet(true);
     if (id === 'change_password') return openPwModal('change');
     if (id === 'add_password') return openPwModal('set');
     if (id === 'app_lock') return navigation.navigate('PinSetup');
+    if (id === 'availability') return setAvailModal(true);
     if (id === 'contact')
-      return Linking.openURL('mailto:support@mediconnect.com');
-    if (id === 'help') return Linking.openURL('https://mediconnect.com/help');
-    if (id === 'terms') return Linking.openURL('https://mediconnect.com/terms');
-    if (id === 'privacy')
-      return Linking.openURL('https://mediconnect.com/privacy');
+      return Linking.openURL('mailto:support@mediconeckt.com');
+    if (id === 'help') return setShowHelp(true);
+    if (id === 'privacy') return setShowPrivacy(true);
+    if (id === 'terms') return Linking.openURL(TERMS_URL);
+    if (id === 'feedback') {
+      setFeedbackNotice({ type: '', msg: '' });
+      return setFeedbackModal(true);
+    }
   };
 
   const profileName =
@@ -244,22 +347,12 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
     counselor?.phoneNumber ||
     counselor?.phone ||
     'Personal & professional details';
-  const consultationValue = formatConsultationMode(counselor?.consultationMode);
   const payoutSubtitle = counselor?.payoutAccount?.maskedNumber
     ? `${counselor.payoutAccount.bankName || 'Bank'} •••• ${counselor.payoutAccount.maskedNumber}`
     : 'Add a bank account for payouts';
   const payoutBadge = counselor?.payoutAccount?.verified ? 'Verified' : null;
-  const isCounselorOnline =
-    counselor?.isActive === true ||
-    counselor?.isOnline === true ||
-    counselor?.online === true ||
-    String(counselor?.status || '').toLowerCase() === 'online';
-  const availabilitySubtitle = counselor?.availability?.summary
-    ? counselor.availability.summary
-    : isCounselorOnline
-      ? t('counselor:currentlyOnline')
-      : t('counselor:setWorkingHours');
-  const availabilityBadge = isCounselorOnline ? t('common:online') : t('common:offline');
+  const currentAvail =
+    AVAIL_STATUSES.find((s) => s.key === availStatus) || AVAIL_STATUSES[0];
 
   const SECTIONS = [
     {
@@ -277,27 +370,13 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
         },
         {
           id: 'availability',
-          icon: 'calendar',
-          iconBg: '#DCFCE7',
-          iconColor: '#16A34A',
-          label: t('settings:availabilitySchedule'),
-          subtitle: availabilitySubtitle,
-          badge: availabilityBadge,
-          badgeColor: '#16a34a',
-          type: 'nav',
-        },
-        {
-          id: 'consultation_mode',
-          icon: 'video',
-          iconBg: '#EFF6FF',
-          iconColor: '#0D9488',
-          label: t('counselor:consultationMode'),
-          subtitle:
-            Array.isArray(counselor?.consultationMode) &&
-            counselor.consultationMode.length > 0
-              ? counselor.consultationMode.join(', ')
-              : 'Video, Voice & Chat',
-          value: consultationValue,
+          icon: currentAvail.icon,
+          iconBg: currentAvail.bg,
+          iconColor: currentAvail.color,
+          label: 'Availability',
+          subtitle: currentAvail.desc,
+          badge: currentAvail.label,
+          badgeColor: currentAvail.color,
           type: 'nav',
         },
         {
@@ -310,17 +389,6 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           badge: payoutBadge ? t('common:verified') : null,
           badgeColor: '#0D9488',
           type: 'nav',
-        },
-        {
-          id: 'auto_accept',
-          icon: 'check-circle',
-          iconBg: '#FFFBEB',
-          iconColor: '#D97706',
-          label: t('counselor:autoAccept'),
-          subtitle: t('counselor:withinWorkingHours'),
-          type: 'switch',
-          value: autoAccept,
-          onChange: setAutoAccept,
         },
       ],
     },
@@ -346,32 +414,12 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           type: 'nav',
         },
         {
-          id: 'two_factor',
-          icon: 'shield',
-          iconBg: '#DCFCE7',
-          iconColor: '#16A34A',
-          label: t('settings:twoFactor'),
-          subtitle: t('settings:extraSecurity'),
-          type: 'switch',
-          value: twoFactor,
-          onChange: setTwoFactor,
-        },
-        {
           id: 'app_lock',
           icon: 'smartphone',
           iconBg: '#EDE9FE',
           iconColor: '#7c3aed',
           label: t('settings:appLock'),
           subtitle: t('settings:pinFingerprint'),
-          type: 'nav',
-        },
-        {
-          id: 'data_export',
-          icon: 'download',
-          iconBg: '#ecfeff',
-          iconColor: '#0D9488',
-          label: t('settings:downloadData'),
-          subtitle: t('settings:getCopyOfData'),
           type: 'nav',
         },
       ],
@@ -394,7 +442,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           iconBg: '#DCFCE7',
           iconColor: '#16A34A',
           label: t('settings:contactSupport'),
-          subtitle: 'support@mediconnect.com',
+          subtitle: 'support@mediconeckt.com',
           type: 'nav',
         },
         {
@@ -579,6 +627,139 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
         </>
       )}
     </ScrollView>
+
+    {/* Availability Status Modal */}
+    <Modal visible={availModal} animationType="slide" transparent onRequestClose={() => setAvailModal(false)}>
+      <View style={pwStyles.overlay}>
+        <View style={pwStyles.sheet}>
+          <View style={pwStyles.sheetHeader}>
+            <View>
+              <Text style={pwStyles.sheetTitle}>Availability</Text>
+              <Text style={pwStyles.sheetSub}>Set your current status for clients</Text>
+            </View>
+            <TouchableOpacity onPress={() => setAvailModal(false)} style={pwStyles.closeBtn}>
+              <Feather name="x" size={20} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={pwStyles.body}>
+            {AVAIL_STATUSES.map((s) => {
+              const selected = s.key === availStatus;
+              return (
+                <TouchableOpacity
+                  key={s.key}
+                  activeOpacity={0.75}
+                  onPress={() => handleSelectAvailability(s.key)}
+                  style={[
+                    availStyles.option,
+                    selected && { borderColor: s.color, backgroundColor: `${s.color}0D` },
+                  ]}
+                >
+                  <View style={[availStyles.optionIcon, { backgroundColor: s.bg }]}>
+                    <Feather name={s.icon} size={18} color={s.color} />
+                  </View>
+                  <View style={availStyles.optionBody}>
+                    <Text style={availStyles.optionLabel}>{s.label}</Text>
+                    <Text style={availStyles.optionDesc} numberOfLines={1}>{s.desc}</Text>
+                  </View>
+                  {selected
+                    ? <Feather name="check-circle" size={20} color={s.color} />
+                    : <View style={availStyles.optionDot} />
+                  }
+                </TouchableOpacity>
+              );
+            })}
+            <Text style={availStyles.note}>
+              Your status is saved to your account and shown to clients.
+            </Text>
+          </View>
+        </View>
+      </View>
+    </Modal>
+
+    {/* Feedback Modal */}
+    <Modal visible={feedbackModal} animationType="slide" transparent onRequestClose={() => setFeedbackModal(false)}>
+      <KeyboardAvoidingView style={pwStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={pwStyles.sheet}>
+          <View style={pwStyles.sheetHeader}>
+            <View>
+              <Text style={pwStyles.sheetTitle}>Send Feedback</Text>
+              <Text style={pwStyles.sheetSub}>Help us improve — your feedback goes to our team</Text>
+            </View>
+            <TouchableOpacity onPress={() => setFeedbackModal(false)} style={pwStyles.closeBtn}>
+              <Feather name="x" size={20} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={pwStyles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            {!!feedbackNotice.msg && (
+              <View style={[pwStyles.notice, feedbackNotice.type === 'error' ? pwStyles.noticeError : pwStyles.noticeSuccess]}>
+                <Feather name={feedbackNotice.type === 'error' ? 'alert-circle' : 'check-circle'} size={14} color={feedbackNotice.type === 'error' ? '#dc2626' : '#16a34a'} />
+                <Text style={[pwStyles.noticeText, { color: feedbackNotice.type === 'error' ? '#dc2626' : '#16a34a' }]}>{feedbackNotice.msg}</Text>
+              </View>
+            )}
+
+            <Text style={pwStyles.label}>Category</Text>
+            <View style={fbStyles.catRow}>
+              {FEEDBACK_CATEGORIES.map((c) => {
+                const active = c.key === feedbackCategory;
+                return (
+                  <TouchableOpacity
+                    key={c.key}
+                    activeOpacity={0.75}
+                    onPress={() => setFeedbackCategory(c.key)}
+                    style={[fbStyles.catChip, active && fbStyles.catChipActive]}
+                  >
+                    <Feather name={c.icon} size={14} color={active ? '#2563EB' : '#64748b'} />
+                    <Text style={[fbStyles.catText, active && fbStyles.catTextActive]}>{c.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={[pwStyles.label, { marginTop: 16 }]}>Your feedback</Text>
+            <View style={fbStyles.inputShell}>
+              <TextInput
+                style={fbStyles.input}
+                value={feedbackMessage}
+                onChangeText={setFeedbackMessage}
+                placeholder="Tell us what's working, what's not, or what you'd like to see…"
+                placeholderTextColor="#94a3b8"
+                multiline
+                maxLength={2000}
+                textAlignVertical="top"
+              />
+            </View>
+            <Text style={fbStyles.counter}>{feedbackMessage.length}/2000</Text>
+
+            <TouchableOpacity
+              style={[pwStyles.submitBtn, (feedbackLoading || !feedbackMessage.trim()) && pwStyles.submitDisabled]}
+              onPress={handleSubmitFeedback}
+              disabled={feedbackLoading || !feedbackMessage.trim()}
+            >
+              {feedbackLoading ? <ActivityIndicator color="#fff" /> : (
+                <><Feather name="send" size={16} color="#fff" /><Text style={pwStyles.submitText}>Submit</Text></>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+
+    {/* Help & Support */}
+    <Modal visible={showHelp} animationType="slide" transparent={false} onRequestClose={() => setShowHelp(false)}>
+      <HelpSupport onClose={() => setShowHelp(false)} />
+    </Modal>
+
+    {/* Privacy Policy */}
+    <Modal visible={showPrivacy} animationType="slide" transparent={false} onRequestClose={() => setShowPrivacy(false)}>
+      <PrivacyPolicy onClose={() => setShowPrivacy(false)} />
+    </Modal>
+
+    {/* Earnings & Payouts */}
+    <Modal visible={showWallet} animationType="slide" transparent={false} onRequestClose={() => setShowWallet(false)}>
+      <CounselorWallet onClose={() => setShowWallet(false)} />
+    </Modal>
 
     {/* Password Modal */}
     <Modal visible={pwModal} animationType="slide" transparent onRequestClose={() => setPwModal(false)}>
@@ -1102,4 +1283,90 @@ const pwStyles = StyleSheet.create({
   },
   submitDisabled: { opacity: 0.7 },
   submitText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+});
+
+const availStyles = StyleSheet.create({
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 12,
+    backgroundColor: '#fff',
+  },
+  optionIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionBody: { flex: 1, minWidth: 0 },
+  optionLabel: { fontSize: 15, fontWeight: '700', color: '#111827' },
+  optionDesc: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
+  optionDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+  },
+  note: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 16,
+  },
+});
+
+const fbStyles = StyleSheet.create({
+  catRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 6,
+  },
+  catChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#fff',
+  },
+  catChipActive: {
+    borderColor: '#2563EB',
+    backgroundColor: '#EFF6FF',
+  },
+  catText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  catTextActive: { color: '#2563EB' },
+  inputShell: {
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 6,
+    minHeight: 120,
+  },
+  input: {
+    color: '#111827',
+    fontSize: 14,
+    minHeight: 100,
+  },
+  counter: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    textAlign: 'right',
+    marginTop: 4,
+    marginBottom: 8,
+  },
 });

@@ -29,6 +29,7 @@ import { pick } from '@react-native-documents/picker';
 
 import socketService from '../../../../../../services/socketService';
 import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
+import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import useRingtone from '../../../../../../hooks/useRingtone';
 import useScreenshotPrevent from '../../../../../../utils/useScreenshotPrevent';
 import VideoCallModal from '../../../UserDashboard/Tab/CallModal/VideoCallModal';
@@ -38,6 +39,11 @@ import {
   getAnonymousUserAvatar,
   getAnonymousUserDisplay,
 } from '../../../../../../utils/anonymousUser';
+import {
+  fetchChatCallEntries,
+  mergeTimelineForInverted,
+  describeCall,
+} from '../../../../../../utils/chatCallHistory';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -208,6 +214,7 @@ const SMSInput = ({ navigation, route }) => {
 
   // Message states
   const [messages, setMessages] = useState([]);
+  const [callHistory, setCallHistory] = useState([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState(null);
@@ -689,6 +696,26 @@ const SMSInput = ({ navigation, route }) => {
     if (selectedUser && counselorId) fetchMessagesFromAPI();
   }, [selectedUser, chatId, counselorId]);
 
+  // Load call history for this conversation and merge it into the thread.
+  const loadCallHistory = async () => {
+    try {
+      if (!counselorId || !USER_ID) return;
+      const token = await getAuthToken();
+      const entries = await fetchChatCallEntries({
+        currentUserId: counselorId,
+        peerId: USER_ID,
+        token,
+      });
+      setCallHistory(entries);
+    } catch (_) {
+      // Non-fatal — chat still renders without call entries.
+    }
+  };
+
+  useEffect(() => {
+    if (counselorId && USER_ID) loadCallHistory();
+  }, [counselorId, USER_ID, chatId]);
+
   // Socket connection
   useEffect(() => {
     const setupSocket = async () => {
@@ -822,7 +849,11 @@ const SMSInput = ({ navigation, route }) => {
   }, [callError]);
 
   // ─── Scroll handling ─────────────────────────────────────────────────────
-  const messagesForList = useMemo(() => [...messages].reverse(), [messages]);
+  // Merge text messages + call entries into one newest-first timeline (inverted list).
+  const messagesForList = useMemo(
+    () => mergeTimelineForInverted(messages, callHistory),
+    [messages, callHistory],
+  );
   const scrollToBottom = useCallback((animated = true) => {
     messagesContainerRef.current?.scrollToOffset({ offset: 0, animated });
   }, []);
@@ -855,7 +886,42 @@ const SMSInput = ({ navigation, route }) => {
     }
   };
 
+  // WhatsApp-style call entry shown inline in the chat thread.
+  const renderCallItem = (item) => {
+    const { isOutgoing, isAlert, statusLabel, durationText } = describeCall(item);
+    return (
+      <View style={[styles.callRow, isOutgoing ? styles.messageRight : styles.messageLeft]}>
+        <View style={[styles.callBubble, isOutgoing ? styles.callBubbleOut : styles.callBubbleIn]}>
+          <View style={[styles.callIconCircle, isAlert && styles.callIconCircleAlert]}>
+            <Ionicons
+              name={item.type === "video" ? "videocam" : "call"}
+              size={18}
+              color={isAlert ? "#ef4444" : "#1D4ED8"}
+            />
+          </View>
+          <View style={styles.callTextWrap}>
+            <Text style={styles.callTitle}>
+              {isOutgoing ? "Outgoing" : "Incoming"} {item.type === "video" ? "video" : "voice"} call
+            </Text>
+            <View style={styles.callMetaRow}>
+              <Ionicons
+                name={isAlert ? "close-circle" : isOutgoing ? "arrow-up-outline" : "arrow-down-outline"}
+                size={12}
+                color={isAlert ? "#ef4444" : "#64748b"}
+              />
+              <Text style={[styles.callMeta, isAlert && styles.callMetaAlert]}>
+                {statusLabel}{durationText ? ` · ${durationText}` : ""}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.callTime}>{item.time}</Text>
+        </View>
+      </View>
+    );
+  };
+
   const renderMessage = ({ item }) => {
+    if (item.isCall) return renderCallItem(item);
     const isMe = item.sender === "me";
     return (
       <View style={[styles.messageBubble, isMe ? styles.messageRight : styles.messageLeft]}>
@@ -869,7 +935,12 @@ const SMSInput = ({ navigation, route }) => {
           />
         )}
         <View style={[styles.messageContent, isMe ? styles.userMessageContent : styles.counselorMessageContent]}>
-          {!!item.text && <Text style={[styles.messageText, isMe ? styles.userMessageText : styles.counselorMessageText]}>{item.text}</Text>}
+          {!!item.text && (
+            <TranslatedMessageBubble
+              text={item.text}
+              style={[styles.messageText, isMe ? styles.userMessageText : styles.counselorMessageText]}
+            />
+          )}
           {(item.attachmentName || item.attachmentUrl) && (() => {
             const url = getAttachmentUrl(item);
             const name = item.attachmentName || '';
@@ -906,6 +977,8 @@ const SMSInput = ({ navigation, route }) => {
     setIsVoiceModalOpen(false);
     setSelectedCall(null);
     setCallError(null);
+    // A call just ended — refresh so the new call entry appears in the thread.
+    loadCallHistory();
   };
 
   if (!selectedUser) {
@@ -1112,6 +1185,42 @@ const styles = StyleSheet.create({
   messageBubble: { width: '100%', marginBottom: 6, flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   messageRight: { justifyContent: 'flex-end' },
   messageLeft: { justifyContent: 'flex-start' },
+  // ─── Call entry bubble (WhatsApp-style) ───────────────────────────────────
+  callRow: { width: '100%', flexDirection: 'row', marginBottom: 6 },
+  callBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    maxWidth: screenWidth >= 600 ? 500 : '80%',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  callBubbleOut: { backgroundColor: '#EFF6FF', borderColor: '#DBEAFE', borderBottomRightRadius: 4 },
+  callBubbleIn: { borderBottomLeftRadius: 4 },
+  callIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#E7EDFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  callIconCircleAlert: { backgroundColor: '#FEE2E2' },
+  callTextWrap: { flexShrink: 1 },
+  callTitle: { fontSize: 14, fontWeight: '600', color: '#0F172A' },
+  callMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  callMeta: { fontSize: 12, color: '#64748B' },
+  callMetaAlert: { color: '#EF4444', fontWeight: '600' },
+  callTime: { fontSize: 11, color: '#94A3B8', alignSelf: 'flex-end' },
   messageContent: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, maxWidth: screenWidth >= 600 ? 500 : '80%' },
   userMessageContent: { backgroundColor: '#1D4ED8', borderBottomRightRadius: 4, shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 4 },
   counselorMessageContent: { backgroundColor: '#FFFFFF', borderBottomLeftRadius: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },

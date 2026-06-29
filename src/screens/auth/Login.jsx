@@ -63,7 +63,10 @@ const Login = ({ navigation, route }) => {
   };
 
   const buildBackendRoleCandidates = (role) => {
-    if (!role) return [];
+    // No role selected (e.g. came straight to Login without RoleSelector): send
+    // BOTH so the request never 400s with "role is required". The retry loop
+    // falls through to the next candidate on a role mismatch.
+    if (!role) return ['user', 'counsellor'];
     return role === 'counselor'
       ? ['counsellor', 'counselor']
       : [mapRoleForBackend(role)];

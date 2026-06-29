@@ -1,0 +1,120 @@
+// Shared helpers to show call entries inside a chat thread (WhatsApp-style).
+// Mirrors the web app (chatbot/src/.../ChatBox.jsx): it fetches the existing
+// call-history API, filters to the current conversation peer, formats each call
+// into a lightweight "call message", and merges it into the message timeline.
+// No backend change is required — call records come from the same call-history
+// endpoint the Calls tab already uses.
+import axios, { API_BASE_URL } from '../axiosConfig';
+
+const normalizeCallType = (value) => {
+  const normalized = String(value || 'video').trim().toLowerCase();
+  return normalized === 'audio' || normalized === 'voice' ? 'voice' : 'video';
+};
+
+// The history API returns the row from the current user's perspective:
+// role === 'receiver' means the call came IN to us, anything else is outgoing.
+const getCallDirection = (call) => {
+  const role = String(call?.role || '').trim().toLowerCase();
+  return role === 'receiver' ? 'incoming' : 'outgoing';
+};
+
+const MISSED_STATUSES = ['missed', 'rejected', 'cancelled', 'canceled'];
+
+export const isMissedCallStatus = (status) =>
+  MISSED_STATUSES.includes(String(status || '').trim().toLowerCase());
+
+// Turn raw call-history rows into chat-timeline items. Each item carries
+// `isCall: true` and a `fullTime` so it can be merged/sorted alongside messages.
+export const formatCallEntries = (history, peerId) => {
+  const list = Array.isArray(history) ? history : [];
+
+  return list
+    .filter((call) => !peerId || String(call.withId) === String(peerId))
+    .map((call) => {
+      const timestamp = call.timestamp || call.createdAt;
+      const dateValue = timestamp ? new Date(timestamp) : null;
+      const validDate = dateValue && !Number.isNaN(dateValue.getTime());
+
+      return {
+        // Prefix so a call id can never collide with a message id in keyExtractor.
+        id: `call_${call.id || `${timestamp}_${call.type}`}`,
+        callId: call.id || call.callId || null,
+        isCall: true,
+        type: normalizeCallType(call.type),
+        direction: getCallDirection(call),
+        status: String(call.status || 'completed').trim().toLowerCase(),
+        duration: Number(call.duration) > 0 ? Number(call.duration) : 0,
+        time: validDate
+          ? dateValue.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          : '',
+        fullTime: timestamp || new Date().toISOString(),
+      };
+    });
+};
+
+// Fetch + format the calls between `currentUserId` and `peerId`.
+export const fetchChatCallEntries = async ({ currentUserId, peerId, token }) => {
+  if (!currentUserId || !peerId) return [];
+
+  try {
+    const response = await axios.get(
+      `${API_BASE_URL}/api/video/calls/history/${currentUserId}`,
+      {
+        params: { page: 1, limit: 100 },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      },
+    );
+
+    return formatCallEntries(response.data?.history, peerId);
+  } catch (error) {
+    // Non-fatal: if calls can't load, the chat still shows text messages.
+    console.warn('Unable to load chat call history:', error?.message);
+    return [];
+  }
+};
+
+// Resolve a sortable timestamp. Optimistic (just-sent) messages have no
+// `fullTime` yet — treat those as "now" so they stay at the newest end instead
+// of jumping to the top of the thread.
+const sortableTime = (item) => {
+  const raw = item?.fullTime;
+  const t = raw ? new Date(raw).getTime() : NaN;
+  return Number.isNaN(t) ? Date.now() : t;
+};
+
+// Merge messages + call entries into one timeline. Returns newest-first so it can
+// be handed straight to an inverted FlatList (both chat threads use `inverted`).
+// Array.prototype.sort is stable, so items with equal timestamps keep their
+// original order (messages before calls).
+export const mergeTimelineForInverted = (messages = [], calls = []) => {
+  const merged = [...messages, ...calls];
+  merged.sort((a, b) => sortableTime(a) - sortableTime(b));
+  return merged.reverse();
+};
+
+// Human label + color hints for a call bubble, shared by both screens.
+export const describeCall = (item) => {
+  const isOutgoing = item.direction === 'outgoing';
+  const missed = isMissedCallStatus(item.status);
+
+  let statusLabel;
+  if (missed) {
+    if (isOutgoing) statusLabel = 'Cancelled';
+    else if (item.status === 'rejected') statusLabel = 'Declined';
+    else statusLabel = 'Missed';
+  } else {
+    statusLabel = 'Call ended';
+  }
+
+  let durationText = '';
+  if (item.duration > 0) {
+    const mins = Math.floor(item.duration / 60);
+    const secs = item.duration % 60;
+    durationText = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+  }
+
+  // A missed/declined incoming call is the only "alert" state (red).
+  const isAlert = missed && !isOutgoing;
+
+  return { isOutgoing, missed, isAlert, statusLabel, durationText };
+};

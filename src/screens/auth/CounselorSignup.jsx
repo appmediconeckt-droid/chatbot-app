@@ -23,6 +23,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { launchImageLibrary } from 'react-native-image-picker';
 import GoogleAuthButton from './components/GoogleAuthButton';
+import ForgotPasswordModal from './components/ForgotPasswordModal';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 
@@ -83,6 +84,9 @@ const CounselorSignup = ({ navigation, route }) => {
   const [deviceOtpSent, setDeviceOtpSent] = useState(false);
   const [isSendingDeviceOtp, setIsSendingDeviceOtp] = useState(false);
   const [isVerifyingDeviceOtp, setIsVerifyingDeviceOtp] = useState(false);
+
+  // Forgot Password popup
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   const consultationModes = ['Online', 'Offline', 'Both'];
   const languageOptions = ['Hindi', 'English', 'Gujarati', 'Marathi', 'Tamil', 'Telugu', 'Bengali', 'Punjabi'];
@@ -289,17 +293,9 @@ const CounselorSignup = ({ navigation, route }) => {
     }
   };
 
-  const handleForgotPassword = async () => {
-    if (!formData.email) return showNotification('Enter email', 'error');
-    try {
-      setIsLoading(true);
-      await axios.post(`${API_BASE_URL}/api/auth/forgot-password`, { email: formData.email });
-      showNotification('Reset link sent to email');
-    } catch (err) {
-      showNotification(err.response?.data?.message || 'Failed', 'error');
-    } finally {
-      setIsLoading(false);
-    }
+  // Forgot password — open the in-screen popup (email → OTP → reset)
+  const handleForgotPassword = () => {
+    setShowForgotPassword(true);
   };
 
   const handleSendDeviceOtp = async () => {
@@ -489,6 +485,14 @@ const CounselorSignup = ({ navigation, route }) => {
           </View>
         </Modal>
         {notification.show && (<Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#10b981' : '#10b981' }]}><Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color="#fff" /><Text style={styles.notificationText}>{notification.message}</Text></Animated.View>)}
+
+        {/* Forgot Password popup (counselor side) */}
+        <ForgotPasswordModal
+          visible={showForgotPassword}
+          onClose={() => setShowForgotPassword(false)}
+          accentColor="#10b981"
+          initialEmail={formData.email}
+        />
       </LinearGradient>
     </View>
   );

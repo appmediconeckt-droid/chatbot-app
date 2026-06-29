@@ -41,7 +41,7 @@ import CounselorTable from "../Tab/Appointment/BookAppointment";
 import WalletDashboard from "../Tab/Wallet/WalletDashboard";
 import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
-import AvatarBuilder from "../../PatientProfile/AvatarBuilder";
+import AvatarPicker from "../../PatientProfile/AvatarPicker";
 import LanguageSelector from '../../../../../components/common/LanguageSelector';
 import RatingPrompt from '../../../../../components/RatingPrompt';
 import { loadUserLanguage } from '../../../../../i18n';
@@ -155,6 +155,17 @@ const ChatPopup = ({
     };
   }, []);
 
+  // Normalize the app language to a speech-recognition locale. Most app codes are
+  // already valid BCP-47 tags (en-US, hi-IN, fr-FR). Bare codes get a region and
+  // anything empty falls back to English (India).
+  const sttLocale = (code) => {
+    const c = String(code || '').replace('_', '-').trim();
+    if (!c) return 'en-IN';
+    if (c.includes('-')) return c;
+    const REGION = { en: 'en-IN', hi: 'hi-IN', ta: 'ta-IN', te: 'te-IN', kn: 'kn-IN', ml: 'ml-IN', bn: 'bn-IN', gu: 'gu-IN', mr: 'mr-IN', pa: 'pa-IN', ur: 'ur-IN' };
+    return REGION[c] || c;
+  };
+
   const toggleRecording = async () => {
     const Speech = require('../../../../../utils/SpeechBridge');
 
@@ -186,7 +197,10 @@ const ChatPopup = ({
 
     try {
       await Speech.destroyRecognizer();
-      await Speech.startListening(selectedLang);
+      // Show the recording state immediately (the native "stt-start" event only
+      // fires once the user actually begins speaking, which feels unresponsive).
+      setIsRecording(true);
+      await Speech.startListening(sttLocale(selectedLang));
     } catch (e) {
       console.warn('[STT] start error:', e?.message ?? e);
       setIsRecording(false);
@@ -387,16 +401,7 @@ const ChatPopup = ({
         </ScrollView>
 
         <View style={styles.chatPopupFooter}>
-          <TouchableOpacity
-            style={styles.langBtn}
-            onPress={() => setShowLangPicker(true)}
-            activeOpacity={0.8}
-          >
-            <MaterialIcons name="language" size={16} color="#667eea" />
-            <Text style={styles.langBtnText} numberOfLines={1}>
-              {VOICE_LANGUAGES.find(l => l.code === selectedLang)?.label?.split(' ')[0] || 'EN'}
-            </Text>
-          </TouchableOpacity>
+          {/* Language picker removed — the AI follows the dashboard language automatically. */}
           <TextInput
             ref={inputRef}
             style={styles.chatInput}
@@ -428,43 +433,6 @@ const ChatPopup = ({
             <MaterialIcons name="send" size={18} color="white" />
           </TouchableOpacity>
         </View>
-        {/* Language picker modal */}
-        <Modal
-          transparent
-          visible={showLangPicker}
-          animationType="fade"
-          onRequestClose={() => setShowLangPicker(false)}
-        >
-          <TouchableOpacity
-            style={styles.langPickerOverlay}
-            activeOpacity={1}
-            onPress={() => setShowLangPicker(false)}
-          >
-            <View style={styles.langPickerCard}>
-              <Text style={styles.langPickerTitle}>Select Voice Language</Text>
-              {VOICE_LANGUAGES.map((lang) => (
-                <TouchableOpacity
-                  key={lang.code}
-                  style={[styles.langPickerItem, selectedLang === lang.code && styles.langPickerItemActive]}
-                  onPress={() => {
-                    setShowLangPicker(false);
-                    if (lang.code !== selectedLang) {
-                      setSelectedLang(lang.code);
-                      onLangChange?.(lang.code);
-                    }
-                  }}
-                >
-                  <Text style={[styles.langPickerItemText, selectedLang === lang.code && styles.langPickerItemTextActive]}>
-                    {lang.label}
-                  </Text>
-                  {selectedLang === lang.code && (
-                    <MaterialIcons name="check" size={18} color="#667eea" />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        </Modal>
         {showResetConfirm && (
           <View style={styles.resetConfirmOverlay}>
             <View style={styles.resetConfirmCard}>
@@ -1079,7 +1047,7 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
 };
 
 export default function UserDashboard() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigation = useNavigation();
   const isFocused = useIsFocused();
   const [active, setActive] = useState("Chat");
@@ -1135,7 +1103,9 @@ export default function UserDashboard() {
   });
 
   const [chatMessages, setChatMessages] = useState([]);
-  const [selectedLang, setSelectedLang] = useState('en-IN');
+  // AI/voice language — seeded from the app (dashboard) language so the AI speaks
+  // the same language by default. The in-chat picker can still override it.
+  const [selectedLang, setSelectedLang] = useState(i18n.language || 'en-IN');
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showAvatarChooser, setShowAvatarChooser] = useState(false);
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
@@ -1252,6 +1222,22 @@ export default function UserDashboard() {
     setChatMessages([]);
     await startAiChat(newLang);
   }, [isLoading, startAiChat]);
+
+  // ── Keep the AI language in sync with the app (dashboard) language ──────────
+  // When the user switches the app language, the AI automatically follows: it
+  // restarts and replies in that language. No need to use the in-chat picker.
+  const syncedAppLangRef = useRef(i18n.language);
+  useEffect(() => {
+    const appLang = i18n.language;
+    if (!appLang || appLang === syncedAppLangRef.current) return;
+    syncedAppLangRef.current = appLang;
+    setSelectedLang(appLang);
+    // If an AI conversation is already open/active, restart it in the new
+    // language; otherwise it will start in the new language when next opened.
+    if (chatOpen || chatMessages.length > 0) {
+      handleLangChange(appLang);
+    }
+  }, [i18n.language, chatOpen, chatMessages.length, handleLangChange]);
 
   // Track call IDs already handled so the same call never rings twice
   const handledCallIdsRef = useRef(new Set());
@@ -2278,8 +2264,10 @@ export default function UserDashboard() {
         </TouchableOpacity>
       </Modal>
 
-      <AvatarBuilder
+      <AvatarPicker
         visible={showAvatarBuilder}
+        userGender={userData?.gender}
+        currentAvatarUrl={userData?.profilePhoto}
         onSelect={handleHeaderAvatarSelect}
         onClose={() => setShowAvatarBuilder(false)}
       />

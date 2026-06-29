@@ -103,17 +103,38 @@ const WalletDashboard = ({ userData = {} }) => {
     setLoading(true);
     try {
       // Create order on backend
+      console.log('[wallet] creating order, amount=', numericAmount);
       const { data: orderData } = await axiosInstance.post('/api/wallet/create-order', {
         amount: numericAmount,
         paymentMethod,
       });
+      console.log('[wallet] order response:', JSON.stringify(orderData));
+
+      if (!orderData?.order_id) {
+        throw new Error('Server did not return an order_id');
+      }
+
+      // Sanity-check the native module is actually linked into this build.
+      console.log(
+        '[wallet] RazorpayCheckout available?',
+        !!RazorpayCheckout,
+        'open type:',
+        typeof RazorpayCheckout?.open,
+      );
+      if (!RazorpayCheckout || typeof RazorpayCheckout.open !== 'function') {
+        Alert.alert(
+          'Payment unavailable',
+          'The payment module is not available in this build. The app needs a native rebuild (npx react-native run-android).',
+        );
+        setLoading(false);
+        return;
+      }
 
       // Open Razorpay checkout with React Native SDK
       const options = {
         description: 'Wallet Top-up',
-        image: 'https://your-logo-url.com/logo.png',
         currency: 'INR',
-        key_id: 'rzp_test_SVLlb7lHwVw9cy', // Test key - replace with your key
+        key_id: orderData?.key_id || 'rzp_test_SVLlb7lHwVw9cy',
         amount: orderData?.amount || numericAmount * 100,
         order_id: orderData?.order_id,
         name: 'Mediconeckt',
@@ -124,25 +145,32 @@ const WalletDashboard = ({ userData = {} }) => {
         },
         theme: { color: '#4648d4' },
       };
+      console.log('[wallet] opening Razorpay with options:', JSON.stringify(options));
 
       RazorpayCheckout.open(options)
         .then((data) => {
           // Payment successful
+          console.log('[wallet] payment success:', JSON.stringify(data));
           verifyPayment(orderData?.order_id, data.razorpay_payment_id, data.razorpay_signature);
         })
         .catch((error) => {
-          console.error('Razorpay Error:', error);
+          console.error('[wallet] Razorpay Error:', JSON.stringify(error), error?.message);
           Alert.alert(
             t('wallet:paymentFailed'),
-            error?.description || t('wallet:paymentCancelled')
+            error?.description || error?.message || t('wallet:paymentCancelled')
           );
           setLoading(false);
         });
     } catch (error) {
-      console.error('Payment initialization failed:', error);
+      console.error(
+        '[wallet] init failed:',
+        error?.response?.status,
+        JSON.stringify(error?.response?.data),
+        error?.message,
+      );
       Alert.alert(
         t('wallet:paymentError'),
-        error?.response?.data?.message || t('wallet:couldNotInitiatePayment')
+        error?.response?.data?.message || error?.message || t('wallet:couldNotInitiatePayment')
       );
       setLoading(false);
     }

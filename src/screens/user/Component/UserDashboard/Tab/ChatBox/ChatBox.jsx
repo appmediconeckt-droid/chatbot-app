@@ -36,6 +36,11 @@ import useRingtone from "../../../../../../hooks/useRingtone";
 import useScreenshotPrevent from "../../../../../../utils/useScreenshotPrevent";
 import { useAutoTranslate } from "../../../../../../hooks/useAutoTranslate";
 import TranslatedMessageBubble from "../../../../../../components/TranslatedMessageBubble";
+import {
+  fetchChatCallEntries,
+  mergeTimelineForInverted,
+  describeCall,
+} from "../../../../../../utils/chatCallHistory";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -200,6 +205,7 @@ const ChatBox = () => {
   // State for current chat
   const [currentChat, setCurrentChat] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [callHistory, setCallHistory] = useState([]);
 
   const [currentCounselor, setCurrentCounselor] = useState(() => {
     if (initialCounselor) {
@@ -258,6 +264,9 @@ const ChatBox = () => {
 
   const flatListRef = useRef(null);
   const messageInputRef = useRef(null);
+  // When true, an outgoing send just blurred the input — re-focus on blur so the
+  // keyboard stays open (WhatsApp-style) instead of animating down.
+  const keepKeyboardRef = useRef(false);
   const chatSocketRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fallbackChatIdRef = useRef(chatId || null);
@@ -410,21 +419,33 @@ const ChatBox = () => {
   }, []);
 
   // Keep newest message visible whenever the keyboard appears (WhatsApp-style).
+  // On Android with edge-to-edge (RN 0.81+), the window no longer resizes for the
+  // keyboard — windowSoftInputMode="adjustResize" is ignored and the keyboard
+  // floats OVER the app, hiding the input bar and newest messages. So we measure
+  // the keyboard height and lift the whole chat by that amount (KeyboardAvoidingView
+  // stays handling iOS). keyboardPad is 0 on iOS and when the keyboard is closed.
+  const [keyboardPad, setKeyboardPad] = useState(0);
   useEffect(() => {
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const sub = Keyboard.addListener(showEvt, () => {
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvt, (e) => {
+      if (Platform.OS === 'android') setKeyboardPad(e?.endCoordinates?.height || 0);
       scrollToBottom(true);
     });
-    return () => sub.remove();
+    const hideSub = Keyboard.addListener(hideEvt, () => {
+      if (Platform.OS === 'android') setKeyboardPad(0);
+    });
+    return () => { showSub.remove(); hideSub.remove(); };
   }, [scrollToBottom]);
 
   // Chat UX: use an inverted list so the newest message appears at the bottom
   // without needing an initial scroll-to-end (more reliable on Android).
   const messagesForList = useMemo(() => {
-    if (!messages?.length) return [];
-    // Data oldest -> newest; for inverted lists we pass newest -> oldest.
-    return [...messages].reverse();
-  }, [messages]);
+    if (!messages?.length && !callHistory?.length) return [];
+    // Merge text messages + call entries into one timeline. Returns newest-first,
+    // which is what the inverted FlatList expects.
+    return mergeTimelineForInverted(messages, callHistory);
+  }, [messages, callHistory]);
 
   const handleMessagesScroll = useCallback((event) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -609,6 +630,22 @@ const ChatBox = () => {
     }
   };
 
+  // Load the call history for THIS conversation and merge it into the thread.
+  const loadCallHistory = async () => {
+    try {
+      const token =
+        (await AsyncStorage.getItem("token")) ||
+        (await AsyncStorage.getItem("accessToken"));
+      const myId = resolveCurrentUserId() || (await AsyncStorage.getItem("userId"));
+      const peerId = resolveCounselorId();
+      if (!myId || !peerId) return;
+      const entries = await fetchChatCallEntries({ currentUserId: myId, peerId, token });
+      setCallHistory(entries);
+    } catch (_) {
+      // Non-fatal — chat still renders without call entries.
+    }
+  };
+
   const loadMessagesFromLocalStorage = async () => {
     try {
       const savedChats = JSON.parse(await AsyncStorage.getItem("activeChats") || "[]");
@@ -705,6 +742,12 @@ const ChatBox = () => {
     setIsSending(true);
     setTimeout(scrollToBottom, 50);
 
+    // WhatsApp-style: keep the keyboard open across sends. The send-button tap
+    // blurs the input AFTER this handler runs, so flag it and re-focus from
+    // the input's onBlur (which reliably fires after the blur).
+    keepKeyboardRef.current = true;
+    messageInputRef.current?.focus();
+
     try {
       const sentMsg = await sendMessageToAPI({ messageContent: messageText, file: attachmentToSend });
       setMessages(prev => {
@@ -758,7 +801,8 @@ const ChatBox = () => {
     const apiChatId = getChatIdForAPI();
     try {
       const token = await AsyncStorage.getItem("token");
-      await axios.delete(`${API_BASE_URL}/api/chat/chat/${apiChatId}/message/${messageId}`, {
+      // Same endpoint the web app uses: DELETE /api/chat/message/:id
+      await axios.delete(`${API_BASE_URL}/api/chat/message/${encodeURIComponent(messageId)}`, {
         headers: { Authorization: token ? `Bearer ${token}` : undefined },
       });
       // remove from UI
@@ -1041,6 +1085,8 @@ const ChatBox = () => {
     setIsVoiceModalOpen(false);
     setSelectedCall(null);
     setCallError(null);
+    // A call just ended — refresh so the new call entry appears in the thread.
+    loadCallHistory();
   };
 
   // Initialize chat and fetch messages
@@ -1094,6 +1140,12 @@ const ChatBox = () => {
 
     initializeChat();
   }, [counselorId, chatId]);
+
+  // Load call history for this conversation (once the user + counselor are known)
+  // and refresh whenever messages refresh so the thread stays in sync.
+  useEffect(() => {
+    loadCallHistory();
+  }, [currentUser, currentChat, counselorId]);
 
   // Save messages to AsyncStorage
   useEffect(() => {
@@ -1260,9 +1312,44 @@ const ChatBox = () => {
     if (text.trim() !== "") handleTypingIndicator();
   };
 
+  // WhatsApp-style call entry shown inline in the chat thread.
+  const renderCallItem = (item) => {
+    const { isOutgoing, isAlert, statusLabel, durationText } = describeCall(item);
+    return (
+      <View style={[styles.messageRow, isOutgoing ? styles.messageRowRight : styles.messageRowLeft]}>
+        <View style={[styles.callBubble, isOutgoing ? styles.callBubbleOut : styles.callBubbleIn]}>
+          <View style={[styles.callIconCircle, isAlert && styles.callIconCircleAlert]}>
+            <Ionicons
+              name={item.type === "video" ? "videocam" : "call"}
+              size={18}
+              color={isAlert ? "#ef4444" : "#2c50cd"}
+            />
+          </View>
+          <View style={styles.callTextWrap}>
+            <Text style={styles.callTitle}>
+              {isOutgoing ? "Outgoing" : "Incoming"} {item.type === "video" ? "video" : "voice"} call
+            </Text>
+            <View style={styles.callMetaRow}>
+              <Ionicons
+                name={isAlert ? "close-circle" : isOutgoing ? "arrow-up-outline" : "arrow-down-outline"}
+                size={12}
+                color={isAlert ? "#ef4444" : "#64748b"}
+              />
+              <Text style={[styles.callMeta, isAlert && styles.callMetaAlert]}>
+                {statusLabel}{durationText ? ` · ${durationText}` : ""}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.callTime}>{item.time}</Text>
+        </View>
+      </View>
+    );
+  };
+
   const renderMessage = ({ item, index }) => {
+    if (item.isCall) return renderCallItem(item);
     const isUser = item.sender === "user";
-    
+
     return (
       <TouchableOpacity
         activeOpacity={1}
@@ -1276,7 +1363,7 @@ const ChatBox = () => {
               onCancel: () => setConfirmState(s => ({ ...s, visible: false })),
               onConfirm: async () => {
                 setConfirmState(s => ({ ...s, visible: false }));
-                await deleteMessage(item.messageId || item.id);
+                await deleteMessage(item.id || item._id || item.messageId);
               },
             });
           }
@@ -1380,14 +1467,16 @@ const ChatBox = () => {
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        // Android: keep height behavior (it does the lift), but use a 0 offset
-        // so the input sits directly on the keyboard with no extra gap.
+        // iOS needs padding to lift the input. Android already lifts it natively
+        // via windowSoftInputMode="adjustResize" (set in AndroidManifest), so
+        // KeyboardAvoidingView must stay OFF on Android — otherwise it resizes a
+        // second time and the keyboard visibly jumps up-then-down on each send.
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
         style={styles.keyboardAvoid}
-        enabled
+        enabled={Platform.OS === "ios"}
       >
-        <View style={styles.chatBoxMain}>
+        <View style={[styles.chatBoxMain, Platform.OS === 'android' && keyboardPad > 0 ? { paddingBottom: keyboardPad } : null]}>
           {/* Header - Serenity & Trust Design */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -1611,8 +1700,17 @@ const ChatBox = () => {
                   placeholderTextColor="#8492a5"
                   multiline
                   blurOnSubmit={false}
-                  editable={!isSending}
                   enablesReturnKeyAutomatically
+                  onBlur={() => {
+                    // The send-button tap blurs the input; if we just sent,
+                    // re-assert focus immediately AND after the blur settles so
+                    // the Android keyboard never animates down between messages.
+                    if (keepKeyboardRef.current) {
+                      keepKeyboardRef.current = false;
+                      messageInputRef.current?.focus();
+                      setTimeout(() => messageInputRef.current?.focus(), 60);
+                    }
+                  }}
                 />
                 <TouchableOpacity style={styles.emojiBtn} onPress={() => setShowEmojiPicker(true)} disabled={isSending}>
                   <Ionicons name="happy-outline" size={22} color="#8492a5" />
@@ -1621,10 +1719,12 @@ const ChatBox = () => {
               <TouchableOpacity
                 style={[
                   styles.sendBtn,
-                  ((newMessage.trim() === "" && !pendingAttachment) || isSending) && styles.sendBtnDisabled,
+                  (newMessage.trim() === "" && !pendingAttachment) && styles.sendBtnDisabled,
                 ]}
+                // Do NOT disable while sending — a touchable that turns disabled
+                // mid-tap drops the TextInput focus on Android and closes the
+                // keyboard. handleSendMessage already ignores taps while sending.
                 onPress={handleSendMessage}
-                disabled={(newMessage.trim() === "" && !pendingAttachment) || isSending}
                 activeOpacity={0.8}
               >
                 {isSending ? (
@@ -1998,6 +2098,70 @@ const styles = StyleSheet.create({
   },
   messageLeft: {
     alignSelf: "flex-start",
+  },
+  // ─── Call entry bubble (WhatsApp-style) ───────────────────────────────────
+  callBubble: {
+    flexDirection: "row",
+    alignItems: "center",
+    maxWidth: "80%",
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e6e8ea",
+    borderRadius: 18,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  callBubbleOut: {
+    backgroundColor: "#eef2ff",
+    borderColor: "#dbe2ff",
+    borderBottomRightRadius: 4,
+  },
+  callBubbleIn: {
+    borderBottomLeftRadius: 4,
+  },
+  callIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#e7edff",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  callIconCircleAlert: {
+    backgroundColor: "#fee2e2",
+  },
+  callTextWrap: {
+    flexShrink: 1,
+  },
+  callTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  callMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+  },
+  callMeta: {
+    fontSize: 12,
+    color: "#64748b",
+  },
+  callMetaAlert: {
+    color: "#ef4444",
+    fontWeight: "600",
+  },
+  callTime: {
+    fontSize: 11,
+    color: "#94a3b8",
+    alignSelf: "flex-end",
   },
   messageContent: {
     flexDirection: "row",

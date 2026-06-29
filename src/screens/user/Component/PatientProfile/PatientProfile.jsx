@@ -24,7 +24,7 @@ import { useNavigation } from "@react-navigation/native";
 import { API_BASE_URL } from "../../../../axiosConfig";
 import { captureAndSendLocation } from "../../../../utils/locationHelper";
 import AvatarGenerator from "./AvatarGenerator";
-import AvatarBuilder from "./AvatarBuilder";
+import AvatarPicker from "./AvatarPicker";
 
 const { width, height } = Dimensions.get("window");
 
@@ -1772,8 +1772,12 @@ const PatientProfile = ({ onProfileUpdate }) => {
         </TouchableWithoutFeedback>
       </Modal>
 
-      <AvatarBuilder
+      <AvatarPicker
         visible={showAvatarBuilder}
+        userId={patientData?.personalInfo?.id}
+        userAge={patientData?.personalInfo?.age}
+        userGender={patientData?.personalInfo?.gender}
+        currentAvatarUrl={patientData?.personalInfo?.profilePhoto}
         onSelect={handleAvatarSelect}
         onClose={() => setShowAvatarBuilder(false)}
       />

@@ -5,6 +5,17 @@ import { API_BASE_URL } from '../axiosConfig';
 const CACHE_PREFIX = 'translation_cache_';
 const CACHE_VERSION = 'v1';
 
+// App locale code -> Google translate code (only the ones that differ).
+const GOOGLE_LANG = {
+  'zh-CN': 'zh-CN',
+  'zh-TW': 'zh-TW',
+  'pt-BR': 'pt',
+  'pt-PT': 'pt-PT',
+  'no-NO': 'no',
+  'fil-PH': 'tl',
+  'he-IL': 'iw',
+};
+
 class TranslationService {
   constructor() {
     this.cache = new Map();
@@ -86,17 +97,24 @@ class TranslationService {
 
   async _translateFromAPI(text, targetLang, sourceLang, cacheKey, retryCount = 0) {
     try {
-      // Convert full lang code to short code for API
-      const shortLang = targetLang.split('-')[0];
+      // Translate directly via the free Google endpoint (no API key / backend
+      // needed). Auto-detect source so it works for UI strings (English) AND
+      // dynamic chat messages (any language). `dt=t` returns translation segments.
+      const tl = GOOGLE_LANG[targetLang] || targetLang.split('-')[0];
+      const url =
+        `https://translate.googleapis.com/translate_a/single?client=gtx` +
+        `&sl=auto&tl=${encodeURIComponent(tl)}&dt=t&q=${encodeURIComponent(text)}`;
 
-      const response = await axios.post(
-        `${API_BASE_URL}/api/translate/text`,
-        { text, to: shortLang, from: 'en' },
-        { timeout: 15000 }
-      );
+      const response = await axios.get(url, {
+        timeout: 15000,
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      });
 
-      const translatedText = response.data?.translatedText || text;
-      const data = { translatedText, timestamp: Date.now() };
+      const segments = response.data?.[0];
+      const translatedText = Array.isArray(segments)
+        ? segments.map((s) => (s && s[0]) || '').join('')
+        : text;
+      const data = { translatedText: translatedText || text, timestamp: Date.now() };
 
       // Save to cache
       this.cache.set(cacheKey, data);

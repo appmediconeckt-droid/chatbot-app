@@ -27,9 +27,9 @@ import {
 
 } from '../../../../../../utils/anonymousUser'; 
 import socketService from '../../../../../../services/socketService';
+import { API_BASE_URL } from '../../../../../../axiosConfig';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const API_BASE_URL = 'https://chatbot-backend-js25.onrender.com';
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
 const SkeletonItem = () => {

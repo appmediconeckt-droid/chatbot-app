@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useTranslation } from 'react-i18next';
+import { useLanguageRender } from '../../../../../hooks/useLanguageRender';
 import {
   Image,
   View,
@@ -26,6 +26,7 @@ import axios, { API_BASE_URL } from "../../../../../axiosConfig";
 import { getAuthToken, getCounsellorId } from "../../../../auth/authUtils";
 import socketService from "../../../../../services/socketService";
 import { launchImageLibrary } from 'react-native-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 // Icons
 import Icon from "react-native-vector-icons/FontAwesome6";
@@ -63,7 +64,7 @@ const IncomingCallModal = ({
   onAccept,
   onReject,
 }) => {
-  const { t } = useTranslation();
+  const { t } = useLanguageRender();
   const [isAccepting, setIsAccepting] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
 
@@ -326,8 +327,8 @@ const isSameDay = (a, b) => {
 };
 
 // ─── Appointment Card ────────────────────────────────────────────────────────
-const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating, index = 0 }) => {
-  const { t } = useTranslation();
+const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, onChat, updating, index = 0 }) => {
+  const { t } = useLanguageRender();
   const isUpdating = updating === apt._id;
   const isPending = apt.status === "pending";
   const isConfirmed = apt.status === "confirmed";
@@ -361,7 +362,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating, index
   // Minimal status palette — muted, low-saturation tones for a calm aesthetic.
   const statusColor = isPending ? "#b45309" : isConfirmed ? "#047857" : "#b91c1c";
   const statusBg = isPending ? "#fef7e6" : isConfirmed ? "#ecfdf5" : "#fef2f2";
-  const statusLabel = isPending ? "Pending" : isConfirmed ? "Confirmed" : "Canceled";
+  const statusLabel = isPending ? t('common:pending') : isConfirmed ? t('common:confirmed') : t('common:canceled');
   const statusDot = isPending ? "#f59e0b" : isConfirmed ? "#2563EB" : "#ef4444";
 
   // Avatar gradient — soft pastel tones, status-aware but minimal.
@@ -393,7 +394,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating, index
             <Text style={aptStyles.patientName} numberOfLines={1}>{patientName}</Text>
             <View style={aptStyles.consultTag}>
               <Ionicons name="medkit-outline" size={11} color="#94a3b8" />
-              <Text style={aptStyles.consultTagText}>Consultation</Text>
+              <Text style={aptStyles.consultTagText}>{t('Consultation')}</Text>
             </View>
           </View>
 
@@ -410,7 +411,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating, index
           </View>
           <View style={{ flex: 1 }}>
             <Text style={aptStyles.dateTimePrimary}>
-              {requestedDate}
+              {t(requestedDate)}
               {requestedTime !== "—" ? `  •  ${requestedTime}` : ""}
             </Text>
             {apt.date && (
@@ -474,22 +475,32 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating, index
         )}
 
         {isConfirmed && (
-          <TouchableOpacity
-            style={aptStyles.videoCallBtn}
-            onPress={() => onVideoCall(apt)}
-            activeOpacity={0.9}
-          >
-            <LinearGradient
-              colors={["#2563EB", "#1E3A8A"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={aptStyles.videoCallBtnGradient}
+          <View style={aptStyles.confirmedActions}>
+            <TouchableOpacity
+              style={[aptStyles.confirmedActionBtn, aptStyles.confirmedVideoBtn]}
+              onPress={() => onVideoCall?.(apt)}
+              activeOpacity={0.85}
             >
-              <Ionicons name="videocam" size={16} color="#fff" />
-              <Text style={aptStyles.videoCallBtnText}>{t('counselor:startVideoCall')}</Text>
-              <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.8)" />
-            </LinearGradient>
-          </TouchableOpacity>
+              <Ionicons name="videocam" size={15} color="#fff" />
+              <Text style={aptStyles.confirmedActionText} numberOfLines={1}>{t('Video Call')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[aptStyles.confirmedActionBtn, aptStyles.confirmedVoiceBtn]}
+              onPress={() => onVoiceCall?.(apt)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="call" size={14} color="#fff" />
+              <Text style={aptStyles.confirmedActionText} numberOfLines={1}>{t('Voice Call')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[aptStyles.confirmedActionBtn, aptStyles.confirmedChatBtn]}
+              onPress={() => onChat?.(apt)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="chatbubbles" size={14} color="#2563EB" />
+              <Text style={[aptStyles.confirmedActionText, aptStyles.confirmedChatText]} numberOfLines={1}>{t('Chat')}</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {isCanceled && (
@@ -498,6 +509,111 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, updating, index
             <Text style={aptStyles.canceledNoteText}>{t('counselor:appointmentCanceled')}</Text>
           </View>
         )}
+      </View>
+    </Animated.View>
+  );
+};
+
+// ─── Session Card ────────────────────────────────────────────────────────────
+// Mirrors the web SessionsTab card: confirmed appointment for the selected day
+// with a Today/Upcoming/Past badge and video / voice / chat actions.
+const SessionCard = ({ apt, onVideoCall, onVoiceCall, onChat, index = 0 }) => {
+  const { t } = useLanguageRender();
+
+  const entry = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(entry, {
+      toValue: 1,
+      duration: 320,
+      delay: Math.min(index, 6) * 55,
+      useNativeDriver: true,
+      easing: Easing.out(Easing.cubic),
+    }).start();
+  }, [entry, index]);
+  const translateY = entry.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
+
+  const patientName =
+    apt.patient?.anonymous ||
+    apt.patient?.fullName ||
+    "Anonymous User";
+  const initials = patientName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+
+  const dateObj = apt.date ? new Date(apt.date) : null;
+  const isTodaySession = apt.date ? isSameDay(apt.date, new Date()) : false;
+  const isUpcomingSession = dateObj ? dateObj > new Date() : false;
+
+  const dateLabel = dateObj
+    ? dateObj.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+    : "—";
+  const timeLabel = dateObj
+    ? dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "—";
+
+  const badgeLabel = isTodaySession
+    ? t('counselor:today', 'Today')
+    : isUpcomingSession
+    ? t('counselor:upcoming', 'Upcoming')
+    : t('counselor:past', 'Past');
+  const badgeColor = isTodaySession ? "#047857" : isUpcomingSession ? "#1D4ED8" : "#64748b";
+  const badgeBg = isTodaySession ? "#ecfdf5" : isUpcomingSession ? "#eff6ff" : "#f1f5f9";
+
+  return (
+    <Animated.View style={[sessStyles.card, { opacity: entry, transform: [{ translateY }] }]}>
+      <View style={sessStyles.cardHeader}>
+        <View style={sessStyles.avatarRingOuter}>
+          <LinearGradient colors={["#E0F2FE", "#BAE6FD"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sessStyles.avatarRing}>
+            <View style={sessStyles.avatarInner}>
+              <Text style={sessStyles.avatarInitials}>{initials || "?"}</Text>
+            </View>
+          </LinearGradient>
+        </View>
+
+        <View style={sessStyles.patientInfo}>
+          <Text style={sessStyles.patientName} numberOfLines={1}>{patientName}</Text>
+          <View style={sessStyles.tagsRow}>
+            <View style={[sessStyles.statusBadge, { backgroundColor: badgeBg }]}>
+              <Text style={[sessStyles.statusText, { color: badgeColor }]}>{badgeLabel}</Text>
+            </View>
+            <View style={sessStyles.consultTag}>
+              <Ionicons name="medkit-outline" size={11} color="#94a3b8" />
+              <Text style={sessStyles.consultTagText}>{t('counselor:initialConsultation', 'Initial Consultation')}</Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      <View style={sessStyles.detailsBlock}>
+        <View style={sessStyles.detailItem}>
+          <Ionicons name="calendar-outline" size={15} color="#2563EB" />
+          <Text style={sessStyles.detailText}>{dateLabel}</Text>
+        </View>
+        <View style={sessStyles.detailItem}>
+          <Ionicons name="time-outline" size={15} color="#2563EB" />
+          <Text style={sessStyles.detailText}>{timeLabel}</Text>
+        </View>
+        <View style={sessStyles.detailItem}>
+          <Ionicons name="hourglass-outline" size={15} color="#2563EB" />
+          <Text style={sessStyles.detailText}>{t('counselor:duration', 'Duration')}: 45 {t('counselor:minutes', 'minutes')}</Text>
+        </View>
+      </View>
+
+      {apt.notes && apt.notes.trim() !== "" && (
+        <View style={sessStyles.notesBox}>
+          <Ionicons name="chatbubble-ellipses-outline" size={13} color="#94a3b8" />
+          <Text style={sessStyles.notesText} numberOfLines={3}>{apt.notes}</Text>
+        </View>
+      )}
+
+      <View style={sessStyles.actions}>
+        <TouchableOpacity style={[sessStyles.actionBtn, sessStyles.videoBtn]} onPress={() => onVideoCall(apt)} activeOpacity={0.85}>
+          <Ionicons name="videocam" size={18} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity style={[sessStyles.actionBtn, sessStyles.voiceBtn]} onPress={() => onVoiceCall(apt)} activeOpacity={0.85}>
+          <Ionicons name="call" size={17} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity style={[sessStyles.actionBtn, sessStyles.chatBtn]} onPress={() => onChat(apt)} activeOpacity={0.85}>
+          <Ionicons name="chatbubbles" size={17} color="#2563EB" />
+        </TouchableOpacity>
       </View>
     </Animated.View>
   );
@@ -546,7 +662,7 @@ const AppointmentSkeletonCard = () => {
 
 // â”€â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function CounselorDashboard() {
-  const { t } = useTranslation();
+  const { t } = useLanguageRender();
   const insets = useSafeAreaInsets();
   const MOBILE_HEADER_BAR_HEIGHT = 56;
   const topInset = Platform.OS === "ios" ? insets.top : 0;
@@ -587,6 +703,10 @@ export default function CounselorDashboard() {
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [updatingAppointmentId, setUpdatingAppointmentId] = useState(null);
   const [aptFilter, setAptFilter] = useState("all"); // "all" | "pending" | "confirmed" | "canceled"
+
+  // â”€â”€ Sessions state (today's confirmed appointments — mirrors web SessionsTab) â”€
+  const [sessionSelectedDate, setSessionSelectedDate] = useState(new Date());
+  const [showSessionDatePicker, setShowSessionDatePicker] = useState(false);
 
   const navigation = useNavigation();
   const { vibrate } = useVibration();
@@ -721,9 +841,9 @@ export default function CounselorDashboard() {
     }
   }, []);
 
-  // Fetch when tab becomes active
+  // Fetch when tab becomes active (sessions reuses the same appointments data)
   useEffect(() => {
-    if (activeTab === "appointments") fetchAppointments();
+    if (activeTab === "appointments" || activeTab === "sessions") fetchAppointments();
   }, [activeTab, fetchAppointments]);
 
   // Real-time socket for appointment updates
@@ -800,7 +920,8 @@ export default function CounselorDashboard() {
   };
 
   // â”€â”€ Initiate Video Call from Appointments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const handleInitiateVideoCallFromApt = async (apt) => {
+  const handleInitiateVideoCallFromApt = async (apt, callType = "video") => {
+    const isVoice = callType === "audio";
     const patientInfo = apt.patient || {};
     const storedCounsellorId = await getCounsellorId();
     const token = await getAuthToken();
@@ -836,7 +957,7 @@ export default function CounselorDashboard() {
         initiatorId: String(storedCounsellorId),
         receiverId: String(userId),
         receiverType: "user",
-        callType: "video",
+        callType: isVoice ? "audio" : "video",
       };
 
       const headers = {
@@ -882,8 +1003,8 @@ export default function CounselorDashboard() {
           name: displayName,
           profilePic: patientInfo.profilePhoto || patientInfo.image || null,
           isIncoming: false,
-          callType: "video",
-          type: "video",
+          callType: isVoice ? "voice" : "video",
+          type: isVoice ? "voice" : "video",
           status: response.data.status || "ringing",
           currentUserId: storedCounsellorId,
           currentUserType: "counsellour",
@@ -899,7 +1020,7 @@ export default function CounselorDashboard() {
           aptSocketRef.current.emit('appointment-call-initiated', {
             appointmentId: apt._id,
             callId: response.data.callId,
-            callType: 'video',
+            callType: isVoice ? 'audio' : 'video',
             counsellorId: storedCounsellorId,
             userId: userId,
             counsellorName: counselorData?.fullName || "Counselor"
@@ -907,7 +1028,8 @@ export default function CounselorDashboard() {
         }
         
         setSelectedCall(callData);
-        setIsVideoModalOpen(true);
+        if (isVoice) setIsVoiceModalOpen(true);
+        else setIsVideoModalOpen(true);
       } else {
         showToast(response.data?.message || "Failed to initiate call", "error");
       }
@@ -921,6 +1043,101 @@ export default function CounselorDashboard() {
         "error"
       );
     }
+  };
+
+  // ── Open Chat from a Session (mirrors web handleOpenAppointmentChat) ───────
+  const getAppointmentPatientId = (apt) => {
+    const p = apt.patient || apt.user || {};
+    return normalizeObjectId(
+      p._id || p.id || p.userId || apt.userId || apt.user?._id || apt.user?.id || apt.patientId
+    );
+  };
+
+  // Find the chat between this counsellor and the appointment's patient.
+  // Checks (in order): a chat ref on the appointment → accepted/active chats →
+  // pending chat requests (patient asked but counsellor hasn't accepted yet).
+  // IDs are normalized to the bare ObjectId so anonymized/object forms still match.
+  const findAppointmentChat = async (apt, patientId) => {
+    const directChatId =
+      apt.chatId || apt.conversationId || apt.chat?.chatId || apt.chat?._id || apt.chat?.id;
+    if (directChatId) return { chatId: directChatId, chat: apt.chat || null };
+
+    const target = normalizeObjectId(patientId);
+    const idMatches = (...vals) =>
+      vals.some((v) => v && normalizeObjectId(v) === target);
+
+    // 1. Accepted / active chats (these appear in the Messages list).
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/chat/chats`);
+      const chats = Array.isArray(res.data?.chats) ? res.data.chats : [];
+      const matched = chats.find((chat) => {
+        const other = chat.otherParty || chat.user || chat.patient || {};
+        return idMatches(chat.userId, chat.receiverId, other._id, other.id, other.userId);
+      });
+      if (matched) {
+        return { chatId: matched.chatId || matched.id || matched._id, chat: matched };
+      }
+    } catch (err) {
+      console.warn("Appointment chat lookup (chats) failed:", err?.message);
+    }
+
+    // 2. Pending chat requests — the patient started a chat that isn't accepted
+    //    yet, so it isn't in /chats. Opening it lets the counsellor respond.
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/chat/pending-requests`);
+      const requests = Array.isArray(res.data?.requests) ? res.data.requests : [];
+      const matched = requests.find((r) => {
+        const u = r.user || {};
+        return idMatches(u.id, u._id, u.userId, r.userId);
+      });
+      if (matched) {
+        return { chatId: matched.chatId || matched.id || matched._id, chat: matched };
+      }
+    } catch (err) {
+      console.warn("Appointment chat lookup (pending) failed:", err?.message);
+    }
+
+    return { chatId: null, chat: null };
+  };
+
+  const handleOpenAppointmentChat = async (apt) => {
+    const patientId = getAppointmentPatientId(apt);
+    if (!patientId) {
+      showToast("Missing patient information.", "error");
+      return;
+    }
+
+    const { chatId, chat } = await findAppointmentChat(apt, patientId);
+    if (!chatId) {
+      showToast("Chat is not available for this appointment yet.", "info");
+      return;
+    }
+
+    const other = chat?.otherParty || {};
+    const patientInfo = apt.patient || apt.user || {};
+    const name =
+      other.anonymous || patientInfo.anonymous || patientInfo.fullName || other.name || "Anonymous User";
+
+    // Shape matches what SMSList passes so SMSInput hydrates the same way.
+    const selectedUser = {
+      id: chatId,
+      _id: patientId,
+      userId: patientId,
+      receiverId: patientId,
+      chatId,
+      name,
+      anonymous: name,
+      gender: other.gender || patientInfo.gender,
+      avatar: other.avatar,
+      avatarUrl: other.avatarUrl || other.profilePhoto?.url || null,
+      status: chat?.status || "accepted",
+      online: other.isOnline || other.online || false,
+      isOnline: other.isOnline || other.online || false,
+      lastSeen: other.lastSeen || null,
+      appointmentId: apt._id,
+    };
+
+    navigation.navigate("SMSInput", { selectedUser, chatId, chatData: selectedUser });
   };
 
   // â”€â”€ Accept Call API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1310,7 +1527,13 @@ export default function CounselorDashboard() {
       }
       setPendingRequests(requests);
     } catch (error) {
-      console.error("Error fetching pending requests:", error);
+      // Surface the backend's actual error so we can see WHY it 500s.
+      console.error("Error fetching pending requests:", {
+        status: error?.response?.status,
+        data: error?.response?.data,
+        message: error?.message,
+        url: `${API_BASE_URL}/api/chat/pending-requests`,
+      });
     } finally {
       setLoadingRequests(false);
     }
@@ -1577,7 +1800,7 @@ export default function CounselorDashboard() {
     setRefreshing(true);
     await fetchPendingRequests();
     await fetchWaitingCalls();
-    if (activeTab === "appointments") await fetchAppointments();
+    if (activeTab === "appointments" || activeTab === "sessions") await fetchAppointments();
     setRefreshing(false);
   };
 
@@ -1618,6 +1841,7 @@ export default function CounselorDashboard() {
       label: t('counselor:appointment'),
       badge: appointments.filter((a) => a.status === "pending").length,
     },
+    { id: "sessions", icon: "video", label: t('counselor:sessions'), badge: 0 },
     // { id: "patients", icon: "users", label: "Patients", badge: 0 },
     { id: "earnings", icon: "money-bill-wave", label: t('counselor:earnings'), badge: 0 },
     { id: "settings", icon: "sliders", label: t('settings:settings'), badge: 0 },
@@ -1712,33 +1936,33 @@ export default function CounselorDashboard() {
 
           <Text style={aptStyles.heroSubtitle}>
             {todayCount > 0
-              ? `${todayCount} appointment${todayCount === 1 ? "" : "s"} scheduled for today`
-              : `${appointments.length} total appointment${appointments.length === 1 ? "" : "s"}`}
+              ? `${todayCount} ${t('appointment(s) scheduled for today')}`
+              : `${appointments.length} ${t('total appointment(s)')}`}
           </Text>
 
           {/* Inline mini-summary bar */}
           <View style={aptStyles.heroSummaryBar}>
             <View style={aptStyles.heroSummaryItem}>
               <Text style={aptStyles.heroSummaryNum}>{pendingCount}</Text>
-              <Text style={aptStyles.heroSummaryLabel}>Pending</Text>
+              <Text style={aptStyles.heroSummaryLabel}>{t('common:pending')}</Text>
             </View>
             <View style={aptStyles.heroSummaryDivider} />
             <View style={aptStyles.heroSummaryItem}>
               <Text style={aptStyles.heroSummaryNum}>{confirmedCount}</Text>
-              <Text style={aptStyles.heroSummaryLabel}>Confirmed</Text>
+              <Text style={aptStyles.heroSummaryLabel}>{t('common:confirmed')}</Text>
             </View>
             <View style={aptStyles.heroSummaryDivider} />
             <View style={aptStyles.heroSummaryItem}>
               <Text style={aptStyles.heroSummaryNum}>{todayCount}</Text>
-              <Text style={aptStyles.heroSummaryLabel}>Today</Text>
+              <Text style={aptStyles.heroSummaryLabel}>{t('Today')}</Text>
             </View>
           </View>
         </LinearGradient>
 
         {/* ── Section title + filter chips ────────────────────────────────── */}
         <View style={aptStyles.sectionTitleRow}>
-          <Text style={aptStyles.sectionTitle}>All Requests</Text>
-          <Text style={aptStyles.sectionCount}>{filteredApts.length} shown</Text>
+          <Text style={aptStyles.sectionTitle}>{t('All Requests')}</Text>
+          <Text style={aptStyles.sectionCount}>{filteredApts.length} {t('shown')}</Text>
         </View>
 
         <ScrollView
@@ -1816,15 +2040,15 @@ export default function CounselorDashboard() {
             >
               <Ionicons name="calendar-outline" size={44} color="#2563EB" />
             </LinearGradient>
-            <Text style={aptStyles.emptyTitle}>No appointments found</Text>
+            <Text style={aptStyles.emptyTitle}>{t('No appointments found')}</Text>
             <Text style={aptStyles.emptyText}>
               {aptFilter === "pending"
-                ? "No pending appointment requests right now. New requests will appear here."
+                ? t("No pending appointment requests right now. New requests will appear here.")
                 : aptFilter === "confirmed"
-                ? "No confirmed appointments yet. Accepted requests will show up here."
+                ? t("No confirmed appointments yet. Accepted requests will show up here.")
                 : aptFilter === "canceled"
-                ? "No canceled appointments."
-                : "No appointments to show yet."}
+                ? t("No canceled appointments.")
+                : t("No appointments to show yet.")}
             </Text>
             <TouchableOpacity
               style={aptStyles.emptyRefreshBtn}
@@ -1832,7 +2056,7 @@ export default function CounselorDashboard() {
               activeOpacity={0.85}
             >
               <Ionicons name="refresh" size={14} color="#2563EB" />
-              <Text style={aptStyles.emptyRefreshText}>Refresh</Text>
+              <Text style={aptStyles.emptyRefreshText}>{t('Refresh')}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -1844,8 +2068,131 @@ export default function CounselorDashboard() {
                 index={idx}
                 onAccept={(id) => handleUpdateAppointmentStatus(id, "confirmed")}
                 onReject={(id) => handleUpdateAppointmentStatus(id, "canceled")}
-                onVideoCall={handleInitiateVideoCallFromApt}
+                onVideoCall={(a) => handleInitiateVideoCallFromApt(a, "video")}
+                onVoiceCall={(a) => handleInitiateVideoCallFromApt(a, "audio")}
+                onChat={handleOpenAppointmentChat}
                 updating={updatingAppointmentId}
+              />
+            ))}
+          </View>
+        )}
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    );
+  };
+
+  // â”€â”€ Sessions Tab Content (today's confirmed appointments) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const renderSessionsTab = () => {
+    // Confirmed appointments that fall on the selected day (default: today).
+    const sessions = appointments
+      .filter((a) => a.status === "confirmed" && isSameDay(a.date, sessionSelectedDate))
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    const selectedDateLabel = sessionSelectedDate.toLocaleDateString("en-US", {
+      weekday: "short", month: "short", day: "numeric", year: "numeric",
+    });
+    const isTodaySelected = isSameDay(sessionSelectedDate, new Date());
+
+    return (
+      <ScrollView
+        style={aptStyles.scrollOuter}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={aptStyles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={loadingAppointments && appointments.length > 0}
+            onRefresh={fetchAppointments}
+            colors={["#1E3A8A", "#2563EB"]}
+            tintColor="#2563EB"
+          />
+        }
+      >
+        <View style={sessStyles.headerWrap}>
+          <View style={sessStyles.headerTopRow}>
+            <Text style={sessStyles.headerTitle}>{t('counselor:sessions', 'Sessions')}</Text>
+            <View style={sessStyles.headerCountPill}>
+              <Text style={sessStyles.headerCountText}>
+                {sessions.length} {t('counselor:confirmedSessions', 'Confirmed')}
+              </Text>
+            </View>
+          </View>
+
+          <Text style={sessStyles.headerShowing}>
+            {t('counselor:showingFor', 'Showing for')}: {selectedDateLabel}
+          </Text>
+
+          <View style={sessStyles.filterRow}>
+            <TouchableOpacity
+              style={sessStyles.dateBtn}
+              onPress={() => setShowSessionDatePicker(true)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="calendar" size={15} color="#2563EB" />
+              <Text style={sessStyles.dateBtnText}>{selectedDateLabel}</Text>
+            </TouchableOpacity>
+            {!isTodaySelected && (
+              <TouchableOpacity
+                style={sessStyles.clearBtn}
+                onPress={() => setSessionSelectedDate(new Date())}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="close" size={13} color="#64748b" />
+                <Text style={sessStyles.clearBtnText}>{t('counselor:today', 'Today')}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {showSessionDatePicker && (
+          <DateTimePicker
+            value={sessionSelectedDate}
+            mode="date"
+            display={Platform.OS === "ios" ? "spinner" : "default"}
+            onChange={(event, selected) => {
+              setShowSessionDatePicker(Platform.OS === "ios");
+              if (event.type !== "dismissed" && selected) setSessionSelectedDate(selected);
+            }}
+          />
+        )}
+
+        {loadingAppointments && appointments.length === 0 ? (
+          <View style={aptStyles.listContainer}>
+            {[0, 1, 2].map((i) => (
+              <AppointmentSkeletonCard key={`sess_skel_${i}`} />
+            ))}
+          </View>
+        ) : sessions.length === 0 ? (
+          <View style={[aptStyles.emptyState, { paddingHorizontal: 14 }]}>
+            <LinearGradient colors={["#F0F9FF", "#E0F2FE"]} style={aptStyles.emptyIconWrap}>
+              <Ionicons name="videocam-outline" size={44} color="#2563EB" />
+            </LinearGradient>
+            <Text style={aptStyles.emptyTitle}>
+              {isTodaySelected
+                ? t('counselor:noSessionsToday', 'No sessions today')
+                : t('counselor:noSessionsForDate', 'No sessions for this date')}
+            </Text>
+            <Text style={aptStyles.emptyText}>
+              {t('counselor:sessionsHint', 'Your confirmed sessions for the selected day will appear here.')}
+            </Text>
+            <TouchableOpacity
+              style={aptStyles.emptyRefreshBtn}
+              onPress={() => fetchAppointments()}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="refresh" size={14} color="#2563EB" />
+              <Text style={aptStyles.emptyRefreshText}>{t('Refresh')}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={aptStyles.listContainer}>
+            {sessions.map((apt, idx) => (
+              <SessionCard
+                key={apt._id}
+                apt={apt}
+                index={idx}
+                onVideoCall={(a) => handleInitiateVideoCallFromApt(a, "video")}
+                onVoiceCall={(a) => handleInitiateVideoCallFromApt(a, "audio")}
+                onChat={handleOpenAppointmentChat}
               />
             ))}
           </View>
@@ -1863,15 +2210,7 @@ export default function CounselorDashboard() {
       case "appointments":
         return renderAppointmentsTab();
       case "sessions":
-        return (
-          <View style={styles.comingSoon}>
-            <Icon name="video" size={64} color="#526071" />
-            <Text style={styles.comingSoonTitle}>No Sessions Today</Text>
-            <Text style={styles.comingSoonText}>
-              Your scheduled sessions will appear here
-            </Text>
-          </View>
-        );
+        return renderSessionsTab();
       case "patients":
         return <PatientRequests />;
       case "earnings": {
@@ -2191,12 +2530,6 @@ export default function CounselorDashboard() {
                   ) : null}
                 </View>
 
-                {/* Online status pill */}
-                <View style={styles.onlineStatusPill}>
-                  <View style={styles.onlineStatusDot} />
-                  <Text style={styles.onlineStatusText}>{t('counselor:available')}</Text>
-                </View>
-
                 {/* Quick stats strip */}
                 <View style={styles.profileStatsStrip}>
                   <View style={styles.profileStatItem}>
@@ -2371,10 +2704,6 @@ export default function CounselorDashboard() {
                         </Text>
                       </View>
                     ) : null}
-                  </View>
-                  <View style={styles.onlineStatusPill}>
-                    <View style={styles.onlineStatusDot} />
-                    <Text style={styles.onlineStatusText}>{t('counselor:available')}</Text>
                   </View>
                   <View style={styles.profileStatsStrip}>
                     <View style={styles.profileStatItem}>
@@ -2664,6 +2993,203 @@ export default function CounselorDashboard() {
 }
 
 // â”€â”€â”€ Appointment-specific Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Sessions tab styles ─────────────────────────────────────────────────────
+const sessStyles = StyleSheet.create({
+  headerWrap: {
+    paddingHorizontal: 16,
+    marginBottom: 6,
+  },
+  headerTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
+  headerCountPill: {
+    backgroundColor: "#ecfdf5",
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  headerCountText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#047857",
+  },
+  headerShowing: {
+    fontSize: 13,
+    color: "#64748b",
+    marginTop: 4,
+  },
+  filterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 12,
+    gap: 8,
+  },
+  dateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 12,
+  },
+  dateBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1d4ed8",
+  },
+  clearBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#f1f5f9",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+  },
+  clearBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#64748b",
+  },
+  card: {
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    padding: 16,
+    marginHorizontal: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#eef2f7",
+    shadowColor: "#1e3a8a",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  avatarRingOuter: {
+    marginRight: 12,
+  },
+  avatarRing: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInner: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitials: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#1d4ed8",
+  },
+  patientInfo: {
+    flex: 1,
+  },
+  patientName: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  tagsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 6,
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  consultTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  consultTagText: {
+    fontSize: 11,
+    color: "#94a3b8",
+    fontWeight: "500",
+  },
+  detailsBlock: {
+    marginTop: 14,
+    gap: 9,
+  },
+  detailItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  detailText: {
+    fontSize: 13,
+    color: "#475569",
+    fontWeight: "500",
+  },
+  notesBox: {
+    flexDirection: "row",
+    gap: 8,
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
+    padding: 11,
+    marginTop: 12,
+  },
+  notesText: {
+    flex: 1,
+    fontSize: 12.5,
+    color: "#64748b",
+    fontStyle: "italic",
+    lineHeight: 18,
+  },
+  actions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+  },
+  actionBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoBtn: {
+    backgroundColor: "#2563EB",
+  },
+  voiceBtn: {
+    backgroundColor: "#0D9488",
+  },
+  chatBtn: {
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+  },
+});
+
 const aptStyles = StyleSheet.create({
   // Cancel out the parent's horizontal padding so cards reach the screen edges.
   // The ScrollView uses this on `style` (not contentContainerStyle) so the
@@ -3108,6 +3634,44 @@ const aptStyles = StyleSheet.create({
     fontWeight: '800',
     color: '#ffffff',
     letterSpacing: 0.3,
+  },
+
+  // ─── Confirmed appointment actions (video / voice / chat) ─────────────────
+  confirmedActions: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 12,
+  },
+  confirmedActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 11,
+    borderRadius: 12,
+  },
+  confirmedVideoBtn: {
+    flex: 1,
+    backgroundColor: '#2563EB',
+  },
+  confirmedVoiceBtn: {
+    flex: 1,
+    backgroundColor: '#0D9488',
+  },
+  confirmedChatBtn: {
+    paddingHorizontal: 18,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  confirmedActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: 0.1,
+  },
+  confirmedChatText: {
+    color: '#2563EB',
   },
 
   // ─── Canceled note ───────────────────────────────────────────────────────

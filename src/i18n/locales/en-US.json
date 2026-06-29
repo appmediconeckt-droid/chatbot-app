@@ -99,7 +99,15 @@
     "counselor": "Counselor",
     "myAppointment": "My Appointment",
     "wallet": "Wallet",
-    "callHistory": "Call History"
+    "callHistory": "Call History",
+    "welcomeBack": "Welcome back",
+    "total": "Total",
+    "upcomingSessions": "Upcoming Sessions",
+    "noUpcomingSessions": "No upcoming sessions",
+    "addNotes": "Add Notes",
+    "invoice": "Invoice",
+    "reports": "Reports",
+    "newPatient": "New Patient"
   },
   "counselor": {
     "myClients": "My Clients",

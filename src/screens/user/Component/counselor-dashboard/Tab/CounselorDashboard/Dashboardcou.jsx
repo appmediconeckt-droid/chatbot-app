@@ -153,9 +153,9 @@ const Dashboard = () => {
   };
 
   const stats = [
-    { label: 'Total', value: String(totalCount), icon: 'event-note', color: '#4f46e5', bg: '#ede9fe' },
-    { label: 'Pending', value: String(pendingCount), icon: 'hourglass-empty', color: '#c2410c', bg: '#fff4e5' },
-    { label: 'Confirmed', value: String(confirmedCount), icon: 'check-circle', color: '#16a34a', bg: '#dcfce7' },
+    { label: t('dashboard:total'), value: String(totalCount), icon: 'event-note', color: '#4f46e5', bg: '#ede9fe' },
+    { label: t('common:pending'), value: String(pendingCount), icon: 'hourglass-empty', color: '#c2410c', bg: '#fff4e5' },
+    { label: t('common:confirmed'), value: String(confirmedCount), icon: 'check-circle', color: '#16a34a', bg: '#dcfce7' },
   ];
 
   if (loading) {
@@ -189,7 +189,7 @@ const Dashboard = () => {
         <View style={styles.welcomeBlock}>
           <View style={styles.welcomeTextWrap}>
             <Text style={styles.welcomeTitle}>
-              Welcome back{counselorName ? `,` : ''}{'\n'}
+              {t('dashboard:welcomeBack')}{counselorName ? `,` : ''}{'\n'}
               {counselorName ? <Text style={styles.welcomeName}>{counselorName} 👋</Text> : '👋'}
             </Text>
             <Text style={styles.dateText}>{getFormattedDate()}</Text>
@@ -216,11 +216,11 @@ const Dashboard = () => {
               <View style={styles.cardTitleIcon}>
                 <MaterialIcons name="event" size={16} color="#4f46e5" />
               </View>
-              <Text style={styles.cardTitle}>Upcoming Sessions</Text>
+              <Text style={styles.cardTitle}>{t('dashboard:upcomingSessions')}</Text>
             </View>
             {pendingCount > 0 && (
               <View style={styles.pendingBadge}>
-                <Text style={styles.pendingBadgeText}>{pendingCount} pending</Text>
+                <Text style={styles.pendingBadgeText}>{pendingCount} {t('common:pending')}</Text>
               </View>
             )}
           </View>
@@ -228,7 +228,7 @@ const Dashboard = () => {
           {upcomingApts.length === 0 ? (
             <View style={styles.emptyBox}>
               <MaterialIcons name="event-available" size={36} color="#c7d2fe" />
-              <Text style={styles.emptyText}>No upcoming sessions</Text>
+              <Text style={styles.emptyText}>{t('dashboard:noUpcomingSessions')}</Text>
             </View>
           ) : (
             upcomingApts.map((apt, idx) => {
@@ -266,15 +266,15 @@ const Dashboard = () => {
               <View style={styles.cardTitleIcon}>
                 <MaterialIcons name="flash-on" size={16} color="#4f46e5" />
               </View>
-              <Text style={styles.cardTitle}>Quick Actions</Text>
+              <Text style={styles.cardTitle}>{t('dashboard:quickActions')}</Text>
             </View>
           </View>
           <View style={styles.quickGrid}>
             {[
-              { icon: 'note-add', label: 'Add Notes', color: '#4f46e5', bg: '#ede9fe' },
-              { icon: 'receipt', label: 'Invoice', color: '#16a34a', bg: '#dcfce7' },
-              { icon: 'bar-chart', label: 'Reports', color: '#c2410c', bg: '#fff4e5' },
-              { icon: 'person-add', label: 'New Patient', color: '#0369a1', bg: '#e0f2fe' },
+              { icon: 'note-add', label: t('dashboard:addNotes'), color: '#4f46e5', bg: '#ede9fe' },
+              { icon: 'receipt', label: t('dashboard:invoice'), color: '#16a34a', bg: '#dcfce7' },
+              { icon: 'bar-chart', label: t('dashboard:reports'), color: '#c2410c', bg: '#fff4e5' },
+              { icon: 'person-add', label: t('dashboard:newPatient'), color: '#0369a1', bg: '#e0f2fe' },
             ].map((q) => (
               <TouchableOpacity key={q.label} style={[styles.quickBtn, { backgroundColor: q.bg }]}>
                 <View style={[styles.quickIconBox, { backgroundColor: q.color + '22' }]}>

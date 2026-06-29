@@ -184,7 +184,9 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         const counselorId = chat?.otherParty?.id;
         const chatId = chat?.chatId || chat?.id;
 
-        if ((status === 'accepted' || status === 'active') && counselorId && chatId) {
+        // Track pending requests too — once a request exists (pending or
+        // accepted/active) the card shows "Chat Now" instead of "Send Request".
+        if ((status === 'pending' || status === 'accepted' || status === 'active') && counselorId && chatId) {
           acceptedMap[String(counselorId)] = {
             chatId: String(chatId),
             status,
@@ -328,17 +330,20 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
   // Handle Chat Now click
   const handleChatNow = (counselor) => {
+    // If a chat/request already exists (pending or accepted), open the thread
+    // directly — regardless of the counselor's online status.
+    const existingChat = acceptedChatsByCounselorId[String(counselor.id)];
+    if (existingChat?.chatId) {
+      openChatBox(counselor, existingChat);
+      return;
+    }
+
+    // No existing request yet — sending a NEW one needs the counselor available.
     if (!counselor.online && !counselor.available) {
       Alert.alert(
         t('appointment:counselorUnavailable'),
         `${counselor.name} ${t('appointment:notAvailableNow')}`
       );
-      return;
-    }
-
-    const existingAcceptedChat = acceptedChatsByCounselorId[String(counselor.id)];
-    if (existingAcceptedChat?.chatId) {
-      openChatBox(counselor, existingAcceptedChat);
       return;
     }
 
@@ -405,10 +410,13 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
   // Send chat request
   const sendChatRequest = async () => {
+    // Declared at function scope (not inside try) so the catch block below can
+    // also read it — otherwise referencing it on error throws
+    // "ReferenceError: Property 'counselorId' doesn't exist".
+    const counselorId = selectedCounselorForRequest?.id;
     try {
       setIsLoading(true);
 
-      const counselorId = selectedCounselorForRequest?.id;
       const existingAcceptedChat = acceptedChatsByCounselorId[String(counselorId)];
 
       if (!counselorId) {
@@ -452,6 +460,14 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
       }
 
       if (response.data.success) {
+        // Reflect the new pending request right away so the card shows "Chat Now".
+        const newChatId = response?.data?.chat?.chatId || response?.data?.chat?.id;
+        if (newChatId) {
+          setAcceptedChatsByCounselorId((prev) => ({
+            ...prev,
+            [String(counselorId)]: { chatId: String(newChatId), status: 'pending' },
+          }));
+        }
         Alert.alert(t('appointment:sessionRequestSent'), t('appointment:sessionRequestMessage'));
         setShowUserModal(false);
       }
@@ -461,14 +477,14 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
       const statusCode = error?.response?.status;
       const apiErrorMessage = error?.response?.data?.error || error?.response?.data?.message || 'Failed to send request';
       const existingChatId = error?.response?.data?.chatId || null;
-      const lowerMessage = String(apiErrorMessage).toLowerCase();
+      // The backend returns 400 with a `status` when a chat/request already
+      // exists. Branch on that status instead of error-message text:
+      //   accepted/active → open the existing chat
+      //   pending         → request already sent, just wait (not an error)
+      const apiStatus = String(error?.response?.data?.status || '').toLowerCase();
 
-      if (
-        statusCode === 400 &&
-        existingChatId &&
-        (lowerMessage.includes('already active') || lowerMessage.includes('continue your conversation'))
-      ) {
-        const acceptedChat = { chatId: String(existingChatId), status: 'accepted' };
+      if (statusCode === 400 && existingChatId && (apiStatus === 'accepted' || apiStatus === 'active')) {
+        const acceptedChat = { chatId: String(existingChatId), status: apiStatus };
         setAcceptedChatsByCounselorId((prev) => ({
           ...prev,
           [String(counselorId)]: acceptedChat,
@@ -476,8 +492,17 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         setShowUserModal(false);
         if (selectedCounselorForRequest) {
           openChatBox(selectedCounselorForRequest, acceptedChat);
-          return;
         }
+        return;
+      }
+
+      if (statusCode === 400 && apiStatus === 'pending') {
+        setShowUserModal(false);
+        Alert.alert(
+          t('appointment:sessionRequestSent'),
+          'Your request was already sent. Please wait for the counselor to accept.'
+        );
+        return;
       }
 
       Alert.alert(t('common:error'), apiErrorMessage);
@@ -616,7 +641,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                 ? t('common:offline')
                 : acceptedChatsByCounselorId[String(item.id)]?.chatId
                   ? t('appointment:chatNow')
-                  : t('appointment:sessionRequestWillBeSent')}
+                  : 'Send Request'}
             </Text>
           </LinearGradient>
         </TouchableOpacity>
@@ -877,7 +902,6 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                   </>
                 ) : (
                   <>
-                    <Text style={styles.modalInfoText}>{t('appointment:sessionRequestWillBeSent')}</Text>
                     <Text style={styles.modalInfoText}>{t('appointment:youCanChatOnceAccepts')}</Text>
                   </>
                 )}
@@ -907,7 +931,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                       ? t('common:loading')
                       : selectedCounselorForRequest && acceptedChatsByCounselorId[String(selectedCounselorForRequest.id)]?.chatId
                         ? t('appointment:chatNow')
-                        : t('appointment:sessionRequestWillBeSent')}
+                        : 'Send Request'}
                   </Text>
                 </LinearGradient>
               </TouchableOpacity>

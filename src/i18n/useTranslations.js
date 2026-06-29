@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { translationService } from './translationService';
+import { useSmartT } from '../hooks/useSmartT';
 
 const LANG_CODE_MAP = {
   'en': 'en-US',
@@ -31,7 +32,8 @@ const LANG_CODE_MAP = {
 };
 
 export const useUserTranslation = () => {
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
+  const { t } = useSmartT(); // static + live-fallback translation
   const [translatedText, setTranslatedText] = useState({});
   const [isTranslating, setIsTranslating] = useState(false);
 
@@ -76,7 +78,8 @@ export const useUserTranslation = () => {
 };
 
 export const useCounselorTranslation = () => {
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
+  const { t } = useSmartT(); // static + live-fallback translation
   const [translatedText, setTranslatedText] = useState({});
   const [isTranslating, setIsTranslating] = useState(false);
 

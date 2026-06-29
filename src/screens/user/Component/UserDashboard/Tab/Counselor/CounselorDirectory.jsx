@@ -29,6 +29,15 @@ import { useAutoTranslate } from "../../../../../../hooks/useAutoTranslate";
 
 const { width, height } = Dimensions.get("window");
 
+// Counselor availability status → display color + label (mirrors the counselor
+// settings picker). 'offline' is used as the fallback when status is unknown.
+const AVAIL_STATUS_META = {
+  online:  { color: "#10B981", label: "Online" },
+  busy:    { color: "#EF4444", label: "Busy" },
+  away:    { color: "#F59E0B", label: "Away" },
+  offline: { color: "#94A3B8", label: "Offline" },
+};
+
 // Utility Functions
 const getInitials = (name = "Counselor") =>
   name
@@ -161,6 +170,11 @@ const CounselorDirectoryScreen = ({ navigation }) => {
           ratingCount: Number(c.ratingCount ?? c.totalRatings ?? c.reviewsCount ?? 0),
           online: Boolean(c.isOnline),
           available: Boolean(c.isActive),
+          // Counselor's self-set availability. Only meaningful while online;
+          // when socket-offline we show 'offline' regardless.
+          availabilityStatus: Boolean(c.isOnline)
+            ? (c.availabilityStatus || 'online')
+            : 'offline',
           lastSeen: c.lastSeen || null,
           profilePhoto: profilePhotoUrl,
           avatarType: profilePhotoUrl ? "image" : "text",
@@ -222,7 +236,20 @@ const CounselorDirectoryScreen = ({ navigation }) => {
             if (!matched) {
               console.log('[presence] event for unknown counselor:', userId, 'have:', prev.map((c) => c.id));
             }
-            return prev.map((counselor) => String(counselor.id) === String(userId) ? { ...counselor, online: isOnline, lastSeen } : counselor);
+            return prev.map((counselor) => String(counselor.id) === String(userId)
+              ? {
+                  ...counselor,
+                  online: isOnline,
+                  // Going offline forces 'offline'; coming online keeps the
+                  // counselor's manual status if known, else defaults to online.
+                  availabilityStatus: isOnline
+                    ? (counselor.availabilityStatus && counselor.availabilityStatus !== 'offline'
+                        ? counselor.availabilityStatus
+                        : 'online')
+                    : 'offline',
+                  lastSeen,
+                }
+              : counselor);
           });
         }));
 
@@ -371,8 +398,9 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       
       // Handle error response from server
       if (error.response?.data?.error === "Chat already active. Please continue your conversation." ||
-          error.response?.data?.status === "accepted") {
-        
+          error.response?.data?.status === "accepted" ||
+          error.response?.data?.status === "active") {
+
         const chatId = error.response?.data?.chatId;
         Alert.alert(
           "Chat Available",
@@ -401,12 +429,26 @@ const CounselorDirectoryScreen = ({ navigation }) => {
             }
           ]
         );
+      } else if (error.response?.data?.reason === "counselor_unavailable") {
+        // Counselor has marked themselves Busy or Offline.
+        Alert.alert(
+          "Counselor Unavailable",
+          error.response.data.error ||
+            "This counselor is not available right now. Please try again later."
+        );
+      } else if (error.response?.data?.status === "pending") {
+        // Request already sent and waiting for the counselor to accept — not an error.
+        Alert.alert(
+          "Request Sent",
+          `Your request to ${selectedCounselor.name} was already sent. Please wait for them to accept.`,
+          [{ text: "OK", onPress: () => { setShowChatModal(false); resetChatForm(); } }]
+        );
       } else {
         let errorMessage = "Failed to send chat request";
         if (error.response?.status === 401) {
           errorMessage = "Please login again to chat";
-        } else if (error.response?.data?.message) {
-          errorMessage = error.response.data.message;
+        } else if (error.response?.data?.message || error.response?.data?.error) {
+          errorMessage = error.response.data.message || error.response.data.error;
         }
         Alert.alert("Error", errorMessage);
       }
@@ -492,6 +534,8 @@ const CounselorDirectoryScreen = ({ navigation }) => {
     const location = counselor.location || "Online";
     const hasImageError = imageErrors[counselor.id];
     const profilePhotoUrl = !hasImageError ? counselor.profilePhoto : null;
+    const statusMeta =
+      AVAIL_STATUS_META[counselor.availabilityStatus] || AVAIL_STATUS_META.offline;
 
     return (
       <View style={styles.card}>
@@ -508,7 +552,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                 <Text style={styles.initialsText}>{getInitials(name)}</Text>
               </View>
             )}
-            <View style={[styles.presenceDot, counselor.online ? styles.online : styles.offline]} />
+            <View style={[styles.presenceDot, { backgroundColor: statusMeta.color }]} />
           </View>
           
           <View style={styles.counselorInfo}>
@@ -530,7 +574,13 @@ const CounselorDirectoryScreen = ({ navigation }) => {
               <Text style={styles.locationText}>📍 {location}</Text>
             )}
           </View>
-          
+
+          <View style={[styles.statusPill, { backgroundColor: `${statusMeta.color}1A` }]}>
+            <View style={[styles.statusPillDot, { backgroundColor: statusMeta.color }]} />
+            <Text style={[styles.statusPillText, { color: statusMeta.color }]}>
+              {statusMeta.label}
+            </Text>
+          </View>
         </View>
 
         <View style={styles.tagsContainer}>
@@ -1193,6 +1243,24 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "500",
     color: "#475569",
+  },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    alignSelf: "flex-start",
+  },
+  statusPillDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: "700",
   },
   tagsContainer: {
     flexDirection: "row",

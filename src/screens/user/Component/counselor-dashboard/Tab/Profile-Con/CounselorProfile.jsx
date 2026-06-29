@@ -24,9 +24,9 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import safeVibrate from '../../../../../../utils/safeVibrate';
+import { API_BASE_URL } from '../../../../../../axiosConfig';
 
 const { width } = Dimensions.get('window');
-const API_BASE_URL = 'https://chatbot-backend-js25.onrender.com';
 
 const normalizeGender = (value) => {
   if (!value) return '';

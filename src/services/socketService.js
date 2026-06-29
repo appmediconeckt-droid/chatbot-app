@@ -84,6 +84,15 @@ class SocketService {
       const socket = io(API_BASE_URL, {
         transports: ['polling', 'websocket'],
         auth: { token },
+        // Skip the dev tunnel anti-phishing interstitial on the XHR polling
+        // handshake — otherwise the relay returns HTML and socket.io reports
+        // "xhr poll error". Applied to the polling transport's requests.
+        extraHeaders: { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' },
+        transportOptions: {
+          polling: {
+            extraHeaders: { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' },
+          },
+        },
         reconnection: true,
         reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
         reconnectionDelay: 1000,

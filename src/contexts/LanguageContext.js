@@ -91,7 +91,21 @@ export const LanguageProvider = ({ children }) => {
 export const useLanguageContext = () => {
   const context = useContext(LanguageContext);
   if (!context) {
-    throw new Error('useLanguageContext must be used within LanguageProvider');
+    // Graceful fallback so a component still works if it's rendered outside the
+    // provider or momentarily detached during a hot-reload — instead of crashing.
+    console.warn('[LanguageContext] used outside LanguageProvider — using i18n fallback');
+    return {
+      language: i18n.language || 'en-US',
+      isLoading: false,
+      setLanguage: async (code) => {
+        try {
+          await i18n.changeLanguage(code);
+          await AsyncStorage.setItem(LANG_STORAGE_KEY, code);
+        } catch (e) {
+          console.error('[LanguageContext] fallback setLanguage failed:', e);
+        }
+      },
+    };
   }
   return context;
 };
