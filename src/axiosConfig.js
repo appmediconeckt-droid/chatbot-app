@@ -9,7 +9,7 @@ const API_ENDPOINTS = {
   // Must match the SAME backend the web frontend uses (chatbot/.env.local)
   // so OTP / email / forgot-password behave identically to web.
   RAILWAY: 'https://chatbot-backend-production-ea76.up.railway.app',
-  DEV_TUNNEL: 'https://ggr8bl1d-5001.inc1.devtunnels.ms/',
+  DEV_TUNNEL: 'https://s5jl7g4z-5001.inc1.devtunnels.ms',
   
   LOCAL_5001: 'http://localhost:5001',
   LOCAL_5000: 'http://localhost:5000',
@@ -26,7 +26,8 @@ const API_ENDPOINTS = {
 // USB debugging on a real phone: `adb reverse tcp:5001 tcp:5001` maps the
 // phone's localhost:5001 to the PC's backend over the cable — no internet or
 // dev tunnel needed on the device. Switch to DEV_TUNNEL only for wireless/release.
-export const API_BASE_URL = API_ENDPOINTS.RAILWAY;
+export const API_BASE_URL = API_ENDPOINTS.DEV_TUNNEL;
+export const AI_REALTIME_BASE_URL = API_ENDPOINTS.DEV_TUNNEL.replace(/\/+$/, '');
 
 // Create axios instance with default config
 const axiosInstance = axios.create({

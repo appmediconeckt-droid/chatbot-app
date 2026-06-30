@@ -1,344 +1,291 @@
-import React, { useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import React from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  Linking,
   Platform,
+  ScrollView,
   StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
-const APP_NAME = 'Mediconeckt';
-const SUPPORT_EMAIL = 'app.mediconeckt@gmail.com';
-const LAST_UPDATED = 'May 2026';
-
-const SECTIONS = [
+const privacyHighlights = [
   {
-    icon: 'info-outline',
-    color: '#3b82f6',
-    bg: '#eff6ff',
-    title: '1. Introduction',
-    body: `${APP_NAME} ("we", "our", or "us") is committed to protecting your personal information and your right to privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application.\n\nBy using ${APP_NAME}, you agree to the collection and use of information in accordance with this policy. If you do not agree with the terms of this policy, please do not use the app.`,
+    icon: 'verified-user',
+    label: 'OTP protected',
+    value: 'Email and phone changes',
   },
   {
-    icon: 'storage',
-    color: '#10b981',
-    bg: '#f0fdf4',
-    title: '2. Information We Collect',
-    body: `We collect the following types of information:\n\n• Personal Identification: Name, email address, phone number, date of birth, gender, and profile photo.\n\n• Anonymous Identity: A randomly generated anonymous username used when interacting with counselors to protect your real identity.\n\n• Location Data: Approximate location to match you with nearby counselors and for account security. Only collected when the app is in use.\n\n• Device Information: Device type, operating system, app version, and unique device identifiers for diagnostic and security purposes.\n\n• Usage Data: Pages visited, features used, session duration, and interaction patterns to improve our services.\n\n• Communication Data: Messages, call logs (not recordings), and appointment records within the platform.`,
+    icon: 'person-outline',
+    label: 'Anonymous care identity',
+    value: 'Shown to counselors where supported',
   },
   {
-    icon: 'psychology',
-    color: '#8b5cf6',
-    bg: '#f5f3ff',
-    title: '3. How We Use Your Information',
-    body: `We use the information we collect to:\n\n• Provide, operate, and maintain the ${APP_NAME} platform.\n• Match you with suitable counselors based on your preferences and location.\n• Process appointments, payments, and session management.\n• Send notifications, reminders, and service updates.\n• Detect and prevent fraud, unauthorized access, and security threats.\n• Improve our app, features, and user experience through analytics.\n• Comply with applicable legal obligations.\n• Respond to support requests and communicate with you about your account.`,
-  },
-  {
-    icon: 'lock',
-    color: '#f59e0b',
-    bg: '#fffbeb',
-    title: '4. Anonymity & Counselor Interactions',
-    body: `Your privacy during counseling sessions is paramount:\n\n• You are identified to counselors only by your anonymous username — never your real name, photo, email, or phone number.\n• Counselors cannot access your personal contact details under any circumstance.\n• Your real identity is protected at all times during chats, voice calls, and video calls.\n• Session content is confidential and is not shared with third parties except where required by law (e.g., imminent risk of harm).`,
-  },
-  {
-    icon: 'share',
-    color: '#ef4444',
-    bg: '#fef2f2',
-    title: '5. Sharing of Information',
-    body: `We do not sell, trade, or rent your personal information. We may share information only in the following circumstances:\n\n• Service Providers: Trusted third-party vendors (e.g., payment processors, cloud storage, communication APIs) who assist in operating our platform under strict confidentiality agreements.\n• Legal Requirements: When required by law, court order, or governmental authority.\n• Safety: To protect the safety, rights, or property of ${APP_NAME}, our users, or the public in emergency situations.\n• Business Transfers: In the event of a merger, acquisition, or sale of assets, your information may be transferred with prior notice.\n\nWe require all third parties to maintain the security of your personal information.`,
-  },
-  {
-    icon: 'security',
-    color: '#06b6d4',
-    bg: '#ecfeff',
-    title: '6. Data Security',
-    body: `We implement industry-standard security measures to protect your information:\n\n• All data is transmitted using SSL/TLS encryption.\n• Passwords are hashed and never stored in plain text.\n• Sensitive operations (email/phone changes) require OTP verification.\n• We conduct regular security audits and vulnerability assessments.\n• Access to user data within our team is restricted on a need-to-know basis.\n\nDespite these measures, no method of transmission over the internet is 100% secure. We encourage you to use strong passwords and keep your login credentials confidential.`,
-  },
-  {
-    icon: 'location-on',
-    color: '#ec4899',
-    bg: '#fdf2f8',
-    title: '7. Location Data',
-    body: `We request location permission to:\n\n• Show you counselors available in your area.\n• Add an additional layer of account security by detecting unusual login locations.\n• Enable emergency support features.\n\nLocation is collected only while the app is actively in use and is not stored permanently. You can disable location access in your device settings at any time, though some features may be limited as a result.`,
-  },
-  {
-    icon: 'child-care',
-    color: '#f97316',
-    bg: '#fff7ed',
-    title: '8. Children\'s Privacy',
-    body: `${APP_NAME} is not intended for use by individuals under the age of 13. We do not knowingly collect personal information from children under 13.\n\nIf you are a parent or guardian and believe your child has provided us with personal information, please contact us immediately at ${SUPPORT_EMAIL}. We will take steps to delete such information promptly.`,
-  },
-  {
-    icon: 'tune',
-    color: '#64748b',
-    bg: '#f1f5f9',
-    title: '9. Your Rights & Choices',
-    body: `You have the following rights regarding your personal information:\n\n• Access: Request a copy of the personal data we hold about you.\n• Correction: Update or correct inaccurate information in your profile.\n• Deletion: Request deletion of your account and associated data. Some data may be retained for legal or safety purposes.\n• Portability: Request your data in a structured, commonly used format.\n• Opt-Out: Unsubscribe from marketing communications at any time.\n• Location: Disable location access in your device settings at any time.\n\nTo exercise any of these rights, contact us at ${SUPPORT_EMAIL}.`,
-  },
-  {
-    icon: 'cookie',
-    color: '#a16207',
-    bg: '#fefce8',
-    title: '10. Cookies & Tracking',
-    body: `Our app may use local storage and session tokens to:\n\n• Keep you logged in securely.\n• Remember your preferences and settings.\n• Analyse usage patterns to improve performance.\n\nThese are strictly functional and are not used for cross-app advertising. You may clear app data from your device settings to remove stored tokens.`,
-  },
-  {
-    icon: 'update',
-    color: '#6366f1',
-    bg: '#eef2ff',
-    title: '11. Changes to This Policy',
-    body: `We may update this Privacy Policy from time to time to reflect changes in our practices or legal requirements. When we make significant changes, we will:\n\n• Notify you via an in-app notification or email.\n• Update the "Last Updated" date at the top of this page.\n\nYour continued use of ${APP_NAME} after changes are posted constitutes acceptance of the updated policy. We encourage you to review this policy periodically.`,
-  },
-  {
-    icon: 'contact-mail',
-    color: '#3b82f6',
-    bg: '#eff6ff',
-    title: '12. Contact Us',
-    body: `If you have any questions, concerns, or requests regarding this Privacy Policy or our data practices, please contact us:\n\n📧 Email: ${SUPPORT_EMAIL}\n🏢 ${APP_NAME} Privacy Team\n\nWe will respond to all legitimate requests within 7 business days.`,
+    icon: 'lock-outline',
+    label: 'Sensitive areas',
+    value: 'Chats, calls, appointments, profile',
   },
 ];
 
-const SectionItem = ({ item }) => {
-  const [open, setOpen] = useState(false);
+const privacyDataGroups = [
+  {
+    icon: 'person',
+    title: 'Profile and health details',
+    text: 'Your name, anonymous display name, age, gender, contact details, photo/avatar, address, emergency contact, basic medical details, and insurance fields are used to maintain your patient profile.',
+  },
+  {
+    icon: 'forum',
+    title: 'AI chat and counselor conversations',
+    text: 'Messages, quick replies, chat status, attachments, accepted chat sessions, and counselor details are used to provide conversations, continue history, and support rating prompts.',
+  },
+  {
+    icon: 'event-available',
+    title: 'Appointments and sessions',
+    text: 'Appointment date, time, reason/notes, status, assigned counselor, call metadata, and session history help users and counselors manage care.',
+  },
+  {
+    icon: 'account-balance-wallet',
+    title: 'Wallet and transactions',
+    text: 'Wallet balance, top-ups, transaction records, generated reports, and related support context are used for payment tracking.',
+  },
+  {
+    icon: 'settings',
+    title: 'Location and device context',
+    text: 'Location can be captured at signup, login, or manual refresh to verify sessions, support account safety, and improve location-aware care features.',
+  },
+  {
+    icon: 'admin-panel-settings',
+    title: 'Security and account access',
+    text: 'Login tokens, auth provider, password status, OTP verification, role, and account status are used to keep user and counselor areas separated and protected.',
+  },
+];
+
+const privacyVisibility = [
+  {
+    title: 'Visible to you',
+    text: 'Your dashboard shows your profile, AI chats, counselor interactions, appointments, wallet, call history, ratings prompts, and location/update controls.',
+  },
+  {
+    title: 'Shared for care',
+    text: 'Counselors may see the information needed to manage accepted sessions, appointments, and support conversations. Anonymous identity is used where supported.',
+  },
+  {
+    title: 'Protected by access controls',
+    text: 'User and counselor areas are separated by role, active sessions, OTP verification, and authenticated API requests.',
+  },
+];
+
+const privacyChecklist = [
+  'Use your anonymous name for counselor interactions when you do not want your real name displayed.',
+  'Keep emergency contact and medical profile details accurate if you choose to fill them in.',
+  'Review device permissions for location, camera, and microphone before calls.',
+  'Update location manually from Settings/Profile if the login prompt was skipped.',
+  'Do not share OTPs, passwords, or sensitive account details inside chat messages.',
+  'Use My Profile and Settings to update or review the data stored in your account.',
+];
+
+const PrivacyPolicy = ({ onClose, onOpenTab }) => {
+  const openTab = (tab) => {
+    if (typeof onOpenTab === 'function') {
+      onClose?.();
+      onOpenTab(tab);
+    }
+  };
 
   return (
-    <View style={s.sectionCard}>
-      <TouchableOpacity style={s.sectionHeader} onPress={() => setOpen(!open)} activeOpacity={0.8}>
-        <View style={[s.sectionIconWrap, { backgroundColor: item.bg }]}>
-          <MaterialIcons name={item.icon} size={20} color={item.color} />
-        </View>
-        <Text style={s.sectionTitle}>{item.title}</Text>
-        <MaterialIcons
-          name={open ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
-          size={22}
-          color="#94a3b8"
-        />
-      </TouchableOpacity>
-      {open && (
-        <View style={s.sectionBody}>
-          <Text style={s.sectionText}>{item.body}</Text>
-        </View>
-      )}
-    </View>
-  );
-};
-
-const PrivacyPolicy = ({ onClose }) => {
-  const { t } = useTranslation();
-  return (
-    <View style={s.root}>
+    <View style={styles.root}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
-
-      {/* Header */}
-      <View style={s.header}>
-        <TouchableOpacity onPress={onClose} style={s.backBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={onClose} style={styles.headerBtn} hitSlop={12}>
           <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>{t('settings:privacyPolicy')}</Text>
-        <View style={{ width: 40 }} />
+        <Text style={styles.headerTitle}>Privacy</Text>
+        <View style={styles.headerBtn} />
       </View>
 
       <ScrollView
-        style={s.scroll}
-        contentContainerStyle={s.scrollContent}
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero */}
-        <View style={s.hero}>
-          <View style={s.heroIcon}>
-            <MaterialIcons name="shield" size={38} color="#8b5cf6" />
+        <View style={styles.hero}>
+          <View style={styles.heroIcon}>
+            <MaterialIcons name="lock-outline" size={34} color="#2563eb" />
           </View>
-          <Text style={s.heroTitle}>{t('settings:privacyMatters')}</Text>
-          <Text style={s.heroSub}>{t('settings:privacyHeroSub')}</Text>
-          <View style={s.updatedBadge}>
-            <MaterialIcons name="update" size={13} color="#6366f1" />
-            <Text style={s.updatedText}>{t('settings:lastUpdated')}: {LAST_UPDATED}</Text>
+          <View style={styles.heroCopy}>
+            <Text style={styles.heroTitle}>MediConeckt privacy center</Text>
+            <Text style={styles.heroText}>
+              This privacy center explains how MediConeckt uses your profile,
+              chat, appointment, wallet, call, location, and security data inside
+              this mobile app.
+            </Text>
           </View>
         </View>
 
-        {/* Quick Summary */}
-        <View style={s.summaryCard}>
-          <Text style={s.summaryTitle}>{t('settings:summaryGlance')}</Text>
-          {[
-            { icon: 'verified-user', text: 'Your real identity is never revealed to counselors', color: '#10b981' },
-            { icon: 'lock', text: 'All data is encrypted in transit and at rest', color: '#3b82f6' },
-            { icon: 'block', text: 'We never sell your personal data', color: '#ef4444' },
-            { icon: 'location-off', text: 'Location only used while app is active', color: '#f59e0b' },
-            { icon: 'delete-forever', text: 'You can request account deletion anytime', color: '#8b5cf6' },
-          ].map((item, i) => (
-            <View key={i} style={[s.summaryRow, i < 4 && s.summaryBorder]}>
-              <MaterialIcons name={item.icon} size={18} color={item.color} />
-              <Text style={s.summaryText}>{item.text}</Text>
+        <View style={styles.highlightRow}>
+          {privacyHighlights.map((item) => (
+            <View key={item.label} style={styles.highlightCard}>
+              <MaterialIcons name={item.icon} size={22} color="#2563eb" />
+              <Text style={styles.highlightLabel}>{item.label}</Text>
+              <Text style={styles.highlightValue}>{item.value}</Text>
             </View>
           ))}
         </View>
 
-        {/* Full Sections */}
-        <Text style={s.fullPolicyLabel}>{t('settings:fullPrivacyPolicyLabel')}</Text>
-        <View style={s.sectionList}>
-          {SECTIONS.map((section, i) => (
-            <SectionItem key={i} item={section} />
+        <Text style={styles.sectionTitle}>Data used in the app</Text>
+        <View style={styles.dataGrid}>
+          {privacyDataGroups.map((group) => (
+            <View key={group.title} style={styles.dataCard}>
+              <View style={styles.dataIcon}>
+                <MaterialIcons name={group.icon} size={22} color="#2563eb" />
+              </View>
+              <Text style={styles.dataTitle}>{group.title}</Text>
+              <Text style={styles.dataText}>{group.text}</Text>
+            </View>
           ))}
         </View>
 
-        {/* Contact strip */}
-        <TouchableOpacity
-          style={s.contactStrip}
-          onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=Privacy%20Query%20-%20${APP_NAME}`)}
-          activeOpacity={0.85}
-        >
-          <MaterialIcons name="email" size={20} color="#fff" />
-          <Text style={s.contactStripText}>Questions? Email {SUPPORT_EMAIL}</Text>
-          <MaterialIcons name="chevron-right" size={20} color="#fff" />
-        </TouchableOpacity>
+        <Text style={styles.sectionTitle}>Who can see what</Text>
+        <View style={styles.visibilityList}>
+          {privacyVisibility.map((item) => (
+            <View key={item.title} style={styles.visibilityCard}>
+              <Text style={styles.visibilityTitle}>{item.title}</Text>
+              <Text style={styles.visibilityText}>{item.text}</Text>
+            </View>
+          ))}
+        </View>
 
-        <Text style={s.footer}>© {new Date().getFullYear()} {APP_NAME}. All rights reserved.</Text>
+        <View style={styles.checklistPanel}>
+          <Text style={styles.panelTitle}>Your privacy checklist</Text>
+          {privacyChecklist.map((item) => (
+            <View key={item} style={styles.checkRow}>
+              <MaterialIcons name="check-circle" size={18} color="#16a34a" />
+              <Text style={styles.checkText}>{item}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.actions}>
+          <TouchableOpacity style={styles.actionBtn} onPress={() => openTab('profile')}>
+            <Text style={styles.actionText}>Manage profile data</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionBtn} onPress={() => openTab('settings')}>
+            <Text style={styles.actionText}>Security settings</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </View>
   );
 };
 
-const s = StyleSheet.create({
+const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#f8fafc' },
   header: {
-    flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderBottomColor: '#e2e8f0',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
     justifyContent: 'space-between',
+    paddingBottom: 14,
     paddingHorizontal: 16,
     paddingTop: Platform.OS === 'android' ? 16 : 12,
-    paddingBottom: 14,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
   },
-  backBtn: { width: 40, alignItems: 'flex-start' },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a' },
+  headerBtn: { width: 40 },
+  headerTitle: { color: '#0f172a', fontSize: 17, fontWeight: '800' },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 16, paddingBottom: 48, paddingTop: 8 },
-
-  hero: { alignItems: 'center', paddingVertical: 24, marginBottom: 4 },
+  content: { padding: 16, paddingBottom: 42 },
+  hero: {
+    backgroundColor: '#ffffff',
+    borderColor: '#e2e8f0',
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 14,
+    padding: 18,
+  },
   heroIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#f5f3ff',
     alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    borderRadius: 18,
+    height: 58,
     justifyContent: 'center',
-    marginBottom: 14,
+    width: 58,
   },
-  heroTitle: { fontSize: 22, fontWeight: '800', color: '#0f172a', marginBottom: 8, textAlign: 'center' },
-  heroSub: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 21, paddingHorizontal: 16, marginBottom: 12 },
-  updatedBadge: {
-    flexDirection: 'row',
+  heroCopy: { flex: 1 },
+  heroTitle: { color: '#0f172a', fontSize: 20, fontWeight: '900', marginBottom: 6 },
+  heroText: { color: '#64748b', fontSize: 13, lineHeight: 20 },
+  highlightRow: { gap: 10, marginTop: 16 },
+  highlightCard: {
     alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#eef2ff',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 20,
-  },
-  updatedText: { fontSize: 12, color: '#6366f1', fontWeight: '600' },
-
-  summaryCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
     borderColor: '#e2e8f0',
-    marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  summaryTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0f172a',
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 10,
-  },
-  summaryBorder: { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  summaryText: { flex: 1, fontSize: 13, color: '#334155', fontWeight: '500', lineHeight: 18 },
-
-  fullPolicyLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#64748b',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginTop: 24,
-    marginBottom: 12,
-  },
-
-  sectionList: { gap: 8 },
-  sectionCard: {
-    backgroundColor: '#ffffff',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  sectionHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    gap: 10,
     padding: 14,
-    gap: 12,
   },
-  sectionIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  highlightLabel: { color: '#64748b', flex: 0.8, fontSize: 12, fontWeight: '800' },
+  highlightValue: { color: '#0f172a', flex: 1.2, fontSize: 13, fontWeight: '800' },
+  sectionTitle: {
+    color: '#64748b',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+    marginTop: 22,
+    textTransform: 'uppercase',
+  },
+  dataGrid: { gap: 10 },
+  dataCard: {
+    backgroundColor: '#ffffff',
+    borderColor: '#e2e8f0',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 15,
+  },
+  dataIcon: {
     alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    borderRadius: 13,
+    height: 40,
     justifyContent: 'center',
-    flexShrink: 0,
+    marginBottom: 10,
+    width: 40,
   },
-  sectionTitle: { flex: 1, fontSize: 13, fontWeight: '700', color: '#0f172a', lineHeight: 19 },
-  sectionBody: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    paddingTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
-  },
-  sectionText: { fontSize: 13, color: '#475569', lineHeight: 21 },
-
-  contactStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#6366f1',
+  dataTitle: { color: '#0f172a', fontSize: 15, fontWeight: '900', marginBottom: 6 },
+  dataText: { color: '#64748b', fontSize: 13, lineHeight: 20 },
+  visibilityList: { gap: 10 },
+  visibilityCard: {
+    backgroundColor: '#f1f5f9',
+    borderColor: '#e2e8f0',
     borderRadius: 14,
-    paddingVertical: 15,
-    paddingHorizontal: 18,
-    marginTop: 28,
+    borderWidth: 1,
+    padding: 15,
   },
-  contactStripText: { flex: 1, color: '#fff', fontSize: 13, fontWeight: '600' },
-
-  footer: {
-    fontSize: 11,
-    color: '#cbd5e1',
-    textAlign: 'center',
+  visibilityTitle: { color: '#0f172a', fontSize: 14, fontWeight: '900', marginBottom: 5 },
+  visibilityText: { color: '#475569', fontSize: 13, lineHeight: 20 },
+  checklistPanel: {
+    backgroundColor: '#ffffff',
+    borderColor: '#e2e8f0',
+    borderRadius: 16,
+    borderWidth: 1,
     marginTop: 20,
+    padding: 16,
   },
+  panelTitle: { color: '#0f172a', fontSize: 17, fontWeight: '900', marginBottom: 10 },
+  checkRow: { flexDirection: 'row', gap: 9, marginTop: 10 },
+  checkText: { color: '#334155', flex: 1, fontSize: 13, lineHeight: 19 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 18 },
+  actionBtn: {
+    backgroundColor: '#2563eb',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  actionText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
 });
 
 export default PrivacyPolicy;

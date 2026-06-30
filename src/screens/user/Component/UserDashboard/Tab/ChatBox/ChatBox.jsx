@@ -2609,7 +2609,9 @@ import {
   Dimensions,
   StyleSheet,
   InteractionManager,
+  LayoutAnimation,
   Linking,
+  UIManager,
   useWindowDimensions,
 } from "react-native";
 import socketService from '../../../../../../services/socketService';
@@ -2637,6 +2639,12 @@ import {
 } from "../../../../../../utils/chatCallHistory";
 
 const { width: screenWidth } = Dimensions.get("window");
+const CHAT_INPUT_BASE_HEIGHT = 78;
+const CHAT_INPUT_ATTACHMENT_HEIGHT = 44;
+
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 // Professional Incoming Call Modal Component with Serenity design
 const IncomingCallModal = ({
@@ -2793,8 +2801,9 @@ const ChatBox = () => {
   useScreenshotPrevent();
   const navigation = useNavigation();
   const route = useRoute();
+  const { height: windowHeight } = useWindowDimensions();
   const { id: counselorId } = route.params || {};
-  const { chatId, counselor: initialCounselor, user: initialUser } = route.params || {};
+  const { chatId, chatMongoId, counselor: initialCounselor, user: initialUser } = route.params || {};
 
   // State for current chat
   const [currentChat, setCurrentChat] = useState(null);
@@ -2863,6 +2872,9 @@ const ChatBox = () => {
   const fallbackChatIdRef = useRef(chatId || null);
   const hasInitialAutoScrollRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
+  const lastKeyboardHeightRef = useRef(0);
+  const suppressAutoScrollUntilRef = useRef(0);
+  const lastScrollOffsetRef = useRef(0);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
 
   // Get current user from AsyncStorage
@@ -2881,6 +2893,11 @@ const ChatBox = () => {
   useEffect(() => {
     getCurrentUser().then(setCurrentUser);
   }, []);
+
+  const getAuthToken = useCallback(async () => (
+    await AsyncStorage.getItem("token") ||
+    await AsyncStorage.getItem("accessToken")
+  ), []);
 
   const resolveCurrentUserId = useCallback(() => currentUser?.id || currentUser?._id || null, [currentUser]);
   
@@ -3011,18 +3028,53 @@ const ChatBox = () => {
   }, []);
 
   const [keyboardPad, setKeyboardPad] = useState(0);
+  const [inputAreaHeight, setInputAreaHeight] = useState(CHAT_INPUT_BASE_HEIGHT);
+  const animateKeyboardLayout = useCallback(() => {
+    if (Platform.OS !== 'android') return;
+    LayoutAnimation.configureNext({
+      duration: 180,
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+    });
+  }, []);
+
   useEffect(() => {
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const showSub = Keyboard.addListener(showEvt, (e) => {
-      if (Platform.OS === 'android') setKeyboardPad(e?.endCoordinates?.height || 0);
-      scrollToBottom(true);
+      if (Platform.OS === 'android') {
+        const nextHeight = e?.endCoordinates?.height || 0;
+        if (nextHeight > 0) lastKeyboardHeightRef.current = nextHeight;
+        animateKeyboardLayout();
+        setKeyboardPad(nextHeight);
+      }
+      if (shouldAutoScrollRef.current && Date.now() >= suppressAutoScrollUntilRef.current) {
+        scrollToBottom(true);
+      }
     });
     const hideSub = Keyboard.addListener(hideEvt, () => {
-      if (Platform.OS === 'android') setKeyboardPad(0);
+      if (Platform.OS === 'android') {
+        animateKeyboardLayout();
+        setKeyboardPad(0);
+      }
     });
     return () => { showSub.remove(); hideSub.remove(); };
-  }, [scrollToBottom]);
+  }, [animateKeyboardLayout, scrollToBottom]);
+
+  const reserveKeyboardSpaceImmediately = useCallback(() => {
+    if (Platform.OS !== 'android' || keyboardPad > 0) return;
+
+    const estimatedKeyboardHeight =
+      lastKeyboardHeightRef.current ||
+      Math.min(Math.max(Math.round(windowHeight * 0.42), 280), 380);
+
+    animateKeyboardLayout();
+    setKeyboardPad(estimatedKeyboardHeight);
+    if (shouldAutoScrollRef.current && Date.now() >= suppressAutoScrollUntilRef.current) {
+      requestAnimationFrame(() => scrollToBottom(true));
+    }
+  }, [animateKeyboardLayout, keyboardPad, scrollToBottom, windowHeight]);
 
   const messagesForList = useMemo(() => {
     if (!messages?.length && !callHistory?.length) return [];
@@ -3032,11 +3084,31 @@ const ChatBox = () => {
   const handleMessagesScroll = useCallback((event) => {
     const { contentOffset } = event.nativeEvent;
     const distanceFromNewest = contentOffset.y;
-    shouldAutoScrollRef.current = distanceFromNewest <= 120;
+    lastScrollOffsetRef.current = distanceFromNewest;
+    shouldAutoScrollRef.current = distanceFromNewest <= 32;
+  }, []);
+
+  const handleMessagesScrollBeginDrag = useCallback(() => {
+    suppressAutoScrollUntilRef.current = Date.now() + 2500;
+    shouldAutoScrollRef.current = lastScrollOffsetRef.current <= 32;
+  }, []);
+
+  const handleMessagesScrollEnd = useCallback((event) => {
+    const distanceFromNewest = event?.nativeEvent?.contentOffset?.y ?? lastScrollOffsetRef.current;
+    lastScrollOffsetRef.current = distanceFromNewest;
+    const nearBottom = distanceFromNewest <= 32;
+    shouldAutoScrollRef.current = nearBottom;
+    if (!nearBottom) {
+      suppressAutoScrollUntilRef.current = Date.now() + 2500;
+    }
   }, []);
 
   const handleMessagesContentSizeChange = useCallback(() => {
     if (!messages.length) return;
+
+    if (Date.now() < suppressAutoScrollUntilRef.current) {
+      return;
+    }
 
     if (!hasInitialAutoScrollRef.current) {
       hasInitialAutoScrollRef.current = true;
@@ -3063,10 +3135,19 @@ const ChatBox = () => {
     return fallbackChatIdRef.current;
   }, [chatId, currentChat, resolveCurrentUserId, resolveCounselorId]);
 
+  const getChatIdForClearAPI = useCallback(() => (
+    chatMongoId ||
+    currentChat?._id ||
+    currentChat?.id ||
+    chatId ||
+    currentChat?.chatId ||
+    getChatIdForAPI()
+  ), [chatMongoId, currentChat, chatId, getChatIdForAPI]);
+
   // Call API actions
   const handleAcceptCall = async (callId) => {
     try {
-      const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
+      const token = await getAuthToken();
       const userId = resolveCurrentUserId();
       if (!userId) throw new Error("User ID missing");
 
@@ -3124,7 +3205,7 @@ const ChatBox = () => {
 
   const handleRejectCall = async (callId) => {
     try {
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       const userId = resolveCurrentUserId();
       if (!userId) throw new Error("User ID missing");
       await axios.put(`${API_BASE_URL}/api/video/calls/${callId}/reject`, {
@@ -3140,7 +3221,7 @@ const ChatBox = () => {
 
   const handleEndCall = async (callId) => {
     try {
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       const userId = resolveCurrentUserId();
       if (!userId) throw new Error("User ID missing");
       await axios.put(`${API_BASE_URL}/api/video/calls/${callId}/end`, {
@@ -3158,7 +3239,7 @@ const ChatBox = () => {
   const fetchMessagesFromAPI = useCallback(async (silent = false) => {
     try {
       const apiChatId = getChatIdForAPI();
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       
       if (!silent && messages.length === 0) setIsLoadingMessages(true);
 
@@ -3166,10 +3247,16 @@ const ChatBox = () => {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
 
-      if (response.data && response.data.messages) {
-        if (response.data.chatStatus) setChatStatus(response.data.chatStatus);
+      const messagesArray =
+        response.data?.messages ||
+        response.data?.data?.messages ||
+        (Array.isArray(response.data) ? response.data : []);
+      const responseChatStatus = response.data?.chatStatus || response.data?.data?.chatStatus;
 
-        const transformedMessages = response.data.messages.map((msg, index) => ({
+      if (Array.isArray(messagesArray)) {
+        if (responseChatStatus) setChatStatus(responseChatStatus);
+
+        const transformedMessages = messagesArray.map((msg, index) => ({
           id: msg.id || msg._id || index,
           messageId: msg.messageId,
           text: msg.content,
@@ -3202,12 +3289,12 @@ const ChatBox = () => {
     } finally {
       setIsLoadingMessages(false);
     }
-  }, [getChatIdForAPI, messages.length, scrollToBottom]);
+  }, [getAuthToken, getChatIdForAPI, messages.length, scrollToBottom]);
 
   // Load the call history for THIS conversation
   const loadCallHistory = useCallback(async () => {
     try {
-      const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
+      const token = await getAuthToken();
       const myId = resolveCurrentUserId() || (await AsyncStorage.getItem("userId"));
       const peerId = resolveCounselorId();
       if (!myId || !peerId) return;
@@ -3216,7 +3303,7 @@ const ChatBox = () => {
     } catch (_) {
       console.warn("Could not load call history:", _);
     }
-  }, [resolveCurrentUserId, resolveCounselorId]);
+  }, [getAuthToken, resolveCurrentUserId, resolveCounselorId]);
 
   const loadMessagesFromLocalStorage = useCallback(async () => {
     try {
@@ -3235,7 +3322,7 @@ const ChatBox = () => {
   const sendMessageToAPI = useCallback(async ({ messageContent = "", file = null }) => {
     try {
       const apiChatId = getChatIdForAPI();
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       let response;
 
       const inferMimeType = (name = "") => {
@@ -3284,7 +3371,7 @@ const ChatBox = () => {
         "Failed to send message";
       throw new Error(backendError);
     }
-  }, [getChatIdForAPI]);
+  }, [getAuthToken, getChatIdForAPI]);
 
   const handleSendMessage = useCallback(async () => {
     if ((newMessage.trim() === "" && !pendingAttachment) || isSending) return;
@@ -3365,10 +3452,11 @@ const ChatBox = () => {
     if (!messageId) return false;
     const apiChatId = getChatIdForAPI();
     try {
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       await axios.delete(`${API_BASE_URL}/api/chat/message/${encodeURIComponent(messageId)}`, {
         headers: { Authorization: token ? `Bearer ${token}` : undefined },
       });
+      suppressAutoScrollUntilRef.current = Date.now() + 350;
       setMessages(prev => prev.filter(m => String(m.id) !== String(messageId) && String(m.messageId) !== String(messageId)));
       try {
         const savedChats = JSON.parse(await AsyncStorage.getItem("activeChats") || "[]");
@@ -3388,21 +3476,22 @@ const ChatBox = () => {
       Alert.alert("Delete message", "Could not delete message from server.");
       return false;
     }
-  }, [getChatIdForAPI, currentChat]);
+  }, [getAuthToken, getChatIdForAPI, currentChat]);
 
   const deleteWholeChat = useCallback(async () => {
-    const apiChatId = getChatIdForAPI();
+    const apiChatId = getChatIdForClearAPI();
+    const localChatId = getChatIdForAPI();
 
     setConfirmState({
       visible: true,
-      title: 'Clear Chat',
+      title: 'Delete Chat',
       message: 'Are you sure you want to delete all messages? You can start a new conversation after.',
       destructive: true,
       onCancel: () => setConfirmState(s => ({ ...s, visible: false })),
       onConfirm: async () => {
         setConfirmState(s => ({ ...s, visible: false }));
         try {
-          const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
+          const token = await getAuthToken();
 
           if (!apiChatId) {
             Alert.alert("Error", "Chat ID not found");
@@ -3420,6 +3509,7 @@ const ChatBox = () => {
           );
 
           setMessages([]);
+          setCallHistory([]);
           setNewMessage('');
           setChatStatus('active');
 
@@ -3428,7 +3518,15 @@ const ChatBox = () => {
               await AsyncStorage.getItem("activeChats") || "[]"
             );
             const updatedChats = savedChats.map(c =>
-              (c.chatId === apiChatId || String(c.id) === String(currentChat?.id))
+              (
+                c.chatId === apiChatId ||
+                c.chatId === localChatId ||
+                String(c.id) === String(apiChatId) ||
+                String(c.id) === String(localChatId) ||
+                String(c._id) === String(apiChatId) ||
+                String(c._id) === String(localChatId) ||
+                String(c.id) === String(currentChat?.id)
+              )
                 ? {
                     ...c,
                     messages: [],
@@ -3466,7 +3564,7 @@ const ChatBox = () => {
         }
       }
     });
-  }, [getChatIdForAPI, currentChat]);
+  }, [getAuthToken, getChatIdForAPI, getChatIdForClearAPI, currentChat]);
 
   const handlePickAttachment = useCallback(async () => {
     if (isSending) return;
@@ -3501,7 +3599,7 @@ const ChatBox = () => {
     setCallError(null);
 
     try {
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       const initiatorId = resolveCurrentUserId();
       const receiverId = resolveCounselorId();
 
@@ -3545,7 +3643,7 @@ const ChatBox = () => {
     } finally {
       setIsInitiatingCall(false);
     }
-  }, [currentCounselor, resolveCurrentUserId, resolveCounselorId]);
+  }, [currentCounselor, getAuthToken, resolveCurrentUserId, resolveCounselorId]);
 
   const initiateVoiceCall = useCallback(async () => {
     if (!currentCounselor) {
@@ -3557,7 +3655,7 @@ const ChatBox = () => {
     setCallError(null);
 
     try {
-      const token = await AsyncStorage.getItem("token");
+      const token = await getAuthToken();
       const initiatorId = resolveCurrentUserId();
       const receiverId = resolveCounselorId();
 
@@ -3601,7 +3699,7 @@ const ChatBox = () => {
     } finally {
       setIsInitiatingCall(false);
     }
-  }, [currentCounselor, resolveCurrentUserId, resolveCounselorId]);
+  }, [currentCounselor, getAuthToken, resolveCurrentUserId, resolveCounselorId]);
 
   const handleVideoCall = useCallback(() => initiateVideoCall(), [initiateVideoCall]);
   const handleVoiceCall = useCallback(() => initiateVoiceCall(), [initiateVoiceCall]);
@@ -3698,7 +3796,7 @@ const ChatBox = () => {
     if (!apiChatId) return;
 
     const setupSocket = async () => {
-      const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
+      const token = await getAuthToken();
       if (!token) return;
 
       const unsubscribers = [];
@@ -3742,13 +3840,17 @@ const ChatBox = () => {
             isRead: messageData.isRead,
             status: 'sent',
           };
-          shouldAutoScrollRef.current = true;
+          const shouldKeepAtBottom =
+            shouldAutoScrollRef.current &&
+            Date.now() >= suppressAutoScrollUntilRef.current;
           setMessages(prev => {
             const isDuplicate = prev.some(msg => msg.messageId && messageData.messageId && msg.messageId === messageData.messageId);
             if (isDuplicate) return prev;
             return [...prev, transformedMessage];
           });
-          setTimeout(scrollToBottom, 100);
+          if (shouldKeepAtBottom) {
+            setTimeout(scrollToBottom, 100);
+          }
         }));
 
         unsubscribers.push(await socketService.on('user-typing', ({ userRole, isTyping: typing }) => {
@@ -3787,7 +3889,7 @@ const ChatBox = () => {
       chatSocketRef.current = null;
       setIsSocketConnected(false);
     };
-  }, [chatId, currentChat?.chatId, scrollToBottom, resolveCurrentUserId, resolveCounselorId]);
+  }, [chatId, currentChat?.chatId, getAuthToken, scrollToBottom, resolveCurrentUserId, resolveCounselorId]);
 
   const handleTypingIndicator = useCallback(() => {
     const apiChatId = chatId || currentChat?.chatId;
@@ -3812,6 +3914,10 @@ const ChatBox = () => {
 
   useEffect(() => {
     if (messages.length > 0) {
+      if (Date.now() < suppressAutoScrollUntilRef.current) {
+        return;
+      }
+
       if (!hasInitialAutoScrollRef.current) {
         hasInitialAutoScrollRef.current = true;
         shouldAutoScrollRef.current = true;
@@ -3979,6 +4085,16 @@ const ChatBox = () => {
   const counselorName = currentCounselor?.displayName || currentCounselor?.name || "Counselor";
   const counselorOnline = resolveOnlineStatus(currentCounselor);
   const counselorProfilePhoto = getProfilePhotoUrl(currentCounselor);
+  const inputBottomOffset = Platform.OS === 'android' ? keyboardPad : 0;
+  const inputReservedHeight =
+    inputAreaHeight || (CHAT_INPUT_BASE_HEIGHT + (pendingAttachment ? CHAT_INPUT_ATTACHMENT_HEIGHT : 0));
+  const messageListBottomSpace = inputReservedHeight + inputBottomOffset;
+
+  useEffect(() => {
+    if (shouldAutoScrollRef.current && Date.now() >= suppressAutoScrollUntilRef.current) {
+      setTimeout(() => scrollToBottom(true), 60);
+    }
+  }, [messageListBottomSpace, scrollToBottom]);
 
   useEffect(() => {
     setCounselorAvatarFailed(false);
@@ -3993,7 +4109,7 @@ const ChatBox = () => {
         style={styles.keyboardAvoid}
         enabled={Platform.OS === "ios"}
       >
-        <View style={[styles.chatBoxMain, Platform.OS === 'android' && keyboardPad > 0 ? { paddingBottom: keyboardPad } : null]}>
+        <View style={styles.chatBoxMain}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -4054,9 +4170,9 @@ const ChatBox = () => {
                   <Ionicons name="refresh" size={18} color="#526071" />
                   <Text style={styles.optionText}>Refresh Messages</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.optionItem} onPress={deleteWholeChat}>
-                  <Ionicons name="trash-outline" size={18} color="#526071" />
-                  <Text style={styles.optionText}>Delete Chat</Text>
+                <TouchableOpacity style={styles.optionItem} onPress={() => { setShowOptions(false); deleteWholeChat(); }}>
+                  <Ionicons name="trash-outline" size={18} color="#dc2626" />
+                  <Text style={[styles.optionText, styles.optionTextDanger]}>Delete Chat</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.optionItem} onPress={() => { Alert.alert("Report Issue", "Feature coming soon"); setShowOptions(false); }}>
                   <Ionicons name="warning-outline" size={18} color="#526071" />
@@ -4093,9 +4209,13 @@ const ChatBox = () => {
               data={messagesForList}
               keyExtractor={(item, index) => item.id?.toString() || index.toString()}
               renderItem={renderMessage}
+              style={{ marginBottom: messageListBottomSpace }}
               contentContainerStyle={styles.messagesList}
               onContentSizeChange={handleMessagesContentSizeChange}
               onScroll={handleMessagesScroll}
+              onScrollBeginDrag={handleMessagesScrollBeginDrag}
+              onScrollEndDrag={handleMessagesScrollEnd}
+              onMomentumScrollEnd={handleMessagesScrollEnd}
               scrollEventThrottle={16}
               keyboardShouldPersistTaps="always"
               keyboardDismissMode="none"
@@ -4172,7 +4292,15 @@ const ChatBox = () => {
           />
 
           {/* Input Area */}
-          <View style={styles.inputArea}>
+          <View
+            style={[styles.inputArea, { bottom: inputBottomOffset }]}
+            onLayout={(event) => {
+              const nextHeight = Math.ceil(event.nativeEvent.layout.height || 0);
+              if (nextHeight > 0 && Math.abs(nextHeight - inputAreaHeight) > 1) {
+                setInputAreaHeight(nextHeight);
+              }
+            }}
+          >
             <View style={styles.inputAreaInner}>
             {pendingAttachment && (
               <View style={styles.attachmentPreview}>
@@ -4200,6 +4328,7 @@ const ChatBox = () => {
                   multiline
                   blurOnSubmit={false}
                   enablesReturnKeyAutomatically
+                  onFocus={reserveKeyboardSpaceImmediately}
                   onBlur={() => {
                     if (keepKeyboardRef.current) {
                       keepKeyboardRef.current = false;
@@ -4255,6 +4384,9 @@ const ChatBox = () => {
 const styles = StyleSheet.create({
   // ... (all styles from original code)
     container: {
+     flex: 1,
+     width: '100%',
+     backgroundColor: "#f7f9fb",
 },
    keyboardAvoid: {
      flex: 1,
@@ -4263,6 +4395,7 @@ const styles = StyleSheet.create({
      flex: 1,
      width: '100%',
      backgroundColor: "#f7f9fb",
+     position: "relative",
    },
    // Header Styles - Balanced
    header: {
@@ -4428,6 +4561,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
     color: "#191c1e",
+  },
+  optionTextDanger: {
+    color: "#dc2626",
+    fontWeight: "700",
   },
   // Chat Status Banner
   chatStatusBanner: {
@@ -4794,6 +4931,9 @@ const styles = StyleSheet.create({
   },
   // Input Area - Serenity Design
   inputArea: {
+    position: "absolute",
+    left: 0,
+    right: 0,
     width: '100%',
     paddingHorizontal: 16,
     paddingTop: 12,

@@ -220,8 +220,13 @@ const ChatInterface = ({ setActiveTab }) => {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (response.status === 200 && response.data?.chats) {
-        const counselorList = response.data.chats.map((chat) => {
+      const chatsArray =
+        response.data?.chats ||
+        response.data?.data?.chats ||
+        (Array.isArray(response.data) ? response.data : []);
+
+      if (response.status === 200 && Array.isArray(chatsArray)) {
+        const counselorList = chatsArray.map((chat) => {
           const otherParty = chat.otherParty || {};
           const lastMessage = resolveLastMessage(chat);
           const lastMessageTime = chat.lastMessage?.createdAt || chat.updatedAt || chat.startedAt;
@@ -237,6 +242,7 @@ const ChatInterface = ({ setActiveTab }) => {
 
           return {
             id: otherParty.id || chat.chatId,
+            chatMongoId: chat.id || chat._id || null,
             name: otherParty.name || 'Unknown Counselor',
             fullName: otherParty.name || 'Unknown Counselor',
             lastMessage,
@@ -263,12 +269,56 @@ const ChatInterface = ({ setActiveTab }) => {
         });
 
         setCounselors(counselorList);
+
+        try {
+          await AsyncStorage.setItem('activeChats', JSON.stringify(chatsArray));
+        } catch (storageError) {
+          console.warn('Could not cache active chats:', storageError);
+        }
       } else {
         setCounselors([]);
       }
     } catch (error) {
       console.error('Error fetching chats:', error);
       setError(error.message);
+
+      try {
+        const savedChats = JSON.parse(await AsyncStorage.getItem('activeChats') || '[]');
+        if (Array.isArray(savedChats) && savedChats.length > 0) {
+          const counselorList = savedChats.map((chat) => {
+            const otherParty = chat.otherParty || {};
+            const lastMessage = resolveLastMessage(chat);
+            const lastMessageTime = chat.lastMessage?.createdAt || chat.updatedAt || chat.startedAt;
+            const specialization = Array.isArray(otherParty.specialization)
+              ? otherParty.specialization[0] || 'Counselor'
+              : otherParty.specialization || 'Counselor';
+
+            return {
+              id: otherParty.id || otherParty._id || chat.chatId,
+              chatMongoId: chat.id || chat._id || null,
+              name: otherParty.name || otherParty.fullName || 'Unknown Counselor',
+              fullName: otherParty.name || otherParty.fullName || 'Unknown Counselor',
+              lastMessage,
+              lastMessageTime,
+              time: formatTime(lastMessageTime),
+              fullDateTime: formatFullDateTime(lastMessageTime),
+              unread: chat.unreadCount || 0,
+              online: resolveOnlineStatus(otherParty),
+              lastSeen: otherParty.lastSeen || null,
+              avatar: otherParty.profilePhoto?.url || otherParty.avatar,
+              specialization,
+              chatId: chat.chatId,
+              status: chat.status,
+              isExpired: chat.isExpired,
+              profilePhoto: otherParty.profilePhoto,
+              phoneNumber: otherParty.phoneNumber,
+            };
+          });
+          setCounselors(counselorList);
+        }
+      } catch (storageError) {
+        console.warn('Could not load cached chats:', storageError);
+      }
     } finally {
       setLoading(false);
       setInitialLoading(false);
@@ -300,7 +350,7 @@ const ChatInterface = ({ setActiveTab }) => {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.status === 200 || response.status === 204) {
-        setCounselors((prev) => prev.filter((c) => c.id !== chatId));
+        setCounselors((prev) => prev.filter((c) => c.id !== chatId && c.chatId !== chatId));
         if (Platform.OS === 'android') {
           Vibration.vibrate(50);
         }
@@ -369,6 +419,7 @@ const ChatInterface = ({ setActiveTab }) => {
     navigation.navigate('ChatBox', {
       id: counselor.id,
       chatId: counselor.chatId,
+      chatMongoId: counselor.chatMongoId,
       counselor: {
         id: counselor.id,
         name: counselor.name,

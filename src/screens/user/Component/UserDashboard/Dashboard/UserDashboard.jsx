@@ -25,7 +25,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, useIsFocused } from "@react-navigation/native";
 import axios from "axios";
-import axiosInstance, { API_BASE_URL } from "../../../../../axiosConfig";
+import axiosInstance, { API_BASE_URL, AI_REALTIME_BASE_URL } from "../../../../../axiosConfig";
+import {
+  RTCPeerConnection,
+  RTCSessionDescription,
+  mediaDevices,
+} from "@stream-io/react-native-webrtc";
+import InCallManager from "react-native-incall-manager";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { launchImageLibrary } from "react-native-image-picker";
 import socketService from "../../../../../services/socketService";
@@ -92,11 +98,72 @@ const ChatPopup = ({
   const [isRecording, setIsRecording] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [showLangPicker, setShowLangPicker] = useState(false);
+  const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
+  const [aiVoiceStatus, setAiVoiceStatus] = useState("idle");
+  const [aiVoiceTime, setAiVoiceTime] = useState(0);
+  const [aiVoiceMuted, setAiVoiceMuted] = useState(false);
+  const [aiVoiceSpeakerOn, setAiVoiceSpeakerOn] = useState(true);
+  const [aiVoiceError, setAiVoiceError] = useState(null);
+  const [aiVoiceTranscript, setAiVoiceTranscript] = useState([]);
   const inputRef = useRef(null);
   const scrollViewRef = useRef(null);
   const sendMessageRef = useRef(sendMessage);
   const setNewMessageRef = useRef(setNewMessage);
+  const aiVoicePcRef = useRef(null);
+  const aiVoiceMicStreamRef = useRef(null);
+  const aiVoiceDataChannelRef = useRef(null);
+  const aiVoiceTimerRef = useRef(null);
   const micPulse = useRef(new Animated.Value(1)).current;
+
+  const stopAiVoiceTimer = useCallback(() => {
+    if (aiVoiceTimerRef.current) {
+      clearInterval(aiVoiceTimerRef.current);
+      aiVoiceTimerRef.current = null;
+    }
+  }, []);
+
+  const startAiVoiceTimer = useCallback(() => {
+    stopAiVoiceTimer();
+    setAiVoiceTime(0);
+    aiVoiceTimerRef.current = setInterval(() => {
+      setAiVoiceTime((prev) => prev + 1);
+    }, 1000);
+  }, [stopAiVoiceTimer]);
+
+  const cleanupAiVoiceCall = useCallback((options = {}) => {
+    const { closeModal = false, nextStatus = "idle" } = options;
+
+    stopAiVoiceTimer();
+
+    try { aiVoiceDataChannelRef.current?.close?.(); } catch (_) {}
+    aiVoiceDataChannelRef.current = null;
+
+    try { aiVoicePcRef.current?.close?.(); } catch (_) {}
+    aiVoicePcRef.current = null;
+
+    try {
+      aiVoiceMicStreamRef.current?.getTracks?.().forEach((track) => track.stop?.());
+    } catch (_) {}
+    aiVoiceMicStreamRef.current = null;
+
+    try { InCallManager.setSpeakerphoneOn?.(false); } catch (_) {}
+    try { InCallManager.setForceSpeakerphoneOn?.(false); } catch (_) {}
+    try { InCallManager.stop(); } catch (_) {}
+
+    setAiVoiceMuted(false);
+    setAiVoiceSpeakerOn(true);
+    setAiVoiceStatus(nextStatus);
+    if (closeModal) {
+      setAiVoiceOpen(false);
+      setAiVoiceError(null);
+      setAiVoiceTranscript([]);
+      setAiVoiceTime(0);
+    }
+  }, [stopAiVoiceTimer]);
+
+  useEffect(() => {
+    return () => cleanupAiVoiceCall({ closeModal: true });
+  }, [cleanupAiVoiceCall]);
 
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
   useEffect(() => { setNewMessageRef.current = setNewMessage; }, [setNewMessage]);
@@ -229,6 +296,240 @@ const ChatPopup = ({
     }
   };
 
+  const setAiVoiceSpeakerRoute = (enabled) => {
+    try { InCallManager.setSpeakerphoneOn?.(enabled); } catch (_) {}
+    try { InCallManager.setForceSpeakerphoneOn?.(enabled); } catch (_) {}
+  };
+
+  const formatAiVoiceTime = (seconds) => {
+    const mins = Math.floor(seconds / 60).toString().padStart(2, "0");
+    const secs = (seconds % 60).toString().padStart(2, "0");
+    return `${mins}:${secs}`;
+  };
+
+  const getAiVoiceStatusText = () => {
+    if (aiVoiceError) return "Connection issue";
+    switch (aiVoiceStatus) {
+      case "connecting": return "Connecting...";
+      case "listening": return "Listening";
+      case "thinking": return "Thinking";
+      case "speaking": return "Speaking";
+      case "error": return "Call ended";
+      default: return "Ready";
+    }
+  };
+
+  const appendAiVoiceTranscript = (speaker, text) => {
+    const cleanText = String(text || "").trim();
+    if (!cleanText) return;
+    setAiVoiceTranscript((prev) => [
+      ...prev.slice(-5),
+      { id: `${Date.now()}_${Math.random()}`, speaker, text: cleanText },
+    ]);
+  };
+
+  const configureAiVoiceTurnDetection = (dataChannel) => {
+    if (!dataChannel || dataChannel.readyState !== "open") return;
+    dataChannel.send(JSON.stringify({
+      type: "session.update",
+      session: {
+        type: "realtime",
+        audio: {
+          input: {
+            transcription: { model: "gpt-4o-mini-transcribe" },
+            turn_detection: {
+              type: "server_vad",
+              threshold: 0.5,
+              prefix_padding_ms: 300,
+              silence_duration_ms: 500,
+              create_response: true,
+              interrupt_response: true,
+            },
+          },
+        },
+      },
+    }));
+  };
+
+  const handleAiVoiceRealtimeEvent = (event) => {
+    switch (event?.type) {
+      case "input_audio_buffer.speech_started":
+        setAiVoiceStatus("listening");
+        break;
+      case "input_audio_buffer.speech_stopped":
+        setAiVoiceStatus("thinking");
+        break;
+      case "response.audio.delta":
+      case "response.audio_transcript.delta":
+        setAiVoiceStatus("speaking");
+        break;
+      case "conversation.item.input_audio_transcription.completed":
+        appendAiVoiceTranscript("You", event.transcript);
+        break;
+      case "response.audio_transcript.done":
+        appendAiVoiceTranscript("AI", event.transcript);
+        break;
+      case "response.done":
+        setAiVoiceStatus("listening");
+        break;
+      case "error":
+        setAiVoiceError(event.error?.message || "AI voice call failed.");
+        setAiVoiceStatus("error");
+        break;
+      default:
+        break;
+    }
+  };
+
+  const waitForIceGathering = (pc) => new Promise((resolve) => {
+    if (!pc || pc.iceGatheringState === "complete") {
+      resolve();
+      return;
+    }
+
+    const timeout = setTimeout(resolve, 1600);
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === "complete") {
+        clearTimeout(timeout);
+        resolve();
+      }
+    };
+  });
+
+  const requestAiVoiceMicPermission = async () => {
+    if (Platform.OS !== "android") return true;
+    const granted = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+      {
+        title: "Microphone Permission",
+        message: "This app needs microphone access for AI voice calls.",
+        buttonPositive: "Allow",
+      }
+    );
+    return granted === PermissionsAndroid.RESULTS.GRANTED;
+  };
+
+  const startAiVoiceCall = async () => {
+    if (aiVoicePcRef.current || aiVoiceStatus === "connecting") return;
+
+    const Speech = require('../../../../../utils/SpeechBridge');
+    try { await Speech.stopListening(); } catch (_) {}
+    try { await Speech.stopSpeaking(); } catch (_) {}
+    setIsRecording(false);
+    setSpeakingId(null);
+
+    setAiVoiceOpen(true);
+    setAiVoiceStatus("connecting");
+    setAiVoiceError(null);
+    setAiVoiceTranscript([]);
+    setAiVoiceTime(0);
+
+    try {
+      const hasPermission = await requestAiVoiceMicPermission();
+      if (!hasPermission) {
+        throw new Error("Please allow microphone access to start the AI voice call.");
+      }
+
+      try { InCallManager.start({ media: "audio" }); } catch (_) {}
+      setAiVoiceSpeakerRoute(true);
+
+      const pc = new RTCPeerConnection();
+      aiVoicePcRef.current = pc;
+
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState;
+        if (state === "connected") {
+          setAiVoiceStatus("listening");
+          startAiVoiceTimer();
+        }
+        if (state === "failed" || state === "disconnected" || state === "closed") {
+          if (aiVoicePcRef.current) {
+            setAiVoiceError("AI voice call disconnected. Please try again.");
+            cleanupAiVoiceCall({ nextStatus: "error" });
+            setAiVoiceOpen(true);
+          }
+        }
+      };
+
+      pc.ontrack = () => {
+        setAiVoiceStatus((prev) => (prev === "connecting" ? "listening" : prev));
+      };
+
+      const dataChannel = pc.createDataChannel("oai-events");
+      aiVoiceDataChannelRef.current = dataChannel;
+      dataChannel.onopen = () => {
+        configureAiVoiceTurnDetection(dataChannel);
+        setAiVoiceStatus("listening");
+        startAiVoiceTimer();
+      };
+      dataChannel.onmessage = (messageEvent) => {
+        try {
+          handleAiVoiceRealtimeEvent(JSON.parse(messageEvent.data));
+        } catch (parseError) {
+          console.warn("[AI Voice] event parse error:", parseError);
+        }
+      };
+      dataChannel.onerror = () => {
+        setAiVoiceError("AI voice connection had an issue.");
+        setAiVoiceStatus("error");
+      };
+
+      const micStream = await mediaDevices.getUserMedia({ audio: true, video: false });
+      aiVoiceMicStreamRef.current = micStream;
+      micStream.getTracks().forEach((track) => pc.addTrack(track, micStream));
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await waitForIceGathering(pc);
+
+      const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
+      const sdp = pc.localDescription?.sdp || offer.sdp || "";
+      const response = await fetch(`${AI_REALTIME_BASE_URL}/api/ai/realtime/session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/sdp",
+          "X-Tunnel-Skip-AntiPhishing-Page": "true",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: sdp,
+      });
+
+      const answerSdp = await response.text();
+      if (!response.ok) {
+        const isHtmlError = /<!doctype html|<html|cannot post/i.test(answerSdp);
+        throw new Error(
+          isHtmlError
+            ? `AI voice route is not available on ${AI_REALTIME_BASE_URL}. Please start/deploy the latest backend.`
+            : answerSdp || "Could not start AI voice call."
+        );
+      }
+
+      await pc.setRemoteDescription(new RTCSessionDescription({
+        type: "answer",
+        sdp: answerSdp,
+      }));
+    } catch (error) {
+      console.error("[AI Voice] start error:", error);
+      setAiVoiceError(error?.message || "Could not start AI voice call.");
+      cleanupAiVoiceCall({ nextStatus: "error" });
+      setAiVoiceOpen(true);
+    }
+  };
+
+  const toggleAiVoiceMute = () => {
+    const nextMuted = !aiVoiceMuted;
+    aiVoiceMicStreamRef.current?.getAudioTracks?.().forEach((track) => {
+      track.enabled = !nextMuted;
+    });
+    setAiVoiceMuted(nextMuted);
+  };
+
+  const toggleAiVoiceSpeaker = () => {
+    const nextSpeaker = !aiVoiceSpeakerOn;
+    setAiVoiceSpeakerRoute(nextSpeaker);
+    setAiVoiceSpeakerOn(nextSpeaker);
+  };
+
   return (
   <Modal animationType="slide" transparent={true} visible={true} statusBarTranslucent>
     <View style={styles.chatPopupOverlay}>
@@ -268,6 +569,18 @@ const ChatPopup = ({
                 <MaterialIcons name="refresh" size={20} color="white" />
               </TouchableOpacity>
             )}
+            <TouchableOpacity
+              onPress={startAiVoiceCall}
+              style={[styles.chatIconBtn, aiVoiceStatus === "connecting" && styles.chatIconBtnDisabled]}
+              disabled={aiVoiceStatus === "connecting"}
+              accessibilityLabel="Start AI voice call"
+            >
+              {aiVoiceStatus === "connecting" ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <MaterialIcons name="call" size={20} color="white" />
+              )}
+            </TouchableOpacity>
             <TouchableOpacity
               onPress={onClose}
               style={styles.chatIconBtn}
@@ -471,6 +784,69 @@ const ChatPopup = ({
             </View>
           </View>
         )}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={aiVoiceOpen}
+          statusBarTranslucent
+          onRequestClose={() => cleanupAiVoiceCall({ closeModal: true })}
+        >
+          <View style={styles.aiVoiceOverlay}>
+            <View style={styles.aiVoiceCard}>
+              <LinearGradient
+                colors={['#667eea', '#764ba2']}
+                style={styles.aiVoiceAvatar}
+              >
+                <MaterialIcons name="auto-awesome" size={34} color="#ffffff" />
+              </LinearGradient>
+              <Text style={styles.aiVoiceTitle}>AI Voice Assistant</Text>
+              <Text style={styles.aiVoiceStatusText}>{getAiVoiceStatusText()}</Text>
+              <Text style={styles.aiVoiceTimer}>{formatAiVoiceTime(aiVoiceTime)}</Text>
+              {aiVoiceError ? (
+                <Text style={styles.aiVoiceError}>{aiVoiceError}</Text>
+              ) : (
+                <Text style={styles.aiVoiceHint}>
+                  Speak when you are ready. The AI will reply after you finish.
+                </Text>
+              )}
+
+              {aiVoiceTranscript.length > 0 && (
+                <View style={styles.aiVoiceTranscriptBox}>
+                  {aiVoiceTranscript.map((item) => (
+                    <Text key={item.id} style={styles.aiVoiceTranscriptText} numberOfLines={2}>
+                      <Text style={styles.aiVoiceTranscriptSpeaker}>{item.speaker}: </Text>
+                      {item.text}
+                    </Text>
+                  ))}
+                </View>
+              )}
+
+              <View style={styles.aiVoiceControls}>
+                <TouchableOpacity
+                  style={[styles.aiVoiceControlBtn, aiVoiceMuted && styles.aiVoiceControlBtnActive]}
+                  onPress={toggleAiVoiceMute}
+                  activeOpacity={0.8}
+                >
+                  <MaterialIcons name={aiVoiceMuted ? "mic-off" : "mic"} size={24} color={aiVoiceMuted ? "#ffffff" : "#334155"} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.aiVoiceControlBtn, aiVoiceSpeakerOn && styles.aiVoiceControlBtnActiveBlue]}
+                  onPress={toggleAiVoiceSpeaker}
+                  activeOpacity={0.8}
+                >
+                  <MaterialIcons name={aiVoiceSpeakerOn ? "volume-up" : "hearing"} size={24} color={aiVoiceSpeakerOn ? "#ffffff" : "#334155"} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.aiVoiceControlBtn, styles.aiVoiceEndBtn]}
+                  onPress={() => cleanupAiVoiceCall({ closeModal: true })}
+                  activeOpacity={0.85}
+                >
+                  <MaterialIcons name="call-end" size={26} color="#ffffff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     </View>
   </Modal>
@@ -1464,22 +1840,36 @@ export default function UserDashboard() {
         content: msg.text,
       }));
 
-      const response = await axiosInstance.post('/api/ai/message', {
+      const response = await axiosInstance.post('/api/ai-chat/send-message', {
         message: userMessage.text,
         history,
         sessionId: aiSessionId,
         language: selectedLang,
       });
 
-      if (response.data?.success) {
-        if (response.data.data?.sessionId) {
-          setAiSessionId(response.data.data.sessionId);
+      if (response.data?.success !== false) {
+        const responsePayload = response.data?.data || response.data || {};
+        const aiResponse =
+          responsePayload.aiResponse ||
+          responsePayload.response ||
+          responsePayload.reply ||
+          responsePayload.message ||
+          response.data?.aiResponse;
+
+        if (!aiResponse) {
+          throw new Error("Invalid AI response");
         }
+
+        const nextSessionId = responsePayload.sessionId || response.data?.sessionId;
+        if (nextSessionId) {
+          setAiSessionId(nextSessionId);
+        }
+
         const aiMessage = {
           id: Date.now() + 1,
-          text: response.data.data?.aiResponse,
+          text: aiResponse,
           sender: "ai",
-          quickReplies: response.data.data?.quickReplies || null,
+          quickReplies: responsePayload.quickReplies || response.data?.quickReplies || null,
         };
         setChatMessages((prev) => [...prev, aiMessage]);
       } else {
@@ -2127,12 +2517,18 @@ export default function UserDashboard() {
       {/* LOGOUT CONFIRM MODAL */}
       {/* Help & Support full-screen modal */}
       <Modal visible={showHelpSupport} animationType="slide" transparent={false} onRequestClose={() => setShowHelpSupport(false)}>
-        <HelpSupport onClose={() => setShowHelpSupport(false)} />
+        <HelpSupport
+          onClose={() => setShowHelpSupport(false)}
+          onOpenTab={switchDashboardTab}
+        />
       </Modal>
 
       {/* Privacy Policy full-screen modal */}
       <Modal visible={showPrivacyPolicy} animationType="slide" transparent={false} onRequestClose={() => setShowPrivacyPolicy(false)}>
-        <PrivacyPolicy onClose={() => setShowPrivacyPolicy(false)} />
+        <PrivacyPolicy
+          onClose={() => setShowPrivacyPolicy(false)}
+          onOpenTab={switchDashboardTab}
+        />
       </Modal>
 
       <Modal transparent={true} visible={showLogoutConfirm} animationType="fade">
@@ -3421,6 +3817,115 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     color: "#667eea",
+  },
+  aiVoiceOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.66)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 22,
+  },
+  aiVoiceCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 24,
+    backgroundColor: "#ffffff",
+    padding: 22,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.26,
+    shadowRadius: 28,
+    elevation: 18,
+  },
+  aiVoiceAvatar: {
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  aiVoiceTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#111827",
+    textAlign: "center",
+  },
+  aiVoiceStatusText: {
+    marginTop: 6,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#667eea",
+  },
+  aiVoiceTimer: {
+    marginTop: 8,
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
+  aiVoiceHint: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#64748b",
+    textAlign: "center",
+  },
+  aiVoiceError: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#dc2626",
+    textAlign: "center",
+    fontWeight: "600",
+  },
+  aiVoiceTranscriptBox: {
+    width: "100%",
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: "#f8fafc",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  aiVoiceTranscriptText: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: "#334155",
+    marginBottom: 5,
+  },
+  aiVoiceTranscriptSpeaker: {
+    fontWeight: "800",
+    color: "#4f46e5",
+  },
+  aiVoiceControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14,
+    marginTop: 22,
+  },
+  aiVoiceControlBtn: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#f1f5f9",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  aiVoiceControlBtnActive: {
+    backgroundColor: "#ef4444",
+    borderColor: "#ef4444",
+  },
+  aiVoiceControlBtnActiveBlue: {
+    backgroundColor: "#667eea",
+    borderColor: "#667eea",
+  },
+  aiVoiceEndBtn: {
+    backgroundColor: "#dc2626",
+    borderColor: "#dc2626",
   },
 
   loadingDots: {
