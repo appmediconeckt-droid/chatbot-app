@@ -17,7 +17,6 @@ const notify = () => {
   const snapshot = { isRinging: globalIsRinging, mode: globalMode };
   listeners.forEach((fn) => { try { fn(snapshot); } catch (_) {} });
 };
-
 const forceStopAudio = () => {
   Vibration.cancel();
   if (InCallManager) {

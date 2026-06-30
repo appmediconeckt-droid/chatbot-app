@@ -118,13 +118,6 @@ const ChatInterface = ({ setActiveTab }) => {
     return colors[Math.abs(hash) % colors.length];
   };
 
-  const resolveOnlineStatus = (person) => {
-    const explicitOnline = person?.isOnline ?? person?.online;
-    if (typeof explicitOnline === 'boolean') return explicitOnline;
-    if (typeof explicitOnline === 'string') return ['online','true','1','yes'].includes(String(explicitOnline).toLowerCase());
-    return false;
-  };
-
   const formatTime = (timeString) => {
     if (!timeString) return '';
     try {
@@ -335,7 +328,6 @@ const ChatInterface = ({ setActiveTab }) => {
         { chatId: chatIdentifier },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      // Normalize update: match either chatId or id fields to be robust
       setCounselors((prev) => prev.map((c) => ((c.chatId === chatIdentifier || String(c.id) === String(chatIdentifier)) ? { ...c, unread: 0 } : c)));
     } catch (error) {
       console.error('Error marking chat as read:', error);
@@ -412,10 +404,8 @@ const ChatInterface = ({ setActiveTab }) => {
   );
 
   const handleCounselorSelect = useCallback(async (counselor) => {
-    // Ensure we mark the correct chat as read using the chatId when available
     await markChatAsRead(counselor.chatId || counselor.id);
     safeVibrate(80);
-    // Pass both `chatId` and `id` explicitly so the ChatBox can unambiguously resolve
     navigation.navigate('ChatBox', {
       id: counselor.id,
       chatId: counselor.chatId,
@@ -498,7 +488,6 @@ const ChatInterface = ({ setActiveTab }) => {
     }
   }, [selectedCounselor, deleteChat]);
 
-
   const filteredCounselors = counselors.filter((counselor) =>
     counselor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     counselor.specialization.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -536,7 +525,9 @@ const ChatInterface = ({ setActiveTab }) => {
       >
         <Animated.View style={[styles.chatItem, animatedStyle]}>
           <View style={styles.avatarContainer}>
-            {renderAvatar(item)}
+            <View style={styles.avatarWrapper}>
+              {renderAvatar(item)}
+            </View>
             <View style={[styles.statusDot, item.online ? styles.statusOnline : styles.statusOffline]} />
           </View>
           <View style={styles.chatInfo}>
@@ -809,6 +800,16 @@ const styles = {
   avatarContainer: {
     position: 'relative',
     marginRight: 14,
+    width: 52,
+    height: 52,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarWrapper: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    overflow: 'hidden',
   },
   avatarImage: {
     width: 50,
@@ -836,6 +837,7 @@ const styles = {
     borderRadius: 7,
     borderWidth: 2.5,
     borderColor: '#ffffff',
+    zIndex: 1,
   },
   statusOnline: {
     backgroundColor: '#10b981',

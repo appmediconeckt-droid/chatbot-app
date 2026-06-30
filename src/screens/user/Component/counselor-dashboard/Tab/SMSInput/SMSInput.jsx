@@ -220,6 +220,7 @@ const SMSInput = ({ navigation, route }) => {
   const [error, setError] = useState(null);
   const [chatStatus, setChatStatus] = useState(null);
   const [pendingAttachment, setPendingAttachment] = useState(null);
+  const [deletingMessageId, setDeletingMessageId] = useState(null);
   
   // Counselor data
   const [currentCounselor, setCurrentCounselor] = useState(null);
@@ -532,6 +533,74 @@ const SMSInput = ({ navigation, route }) => {
     }
   };
 
+  const getMessageIdentifier = (msg) => msg?._id || msg?.id || msg?.messageId;
+
+  const removeMessageFromState = async (messageToDelete) => {
+    const targetId = getMessageIdentifier(messageToDelete);
+    if (!targetId) return;
+
+    const isSameMessage = (msg) => {
+      const currentId = getMessageIdentifier(msg);
+      return currentId && String(currentId) === String(targetId);
+    };
+
+    setMessages((prev) => {
+      const updatedMessages = prev.filter((msg) => !isSameMessage(msg));
+      saveMessagesToLocalStorage(updatedMessages);
+      return updatedMessages;
+    });
+  };
+
+  const handleDeleteMessage = async (messageToDelete) => {
+    if (!selectedUser || isSending) return;
+
+    const messageId = getMessageIdentifier(messageToDelete);
+    if (!messageId || String(messageId).startsWith("temp_") || messageToDelete?.isTemporary) {
+      Alert.alert("Delete Message", "This message cannot be deleted yet.");
+      return;
+    }
+
+    Alert.alert(
+      "Delete Message",
+      "Delete this message? This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setDeletingMessageId(String(messageId));
+              setError(null);
+
+              const token = await getAuthToken();
+              await axios.delete(`${API_BASE_URL}/api/chat/message/${encodeURIComponent(messageId)}`, {
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: token ? `Bearer ${token}` : "",
+                },
+              });
+
+              await removeMessageFromState(messageToDelete);
+            } catch (deleteError) {
+              if (deleteError?.response?.status === 401) {
+                navigation.replace('RoleSelector', { reason: 'session-expired' });
+                return;
+              }
+              const errorMsg =
+                deleteError?.response?.data?.error ||
+                deleteError?.response?.data?.message ||
+                deleteError?.message ||
+                "Failed to delete message";
+              Alert.alert("Delete Failed", errorMsg);
+            } finally {
+              setDeletingMessageId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
   const handleSendMessage = async () => {
     if ((message.trim() === "" && !pendingAttachment) || !selectedUser || isSending) return;
     const messageText = message.trim();
@@ -1016,6 +1085,10 @@ const SMSInput = ({ navigation, route }) => {
     }
 
     const isMe = item.sender === "me";
+    const messageId = getMessageIdentifier(item);
+    const isDeleting = String(deletingMessageId) === String(messageId);
+    const canDelete = !!messageId && !item.isTemporary && item.status !== "sending" && item.status !== "error";
+
     return (
       <View style={[styles.messageBubble, isMe ? styles.messageRight : styles.messageLeft]}>
         {!isMe && (
@@ -1058,6 +1131,23 @@ const SMSInput = ({ navigation, route }) => {
           <View style={styles.messageFooter}>
             <Text style={[styles.messageTime, isMe && styles.messageTimeMine]}>{item.time}</Text>
             {renderMessageStatus(item)}
+            {canDelete && (
+              <TouchableOpacity
+                style={styles.deleteIconBtn}
+                onPress={() => handleDeleteMessage(item)}
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <ActivityIndicator size="small" color={isMe ? "rgba(255,255,255,0.7)" : "#94A3B8"} />
+                ) : (
+                  <Ionicons
+                    name="trash-outline"
+                    size={14}
+                    color={isMe ? "rgba(255,255,255,0.7)" : "#94A3B8"}
+                  />
+                )}
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
@@ -1334,6 +1424,7 @@ const styles = StyleSheet.create({
   messageStatusSending: { fontSize: 11, color: '#F59E0B', fontWeight: '500' },
   messageStatusIconWrap: { width: 16, alignItems: 'center', justifyContent: 'center' },
   messageStatusError: { fontSize: 11, color: '#EF4444', fontWeight: '500' },
+  deleteIconBtn: { paddingHorizontal: 4, paddingVertical: 2, marginLeft: 4 },
   attachmentImage: { width: 220, height: 180, borderRadius: 12, marginTop: 6 },
   attachmentBubble: { marginTop: 8, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 4 },
   userAttachmentBubble: { backgroundColor: 'rgba(255,255,255,0.15)' },

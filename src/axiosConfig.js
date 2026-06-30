@@ -26,8 +26,8 @@ const API_ENDPOINTS = {
 // USB debugging on a real phone: `adb reverse tcp:5001 tcp:5001` maps the
 // phone's localhost:5001 to the PC's backend over the cable — no internet or
 // dev tunnel needed on the device. Switch to DEV_TUNNEL only for wireless/release.
-export const API_BASE_URL = API_ENDPOINTS.DEV_TUNNEL;
-export const AI_REALTIME_BASE_URL = API_ENDPOINTS.DEV_TUNNEL.replace(/\/+$/, '');
+export const API_BASE_URL = API_ENDPOINTS.RAILWAY;
+export const AI_REALTIME_BASE_URL = API_ENDPOINTS.RAILWAY.replace(/\/+$/, '');
 
 // Create axios instance with default config
 const axiosInstance = axios.create({
