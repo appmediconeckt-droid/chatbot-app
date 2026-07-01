@@ -11,6 +11,80 @@ import {
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
+const privacyHighlights = [
+  {
+    icon: 'verified-user',
+    label: 'OTP protected',
+    value: 'Email and phone changes',
+  },
+  {
+    icon: 'person-outline',
+    label: 'Anonymous care identity',
+    value: 'Shown to counselors where supported',
+  },
+  {
+    icon: 'lock-outline',
+    label: 'Sensitive areas',
+    value: 'Chats, calls, appointments, profile',
+  },
+];
+
+const privacyDataGroups = [
+  {
+    icon: 'person',
+    title: 'Profile and health details',
+    text: 'Your name, anonymous display name, age, gender, contact details, photo/avatar, address, emergency contact, basic medical details, and insurance fields are used to maintain your patient profile.',
+  },
+  {
+    icon: 'forum',
+    title: 'AI chat and counselor conversations',
+    text: 'Messages, quick replies, chat status, attachments, accepted chat sessions, and counselor details are used to provide conversations, continue history, and support rating prompts.',
+  },
+  {
+    icon: 'event-available',
+    title: 'Appointments and sessions',
+    text: 'Appointment date, time, reason/notes, status, assigned counselor, call metadata, and session history help users and counselors manage care.',
+  },
+  {
+    icon: 'account-balance-wallet',
+    title: 'Wallet and transactions',
+    text: 'Wallet balance, top-ups, transaction records, generated reports, and related support context are used for payment tracking.',
+  },
+  {
+    icon: 'settings',
+    title: 'Location and device context',
+    text: 'Location can be captured at signup, login, or manual refresh to verify sessions, support account safety, and improve location-aware care features.',
+  },
+  {
+    icon: 'admin-panel-settings',
+    title: 'Security and account access',
+    text: 'Login tokens, auth provider, password status, OTP verification, role, and account status are used to keep user and counselor areas separated and protected.',
+  },
+];
+
+const privacyVisibility = [
+  {
+    title: 'Visible to you',
+    text: 'Your dashboard shows your profile, AI chats, counselor interactions, appointments, wallet, call history, ratings prompts, and location/update controls.',
+  },
+  {
+    title: 'Shared for care',
+    text: 'Counselors may see the information needed to manage accepted sessions, appointments, and support conversations. Anonymous identity is used where supported.',
+  },
+  {
+    title: 'Protected by access controls',
+    text: 'User and counselor areas are separated by role, active sessions, OTP verification, and authenticated API requests.',
+  },
+];
+
+const privacyChecklist = [
+  'Use your anonymous name for counselor interactions when you do not want your real name displayed.',
+  'Keep emergency contact and medical profile details accurate if you choose to fill them in.',
+  'Review device permissions for location, camera, and microphone before calls.',
+  'Update location manually from Settings/Profile if the login prompt was skipped.',
+  'Do not share OTPs, passwords, or sensitive account details inside chat messages.',
+  'Use My Profile and Settings to update or review the data stored in your account.',
+];
 
 const PrivacyPolicy = ({ onClose, onOpenTab }) => {
   const { t } = useTranslation();
@@ -34,7 +108,6 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
     },
   ];
 
-  // Create dynamic privacy data groups using translations
   const privacyDataGroups = [
     {
       icon: 'person',
@@ -68,7 +141,6 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
     },
   ];
 
-  // Create dynamic privacy visibility using translations
   const privacyVisibility = [
     {
       title: t('privacyPage:visibleToYou'),
@@ -84,7 +156,6 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
     },
   ];
 
-  // Create dynamic privacy checklist using translations
   const privacyChecklist = [
     t('privacyPage:checklistItem1'),
     t('privacyPage:checklistItem2'),
@@ -123,9 +194,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
           </View>
           <View style={styles.heroCopy}>
             <Text style={styles.heroTitle}>{t('privacyPage:centerTitle')}</Text>
-            <Text style={styles.heroText}>
-              {t('privacyPage:centerDesc')}
-            </Text>
+            <Text style={styles.heroText}>{t('privacyPage:centerDesc')}</Text>
           </View>
         </View>
 
@@ -139,7 +208,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
           ))}
         </View>
 
-        <Text style={styles.sectionTitle}>{t('privacyPage:dataUsedTitle')}</Text>
+        <Text style={styles.sectionTitle}>Data used in the app</Text>
         <View style={styles.dataGrid}>
           {privacyDataGroups.map((group) => (
             <View key={group.title} style={styles.dataCard}>
@@ -152,7 +221,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
           ))}
         </View>
 
-        <Text style={styles.sectionTitle}>{t('privacyPage:whoCanSee')}</Text>
+        <Text style={styles.sectionTitle}>Who can see what</Text>
         <View style={styles.visibilityList}>
           {privacyVisibility.map((item) => (
             <View key={item.title} style={styles.visibilityCard}>
@@ -163,7 +232,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
         </View>
 
         <View style={styles.checklistPanel}>
-          <Text style={styles.panelTitle}>{t('privacyPage:checklist')}</Text>
+          <Text style={styles.panelTitle}>Your privacy checklist</Text>
           {privacyChecklist.map((item) => (
             <View key={item} style={styles.checkRow}>
               <MaterialIcons name="check-circle" size={18} color="#16a34a" />
@@ -174,10 +243,10 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
 
         <View style={styles.actions}>
           <TouchableOpacity style={styles.actionBtn} onPress={() => openTab('profile')}>
-            <Text style={styles.actionText}>{t('privacyPage:manageData')}</Text>
+            <Text style={styles.actionText}>Manage profile data</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionBtn} onPress={() => openTab('settings')}>
-            <Text style={styles.actionText}>{t('privacyPage:securitySettings')}</Text>
+            <Text style={styles.actionText}>Security settings</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
