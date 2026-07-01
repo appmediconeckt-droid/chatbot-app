@@ -250,7 +250,12 @@
     "summaryGlance": "一目了然的摘要",
     "fullPrivacyPolicyLabel": "完整隐私政策",
     "yourEmail": "您的电子邮件",
-    "otpCodeLabel": "OTP代码"
+    "otpCodeLabel": "OTP代码",
+    "passwordStrengthTooShort": "قصير جداً",
+    "passwordStrengthBasic": "أساسي",
+    "passwordStrengthGood": "جيد",
+    "passwordStrengthStrong": "قوي",
+    "passwordStrengthVeryStrong": "قوي جداً"
   },
   "lock": {
     "welcomeBack": "欢迎回来",

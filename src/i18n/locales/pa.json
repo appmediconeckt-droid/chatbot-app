@@ -250,7 +250,12 @@
     "summaryGlance": "ਇੱਕ ਨਜ਼ਰ ਵਿੱਚ ਸਾਰਾਂਸ਼",
     "fullPrivacyPolicyLabel": "ਪੂਰੀ ਗੋਪਨੀਯਤਾ ਨੀਤੀ",
     "yourEmail": "ਤੁਹਾਡਾ ਈਮੇਲ",
-    "otpCodeLabel": "OTP ਕੋਡ"
+    "otpCodeLabel": "OTP ਕੋਡ",
+    "passwordStrengthTooShort": "ਬਹੁਤ ਛੋਟਾ",
+    "passwordStrengthBasic": "ਬੁਨਿਆਦੀ",
+    "passwordStrengthGood": "ਚੰਗਾ",
+    "passwordStrengthStrong": "ਮਜ਼ਬੂਤ",
+    "passwordStrengthVeryStrong": "ਬਹੁਤ ਮਜ਼ਬੂਤ"
   },
   "lock": {
     "welcomeBack": "ਵਾਪਸ ਜੀ ਆਇਆਂ",

@@ -250,7 +250,12 @@
     "summaryGlance": "ایک نظر میں خلاصہ",
     "fullPrivacyPolicyLabel": "مکمل رازداری پالیسی",
     "yourEmail": "آپ کا ای میل",
-    "otpCodeLabel": "OTP کوڈ"
+    "otpCodeLabel": "OTP کوڈ",
+    "passwordStrengthTooShort": "بہت چھوٹا",
+    "passwordStrengthBasic": "بنیادی",
+    "passwordStrengthGood": "اچھا",
+    "passwordStrengthStrong": "مضبوط",
+    "passwordStrengthVeryStrong": "بہت مضبوط"
   },
   "lock": {
     "welcomeBack": "دوبارہ خوش آمدید",

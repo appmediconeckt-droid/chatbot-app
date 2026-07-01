@@ -250,7 +250,12 @@
     "summaryGlance": "ఒక్క చూపులో సారాంశం",
     "fullPrivacyPolicyLabel": "పూర్తి గోప్యతా విధానం",
     "yourEmail": "మీ ఇమెయిల్",
-    "otpCodeLabel": "OTP కోడ్"
+    "otpCodeLabel": "OTP కోడ్",
+    "passwordStrengthTooShort": "చాలా చిన్నది",
+    "passwordStrengthBasic": "ప్రాథమిక",
+    "passwordStrengthGood": "మంచిది",
+    "passwordStrengthStrong": "బలమైన",
+    "passwordStrengthVeryStrong": "చాలా బలమైన"
   },
   "lock": {
     "welcomeBack": "మళ్ళీ స్వాగతం",

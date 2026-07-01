@@ -30,11 +30,10 @@ const strengthOf = (pw) => {
   if (/[^A-Za-z0-9]/.test(pw)) s++;
   return s;
 };
-const STRENGTH_LABELS = ['Too short', 'Basic', 'Good', 'Strong', 'Very strong'];
 const STRENGTH_COLORS = ['#e2e8f0', '#f59e0b', '#f59e0b', '#10b981', '#10b981'];
 
 /* ── sub-components ───────────────────────────────────────────── */
-const StrengthBar = ({ password }) => {
+const StrengthBar = ({ password, strengthLabels }) => {
   const score = useMemo(() => strengthOf(password), [password]);
   if (!password) return null;
   return (
@@ -44,7 +43,7 @@ const StrengthBar = ({ password }) => {
           <View key={i} style={[st.bar, i < score && { backgroundColor: STRENGTH_COLORS[score] }]} />
         ))}
       </View>
-      <Text style={[st.label, { color: STRENGTH_COLORS[score] }]}>{STRENGTH_LABELS[score]}</Text>
+      <Text style={[st.label, { color: STRENGTH_COLORS[score] }]}>{strengthLabels[score]}</Text>
     </View>
   );
 };
@@ -97,6 +96,15 @@ const UserAccountSettings = ({ onNavigateBack }) => {
   const [showOld, setShowOld] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+
+  // Password strength labels in selected language
+  const strengthLabels = [
+    t('settings:passwordStrengthTooShort'),
+    t('settings:passwordStrengthBasic'),
+    t('settings:passwordStrengthGood'),
+    t('settings:passwordStrengthStrong'),
+    t('settings:passwordStrengthVeryStrong'),
+  ];
 
   useEffect(() => { loadAccount(); }, []);
 
@@ -370,7 +378,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                 show={showNew}
                 onToggle={() => setShowNew((x) => !x)}
               />
-              <StrengthBar password={form.password} />
+              <StrengthBar password={form.password} strengthLabels={strengthLabels} />
               <PwInput
                 label={t('auth:confirmPassword')}
                 value={form.confirmPassword}
@@ -409,7 +417,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                 show={showNew}
                 onToggle={() => setShowNew((x) => !x)}
               />
-              <StrengthBar password={form.newPassword} />
+              <StrengthBar password={form.newPassword} strengthLabels={strengthLabels} />
               <PwInput
                 label={t('auth:confirmPassword')}
                 value={form.confirmNewPassword}

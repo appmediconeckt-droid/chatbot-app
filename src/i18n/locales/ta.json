@@ -250,7 +250,12 @@
     "summaryGlance": "ஒரு பார்வையில் சுருக்கம்",
     "fullPrivacyPolicyLabel": "முழு தனியுரிமைக் கொள்கை",
     "yourEmail": "உங்கள் மின்னஞ்சல்",
-    "otpCodeLabel": "OTP குறியீடு"
+    "otpCodeLabel": "OTP குறியீடு",
+    "passwordStrengthTooShort": "மிகவும் குறுகியது",
+    "passwordStrengthBasic": "அடிப்படை",
+    "passwordStrengthGood": "நன்றாக",
+    "passwordStrengthStrong": "வலுவான",
+    "passwordStrengthVeryStrong": "மிகவும் வலுவான"
   },
   "lock": {
     "welcomeBack": "மீண்டும் வரவேற்கிறோம்",

@@ -250,7 +250,12 @@
     "summaryGlance": "એક નજરે સારાંશ",
     "fullPrivacyPolicyLabel": "સંપૂર્ણ ગોપનીયતા નીતિ",
     "yourEmail": "તમારો ઈ-મેઈલ",
-    "otpCodeLabel": "OTP કોડ"
+    "otpCodeLabel": "OTP કોડ",
+    "passwordStrengthTooShort": "ખૂબ ટૂંકું",
+    "passwordStrengthBasic": "મૌલિક",
+    "passwordStrengthGood": "સારું",
+    "passwordStrengthStrong": "શક્તિશાળી",
+    "passwordStrengthVeryStrong": "ખૂબ શક્તિશાળી"
   },
   "lock": {
     "welcomeBack": "પાછા સ્વાગત છે",

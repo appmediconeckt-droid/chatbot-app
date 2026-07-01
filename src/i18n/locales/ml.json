@@ -250,7 +250,12 @@
     "summaryGlance": "ഒറ്റനോട്ടത്തിൽ സംക്ഷേപം",
     "fullPrivacyPolicyLabel": "പൂർണ്ണ സ്വകാര്യതാ നയം",
     "yourEmail": "നിങ്ങളുടെ ഇമെയിൽ",
-    "otpCodeLabel": "OTP കോഡ്"
+    "otpCodeLabel": "OTP കോഡ്",
+    "passwordStrengthTooShort": "വളരെ ചെറുത്",
+    "passwordStrengthBasic": "അടിസ്ഥാനം",
+    "passwordStrengthGood": "നല്ലത്",
+    "passwordStrengthStrong": "ശക്തമായ",
+    "passwordStrengthVeryStrong": "വളരെ ശക്തമായ"
   },
   "lock": {
     "welcomeBack": "തിരിച്ചു സ്വാഗതം",

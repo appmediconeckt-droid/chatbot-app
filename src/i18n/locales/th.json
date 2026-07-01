@@ -250,7 +250,12 @@
     "summaryGlance": "สรุปได้อย่างรวดเร็ว",
     "fullPrivacyPolicyLabel": "นโยบายความเป็นส่วนตัวฉบับสมบูรณ์",
     "yourEmail": "อีเมลของคุณ",
-    "otpCodeLabel": "รหัส OTP"
+    "otpCodeLabel": "รหัส OTP",
+    "passwordStrengthTooShort": "Too short",
+    "passwordStrengthBasic": "Basic",
+    "passwordStrengthGood": "Good",
+    "passwordStrengthStrong": "Strong",
+    "passwordStrengthVeryStrong": "Very strong"
   },
   "lock": {
     "welcomeBack": "ยินดีต้อนรับกลับมา",

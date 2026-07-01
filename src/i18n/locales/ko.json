@@ -250,7 +250,12 @@
     "summaryGlance": "한눈에 요약",
     "fullPrivacyPolicyLabel": "전체 개인정보 보호정책",
     "yourEmail": "이메일",
-    "otpCodeLabel": "OTP 코드"
+    "otpCodeLabel": "OTP 코드",
+    "passwordStrengthTooShort": "너무 짧음",
+    "passwordStrengthBasic": "기본",
+    "passwordStrengthGood": "좋음",
+    "passwordStrengthStrong": "강함",
+    "passwordStrengthVeryStrong": "매우 강함"
   },
   "lock": {
     "welcomeBack": "다시 오셨습니다",

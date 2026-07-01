@@ -262,7 +262,12 @@
     "summaryGlance": "Summary at a Glance",
     "fullPrivacyPolicyLabel": "Full Privacy Policy",
     "yourEmail": "Your Email",
-    "otpCodeLabel": "OTP Code"
+    "otpCodeLabel": "OTP Code",
+    "passwordStrengthTooShort": "Too short",
+    "passwordStrengthBasic": "Basic",
+    "passwordStrengthGood": "Good",
+    "passwordStrengthStrong": "Strong",
+    "passwordStrengthVeryStrong": "Very strong"
   },
   "lock": {
     "welcomeBack": "Welcome Back",

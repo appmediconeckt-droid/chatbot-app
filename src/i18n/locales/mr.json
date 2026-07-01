@@ -250,7 +250,12 @@
     "summaryGlance": "एका नजरेत सारांश",
     "fullPrivacyPolicyLabel": "संपूर्ण गोपनीयता धोरण",
     "yourEmail": "तुमचा ईमेल",
-    "otpCodeLabel": "OTP कोड"
+    "otpCodeLabel": "OTP कोड",
+    "passwordStrengthTooShort": "खूप लहान",
+    "passwordStrengthBasic": "मूलभूत",
+    "passwordStrengthGood": "चांगले",
+    "passwordStrengthStrong": "शक्तिशाली",
+    "passwordStrengthVeryStrong": "खूप शक्तिशाली"
   },
   "lock": {
     "welcomeBack": "पुन्हा स्वागत आहे",

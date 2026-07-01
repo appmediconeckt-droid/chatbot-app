@@ -250,7 +250,12 @@
     "summaryGlance": "ಒಂದು ನೋಟದಲ್ಲಿ ಸಾರಾಂಶ",
     "fullPrivacyPolicyLabel": "ಸಂಪೂರ್ಣ ಗೋಪ್ಯತಾ ನೀತಿ",
     "yourEmail": "ನಿಮ್ಮ ಇಮೇಲ್",
-    "otpCodeLabel": "OTP ಕೋಡ್"
+    "otpCodeLabel": "OTP ಕೋಡ್",
+    "passwordStrengthTooShort": "ತುಂಬಾ ಕಿರುದಾಗಿದೆ",
+    "passwordStrengthBasic": "ಮೂಲ",
+    "passwordStrengthGood": "ಸುಂದರ",
+    "passwordStrengthStrong": "ಪ್ರಬಲ",
+    "passwordStrengthVeryStrong": "ತುಂಬಾ ಪ್ರಬಲ"
   },
   "lock": {
     "welcomeBack": "ಮತ್ತೆ ಸ್ವಾಗತ",
