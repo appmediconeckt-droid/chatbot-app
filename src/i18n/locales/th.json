@@ -97,7 +97,7 @@
     "inspire": "สร้างแรงบันดาลใจ มีส่วนร่วม เชื่อมต่อออนไลน์",
     "chat": "แชท",
     "counselor": "ที่ปรึกษา",
-    "myAppointment": "นัดหมายของฉัน",
+    "myAppointment": "การนัดหมายของฉัน",
     "wallet": "กระเป๋า",
     "callHistory": "ประวัติการโทร"
   },
@@ -228,7 +228,7 @@
     "dashboardServices": "บริการแดชบอร์ด",
     "myProfile": "โปรไฟล์ของฉัน",
     "accountSettings": "การตั้งค่าบัญชี",
-    "helpSupport": "ช่วยเหลือและสนับสนุน",
+    "helpSupport": "ช่วยเหลือและการสนับสนุน",
     "logoutAccount": "ออกจากบัญชี",
     "confirmLogout": "ยืนยันการออกจากระบบ",
     "deleteAccount": "ลบบัญชี",

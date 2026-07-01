@@ -97,7 +97,7 @@
     "inspire": "ਪ੍ਰੇਰਿਤ ਕਰੋ, ਜੋੜੋ, ਆਨਲਾਈਨ ਕਨੈਕਟ ਕਰੋ।",
     "chat": "ਚੈਟ",
     "counselor": "ਸਲਾਹਕਾਰ",
-    "myAppointment": "ਮੇਰੀ ਅਪੌਇੰਟਮੈਂਟ",
+    "myAppointment": "ਮੇਰੀ ਨਿਯੁਕਤੀ",
     "wallet": "ਵਾਲਿਟ",
     "callHistory": "ਕਾਲ ਇਤਿਹਾਸ"
   },
@@ -228,7 +228,7 @@
     "dashboardServices": "ਡੈਸ਼ਬੋਰਡ ਸੇਵਾਵਾਂ",
     "myProfile": "ਮੇਰੀ ਪ੍ਰੋਫਾਈਲ",
     "accountSettings": "ਖਾਤਾ ਸੈਟਿੰਗਾਂ",
-    "helpSupport": "ਮਦਦ ਅਤੇ ਸਹਾਇਤਾ",
+    "helpSupport": "ਮਦਦ & ਸਹਾਇਤਾ",
     "logoutAccount": "ਖਾਤਾ ਲਾਗ ਆਉਟ",
     "confirmLogout": "ਲਾਗ ਆਉਟ ਦੀ ਪੁਸ਼ਟੀ",
     "deleteAccount": "ਖਾਤਾ ਮਿਟਾਓ",
