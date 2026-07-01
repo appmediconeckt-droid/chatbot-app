@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Alert,
   Linking,
@@ -76,6 +77,8 @@ const issueGuides = [
 ];
 
 const HelpSupport = ({ onClose, onOpenTab }) => {
+  const { t } = useTranslation();
+
   const openTab = (tab) => {
     if (typeof onOpenTab === 'function') {
       onClose?.();
@@ -86,7 +89,7 @@ const HelpSupport = ({ onClose, onOpenTab }) => {
   const emailSupport = () => {
     const url = `mailto:${SUPPORT_EMAIL}?subject=MediConeckt%20Support%20Request`;
     Linking.openURL(url).catch(() => {
-      Alert.alert('Email support', `Please email us at ${SUPPORT_EMAIL}`);
+      Alert.alert(t('settings:emailSupportLabel'), `Please email us at ${SUPPORT_EMAIL}`);
     });
   };
 
@@ -97,7 +100,7 @@ const HelpSupport = ({ onClose, onOpenTab }) => {
         <TouchableOpacity onPress={onClose} style={styles.headerBtn} hitSlop={12}>
           <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Help Support</Text>
+        <Text style={styles.headerTitle}>{t('settings:helpSupport')}</Text>
         <View style={styles.headerBtn} />
       </View>
 

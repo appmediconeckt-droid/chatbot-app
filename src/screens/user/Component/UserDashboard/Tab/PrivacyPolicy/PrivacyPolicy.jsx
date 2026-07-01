@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Platform,
   ScrollView,
@@ -86,6 +87,8 @@ const privacyChecklist = [
 ];
 
 const PrivacyPolicy = ({ onClose, onOpenTab }) => {
+  const { t } = useTranslation();
+
   const openTab = (tab) => {
     if (typeof onOpenTab === 'function') {
       onClose?.();
@@ -100,7 +103,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
         <TouchableOpacity onPress={onClose} style={styles.headerBtn} hitSlop={12}>
           <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Privacy</Text>
+        <Text style={styles.headerTitle}>{t('settings:privacyPolicy')}</Text>
         <View style={styles.headerBtn} />
       </View>
 
