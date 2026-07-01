@@ -74,12 +74,16 @@ export const fetchChatCallEntries = async ({ currentUserId, peerId, token }) => 
 };
 
 // Resolve a sortable timestamp. Optimistic (just-sent) messages have no
-// `fullTime` yet — treat those as "now" so they stay at the newest end instead
-// of jumping to the top of the thread.
-const sortableTime = (item) => {
-  const raw = item?.fullTime;
+// `fullTime` yet — fall back to `createdAt`/`timestamp` (same keys the counselor
+// screen sorts by), and only as a last resort to a single shared `now` so they
+// stay pinned at the newest end instead of jumping to the top of the thread.
+// `now` MUST be passed in (snapshotted once per sort) — calling Date.now()
+// inside the comparator returns a different value on every comparison, which is
+// an inconsistent comparator and can shuffle messages unpredictably.
+const sortableTime = (item, now) => {
+  const raw = item?.fullTime || item?.createdAt || item?.timestamp;
   const t = raw ? new Date(raw).getTime() : NaN;
-  return Number.isNaN(t) ? Date.now() : t;
+  return Number.isNaN(t) ? now : t;
 };
 
 // Merge messages + call entries into one timeline. Returns newest-first so it can
@@ -88,7 +92,8 @@ const sortableTime = (item) => {
 // original order (messages before calls).
 export const mergeTimelineForInverted = (messages = [], calls = []) => {
   const merged = [...messages, ...calls];
-  merged.sort((a, b) => sortableTime(a) - sortableTime(b));
+  const now = Date.now();
+  merged.sort((a, b) => sortableTime(a, now) - sortableTime(b, now));
   return merged.reverse();
 };
 

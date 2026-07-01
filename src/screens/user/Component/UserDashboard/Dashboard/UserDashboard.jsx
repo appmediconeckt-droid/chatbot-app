@@ -96,7 +96,26 @@ const ChatPopup = ({
 }) => {
   const [speakingId, setSpeakingId] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  // Keyboard height reported by the event (0 when hidden).
+  const [keyboardShownHeight, setKeyboardShownHeight] = useState(0);
+  // Measured popup-overlay height (via onLayout) + the largest we've seen
+  // (= the keyboard-hidden height). The difference tells us how much Android
+  // already shrank the window for the keyboard, so we don't double-lift.
+  const [overlayHeight, setOverlayHeight] = useState(height);
+  const fullOverlayHeightRef = useRef(height);
+  const handleOverlayLayout = useCallback((e) => {
+    const h = e?.nativeEvent?.layout?.height || 0;
+    if (!h) return;
+    setOverlayHeight(h);
+    if (h > fullOverlayHeightRef.current) fullOverlayHeightRef.current = h;
+  }, []);
+  const overlayShrink = Math.max(0, fullOverlayHeightRef.current - overlayHeight);
+  // How much the keyboard still overlaps the popup after any OS resize: ~0 on
+  // devices that resize (no gap), = keyboard height when it floats over the app.
+  const keyboardHeight = keyboardShownHeight > 0
+    ? Math.max(0, keyboardShownHeight - overlayShrink)
+    : 0;
+  const availHeight = overlayHeight;
   const [showLangPicker, setShowLangPicker] = useState(false);
   const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
   const [aiVoiceStatus, setAiVoiceStatus] = useState("idle");
@@ -168,10 +187,19 @@ const ChatPopup = ({
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
   useEffect(() => { setNewMessageRef.current = setNewMessage; }, [setNewMessage]);
 
-  // Track keyboard height so popup fills exactly the space above the keyboard
+  // Track how much the keyboard OVERLAPS the app window (not the full keyboard
+  // height) so the popup sits right above the keyboard on every device. On
+  // tablets where Android resizes the window for the keyboard, the overlap is
+  // ~0 (the window already shrank) — using the full height there double-lifted
+  // the popup and left a big empty gap. On devices where the keyboard floats
+  // over the app, the overlap equals the keyboard height.
   useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', (e) => setKeyboardHeight(e.endCoordinates.height));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    // Use keyboardWillShow/Hide to apply padding BEFORE keyboard appears.
+    // This prevents the gap/delay glitch. keyboardDidShow fires too late.
+    const show = Keyboard.addListener('keyboardWillShow', (e) => {
+      setKeyboardShownHeight(e?.endCoordinates?.height || 0);
+    });
+    const hide = Keyboard.addListener('keyboardWillHide', () => setKeyboardShownHeight(0));
     return () => { show.remove(); hide.remove(); };
   }, []);
 
@@ -532,12 +560,12 @@ const ChatPopup = ({
 
   return (
   <Modal animationType="slide" transparent={true} visible={true} statusBarTranslucent>
-    <View style={styles.chatPopupOverlay}>
+    <View style={styles.chatPopupOverlay} onLayout={handleOverlayLayout}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.chatPopupBackdrop} />
       </TouchableWithoutFeedback>
       <View style={[styles.chatPopup, {
-        height: keyboardHeight > 0 ? height - keyboardHeight - 40 : 630,
+        height: keyboardHeight > 0 ? availHeight - keyboardHeight - 40 : 630,
         marginBottom: keyboardHeight,
       }]}>
         <LinearGradient
