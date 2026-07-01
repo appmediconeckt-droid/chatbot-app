@@ -956,7 +956,6 @@ const CounselorDirectoryScreen = ({ navigation }) => {
               <View style={styles.infoBox}>
                 <Text style={styles.infoText}>⏳ Sends a request to the counselor</Text>
                 <Text style={styles.infoText}>✅ You'll be notified when they accept</Text>
-                <Text style={styles.infoText}>💬 Average response time: {selectedCounselor?.responseTime || "< 10 seconds"}</Text>
                 <Text style={[styles.infoText, styles.privacyNote]}>🔒 You are chatting anonymously. Your real identity is protected.</Text>
               </View>
 
