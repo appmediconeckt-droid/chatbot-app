@@ -15,69 +15,70 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 const SUPPORT_EMAIL = 'support@mediconeckt.com';
 
-const supportOptions = [
-  {
-    icon: 'forum',
-    title: 'AI wellness chat',
-    text: 'Ask mental-wellness questions, use voice input, get quick replies, and continue your recent AI chat from the dashboard.',
-    action: 'Open AI chat',
-    tab: 'Chat',
-  },
-  {
-    icon: 'medical-services',
-    title: 'Counselor support',
-    text: 'Browse counselors by name, specialization, language, location, rating, and online status before starting care.',
-    action: 'Find counselor',
-    tab: 'Counselor',
-  },
-  {
-    icon: 'event-available',
-    title: 'Appointments',
-    text: 'Review upcoming and past appointments, check request status, and book sessions with available counselors.',
-    action: 'View appointments',
-    tab: 'Appointment',
-  },
-  {
-    icon: 'account-balance-wallet',
-    title: 'Wallet and payments',
-    text: 'Add money, review transactions, download wallet reports, and contact support for payment questions.',
-    action: 'Open wallet',
-    tab: 'Wallet',
-  },
-];
-
-const helpChecklist = [
-  'Confirm your internet connection and refresh the app before reporting a loading issue.',
-  'Keep the latest screenshot, exact time, and the screen name ready when contacting support.',
-  'For camera, microphone, notification, and location issues, check device app permissions first.',
-  'For payment issues, include date, amount, transaction status, and wallet balance shown in the app.',
-];
-
-const issueGuides = [
-  {
-    title: 'AI chat is not replying',
-    text: 'Check your internet connection, try sending a short message, and reopen the AI chat from the dashboard. If it still fails, share the exact error screenshot with support.',
-  },
-  {
-    title: 'Counselor chat is not opening',
-    text: 'Open Counselor Support, choose an available counselor, and wait for the request to be accepted. Existing chats appear in the counselor chat screen.',
-  },
-  {
-    title: 'Call is not connecting',
-    text: 'Make sure the counselor has accepted your chat/session, both users are online, and microphone/camera permissions are allowed.',
-  },
-  {
-    title: 'Wallet or payment issue',
-    text: 'Open Wallet to review the latest transaction and download a report. Share the date, amount, and transaction status when contacting support.',
-  },
-  {
-    title: 'Language or translation looks wrong',
-    text: 'Use the language selector from the dashboard/settings. Some counselor or medical details may remain in the language entered by the provider.',
-  },
-];
-
 const HelpSupport = ({ onClose, onOpenTab }) => {
   const { t } = useTranslation();
+
+  // Create dynamic support options using translations
+  const supportOptions = [
+    {
+      icon: 'forum',
+      title: t('helpPage:aiWellnessChat'),
+      text: t('helpPage:aiWellnessDesc'),
+      action: t('helpPage:aiWellnessAction'),
+      tab: 'Chat',
+    },
+    {
+      icon: 'medical-services',
+      title: t('helpPage:counselorSupport'),
+      text: t('helpPage:counselorDesc'),
+      action: t('helpPage:counselorAction'),
+      tab: 'Counselor',
+    },
+    {
+      icon: 'event-available',
+      title: t('helpPage:appointments'),
+      text: t('helpPage:appointmentsDesc'),
+      action: t('helpPage:appointmentsAction'),
+      tab: 'Appointment',
+    },
+    {
+      icon: 'account-balance-wallet',
+      title: t('helpPage:walletPayments'),
+      text: t('helpPage:walletDesc'),
+      action: t('helpPage:walletAction'),
+      tab: 'Wallet',
+    },
+  ];
+
+  const helpChecklist = [
+    t('helpPage:checklist1'),
+    t('helpPage:checklist2'),
+    t('helpPage:checklist3'),
+    t('helpPage:checklist4'),
+  ];
+
+  const issueGuides = [
+    {
+      title: t('helpPage:aiChatNotReply'),
+      text: t('helpPage:aiChatNotReplyDesc'),
+    },
+    {
+      title: t('helpPage:counselorChatNotOpen'),
+      text: t('helpPage:counselorChatNotOpenDesc'),
+    },
+    {
+      title: t('helpPage:callNotConnecting'),
+      text: t('helpPage:callNotConnectingDesc'),
+    },
+    {
+      title: t('helpPage:walletPaymentIssue'),
+      text: t('helpPage:walletPaymentIssueDesc'),
+    },
+    {
+      title: t('helpPage:languageWrongTitle'),
+      text: t('helpPage:languageWrongDesc'),
+    },
+  ];
 
   const openTab = (tab) => {
     if (typeof onOpenTab === 'function') {
@@ -114,11 +115,9 @@ const HelpSupport = ({ onClose, onOpenTab }) => {
             <MaterialIcons name="help-outline" size={34} color="#2563eb" />
           </View>
           <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>MediConeckt support center</Text>
+            <Text style={styles.heroTitle}>{t('helpPage:centerTitle')}</Text>
             <Text style={styles.heroText}>
-              Use this support center to jump to the right MediConeckt feature,
-              troubleshoot common issues, and understand when to contact urgent
-              help outside the app.
+              {t('helpPage:centerDesc')}
             </Text>
           </View>
         </View>
@@ -147,7 +146,7 @@ const HelpSupport = ({ onClose, onOpenTab }) => {
         <View style={styles.panel}>
           <View style={styles.panelHeader}>
             <MaterialIcons name="person" size={20} color="#0f172a" />
-            <Text style={styles.panelTitle}>Before you contact support</Text>
+            <Text style={styles.panelTitle}>{t('helpPage:beforeContact')}</Text>
           </View>
           {helpChecklist.map((item) => (
             <View key={item} style={styles.bulletRow}>
@@ -157,7 +156,7 @@ const HelpSupport = ({ onClose, onOpenTab }) => {
           ))}
         </View>
 
-        <Text style={styles.sectionTitle}>Common issues</Text>
+        <Text style={styles.sectionTitle}>{t('helpPage:commonIssues')}</Text>
         <View style={styles.issueList}>
           {issueGuides.map((item) => (
             <View key={item.title} style={styles.issueCard}>
@@ -169,23 +168,20 @@ const HelpSupport = ({ onClose, onOpenTab }) => {
 
         <View style={styles.supportStrip}>
           <View style={styles.stripCopy}>
-            <Text style={styles.stripTitle}>Need more help?</Text>
+            <Text style={styles.stripTitle}>{t('helpPage:needMoreHelp')}</Text>
             <Text style={styles.stripText}>
-              Update account details from Profile/Settings, or email support
-              with screenshots, app version, user email/phone, and the exact
-              time the issue happened. For crisis support in India, call
-              9152987821 or local emergency services.
+              {t('helpPage:needMoreHelpDesc')}
             </Text>
           </View>
           <View style={styles.stripActions}>
             <TouchableOpacity style={styles.stripBtn} onPress={() => openTab('profile')}>
-              <Text style={styles.stripBtnText}>My Profile</Text>
+              <Text style={styles.stripBtnText}>{t('helpPage:myProfile')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.stripBtn} onPress={() => openTab('settings')}>
-              <Text style={styles.stripBtnText}>Settings</Text>
+              <Text style={styles.stripBtnText}>{t('helpPage:settings')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.stripBtn, styles.stripBtnSecondary]} onPress={emailSupport}>
-              <Text style={[styles.stripBtnText, styles.stripBtnSecondaryText]}>Email support</Text>
+              <Text style={[styles.stripBtnText, styles.stripBtnSecondaryText]}>{t('helpPage:emailSupport')}</Text>
             </TouchableOpacity>
           </View>
         </View>
