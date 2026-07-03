@@ -20,6 +20,7 @@ import {
   Image,
   Linking,
   useWindowDimensions,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
@@ -193,6 +194,7 @@ const SMSInput = ({ navigation, route }) => {
   const shouldAutoScrollRef = useRef(true);
   // Block poll for 5 seconds after a delete so server can confirm.
   const deletedRecentlyRef = useRef(false);
+  const deletedMessageIdsRef = useRef(new Set());
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [remoteIsTyping, setRemoteIsTyping] = useState(false);
 
@@ -228,6 +230,7 @@ const SMSInput = ({ navigation, route }) => {
   const [hiddenCallIds, setHiddenCallIds] = useState([]);
   // Track deleted message IDs persistently so they stay deleted across navigation/refresh
   const [deletedMessageIds, setDeletedMessageIds] = useState(new Set());
+  const getDeletedMessagesStorageKey = useCallback(() => `deletedMessages_${getChatIdForAPI()}`, [chatId, USER_ID, counselorId, selectedUser]);
   // Android edge-to-edge (RN 0.84): we lift the chat above the keyboard
   // ourselves. Pad = keyboard height MINUS however much the OS already shrank
   // the window (measured via onLayout, not Dimensions), so devices that resize
@@ -478,9 +481,9 @@ const SMSInput = ({ navigation, route }) => {
         // so the server response doesn't re-add a message we optimistically deleted.
         setMessages(prev => {
           const filtered = transformed.filter(m => !deletedMessageIds.has(String(m.messageId || m.id)));
+          saveMessagesToLocalStorage(filtered);
           return filtered;
         });
-        saveMessagesToLocalStorage(transformed);
       }
     } catch (error) {
       if (error?.response?.status === 401) {
@@ -545,6 +548,26 @@ const SMSInput = ({ navigation, route }) => {
     })();
     return () => { active = false; };
   }, [hiddenCallsStorageKey]);
+
+  // Load deleted message IDs for this thread so deletions survive app refresh
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(getDeletedMessagesStorageKey());
+        if (active && stored) {
+          const ids = JSON.parse(stored) || [];
+          setDeletedMessageIds(new Set(ids));
+        }
+      } catch (_) { /* ignore */ }
+    })();
+    return () => { active = false; };
+  }, [getDeletedMessagesStorageKey]);
+
+  // Keep ref in sync with deletedMessageIds state so socket listeners see current values
+  useEffect(() => {
+    deletedMessageIdsRef.current = deletedMessageIds;
+  }, [deletedMessageIds]);
 
   const hideCallEntry = useCallback((callItemId) => {
     if (!callItemId) return;
@@ -628,7 +651,11 @@ const SMSInput = ({ navigation, route }) => {
     };
 
     // Add to deletedMessageIds (persistent) and hide immediately.
-    setDeletedMessageIds(prev => new Set([...prev, String(targetId), String(messageToDelete.messageId)]));
+    setDeletedMessageIds(prev => {
+      const updated = new Set([...prev, String(targetId), String(messageToDelete.messageId)]);
+      AsyncStorage.setItem(getDeletedMessagesStorageKey(), JSON.stringify(Array.from(updated))).catch(() => {});
+      return updated;
+    });
     setMessages((prev) => {
       const updatedMessages = prev.filter((msg) => !isSameMessage(msg));
       saveMessagesToLocalStorage(updatedMessages);
@@ -678,6 +705,13 @@ const SMSInput = ({ navigation, route }) => {
                 return;
               }
               // Restore the message since the server delete failed.
+              setDeletedMessageIds(prev => {
+                const updated = new Set(prev);
+                updated.delete(String(messageId));
+                updated.delete(String(messageToDelete.messageId));
+                AsyncStorage.setItem(getDeletedMessagesStorageKey(), JSON.stringify(Array.from(updated))).catch(() => {});
+                return updated;
+              });
               setMessages((prev) => {
                 if (prev.some((m) => String(getMessageIdentifier(m)) === String(messageId))) return prev;
                 const restored = [...prev, messageToDelete];
@@ -966,6 +1000,8 @@ const SMSInput = ({ navigation, route }) => {
         }));
         unsubscribers.push(await socketService.on('new-message', (messageData) => {
           shouldAutoScrollRef.current = true;
+          // Skip if this message was deleted locally
+          if (deletedMessageIdsRef.current.has(String(messageData.messageId || messageData.id || messageData._id))) return;
           const isOwn = messageData.senderRole === 'counsellor' && String(messageData.senderId) === String(counselorId);
           setMessages(prev => {
             if (prev.some(m => m.messageId && m.messageId === messageData.messageId)) return prev;
@@ -1165,13 +1201,6 @@ const SMSInput = ({ navigation, route }) => {
             </View>
           </View>
           <Text style={styles.callTime}>{item.time}</Text>
-          <TouchableOpacity
-            style={styles.callDeleteBtn}
-            onPress={() => confirmDeleteCall(item)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="trash-outline" size={14} color="#94a3b8" />
-          </TouchableOpacity>
         </View>
       </TouchableOpacity>
     );
@@ -1208,7 +1237,10 @@ const SMSInput = ({ navigation, route }) => {
             style={{ borderWidth: 1.5, borderColor: '#FFFFFF' }}
           />
         )}
-        <View style={[styles.messageContent, isMe ? styles.userMessageContent : styles.counselorMessageContent]}>
+        <Pressable
+          style={[styles.messageContent, isMe ? styles.userMessageContent : styles.counselorMessageContent]}
+          onLongPress={() => canDelete && handleDeleteMessage(item)}
+        >
           {!!item.text && (
             <TranslatedMessageBubble
               text={item.text}
@@ -1239,25 +1271,8 @@ const SMSInput = ({ navigation, route }) => {
           <View style={styles.messageFooter}>
             <Text style={[styles.messageTime, isMe && styles.messageTimeMine]}>{item.time}</Text>
             {renderMessageStatus(item)}
-            {canDelete && (
-              <TouchableOpacity
-                style={styles.deleteIconBtn}
-                onPress={() => handleDeleteMessage(item)}
-                disabled={isDeleting}
-              >
-                {isDeleting ? (
-                  <ActivityIndicator size="small" color={isMe ? "rgba(255,255,255,0.7)" : "#94A3B8"} />
-                ) : (
-                  <Ionicons
-                    name="trash-outline"
-                    size={14}
-                    color={isMe ? "rgba(255,255,255,0.7)" : "#94A3B8"}
-                  />
-                )}
-              </TouchableOpacity>
-            )}
           </View>
-        </View>
+        </Pressable>
       </View>
     );
   };
@@ -1291,14 +1306,14 @@ const SMSInput = ({ navigation, route }) => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor="#2563EB" translucent={false} />
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
       <KeyboardAvoidingView
         style={styles.keyboardAvoid}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
         enabled={Platform.OS === "ios"}
       >
-        <View style={[styles.chatBoxMain, { paddingBottom: keyboardPad }]} onLayout={handleChatAreaLayout}>
+          <View style={[styles.chatBoxMain, { paddingBottom: keyboardPad }]} onLayout={handleChatAreaLayout}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>

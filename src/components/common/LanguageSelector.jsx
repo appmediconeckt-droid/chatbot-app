@@ -179,7 +179,7 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role }) 
             <Text style={styles.searchIcon}>🔍</Text>
             <TextInput
               style={styles.searchInput}
-              placeholder={t('search_language') || 'Search languages...'}
+              placeholder={t('search language') || 'Search languages...'}
               placeholderTextColor="#94A3B8"
               value={searchQuery}
               onChangeText={setSearchQuery}

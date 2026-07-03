@@ -14,6 +14,7 @@ import {
   Animated,
   Image,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -325,8 +326,8 @@ const SMSList = () => {
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
 
       <View style={styles.searchSection}>
         <View style={styles.searchContainer}>
@@ -381,7 +382,7 @@ const SMSList = () => {
           }
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 };
 

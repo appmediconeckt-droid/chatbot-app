@@ -385,6 +385,11 @@ const CounselorSignup = ({ navigation, route }) => {
     );
   };
 
+  const scrollContainerStyle = {
+    ...styles.scrollContent,
+    justifyContent: isLogin ? 'center' : 'flex-start',
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
@@ -394,7 +399,7 @@ const CounselorSignup = ({ navigation, route }) => {
         <SafeAreaView style={styles.safeArea}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : null} style={styles.flex}>
             <TouchableOpacity style={styles.backBtn} onPress={() => navigation.replace('RoleSelector')}><Icon name="chevron-left" size={28} color="#ffffff" /></TouchableOpacity>
-            <ScrollView contentContainerStyle={[styles.scrollContent, isLogin && { paddingTop: height * 0.13 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
+            <ScrollView contentContainerStyle={scrollContainerStyle} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
               <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
                   <View style={styles.logoBadge}><Image source={logo} style={styles.logo} resizeMode="contain" /></View>
@@ -506,7 +511,7 @@ const styles = StyleSheet.create({
   orb1: { top: -100, left: -50, backgroundColor: '#10b981' },
   orb2: { bottom: -50, right: -100, backgroundColor: '#6366f1' },
   safeArea: { flex: 1 },
-  scrollContent: { padding: 24, paddingTop: 100, paddingBottom: 60 },
+  scrollContent: { padding: 24, paddingTop: 100, paddingBottom: 60, flexGrow: 1 },
   backBtn: { position: 'absolute', top: 30, left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
   panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, padding: 24, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
   header: { alignItems: 'center', marginBottom: 20 },

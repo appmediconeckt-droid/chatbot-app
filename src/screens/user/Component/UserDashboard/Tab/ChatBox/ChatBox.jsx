@@ -1550,30 +1550,23 @@ const ChatBox = () => {
     const isDeleting = String(deletingMessageId) === String(item.id) ||
                        String(deletingMessageId) === String(item.messageId);
     const canDelete = !item.isTemporary && item.status !== "sending" && item.status !== "error";
-    const isSelected = selectedMessageId === item.id;
 
-    const handleMessageAction = (action) => {
-      if (action === 'delete') {
-        if (!canDelete) return;
-        const preview = item.text ? item.text.slice(0, 60) + (item.text.length > 60 ? '...' : '') : '[Attachment]';
-        setConfirmState({
-          visible: true,
-          title: 'Delete Message',
-          message: `Delete this message?\n\n"${preview}"\n\nThis action cannot be undone.`,
-          destructive: true,
-          confirmText: 'Delete',
-          cancelText: 'Cancel',
-          onCancel: () => {
-            setConfirmState(s => ({ ...s, visible: false }));
-            setSelectedMessageId(null);
+    const handleDeleteMessage = async () => {
+      if (!canDelete) return;
+      Alert.alert(
+        "Delete Message",
+        "Delete this message? This action cannot be undone.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              await deleteMessage(item.id);
+            },
           },
-          onConfirm: async () => {
-            setConfirmState(s => ({ ...s, visible: false }));
-            setSelectedMessageId(null);
-            await deleteMessage(item.id);
-          },
-        });
-      }
+        ],
+      );
     };
 
     // Bubble inner content — shared by the gradient (sent) and plain (received)
@@ -1630,47 +1623,30 @@ const ChatBox = () => {
     );
 
     return (
-      <>
-        <TouchableOpacity
-          activeOpacity={1}
-          onLongPress={() => canDelete && setSelectedMessageId(item.id)}
-          style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}
-        >
-          <View style={[styles.messageBubble, { maxWidth: bubbleMaxWidth }, isUser ? styles.messageRight : styles.messageLeft]}>
-            {isUser ? (
-              <LinearGradient
-                colors={BRAND_GRADIENT}
-                start={GRADIENT_START}
-                end={GRADIENT_END}
-                style={[styles.messageContent, styles.userMessageContent, isDeleting && styles.messageDeleting]}
-              >
-                {inner}
-              </LinearGradient>
-            ) : (
-              <View style={[styles.messageContent, styles.counselorMessageContent, isDeleting && styles.messageDeleting]}>
-                {inner}
-              </View>
-            )}
-          </View>
-        </TouchableOpacity>
-        {/* Message delete menu - Only Delete option */}
-        {canDelete && (
-          <Modal transparent visible={isSelected} animationType="fade" onRequestClose={() => setSelectedMessageId(null)}>
-            <TouchableOpacity style={styles.actionMenuOverlay} activeOpacity={1} onPress={() => setSelectedMessageId(null)}>
-              <View style={styles.actionMenuBox}>
-                <Text style={styles.actionMenuTitle}>{item.text ? item.text.slice(0, 50) + (item.text.length > 50 ? '...' : '') : '[Attachment]'}</Text>
-                <View style={styles.actionMenuDivider} />
-                <TouchableOpacity style={styles.actionMenuItem} onPress={() => handleMessageAction('delete')}>
-                  <Ionicons name="trash-outline" size={20} color="#dc2626" />
-                  <Text style={[styles.actionMenuItemText, { color: '#dc2626', fontWeight: '600' }]}>Delete</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          </Modal>
-        )}
-      </>
+      <TouchableOpacity
+        activeOpacity={1}
+        onLongPress={() => canDelete && handleDeleteMessage()}
+        style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}
+      >
+        <View style={[styles.messageBubble, { maxWidth: bubbleMaxWidth }, isUser ? styles.messageRight : styles.messageLeft]}>
+          {isUser ? (
+            <LinearGradient
+              colors={BRAND_GRADIENT}
+              start={GRADIENT_START}
+              end={GRADIENT_END}
+              style={[styles.messageContent, styles.userMessageContent, isDeleting && styles.messageDeleting]}
+            >
+              {inner}
+            </LinearGradient>
+          ) : (
+            <View style={[styles.messageContent, styles.counselorMessageContent, isDeleting && styles.messageDeleting]}>
+              {inner}
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
     );
-  }, [renderCallItem, deleteMessage, openAttachment, deletingMessageId, bubbleMaxWidth, selectedMessageId, currentCounselor?.name]);
+  }, [renderCallItem, deleteMessage, openAttachment, deletingMessageId, bubbleMaxWidth, currentCounselor?.name]);
 
   const renderChatStatusBanner = () => {
     if (!chatStatus || chatStatus === "accepted") return null;

@@ -267,7 +267,16 @@
     "passwordStrengthBasic": "Basic",
     "passwordStrengthGood": "Good",
     "passwordStrengthStrong": "Strong",
-    "passwordStrengthVeryStrong": "Very strong"
+    "passwordStrengthVeryStrong": "Very strong",
+    "emailPassword": "Email & Password",
+    "passwordSet": "●●●●●● (set)",
+    "passwordNotSet": "Not set yet",
+    "enter6DigitOtp": "Enter 6-digit OTP",
+    "min6Chars": "Minimum 6 characters",
+    "reEnterPassword": "Re-enter password",
+    "enterCurrentPassword": "Enter current password",
+    "reEnterNewPassword": "Re-enter new password",
+    "copyright": "© 2025 Mediconnect. All rights reserved."
   },
   "lock": {
     "welcomeBack": "Welcome Back",

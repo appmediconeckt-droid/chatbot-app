@@ -116,6 +116,10 @@ const ChatPopup = ({
     ? Math.max(0, keyboardShownHeight - overlayShrink)
     : 0;
   const availHeight = overlayHeight;
+
+  // Detect tablet: width >= 600 is typically tablet range
+  const isTablet = width >= 600;
+  const popupBaseHeight = isTablet ? 750 : 630;
   const [showLangPicker, setShowLangPicker] = useState(false);
   const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
   const [aiVoiceStatus, setAiVoiceStatus] = useState("idle");
@@ -565,7 +569,7 @@ const ChatPopup = ({
         <View style={styles.chatPopupBackdrop} />
       </TouchableWithoutFeedback>
       <View style={[styles.chatPopup, {
-        height: keyboardHeight > 0 ? availHeight - keyboardHeight - 40 : 630,
+        height: keyboardHeight > 0 ? availHeight - keyboardHeight - 40 : popupBaseHeight,
         marginBottom: keyboardHeight,
       }]}>
         <LinearGradient
@@ -645,7 +649,12 @@ const ChatPopup = ({
                     <MaterialIcons name="auto-awesome" size={14} color="white" />
                   </LinearGradient>
                 )}
-                <View style={{ flex: 1 }}>
+                <View
+                  style={[
+                    styles.chatBubbleColumn,
+                    message.sender === "user" && styles.chatBubbleColumnUser,
+                  ]}
+                >
                   <View
                     style={[
                       styles.chatBubble,
@@ -1198,6 +1207,12 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const socketRef = useRef(null);
 
+  // Tablet detection for responsive modal
+  const screenWidth = Dimensions.get('window').width;
+  const isTablet = screenWidth >= 600;
+  const modalWidth = isTablet ? screenWidth * 0.7 : width * 0.88;
+  const modalMaxWidth = isTablet ? 700 : 420;
+
   const fetchAppointments = useCallback(async () => {
     try {
       setLoadingAppointments(true);
@@ -1252,12 +1267,15 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
     };
   }, [fetchAppointments]);
 
-  const upcomingApts = appointments.filter(
-    (apt) => apt.status !== "completed" && apt.status !== "canceled"
-  );
-  const pastApts = appointments.filter(
-    (apt) => apt.status === "completed" || apt.status === "canceled"
-  );
+  const now = new Date();
+  const upcomingApts = appointments.filter((apt) => {
+    const aptDate = new Date(apt.date);
+    return aptDate > now && apt.status !== "canceled";
+  });
+  const pastApts = appointments.filter((apt) => {
+    const aptDate = new Date(apt.date);
+    return aptDate <= now || apt.status === "canceled";
+  });
 
   let displayApts = activeTab === "Upcoming" ? upcomingApts : pastApts;
 
@@ -1426,7 +1444,7 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
         onRequestClose={() => setShowDetailsModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.appointmentDetailsModal}>
+          <View style={[styles.appointmentDetailsModal, { width: modalWidth, maxWidth: modalMaxWidth }]}>
             <TouchableOpacity
               onPress={() => setShowDetailsModal(false)}
               style={styles.detailsCloseBtn}
@@ -3591,13 +3609,23 @@ const styles = StyleSheet.create({
   chatMessageWrapperAi: {
     alignSelf: "flex-start",
   },
+  // Column holding the bubble (+ Listen button). flexShrink lets it size to the
+  // bubble's content instead of stretching to fill the row. alignItems keeps the
+  // Listen button aligned under the bubble on the correct side.
+  chatBubbleColumn: {
+    flexShrink: 1,
+    alignItems: "flex-start",
+  },
+  chatBubbleColumnUser: {
+    alignItems: "flex-end",
+  },
   chatBubble: {
     padding: 10,
     borderRadius: 18,
     backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: "#eaeaea",
-    maxWidth: "100%",
+    flexShrink: 1,
   },
   chatBubbleUser: {
     backgroundColor: "#667eea",

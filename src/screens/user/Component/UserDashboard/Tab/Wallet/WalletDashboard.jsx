@@ -134,7 +134,7 @@ const WalletDashboard = ({ userData = {} }) => {
       const options = {
         description: 'Wallet Top-up',
         currency: 'INR',
-        key_id: orderData?.key_id || 'rzp_test_SVLlb7lHwVw9cy',
+        key_id: orderData?.key_id || 'rzp_test_T86yMRrbjbISDA',
         amount: orderData?.amount || numericAmount * 100,
         order_id: orderData?.order_id,
         name: 'Mediconeckt',

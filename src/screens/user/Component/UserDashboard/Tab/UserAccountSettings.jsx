@@ -284,15 +284,15 @@ const UserAccountSettings = ({ onNavigateBack }) => {
         <View style={s.card}>
           <Text style={s.cardTitle}>{t('settings:account')}</Text>
           {[
-            { label: t('auth:name'), val: account.name },
-            { label: t('auth:email'), val: account.email },
-            { label: t('auth:phone'), val: account.phone },
-            { label: t('settings:loginVia'), val: account.authProvider === 'google' ? 'Google' : 'Email & Password' },
-            { label: t('auth:password'), val: account.hasPassword ? '●●●●●● (set)' : 'Not set yet' },
-          ].map(({ label, val }) => (
-            <View key={label} style={s.infoRow}>
+            { key: 'name', label: t('auth:name'), val: account.name },
+            { key: 'email', label: t('auth:email'), val: account.email },
+            { key: 'phone', label: t('auth:phone'), val: account.phone },
+            { key: 'loginVia', label: t('settings:loginVia'), val: account.authProvider === 'google' ? 'Google' : t('settings:emailPassword') },
+            { key: 'password', label: t('auth:password'), val: account.hasPassword ? t('settings:passwordSet') : t('settings:passwordNotSet') },
+          ].map(({ key, label, val }) => (
+            <View key={key} style={s.infoRow}>
               <Text style={s.infoKey}>{label}</Text>
-              <Text style={[s.infoVal, label === 'Password' && !account.hasPassword && { color: '#f59e0b' }]}>
+              <Text style={[s.infoVal, key === 'password' && !account.hasPassword && { color: '#f59e0b' }]}>
                 {val || '—'}
               </Text>
             </View>
@@ -363,7 +363,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                       onChangeText={(v) => setF('otp', v)}
                       keyboardType="number-pad"
                       maxLength={6}
-                      placeholder="Enter 6-digit OTP"
+                      placeholder={t('settings:enter6DigitOtp')}
                       placeholderTextColor="#94a3b8"
                     />
                   </View>
@@ -374,7 +374,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                 label={t('auth:newPassword')}
                 value={form.password}
                 onChange={(v) => setF('password', v)}
-                placeholder="Minimum 6 characters"
+                placeholder={t('settings:min6Chars')}
                 show={showNew}
                 onToggle={() => setShowNew((x) => !x)}
               />
@@ -383,7 +383,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                 label={t('auth:confirmPassword')}
                 value={form.confirmPassword}
                 onChange={(v) => setF('confirmPassword', v)}
-                placeholder="Re-enter password"
+                placeholder={t('settings:reEnterPassword')}
                 show={showConfirm}
                 onToggle={() => setShowConfirm((x) => !x)}
               />
@@ -405,7 +405,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                 label={t('auth:oldPassword')}
                 value={form.oldPassword}
                 onChange={(v) => setF('oldPassword', v)}
-                placeholder="Enter current password"
+                placeholder={t('settings:enterCurrentPassword')}
                 show={showOld}
                 onToggle={() => setShowOld((x) => !x)}
               />
@@ -413,7 +413,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                 label={t('auth:newPassword')}
                 value={form.newPassword}
                 onChange={(v) => setF('newPassword', v)}
-                placeholder="Minimum 6 characters"
+                placeholder={t('settings:min6Chars')}
                 show={showNew}
                 onToggle={() => setShowNew((x) => !x)}
               />
@@ -422,7 +422,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                 label={t('auth:confirmPassword')}
                 value={form.confirmNewPassword}
                 onChange={(v) => setF('confirmNewPassword', v)}
-                placeholder="Re-enter new password"
+                placeholder={t('settings:reEnterNewPassword')}
                 show={showConfirm}
                 onToggle={() => setShowConfirm((x) => !x)}
               />
@@ -458,7 +458,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
           <Feather name="chevron-right" size={18} color="#94a3b8" />
         </TouchableOpacity>
 
-        <Text style={s.footer}>© 2025 Mediconnect. All rights reserved.</Text>
+        <Text style={s.footer}>{t('settings:copyright')}</Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
