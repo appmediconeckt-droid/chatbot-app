@@ -131,6 +131,13 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [bookingNotes, setBookingNotes] = useState('');
+  const [paymentConfig, setPaymentConfig] = useState({
+    enabled: false,
+    fees: { chat: 100, voice: 200, video: 300 },
+    durationMinutes: 30,
+    requestExpiryHours: 24,
+  });
+  const [walletBalance, setWalletBalance] = useState(null);
 
   // Get user ID and token from AsyncStorage
   const [userId, setUserId] = useState(null);
@@ -147,6 +154,10 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
     }
   }, [initialSearchQuery]);
 
+  useEffect(() => {
+    fetchPaymentConfig();
+  }, [token]);
+
   const loadUserData = async () => {
     try {
       const storedUserId = await AsyncStorage.getItem('userId');
@@ -162,6 +173,24 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
     const storedToken = await AsyncStorage.getItem('token');
     const storedAccessToken = await AsyncStorage.getItem('accessToken');
     return storedToken || storedAccessToken || token;
+  };
+
+  const fetchPaymentConfig = async () => {
+    try {
+      const authToken = await getAuthToken();
+      if (!authToken) return;
+
+      const headers = { Authorization: `Bearer ${authToken}` };
+      const [configRes, walletRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/api/chat/payment-config`, { headers }),
+        axios.get(`${API_BASE_URL}/api/wallet/data`, { headers }),
+      ]);
+
+      setPaymentConfig((prev) => ({ ...prev, ...(configRes?.data || {}) }));
+      setWalletBalance(Number(walletRes?.data?.balance || 0));
+    } catch (error) {
+      console.warn('Payment config unavailable:', error?.response?.data || error?.message);
+    }
   };
 
   const fetchAcceptedChats = async () => {
@@ -432,10 +461,24 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
       const authToken = await getAuthToken();
 
+      if (paymentConfig.enabled) {
+        const amount = Number(paymentConfig.fees?.chat || 100);
+        const currentBalance = Number(walletBalance || 0);
+
+        if (currentBalance < amount) {
+          Alert.alert(
+            'Insufficient wallet balance',
+            `Please add ₹${amount - currentBalance} to continue.`
+          );
+          return;
+        }
+      }
+
       const response = await axios.post(
         `${API_BASE_URL}/api/chat/start`,
         {
           counselorId: counselorId,
+          sessionType: 'chat',
         },
         {
           headers: {
@@ -447,6 +490,9 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
       const chatId = response?.data?.chat?.chatId || response?.data?.chatId || null;
       const chatStatus = String(response?.data?.chat?.status || '').toLowerCase();
+      if (typeof response?.data?.chat?.walletBalance === 'number') {
+        setWalletBalance(response.data.chat.walletBalance);
+      }
 
       if ((chatStatus === 'accepted' || chatStatus === 'active') && chatId) {
         const acceptedChat = { chatId: String(chatId), status: chatStatus };
@@ -891,6 +937,26 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                       </Text>
                     </View>
                   </View>
+                </View>
+              )}
+
+              {paymentConfig.enabled && (
+                <View style={styles.paidSessionPreview}>
+                  <View style={styles.paidSessionRow}>
+                    <Text style={styles.paidSessionLabel}>Chat Session</Text>
+                    <Text style={styles.paidSessionValue}>
+                      ₹{paymentConfig.fees?.chat || 100} / {paymentConfig.durationMinutes || 30} min
+                    </Text>
+                  </View>
+                  <View style={styles.paidSessionRow}>
+                    <Text style={styles.paidSessionLabel}>Wallet Balance</Text>
+                    <Text style={styles.paidSessionValue}>
+                      ₹{Number(walletBalance || 0).toFixed(2)}
+                    </Text>
+                  </View>
+                  <Text style={styles.paidSessionNote}>
+                    Amount will stay on hold. If counselor does not accept within {paymentConfig.requestExpiryHours || 24} hours, it will be refunded automatically.
+                  </Text>
                 </View>
               )}
 
@@ -1644,6 +1710,40 @@ const styles = {
   previewSpecialization: {
     fontSize: 12,
     color: '#667eea',
+  },
+  paidSessionPreview: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 14,
+    backgroundColor: '#eff6ff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  paidSessionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+  },
+  paidSessionLabel: {
+    color: '#1e3a8a',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  paidSessionValue: {
+    color: '#0f172a',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  paidSessionNote: {
+    color: '#475569',
+    fontSize: 12,
+    lineHeight: 17,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#bfdbfe',
   },
   modalInfo: {
     paddingHorizontal: 16,

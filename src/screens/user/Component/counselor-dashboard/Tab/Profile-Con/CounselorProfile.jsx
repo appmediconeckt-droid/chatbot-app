@@ -20,6 +20,7 @@ import TranslatedMessageBubble from '../../../../../../components/TranslatedMess
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
+import { pick } from '@react-native-documents/picker';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
@@ -27,6 +28,14 @@ import safeVibrate from '../../../../../../utils/safeVibrate';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 
 const { width } = Dimensions.get('window');
+
+const VERIFICATION_DOCUMENT_OPTIONS = [
+  'Medical / Professional Registration Certificate',
+  'Degree or Qualification Certificate',
+  'Internship / Training Completion Certificate',
+  'Government ID Proof',
+  'Clinic / Hospital Affiliation Proof'
+];
 
 const normalizeGender = (value) => {
   if (!value) return '';
@@ -334,11 +343,50 @@ const CounselorProfile = () => {
     setEditedData(prev => ({ ...prev, consultationMode: prev.consultationMode.filter(m => m !== mode) }));
   };
 
+  const handleSelectDocumentType = (documentType) => {
+    setNewCertification(prev => ({ ...prev, name: documentType }));
+  };
+
+  const handleUploadCertificationDocument = async () => {
+    try {
+      const [selectedDocument] = await pick();
+      if (!selectedDocument?.uri) {
+        Alert.alert('Error', 'Unable to read selected document.');
+        return;
+      }
+
+      const fileName = selectedDocument.name || `verification-document-${Date.now()}`;
+      setNewCertification(prev => ({
+        ...prev,
+        document: {
+          uri: selectedDocument.uri,
+          type: selectedDocument.type || 'application/octet-stream',
+          name: fileName
+        },
+        documentName: fileName
+      }));
+    } catch (error) {
+      if (error?.code === 'OPERATION_CANCELED') return;
+      Alert.alert('Error', 'Unable to pick a document. Please try again.');
+    }
+  };
+
   const handleAddCertification = () => {
     if (!newCertification.name.trim()) {
       Alert.alert('Error', 'Please enter certification name');
       return;
     }
+
+    if ((editedData.certifications || []).length >= 5) {
+      Alert.alert('Error', 'You can add up to 5 certification documents.');
+      return;
+    }
+
+    if (!newCertification.document?.uri) {
+      Alert.alert('Error', 'Please upload a document before adding this certificate.');
+      return;
+    }
+
     const newCert = {
       _id: `temp_${Date.now()}`,
       name: newCertification.name,
@@ -362,6 +410,21 @@ const CounselorProfile = () => {
       setLoading(true);
       setError('');
       setSuccessMessage('');
+
+      const totalCertifications = editedData.certifications?.length || 0;
+      if (totalCertifications > 5) {
+        Alert.alert('Error', 'You can upload a maximum of 5 certification documents.');
+        setLoading(false);
+        return;
+      }
+
+      const pendingCertificates = (editedData.certifications || []).filter(cert => String(cert._id || '').startsWith('temp_'));
+      const missingDocCertificates = pendingCertificates.filter(cert => !cert.document?.uri && !cert.documentUrl);
+      if (missingDocCertificates.length > 0) {
+        Alert.alert('Error', 'Please upload a document for each new certificate before saving.');
+        setLoading(false);
+        return;
+      }
 
       const formData = new FormData();
       formData.append('fullName', editedData.fullName);
@@ -403,6 +466,32 @@ const CounselorProfile = () => {
           name: editedData.profilePhoto.name
         });
       }
+
+      const certificationPayload = (editedData.certifications || [])
+        .filter(cert => cert && (cert._id || cert.name))
+        .map((cert) => ({
+          _id: cert._id && !String(cert._id).startsWith('temp_') ? cert._id : undefined,
+          name: cert.name || '',
+          issuedBy: cert.issuedBy || '',
+          issueDate: cert.issueDate || '',
+          expiryDate: cert.expiryDate || '',
+          documentUrl: cert.documentUrl || '',
+          documentName: cert.documentName || ''
+        }));
+
+      if (certificationPayload.length > 0) {
+        formData.append('certifications', JSON.stringify(certificationPayload));
+      }
+
+      (editedData.certifications || []).forEach((cert, index) => {
+        if (cert?.document?.uri) {
+          formData.append(`certifications[${index}][document]`, {
+            uri: cert.document.uri,
+            type: cert.document.type || 'image/jpeg',
+            name: cert.document.name || cert.documentName || `certificate-${index + 1}.jpg`
+          });
+        }
+      });
 
       const response = await updateCounselorProfile(formData);
       if (response.data.success) {
@@ -852,12 +941,39 @@ const CounselorProfile = () => {
             {isEditing && (
               <View style={styles.addCertForm}>
                 <Text style={styles.addCertTitle}>{t('profile:addNewCertification')}</Text>
-                <TextInput style={styles.input} value={newCertification.name} onChangeText={(v) => setNewCertification(prev => ({ ...prev, name: v }))} placeholder="Certification name *" placeholderTextColor="#9CA3AF" />
+                <Text style={styles.documentListHint}>Select document type, then upload its file. You can add 1 to 5 documents.</Text>
+                <View style={styles.documentOptionList}>
+                  {VERIFICATION_DOCUMENT_OPTIONS.map((documentType) => (
+                    <TouchableOpacity
+                      key={documentType}
+                      onPress={() => handleSelectDocumentType(documentType)}
+                      style={[
+                        styles.documentOption,
+                        newCertification.name === documentType && styles.documentOptionActive
+                      ]}
+                    >
+                      <Icon
+                        name={newCertification.name === documentType ? 'radio-button-checked' : 'radio-button-unchecked'}
+                        size={18}
+                        color={newCertification.name === documentType ? '#1D4ED8' : '#9CA3AF'}
+                      />
+                      <Text style={[
+                        styles.documentOptionText,
+                        newCertification.name === documentType && styles.documentOptionTextActive
+                      ]}>
+                        {documentType}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
                 <TextInput style={styles.input} value={newCertification.issuedBy} onChangeText={(v) => setNewCertification(prev => ({ ...prev, issuedBy: v }))} placeholder="Issued by" placeholderTextColor="#9CA3AF" />
                 <View style={styles.dateRow}>
                   <TextInput style={[styles.input, styles.flexInput]} value={newCertification.issueDate} onChangeText={(v) => setNewCertification(prev => ({ ...prev, issueDate: v }))} placeholder="Issue date" placeholderTextColor="#9CA3AF" />
                   <TextInput style={[styles.input, styles.flexInput]} value={newCertification.expiryDate} onChangeText={(v) => setNewCertification(prev => ({ ...prev, expiryDate: v }))} placeholder="Expiry date" placeholderTextColor="#9CA3AF" />
                 </View>
+                <TouchableOpacity onPress={handleUploadCertificationDocument} style={styles.uploadDocBtn}>
+                  <Text style={styles.uploadDocBtnText}>{newCertification.documentName ? `Document: ${newCertification.documentName}` : 'Upload Document *'}</Text>
+                </TouchableOpacity>
                 <TouchableOpacity onPress={handleAddCertification} style={styles.addCertBtn}>
                   <Text style={styles.addCertBtnText}>Add Certification</Text>
                 </TouchableOpacity>
@@ -1580,6 +1696,53 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
     marginBottom: 6,
+  },
+  documentListHint: {
+    color: '#6B7280',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: -4,
+  },
+  documentOptionList: {
+    gap: 8,
+  },
+  documentOption: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  documentOptionActive: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#93C5FD',
+  },
+  documentOptionText: {
+    flex: 1,
+    color: '#374151',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  documentOptionTextActive: {
+    color: '#1D4ED8',
+  },
+  uploadDocBtn: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#93C5FD',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  uploadDocBtnText: {
+    color: '#1D4ED8',
+    fontSize: 14,
+    fontWeight: '700',
   },
   addCertBtn: {
     backgroundColor: '#2563EB',
