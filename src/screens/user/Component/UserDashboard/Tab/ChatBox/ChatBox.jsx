@@ -1754,17 +1754,9 @@ const ChatBox = () => {
                   <Ionicons name="refresh" size={18} color="#526071" />
                   <Text style={styles.optionText}>Refresh Messages</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.optionItem} onPress={() => { setShowOptions(false); deleteWholeChat(); }}>
+                <TouchableOpacity style={[styles.optionItem, styles.optionItemLast]} onPress={() => { setShowOptions(false); deleteWholeChat(); }}>
                   <Ionicons name="trash-outline" size={18} color="#dc2626" />
                   <Text style={[styles.optionText, styles.optionTextDanger]}>Delete Chat</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.optionItem} onPress={() => { Alert.alert("Report Issue", "Feature coming soon"); setShowOptions(false); }}>
-                  <Ionicons name="warning-outline" size={18} color="#526071" />
-                  <Text style={styles.optionText}>Report Issue</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.optionItem} onPress={() => { Alert.alert("Chat Details", "Feature coming soon"); setShowOptions(false); }}>
-                  <Ionicons name="information-circle-outline" size={18} color="#526071" />
-                  <Text style={styles.optionText}>Chat Details</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
@@ -2123,6 +2115,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f2f4f6",
   },
+  optionItemLast: {
+    borderBottomWidth: 0,
+  },
   optionText: {
     fontSize: 14,
     fontWeight: "500",
@@ -2369,7 +2364,7 @@ const styles = StyleSheet.create({
   },
   messageContent: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     alignItems: "flex-end",
     justifyContent: "flex-end",
     paddingHorizontal: 16,

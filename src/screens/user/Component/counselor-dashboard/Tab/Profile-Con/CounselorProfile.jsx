@@ -1,5 +1,6 @@
 // CounselorProfile.jsx - Modern Full Width Design
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   View,
   Text,
@@ -24,6 +25,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import safeVibrate from '../../../../../../utils/safeVibrate';
+import { formatLocation, parseLocation } from '../../../../../../utils/locationFormatter';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 
 const { width } = Dimensions.get('window');
@@ -55,6 +57,7 @@ const normalizeBloodGroup = (value) => {
 
 const CounselorProfile = () => {
   const navigation = useNavigation();
+  const { t: tLanguage } = useTranslation();
   const { t } = useLanguageRender();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -920,9 +923,31 @@ const CounselorProfile = () => {
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>{t('profile:location')}</Text>
                 {isEditing ? (
-                  <TextInput style={styles.input} value={editedData.location || ''} onChangeText={(v) => handleInputChange('location', v)} placeholder="Your location" placeholderTextColor="#9CA3AF" />
+                  <TextInput style={styles.input} value={editedData.location || ''} onChangeText={(v) => handleInputChange('location', v)} placeholder="e.g., Bangalore, Pune, Delhi" placeholderTextColor="#9CA3AF" />
                 ) : (
-                  <Text style={styles.detailValue}>{counselor.location || t('profile:notSpecified')}</Text>
+                  <>
+                    {counselor.location ? (
+                      <View style={{ gap: 4 }}>
+                        {counselor.location
+                          .split(',')
+                          .map(loc => loc.trim())
+                          .filter(loc => loc.length > 0)
+                          .map((loc, index) => (
+                            <View key={index} style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: index === 0 ? 0 : 12 }}>
+                              <Text style={[styles.detailValue, { marginRight: 6 }]}>
+                                {index === 0 ? '📍' : '•'}
+                              </Text>
+                              <TranslatedMessageBubble
+                                text={loc}
+                                style={styles.detailValue}
+                              />
+                            </View>
+                          ))}
+                      </View>
+                    ) : (
+                      <Text style={styles.detailValue}>{t('profile:notSpecified')}</Text>
+                    )}
+                  </>
                 )}
               </View>
             </View>
@@ -958,7 +983,16 @@ const CounselorProfile = () => {
             {isEditing ? (
               <TextInput style={[styles.input, styles.textArea]} value={editedData.aboutMe || ''} onChangeText={(v) => handleInputChange('aboutMe', v)} placeholder="Share your professional journey and expertise..." placeholderTextColor="#9CA3AF" multiline numberOfLines={5} />
             ) : (
-              <Text style={styles.bodyText}>{counselor.aboutMe || '✨ No bio added yet.'}</Text>
+              <>
+                {counselor.aboutMe ? (
+                  <TranslatedMessageBubble
+                    text={counselor.aboutMe}
+                    style={styles.bodyText}
+                  />
+                ) : (
+                  <Text style={styles.bodyText}>✨ No bio added yet.</Text>
+                )}
+              </>
             )}
           </View>
 

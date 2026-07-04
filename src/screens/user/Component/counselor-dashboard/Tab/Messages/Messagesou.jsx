@@ -328,7 +328,6 @@ const SMSList = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
-
       <View style={styles.searchSection}>
         <View style={styles.searchContainer}>
           <View style={styles.searchIconWrap}>
@@ -397,8 +396,7 @@ const styles = StyleSheet.create({
   searchSection: {
     width: '100%',
     paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 12,
+    paddingVertical: 10,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
@@ -407,6 +405,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 4,
     elevation: 3,
+    marginTop: -30,
   },
   searchContainer: {
     flexDirection: 'row',

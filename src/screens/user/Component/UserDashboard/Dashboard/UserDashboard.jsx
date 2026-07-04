@@ -1197,7 +1197,7 @@ const aptSkelStyles = StyleSheet.create({
   btnRight: { flex: 1, height: 42, borderRadius: 13, backgroundColor: '#e2e8f0' },
 });
 
-const MyAppointmentsPanel = ({ onBookPress }) => {
+const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) => {
   const { t } = useTranslation();
   const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(true);
@@ -1427,9 +1427,29 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
                   <Text style={styles.appointmentDetailsText}>View Details</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.appointmentBookBtn} onPress={() => onBookPress(apt)}>
-                  <MaterialIcons name="add-circle-outline" size={15} color="#ffffff" />
-                  <Text style={styles.appointmentBookText}>Book Now</Text>
+                {/* Action Buttons: Video, Voice, Chat */}
+                <TouchableOpacity
+                  style={styles.aptActionIconBtn}
+                  onPress={() => onVideoCall && onVideoCall(apt)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="videocam" size={20} color="#6366f1" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.aptActionIconBtn}
+                  onPress={() => onVoiceCall && onVoiceCall(apt)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="call" size={20} color="#10b981" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.aptActionIconBtn}
+                  onPress={() => onChat && onChat(apt)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="chatbubble-ellipses" size={20} color="#f59e0b" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -1445,22 +1465,127 @@ const MyAppointmentsPanel = ({ onBookPress }) => {
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.appointmentDetailsModal, { width: modalWidth, maxWidth: modalMaxWidth }]}>
-            <TouchableOpacity
-              onPress={() => setShowDetailsModal(false)}
-              style={styles.detailsCloseBtn}
-            >
-              <MaterialIcons name="close" size={20} color="#64748b" />
-            </TouchableOpacity>
+            {/* Header with close button */}
+            <View style={styles.detailsModalHeader}>
+              <Text style={styles.detailsModalTitle}>Appointment Details</Text>
+              <TouchableOpacity
+                onPress={() => setShowDetailsModal(false)}
+                style={styles.detailsCloseBtn}
+              >
+                <MaterialIcons name="close" size={22} color="#64748b" />
+              </TouchableOpacity>
+            </View>
 
-            <Text style={styles.appointmentDetailsTitle}>{t('appointment:appointmentDate')}</Text>
-            <Text style={styles.appointmentDetailsLine}>
-              Date: {selectedApt ? new Date(selectedApt.date).toLocaleDateString("en-US") : "-"}
-            </Text>
-            <Text style={styles.appointmentDetailsLine}>
-              Time: {selectedApt ? new Date(selectedApt.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-"}
-            </Text>
-            <Text style={styles.appointmentDetailsLine}>Status: {selectedApt?.status || "pending"}</Text>
-            <Text style={styles.appointmentDetailsLine}>Notes: {selectedApt?.notes || "N/A"}</Text>
+            <ScrollView style={styles.detailsModalContent} showsVerticalScrollIndicator={false}>
+              {/* Counselor Info Section */}
+              <View style={styles.detailsSectionCounselor}>
+                <View style={styles.detailsCounselorAvatar}>
+                  <Image
+                    source={{ uri: getAvatarSrc(selectedApt) }}
+                    style={styles.detailsCounselorImage}
+                  />
+                </View>
+                <View style={styles.detailsCounselorInfo}>
+                  <Text style={styles.detailsCounselorName}>
+                    Dr. {selectedApt?.counselor?.fullName || "Counselor"}
+                  </Text>
+                  <Text style={styles.detailsCounselorSpec}>
+                    {selectedApt?.counselor?.specialization || "Mental Wellness Specialist"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Status Badge */}
+              <View style={[styles.detailsStatusBadge, { backgroundColor: getAccentColor(selectedApt?.status) + "20" }]}>
+                <View style={[styles.detailsStatusDot, { backgroundColor: getAccentColor(selectedApt?.status) }]} />
+                <Text style={[styles.detailsStatusLabel, { color: getAccentColor(selectedApt?.status) }]}>
+                  {(selectedApt?.status || "pending").charAt(0).toUpperCase() + (selectedApt?.status || "pending").slice(1)}
+                </Text>
+              </View>
+
+              {/* Details Section */}
+              <View style={styles.detailsSection}>
+                <View style={styles.detailsItem}>
+                  <View style={styles.detailsItemIcon}>
+                    <MaterialIcons name="event" size={18} color="#4f46e5" />
+                  </View>
+                  <View style={styles.detailsItemContent}>
+                    <Text style={styles.detailsItemLabel}>Date</Text>
+                    <Text style={styles.detailsItemValue}>
+                      {selectedApt ? new Date(selectedApt.date).toLocaleDateString("en-US", {
+                        weekday: "long",
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      }) : "-"}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.detailsItem}>
+                  <View style={styles.detailsItemIcon}>
+                    <MaterialIcons name="access-time" size={18} color="#4f46e5" />
+                  </View>
+                  <View style={styles.detailsItemContent}>
+                    <Text style={styles.detailsItemLabel}>Time</Text>
+                    <Text style={styles.detailsItemValue}>
+                      {selectedApt ? new Date(selectedApt.date).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }) : "-"}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.detailsItem}>
+                  <View style={styles.detailsItemIcon}>
+                    <MaterialIcons name="description" size={18} color="#4f46e5" />
+                  </View>
+                  <View style={styles.detailsItemContent}>
+                    <Text style={styles.detailsItemLabel}>Notes</Text>
+                    <Text style={styles.detailsItemValue}>
+                      {selectedApt?.notes || "No notes added"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.detailsActions}>
+                <TouchableOpacity
+                  style={styles.detailsActionBtn}
+                  onPress={() => {
+                    setShowDetailsModal(false);
+                    handleAptChat(selectedApt);
+                  }}
+                >
+                  <Ionicons name="chatbubble-ellipses" size={18} color="#f59e0b" />
+                  <Text style={styles.detailsActionBtnText}>Chat</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.detailsActionBtn}
+                  onPress={() => {
+                    setShowDetailsModal(false);
+                    handleAptVoiceCall(selectedApt);
+                  }}
+                >
+                  <Ionicons name="call" size={18} color="#10b981" />
+                  <Text style={styles.detailsActionBtnText}>Call</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.detailsActionBtn}
+                  onPress={() => {
+                    setShowDetailsModal(false);
+                    handleAptVideoCall(selectedApt);
+                  }}
+                >
+                  <Ionicons name="videocam" size={18} color="#6366f1" />
+                  <Text style={styles.detailsActionBtnText}>Video</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1808,6 +1933,99 @@ export default function UserDashboard() {
     }
   };
 
+  // Handler for appointment video call
+  const handleAptVideoCall = async (apt) => {
+    try {
+      const counselor = apt?.counselor || apt;
+      const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
+      const currentUserId = userId || await AsyncStorage.getItem("userId");
+      const counselorId = counselor?.id || counselor?._id;
+
+      if (!currentUserId || !counselorId) {
+        Alert.alert("Error", "Missing user or counselor information");
+        return;
+      }
+
+      const response = await axios.post(
+        `${API_BASE_URL}/api/video/calls/initiate`,
+        {
+          initiatorId: currentUserId,
+          initiatorType: "user",
+          receiverId: counselorId,
+          receiverType: "counsellor",
+          callType: "video",
+        },
+        { headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` } }
+      );
+
+      if (response.data?.success) {
+        navigation.navigate("ChatBox", {
+          chatId: null,
+          counselor: counselor,
+          callType: "video",
+          callData: response.data.callData,
+        });
+      }
+    } catch (error) {
+      Alert.alert("Error", "Failed to initiate video call");
+      console.error("Video call error:", error);
+    }
+  };
+
+  // Handler for appointment voice call
+  const handleAptVoiceCall = async (apt) => {
+    try {
+      const counselor = apt?.counselor || apt;
+      const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
+      const currentUserId = userId || await AsyncStorage.getItem("userId");
+      const counselorId = counselor?.id || counselor?._id;
+
+      if (!currentUserId || !counselorId) {
+        Alert.alert("Error", "Missing user or counselor information");
+        return;
+      }
+
+      const response = await axios.post(
+        `${API_BASE_URL}/api/video/calls/initiate`,
+        {
+          initiatorId: currentUserId,
+          initiatorType: "user",
+          receiverId: counselorId,
+          receiverType: "counsellor",
+          callType: "audio",
+        },
+        { headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` } }
+      );
+
+      if (response.data?.success) {
+        navigation.navigate("ChatBox", {
+          chatId: null,
+          counselor: counselor,
+          callType: "voice",
+          callData: response.data.callData,
+        });
+      }
+    } catch (error) {
+      Alert.alert("Error", "Failed to initiate voice call");
+      console.error("Voice call error:", error);
+    }
+  };
+
+  // Handler for appointment chat
+  const handleAptChat = async (apt) => {
+    try {
+      const counselor = apt?.counselor || apt;
+      navigation.navigate("ChatBox", {
+        chatId: null,
+        counselor: counselor,
+        user: userData,
+      });
+    } catch (error) {
+      Alert.alert("Error", "Failed to open chat");
+      console.error("Chat error:", error);
+    }
+  };
+
   // Upload a profile photo (file) or generated avatar (url) from the header.
   const uploadHeaderPhoto = async (formData, optimisticUri) => {
     try {
@@ -2141,6 +2359,9 @@ export default function UserDashboard() {
               setDirectBookNotes("");
               setShowDirectBookingModal(true);
             }}
+            onVideoCall={handleAptVideoCall}
+            onVoiceCall={handleAptVoiceCall}
+            onChat={handleAptChat}
           />
         );
       case "Wallet":
@@ -3343,11 +3564,11 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   appointmentDetailsBtn: {
-    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderWidth: 1.5,
     borderColor: "#e0e7ff",
-    borderRadius: 13,
-    paddingVertical: 11,
+    borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
     flexDirection: "row",
@@ -3379,24 +3600,169 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  aptActionIconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#f3f4f6",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
   appointmentDetailsModal: {
     backgroundColor: "#ffffff",
-    borderRadius: 22,
-    padding: 24,
+    borderRadius: 24,
+    overflow: "hidden",
     width: width * 0.88,
     maxWidth: 420,
+    maxHeight: height * 0.8,
+  },
+  detailsModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f4f8",
+    backgroundColor: "#ffffff",
+  },
+  detailsModalTitle: {
+    color: "#0f172a",
+    fontSize: 18,
+    fontWeight: "800",
   },
   detailsCloseBtn: {
-    position: "absolute",
-    top: 14,
-    right: 14,
-    zIndex: 2,
     backgroundColor: "#f1f5f9",
     borderRadius: 20,
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
+  },
+  detailsModalContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  detailsSectionCounselor: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f4f8",
+  },
+  detailsCounselorAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    overflow: "hidden",
+    marginRight: 14,
+    backgroundColor: "#f0f4f8",
+  },
+  detailsCounselorImage: {
+    width: "100%",
+    height: "100%",
+  },
+  detailsCounselorInfo: {
+    flex: 1,
+  },
+  detailsCounselorName: {
+    color: "#0f172a",
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  detailsCounselorSpec: {
+    color: "#64748b",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  detailsStatusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginBottom: 18,
+    alignSelf: "flex-start",
+  },
+  detailsStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  detailsStatusLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "capitalize",
+  },
+  detailsSection: {
+    marginBottom: 18,
+  },
+  detailsItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: "#f9fafb",
+    borderRadius: 14,
+  },
+  detailsItemIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "#eef2ff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  detailsItemContent: {
+    flex: 1,
+  },
+  detailsItemLabel: {
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  detailsItemValue: {
+    color: "#0f172a",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  detailsActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#f0f4f8",
+  },
+  detailsActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 11,
+    borderRadius: 11,
+    backgroundColor: "#f9fafb",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  detailsActionBtnText: {
+    color: "#0f172a",
+    fontSize: 12,
+    fontWeight: "700",
   },
   appointmentDetailsTitle: {
     color: "#0f172a",

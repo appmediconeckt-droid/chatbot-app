@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import {
@@ -15,6 +18,7 @@ const { width: screenWidth } = Dimensions.get('window');
 
 const PatientRequests = () => {
   const { t } = useTranslation();
+  const navigation = useNavigation();
   // Sample patient requests data
   const [patients, setPatients] = useState([
     {
@@ -87,6 +91,30 @@ const PatientRequests = () => {
       )
     );
     Alert.alert('Cancelled', `Patient ${patientId} has been cancelled.`);
+  };
+
+  // Handle video call
+  const handleVideoCall = (patient) => {
+    Alert.alert('Video Call', `Starting video call with ${patient.name}...`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Start Call', onPress: () => Alert.alert('Success', 'Video call initiated!') },
+    ]);
+  };
+
+  // Handle voice call
+  const handleVoiceCall = (patient) => {
+    Alert.alert('Voice Call', `Starting voice call with ${patient.name}...`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Start Call', onPress: () => Alert.alert('Success', 'Voice call initiated!') },
+    ]);
+  };
+
+  // Handle chat
+  const handleChat = (patient) => {
+    Alert.alert('Chat', `Opening chat with ${patient.name}...`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Open Chat', onPress: () => Alert.alert('Success', 'Chat opened!') },
+    ]);
   };
 
   // Filter patients based on status
@@ -279,17 +307,53 @@ const PatientRequests = () => {
               {/* Action Buttons - Show only for pending requests */}
               {patient.status === 'pending' && (
                 <View style={styles.actionButtons}>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.btnAccept}
                     onPress={() => handleAccept(patient.id)}
                   >
                     <Text style={styles.btnAcceptText}>✓ Accept Request</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.btnCancel}
                     onPress={() => handleCancel(patient.id)}
                   >
                     <Text style={styles.btnCancelText}>✕ Cancel Request</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Action Buttons - Professional icons with text for confirmed/accepted */}
+              {(patient.status === 'accepted' || patient.status === 'confirmed') && (
+                <View style={styles.actionsRow}>
+                  <TouchableOpacity
+                    style={styles.actionButtonWithText}
+                    activeOpacity={0.65}
+                    onPress={() => handleVideoCall(patient)}
+                  >
+                    <View style={[styles.actionIconBtn, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}>
+                      <Ionicons name="videocam" size={20} color="#3b82f6" />
+                    </View>
+                    <Text style={styles.actionButtonText}>Video</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.actionButtonWithText}
+                    activeOpacity={0.65}
+                    onPress={() => handleVoiceCall(patient)}
+                  >
+                    <View style={[styles.actionIconBtn, { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }]}>
+                      <Ionicons name="call" size={20} color="#16a34a" />
+                    </View>
+                    <Text style={styles.actionButtonText}>Voice</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.actionButtonWithText}
+                    activeOpacity={0.65}
+                    onPress={() => handleChat(patient)}
+                  >
+                    <View style={[styles.actionIconBtn, { backgroundColor: '#fffbeb', borderColor: '#fde68a' }]}>
+                      <Ionicons name="chatbubble-ellipses" size={20} color="#d97706" />
+                    </View>
+                    <Text style={styles.actionButtonText}>Chat</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -576,6 +640,41 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 14,
+  },
+  // Action Buttons for Confirmed Appointments
+  actionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 14,
+    backgroundColor: '#f8f9fa',
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    justifyContent: 'center',
+  },
+  actionButtonWithText: {
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 70,
+  },
+  actionIconBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
+    borderWidth: 0.5,
+    borderColor: '#e0e0e0',
+  },
+  actionButtonText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1f2937',
   },
   // No Patients
   noPatients: {

@@ -204,6 +204,7 @@ const SMSInput = ({ navigation, route }) => {
   const [selectedCall, setSelectedCall] = useState(null);
   const [isInitiatingCall, setIsInitiatingCall] = useState(false);
   const [callError, setCallError] = useState(null);
+  const [showOptions, setShowOptions] = useState(false);
 
   // Receiving Call States
   const [showIncomingModal, setShowIncomingModal] = useState(false);
@@ -583,9 +584,8 @@ const SMSInput = ({ navigation, route }) => {
       'Delete Call',
       `Remove this ${item.type === 'video' ? 'video' : 'voice'} call from the chat?\n\nThis action cannot be undone.`,
       [
-        { text: 'Cancel', style: 'cancel', onPress: () => setSelectedMessageId(null) },
+        { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => {
-          setSelectedMessageId(null);
           hideCallEntry(item.id);
         }},
       ],
@@ -794,6 +794,31 @@ const SMSInput = ({ navigation, route }) => {
   // Counselor ends the session. The backend should mark the chat "ended" and
   // emit the existing `chat-status-update` event so the user's app shows its
   // rating popup. We update our own status locally for immediate feedback.
+
+  // Clear chat function
+  const clearChat = async () => {
+    try {
+      const token = await getAuthToken();
+      const apiChatId = getChatIdForAPI();
+
+      await axios.post(
+        `${API_BASE_URL}/api/chat/clear/${apiChatId}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setMessages([]);
+      setCallHistory([]);
+      setDeletedMessageIds(new Set());
+      Alert.alert("Success", "Chat cleared! You can now start a new conversation.");
+    } catch (error) {
+      Alert.alert(
+        "Error",
+        `Could not clear chat: ${error?.response?.data?.error || error.message || "Failed to clear chat on server"}`
+      );
+    }
+  };
+
   // ─── Call initiation and handling ────────────────────────────────────────
   const initiateVideoCall = async () => {
     if (!selectedUser || !counselorId) {
@@ -1352,6 +1377,9 @@ const SMSInput = ({ navigation, route }) => {
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.actionBtnDisabled]} onPress={initiateVideoCall} disabled={isInitiatingCall}>
                 <Ionicons name="videocam" size={20} color="#FFFFFF" />
               </TouchableOpacity>
+              <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(!showOptions)}>
+                <Ionicons name="ellipsis-vertical" size={18} color="#FFFFFF" />
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -1362,6 +1390,22 @@ const SMSInput = ({ navigation, route }) => {
               <TouchableOpacity onPress={() => setCallError(null)}><Ionicons name="close" size={20} color="#ba1a1a" /></TouchableOpacity>
             </View>
           )}
+
+          {/* Options Modal */}
+          <Modal transparent visible={showOptions} animationType="fade" onRequestClose={() => setShowOptions(false)}>
+            <TouchableOpacity style={styles.optionsOverlay} activeOpacity={1} onPress={() => setShowOptions(false)}>
+              <View style={styles.optionsMenu}>
+                <TouchableOpacity style={styles.optionItem} onPress={() => { fetchMessagesFromAPI(); setShowOptions(false); }}>
+                  <Ionicons name="refresh" size={18} color="#526071" />
+                  <Text style={styles.optionText}>Refresh Messages</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.optionItem, styles.optionItemLast]} onPress={() => { setShowOptions(false); clearChat(); }}>
+                  <Ionicons name="trash-outline" size={18} color="#dc2626" />
+                  <Text style={[styles.optionText, styles.optionTextDanger]}>Clear Chat</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </Modal>
 
           {/* Messages */}
           {isLoadingMessages && messages.length === 0 ? (
@@ -1541,14 +1585,14 @@ const styles = StyleSheet.create({
   callMetaAlert: { color: '#EF4444', fontWeight: '600' },
   callTime: { fontSize: 11, color: '#94A3B8', alignSelf: 'flex-end' },
   callDeleteBtn: { alignSelf: 'flex-start', padding: 2 },
-  messageContent: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, maxWidth: screenWidth >= 600 ? 500 : '80%' },
+  messageContent: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'flex-end', justifyContent: 'flex-end', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, maxWidth: screenWidth >= 600 ? 500 : '80%' },
   userMessageContent: { backgroundColor: '#1D4ED8', borderBottomRightRadius: 4, shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 4 },
   counselorMessageContent: { backgroundColor: '#FFFFFF', borderBottomLeftRadius: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
   messageText: { fontSize: 14, lineHeight: 21, fontWeight: '400' },
   userMessageText: { color: '#FFFFFF' },
   counselorMessageText: { color: '#1E293B' },
-  messageFooter: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 4, gap: 3 },
-  messageTime: { fontSize: 10, color: '#94A3B8', fontWeight: '500' },
+  messageFooter: { flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 8, paddingBottom: 1 },
+  messageTime: { fontSize: 11, color: '#94A3B8', fontWeight: '500' },
   messageTimeMine: { color: 'rgba(255,255,255,0.55)' },
   messageStatusSending: { fontSize: 11, color: '#F59E0B', fontWeight: '500' },
   messageStatusIconWrap: { width: 16, alignItems: 'center', justifyContent: 'center' },
@@ -1589,6 +1633,46 @@ const styles = StyleSheet.create({
   acceptBtn: { backgroundColor: '#2563EB' },
   rejectBtn: { backgroundColor: '#DC2626' },
   incomingCallBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
+  // Options Menu Styles
+  optionsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 80,
+    paddingRight: 16,
+  },
+  optionsMenu: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    minWidth: 200,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f2f4f6',
+  },
+  optionItemLast: {
+    borderBottomWidth: 0,
+  },
+  optionText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#191c1e',
+  },
+  optionTextDanger: {
+    color: '#dc2626',
+  },
 });
 
 export default SMSInput;
