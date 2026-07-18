@@ -180,6 +180,35 @@ const IncomingCallModal = ({
   );
 };
 
+// ─── Image Preview Modal Component ────────────────────────────────────────
+const ImagePreviewModal = ({ isVisible, imageUrl, onClose }) => {
+  const [scale, setScale] = useState(1);
+
+  if (!isVisible || !imageUrl) return null;
+
+  return (
+    <Modal visible={isVisible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.imagePreviewOverlay}>
+        <TouchableOpacity
+          style={styles.imagePreviewCloseBtn}
+          onPress={onClose}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="close-circle" size={32} color="white" />
+        </TouchableOpacity>
+
+        <View style={styles.imagePreviewContainer}>
+          <Image
+            source={{ uri: imageUrl }}
+            style={styles.imagePreviewFull}
+            resizeMode="contain"
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 // ─── Main Component ────────────────────────────────────────────────────────
 const SMSInput = ({ navigation, route }) => {
   const { t } = useTranslation();
@@ -225,6 +254,8 @@ const SMSInput = ({ navigation, route }) => {
   const [error, setError] = useState(null);
   const [chatStatus, setChatStatus] = useState(null);
   const [pendingAttachment, setPendingAttachment] = useState(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
+  const [imagePreviewVisible, setImagePreviewVisible] = useState(false);
   const [deletingMessageId, setDeletingMessageId] = useState(null);
   // Call entries deleted (hidden) locally — there is no server API to delete a
   // call record, so we persist the hidden ids per chat.
@@ -369,6 +400,16 @@ const SMSInput = ({ navigation, route }) => {
   const openAttachment = useCallback(async (uri) => {
     if (!uri) return;
     try {
+      // Check if it's an image
+      const isImage = /\.(jpg|jpeg|png|gif|webp|heic|heif)$/i.test(uri);
+      if (isImage) {
+        // Show image preview modal
+        setImagePreviewUrl(uri);
+        setImagePreviewVisible(true);
+        return;
+      }
+
+      // For non-image files, open with default app
       if (Platform.OS === 'android') {
         const fileName = uri.split('/').pop().split('?')[0] || `attachment_${Date.now()}.pdf`;
         const destPath = `${RNFS.CachesDirectoryPath}/${fileName}`;
@@ -1488,6 +1529,7 @@ const SMSInput = ({ navigation, route }) => {
         <VideoCallModal isOpen={isVideoModalOpen} onClose={handleCloseModal} callData={selectedCall} currentUser={{ id: counselorId, role: "counsellor" }} onEndCall={handleEndIncomingCall} />
         <VoiceCallModal isOpen={isVoiceModalOpen} onClose={handleCloseModal} callData={selectedCall} currentUser={{ id: counselorId, role: "counsellor" }} onEndCall={handleEndIncomingCall} />
         <IncomingCallModal isOpen={isFocused && showIncomingModal} onClose={() => setShowIncomingModal(false)} callType={incomingCallData.callType} callerName={incomingCallData.name} callerAvatar={incomingCallData.avatar} callData={incomingCallData} onJoinCall={handleJoinIncomingCall} onRejectCall={handleRejectIncomingCall} />
+        <ImagePreviewModal isVisible={imagePreviewVisible} imageUrl={imagePreviewUrl} onClose={() => setImagePreviewVisible(false)} />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1598,7 +1640,14 @@ const styles = StyleSheet.create({
   messageStatusIconWrap: { width: 16, alignItems: 'center', justifyContent: 'center' },
   messageStatusError: { fontSize: 11, color: '#EF4444', fontWeight: '500' },
   deleteIconBtn: { paddingHorizontal: 4, paddingVertical: 2, marginLeft: 4 },
-  attachmentImage: { width: 220, height: 180, borderRadius: 12, marginTop: 6 },
+  attachmentImage: {
+    width: screenWidth * 0.6,
+    height: screenWidth * 0.6 * 0.75,
+    borderRadius: 12,
+    marginTop: 8,
+    maxWidth: 280,
+    maxHeight: 280,
+  },
   attachmentBubble: { marginTop: 8, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 4 },
   userAttachmentBubble: { backgroundColor: 'rgba(255,255,255,0.15)' },
   counselorAttachmentBubble: { backgroundColor: '#F3F4F6' },
@@ -1672,6 +1721,31 @@ const styles = StyleSheet.create({
   },
   optionTextDanger: {
     color: '#dc2626',
+  },
+  // Image Preview Modal Styles
+  imagePreviewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePreviewContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  imagePreviewFull: {
+    width: '90%',
+    height: '90%',
+    maxWidth: screenWidth * 0.95,
+  },
+  imagePreviewCloseBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 20,
+    right: 16,
+    zIndex: 10,
+    padding: 8,
   },
 });
 

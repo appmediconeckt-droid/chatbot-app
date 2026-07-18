@@ -20,6 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_BASE_URL } from '../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
+import AuthBackground from '../../theme/AuthBackground';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { launchImageLibrary } from 'react-native-image-picker';
 import GoogleAuthButton from './components/GoogleAuthButton';
@@ -363,7 +364,7 @@ const CounselorSignup = ({ navigation, route }) => {
           isFocused && styles.inputWrapperFocused,
           isMultiline && { height: 'auto', minHeight: 70, alignItems: 'flex-start', paddingTop: 10 }
         ]}>
-          <Icon name={icon} size={20} color={isFocused ? '#6366f1' : '#64748b'} style={[styles.inputIcon, isMultiline && { marginTop: 4 }]} />
+          <Icon name={icon} size={20} color={isFocused ? '#004AC6' : '#64748b'} style={[styles.inputIcon, isMultiline && { marginTop: 4 }]} />
           <TextInput
             style={[styles.textInput, isMultiline && { height: 'auto', minHeight: 50, textAlignVertical: 'top' }]}
             value={formData[name]}
@@ -376,7 +377,7 @@ const CounselorSignup = ({ navigation, route }) => {
           />
           {verifyType && !isLogin && (
             <TouchableOpacity onPress={() => handleSendVerifyOtp(verifyType)} disabled={isVerified} style={[styles.verifyBtn, isVerified && styles.verifiedBtn]}>
-              {isVerified ? <Icon name="check-decagram" size={18} color="#6366f1" /> : <Text style={styles.verifyBtnText}>Verify</Text>}
+              {isVerified ? <Icon name="check-decagram" size={18} color="#004AC6" /> : <Text style={styles.verifyBtnText}>Verify</Text>}
             </TouchableOpacity>
           )}
         </View>
@@ -392,18 +393,17 @@ const CounselorSignup = ({ navigation, route }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      <LinearGradient colors={['#0f172a', '#1e293b', '#000000']} style={styles.gradient}>
-        <Animated.View style={[styles.lavaOrb, styles.orb1, { transform: [{ translateY: orb1Anim }] }]} />
-        <Animated.View style={[styles.lavaOrb, styles.orb2, { transform: [{ translateY: orb2Anim }] }]} />
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      {/* Blue mesh backdrop (doctor palette) — scales to phone/tablet */}
+      <AuthBackground role="counselor" style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : null} style={styles.flex}>
-            <TouchableOpacity style={styles.backBtn} onPress={() => navigation.replace('RoleSelector')}><Icon name="chevron-left" size={28} color="#ffffff" /></TouchableOpacity>
+            <TouchableOpacity style={styles.backBtn} onPress={() => navigation.replace('RoleSelector')}><Icon name="chevron-left" size={28} color="#0F172A" /></TouchableOpacity>
             <ScrollView contentContainerStyle={scrollContainerStyle} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
               <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
                   <View style={styles.logoBadge}><Image source={logo} style={styles.logo} resizeMode="contain" /></View>
-                  <View style={styles.brandContainer}><Text style={styles.brandMain}>Medicone</Text><Text style={[styles.brandAlt, { color: '#6366f1' }]}>ckt</Text></View>
+                  <View style={styles.brandContainer}><Text style={styles.brandMain}>Medicone</Text><Text style={[styles.brandAlt, { color: '#004AC6' }]}>ckt</Text></View>
                   <Text style={styles.tagline}>{isLogin ? 'Welcome back, Counselor' : 'Join our expert team'}</Text>
                 </View>
                 {/* {!isLogin && (
@@ -412,7 +412,7 @@ const CounselorSignup = ({ navigation, route }) => {
                       {formData.profilePhoto ? (
                         <Image source={{ uri: formData.profilePhoto.uri }} style={styles.photo} />
                       ) : (
-                        <Icon name="camera-plus-outline" size={30} color="#6366f1" />
+                        <Icon name="camera-plus-outline" size={30} color="#004AC6" />
                       )}
                     </TouchableOpacity>
                     <Text style={styles.photoLabel}>Counselor Photo</Text>
@@ -431,12 +431,12 @@ const CounselorSignup = ({ navigation, route }) => {
                   ) : (<>{renderInput(1, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' })}</>)}
                   <Animated.View key="pwd-section" style={{ opacity: fieldAnims[13] }}>
                     <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
-                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#6366f1' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} placeholder="Password" placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} /><TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
+                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} placeholder="Password" placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} /><TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
                     </View>
                   </Animated.View>
-                  {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#6366f1' }]}>Forgot password?</Text></TouchableOpacity>)}
-                  {!isLogin && (<Animated.View key="cpwd-section" style={{ opacity: fieldAnims[14] }}><View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}><Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#6366f1' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={() => setFocusedField('confirmPassword')} onBlur={() => setFocusedField(null)} placeholder="Confirm Password" placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} /><TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity></View></Animated.View>)}
-                  <Animated.View key="btn-section" style={{ opacity: fieldAnims[15], marginTop: 10 }}><TouchableOpacity style={[styles.submitBtn, { backgroundColor: '#6366f1' }]} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>{isLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>{isLogin ? 'Login' : 'Join as Counselor'}</Text>}</TouchableOpacity></Animated.View>
+                  {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#004AC6' }]}>Forgot password?</Text></TouchableOpacity>)}
+                  {!isLogin && (<Animated.View key="cpwd-section" style={{ opacity: fieldAnims[14] }}><View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}><Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={() => setFocusedField('confirmPassword')} onBlur={() => setFocusedField(null)} placeholder="Confirm Password" placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} /><TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity></View></Animated.View>)}
+                  <Animated.View key="btn-section" style={{ opacity: fieldAnims[15], marginTop: 10 }}><TouchableOpacity style={[styles.submitBtn, { backgroundColor: '#004AC6' }]} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>{isLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>{isLogin ? 'Login' : 'Join as Counselor'}</Text>}</TouchableOpacity></Animated.View>
                   <Animated.View key="google-section" style={{ opacity: fieldAnims[15], marginTop: 14 }}>
                     <View style={styles.googleDividerRow}>
                       <View style={styles.googleDividerLine} />
@@ -463,7 +463,7 @@ const CounselorSignup = ({ navigation, route }) => {
                       }}
                     />
                   </Animated.View>
-                  <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[16] }]}><Text style={styles.switchText}>{isLogin ? "New counselor?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#6366f1' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
+                  <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[16] }]}><Text style={styles.switchText}>{isLogin ? "New counselor?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#004AC6' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
                 </View>
               </Animated.View>
             </ScrollView>
@@ -473,12 +473,12 @@ const CounselorSignup = ({ navigation, route }) => {
         <Modal visible={showOtpModal.show} transparent animationType="slide">
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name={showOtpModal.type === 'email' ? 'email-fast-outline' : 'cellphone-text'} size={40} color="#6366f1" /></View>
+              <View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name={showOtpModal.type === 'email' ? 'email-fast-outline' : 'cellphone-text'} size={40} color="#004AC6" /></View>
               <Text style={styles.modalTitle}>Verification Code</Text>
               <Text style={styles.modalSub}>Enter code sent to {showOtpModal.value}</Text>
               <TextInput style={[styles.otpInput, { marginVertical: 15 }]} value={otpCode} onChangeText={setOtpCode} placeholder="000000" placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
-              <TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#6366f1', marginVertical: 15 }]} onPress={handleVerifyOtp} disabled={isVerifyingOtp}>{isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Verify Counselor</Text>}</TouchableOpacity>
+              <TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6', marginVertical: 15 }]} onPress={handleVerifyOtp} disabled={isVerifyingOtp}>{isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Verify Counselor</Text>}</TouchableOpacity>
               <TouchableOpacity onPress={() => setShowOtpModal({ show: false, type: '', value: '' })} style={styles.cancelBtn}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity>
             </View>
           </View>
@@ -486,19 +486,19 @@ const CounselorSignup = ({ navigation, route }) => {
         {/* Device Conflict */}
         <Modal visible={showDeviceConflict} transparent animationType="fade">
           <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { borderTopWidth: 4, borderColor: '#6366f1' }]}><View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name="devices" size={40} color="#6366f1" /></View><Text style={styles.modalTitle}>Switching Devices</Text><Text style={styles.modalSub}>Counselor account active on another device. Logout there and continue here?</Text>{!deviceOtpSent ? (<TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#6366f1' }]} onPress={handleSendDeviceOtp} disabled={isSendingDeviceOtp}>{isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Log out other device</Text>}</TouchableOpacity>) : (<View style={styles.otpWrapper}><TextInput style={styles.otpInput} value={deviceOtp} onChangeText={setDeviceOtp} placeholder="Enter OTP" placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} /><TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#6366f1' }]} onPress={handleVerifyDeviceOtp} disabled={isVerifyingDeviceOtp}>{isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Verify & Takeover</Text>}</TouchableOpacity></View>)}<TouchableOpacity onPress={() => setShowDeviceConflict(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity></View>
+            <View style={[styles.modalContent, { borderTopWidth: 4, borderColor: '#004AC6' }]}><View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name="devices" size={40} color="#004AC6" /></View><Text style={styles.modalTitle}>Switching Devices</Text><Text style={styles.modalSub}>Counselor account active on another device. Logout there and continue here?</Text>{!deviceOtpSent ? (<TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6' }]} onPress={handleSendDeviceOtp} disabled={isSendingDeviceOtp}>{isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Log out other device</Text>}</TouchableOpacity>) : (<View style={styles.otpWrapper}><TextInput style={styles.otpInput} value={deviceOtp} onChangeText={setDeviceOtp} placeholder="Enter OTP" placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} /><TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6' }]} onPress={handleVerifyDeviceOtp} disabled={isVerifyingDeviceOtp}>{isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Verify & Takeover</Text>}</TouchableOpacity></View>)}<TouchableOpacity onPress={() => setShowDeviceConflict(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity></View>
           </View>
         </Modal>
-        {notification.show && (<Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#6366f1' : '#6366f1' }]}><Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color="#fff" /><Text style={styles.notificationText}>{notification.message}</Text></Animated.View>)}
+        {notification.show && (<Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#004AC6' : '#004AC6' }]}><Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color="#fff" /><Text style={styles.notificationText}>{notification.message}</Text></Animated.View>)}
 
         {/* Forgot Password popup (counselor side) */}
         <ForgotPasswordModal
           visible={showForgotPassword}
           onClose={() => setShowForgotPassword(false)}
-          accentColor="#6366f1"
+          accentColor="#004AC6"
           initialEmail={formData.email}
         />
-      </LinearGradient>
+      </AuthBackground>
     </View>
   );
 };
@@ -508,30 +508,30 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   gradient: { flex: 1, overflow: 'hidden' },
   lavaOrb: { position: 'absolute', width: 300, height: 300, borderRadius: 150, opacity: 0.35 },
-  orb1: { top: -100, left: -50, backgroundColor: '#6366f1' },
-  orb2: { bottom: -50, right: -100, backgroundColor: '#6366f1' },
+  orb1: { top: -100, left: -50, backgroundColor: '#004AC6' },
+  orb2: { bottom: -50, right: -100, backgroundColor: '#004AC6' },
   safeArea: { flex: 1 },
   scrollContent: { padding: 24, paddingTop: 100, paddingBottom: 60, flexGrow: 1 },
   backBtn: { position: 'absolute', top: 30, left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
   panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, padding: 24, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
   header: { alignItems: 'center', marginBottom: 20 },
-  logoBadge: { padding: 8, backgroundColor: '#fff', borderRadius: 20, shadowColor: '#6366f1', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
+  logoBadge: { padding: 8, backgroundColor: '#fff', borderRadius: 20, shadowColor: '#004AC6', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
   logo: { width: 55, height: 55 },
   brandContainer: { flexDirection: 'row', marginTop: 12 },
   brandMain: { fontSize: 26, fontWeight: '900', color: '#1e293b' },
   brandAlt: { fontSize: 26, fontWeight: '400' },
   tagline: { fontSize: 13, color: '#64748b', fontWeight: '600', marginTop: 4 },
   photoSection: { alignItems: 'center', marginBottom: 20 },
-  photoCircle: { width: 90, height: 90, borderRadius: 45, backgroundColor: '#f0fdf4', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#6366f1', overflow: 'hidden' },
+  photoCircle: { width: 90, height: 90, borderRadius: 45, backgroundColor: '#f0fdf4', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#004AC6', overflow: 'hidden' },
   photo: { width: '100%', height: '100%' },
-  photoLabel: { fontSize: 12, fontWeight: '700', color: '#6366f1', marginTop: 8 },
+  photoLabel: { fontSize: 12, fontWeight: '700', color: '#004AC6', marginTop: 8 },
   formPanel: { gap: 12 },
   inputField: { width: '100%' },
   inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 18, paddingHorizontal: 12, height: 52, borderWidth: 1.5, borderColor: '#f1f5f9' },
-  inputWrapperFocused: { borderColor: '#6366f1', backgroundColor: '#ffffff' },
+  inputWrapperFocused: { borderColor: '#004AC6', backgroundColor: '#ffffff' },
   inputIcon: { marginRight: 8 },
   textInput: { flex: 1, color: '#1e293b', fontSize: 14, fontWeight: '600' },
-  verifyBtn: { backgroundColor: '#6366f1', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
+  verifyBtn: { backgroundColor: '#004AC6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
   verifiedBtn: { backgroundColor: 'transparent' },
   verifyBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   errorText: { color: '#ef4444', fontSize: 11, marginTop: 4, marginLeft: 16, fontWeight: '600' },
@@ -539,9 +539,9 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
   tag: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: '#f1f5f9', borderWidth: 1.5, borderColor: 'transparent' },
-  tagSelected: { backgroundColor: '#f0fdf4', borderColor: '#6366f1' },
+  tagSelected: { backgroundColor: '#f0fdf4', borderColor: '#004AC6' },
   tagText: { fontSize: 12, fontWeight: '700', color: '#64748b' },
-  tagTextSelected: { color: '#6366f1' },
+  tagTextSelected: { color: '#004AC6' },
   googleDividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -556,16 +556,16 @@ const styles = StyleSheet.create({
   },
   forgotLink: { alignSelf: 'flex-end', marginTop: -8, marginBottom: 8 },
   forgotText: { fontSize: 12, fontWeight: '700' },
-  submitBtn: { height: 56, borderRadius: 20, justifyContent: 'center', alignItems: 'center', shadowColor: '#6366f1', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
+  submitBtn: { height: 56, borderRadius: 20, justifyContent: 'center', alignItems: 'center', shadowColor: '#004AC6', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
   submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   switchRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 10 },
   switchText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
   switchLink: { fontSize: 14, fontWeight: '800' },
   genderRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
   genderBtn: { flex: 1, height: 44, borderRadius: 15, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: 'transparent' },
-  genderBtnSelected: { backgroundColor: '#f0fdf4', borderColor: '#6366f1' },
+  genderBtnSelected: { backgroundColor: '#f0fdf4', borderColor: '#004AC6' },
   genderText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
-  genderTextSelected: { color: '#6366f1' },
+  genderTextSelected: { color: '#004AC6' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   modalContent: { backgroundColor: '#fff', borderRadius: 30, padding: 24, width: '100%', alignItems: 'center' },
   modalIcon: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },

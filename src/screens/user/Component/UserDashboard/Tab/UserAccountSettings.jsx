@@ -253,7 +253,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
   if (loadingAccount) {
     return (
       <View style={s.center}>
-        <ActivityIndicator size="large" color="#4f46e5" />
+        <ActivityIndicator size="large" color="#00652C" />
         <Text style={s.loadingTxt}>{t('common:loading')}</Text>
       </View>
     );
@@ -445,11 +445,11 @@ const UserAccountSettings = ({ onNavigateBack }) => {
         {/* App Lock */}
         <TouchableOpacity
           style={s.lockCard}
-          onPress={() => navigation.navigate('PinSetup')}
+          onPress={() => navigation.navigate('PinSetup', { forced: false })}
           activeOpacity={0.8}
         >
           <View style={s.lockIconWrap}>
-            <Feather name="smartphone" size={18} color="#7c3aed" />
+            <Feather name="smartphone" size={18} color="#00652C" />
           </View>
           <View style={s.lockText}>
             <Text style={s.lockTitle}>{t('settings:appLock')}</Text>
@@ -538,12 +538,12 @@ const s = StyleSheet.create({
     marginTop: 2,
   },
   tab: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8 },
-  tabActive: { backgroundColor: '#4f46e5' },
+  tabActive: { backgroundColor: '#00652C' },
   tabTxt: { fontSize: 13, fontWeight: '700', color: '#64748b' },
   tabTxtActive: { color: '#fff' },
 
   otpBtn: {
-    backgroundColor: '#4f46e5',
+    backgroundColor: '#00652C',
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 10,
@@ -557,7 +557,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#4f46e5',
+    backgroundColor: '#00652C',
     borderRadius: 14,
     paddingVertical: 15,
     marginTop: 8,
@@ -589,7 +589,7 @@ const s = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 10,
-    backgroundColor: '#EDE9FE',
+    backgroundColor: '#E6F6EC',
     justifyContent: 'center',
     alignItems: 'center',
   },

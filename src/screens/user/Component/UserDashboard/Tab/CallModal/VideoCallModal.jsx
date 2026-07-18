@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import InCallManager from 'react-native-incall-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
@@ -21,9 +22,19 @@ import {
   StreamVideoClient,
   StreamCall,
   CallContent,
+  FloatingParticipantView,
   useCallStateHooks,
   CallingState,
 } from '@stream-io/video-react-native-sdk';
+
+// Local-video PiP pinned top-right with rounded corners (Figma).
+const FloatingPiP = (props) => (
+  <FloatingParticipantView
+    {...props}
+    alignment="top-right"
+    participantViewStyle={styles.pipView}
+  />
+);
 
 const resolveCallDisplayName = (callData, isCounselor) => {
   const apiCallData = callData?.apiCallData || {};
@@ -54,6 +65,74 @@ const resolveCallDisplayName = (callData, isCounselor) => {
   }
 
   return preferred || preferredAnonymous || 'Participant';
+};
+
+// ─── Custom bottom control bar (Figma: dark translucent rounded sheet) ────────
+const VideoControls = ({ onHangupCallHandler }) => {
+  const { useMicrophoneState, useCameraState } = useCallStateHooks();
+  const { microphone, isMute } = useMicrophoneState();
+  const { camera, isMute: isCamOff } = useCameraState();
+  const [isSpeaker, setIsSpeaker] = useState(true);
+
+  const toggleSpeaker = () => {
+    const next = !isSpeaker;
+    setIsSpeaker(next);
+    try { InCallManager.setForceSpeakerphoneOn(next); } catch (_) {}
+  };
+
+  return (
+    <View style={styles.controlsWrap}>
+      <View style={styles.controlsBar}>
+        <View style={styles.controlsHandle} />
+        <View style={styles.controlsRow}>
+          <TouchableOpacity
+            style={[styles.vcBtn, isMute && styles.vcBtnActive]}
+            onPress={() => microphone.toggle()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name={isMute ? 'mic-off' : 'mic'} size={21} color="#ffffff" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.vcBtn, isCamOff && styles.vcBtnActive]}
+            onPress={() => camera.toggle()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name={isCamOff ? 'videocam-off' : 'videocam'} size={21} color="#ffffff" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.vcBtn}
+            onPress={() => camera.flip()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="camera-reverse" size={21} color="#ffffff" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.vcBtn, !isSpeaker && styles.vcBtnActive]}
+            onPress={toggleSpeaker}
+            activeOpacity={0.8}
+          >
+            <Ionicons name={isSpeaker ? 'volume-high' : 'volume-mute'} size={21} color="#ffffff" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.vcEndBtn}
+            onPress={onHangupCallHandler}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name="call"
+              size={23}
+              color="#ffffff"
+              style={{ transform: [{ rotate: '135deg' }] }}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
 };
 
 // ─── Inner call UI ────────────────────────────────────────────────────────────
@@ -130,14 +209,34 @@ const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, partici
     });
   }, [isCounselor, remoteParticipants]);
 
+  // Call duration — starts once the other side actually joins.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!hasRemote) return;
+    const id = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [hasRemote]);
+  const timerText = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
+
   return (
     <View style={{ flex: 1 }}>
+      <CallContent
+        onHangupCallHandler={onLocalHangup}
+        layout="spotlight"
+        CallControls={VideoControls}
+        FloatingParticipantView={FloatingPiP}
+        ParticipantLabel={null}
+      />
+
+      {/* Name + timer overlay (top-left), above the video */}
       {!!participantName && (
-        <View style={styles.participantNameBadge}>
+        <View style={styles.participantNameBadge} pointerEvents="none">
           <Text style={styles.participantNameText} numberOfLines={1}>{participantName}</Text>
+          <Text style={styles.participantTimerText}>
+            {hasRemote ? timerText : isOutgoing ? 'Calling…' : 'Connecting…'}
+          </Text>
         </View>
       )}
-      <CallContent onHangupCallHandler={onLocalHangup} />
     </View>
   );
 };
@@ -404,25 +503,19 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
 
   if (!isOpen) return null;
 
-  const t = isCounselorView ? counselorTheme : userTheme;
-
   return (
     <Modal visible={isOpen} animationType="slide" transparent={false} onRequestClose={handleClose}>
-      <SafeAreaView style={[styles.container, { backgroundColor: t.bg }]}>
-        <StatusBar barStyle="light-content" backgroundColor={t.header} />
+      {/* Full-bleed video: no SafeAreaView insets, no "Video Call" header bar
+          and no dark container — those produced the black band over the video.
+          The name/timer and controls float on top of the stream instead. */}
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-        <View style={[styles.header, { backgroundColor: t.header, borderBottomColor: t.headerBorder }]}>
-          <Text style={styles.headerTitle}>Video Call</Text>
-          <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
-            <Ionicons name="close" size={22} color="#fff" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={[styles.content, { backgroundColor: t.bg }]}>
+        <View style={styles.content}>
           {loading && (
             <View style={styles.centerWrap}>
-              <ActivityIndicator size="large" color={t.accent} />
-              <Text style={[styles.statusText, { color: t.accent }]}>Connecting...</Text>
+              <ActivityIndicator size="large" color="#ffffff" />
+              <Text style={[styles.statusText, { color: '#ffffff' }]}>Connecting...</Text>
             </View>
           )}
 
@@ -430,7 +523,7 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
             <View style={styles.centerWrap}>
               <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
               <Text style={styles.errorText}>{error}</Text>
-              <TouchableOpacity style={[styles.retryBtn, { backgroundColor: t.retryBg }]} onPress={handleClose}>
+              <TouchableOpacity style={[styles.retryBtn, { backgroundColor: '#EF4444' }]} onPress={handleClose}>
                 <Text style={styles.retryBtnText}>Close</Text>
               </TouchableOpacity>
             </View>
@@ -450,29 +543,14 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
             </StreamVideo>
           )}
         </View>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 };
 
-const userTheme = {
-  bg: '#0d1117',
-  header: '#111827',
-  headerBorder: '#1e2535',
-  accent: '#4a9eff',
-  retryBg: '#1e2535',
-};
-
-const counselorTheme = {
-  bg: '#0d1117',
-  header: '#1E40AF',
-  headerBorder: '#1D4ED8',
-  accent: '#93C5FD',
-  retryBg: '#1D4ED8',
-};
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: '#000000' },
   header: {
     paddingHorizontal: 20,
     paddingVertical: 14,
@@ -500,21 +578,86 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  pipView: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.85)',
+  },
+  // Name + timer overlay — top-left, plain white text over the video (Figma)
   participantNameBadge: {
     position: 'absolute',
-    top: 12,
-    alignSelf: 'center',
+    top: 14,
+    left: 18,
     zIndex: 5,
-    backgroundColor: 'rgba(17, 24, 39, 0.75)',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    maxWidth: '80%',
+    maxWidth: '55%',
   },
   participantNameText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 17,
+    fontWeight: '700',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  participantTimerText: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
     fontWeight: '600',
+    marginTop: 2,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+
+  // ─── Bottom control bar (Figma) ───────────────────────────────────────────
+  controlsWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+  },
+  // Light frosted sheet with dark-grey circular buttons (per Figma)
+  controlsBar: {
+    backgroundColor: 'rgba(236, 238, 241, 0.30)',
+    borderRadius: 28,
+    paddingTop: 9,
+    paddingBottom: 16,
+    paddingHorizontal: 10,
+  },
+  controlsHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(120, 130, 145, 0.55)',
+    marginBottom: 14,
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-evenly',
+  },
+  vcBtn: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(75, 85, 99, 0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vcBtnActive: {
+    backgroundColor: 'rgba(31, 41, 55, 0.96)',
+  },
+  vcEndBtn: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

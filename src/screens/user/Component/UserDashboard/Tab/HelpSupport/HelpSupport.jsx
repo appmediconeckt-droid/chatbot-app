@@ -80,7 +80,7 @@ const HelpSupport = ({ onClose, onOpenTab }) => {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F9F9FF" />
       <View style={styles.header}>
         <TouchableOpacity onPress={onClose} style={styles.headerBtn} hitSlop={12}>
           <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
@@ -96,7 +96,7 @@ const HelpSupport = ({ onClose, onOpenTab }) => {
       >
         <View style={styles.hero}>
           <View style={styles.heroIcon}>
-            <MaterialIcons name="help-outline" size={34} color="#2563eb" />
+            <MaterialIcons name="help-outline" size={34} color="#00652C" />
           </View>
           <View style={styles.heroCopy}>
             <Text style={styles.heroTitle}>{t('helpPage:centerTitle')}</Text>
@@ -113,13 +113,13 @@ const HelpSupport = ({ onClose, onOpenTab }) => {
               onPress={() => openTab(item.tab)}
             >
               <View style={styles.cardIcon}>
-                <MaterialIcons name={item.icon} size={24} color="#2563eb" />
+                <MaterialIcons name={item.icon} size={24} color="#00652C" />
               </View>
               <Text style={styles.cardTitle}>{item.title}</Text>
               <Text style={styles.cardText}>{item.text}</Text>
               <View style={styles.cardAction}>
                 <Text style={styles.cardActionText}>{item.action}</Text>
-                <MaterialIcons name="chevron-right" size={18} color="#2563eb" />
+                <MaterialIcons name="chevron-right" size={18} color="#00652C" />
               </View>
             </TouchableOpacity>
           ))}
@@ -171,7 +171,7 @@ const HelpSupport = ({ onClose, onOpenTab }) => {
 };
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#f8fafc' },
+  root: { flex: 1, backgroundColor: '#F9F9FF' },
   header: {
     alignItems: 'center',
     backgroundColor: '#ffffff',
@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
   },
   heroIcon: {
     alignItems: 'center',
-    backgroundColor: '#eff6ff',
+    backgroundColor: '#E6F6EC',
     borderRadius: 18,
     height: 58,
     justifyContent: 'center',
@@ -220,7 +220,7 @@ const styles = StyleSheet.create({
   },
   cardIcon: {
     alignItems: 'center',
-    backgroundColor: '#eff6ff',
+    backgroundColor: '#E6F6EC',
     borderRadius: 14,
     height: 44,
     justifyContent: 'center',
@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
   cardTitle: { color: '#0f172a', fontSize: 15, fontWeight: '800', marginBottom: 7 },
   cardText: { color: '#64748b', flex: 1, fontSize: 12, lineHeight: 18 },
   cardAction: { alignItems: 'center', flexDirection: 'row', gap: 2, marginTop: 10 },
-  cardActionText: { color: '#2563eb', fontSize: 12, fontWeight: '800' },
+  cardActionText: { color: '#00652C', fontSize: 12, fontWeight: '800' },
   panel: {
     backgroundColor: '#ffffff',
     borderColor: '#e2e8f0',
@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
   stripText: { color: '#cbd5e1', fontSize: 13, lineHeight: 20 },
   stripActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   stripBtn: {
-    backgroundColor: '#2563eb',
+    backgroundColor: '#00652C',
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 11,

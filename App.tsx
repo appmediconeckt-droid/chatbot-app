@@ -65,7 +65,7 @@ export type RootStackParamList = {
   ChangePassword: undefined;
   SetPassword: undefined;
   SetPasswordByOtp: undefined;
-  PinSetup: undefined;
+  PinSetup: { forced?: boolean; destination?: keyof RootStackParamList } | undefined;
   ForgotPassword: undefined;
   ForgotPasswordOTP: { email: string };
   ResetPassword: { email: string };
@@ -99,6 +99,8 @@ function App() {
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
   const [pinExists, setPinExists] = useState(false);
+  // Where forced PIN setup should continue to once a PIN is saved.
+  const [pinSetupNext, setPinSetupNext] = useState<keyof RootStackParamList>('UserDashboard');
   const navigationRef = useRef<any>(null);
   const routeNameRef = useRef<string | undefined>(undefined);
   const backgroundedAt = useRef<number | null>(null);
@@ -159,6 +161,16 @@ function App() {
         if (role === 'counselor' || role === 'user') {
           const destination = role === 'counselor' ? 'CounselorDashboard' : 'UserDashboard';
           const alreadyGranted = await isLocationPermissionGranted();
+
+          // The PIN lives in device-local storage, so a fresh install/phone has
+          // none and would otherwise skip the lock entirely. Require setup first.
+          if (!storedPin) {
+            setPinSetupNext(alreadyGranted ? destination : 'LocationGate');
+            setBootDestination(destination as 'UserDashboard' | 'CounselorDashboard');
+            setBootRoute('PinSetup');
+            return;
+          }
+
           if (alreadyGranted) {
             setBootRoute(destination);
           } else {
@@ -280,7 +292,11 @@ function App() {
                 <Stack.Screen name='ChangePassword' component={ChangePassword} />
                 <Stack.Screen name='SetPassword' component={SetPassword} />
                 <Stack.Screen name='SetPasswordByOtp' component={SetPasswordByOtp} />
-                <Stack.Screen name='PinSetup' component={PinSetupScreen} />
+                <Stack.Screen
+                  name='PinSetup'
+                  component={PinSetupScreen}
+                  initialParams={{ forced: bootRoute === 'PinSetup', destination: pinSetupNext }}
+                />
           </Stack.Navigator>
         </NavigationContainer>
 

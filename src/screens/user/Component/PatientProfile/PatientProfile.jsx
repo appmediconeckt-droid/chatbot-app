@@ -14,18 +14,21 @@ import {
   Platform,
   StyleSheet,
   Dimensions,
-  StatusBar
+  StatusBar,
+  Linking
 } from "react-native";
 import * as ImagePicker from "react-native-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Ionicons from "react-native-vector-icons/Ionicons";
+import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import { useNavigation } from "@react-navigation/native";
 import { API_BASE_URL } from "../../../../axiosConfig";
 import { captureAndSendLocation } from "../../../../utils/locationHelper";
 import { formatLocation } from "../../../../utils/locationFormatter";
 import AvatarGenerator from "./AvatarGenerator";
 import AvatarPicker from "./AvatarPicker";
+import PATIENT from "../../../../theme/palette";
 
 const { width, height } = Dimensions.get("window");
 
@@ -785,52 +788,49 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
   const renderProfileHeader = () => (
     <View style={[styles.card, styles.profileHeroCard]}>
-      <View style={styles.headerTop}>
-        <View style={styles.avatarWrapper}>
-          <TouchableOpacity
-            style={styles.avatar}
-            onPress={() => setShowAvatarChooser(true)}
-            activeOpacity={0.85}
-            disabled={photoUploading}
-          >
-            {patientData.personalInfo.profilePhoto ? (
-              <Image
-                source={{ uri: patientData.personalInfo.profilePhoto }}
-                style={styles.avatarImage}
-              />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarPlaceholderText}>
-                  {getInitials(patientData.personalInfo.name)}
-                </Text>
-              </View>
-            )}
-            {photoUploading && (
-              <View style={styles.avatarUploading}>
-                <ActivityIndicator size="small" color="#ffffff" />
-              </View>
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.editBadge}
-            onPress={() => setShowAvatarChooser(true)}
-            activeOpacity={0.8}
-            disabled={photoUploading}
-          >
-            <Ionicons name="camera" size={15} color="white" />
-          </TouchableOpacity>
-        </View>
+      <Text style={styles.heroKicker}>{t('profile:patientProfile')}</Text>
 
-        <View style={styles.profileMeta}>
-          <Text style={styles.heroKicker}>{t('profile:patientProfile')}</Text>
-          <Text style={styles.name}>{patientData.personalInfo.name}</Text>
-          <Text style={styles.heroSubtext} numberOfLines={1}>
-            {patientData.personalInfo.email || patientData.personalInfo.phone || "Profile overview"}
-          </Text>
-          <View style={styles.idBadge}>
-            <Text style={styles.patientId}>#{patientData.personalInfo.id.slice(-8).toUpperCase()}</Text>
-          </View>
-        </View>
+      <View style={styles.avatarWrapper}>
+        <TouchableOpacity
+          style={styles.avatar}
+          onPress={() => setShowAvatarChooser(true)}
+          activeOpacity={0.85}
+          disabled={photoUploading}
+        >
+          {patientData.personalInfo.profilePhoto ? (
+            <Image
+              source={{ uri: patientData.personalInfo.profilePhoto }}
+              style={styles.avatarImage}
+            />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Text style={styles.avatarPlaceholderText}>
+                {getInitials(patientData.personalInfo.name)}
+              </Text>
+            </View>
+          )}
+          {photoUploading && (
+            <View style={styles.avatarUploading}>
+              <ActivityIndicator size="small" color="#ffffff" />
+            </View>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.editBadge}
+          onPress={() => setShowAvatarChooser(true)}
+          activeOpacity={0.8}
+          disabled={photoUploading}
+        >
+          <Ionicons name="camera" size={13} color="white" />
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.name}>{patientData.personalInfo.name}</Text>
+      <Text style={styles.heroSubtext} numberOfLines={1}>
+        {patientData.personalInfo.email || patientData.personalInfo.phone || "Profile overview"}
+      </Text>
+      <View style={styles.idBadge}>
+        <Text style={styles.patientId}>ID: {patientData.personalInfo.id.slice(-8).toUpperCase()}</Text>
       </View>
 
       <View style={styles.statsRow}>
@@ -846,7 +846,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
           <Text style={styles.statLabel}>{t('profile:gender')}</Text>
-          <Text style={styles.statValue}>{patientData.personalInfo.gender || "M"}</Text>
+          <Text style={styles.statValueGender}>{patientData.personalInfo.gender || "Male"}</Text>
         </View>
       </View>
 
@@ -865,7 +865,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleRow}>
-          <Ionicons name="person-outline" size={20} color="#6366f1" />
+          <Ionicons name="person-outline" size={20} color="#00652C" />
           <Text style={styles.cardTitle}>{t('profile:personalDetails')}</Text>
         </View>
       </View>
@@ -912,11 +912,14 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
   const renderAddress = () => (
     <View style={styles.card}>
-      <View style={styles.cardHeader}>
+      <View style={styles.cardHeaderRow}>
         <View style={styles.cardTitleRow}>
-          <Ionicons name="location-outline" size={20} color="#6366f1" />
+          <Ionicons name="home" size={19} color="#00652C" />
           <Text style={styles.cardTitle}>{t('profile:address')}</Text>
         </View>
+        <TouchableOpacity onPress={openEditModal} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="create-outline" size={18} color="#94A3B8" />
+        </TouchableOpacity>
       </View>
       <View style={styles.addressDisplay}>
         <Text style={styles.addressText}>
@@ -948,23 +951,38 @@ const PatientProfile = ({ onProfileUpdate }) => {
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleRow}>
-          <Ionicons name="alert-circle-outline" size={20} color="#f97316" />
+          <MaterialIcons name="emergency" size={20} color="#EF4444" />
           <Text style={styles.cardTitle}>{t('profile:emergencyContact')}</Text>
         </View>
       </View>
       <View style={styles.emergencyDisplay}>
-        <Text style={styles.emergencyIcon}>🆘</Text>
+        <View style={styles.sosBadge}>
+          <Text style={styles.sosBadgeText}>SOS</Text>
+        </View>
         <View style={styles.emergencyDetails}>
           <Text style={styles.emergencyName}>
             {patientData.personalInfo.emergencyContact?.name || t('profile:notSpecified')}
           </Text>
-          <Text style={styles.emergencyRelation}>
-            {patientData.personalInfo.emergencyContact?.relation}
-          </Text>
-          <Text style={styles.emergencyPhone}>
-            {patientData.personalInfo.emergencyContact?.phone}
-          </Text>
+          {!!patientData.personalInfo.emergencyContact?.relation && (
+            <Text style={styles.emergencyRelation}>
+              {patientData.personalInfo.emergencyContact.relation}
+            </Text>
+          )}
+          {!!patientData.personalInfo.emergencyContact?.phone && (
+            <Text style={styles.emergencyPhone}>
+              {patientData.personalInfo.emergencyContact.phone}
+            </Text>
+          )}
         </View>
+        {!!patientData.personalInfo.emergencyContact?.phone && (
+          <TouchableOpacity
+            style={styles.emergencyCallBtn}
+            onPress={() => Linking.openURL(`tel:${patientData.personalInfo.emergencyContact.phone}`)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="call" size={19} color="#00652C" />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -973,7 +991,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleRow}>
-          <Ionicons name="medical-outline" size={20} color="#10b981" />
+          <Ionicons name="fitness" size={20} color="#00652C" />
           <Text style={styles.cardTitle}>{t('profile:medicalHistory')}</Text>
         </View>
       </View>
@@ -1046,7 +1064,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleRow}>
-          <Ionicons name="shield-checkmark-outline" size={20} color="#3b82f6" />
+          <Ionicons name="shield-checkmark" size={20} color="#00652C" />
           <Text style={styles.cardTitle}>{t('profile:insurancePlans')}</Text>
         </View>
       </View>
@@ -1683,7 +1701,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
   if (loading && !patientData.personalInfo.id) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#667eea" />
+        <ActivityIndicator size="large" color="#2A8A51" />
         <Text style={styles.loadingText}>{t('profile:loadingProfile')}</Text>
       </View>
     );
@@ -1694,7 +1712,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F9F9FF" />
       <ScrollView 
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -1704,7 +1722,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
         {renderProfileHeader()}
         <View style={styles.locationCard}>
           <View style={styles.locationCardLeft}>
-            <Ionicons name="location-outline" size={20} color="#1e3a8a" />
+            <Ionicons name="location-outline" size={20} color="#00652C" />
             <Text style={styles.locationCardLabel}>{t('profile:shareLocation')}</Text>
           </View>
           <TouchableOpacity
@@ -1804,8 +1822,8 @@ const PatientProfile = ({ onProfileUpdate }) => {
               onPress={() => { setShowAvatarChooser(false); setShowAvatarBuilder(true); }}
               activeOpacity={0.8}
             >
-              <View style={[styles.chooserIcon, { backgroundColor: '#eef2ff' }]}>
-                <Ionicons name="happy-outline" size={22} color="#6366f1" />
+              <View style={[styles.chooserIcon, { backgroundColor: '#E6F6EC' }]}>
+                <Ionicons name="happy-outline" size={22} color="#00652C" />
               </View>
               <View style={styles.chooserTextWrap}>
                 <Text style={styles.chooserOptionTitle}>{t('profile:createAvatar', 'Create Avatar')}</Text>
@@ -1819,8 +1837,8 @@ const PatientProfile = ({ onProfileUpdate }) => {
               onPress={handleUploadPhoto}
               activeOpacity={0.8}
             >
-              <View style={[styles.chooserIcon, { backgroundColor: '#eff6ff' }]}>
-                <Ionicons name="image-outline" size={22} color="#2563eb" />
+              <View style={[styles.chooserIcon, { backgroundColor: '#E6F6EC' }]}>
+                <Ionicons name="image-outline" size={22} color="#00652C" />
               </View>
               <View style={styles.chooserTextWrap}>
                 <Text style={styles.chooserOptionTitle}>{t('profile:uploadPhoto', 'Upload Photo')}</Text>
@@ -1853,7 +1871,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   verifyBtn: {
-    backgroundColor: "#2563eb",
+    backgroundColor: "#00652C",
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 8,
@@ -1903,8 +1921,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#eff6ff",
-    borderColor: "#bfdbfe",
+    backgroundColor: "#E6F6EC",
+    borderColor: "#CDEBD8",
     borderWidth: 1,
     padding: 12,
     borderRadius: 12,
@@ -1917,13 +1935,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   locationCardLabel: {
-    color: "#1e3a8a",
+    color: "#00652C",
     fontSize: 13,
     fontWeight: "700",
     marginLeft: 8,
   },
   locationUpdateBtn: {
-    backgroundColor: "#2563eb",
+    backgroundColor: "#00652C",
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 8,
@@ -1935,7 +1953,7 @@ const styles = StyleSheet.create({
   },
   securityCard: {
     backgroundColor: "#ffffff",
-    borderColor: "#dbeafe",
+    borderColor: "#CDEBD8",
     borderWidth: 1,
     borderRadius: 16,
     padding: 14,
@@ -1951,7 +1969,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: "#eff6ff",
+    backgroundColor: "#E6F6EC",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1980,14 +1998,14 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#bfdbfe",
-    backgroundColor: "#eff6ff",
+    backgroundColor: "#E6F6EC",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
   },
   securityButtonSecondaryText: {
-    color: "#2563eb",
+    color: "#00652C",
     fontSize: 13,
     fontWeight: "800",
   },
@@ -1995,7 +2013,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 44,
     borderRadius: 10,
-    backgroundColor: "#2563eb",
+    backgroundColor: "#00652C",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -2008,7 +2026,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: PATIENT.backgroundTint,
   },
   scrollContent: {
     flexGrow: 1,
@@ -2050,29 +2068,24 @@ const styles = StyleSheet.create({
   profileHeroCard: {
     marginHorizontal: 16,
     marginTop: 12,
-    marginBottom: 20,
-    overflow: "hidden",
-    backgroundColor: "#ffffff",
-    borderColor: "#e0e7ff",
-    shadowOpacity: 0.06,
-    shadowRadius: 18,
-    elevation: 4,
-  },
-  headerTop: {
-    flexDirection: "row",
+    marginBottom: 16,
     alignItems: "center",
-    gap: 16,
-    marginBottom: 20,
+    backgroundColor: "#ffffff",
+    borderColor: PATIENT.border,
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    elevation: 3,
   },
   avatarWrapper: {
     position: "relative",
+    marginTop: 6,
   },
   avatar: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     overflow: "hidden",
-    backgroundColor: "#6366f1",
+    backgroundColor: PATIENT.primary,
   },
   avatarImage: {
     width: "100%",
@@ -2163,74 +2176,76 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 0,
     right: 0,
-    backgroundColor: "#6366f1",
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    backgroundColor: PATIENT.primary,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     borderWidth: 2,
     borderColor: "white",
     justifyContent: "center",
     alignItems: "center",
   },
-  profileMeta: {
-    flex: 1,
-  },
   heroKicker: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "800",
     letterSpacing: 1.4,
     textTransform: "uppercase",
-    color: "#6366f1",
-    marginBottom: 4,
+    color: PATIENT.textMuted,
+    marginBottom: 14,
+    textAlign: "center",
   },
   name: {
-    fontSize: 26,
+    fontSize: 20,
     fontWeight: "800",
-    color: "#1e293b",
-    marginBottom: 4,
+    color: PATIENT.text,
+    marginTop: 12,
+    marginBottom: 3,
+    textAlign: "center",
   },
   heroSubtext: {
     fontSize: 13,
-    color: "#64748b",
-    fontWeight: "500",
+    color: PATIENT.textSecondary,
+    fontWeight: "400",
     marginBottom: 10,
+    textAlign: "center",
   },
   idBadge: {
-    backgroundColor: "#f1f5f9",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    alignSelf: "flex-start",
+    backgroundColor: PATIENT.backgroundTint,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    alignSelf: "center",
+    borderWidth: 1,
+    borderColor: PATIENT.border,
   },
   patientId: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
-    color: "#64748b",
+    color: PATIENT.textSecondary,
+    letterSpacing: 0.4,
   },
   statsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#f8fafc",
-    borderRadius: 18,
-    padding: 16,
+    backgroundColor: PATIENT.backgroundTint,
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 18,
+    width: "100%",
     borderWidth: 1,
-    borderColor: "#e2e8f0",
+    borderColor: PATIENT.border,
   },
   editProfileBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: "#2563eb",
-    borderRadius: 14,
-    paddingVertical: 13,
-    marginTop: 14,
-    shadowColor: "#2563eb",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: PATIENT.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 16,
+    width: "100%",
   },
   editProfileBtnText: {
     color: "#ffffff",
@@ -2243,20 +2258,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   statLabel: {
-    fontSize: 12,
-    color: "#94a3b8",
+    fontSize: 10.5,
+    color: PATIENT.textMuted,
     fontWeight: "600",
     marginBottom: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
   },
   statValue: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
-    color: "#1e293b",
+    color: PATIENT.text,
+  },
+  statValueGender: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: PATIENT.primary,
   },
   statDivider: {
     width: 1,
-    height: 24,
-    backgroundColor: "#e2e8f0",
+    height: 28,
+    backgroundColor: PATIENT.border,
   },
   content: {
     paddingHorizontal: 16,
@@ -2280,15 +2302,24 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f1f5f9",
   },
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
   cardTitleRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
-    color: "#1e293b",
+    color: PATIENT.text,
   },
   infoGrid: {
     gap: 16,
@@ -2318,36 +2349,54 @@ const styles = StyleSheet.create({
   },
   emergencyDisplay: {
     flexDirection: "row",
-    gap: 16,
+    gap: 14,
     alignItems: "center",
-    backgroundColor: "#fff7ed",
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#ffedd5",
   },
-  emergencyIcon: {
-    fontSize: 32,
+  sosBadge: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "#FEE2E2",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#FCA5A5",
+  },
+  sosBadgeText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#EF4444",
+    letterSpacing: 0.3,
   },
   emergencyDetails: {
     flex: 1,
   },
   emergencyName: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "700",
-    color: "#1e293b",
+    color: PATIENT.text,
   },
   emergencyRelation: {
-    fontSize: 13,
-    color: "#9a3412",
-    fontWeight: "600",
+    fontSize: 12.5,
+    color: PATIENT.textSecondary,
+    fontWeight: "500",
     marginTop: 2,
   },
   emergencyPhone: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#ea580c",
-    marginTop: 4,
+    fontSize: 13,
+    fontWeight: "600",
+    color: PATIENT.textSecondary,
+    marginTop: 3,
+  },
+  emergencyCallBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#E6F6EC",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#CDEBD8",
   },
   medicalGrid: {
     gap: 20,
@@ -2400,17 +2449,17 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   tag: {
-    backgroundColor: "#eef2ff",
+    backgroundColor: "#E6F6EC",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#e0e7ff",
+    borderColor: "#CDEBD8",
   },
   tagText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#4f46e5",
+    color: "#00652C",
   },
   noData: {
     color: "#94a3b8",
@@ -2432,7 +2481,7 @@ const styles = StyleSheet.create({
     color: "#1e293b",
   },
   insuranceBadge: {
-    backgroundColor: "#eff6ff",
+    backgroundColor: "#E6F6EC",
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 8,
@@ -2440,7 +2489,7 @@ const styles = StyleSheet.create({
   insuranceBadgeText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#2563eb",
+    color: "#00652C",
   },
   insuranceGrid: {
     flexDirection: "row",
@@ -2504,7 +2553,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#6366f1",
+    color: "#00652C",
     marginBottom: 20,
     textTransform: "uppercase",
     letterSpacing: 1,
@@ -2533,7 +2582,7 @@ const styles = StyleSheet.create({
   },
   btnPrimary: {
     flex: 1,
-    backgroundColor: "#6366f1",
+    backgroundColor: "#00652C",
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
@@ -2567,7 +2616,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: "#6366f1",
+    backgroundColor: "#00652C",
     marginBottom: 16,
   },
   avatarPreviewImage: {
@@ -2592,17 +2641,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   uploadBtn: {
-    backgroundColor: "#eef2ff",
+    backgroundColor: "#E6F6EC",
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
   },
   uploadBtnText: {
-    color: "#6366f1",
+    color: "#00652C",
     fontWeight: "700",
   },
   generateAvatarBtn: {
-    backgroundColor: "#667eea",
+    backgroundColor: "#2A8A51",
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
@@ -2648,8 +2697,8 @@ const styles = StyleSheet.create({
     minWidth: "30%",
   },
   selectOptionActive: {
-    backgroundColor: "#6366f1",
-    borderColor: "#4f46e5",
+    backgroundColor: "#00652C",
+    borderColor: "#00652C",
   },
   selectOptionText: {
     fontSize: 14,
@@ -2735,7 +2784,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   pickerOptionActive: {
-    backgroundColor: "#6366f1",
+    backgroundColor: "#00652C",
   },
   pickerOptionText: {
     fontSize: 13,

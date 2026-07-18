@@ -99,7 +99,11 @@
     "counselor": "కౌన్సెలర్",
     "myAppointment": "నా నియామకం",
     "wallet": "వాలెట్",
-    "callHistory": "కాల్ చరిత్ర"
+    "callHistory": "కాల్ చరిత్ర",
+    "welcomeBack": "మళ్లీ స్వాగతం,",
+    "goodMorning": "శుభోదయం",
+    "goodAfternoon": "శుభ మధ్యాహ్నం",
+    "goodEvening": "శుభ సాయంత్రం"
   },
   "counselor": {
     "myClients": "నా రోగులు",
@@ -173,7 +177,9 @@
     "deleteChat": "చాట్ తొలగించండి",
     "deleteChatConfirm": "మీరు ఖచ్చితంగా ఈ చాట్‌ను తొలగించాలనుకుంటున్నారా?",
     "deleteChatWarning": "⚠️ ఈ చర్యను రద్దు చేయలేరు. అన్ని సందేశాలు శాశ్వతంగా తొలగించబడతాయి.",
-    "lastMessageLabel": "చివరి సందేశం"
+    "lastMessageLabel": "చివరి సందేశం",
+    "recent": "ఇటీవలి",
+    "recentConversations": "ఇటీవలి సంభాషణలు"
   },
   "settings": {
     "settings": "సెట్టింగ్‌లు",
@@ -322,7 +328,9 @@
     "upi": "UPI",
     "card": "కార్డు",
     "netbanking": "నెట్‌బ్యాంకింగ్",
-    "walletPayment": "వాలెట్"
+    "walletPayment": "వాలెట్",
+    "premiumHealth": "ప్రీమియం హెల్త్",
+    "confirmAndAdd": "నిర్ధారించి జోడించండి"
   },
   "appointment": {
     "counselorDirectory": "కౌన్సెలర్ డైరెక్టరీ",
@@ -363,7 +371,17 @@
     "failedToBook": "అపాయింట్‌మెంట్ బుక్ చేయడంలో విఫలమైంది.",
     "accepted": "ఆమోదించబడింది",
     "searchCounselorPlaceholder": "పేరు, నైపుణ్యం లేదా స్థానం ద్వారా సలహాదారుని శోధించండి",
-    "sessionReasonPlaceholder": "ఈ సెషన్‌లో మీరు ఏమి చర్చించాలనుకుంటున్నారో పంచుకోండి..."
+    "sessionReasonPlaceholder": "ఈ సెషన్‌లో మీరు ఏమి చర్చించాలనుకుంటున్నారో పంచుకోండి...",
+    "recommendedForYou": "మీ కోసం సిఫార్సు",
+    "availableCounselors": "అందుబాటులో ఉన్న సలహాదారులు",
+    "seeAll": "అన్నీ చూడండి",
+    "scheduleAppointment": "అపాయింట్‌మెంట్ షెడ్యూల్ చేయండి",
+    "request": "అభ్యర్థన",
+    "nearby": "సమీపంలో",
+    "topRated": "టాప్ రేటెడ్",
+    "nextAvailable": "తదుపరి అందుబాటు",
+    "currentlyUnavailable": "ప్రస్తుతం అందుబాటులో లేదు",
+    "completed": "పూర్తి"
   },
   "helpPage": {
     "title": "Help Support",

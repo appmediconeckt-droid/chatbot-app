@@ -99,7 +99,11 @@
     "counselor": "مشیر",
     "myAppointment": "میری ملاقات",
     "wallet": "والیٹ",
-    "callHistory": "کال تاریخ"
+    "callHistory": "کال تاریخ",
+    "welcomeBack": "خوش آمدید،",
+    "goodMorning": "صبح بخیر",
+    "goodAfternoon": "دوپہر بخیر",
+    "goodEvening": "شام بخیر"
   },
   "counselor": {
     "myClients": "میرے مریض",
@@ -173,7 +177,9 @@
     "deleteChat": "چیٹ حذف کریں",
     "deleteChatConfirm": "کیا آپ واقعی اس چیٹ کو حذف کرنا چاہتے ہیں؟",
     "deleteChatWarning": "⚠️ یہ عمل واپس نہیں کیا جا سکتا۔ تمام پیغامات مستقل طور پر حذف کر دیے جائیں گے۔",
-    "lastMessageLabel": "آخری پیغام"
+    "lastMessageLabel": "آخری پیغام",
+    "recent": "حالیہ",
+    "recentConversations": "حالیہ گفتگو"
   },
   "settings": {
     "settings": "ترتیبات",
@@ -322,7 +328,9 @@
     "upi": "UPI",
     "card": "کارڈ",
     "netbanking": "نیٹ بینکنگ",
-    "walletPayment": "والیٹ"
+    "walletPayment": "والیٹ",
+    "premiumHealth": "پریمیم ہیلتھ",
+    "confirmAndAdd": "تصدیق کریں اور شامل کریں"
   },
   "appointment": {
     "counselorDirectory": "مشیر ڈائریکٹری",
@@ -363,7 +371,17 @@
     "failedToBook": "ملاقات بکنگ میں ناکام۔",
     "accepted": "قبول شدہ",
     "searchCounselorPlaceholder": "نام، مہارت یا مقام کے ذریعے مشیر تلاش کریں",
-    "sessionReasonPlaceholder": "اس سیشن میں آپ کیا بات کرنا چاہتے ہیں شیئر کریں..."
+    "sessionReasonPlaceholder": "اس سیشن میں آپ کیا بات کرنا چاہتے ہیں شیئر کریں...",
+    "recommendedForYou": "آپ کے لیے تجویز کردہ",
+    "availableCounselors": "دستیاب مشیر",
+    "seeAll": "سب دیکھیں",
+    "scheduleAppointment": "اپائنٹمنٹ شیڈول کریں",
+    "request": "درخواست",
+    "nearby": "قریب",
+    "topRated": "ٹاپ ریٹڈ",
+    "nextAvailable": "اگلی دستیابی",
+    "currentlyUnavailable": "فی الحال دستیاب نہیں",
+    "completed": "مکمل"
   },
   "helpPage": {
     "title": "Help Support",

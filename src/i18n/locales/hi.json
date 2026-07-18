@@ -99,7 +99,11 @@
     "counselor": "परामर्शदाता",
     "myAppointment": "मेरी अपॉइंटमेंट",
     "wallet": "वॉलेट",
-    "callHistory": "कॉल इतिहास"
+    "callHistory": "कॉल इतिहास",
+    "welcomeBack": "वापसी पर स्वागत है,",
+    "goodMorning": "सुप्रभात",
+    "goodAfternoon": "नमस्कार",
+    "goodEvening": "शुभ संध्या"
   },
   "counselor": {
     "myClients": "मेरे मरीज़",
@@ -173,7 +177,9 @@
     "deleteChat": "चैट हटाएं",
     "deleteChatConfirm": "क्या आप वाकई इस चैट को हटाना चाहते हैं?",
     "deleteChatWarning": "⚠️ यह क्रिया पूर्ववत नहीं की जा सकती। सभी संदेश स्थायी रूप से हटा दिए जाएंगे।",
-    "lastMessageLabel": "अंतिम संदेश"
+    "lastMessageLabel": "अंतिम संदेश",
+    "recent": "हाल की",
+    "recentConversations": "हाल की बातचीत"
   },
   "settings": {
     "settings": "सेटिंग्स",
@@ -390,7 +396,9 @@
     "upi": "UPI",
     "card": "कार्ड",
     "netbanking": "नेटबैंकिंग",
-    "walletPayment": "वॉलेट"
+    "walletPayment": "वॉलेट",
+    "premiumHealth": "प्रीमियम हेल्थ",
+    "confirmAndAdd": "पुष्टि करें और जोड़ें"
   },
   "appointment": {
     "counselorDirectory": "परामर्शदाता निर्देशिका",
@@ -431,7 +439,17 @@
     "failedToBook": "अपॉइंटमेंट बुक करने में विफल।",
     "accepted": "स्वीकृत",
     "searchCounselorPlaceholder": "नाम, विशेषज्ञता या स्थान से काउंसलर खोजें",
-    "sessionReasonPlaceholder": "इस सत्र में आप क्या चर्चा करना चाहते हैं साझा करें..."
+    "sessionReasonPlaceholder": "इस सत्र में आप क्या चर्चा करना चाहते हैं साझा करें...",
+    "recommendedForYou": "आपके लिए अनुशंसित",
+    "availableCounselors": "उपलब्ध काउंसलर",
+    "seeAll": "सभी देखें",
+    "scheduleAppointment": "अपॉइंटमेंट शेड्यूल करें",
+    "request": "अनुरोध",
+    "nearby": "आसपास",
+    "topRated": "टॉप रेटेड",
+    "nextAvailable": "अगली उपलब्धता",
+    "currentlyUnavailable": "अभी उपलब्ध नहीं",
+    "completed": "पूर्ण"
   },
   "helpPage": {
     "title": "सहायता समर्थन",

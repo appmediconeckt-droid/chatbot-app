@@ -485,11 +485,11 @@ const CallHistory = () => {
               }}
             />
           ) : (
-            <View style={[styles.callAvatarPlaceholder, { backgroundColor: isMissed ? "#fee2e2" : "#eef2ff" }]}>
-              <Text style={[styles.callAvatarText, { color: isMissed ? "#ef4444" : "#2c50cd" }]}>{call.profilePic}</Text>
+            <View style={[styles.callAvatarPlaceholder, { backgroundColor: isMissed ? "#fee2e2" : "#E6F6EC" }]}>
+              <Text style={[styles.callAvatarText, { color: isMissed ? "#ef4444" : "#00652C" }]}>{call.profilePic}</Text>
             </View>
           )}
-          <View style={[styles.directionIndicator, { backgroundColor: isMissed ? "#ef4444" : call.status === "incoming" ? "#10b981" : "#3b82f6" }]}>
+          <View style={[styles.directionIndicator, { backgroundColor: isMissed ? "#ef4444" : call.status === "incoming" ? "#10b981" : "#00652C" }]}>
             <Ionicons
               name={isMissed ? "close" : call.status === "incoming" ? "arrow-down" : "arrow-up"}
               size={10}
@@ -501,7 +501,7 @@ const CallHistory = () => {
         <View style={styles.callInfo}>
           <View style={styles.callNameRow}>
             <Text style={[styles.callName, isMissed && styles.missedCallName]} numberOfLines={1}>
-              {call.name}
+              {call.name && call.name.length > 8 ? `${call.name.slice(0, 8)}…` : call.name}
             </Text>
             <Text style={styles.callTime}>{call.time}</Text>
           </View>
@@ -534,7 +534,7 @@ const CallHistory = () => {
           <Ionicons
             name={call.type === "video" ? "videocam" : "call"}
             size={20}
-            color="#2c50cd"
+            color="#00652C"
           />
         </TouchableOpacity>
       </TouchableOpacity>
@@ -551,7 +551,7 @@ const CallHistory = () => {
     if (isLoadingCalls) {
       return (
         <View style={styles.callNoResults}>
-          <ActivityIndicator size="large" color="#667eea" />
+          <ActivityIndicator size="large" color="#00652C" />
           <Text style={styles.callNoResultsTitle}>Loading call history...</Text>
         </View>
       );
@@ -575,7 +575,7 @@ const CallHistory = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor="#667eea" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F9F9FF" />
 
       <View style={styles.headerContainer}>
         
@@ -662,7 +662,7 @@ const CallHistory = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fb",
+    backgroundColor: "#F9F9FF",
   },
   headerContainer: {
     backgroundColor: "#ffffff",
@@ -744,8 +744,8 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
   },
   callFilterBtnActive: {
-    backgroundColor: "#2c50cd",
-    borderColor: "#2c50cd",
+    backgroundColor: "#00652C",
+    borderColor: "#00652C",
   },
   callFilterBtnText: {
     fontSize: 13,

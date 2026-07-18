@@ -1,11 +1,12 @@
 // ChatInterface.tsx - Android version with iOS design
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   FlatList,
+  ScrollView,
   Image,
   Modal,
   ActivityIndicator,
@@ -25,6 +26,7 @@ import socketService from '../../../../../../services/socketService';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import safeVibrate from '../../../../../../utils/safeVibrate';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import PATIENT from '../../../../../../theme/palette';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -93,6 +95,7 @@ const ChatInterface = ({ setActiveTab }) => {
   const [error, setError] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedCounselor, setSelectedCounselor] = useState(null);
+  const [activeFilter, setActiveFilter] = useState('all');
   const socketRef = useRef(null);
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -488,11 +491,36 @@ const ChatInterface = ({ setActiveTab }) => {
     }
   }, [selectedCounselor, deleteChat]);
 
-  const filteredCounselors = counselors.filter((counselor) =>
-    counselor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    counselor.specialization.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    counselor.lastMessage.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Chips: All / Online / Recent, then the specializations present in the list.
+  const filterChips = useMemo(() => {
+    const specs = [];
+    counselors.forEach((c) => {
+      const s = (c.specialization || '').trim();
+      if (s && s !== 'Counselor' && !specs.includes(s)) specs.push(s);
+    });
+    return [
+      { id: 'all', label: t('common:all', 'All') },
+      { id: 'online', label: t('common:online', 'Online') },
+      { id: 'recent', label: t('messages:recent', 'Recent') },
+      ...specs.slice(0, 6).map((s) => ({ id: s, label: s })),
+    ];
+  }, [counselors, t]);
+
+  const filteredCounselors = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    return counselors.filter((counselor) => {
+      const matchesSearch =
+        !term ||
+        counselor.name.toLowerCase().includes(term) ||
+        counselor.specialization.toLowerCase().includes(term) ||
+        counselor.lastMessage.toLowerCase().includes(term);
+      if (!matchesSearch) return false;
+
+      if (activeFilter === 'all' || activeFilter === 'recent') return true;
+      if (activeFilter === 'online') return !!counselor.online;
+      return counselor.specialization === activeFilter;
+    });
+  }, [counselors, searchTerm, activeFilter]);
 
   const renderAvatar = (counselor) => {
     const avatarUrl = counselor.avatar || counselor.profilePhoto?.url;
@@ -528,47 +556,37 @@ const ChatInterface = ({ setActiveTab }) => {
             <View style={styles.avatarWrapper}>
               {renderAvatar(item)}
             </View>
-            <View style={[styles.statusDot, item.online ? styles.statusOnline : styles.statusOffline]} />
+            {item.online && <View style={styles.statusDot} />}
           </View>
           <View style={styles.chatInfo}>
-            <View style={styles.chatHeader}>
-              <Text style={styles.chatName} numberOfLines={1}>
-                {item.name}
-              </Text>
-              <Text style={styles.chatTime}>{item.time}</Text>
-            </View>
-            <View style={styles.chatFooter}>
-              <Text style={styles.lastMessage} numberOfLines={1}>
-                {item.lastMessage}
-              </Text>
-              {item.unread > 0 && (
-                <View style={styles.unreadBadge}>
-                  <Text style={styles.unreadBadgeText}>
-                    {item.unread > 99 ? '99+' : item.unread}
-                  </Text>
-                </View>
-              )}
-            </View>
-            <View style={styles.metaContainer}>
-              <Text style={styles.specialization} numberOfLines={1}>
-                {item.specialization}
-              </Text>
-              {item.status === 'accepted' && (
-                <View style={styles.acceptedBadge}>
-                  <Ionicons name="checkmark-circle" size={14} color="#10b981" />
-                </View>
-              )}
-              {item.isExpired && (
+            <Text style={styles.chatName} numberOfLines={1}>
+              {item.name}
+            </Text>
+            <Text style={styles.specialization} numberOfLines={1}>
+              {item.specialization}
+            </Text>
+            <Text style={styles.lastMessage} numberOfLines={1}>
+              {item.lastMessage}
+            </Text>
+            {item.isExpired && (
+              <View style={styles.metaContainer}>
                 <View style={styles.expiredBadge}>
                   <Ionicons name="time-outline" size={14} color="#f59e0b" />
                   <Text style={styles.expiredText}>{t('messages:expired', 'Expired')}</Text>
                 </View>
-              )}
-            </View>
-            {!item.online && item.lastSeen && (
-              <Text style={styles.lastSeen} numberOfLines={1}>
-                Last seen: {formatLastSeen(item.lastSeen)}
-              </Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.chatRight}>
+            <Text style={[styles.chatTime, item.unread > 0 && styles.chatTimeUnread]}>
+              {item.time}
+            </Text>
+            {item.unread > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadBadgeText}>
+                  {item.unread > 99 ? '99+' : item.unread}
+                </Text>
+              </View>
             )}
           </View>
         </Animated.View>
@@ -622,16 +640,14 @@ const ChatInterface = ({ setActiveTab }) => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <StatusBar barStyle="dark-content" backgroundColor={PATIENT.backgroundTint} />
       <View style={styles.header}>
         <View style={styles.searchContainer}>
-          <View style={styles.searchIconWrap}>
-            <Ionicons name="search-outline" size={18} color="#4f46e5" />
-          </View>
+          <Ionicons name="search" size={18} color={PATIENT.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             placeholder={t('messages:searchCounselors', 'Search counselors...')}
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={PATIENT.textMuted}
             value={searchTerm}
             onChangeText={setSearchTerm}
             returnKeyType="search"
@@ -640,10 +656,32 @@ const ChatInterface = ({ setActiveTab }) => {
           />
           {searchTerm.length > 0 && (
             <TouchableOpacity style={styles.searchClearButton} onPress={() => setSearchTerm('')} activeOpacity={0.7}>
-              <Ionicons name="close" size={14} color="#64748b" />
+              <Ionicons name="close-circle" size={16} color={PATIENT.textMuted} />
             </TouchableOpacity>
           )}
         </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+        >
+          {filterChips.map((chip) => {
+            const active = activeFilter === chip.id;
+            return (
+              <TouchableOpacity
+                key={chip.id}
+                style={[styles.chip, active && styles.chipActive]}
+                onPress={() => setActiveFilter(chip.id)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
+                  {chip.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
       {initialLoading ? (
         <ChatListSkeleton />
@@ -656,12 +694,19 @@ const ChatInterface = ({ setActiveTab }) => {
           renderItem={renderChatItem}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={filteredCounselors.length === 0 ? styles.listEmpty : styles.list}
+          ListHeaderComponent={
+            filteredCounselors.length > 0 ? (
+              <Text style={styles.sectionTitle}>
+                {t('messages:recentConversations', 'Recent Conversations')}
+              </Text>
+            ) : null
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={() => fetchChats(false)}
-              tintColor="#4f46e5"
-              colors={['#4f46e5']}
+              tintColor={PATIENT.primary}
+              colors={[PATIENT.primary]}
             />
           }
           ListEmptyComponent={renderEmptyState}
@@ -728,58 +773,87 @@ const ChatInterface = ({ setActiveTab }) => {
 const styles = {
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: PATIENT.backgroundTint,
   },
   header: {
-    paddingHorizontal: 14,
-    paddingTop: 8,
-    paddingBottom: 8,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    paddingTop: 10,
+    paddingBottom: 4,
+    backgroundColor: PATIENT.backgroundTint,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    borderRadius: 18,
-    paddingHorizontal: 10,
-    height: 46,
+    backgroundColor: PATIENT.surface,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    height: 48,
+    marginHorizontal: 16,
     borderWidth: 1,
-    borderColor: '#dbe4f0',
+    borderColor: PATIENT.border,
     shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 14,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 1,
   },
-  searchIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#eef2ff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
+  searchIcon: {
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1e293b',
+    fontSize: 14.5,
+    fontWeight: '400',
+    color: PATIENT.text,
     paddingVertical: 0,
   },
   searchClearButton: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 24,
+    height: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#e2e8f0',
+  },
+
+  chipRow: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 4,
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 16,
+    height: 34,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: PATIENT.chipBorder,
+    backgroundColor: PATIENT.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chipActive: {
+    backgroundColor: PATIENT.primary,
+    borderColor: PATIENT.primary,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: PATIENT.textSecondary,
+  },
+  chipTextActive: {
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+
+  sectionTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: PATIENT.text,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
   },
 
   list: {
-    paddingVertical: 0,
+    paddingBottom: 24,
   },
   listEmpty: {
     flex: 1,
@@ -789,13 +863,18 @@ const styles = {
   },
   chatItem: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    marginHorizontal: 0,
-    marginVertical: 0,
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    backgroundColor: PATIENT.surface,
+    borderRadius: 18,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   avatarContainer: {
     position: 'relative',
@@ -830,63 +909,59 @@ const styles = {
   },
   statusDot: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    bottom: 1,
+    right: 1,
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
     borderWidth: 2.5,
-    borderColor: '#ffffff',
+    borderColor: PATIENT.surface,
+    backgroundColor: PATIENT.online,
     zIndex: 1,
-  },
-  statusOnline: {
-    backgroundColor: '#10b981',
-  },
-  statusOffline: {
-    backgroundColor: '#94a3b8',
   },
   chatInfo: {
     flex: 1,
   },
-  chatHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
   chatName: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#0f172a',
-    flex: 1,
+    color: PATIENT.text,
   },
-  chatTime: {
-    fontSize: 11,
-    color: '#94a3b8',
-    marginLeft: 8,
-    minWidth: 55,
-    textAlign: 'right',
-  },
-  chatFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 2,
+  specialization: {
+    fontSize: 11.5,
+    color: PATIENT.textMuted,
+    fontWeight: '500',
+    marginTop: 1,
   },
   lastMessage: {
     fontSize: 13,
-    color: '#64748b',
-    flex: 1,
+    color: PATIENT.textSecondary,
+    marginTop: 5,
+  },
+  chatRight: {
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+    alignSelf: 'stretch',
+    marginLeft: 10,
+    gap: 8,
+  },
+  chatTime: {
+    fontSize: 11,
+    color: PATIENT.textMuted,
+    fontWeight: '500',
+  },
+  chatTimeUnread: {
+    color: PATIENT.primary,
+    fontWeight: '700',
   },
   unreadBadge: {
-    backgroundColor: '#10b981',
+    backgroundColor: PATIENT.primary,
     borderRadius: 11,
-    minWidth: 22,
-    height: 22,
+    minWidth: 20,
+    height: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 6,
-    marginLeft: 10,
+    paddingHorizontal: 5,
   },
   unreadBadgeText: {
     color: '#ffffff',
@@ -896,13 +971,7 @@ const styles = {
   metaContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 2,
-  },
-  specialization: {
-    fontSize: 11,
-    color: '#94a3b8',
-    marginRight: 8,
-    fontWeight: '500',
+    marginTop: 4,
   },
   acceptedBadge: {
     marginRight: 4,

@@ -19,6 +19,7 @@ import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import RazorpayCheckout from 'react-native-razorpay';
 import axiosInstance from '../../../../../../axiosConfig';
+import PATIENT from '../../../../../../theme/palette';
 
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000];
 const PAYMENT_METHODS = [
@@ -230,20 +231,21 @@ const WalletDashboard = ({ userData = {} }) => {
   };
 
   const renderBalanceCard = () => (
-    <LinearGradient colors={['#1d4ed8', '#4338ca', '#1e40af']} style={styles.balanceCard}>
+    <LinearGradient
+      colors={[PATIENT.gradientFrom, PATIENT.gradientTo, PATIENT.primary]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.balanceCard}
+    >
       <View style={styles.cardGlowOne} />
       <View style={styles.cardGlowTwo} />
 
       <View style={styles.cardHeader}>
-        <View style={styles.chip}>
-          <View style={styles.chipDot} />
-          <View style={styles.chipDot} />
-          <View style={styles.chipDot} />
+        <View style={styles.premiumBadge}>
+          <MaterialIcons name="verified" size={13} color="#ffffff" />
+          <Text style={styles.premiumBadgeText}>{t('wallet:premiumHealth', 'PREMIUM HEALTH')}</Text>
         </View>
-        <View style={styles.cardBrandWrap}>
-          <Text style={styles.cardBrand}>{t('wallet:walletOverview')}</Text>
-          <Text style={styles.cardTier}>Premium Health</Text>
-        </View>
+        <MaterialIcons name="wifi" size={20} color="rgba(255,255,255,0.85)" />
       </View>
 
       <TranslatedMessageBubble text={t('wallet:availableBalance')} style={styles.balanceLabel} />
@@ -251,15 +253,11 @@ const WalletDashboard = ({ userData = {} }) => {
 
       <View style={styles.cardFooter}>
         <Text style={styles.cardNumber}>.... .... .... 4242</Text>
-        <View>
-          <Text style={styles.expiryLabel}>EXP</Text>
-          <Text style={styles.expiryValue}>12/28</Text>
-        </View>
       </View>
 
       <View style={styles.cardButtonsRow}>
         <TouchableOpacity style={styles.primaryMiniAction} onPress={() => setActiveTab('add-money')}>
-          <MaterialIcons name="add-circle-outline" size={16} color="#1e40af" />
+          <MaterialIcons name="add" size={17} color={PATIENT.primary} />
           <Text style={styles.primaryMiniActionText}>{t('wallet:addFunds')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.ghostMiniAction} onPress={() => setActiveTab('transactions')}>
@@ -274,15 +272,15 @@ const WalletDashboard = ({ userData = {} }) => {
     <View style={styles.statsGrid}>
       <View style={styles.statCard}>
         <Text style={styles.statLabel}>{t('wallet:credits')}</Text>
-        <Text style={[styles.statValue, { color: '#0f766e' }]}>{formatCurrency(stats.creditTotal)}</Text>
+        <Text style={[styles.statValue, { color: PATIENT.primary }]}>{formatCurrency(stats.creditTotal)}</Text>
       </View>
       <View style={styles.statCard}>
         <Text style={styles.statLabel}>{t('wallet:spent')}</Text>
-        <Text style={[styles.statValue, { color: '#b91c1c' }]}>{formatCurrency(stats.debitTotal)}</Text>
+        <Text style={[styles.statValue, { color: '#B91C1C' }]}>{formatCurrency(stats.debitTotal)}</Text>
       </View>
       <View style={styles.statCard}>
         <Text style={styles.statLabel}>{t('wallet:completed')}</Text>
-        <Text style={[styles.statValue, { color: '#1d4ed8' }]}>{stats.completed}</Text>
+        <Text style={[styles.statValue, { color: PATIENT.text }]}>{stats.completed}</Text>
       </View>
     </View>
   );
@@ -303,7 +301,7 @@ const WalletDashboard = ({ userData = {} }) => {
                   styles.progressFill,
                   {
                     width: `${Math.min(Math.max(Number(item.percentage || 0), 0), 100)}%`,
-                    backgroundColor: index % 2 === 0 ? '#1d4ed8' : '#0ea5e9',
+                    backgroundColor: index % 2 === 0 ? PATIENT.primary : PATIENT.gradientFrom,
                   },
                 ]}
               />
@@ -338,11 +336,19 @@ const WalletDashboard = ({ userData = {} }) => {
       </View>
 
       <View style={styles.quickWrap}>
-        {QUICK_AMOUNTS.map((qa) => (
-          <TouchableOpacity key={qa} style={styles.quickBtn} onPress={() => setAmount(String(qa))}>
-            <Text style={styles.quickBtnText}>Rs {qa}</Text>
-          </TouchableOpacity>
-        ))}
+        {QUICK_AMOUNTS.map((qa) => {
+          const isActive = String(qa) === String(amount);
+          return (
+            <TouchableOpacity
+              key={qa}
+              style={[styles.quickBtn, isActive && styles.quickBtnActive]}
+              onPress={() => setAmount(String(qa))}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.quickBtnText, isActive && styles.quickBtnTextActive]}>₹{qa}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       <Text style={styles.inputLabel}>{t('wallet:paymentMethod')}</Text>
@@ -355,7 +361,7 @@ const WalletDashboard = ({ userData = {} }) => {
               style={[styles.methodItem, isActive && styles.methodItemActive]}
               onPress={() => setPaymentMethod(method.id)}
             >
-              <MaterialIcons name={method.icon} size={18} color={isActive ? '#1d4ed8' : '#64748b'} />
+              <MaterialIcons name={method.icon} size={18} color={isActive ? PATIENT.primary : PATIENT.textSecondary} />
               <Text style={[styles.methodText, isActive && styles.methodTextActive]}>{t(method.labelKey)}</Text>
             </TouchableOpacity>
           );
@@ -367,7 +373,15 @@ const WalletDashboard = ({ userData = {} }) => {
         onPress={handlePayment}
         disabled={loading}
       >
-        {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.payBtnText}>{t('wallet:confirmAndAddFunds')}</Text>}
+        {loading ? (
+          <ActivityIndicator color="#fff" size="small" />
+        ) : (
+          <Text style={styles.payBtnText}>
+            {amount
+              ? `${t('wallet:confirmAndAdd', 'Confirm and Add')} ₹${amount}`
+              : t('wallet:confirmAndAddFunds')}
+          </Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -435,7 +449,7 @@ const WalletDashboard = ({ userData = {} }) => {
   if (fetching) {
     return (
       <View style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" backgroundColor="#f4f7ff" />
+        <StatusBar barStyle="dark-content" backgroundColor="#F9F9FF" />
         <ScrollView
           style={styles.container}
           contentContainerStyle={styles.content}
@@ -449,7 +463,7 @@ const WalletDashboard = ({ userData = {} }) => {
 
   return (
     <View style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f4f7ff" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F9F9FF" />
       <ScrollView
         style={styles.container}
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(120, insets.bottom + 96) }]}
@@ -491,16 +505,17 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     width: '100%',
-    backgroundColor: '#f4f7ff',
+    backgroundColor: PATIENT.backgroundTint,
   },
   container: {
     flex: 1,
     width: '100%',
-    backgroundColor: '#f4f7ff',
+    backgroundColor: PATIENT.backgroundTint,
   },
   content: {
     width: '100%',
     paddingHorizontal: 16,
+    paddingTop: 8,
     flexGrow: 1,
   },
   loadingWrap: {
@@ -519,27 +534,42 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: '800',
-    color: '#0f172a',
-    letterSpacing: -0.4,
+    color: PATIENT.text,
+    letterSpacing: -0.3,
   },
   headerSubtitle: {
     marginTop: 4,
-    color: '#475569',
-    fontSize: 14,
-    lineHeight: 20,
+    color: PATIENT.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
   },
   balanceCard: {
-    borderRadius: 24,
+    borderRadius: 22,
     padding: 20,
     marginBottom: 16,
     overflow: 'hidden',
-    shadowColor: '#1e40af',
+    shadowColor: PATIENT.primary,
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.24,
+    shadowOpacity: 0.22,
     shadowRadius: 18,
     elevation: 8,
+  },
+  premiumBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  premiumBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
   cardGlowOne: {
     position: 'absolute',
@@ -562,6 +592,7 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 16,
   },
   chip: {
@@ -644,7 +675,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   primaryMiniActionText: {
-    color: '#1e40af',
+    color: PATIENT.primary,
     fontWeight: '700',
     fontSize: 12,
   },
@@ -671,15 +702,15 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: PATIENT.surface,
     borderRadius: 14,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: PATIENT.border,
   },
   statLabel: {
-    color: '#64748b',
-    fontSize: 11,
+    color: PATIENT.textMuted,
+    fontSize: 10.5,
     marginBottom: 4,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
@@ -689,22 +720,22 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   cardSection: {
-    backgroundColor: '#fff',
+    backgroundColor: PATIENT.surface,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: PATIENT.border,
     padding: 16,
     marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
-    color: '#0f172a',
+    color: PATIENT.text,
   },
   sectionSubtitle: {
     marginTop: 4,
     fontSize: 13,
-    color: '#64748b',
+    color: PATIENT.textSecondary,
     marginBottom: 14,
   },
   progressItem: {
@@ -774,7 +805,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   tabBtnActive: {
-    backgroundColor: '#1d4ed8',
+    backgroundColor: PATIENT.primary,
   },
   tabBtnText: {
     color: '#64748b',
@@ -788,45 +819,55 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#cbd5e1',
+    borderColor: PATIENT.chipBorder,
     borderRadius: 12,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     marginBottom: 12,
+    backgroundColor: PATIENT.backgroundTint,
   },
   currencyPrefix: {
-    color: '#334155',
+    color: PATIENT.textSecondary,
     fontWeight: '700',
     fontSize: 18,
     marginRight: 6,
   },
   amountInput: {
     flex: 1,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#0f172a',
-    paddingVertical: 12,
+    color: PATIENT.text,
+    paddingVertical: 13,
   },
   quickWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 14,
+    marginBottom: 16,
   },
   quickBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 999,
+    flex: 1,
+    minWidth: '22%',
+    alignItems: 'center',
+    paddingVertical: 11,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    backgroundColor: '#f8fafc',
+    borderColor: PATIENT.chipBorder,
+    backgroundColor: PATIENT.surface,
+  },
+  quickBtnActive: {
+    borderColor: PATIENT.primary,
+    backgroundColor: '#E6F6EC',
   },
   quickBtnText: {
-    color: '#1e40af',
-    fontSize: 12,
+    color: PATIENT.textSecondary,
+    fontSize: 13,
     fontWeight: '700',
   },
+  quickBtnTextActive: {
+    color: PATIENT.primary,
+  },
   inputLabel: {
-    color: '#334155',
+    color: PATIENT.text,
     fontSize: 13,
     fontWeight: '700',
     marginBottom: 10,
@@ -843,30 +884,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    paddingVertical: 10,
+    borderColor: PATIENT.chipBorder,
+    paddingVertical: 12,
     paddingHorizontal: 6,
-    backgroundColor: '#fff',
+    backgroundColor: PATIENT.surface,
   },
   methodItemActive: {
-    borderColor: '#1d4ed8',
-    backgroundColor: '#eff6ff',
+    borderColor: PATIENT.primary,
+    backgroundColor: '#E6F6EC',
   },
   methodText: {
     fontSize: 11,
-    color: '#64748b',
+    color: PATIENT.textSecondary,
     fontWeight: '700',
     marginTop: 6,
   },
   methodTextActive: {
-    color: '#1d4ed8',
+    color: PATIENT.primary,
   },
   payBtn: {
-    backgroundColor: '#1d4ed8',
+    backgroundColor: PATIENT.primary,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: 15,
   },
   payBtnDisabled: {
     opacity: 0.7,
@@ -883,7 +924,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   linkBtn: {
-    color: '#1d4ed8',
+    color: PATIENT.primary,
     fontWeight: '700',
     fontSize: 13,
   },
@@ -942,15 +983,16 @@ const styles = StyleSheet.create({
   supportCard: {
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#dbeafe',
-    backgroundColor: '#eff6ff',
+    borderColor: '#CDEBD8',
+    backgroundColor: '#E6F6EC',
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    marginBottom: 8,
   },
   supportLabel: {
-    color: '#1d4ed8',
+    color: PATIENT.primary,
     fontSize: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.7,
@@ -958,15 +1000,15 @@ const styles = StyleSheet.create({
   },
   supportText: {
     marginTop: 2,
-    color: '#1e293b',
+    color: PATIENT.text,
     fontSize: 13,
     lineHeight: 18,
   },
   supportAction: {
-    backgroundColor: '#1d4ed8',
+    backgroundColor: PATIENT.primary,
     borderRadius: 10,
     paddingVertical: 9,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
   },
   supportActionText: {
     color: '#fff',

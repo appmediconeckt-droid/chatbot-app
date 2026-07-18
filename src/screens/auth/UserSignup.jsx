@@ -327,7 +327,7 @@
 //     return (
 //       <Animated.View key={`input-${name}`} style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
 //         <View style={[styles.inputWrapper, isFocused && styles.inputWrapperFocused]}>
-//           <Icon name={icon} size={20} color={isFocused ? '#6366f1' : '#64748b'} style={styles.inputIcon} />
+//           <Icon name={icon} size={20} color={isFocused ? '#00652C' : '#64748b'} style={styles.inputIcon} />
 //           <TextInput
 //             style={styles.textInput}
 //             value={formData[name]}
@@ -396,7 +396,7 @@
 //                   )}
 //                   <Animated.View key="pwd-row" style={{ opacity: fieldAnims[6] }}>
 //                     <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
-//                       <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#6366f1' : '#64748b'} style={styles.inputIcon} />
+//                       <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
 //                       <TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} placeholder="Password" placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} />
 //                       <TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
 //                     </View>
@@ -409,7 +409,7 @@
 //                   {!isLogin && (
 //                     <Animated.View key="cpwd-row" style={{ opacity: fieldAnims[7] }}>
 //                       <View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}>
-//                         <Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#6366f1' : '#64748b'} style={styles.inputIcon} />
+//                         <Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
 //                         <TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={() => setFocusedField('confirmPassword')} onBlur={() => setFocusedField(null)} placeholder="Confirm Password" placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} />
 //                         <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
 //                       </View>
@@ -459,7 +459,7 @@
 //         <Modal visible={showOtpModal.show} transparent animationType="slide">
 //           <View style={styles.modalOverlay}>
 //             <View style={styles.modalContent}>
-//               <View style={[styles.modalIcon, { backgroundColor: '#f5f7ff' }]}><Icon name={showOtpModal.type === 'email' ? 'email-fast-outline' : 'cellphone-text'} size={40} color="#6366f1" /></View>
+//               <View style={[styles.modalIcon, { backgroundColor: '#f5f7ff' }]}><Icon name={showOtpModal.type === 'email' ? 'email-fast-outline' : 'cellphone-text'} size={40} color="#00652C" /></View>
 //               <Text style={styles.modalTitle}>Verify Your {showOtpModal.type === 'email' ? 'Email' : 'Phone'}</Text>
 //               <Text style={styles.modalSub}>Enter the code sent to {showOtpModal.value}</Text>
 //               <TextInput style={styles.otpInput} value={otpCode} onChangeText={setOtpCode} placeholder="000000" placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
@@ -476,7 +476,7 @@
 //         <Modal visible={showDeviceConflict} transparent animationType="fade">
 //           <View style={styles.modalOverlay}>
 //             <View style={styles.modalContent}>
-//               <View style={styles.modalIcon}><Icon name="devices" size={40} color="#6366f1" /></View>
+//               <View style={styles.modalIcon}><Icon name="devices" size={40} color="#00652C" /></View>
 //               <Text style={styles.modalTitle}>Active Session Detected</Text>
 //               <Text style={styles.modalSub}>You are logged in on another device. Would you like to log out from all other devices and log in here?</Text>
 //               {!deviceOtpSent ? (
@@ -497,7 +497,7 @@
 //         </Modal>
 
 //         {notification.show && (
-//           <Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#6366f1' : '#10b981' }]}>
+//           <Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#00652C' : '#10b981' }]}>
 //             <Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color="#fff" />
 //             <Text style={styles.notificationText}>{notification.message}</Text>
 //           </Animated.View>
@@ -524,41 +524,41 @@
 //   flex: { flex: 1 },
 //   gradient: { flex: 1, overflow: 'hidden' },
 //   lavaOrb: { position: 'absolute', width: 300, height: 300, borderRadius: 150, opacity: 0.35 },
-//   orb1: { top: -100, right: -50, backgroundColor: '#6366f1' },
+//   orb1: { top: -100, right: -50, backgroundColor: '#00652C' },
 //   orb2: { bottom: -50, left: -100, backgroundColor: '#10b981' },
 //   safeArea: { flex: 1 },
 //   scrollContent: { paddingHorizontal: 20, paddingTop: 100, paddingBottom: 60, flexGrow: 1 },
 //   backBtn: { position: 'absolute', top: 30, left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
 //   panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, paddingHorizontal: 24, paddingVertical: 28, width: '100%', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
 //   header: { alignItems: 'center', marginBottom: 24 },
-//   logoBadge: { padding: 8, backgroundColor: '#fff', borderRadius: 20, shadowColor: '#6366f1', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
+//   logoBadge: { padding: 8, backgroundColor: '#fff', borderRadius: 20, shadowColor: '#00652C', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
 //   logo: { width: 55, height: 55 },
 //   brandContainer: { flexDirection: 'row', marginTop: 12 },
 //   brandMain: { fontSize: 26, fontWeight: '900', color: '#1e293b' },
-//   brandAlt: { fontSize: 26, fontWeight: '400', color: '#6366f1' },
+//   brandAlt: { fontSize: 26, fontWeight: '400', color: '#00652C' },
 //   tagline: { fontSize: 13, color: '#64748b', fontWeight: '600', marginTop: 4 },
 //   formPanel: { gap: 14 },
 //   inputField: { width: '100%' },
 //   inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 18, paddingHorizontal: 16, height: 54, borderWidth: 1.5, borderColor: '#f1f5f9' },
-//   inputWrapperFocused: { borderColor: '#6366f1', backgroundColor: '#ffffff' },
+//   inputWrapperFocused: { borderColor: '#00652C', backgroundColor: '#ffffff' },
 //   inputIcon: { marginRight: 12 },
 //   textInput: { flex: 1, color: '#1e293b', fontSize: 14, fontWeight: '600' },
-//   verifyBtn: { backgroundColor: '#6366f1', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
+//   verifyBtn: { backgroundColor: '#00652C', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
 //   verifiedBtn: { backgroundColor: 'transparent' },
 //   verifyBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
 //   errorText: { color: '#ef4444', fontSize: 11, marginTop: 4, marginLeft: 16, fontWeight: '600' },
 //   genderRow: { flexDirection: 'row', gap: 10 },
 //   genderBtn: { flex: 1, height: 44, borderRadius: 15, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: 'transparent' },
-//   genderBtnSelected: { backgroundColor: '#f5f7ff', borderColor: '#6366f1' },
+//   genderBtnSelected: { backgroundColor: '#f5f7ff', borderColor: '#00652C' },
 //   genderText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
-//   genderTextSelected: { color: '#6366f1' },
+//   genderTextSelected: { color: '#00652C' },
 //   forgotLink: { alignSelf: 'flex-end', marginTop: -8, marginBottom: 8 },
-//   forgotText: { color: '#6366f1', fontSize: 12, fontWeight: '700' },
-//   submitBtn: { height: 56, borderRadius: 20, backgroundColor: '#6366f1', justifyContent: 'center', alignItems: 'center', shadowColor: '#6366f1', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
+//   forgotText: { color: '#00652C', fontSize: 12, fontWeight: '700' },
+//   submitBtn: { height: 56, borderRadius: 20, backgroundColor: '#00652C', justifyContent: 'center', alignItems: 'center', shadowColor: '#00652C', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
 //   submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
 //   switchRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 10 },
 //   switchText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
-//   switchLink: { fontSize: 14, fontWeight: '800', color: '#6366f1' },
+//   switchLink: { fontSize: 14, fontWeight: '800', color: '#00652C' },
 //   notification: { position: 'absolute', top: 50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 10, zIndex: 1000 },
 //   notificationText: { color: '#fff', fontSize: 14, fontWeight: '700', marginLeft: 8 },
 //   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
@@ -566,7 +566,7 @@
 //   modalIcon: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
 //   modalTitle: { fontSize: 20, fontWeight: '900', color: '#1e293b', marginBottom: 12, textAlign: 'center' },
 //   modalSub: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 20, marginBottom: 24 },
-//   modalActionBtn: { width: '100%', height: 56, borderRadius: 18, backgroundColor: '#6366f1', justifyContent: 'center', alignItems: 'center', shadowColor: '#6366f1', shadowOpacity: 0.2, shadowRadius: 10, elevation: 5 },
+//   modalActionBtn: { width: '100%', height: 56, borderRadius: 18, backgroundColor: '#00652C', justifyContent: 'center', alignItems: 'center', shadowColor: '#00652C', shadowOpacity: 0.2, shadowRadius: 10, elevation: 5 },
 //   modalActionText: { color: '#fff', fontSize: 16, fontWeight: '800' },
 //   modalErrorText: { color: '#ef4444', fontSize: 12, fontWeight: '700', marginBottom: 12 },
 //   cancelBtn: { marginTop: 16 },
@@ -600,6 +600,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import AuthBackground from '../../theme/AuthBackground';
 
 // Import logo
 import logo from '../../image/Mediconect Logo-3.png';
@@ -899,7 +900,7 @@ const UserSignup = ({ navigation, route }) => {
     return (
       <Animated.View key={`input-${name}`} style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
         <View style={[styles.inputWrapper, isFocused && styles.inputWrapperFocused]}>
-          <Icon name={icon} size={20} color={isFocused ? '#6366f1' : '#64748b'} style={styles.inputIcon} />
+          <Icon name={icon} size={20} color={isFocused ? '#00652C' : '#64748b'} style={styles.inputIcon} />
           <TextInput
             style={styles.textInput}
             value={formData[name]}
@@ -936,15 +937,13 @@ const UserSignup = ({ navigation, route }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      <LinearGradient colors={['#0f172a', '#1e293b', '#000000']} style={styles.gradient}>
-        <Animated.View style={[styles.lavaOrb, styles.orb1, { transform: [{ translateY: orb1Anim }] }]} />
-        <Animated.View style={[styles.lavaOrb, styles.orb2, { transform: [{ translateY: orb2Anim }] }]} />
-
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      {/* Green mesh backdrop (patient palette) — scales to phone/tablet */}
+      <AuthBackground role="user" style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : null} style={styles.flex}>
             <TouchableOpacity style={styles.backBtn} onPress={() => navigation.replace('RoleSelector')}>
-              <Icon name="chevron-left" size={28} color="#ffffff" />
+              <Icon name="chevron-left" size={28} color="#0F172A" />
             </TouchableOpacity>
 
             <ScrollView contentContainerStyle={scrollContainerStyle} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
@@ -973,7 +972,7 @@ const UserSignup = ({ navigation, route }) => {
                   )}
                   <Animated.View key="pwd-row" style={{ opacity: fieldAnims[6] }}>
                     <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
-                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#6366f1' : '#64748b'} style={styles.inputIcon} />
+                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
                       <TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} placeholder="Password" placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} />
                       <TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
                     </View>
@@ -986,7 +985,7 @@ const UserSignup = ({ navigation, route }) => {
                   {!isLogin && (
                     <Animated.View key="cpwd-row" style={{ opacity: fieldAnims[7] }}>
                       <View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}>
-                        <Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#6366f1' : '#64748b'} style={styles.inputIcon} />
+                        <Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
                         <TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={() => setFocusedField('confirmPassword')} onBlur={() => setFocusedField(null)} placeholder="Confirm Password" placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} />
                         <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
                       </View>
@@ -1036,7 +1035,7 @@ const UserSignup = ({ navigation, route }) => {
         <Modal visible={showOtpModal.show} transparent animationType="slide">
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <View style={[styles.modalIcon, { backgroundColor: '#f5f7ff' }]}><Icon name={showOtpModal.type === 'email' ? 'email-fast-outline' : 'cellphone-text'} size={40} color="#6366f1" /></View>
+              <View style={[styles.modalIcon, { backgroundColor: '#f5f7ff' }]}><Icon name={showOtpModal.type === 'email' ? 'email-fast-outline' : 'cellphone-text'} size={40} color="#00652C" /></View>
               <Text style={styles.modalTitle}>Verify Your {showOtpModal.type === 'email' ? 'Email' : 'Phone'}</Text>
               <Text style={styles.modalSub}>Enter the code sent to {showOtpModal.value}</Text>
               <TextInput style={styles.otpInput} value={otpCode} onChangeText={setOtpCode} placeholder="000000" placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
@@ -1053,7 +1052,7 @@ const UserSignup = ({ navigation, route }) => {
         <Modal visible={showDeviceConflict} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <View style={styles.modalIcon}><Icon name="devices" size={40} color="#6366f1" /></View>
+              <View style={styles.modalIcon}><Icon name="devices" size={40} color="#00652C" /></View>
               <Text style={styles.modalTitle}>Active Session Detected</Text>
               <Text style={styles.modalSub}>You are logged in on another device. Would you like to log out from all other devices and log in here?</Text>
               {!deviceOtpSent ? (
@@ -1074,7 +1073,7 @@ const UserSignup = ({ navigation, route }) => {
         </Modal>
 
         {notification.show && (
-          <Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#6366f1' : '#10b981' }]}>
+          <Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#00652C' : '#10b981' }]}>
             <Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color="#fff" />
             <Text style={styles.notificationText}>{notification.message}</Text>
           </Animated.View>
@@ -1084,10 +1083,10 @@ const UserSignup = ({ navigation, route }) => {
         <ForgotPasswordModal
           visible={showForgotPassword}
           onClose={() => setShowForgotPassword(false)}
-          accentColor="#6366f1"
+          accentColor="#00652C"
           initialEmail={formData.email}
         />
-      </LinearGradient>
+      </AuthBackground>
     </View>
   );
 };
@@ -1109,41 +1108,41 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   gradient: { flex: 1, overflow: 'hidden' },
   lavaOrb: { position: 'absolute', width: 300, height: 300, borderRadius: 150, opacity: 0.35 },
-  orb1: { top: -100, right: -50, backgroundColor: '#6366f1' },
+  orb1: { top: -100, right: -50, backgroundColor: '#00652C' },
   orb2: { bottom: -50, left: -100, backgroundColor: '#10b981' },
   safeArea: { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 100, paddingBottom: 60, flexGrow: 1 },
   backBtn: { position: 'absolute', top: 30, left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
   panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, paddingHorizontal: 24, paddingVertical: 28, width: '100%', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
   header: { alignItems: 'center', marginBottom: 24 },
-  logoBadge: { padding: 8, backgroundColor: '#fff', borderRadius: 20, shadowColor: '#6366f1', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
+  logoBadge: { padding: 8, backgroundColor: '#fff', borderRadius: 20, shadowColor: '#00652C', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
   logo: { width: 55, height: 55 },
   brandContainer: { flexDirection: 'row', marginTop: 12 },
   brandMain: { fontSize: 26, fontWeight: '900', color: '#1e293b' },
-  brandAlt: { fontSize: 26, fontWeight: '400', color: '#6366f1' },
+  brandAlt: { fontSize: 26, fontWeight: '400', color: '#00652C' },
   tagline: { fontSize: 13, color: '#64748b', fontWeight: '600', marginTop: 4 },
   formPanel: { gap: 14 },
   inputField: { width: '100%' },
   inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 18, paddingHorizontal: 16, height: 54, borderWidth: 1.5, borderColor: '#f1f5f9' },
-  inputWrapperFocused: { borderColor: '#6366f1', backgroundColor: '#ffffff' },
+  inputWrapperFocused: { borderColor: '#00652C', backgroundColor: '#ffffff' },
   inputIcon: { marginRight: 12 },
   textInput: { flex: 1, color: '#1e293b', fontSize: 14, fontWeight: '600' },
-  verifyBtn: { backgroundColor: '#6366f1', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
+  verifyBtn: { backgroundColor: '#00652C', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
   verifiedBtn: { backgroundColor: 'transparent' },
   verifyBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   errorText: { color: '#ef4444', fontSize: 11, marginTop: 4, marginLeft: 16, fontWeight: '600' },
   genderRow: { flexDirection: 'row', gap: 10 },
   genderBtn: { flex: 1, height: 44, borderRadius: 15, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: 'transparent' },
-  genderBtnSelected: { backgroundColor: '#f5f7ff', borderColor: '#6366f1' },
+  genderBtnSelected: { backgroundColor: '#f5f7ff', borderColor: '#00652C' },
   genderText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
-  genderTextSelected: { color: '#6366f1' },
+  genderTextSelected: { color: '#00652C' },
   forgotLink: { alignSelf: 'flex-end', marginTop: -8, marginBottom: 8 },
-  forgotText: { color: '#6366f1', fontSize: 12, fontWeight: '700' },
-  submitBtn: { height: 56, borderRadius: 20, backgroundColor: '#6366f1', justifyContent: 'center', alignItems: 'center', shadowColor: '#6366f1', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
+  forgotText: { color: '#00652C', fontSize: 12, fontWeight: '700' },
+  submitBtn: { height: 56, borderRadius: 20, backgroundColor: '#00652C', justifyContent: 'center', alignItems: 'center', shadowColor: '#00652C', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
   submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   switchRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 10 },
   switchText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
-  switchLink: { fontSize: 14, fontWeight: '800', color: '#6366f1' },
+  switchLink: { fontSize: 14, fontWeight: '800', color: '#00652C' },
   notification: { position: 'absolute', top: 50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 10, zIndex: 1000 },
   notificationText: { color: '#fff', fontSize: 14, fontWeight: '700', marginLeft: 8 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
@@ -1151,7 +1150,7 @@ const styles = StyleSheet.create({
   modalIcon: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
   modalTitle: { fontSize: 20, fontWeight: '900', color: '#1e293b', marginBottom: 12, textAlign: 'center' },
   modalSub: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 20, marginBottom: 24 },
-  modalActionBtn: { width: '100%', height: 56, borderRadius: 18, backgroundColor: '#6366f1', justifyContent: 'center', alignItems: 'center', shadowColor: '#6366f1', shadowOpacity: 0.2, shadowRadius: 10, elevation: 5 },
+  modalActionBtn: { width: '100%', height: 56, borderRadius: 18, backgroundColor: '#00652C', justifyContent: 'center', alignItems: 'center', shadowColor: '#00652C', shadowOpacity: 0.2, shadowRadius: 10, elevation: 5 },
   modalActionText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   modalErrorText: { color: '#ef4444', fontSize: 12, fontWeight: '700', marginBottom: 12 },
   cancelBtn: { marginTop: 16 },

@@ -7,9 +7,18 @@ import AppLockScreen, { PIN_STORAGE_KEY } from './AppLockScreen';
  * Step 1 (setup)   — user enters new PIN
  * Step 2 (confirm) — user re-enters PIN; if they match it is saved
  *
- * Navigate here via: navigation.navigate('PinSetup')
+ * Optional route params:
+ *   forced      — true when the app requires a PIN before continuing (a fresh
+ *                 device has no PIN, since it lives in device-local storage).
+ *                 In this mode the screen cannot be dismissed.
+ *   destination — where to go once the PIN is saved (forced mode only).
+ *
+ * Navigate here via: navigation.navigate('PinSetup', { forced: false })
  */
-const PinSetupScreen = ({ navigation }) => {
+const PinSetupScreen = ({ navigation, route }) => {
+  const forced = route?.params?.forced === true;
+  const destination = route?.params?.destination;
+  const destinationParams = route?.params?.destinationParams;
   const [step, setStep]       = useState('setup');
   const [firstPin, setFirstPin] = useState('');
 
@@ -19,7 +28,14 @@ const PinSetupScreen = ({ navigation }) => {
   };
 
   const handleConfirmDone = () => {
-    navigation.goBack();
+    if (forced) {
+      // Enter the app; replace so PIN setup isn't in the back stack.
+      // destinationParams keeps the onward flow intact (e.g. LocationGate
+      // still needs to know which dashboard to open).
+      navigation.replace(destination || 'UserDashboard', destinationParams);
+    } else {
+      navigation.goBack();
+    }
   };
 
   const handleCancel = async () => {
@@ -27,9 +43,11 @@ const PinSetupScreen = ({ navigation }) => {
       // Back to first step, don't save anything
       setStep('setup');
       setFirstPin('');
-    } else {
-      navigation.goBack();
+      return;
     }
+    // A forced setup can't be skipped — the app requires a PIN on this device.
+    if (forced) return;
+    navigation.goBack();
   };
 
   return (
@@ -37,6 +55,7 @@ const PinSetupScreen = ({ navigation }) => {
       key={step}             // remounts the component on step change → fresh animation
       mode={step}
       confirmPin={firstPin}
+      forced={forced}
       onSuccess={step === 'setup' ? handleSetupDone : handleConfirmDone}
       onCancel={handleCancel}
     />

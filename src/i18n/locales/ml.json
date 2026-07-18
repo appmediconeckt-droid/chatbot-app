@@ -99,7 +99,11 @@
     "counselor": "കൗൺസലർ",
     "myAppointment": "എന്റെ നിയോഗം",
     "wallet": "വാലറ്റ്",
-    "callHistory": "കോൾ ചരിത്രം"
+    "callHistory": "കോൾ ചരിത്രം",
+    "welcomeBack": "വീണ്ടും സ്വാഗതം,",
+    "goodMorning": "സുപ്രഭാതം",
+    "goodAfternoon": "ഉച്ച വണക്കം",
+    "goodEvening": "ശുഭ സന്ധ്യ"
   },
   "counselor": {
     "myClients": "എന്റെ രോഗികൾ",
@@ -173,7 +177,9 @@
     "deleteChat": "ചാറ്റ് ഇല്ലാതാക്കുക",
     "deleteChatConfirm": "ഈ ചാറ്റ് ഇല്ലാതാക്കണമെന്ന് ഉറപ്പാണോ?",
     "deleteChatWarning": "⚠️ ഈ പ്രവർത്തനം പഴയപടിയാക്കാനാവില്ല. എല്ലാ സന്ദേശങ്ങളും ശാശ്വതമായി ഇല്ലാതാക്കും.",
-    "lastMessageLabel": "അവസാന സന്ദേശം"
+    "lastMessageLabel": "അവസാന സന്ദേശം",
+    "recent": "സമീപകാല",
+    "recentConversations": "സമീപകാല സംഭാഷണങ്ങൾ"
   },
   "settings": {
     "settings": "ക്രമീകരണങ്ങൾ",
@@ -390,7 +396,9 @@
     "upi": "UPI",
     "card": "കാർഡ്",
     "netbanking": "നെറ്റ് ബാങ്കിംഗ്",
-    "walletPayment": "വാലറ്റ്"
+    "walletPayment": "വാലറ്റ്",
+    "premiumHealth": "പ്രീമിയം ഹെൽത്ത്",
+    "confirmAndAdd": "സ്ഥിരീകരിച്ച് ചേർക്കുക"
   },
   "appointment": {
     "counselorDirectory": "കൗൺസിലർ ഡയറക്ടറി",
@@ -431,7 +439,17 @@
     "failedToBook": "അപ്പോയിന്റ്‌മെന്റ് ബുക്കുചെയ്യാൻ കഴിഞ്ഞില്ല.",
     "accepted": "സ്വീകരിച്ചു",
     "searchCounselorPlaceholder": "പേര്, വൈദഗ്ധ്യം അല്ലെങ്കിൽ സ്ഥലം അനുസരിച്ച് കൗൺസിലറെ തിരയുക",
-    "sessionReasonPlaceholder": "ഈ സെഷനിൽ നിങ്ങൾ എന്ത് ചർച്ച ചെയ്യാൻ ആഗ്രഹിക്കുന്നു എന്ന് പങ്കിടുക..."
+    "sessionReasonPlaceholder": "ഈ സെഷനിൽ നിങ്ങൾ എന്ത് ചർച്ച ചെയ്യാൻ ആഗ്രഹിക്കുന്നു എന്ന് പങ്കിടുക...",
+    "recommendedForYou": "നിങ്ങൾക്കായി ശുപാർശ",
+    "availableCounselors": "ലഭ്യമായ കൗൺസിലർമാർ",
+    "seeAll": "എല്ലാം കാണുക",
+    "scheduleAppointment": "അപ്പോയിന്റ്മെന്റ് ഷെഡ്യൂൾ ചെയ്യുക",
+    "request": "അഭ്യർത്ഥന",
+    "nearby": "അടുത്ത്",
+    "topRated": "ടോപ്പ് റേറ്റഡ്",
+    "nextAvailable": "അടുത്ത ലഭ്യത",
+    "currentlyUnavailable": "ഇപ്പോൾ ലഭ്യമല്ല",
+    "completed": "പൂർത്തിയായി"
   },
   "helpPage": {
     "title": "Help Support",

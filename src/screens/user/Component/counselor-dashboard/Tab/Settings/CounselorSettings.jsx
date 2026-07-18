@@ -277,7 +277,9 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
     if (id === 'payout') return setShowWallet(true);
     if (id === 'change_password') return openPwModal('change');
     if (id === 'add_password') return openPwModal('set');
-    if (id === 'app_lock') return navigation.navigate('PinSetup');
+    // forced:false — must override the screen's initialParams, otherwise the
+    // boot-time forced flag leaks in and the user can't back out.
+    if (id === 'app_lock') return navigation.navigate('PinSetup', { forced: false });
     if (id === 'contact')
       return Linking.openURL('mailto:support@mediconeckt.com');
     if (id === 'help') return setShowHelp(true);

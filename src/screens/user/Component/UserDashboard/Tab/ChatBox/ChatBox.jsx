@@ -27,9 +27,10 @@ import { pick } from "@react-native-documents/picker";
 import { SafeAreaView } from "react-native-safe-area-context";
 import LinearGradient from "react-native-linear-gradient";
 import Ionicons from "react-native-vector-icons/Ionicons";
+import PATIENT from "../../../../../../theme/palette";
 
-// Web ChatBox theme (matches chatbot/src/.../ChatBox.css): indigo → purple.
-const BRAND_GRADIENT = ["#6366f1", "#8b5cf6"];
+// Patient green theme (from Figma).
+const BRAND_GRADIENT = [PATIENT.gradientFrom, PATIENT.gradientTo];
 const GRADIENT_START = { x: 0, y: 0 };
 const GRADIENT_END = { x: 1, y: 1 };
 // Conditionally import RNFS only on native platforms
@@ -275,6 +276,7 @@ const ChatBox = () => {
   const [deletedMessageIds, setDeletedMessageIds] = useState(new Set());
   // Track selected message for action menu
   const [selectedMessageId, setSelectedMessageId] = useState(null);
+  const [failedImageUrls, setFailedImageUrls] = useState(new Set());
 
   const flatListRef = useRef(null);
   const messageInputRef = useRef(null);
@@ -433,44 +435,28 @@ const ChatBox = () => {
     flatListRef.current?.scrollToOffset({ offset: 0, animated });
   }, []);
 
-  // Reported keyboard height while open (0 when hidden).
-  const [keyboardShownHeight, setKeyboardShownHeight] = useState(0);
-  // Measured height of the chat container (via onLayout) and the largest height
-  // we've seen (= the keyboard-hidden / full height). Comparing them tells us
-  // how much Android already shrank the window for the keyboard.
-  const [chatAreaHeight, setChatAreaHeight] = useState(0);
-  const fullChatAreaHeightRef = useRef(0);
-
-  const handleChatAreaLayout = useCallback((e) => {
-    const h = e?.nativeEvent?.layout?.height || 0;
-    if (!h) return;
-    setChatAreaHeight(h);
-    if (h > fullChatAreaHeightRef.current) fullChatAreaHeightRef.current = h;
-  }, []);
-
   useEffect(() => {
-    // Use keyboardWillShow for BOTH iOS and Android to apply padding BEFORE keyboard appears.
-    // This prevents the gap/delay glitch. keyboardDidShow fires too late.
-    const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
-      setKeyboardShownHeight(e?.endCoordinates?.height || 0);
+    // iOS fires keyboardWillShow (pre-animation); Android ONLY fires
+    // keyboardDidShow. Listening to willShow on Android meant the pad was never
+    // applied and the keyboard covered the input — so pick the right event.
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvt, () => {
       // Keep the newest message visible when the keyboard opens (WhatsApp-style).
       if (shouldAutoScrollRef.current) scrollToBottom(true);
     });
-    const hideSub = Keyboard.addListener('keyboardWillHide', () => setKeyboardShownHeight(0));
+    const hideSub = Keyboard.addListener(hideEvt, () => {
+      if (shouldAutoScrollRef.current) scrollToBottom(true);
+    });
 
     return () => { showSub.remove(); hideSub.remove(); };
   }, [scrollToBottom]);
 
-  // Bottom padding = keyboard height MINUS however much the OS already shrank
-  // the window for it (measured, not from Dimensions). If the window fully
-  // resized, the two cancel → pad 0 (no gap — this is the tablet case that was
-  // broken). If the keyboard floats over the app, nothing shrank → pad = full
-  // keyboard height (the phone case). Works regardless of whether the device
-  // resizes for the keyboard. iOS uses KeyboardAvoidingView, so no pad there.
-  const windowShrink = Math.max(0, fullChatAreaHeightRef.current - chatAreaHeight);
-  const keyboardPad = (Platform.OS === 'android' && keyboardShownHeight > 0)
-    ? Math.max(0, keyboardShownHeight - windowShrink)
-    : 0;
+  // Spacing above the keyboard is handled by KeyboardAvoidingView (it compares
+  // this view's frame against the keyboard frame, so it works both when the OS
+  // resizes the window and when the keyboard floats over it). The keyboard
+  // listener above is kept only to auto-scroll to the newest message.
 
   // Call entries the user has deleted (hidden) from this thread. Persisted
   // locally because there is no server API to delete a call record.
@@ -823,7 +809,7 @@ const ChatBox = () => {
     const attachmentToSend = pendingAttachment;
     const tempUserMessage = {
       id: `temp_${Date.now()}`,
-      text: messageText || `📎 ${attachmentToSend?.name || "Attachment"}`,
+      text: messageText || "",
       sender: "user",
       senderRole: "user",
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -832,6 +818,7 @@ const ChatBox = () => {
       isTemporary: true,
       attachmentName: attachmentToSend?.name || null,
       attachmentUrl: attachmentToSend?.uri || null,
+      attachmentType: attachmentToSend?.type || null,
     };
 
     isSendingRef.current = true;
@@ -1473,6 +1460,14 @@ const ChatBox = () => {
     });
   }, [hideCallEntry]);
 
+  // Counselor identity — declared before renderMessage so its deps are in scope.
+  const counselorName = currentCounselor?.displayName || currentCounselor?.name || "Counselor";
+  const counselorOnline = resolveOnlineStatus(currentCounselor);
+  const counselorProfilePhoto = getProfilePhotoUrl(currentCounselor);
+  // Header shows a short handle (max 8 chars) so long names don't crowd the bar.
+  const counselorShortName =
+    counselorName.length > 8 ? `${counselorName.slice(0, 8)}…` : counselorName;
+
   const renderCallItem = useCallback((item) => {
     const { isOutgoing, isAlert, statusLabel, durationText } = describeCall(item);
     const isSelected = selectedMessageId === item.id;
@@ -1485,20 +1480,20 @@ const ChatBox = () => {
           style={[styles.messageRow, isOutgoing ? styles.messageRowRight : styles.messageRowLeft]}
         >
           <View style={[styles.callBubble, isOutgoing ? styles.callBubbleOut : styles.callBubbleIn]}>
-            <View style={[styles.callIconCircle, isAlert && styles.callIconCircleAlert]}>
+            <View style={styles.callIconCircle}>
               <Ionicons
                 name={item.type === "video" ? "videocam" : "call"}
                 size={18}
-                color={isAlert ? "#ef4444" : "#6366f1"}
+                color="#00652C"
               />
             </View>
             <View style={styles.callTextWrap}>
               <Text style={styles.callTitle}>
-                {isOutgoing ? "Outgoing" : "Incoming"} {item.type === "video" ? "video" : "voice"} call
+                {isOutgoing ? "Outgoing" : "Incoming"} {item.type === "video" ? "Video" : "Voice"} Call
               </Text>
               <View style={styles.callMetaRow}>
                 <Ionicons
-                  name={isAlert ? "close-circle" : isOutgoing ? "arrow-up-outline" : "arrow-down-outline"}
+                  name={isAlert ? "arrow-down-outline" : isOutgoing ? "arrow-up-outline" : "arrow-down-outline"}
                   size={12}
                   color={isAlert ? "#ef4444" : "#64748b"}
                 />
@@ -1551,6 +1546,13 @@ const ChatBox = () => {
                        String(deletingMessageId) === String(item.messageId);
     const canDelete = !item.isTemporary && item.status !== "sending" && item.status !== "error";
 
+    // Check if this is an image-only message (image with no text)
+    const hasText = !!item.text;
+    const hasAttachment = item.attachmentName || item.attachmentUrl || item.attachment;
+    const url = hasAttachment ? getAttachmentUrl(item) : '';
+    const isImage = hasAttachment ? isImageAttachment(item) : false;
+    const isImageOnly = hasAttachment && !hasText && isImage && url && !failedImageUrls.has(url);
+
     const handleDeleteMessage = async () => {
       if (!canDelete) return;
       Alert.alert(
@@ -1584,10 +1586,23 @@ const ChatBox = () => {
           const url = getAttachmentUrl(item);
           const name = item.attachmentName || '';
           const isImage = isImageAttachment(item);
-          if (isImage && url) {
+          const imageFailedToLoad = failedImageUrls.has(url);
+
+          if (isImage && url && !imageFailedToLoad) {
             return (
-              <TouchableOpacity activeOpacity={0.9} onPress={() => openAttachment(url)}>
-                <Image source={{ uri: url }} style={styles.attachmentImage} resizeMode="cover" />
+              <TouchableOpacity
+                activeOpacity={0.9}
+                onPress={() => openAttachment(url)}
+                style={{ borderRadius: 12, overflow: 'hidden', backgroundColor: '#f0f0f0' }}
+              >
+                <Image
+                  source={{ uri: url }}
+                  style={styles.attachmentImage}
+                  resizeMode="cover"
+                  onError={() => {
+                    setFailedImageUrls(prev => new Set([...prev, url]));
+                  }}
+                />
               </TouchableOpacity>
             );
           }
@@ -1605,21 +1620,23 @@ const ChatBox = () => {
             </TouchableOpacity>
           );
         })()}
-        <View style={styles.messageFooter}>
-          <Text style={[styles.messageTime, isUser && styles.messageTimeMine]}>{item.time}</Text>
-          {isUser && item.status === "sending" && <Text style={styles.messageStatusSending}>⌛</Text>}
-          {isUser && item.status === "sent" && (
-            <View style={styles.messageStatusIconWrap}>
-              <Ionicons
-                name={item.isRead ? "checkmark-done" : "checkmark"}
-                size={item.isRead ? 14 : 13}
-                color={item.isRead ? "#c7d2fe" : "rgba(255,255,255,0.6)"}
-              />
-            </View>
-          )}
-          {isUser && item.status === "error" && <Text style={styles.messageStatusError}>⚠️ Failed</Text>}
-        </View>
       </>
+    );
+
+    // Time + read-receipt row — sits BELOW the bubble (per design).
+    const metaRow = (
+      <View style={[styles.metaRow, isUser && styles.metaRowRight]}>
+        <Text style={styles.metaTime}>{item.time}</Text>
+        {isUser && item.status === "sending" && <Text style={styles.metaStatus}>⌛</Text>}
+        {isUser && item.status === "sent" && (
+          <Ionicons
+            name={item.isRead ? "checkmark-done" : "checkmark"}
+            size={14}
+            color={item.isRead ? "#0E7552" : "#94a3b8"}
+          />
+        )}
+        {isUser && item.status === "error" && <Text style={styles.metaError}>⚠️ Failed</Text>}
+      </View>
     );
 
     return (
@@ -1634,19 +1651,37 @@ const ChatBox = () => {
               colors={BRAND_GRADIENT}
               start={GRADIENT_START}
               end={GRADIENT_END}
-              style={[styles.messageContent, styles.userMessageContent, isDeleting && styles.messageDeleting]}
+              style={[styles.messageContent, styles.userMessageContent, { alignSelf: "flex-end" }, isDeleting && styles.messageDeleting]}
             >
               {inner}
             </LinearGradient>
           ) : (
-            <View style={[styles.messageContent, styles.counselorMessageContent, isDeleting && styles.messageDeleting]}>
+            <View style={[styles.messageContent, styles.counselorMessageContent, { alignSelf: "flex-start" }, isDeleting && styles.messageDeleting]}>
               {inner}
+            </View>
+          )}
+
+          {/* Below-bubble row: counselor avatar (incoming) + time + ticks */}
+          {isUser ? (
+            metaRow
+          ) : (
+            <View style={styles.incomingMetaRow}>
+              <View style={styles.msgAvatar}>
+                {counselorProfilePhoto && !counselorAvatarFailed ? (
+                  <Image source={{ uri: counselorProfilePhoto }} style={styles.msgAvatarImg} />
+                ) : (
+                  <View style={styles.msgAvatarFallback}>
+                    <Text style={styles.msgAvatarText}>{getInitials(counselorName)}</Text>
+                  </View>
+                )}
+              </View>
+              {metaRow}
             </View>
           )}
         </View>
       </TouchableOpacity>
     );
-  }, [renderCallItem, deleteMessage, openAttachment, deletingMessageId, bubbleMaxWidth, currentCounselor?.name]);
+  }, [renderCallItem, deleteMessage, openAttachment, deletingMessageId, bubbleMaxWidth, counselorProfilePhoto, counselorAvatarFailed, counselorName]);
 
   const renderChatStatusBanner = () => {
     if (!chatStatus || chatStatus === "accepted") return null;
@@ -1671,10 +1706,6 @@ const ChatBox = () => {
     );
   };
 
-  const counselorName = currentCounselor?.displayName || currentCounselor?.name || "Counselor";
-  const counselorOnline = resolveOnlineStatus(currentCounselor);
-  const counselorProfilePhoto = getProfilePhotoUrl(currentCounselor);
-
   useEffect(() => {
     setCounselorAvatarFailed(false);
   }, [counselorProfilePhoto]);
@@ -1682,13 +1713,16 @@ const ChatBox = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
+      {/* KeyboardAvoidingView measures this view's real frame vs the keyboard
+          frame, so it self-corrects whether or not the OS resized the window
+          (adjustResize is ignored under Android 15 edge-to-edge). Enabled on
+          BOTH platforms — the old manual padding never worked there. */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        behavior="padding"
+        keyboardVerticalOffset={0}
         style={styles.keyboardAvoid}
-        enabled={Platform.OS === "ios"}
       >
-        <View style={[styles.chatBoxMain, { paddingBottom: keyboardPad }]} onLayout={handleChatAreaLayout}>
+        <View style={styles.chatBoxMain}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -1717,7 +1751,7 @@ const ChatBox = () => {
                 </View>
                 <View style={styles.profileInfo}>
                   <Text style={styles.profileName} numberOfLines={1} ellipsizeMode="tail">
-                    {counselorName}
+                    {counselorShortName}
                   </Text>
                   <View style={styles.profileStatusRow}>
                     {remoteIsTyping ? (
@@ -1735,13 +1769,13 @@ const ChatBox = () => {
 
             <View style={styles.headerRight}>
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.disabledBtn]} onPress={handleVideoCall} disabled={isInitiatingCall}>
-                <Ionicons name="videocam" size={20} color="#6366f1" />
+                <Ionicons name="videocam" size={21} color={PATIENT.primary} />
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.disabledBtn]} onPress={handleVoiceCall} disabled={isInitiatingCall}>
-                <Ionicons name="call" size={19} color="#10b981" />
+                <Ionicons name="call" size={19} color={PATIENT.primary} />
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(!showOptions)}>
-                <Ionicons name="ellipsis-vertical" size={18} color="#526071" />
+                <Ionicons name="ellipsis-vertical" size={18} color={PATIENT.textSecondary} />
               </TouchableOpacity>
             </View>
           </View>
@@ -1863,7 +1897,7 @@ const ChatBox = () => {
             <View style={styles.inputAreaInner}>
             {pendingAttachment && (
               <View style={styles.attachmentPreview}>
-                <Ionicons name="attach" size={16} color="#6366f1" />
+                <Ionicons name="attach" size={16} color={PATIENT.primary} />
                 <Text style={styles.attachmentPreviewText} numberOfLines={1}>
                   {pendingAttachment.name}
                 </Text>
@@ -1874,7 +1908,7 @@ const ChatBox = () => {
             )}
             <View style={[styles.inputGroup, isSending && styles.inputGroupDisabled]}>
               <TouchableOpacity style={styles.attachBtn} onPress={handlePickAttachment} disabled={isSending}>
-                <Ionicons name="add" size={24} color="#526071" />
+                <Ionicons name="attach" size={22} color={PATIENT.textSecondary} />
               </TouchableOpacity>
               <View style={styles.inputWrapper}>
                 <TextInput
@@ -1882,33 +1916,27 @@ const ChatBox = () => {
                   style={styles.textInput}
                   value={newMessage}
                   onChangeText={handleInputChange}
-                  placeholder={`Message`}
-                  placeholderTextColor="#8492a5"
+                  placeholder="Type a message..."
+                  placeholderTextColor="#9CA3AF"
                   multiline
                   blurOnSubmit={false}
                   enablesReturnKeyAutomatically
                 />
-                <TouchableOpacity style={styles.emojiBtn} onPress={() => setShowEmojiPicker(true)} disabled={isSending}>
-                  <Ionicons name="happy-outline" size={22} color="#8492a5" />
-                </TouchableOpacity>
               </View>
               <TouchableOpacity
                 onPress={handleSendMessage}
                 activeOpacity={0.8}
                 disabled={isSending}
+                style={[
+                  styles.sendBtn,
+                  { backgroundColor: (newMessage.trim() === "" && !pendingAttachment) ? "#A7D3B7" : PATIENT.primary },
+                ]}
               >
-                <LinearGradient
-                  colors={(newMessage.trim() === "" && !pendingAttachment) ? ["#a5b4fc", "#c4b5fd"] : BRAND_GRADIENT}
-                  start={GRADIENT_START}
-                  end={GRADIENT_END}
-                  style={styles.sendBtn}
-                >
-                  {isSending ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  ) : (
-                    <Ionicons name="send" size={20} color="#ffffff" />
-                  )}
-                </LinearGradient>
+                {isSending ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Ionicons name="send" size={19} color="#ffffff" />
+                )}
               </TouchableOpacity>
             </View>
             </View>
@@ -1939,7 +1967,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     width: '100%',
-    backgroundColor: "#f7f9fb",
+    backgroundColor: PATIENT.backgroundTint,
   },
   keyboardAvoid: {
     flex: 1,
@@ -1947,7 +1975,7 @@ const styles = StyleSheet.create({
   chatBoxMain: {
     flex: 1,
     width: '100%',
-    backgroundColor: "#fafbfc",
+    backgroundColor: PATIENT.backgroundTint,
   },
   // Header Styles - Balanced
   header: {
@@ -2023,7 +2051,7 @@ const styles = StyleSheet.create({
     borderColor: "#ffffff",
   },
   onlineDot: {
-    backgroundColor: "#10b981",
+    backgroundColor: PATIENT.online,
   },
   offlineDot: {
     backgroundColor: "#94a3b8",
@@ -2051,19 +2079,19 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   statusDotOnline: {
-    backgroundColor: "#10b981",
+    backgroundColor: PATIENT.online,
   },
   statusDotOffline: {
     backgroundColor: "#94a3b8",
   },
   statusText: {
     fontSize: 12,
-    color: "#64748b",
+    color: PATIENT.online,
     fontWeight: "500",
   },
   typingText: {
     fontSize: 12,
-    color: "#10b981",
+    color: PATIENT.primary,
     fontWeight: "600",
   },
   headerRight: {
@@ -2189,10 +2217,9 @@ const styles = StyleSheet.create({
     gap: 10,
     flexGrow: 1,
   },
-  daySeparatorRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 10 },
-  daySeparatorLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
-  daySeparatorLabel: { marginHorizontal: 8, fontSize: 11, fontWeight: '700', color: '#475569', backgroundColor: '#e2e8f0', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  callBubble: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, marginVertical: 3, maxWidth: '85%', borderWidth: 1 },
+  daySeparatorRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 12 },
+  daySeparatorLine: { width: 0, height: 0 },
+  daySeparatorLabel: { fontSize: 11, fontWeight: '600', color: PATIENT.textSecondary, backgroundColor: '#EDEFF3', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, overflow: 'hidden' },
   callBubbleRight: { alignSelf: 'flex-end', backgroundColor: '#e8eaff', borderColor: '#c7d2fe' },
   callBubbleLeft: { alignSelf: 'flex-start', backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
   callBubbleText: { flex: 1, fontSize: 13, color: '#334155' },
@@ -2243,7 +2270,7 @@ const styles = StyleSheet.create({
   // Message Bubbles - Serenity Design
   messageRow: {
     flexDirection: "row",
-    marginBottom: 4,
+    marginBottom: 8,
     width: "100%",
     paddingHorizontal: 0,
   },
@@ -2298,12 +2325,13 @@ const styles = StyleSheet.create({
   callBubble: {
     flexDirection: "row",
     alignItems: "center",
-    maxWidth: "80%",
+    minWidth: 215,
+    maxWidth: "82%",
     backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: "#e6e8ea",
-    borderRadius: 18,
-    paddingVertical: 8,
+    borderRadius: 14,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     gap: 10,
     shadowColor: "#000",
@@ -2313,30 +2341,32 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   callBubbleOut: {
-    backgroundColor: "#eef2ff",
-    borderColor: "#dbe2ff",
+    backgroundColor: "#ffffff",
+    borderColor: "#e6e8ea",
     borderBottomRightRadius: 4,
   },
   callBubbleIn: {
     borderBottomLeftRadius: 4,
   },
   callIconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#e7edff",
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#E6F6EC",
     justifyContent: "center",
     alignItems: "center",
   },
   callIconCircleAlert: {
-    backgroundColor: "#fee2e2",
+    backgroundColor: "#E6F6EC",
   },
+  // NOTE: must be flexShrink (not flex:1) — callBubble sizes to its content,
+  // so flex:1 here collapses the text to zero width.
   callTextWrap: {
     flexShrink: 1,
   },
   callTitle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#0f172a",
   },
   callMetaRow: {
@@ -2356,35 +2386,34 @@ const styles = StyleSheet.create({
   callTime: {
     fontSize: 11,
     color: "#94a3b8",
-    alignSelf: "flex-end",
+    alignSelf: "flex-start",
+    marginLeft: "auto",
+    paddingLeft: 8,
   },
   callDeleteBtn: {
     alignSelf: "flex-start",
     padding: 2,
   },
+  // Bubble now holds only text/image (time moved below), so it gets real padding.
   messageContent: {
-    flexDirection: "row",
-    flexWrap: "nowrap",
-    alignItems: "flex-end",
-    justifyContent: "flex-end",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 22,
-    minWidth: 72,
+    flexDirection: "column",
+    alignItems: "flex-start",
+    justifyContent: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 16,
   },
   userMessageContent: {
-    borderBottomRightRadius: 6,
-    shadowColor: "#6366f1",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
+    shadowColor: PATIENT.primary,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.16,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 2,
   },
   counselorMessageContent: {
     backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: "#eef2f6",
-    borderBottomLeftRadius: 6,
+    borderColor: "#EDF0F4",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -2394,9 +2423,60 @@ const styles = StyleSheet.create({
   messageDeleting: {
     opacity: 0.5,
   },
+  // Time + ticks row BELOW the bubble
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+  },
+  metaRowRight: {
+    alignSelf: "flex-end",
+  },
+  metaTime: {
+    fontSize: 11,
+    color: "#94a3b8",
+    fontWeight: "500",
+  },
+  metaStatus: {
+    fontSize: 11,
+  },
+  metaError: {
+    fontSize: 11,
+    color: "#ef4444",
+    fontWeight: "600",
+  },
+  incomingMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+  },
+  msgAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    overflow: "hidden",
+  },
+  msgAvatarImg: {
+    width: "100%",
+    height: "100%",
+  },
+  msgAvatarFallback: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: PATIENT.primary,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  msgAvatarText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
   messageText: {
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 14.5,
+    lineHeight: 21,
     fontFamily: Platform.OS === "ios" ? "Manrope" : "System",
     flexShrink: 1,
   },
@@ -2404,13 +2484,14 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   counselorMessageText: {
-    color: "#0f172a",
+    color: "#1F2937",
   },
   attachmentImage: {
-    width: 220,
-    height: 180,
-    borderRadius: 12,
-    marginTop: 6,
+    width: 224,
+    height: 168,
+    borderRadius: 10,
+    marginTop: 10,
+    overflow: 'hidden',
   },
   attachmentBubble: {
     marginTop: 8,
@@ -2556,23 +2637,20 @@ const styles = StyleSheet.create({
   inputGroup: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    backgroundColor: "#f0f1f3",
-    borderRadius: 28,
-    paddingHorizontal: 8,
-    paddingVertical: 0,
+    gap: 6,
+    backgroundColor: "#EEF1FA",
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
     borderWidth: 1,
-    borderColor: "#e2e8f0",
+    borderColor: "#E4E8F4",
   },
   attachBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#e7ebff",
-    borderWidth: 1,
-    borderColor: "#dbe0ff",
   },
   inputWrapper: {
     flex: 1,
@@ -2583,8 +2661,8 @@ const styles = StyleSheet.create({
   textInput: {
     flex: 1,
     paddingVertical: 2,
-    paddingRight: 40,
-    paddingLeft: 8,
+    paddingRight: 8,
+    paddingLeft: 6,
     fontSize: 15,
     color: "#081625",
     maxHeight: 100,
@@ -2600,14 +2678,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#6366f1",
+    shadowColor: PATIENT.primary,
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 4,
   },

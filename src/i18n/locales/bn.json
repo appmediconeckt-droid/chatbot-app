@@ -99,7 +99,11 @@
     "counselor": "কাউন্সেলর",
     "myAppointment": "আমার অ্যাপয়েন্টমেন্ট",
     "wallet": "ওয়ালেট",
-    "callHistory": "কল ইতিহাস"
+    "callHistory": "কল ইতিহাস",
+    "welcomeBack": "আবার স্বাগতম,",
+    "goodMorning": "শুভ সকাল",
+    "goodAfternoon": "শুভ অপরাহ্ন",
+    "goodEvening": "শুভ সন্ধ্যা"
   },
   "counselor": {
     "myClients": "আমার রোগী",
@@ -173,7 +177,9 @@
     "deleteChat": "চ্যাট মুছুন",
     "deleteChatConfirm": "আপনি কি নিশ্চিত যে আপনি এই চ্যাটটি মুছতে চান?",
     "deleteChatWarning": "⚠️ এই ক্রিয়াটি পূর্বাবস্থায় ফেরানো যাবে না। সমস্ত বার্তা স্থায়ীভাবে মুছে ফেলা হবে।",
-    "lastMessageLabel": "শেষ বার্তা"
+    "lastMessageLabel": "শেষ বার্তা",
+    "recent": "সাম্প্রতিক",
+    "recentConversations": "সাম্প্রতিক কথোপকথন"
   },
   "settings": {
     "settings": "সেটিংস",
@@ -390,7 +396,9 @@
     "upi": "UPI",
     "card": "কার্ড",
     "netbanking": "নেট ব্যাংকিং",
-    "walletPayment": "ওয়ালেট"
+    "walletPayment": "ওয়ালেট",
+    "premiumHealth": "প্রিমিয়াম হেলথ",
+    "confirmAndAdd": "নিশ্চিত করুন এবং যোগ করুন"
   },
   "appointment": {
     "counselorDirectory": "পরামর্শদাতা ডিরেক্টরি",
@@ -431,7 +439,17 @@
     "failedToBook": "অ্যাপয়েন্টমেন্ট বুক করতে ব্যর্থ।",
     "accepted": "গৃহীত",
     "searchCounselorPlaceholder": "নাম, বিশেষত্ব বা অবস্থান দিয়ে কাউন্সেলর খুঁজুন",
-    "sessionReasonPlaceholder": "এই সেশনে আপনি কী আলোচনা করতে চান তা শেয়ার করুন..."
+    "sessionReasonPlaceholder": "এই সেশনে আপনি কী আলোচনা করতে চান তা শেয়ার করুন...",
+    "recommendedForYou": "আপনার জন্য প্রস্তাবিত",
+    "availableCounselors": "উপলব্ধ কাউন্সেলর",
+    "seeAll": "সব দেখুন",
+    "scheduleAppointment": "অ্যাপয়েন্টমেন্ট নির্ধারণ",
+    "request": "অনুরোধ",
+    "nearby": "কাছাকাছি",
+    "topRated": "শীর্ষ রেটেড",
+    "nextAvailable": "পরবর্তী উপলব্ধ",
+    "currentlyUnavailable": "এখন উপলব্ধ নয়",
+    "completed": "সম্পন্ন"
   },
   "helpPage": {
     "title": "Help Support",
