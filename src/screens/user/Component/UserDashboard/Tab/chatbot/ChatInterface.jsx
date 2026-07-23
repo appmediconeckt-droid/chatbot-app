@@ -556,7 +556,8 @@ const ChatInterface = ({ setActiveTab }) => {
             <View style={styles.avatarWrapper}>
               {renderAvatar(item)}
             </View>
-            {item.online && <View style={styles.statusDot} />}
+            {/* Always show presence: green when online, gray when offline. */}
+            <View style={[styles.statusDot, !item.online && styles.statusDotOffline]} />
           </View>
           <View style={styles.chatInfo}>
             <Text style={styles.chatName} numberOfLines={1}>
@@ -918,6 +919,9 @@ const styles = {
     borderColor: PATIENT.surface,
     backgroundColor: PATIENT.online,
     zIndex: 1,
+  },
+  statusDotOffline: {
+    backgroundColor: '#9CA3AF',
   },
   chatInfo: {
     flex: 1,

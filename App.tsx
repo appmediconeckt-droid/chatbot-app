@@ -20,6 +20,8 @@ import UserSignup from './src/screens/auth/UserSignup';
 import Login from "./src/screens/auth/Login"
 import CounselorSignup from './src/screens/auth/CounselorSignup';
 import RoleSelector from "./src/screens/auth/RoleSelector";
+import UserOnboarding from './src/screens/auth/UserOnboarding';
+import CounselorOnboarding from './src/screens/auth/CounselorOnboarding';
 import OTPVerification from "./src/screens/auth/OTPVerification";
 import LocationGate from "./src/screens/auth/LocationGate";
 import ForgotPasswordScreen from "./src/screens/auth/ForgotPasswordScreen";
@@ -30,6 +32,9 @@ import { PermissionsAndroid } from 'react-native';
 import UserDashboard from './src/screens/user/Component/UserDashboard/Dashboard/UserDashboard';
 import ChatBox from './src/screens/user/Component/UserDashboard/Tab/ChatBox/ChatBox';
 import CounselorTable from './src/screens/user/Component/UserDashboard/Tab/Counselor/CounselorDirectory';
+import CheckoutPage from './src/screens/user/Component/UserDashboard/Tab/Wallet/CheckoutPage';
+import TransactionsHistory from './src/screens/user/Component/UserDashboard/Tab/Wallet/TransactionsHistory';
+import AppLockSettings from './src/screens/user/Component/UserDashboard/Tab/AppLockSettings';
 import { ToastProvider } from './src/components/common/ToastProvider';
 
 // Counselor Dashboard Screens
@@ -53,6 +58,8 @@ export type RootStackParamList = {
   Landing: undefined;
   UserSignup: { role?: 'user' | 'counselor' } | undefined;
   RoleSelector: undefined;
+  UserOnboarding: undefined;
+  CounselorOnboarding: undefined;
   Login: { role?: 'user' | 'counselor' } | undefined;
   CounselorSignup: { role?: 'user' | 'counselor' } | undefined;
   OTPVerification: undefined;
@@ -69,6 +76,9 @@ export type RootStackParamList = {
   ForgotPassword: undefined;
   ForgotPasswordOTP: { email: string };
   ResetPassword: { email: string };
+  CheckoutPage: { appointment?: object } | undefined;
+  TransactionsHistory: undefined;
+  AppLockSettings: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -271,8 +281,10 @@ function App() {
             }}
           >
             {/* <Stack.Screen name="Landing" component={Landing} /> */}
-            <Stack.Screen name="UserSignup" component={UserSignup} />
             <Stack.Screen name="RoleSelector" component={RoleSelector} />
+            <Stack.Screen name="UserOnboarding" component={UserOnboarding} options={{ headerShown: false }} />
+            <Stack.Screen name="CounselorOnboarding" component={CounselorOnboarding} options={{ headerShown: false }} />
+            <Stack.Screen name="UserSignup" component={UserSignup} />
             <Stack.Screen name="Login" component={Login} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
             <Stack.Screen name="ForgotPasswordOTP" component={ForgotPasswordOTPScreen} />
@@ -287,6 +299,9 @@ function App() {
             <Stack.Screen name="UserDashboard" component={UserDashboard} />
              <Stack.Screen name='ChatBox' component={ChatBox} />
               <Stack.Screen name='CounselorTable' component={CounselorTable} />
+              <Stack.Screen name='CheckoutPage' component={CheckoutPage} />
+              <Stack.Screen name='TransactionsHistory' component={TransactionsHistory} />
+              <Stack.Screen name='AppLockSettings' component={AppLockSettings} />
                <Stack.Screen name='CounselorDashboard' component={CounselorDashboard} />
                 <Stack.Screen name='SMSInput' component={SMSInput} />
                 <Stack.Screen name='ChangePassword' component={ChangePassword} />

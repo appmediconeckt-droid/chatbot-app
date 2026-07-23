@@ -11,6 +11,8 @@ import {
   StatusBar,
   Platform,
   Animated,
+  NativeModules,
+  TurboModuleRegistry,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -111,57 +113,98 @@ const WalletDashboard = ({ userData = {} }) => {
       });
       console.log('[wallet] order response:', JSON.stringify(orderData));
 
-      if (!orderData?.order_id) {
-        throw new Error('Server did not return an order_id');
+      // Mirror the web checks: an incomplete order can't open checkout.
+      if (!orderData?.order_id || !orderData?.key_id || !orderData?.amount) {
+        throw new Error('Payment order response is incomplete');
       }
 
-      // Sanity-check the native module is actually linked into this build.
-      console.log(
-        '[wallet] RazorpayCheckout available?',
-        !!RazorpayCheckout,
-        'open type:',
-        typeof RazorpayCheckout?.open,
-      );
-      if (!RazorpayCheckout || typeof RazorpayCheckout.open !== 'function') {
+      // RazorpayCheckout.open is a static JS method that ALWAYS exists, so
+      // checking it tells us nothing. The real test is whether the NATIVE
+      // module got compiled into this build — if it didn't, open() registers
+      // listeners and then silently fails, leaving the button spinning forever.
+      // Under the New Architecture the module is a TurboModule, so ask the
+      // TurboModuleRegistry first; NativeModules alone can read as null there.
+      const nativeRazorpay =
+        TurboModuleRegistry.get('RNRazorpayCheckout') ||
+        NativeModules.RNRazorpayCheckout;
+      console.log('[wallet] native Razorpay module present?', !!nativeRazorpay);
+      if (!nativeRazorpay) {
         Alert.alert(
-          'Payment unavailable',
-          'The payment module is not available in this build. The app needs a native rebuild (npx react-native run-android).',
+          'Payment not available in this build',
+          'Razorpay is installed but its native module is not compiled into the app yet.\n\n' +
+            'Run this once to fix it:\n\nnpx react-native run-android\n\n' +
+            '(A JS/Metro reload is not enough — a native rebuild is required.)',
         );
         setLoading(false);
         return;
       }
 
-      // Open Razorpay checkout with React Native SDK
+      // Razorpay rejects/hangs on empty prefill strings — only send real values.
+      const prefill = {};
+      if (userData?.email) prefill.email = String(userData.email);
+      if (userData?.phone || userData?.phoneNumber) {
+        prefill.contact = String(userData.phone || userData.phoneNumber);
+      }
+      if (userData?.name || userData?.fullName) {
+        prefill.name = String(userData.name || userData.fullName);
+      }
+
       const options = {
-        description: 'Wallet Top-up',
+        // The Razorpay SDK reads the publishable key from `key` — NOT `key_id`.
+        // With the wrong name the native open() throws, gets swallowed, and no
+        // success/error event is ever emitted, so the promise below never
+        // settles and the button spins forever. Same field the web uses.
+        key: orderData.key_id,
+        amount: orderData.amount,
         currency: 'INR',
-        key_id: orderData?.key_id || 'rzp_test_T86yMRrbjbISDA',
-        amount: orderData?.amount || numericAmount * 100,
-        order_id: orderData?.order_id,
-        name: 'Mediconeckt',
-        prefill: {
-          email: userData?.email || '',
-          contact: userData?.phone || '',
-          name: userData?.name || '',
-        },
+        order_id: orderData.order_id,
+        name: 'Mediconeckt Wallet',
+        description: 'Wallet Top-up',
+        ...(Object.keys(prefill).length ? { prefill } : {}),
         theme: { color: '#4648d4' },
       };
       console.log('[wallet] opening Razorpay with options:', JSON.stringify(options));
 
-      RazorpayCheckout.open(options)
-        .then((data) => {
-          // Payment successful
-          console.log('[wallet] payment success:', JSON.stringify(data));
-          verifyPayment(orderData?.order_id, data.razorpay_payment_id, data.razorpay_signature);
-        })
-        .catch((error) => {
-          console.error('[wallet] Razorpay Error:', JSON.stringify(error), error?.message);
-          Alert.alert(
-            t('wallet:paymentFailed'),
-            error?.description || error?.message || t('wallet:paymentCancelled')
-          );
+      let settled = false;
+      // Safety net: if the native checkout never settles, don't leave the
+      // button spinning forever — clear it and refresh so state stays honest.
+      const watchdog = setTimeout(() => {
+        if (!settled) {
+          console.warn('[wallet] Razorpay did not respond in time');
           setLoading(false);
-        });
+          fetchWalletData();
+        }
+      }, 120000);
+
+      try {
+        const data = await RazorpayCheckout.open(options);
+        settled = true;
+        clearTimeout(watchdog);
+        console.log('[wallet] payment success:', JSON.stringify(data));
+        await verifyPayment(
+          orderData?.order_id,
+          data?.razorpay_payment_id,
+          data?.razorpay_signature,
+        );
+      } catch (err) {
+        settled = true;
+        clearTimeout(watchdog);
+        // Razorpay returns code 0 / "Payment Cancelled" when the user backs out.
+        const cancelled =
+          err?.code === 0 ||
+          /cancel/i.test(String(err?.description || err?.message || ''));
+        console.error('[wallet] Razorpay Error:', JSON.stringify(err), err?.message);
+        Alert.alert(
+          cancelled ? t('wallet:paymentCancelled') : t('wallet:paymentFailed'),
+          cancelled
+            ? 'You cancelled the payment. No money was deducted.'
+            : err?.description || err?.message || 'Payment could not be completed.',
+        );
+        setLoading(false);
+        // The order stays "pending" server-side on cancel — refresh so the list
+        // reflects reality instead of showing a stale state.
+        fetchWalletData();
+      }
     } catch (error) {
       console.error(
         '[wallet] init failed:',

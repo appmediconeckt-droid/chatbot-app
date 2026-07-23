@@ -20,6 +20,7 @@ import {
   Easing,
   StatusBar,
   PermissionsAndroid,
+  Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -1325,6 +1326,61 @@ const aptSkelStyles = StyleSheet.create({
   btnRight: { flex: 1, height: 42, borderRadius: 13, backgroundColor: '#e2e8f0' },
 });
 
+const sheetStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.4)', justifyContent: 'flex-end' },
+  backdrop: { height: 30 },
+  sheet: { flex: 1, backgroundColor: '#ffffff', borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#0f172a', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
+  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1', alignSelf: 'center', marginTop: 12, marginBottom: 18 },
+  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  title: { fontSize: 19, fontWeight: '800', color: '#0f172a' },
+  subtitle: { fontSize: 13.5, fontWeight: '500', color: '#64748b', marginTop: 4 },
+  closeBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  scroll: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 130, gap: 12, flexGrow: 1, justifyContent: 'flex-start' },
+  docCard: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 12 },
+  docAvatar: { width: 48, height: 48, borderRadius: 10, backgroundColor: '#e2e8f0' },
+  docNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 1 },
+  docName: { fontSize: 14, fontWeight: '700', color: '#0f172a', flex: 1 },
+  docSpec: { fontSize: 12, fontWeight: '500', color: '#64748b', marginBottom: 4 },
+  docMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  docMetaText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
+  confirmPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PATIENT.primary, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  confirmDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ffffff' },
+  confirmText: { fontSize: 12, fontWeight: '700', color: '#ffffff' },
+  countBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#E6F6EC' },
+  countIcon: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  countLabel: { fontSize: 11, fontWeight: '500', color: '#64748b' },
+  countValue: { fontSize: 17, fontWeight: '800', color: PATIENT.primary, marginTop: 1 },
+  countDay: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
+  countTime: { fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 1 },
+  pastBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ecfdf5', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#a7f3d0' },
+  pastIcon: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  pastLabel: { fontSize: 11, fontWeight: '500', color: '#059669' },
+  pastValue: { fontSize: 15, fontWeight: '800', color: '#10b981', marginTop: 1 },
+  pastDay: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
+  pastTime: { fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 1 },
+  gridRow: { flexDirection: 'row', gap: 10 },
+  gridCell: { flex: 1, alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 10, padding: 10 },
+  gridIcon: { width: 40, height: 40, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  gridLabel: { fontSize: 10.5, fontWeight: '700', color: '#94a3b8', letterSpacing: 0.5, marginBottom: 3 },
+  gridValue: { fontSize: 13, fontWeight: '700', color: '#0f172a', textAlign: 'center' },
+  timelineCard: { backgroundColor: '#f8fafc', borderRadius: 12, padding: 12 },
+  tlItem: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  tlDotCol: { alignItems: 'center', width: 22 },
+  tlDot: { width: 9, height: 9, borderRadius: 4.5 },
+  tlLine: { width: 2, flex: 1, backgroundColor: '#e2e8f0', marginTop: 6, marginBottom: 6 },
+  tlDate: { fontSize: 11.5, fontWeight: '600', color: '#64748b', marginBottom: 1 },
+  tlStatus: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 },
+  footerPast: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 },
+  closePastBtn: { backgroundColor: PATIENT.primary, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  closePastText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
+  joinBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 14, marginBottom: 12 },
+  joinText: { fontSize: 15, fontWeight: '800', color: '#ffffff' },
+  secRow: { flexDirection: 'row', gap: 12 },
+  secBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, paddingVertical: 12, borderWidth: 1.5, borderColor: '#E6F6EC' },
+  secText: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+});
+
 const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) => {
   const { t } = useTranslation();
   const [appointments, setAppointments] = useState([]);
@@ -1339,6 +1395,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   // Live countdown to the session start while the details sheet is open.
   useEffect(() => {
     if (!showDetailsModal || !selectedApt?.date) return;
+    console.log('📌 SELECTED APPOINTMENT (View Details opened):', JSON.stringify(selectedApt, null, 2));
     const target = new Date(selectedApt.date).getTime();
     const pad = (n) => String(n).padStart(2, "0");
     const tick = () => {
@@ -1367,7 +1424,11 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     try {
       setLoadingAppointments(true);
       const response = await axiosInstance.get('/api/appointments');
-      setAppointments(Array.isArray(response.data) ? response.data : []);
+      const apts = Array.isArray(response.data) ? response.data : [];
+      if (apts.length > 0) {
+        console.log('📋 APPOINTMENT DATA STRUCTURE:', JSON.stringify(apts[0], null, 2));
+      }
+      setAppointments(apts);
     } catch (err) {
       console.error("Error fetching appointments:", err);
       setAppointments([]);
@@ -1480,6 +1541,21 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const statusCap = statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1);
   const modeLabel = selectedApt?.mode || selectedApt?.sessionType || "Video Call";
   const durationLabel = selectedApt?.duration ? `${selectedApt.duration} Minutes` : "45 Minutes";
+  const isPast = activeTab === "Past" || selectedApt?.status === "completed" || selectedApt?.status === "canceled" || (aptDate && aptDate <= new Date());
+  // Extract real talk duration from appointment data
+  const getTalkDuration = () => {
+    if (selectedApt?.actualDuration) return selectedApt.actualDuration;
+    if (selectedApt?.talkTime) return selectedApt.talkTime;
+    if (selectedApt?.callDuration) return selectedApt.callDuration;
+    if (selectedApt?.sessionDuration) return selectedApt.sessionDuration;
+    if (selectedApt?.startTime && selectedApt?.endTime) {
+      const start = new Date(selectedApt.startTime).getTime();
+      const end = new Date(selectedApt.endTime).getTime();
+      return Math.round((end - start) / 60000); // Convert to minutes
+    }
+    return selectedApt?.duration || "45";
+  };
+  const talkDuration = getTalkDuration();
   const relDay = (d) => {
     if (!d) return "";
     const dd = new Date(d);
@@ -1664,9 +1740,11 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
         onRequestClose={() => setShowDetailsModal(false)}
       >
         <View style={sheetStyles.overlay}>
-          <TouchableWithoutFeedback onPress={() => setShowDetailsModal(false)}>
-            <View style={sheetStyles.backdrop} />
-          </TouchableWithoutFeedback>
+          <View style={sheetStyles.backdrop}>
+            <TouchableWithoutFeedback onPress={() => setShowDetailsModal(false)}>
+              <View style={{ flex: 1 }} />
+            </TouchableWithoutFeedback>
+          </View>
 
           <View style={sheetStyles.sheet}>
             <View style={sheetStyles.grabber} />
@@ -1690,6 +1768,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
               style={{ flex: 1 }}
               contentContainerStyle={sheetStyles.scroll}
               showsVerticalScrollIndicator={false}
+              scrollEnabled={false}
             >
               {/* Counselor card */}
               <View style={sheetStyles.docCard}>
@@ -1721,23 +1800,42 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 </View>
               </View>
 
-              {/* Countdown banner */}
-              <View style={sheetStyles.countBanner}>
-                <LinearGradient
-                  colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
-                  style={sheetStyles.countIcon}
-                >
-                  <Ionicons name="time-outline" size={22} color="#ffffff" />
-                </LinearGradient>
-                <View style={{ flex: 1 }}>
-                  <Text style={sheetStyles.countLabel}>Session starts in</Text>
-                  <Text style={sheetStyles.countValue}>{countdown || "--:--:--"}</Text>
+              {/* Countdown banner (upcoming) OR Session summary (past) */}
+              {!isPast ? (
+                <View style={sheetStyles.countBanner}>
+                  <LinearGradient
+                    colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                    style={sheetStyles.countIcon}
+                  >
+                    <Ionicons name="time-outline" size={22} color="#ffffff" />
+                  </LinearGradient>
+                  <View style={{ flex: 1 }}>
+                    <Text style={sheetStyles.countLabel}>Session starts in</Text>
+                    <Text style={sheetStyles.countValue}>{countdown || "--:--:--"}</Text>
+                  </View>
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text style={sheetStyles.countDay}>{dayLabel}</Text>
+                    <Text style={sheetStyles.countTime}>{timeLabel}</Text>
+                  </View>
                 </View>
-                <View style={{ alignItems: "flex-end" }}>
-                  <Text style={sheetStyles.countDay}>{dayLabel}</Text>
-                  <Text style={sheetStyles.countTime}>{timeLabel}</Text>
+              ) : (
+                <View style={sheetStyles.pastBanner}>
+                  <LinearGradient
+                    colors={["#10b98133", "#34d39933"]}
+                    style={sheetStyles.pastIcon}
+                  >
+                    <Ionicons name="checkmark-circle" size={22} color="#10b981" />
+                  </LinearGradient>
+                  <View style={{ flex: 1 }}>
+                    <Text style={sheetStyles.pastLabel}>Session Completed</Text>
+                    <Text style={sheetStyles.pastValue}>Talk time: {talkDuration} mins</Text>
+                  </View>
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text style={sheetStyles.pastDay}>Ended</Text>
+                    <Text style={sheetStyles.pastTime}>{timeLabel}</Text>
+                  </View>
                 </View>
-              </View>
+              )}
 
               {/* Info grid */}
               <View style={sheetStyles.gridRow}>
@@ -1798,51 +1896,66 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
               </View>
             </ScrollView>
 
-            {/* Fixed footer actions */}
-            <View style={sheetStyles.footer}>
-              <TouchableOpacity
-                activeOpacity={0.9}
-                onPress={() => {
-                  setShowDetailsModal(false);
-                  onVideoCall && onVideoCall(selectedApt);
-                }}
-              >
-                <LinearGradient
-                  colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={sheetStyles.joinBtn}
-                >
-                  <Ionicons name="videocam" size={20} color="#ffffff" />
-                  <Text style={sheetStyles.joinText}>Join Video Session</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-
-              <View style={sheetStyles.secRow}>
+            {/* Fixed footer actions - only for upcoming */}
+            {!isPast && (
+              <View style={sheetStyles.footer}>
                 <TouchableOpacity
-                  style={sheetStyles.secBtn}
-                  activeOpacity={0.85}
+                  activeOpacity={0.9}
                   onPress={() => {
                     setShowDetailsModal(false);
-                    onChat && onChat(selectedApt);
+                    onVideoCall && onVideoCall(selectedApt);
                   }}
                 >
-                  <Ionicons name="chatbubble-ellipses" size={17} color="#F59E0B" />
-                  <Text style={sheetStyles.secText}>Chat</Text>
+                  <LinearGradient
+                    colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={sheetStyles.joinBtn}
+                  >
+                    <Ionicons name="videocam" size={20} color="#ffffff" />
+                    <Text style={sheetStyles.joinText}>Join Video Session</Text>
+                  </LinearGradient>
                 </TouchableOpacity>
+
+                <View style={sheetStyles.secRow}>
+                  <TouchableOpacity
+                    style={sheetStyles.secBtn}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      setShowDetailsModal(false);
+                      onChat && onChat(selectedApt);
+                    }}
+                  >
+                    <Ionicons name="chatbubble-ellipses" size={17} color="#F59E0B" />
+                    <Text style={sheetStyles.secText}>Chat</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={sheetStyles.secBtn}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      setShowDetailsModal(false);
+                      onVoiceCall && onVoiceCall(selectedApt);
+                    }}
+                  >
+                    <Ionicons name="call" size={17} color={PATIENT.primary} />
+                    <Text style={sheetStyles.secText}>Call</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* Footer for past appointments - just close button */}
+            {isPast && (
+              <View style={sheetStyles.footerPast}>
                 <TouchableOpacity
-                  style={sheetStyles.secBtn}
                   activeOpacity={0.85}
-                  onPress={() => {
-                    setShowDetailsModal(false);
-                    onVoiceCall && onVoiceCall(selectedApt);
-                  }}
+                  onPress={() => setShowDetailsModal(false)}
+                  style={sheetStyles.closePastBtn}
                 >
-                  <Ionicons name="call" size={17} color={PATIENT.primary} />
-                  <Text style={sheetStyles.secText}>Call</Text>
+                  <Text style={sheetStyles.closePastText}>Close</Text>
                 </TouchableOpacity>
               </View>
-            </View>
+            )}
           </View>
         </View>
       </Modal>
@@ -1859,6 +1972,7 @@ export default function UserDashboard() {
   const [newMessage, setNewMessage] = useState("");
   const [targetCounselor, setTargetCounselor] = useState("");
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -1869,6 +1983,8 @@ export default function UserDashboard() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Unread NOTIFICATION count for the header bell (separate from AI-chat unread).
+  const [notifUnread, setNotifUnread] = useState(0);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showResetChatConfirm, setShowResetChatConfirm] = useState(false);
   // Direct booking modal state (opened from appointment "Book Now" button)
@@ -1941,6 +2057,48 @@ export default function UserDashboard() {
       setUnreadCount(0);
     }
   }, [chatOpen]);
+
+  // ── Notification bell: unread count (API) + real-time updates ──
+  const fetchNotifUnread = useCallback(async () => {
+    try {
+      const res = await axiosInstance.get('/api/notifications/unread-count');
+      const c =
+        res.data?.count ??
+        res.data?.unreadCount ??
+        res.data?.unread ??
+        (typeof res.data === 'number' ? res.data : 0);
+      setNotifUnread(Number(c) || 0);
+    } catch (e) {
+      // silent — bell just won't show a badge
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchNotifUnread();
+  }, [fetchNotifUnread]);
+
+  // Re-sync the count whenever the notifications panel closes (marks read there).
+  useEffect(() => {
+    if (!showNotifications) fetchNotifUnread();
+  }, [showNotifications, fetchNotifUnread]);
+
+  // Live push: bump the badge immediately, event name varies by backend.
+  useEffect(() => {
+    let unsubs = [];
+    let mounted = true;
+    const onPush = () => { if (mounted) setNotifUnread((c) => c + 1); };
+    (async () => {
+      try {
+        for (const evt of ['notification', 'new-notification', 'notification:new', 'notification-new']) {
+          unsubs.push(await socketService.on(evt, onPush));
+        }
+      } catch (e) { /* socket optional */ }
+    })();
+    return () => {
+      mounted = false;
+      unsubs.forEach((off) => { try { off(); } catch {} });
+    };
+  }, []);
 
   const startAiChat = useCallback(async (lang) => {
     setIsLoading(true);
@@ -2191,83 +2349,77 @@ export default function UserDashboard() {
     }
   };
 
-  // Handler for appointment video call
-  const handleAptVideoCall = async (apt) => {
+  // Pulls a usable counselor id out of an appointment, whatever shape the
+  // backend used: apt.counselor can be a populated object ({_id}/{id}), a raw
+  // ObjectId string, or the id can live directly on the appointment
+  // (counselorId / counsellorId). Returns a string id or null.
+  const extractCounselorId = (apt) => {
+    const c = apt?.counselor ?? apt?.counsellor;
+    let id =
+      (typeof c === "object" && c ? (c._id || c.id) : c) ||
+      apt?.counselorId ||
+      apt?.counsellorId ||
+      apt?.receiverId;
+    return id ? String(id) : null;
+  };
+
+  const initiateAptCall = async (apt, callType, failLabel) => {
     try {
-      const counselor = apt?.counselor || apt;
+      const counselor = (typeof apt?.counselor === "object" && apt?.counselor) || apt;
       const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
       const currentUserId = userId || await AsyncStorage.getItem("userId");
-      const counselorId = counselor?.id || counselor?._id;
+      const counselorId = extractCounselorId(apt);
 
       if (!currentUserId || !counselorId) {
+        console.warn("Call aborted — missing ids:", { currentUserId, counselorId, apt });
         Alert.alert("Error", "Missing user or counselor information");
         return;
       }
 
+      const payload = {
+        initiatorId: String(currentUserId),
+        initiatorType: "user",
+        receiverId: counselorId,
+        receiverType: "counsellor",
+        callType,
+      };
+      console.log("📞 Initiating call:", payload);
+
       const response = await axios.post(
         `${API_BASE_URL}/api/video/calls/initiate`,
-        {
-          initiatorId: currentUserId,
-          initiatorType: "user",
-          receiverId: counselorId,
-          receiverType: "counsellor",
-          callType: "video",
-        },
+        payload,
         { headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` } }
       );
 
-      if (response.data?.success) {
+      // Backends vary: some return { success, callData }, others return the
+      // call object directly. Treat any 2xx with call data as success.
+      const callData = response.data?.callData || response.data?.call || response.data;
+      if (response.data?.success !== false && callData) {
         navigation.navigate("ChatBox", {
           chatId: null,
-          counselor: counselor,
-          callType: "video",
-          callData: response.data.callData,
+          counselor,
+          callType: callType === "audio" ? "voice" : "video",
+          callData,
         });
+      } else {
+        Alert.alert("Error", response.data?.message || `${failLabel} failed. Please try again.`);
       }
     } catch (error) {
-      Alert.alert("Error", "Failed to initiate video call");
-      console.error("Video call error:", error);
+      // Surface the real reason instead of a generic message.
+      const serverMsg =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message;
+      console.error(`${failLabel} error:`, error?.response?.status, error?.response?.data || error);
+      Alert.alert("Error", serverMsg ? `${failLabel}: ${serverMsg}` : failLabel);
     }
   };
+
+  // Handler for appointment video call
+  const handleAptVideoCall = (apt) => initiateAptCall(apt, "video", "Failed to initiate video call");
 
   // Handler for appointment voice call
-  const handleAptVoiceCall = async (apt) => {
-    try {
-      const counselor = apt?.counselor || apt;
-      const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
-      const currentUserId = userId || await AsyncStorage.getItem("userId");
-      const counselorId = counselor?.id || counselor?._id;
-
-      if (!currentUserId || !counselorId) {
-        Alert.alert("Error", "Missing user or counselor information");
-        return;
-      }
-
-      const response = await axios.post(
-        `${API_BASE_URL}/api/video/calls/initiate`,
-        {
-          initiatorId: currentUserId,
-          initiatorType: "user",
-          receiverId: counselorId,
-          receiverType: "counsellor",
-          callType: "audio",
-        },
-        { headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` } }
-      );
-
-      if (response.data?.success) {
-        navigation.navigate("ChatBox", {
-          chatId: null,
-          counselor: counselor,
-          callType: "voice",
-          callData: response.data.callData,
-        });
-      }
-    } catch (error) {
-      Alert.alert("Error", "Failed to initiate voice call");
-      console.error("Voice call error:", error);
-    }
-  };
+  const handleAptVoiceCall = (apt) => initiateAptCall(apt, "audio", "Failed to initiate voice call");
 
   // Handler for appointment chat
   const handleAptChat = async (apt) => {
@@ -2438,6 +2590,10 @@ export default function UserDashboard() {
   };
 
   const handleLogout = async () => {
+    // The logout request is a network round-trip; without this guard a second
+    // tap fires it again and can race the AsyncStorage.clear() below.
+    if (loggingOut) return;
+    setLoggingOut(true);
     try {
       const refreshToken = await AsyncStorage.getItem("refreshToken");
       try {
@@ -2447,11 +2603,15 @@ export default function UserDashboard() {
       }
 
       await AsyncStorage.clear();
+      setShowLogoutConfirm(false);
       navigation.replace("RoleSelector");
     } catch (error) {
       console.error("Logout error:", error);
       await AsyncStorage.clear();
+      setShowLogoutConfirm(false);
       navigation.replace("RoleSelector");
+    } finally {
+      setLoggingOut(false);
     }
   };
 
@@ -2675,7 +2835,7 @@ export default function UserDashboard() {
           />
         );
       case "Wallet":
-        return <WalletDashboard />;
+        return <WalletDashboard userData={userData} />;
       case "Video":
         return <CallHistory />;
       case "profile":
@@ -2761,14 +2921,18 @@ export default function UserDashboard() {
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity
-          style={styles.menuBtn}
+          style={styles.menuBtnWrapper}
           onPress={() => setShowMoreModal(true)}
           activeOpacity={0.7}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          accessible={true}
+          accessibilityLabel="Menu"
         >
-          <View style={[styles.menuLine, { width: 22 }]} />
-          <View style={[styles.menuLine, { width: 22 }]} />
-          <View style={[styles.menuLine, { width: 14 }]} />
+          <View style={styles.menuBtn}>
+            <View style={[styles.menuLine, { width: 22 }]} />
+            <View style={[styles.menuLine, { width: 22 }]} />
+            <View style={[styles.menuLine, { width: 14 }]} />
+          </View>
         </TouchableOpacity>
 
         <View style={styles.headerLeft}>
@@ -2780,7 +2944,11 @@ export default function UserDashboard() {
 
         <TouchableOpacity style={styles.bellBtn} activeOpacity={0.7} onPress={() => setShowNotifications(true)}>
           <Ionicons name="notifications-outline" size={22} color={PATIENT.primary} />
-          {unreadCount > 0 && <View style={styles.bellDot} />}
+          {notifUnread > 0 && (
+            <View style={styles.bellBadge}>
+              <Text style={styles.bellBadgeText}>{notifUnread > 99 ? '99+' : notifUnread}</Text>
+            </View>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -2895,8 +3063,9 @@ export default function UserDashboard() {
         visible={showMoreModal}
         animationType="fade"
         onRequestClose={() => setShowMoreModal(false)}
+        statusBarTranslucent={true}
       >
-        <View style={styles.sidebarRoot}>
+        <View style={styles.sidebarRoot} pointerEvents="auto">
           <View style={styles.sidebar}>
             {/* User card — green gradient */}
             <LinearGradient
@@ -2994,8 +3163,8 @@ export default function UserDashboard() {
           onAction={(n) => {
             setShowNotifications(false);
             if (n.type === 'appointment') switchDashboardTab('Appointment');
-            else if (n.type === 'chat') switchDashboardTab('Chat');
-            else if (n.type === 'ai') setChatOpen(true);
+            else if (n.type === 'message' || n.type === 'chat') switchDashboardTab('Chat');
+            else if (n.type === 'payment' || n.type === 'wallet') switchDashboardTab('Wallet');
           }}
         />
       </Modal>
@@ -3017,31 +3186,55 @@ export default function UserDashboard() {
         />
       </Modal>
 
-      <Modal transparent={true} visible={showLogoutConfirm} animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.confirmModal}>
-            <View style={styles.confirmModalHeader}>
-              <Text style={styles.confirmModalTitle}>{t('settings:confirmLogout')}</Text>
+      <Modal
+        transparent={true}
+        visible={showLogoutConfirm}
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => !loggingOut && setShowLogoutConfirm(false)}
+      >
+        {/* Backdrop tap and Android back both dismiss, matching the rest of the
+            app's sheets. Both are blocked mid-logout so the screen can't be
+            dismissed while the session is being torn down. */}
+        <Pressable
+          style={styles.logoutOverlay}
+          onPress={() => !loggingOut && setShowLogoutConfirm(false)}
+        >
+          <Pressable style={styles.logoutCard} onPress={() => {}}>
+            <View style={styles.logoutIconBadge}>
+              <Ionicons name="log-out-outline" size={26} color={PATIENT.danger} />
             </View>
-            <View style={styles.confirmModalBody}>
-              <Text style={styles.confirmModalText}>{t('settings:logoutConfirm')}</Text>
-            </View>
-            <View style={styles.confirmModalFooter}>
+
+            <Text style={styles.logoutTitle}>{t('settings:confirmLogout')}</Text>
+            <Text style={styles.logoutMessage}>{t('settings:logoutConfirm')}</Text>
+
+            <View style={styles.logoutActions}>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.cancelBtn]}
+                style={styles.logoutCancelBtn}
                 onPress={() => setShowLogoutConfirm(false)}
+                disabled={loggingOut}
+                activeOpacity={0.85}
               >
-                <Text style={styles.cancelBtnText}>{t('common:cancel')}</Text>
+                <Text style={styles.logoutCancelText}>{t('common:cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.confirmLogoutBtn]}
+                style={[styles.logoutConfirmBtn, loggingOut && styles.logoutBtnBusy]}
                 onPress={handleLogout}
+                disabled={loggingOut}
+                activeOpacity={0.85}
               >
-                <Text style={styles.confirmLogoutBtnText}>{t('auth:logout')}</Text>
+                {loggingOut ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <>
+                    <Ionicons name="log-out-outline" size={17} color="#ffffff" />
+                    <Text style={styles.logoutConfirmText}>{t('auth:logout')}</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       {/* DELETE CONFIRM MODAL */}
@@ -3430,11 +3623,16 @@ const styles = StyleSheet.create({
     backgroundColor: PATIENT.surface,
     zIndex: 100,
   },
+  menuBtnWrapper: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    marginRight: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   menuBtn: {
     justifyContent: 'center',
     gap: 4,
-    marginRight: 14,
-    paddingVertical: 4,
   },
   menuLine: {
     height: 2.5,
@@ -3472,6 +3670,25 @@ const styles = StyleSheet.create({
     backgroundColor: PATIENT.danger,
     borderWidth: 1.5,
     borderColor: PATIENT.surface,
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: PATIENT.danger,
+    borderWidth: 1.5,
+    borderColor: PATIENT.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellBadgeText: {
+    color: '#ffffff',
+    fontSize: 9.5,
+    fontWeight: '800',
   },
   headerRight: {
     flexDirection: 'row',
@@ -5469,6 +5686,94 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontWeight: "700",
     fontSize: 14,
+  },
+
+  // ── Logout confirmation ──────────────────────────────────────────────────
+  // Uses the PATIENT palette and the same 20px-radius card + soft icon badge
+  // language as the rest of the user-side sheets, instead of the generic
+  // slate dialog with a divider header and grey footer bar.
+  logoutOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 28,
+  },
+  logoutCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: PATIENT.surface,
+    borderRadius: 20,
+    paddingHorizontal: 22,
+    paddingTop: 26,
+    paddingBottom: 18,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  logoutIconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  logoutTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: PATIENT.text,
+    textAlign: "center",
+  },
+  logoutMessage: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    color: PATIENT.textSecondary,
+    textAlign: "center",
+  },
+  logoutActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 22,
+    width: "100%",
+  },
+  logoutCancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.4,
+    borderColor: PATIENT.chipBorder,
+    backgroundColor: PATIENT.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoutCancelText: {
+    color: PATIENT.textSecondary,
+    fontWeight: "700",
+    fontSize: 14.5,
+  },
+  logoutConfirmBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: PATIENT.danger,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  logoutBtnBusy: {
+    opacity: 0.75,
+  },
+  logoutConfirmText: {
+    color: "#ffffff",
+    fontWeight: "800",
+    fontSize: 14.5,
   },
   deleteBtn: {
     backgroundColor: "#ef4444",

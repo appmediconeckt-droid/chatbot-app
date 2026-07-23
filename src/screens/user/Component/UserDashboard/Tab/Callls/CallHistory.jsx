@@ -387,8 +387,8 @@ const CallHistory = () => {
         .filter((call) => {
           if (activeFilter === 'all') return true;
           if (activeFilter === 'missed') return call.missed;
-          if (activeFilter === 'video') return call.type === 'video';
-          if (activeFilter === 'voice') return call.type === 'voice';
+          if (activeFilter === 'incoming') return call.status === 'incoming';
+          if (activeFilter === 'outgo') return call.status === 'outgoing';
           return true;
         })
         .filter((call) =>
@@ -468,76 +468,57 @@ const CallHistory = () => {
   const renderCallItem = ({ item: call }) => {
     const isMissed = call.status === "missed";
     const profileUrl = getProfilePhotoUrl(call);
+    const spec = call.specialization || "Mental Wellness Specialist";
 
     return (
-      <TouchableOpacity
-        style={[styles.callItem, isMissed && styles.missedCallItem]}
-        onPress={() => openCallModal(call)}
-        activeOpacity={0.7}
+      <View
+        style={styles.callItem}
       >
-        <View style={styles.callAvatar}>
+        {/* Avatar */}
+        <View style={styles.callAvatarWrapper}>
           {profileUrl ? (
             <Image
               source={{ uri: profileUrl }}
               style={styles.callAvatarImage}
-              onError={() => {
-                // Fallback if image fails to load
-              }}
+              onError={() => { }}
             />
           ) : (
-            <View style={[styles.callAvatarPlaceholder, { backgroundColor: isMissed ? "#fee2e2" : "#E6F6EC" }]}>
-              <Text style={[styles.callAvatarText, { color: isMissed ? "#ef4444" : "#00652C" }]}>{call.profilePic}</Text>
+            <View style={[styles.callAvatarPlaceholder, { backgroundColor: "#E6F6EC" }]}>
+              <Text style={[styles.callAvatarText, { color: "#00652C" }]}>{call.profilePic}</Text>
             </View>
           )}
-          <View style={[styles.directionIndicator, { backgroundColor: isMissed ? "#ef4444" : call.status === "incoming" ? "#10b981" : "#00652C" }]}>
-            <Ionicons
-              name={isMissed ? "close" : call.status === "incoming" ? "arrow-down" : "arrow-up"}
-              size={10}
-              color="#ffffff"
-            />
-          </View>
         </View>
 
-        <View style={styles.callInfo}>
-          <View style={styles.callNameRow}>
-            <Text style={[styles.callName, isMissed && styles.missedCallName]} numberOfLines={1}>
-              {call.name && call.name.length > 8 ? `${call.name.slice(0, 8)}…` : call.name}
-            </Text>
-            <Text style={styles.callTime}>{call.time}</Text>
-          </View>
-
-          <View style={styles.callDetails}>
-            <Text style={styles.callType}>
-              {call.type === "video" ? "Video Call" : "Voice Call"}
-            </Text>
-            {call.duration && (
-              <>
-                <View style={styles.dotSeparator} />
-                <Text style={styles.callDuration}>{call.duration}</Text>
-              </>
-            )}
-            {isMissed && (
-              <View style={styles.callMissedTag}>
-                <Text style={styles.callMissedTagText}>Missed</Text>
-              </View>
-            )}
-          </View>
+        {/* Center: Info column + Time */}
+        <View style={styles.callInfoSection}>
+          <Text style={styles.callName} numberOfLines={1}>
+            {call.name && call.name.length > 8 ? `${call.name.slice(0, 8)}…` : call.name}
+          </Text>
+          <Text style={styles.callSpecialization} numberOfLines={1}>{spec}</Text>
+          <Text style={styles.callTimeSmall}>{call.time}</Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.callActionBtn}
-          onPress={(event) => {
-            event?.stopPropagation?.();
-            openCallModal(call);
-          }}
-        >
-          <Ionicons
-            name={call.type === "video" ? "videocam" : "call"}
-            size={20}
-            color="#00652C"
-          />
-        </TouchableOpacity>
-      </TouchableOpacity>
+        {/* Duration in middle */}
+        {call.duration && (
+          <View style={styles.callDurationBox}>
+            <Text style={styles.callDurationText}>{call.duration}</Text>
+          </View>
+        )}
+
+        {/* Right: Status indicator */}
+        <View style={styles.callRightIcon}>
+          {isMissed ? (
+            <View style={styles.missedCallBadge}>
+              <Ionicons name="call" size={16} color="#ef4444" />
+              <Text style={styles.missedCallText}>Missed Call</Text>
+            </View>
+          ) : call.type === "video" ? (
+            <Ionicons name="videocam" size={22} color="#00652C" />
+          ) : (
+            <Ionicons name="call" size={22} color="#00652C" />
+          )}
+        </View>
+      </View>
     );
   };
 
@@ -569,8 +550,8 @@ const CallHistory = () => {
   const filterButtons = [
     { key: 'all', label: 'All' },
     { key: 'missed', label: 'Missed' },
-    { key: 'video', label: 'Video' },
-    { key: 'voice', label: 'Voice' },
+    { key: 'incoming', label: 'Incoming' },
+    { key: 'outgo', label: 'Outgo' },
   ];
 
   return (
@@ -793,9 +774,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 12,
+    borderRadius: 14,
+    padding: 14,
     marginBottom: 10,
+    gap: 12,
     borderWidth: 1,
     borderColor: "#f1f5f9",
     shadowColor: "#000",
@@ -807,103 +789,67 @@ const styles = StyleSheet.create({
   missedCallItem: {
     borderColor: "#fee2e2",
   },
-  callAvatar: {
-    position: "relative",
-    marginRight: 14,
+  callAvatarWrapper: {
+    marginRight: 12,
   },
   callAvatarPlaceholder: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     justifyContent: "center",
     alignItems: "center",
   },
   callAvatarImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
   },
   callAvatarText: {
     fontSize: 20,
     fontWeight: "700",
   },
-  directionIndicator: {
-    position: "absolute",
-    bottom: -2,
-    right: -2,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: "#ffffff",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  callInfo: {
+  callInfoSection: {
     flex: 1,
-  },
-  callNameRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
   },
   callName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
-    color: "#1e293b",
-    flex: 1,
+    color: "#0f172a",
+    marginBottom: 2,
   },
-  missedCallName: {
-    color: "#ef4444",
-  },
-  callTime: {
+  callSpecialization: {
     fontSize: 12,
-    color: "#94a3b8",
+    color: "#64748b",
+    fontWeight: "500",
+    marginBottom: 4,
+  },
+  callTimeSmall: {
+    fontSize: 12,
+    color: "#64748b",
     fontWeight: "500",
   },
-  callDetails: {
+  callDurationBox: {
+    alignItems: "flex-end",
+    minWidth: 50,
+  },
+  callDurationText: {
+    fontSize: 12,
+    color: "#64748b",
+    fontWeight: "500",
+  },
+  callRightIcon: {
+    marginLeft: 8,
+    alignItems: "flex-end",
+  },
+  missedCallBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
   },
-  callType: {
-    fontSize: 13,
-    color: "#64748b",
-    fontWeight: "500",
-  },
-  dotSeparator: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: "#cbd5e1",
-  },
-  callDuration: {
-    fontSize: 13,
-    color: "#64748b",
-    fontWeight: "500",
-  },
-  callMissedTag: {
-    backgroundColor: "#fef2f2",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-    marginLeft: 6,
-  },
-  callMissedTagText: {
-    fontSize: 10,
-    fontWeight: "700",
+  missedCallText: {
+    fontSize: 12,
+    fontWeight: "600",
     color: "#ef4444",
-    textTransform: "uppercase",
-  },
-  callActionBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: "#f1f5f9",
-    justifyContent: "center",
-    alignItems: "center",
-    marginLeft: 10,
   },
   callNoResults: {
     alignItems: "center",

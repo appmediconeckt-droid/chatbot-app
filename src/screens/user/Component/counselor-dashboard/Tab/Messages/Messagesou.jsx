@@ -14,7 +14,6 @@ import {
   Animated,
   Image,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -102,8 +101,21 @@ const avatarStyles = StyleSheet.create({
 });
 
 // ─── Main Component ──────────────────────────────────────────────────────────
-const SMSList = () => {
+const SMSList = ({ counselorData, notifCount = 0, onBellPress }) => {
   const { t } = useLanguageRender();
+
+  // Time-aware greeting for the header.
+  const greetingLabel = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return t('counselor:goodMorning', 'Good Morning');
+    if (h < 17) return t('counselor:goodAfternoon', 'Good Afternoon');
+    return t('counselor:goodEvening', 'Good Evening');
+  })();
+  const counselorName = counselorData?.name || counselorData?.fullName || 'Counselor';
+  const counselorPhoto = counselorData?.profilePhoto || null;
+  const counselorInitial = counselorName.charAt(0).toUpperCase();
+  // Header shows at most 8 characters of the name (no ellipsis dots).
+  const shortName = counselorName.slice(0, 8);
   const [searchTerm, setSearchTerm] = useState('');
   const [users, setUsers] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
@@ -275,9 +287,34 @@ const SMSList = () => {
     };
   }, []);
 
-  const filteredUsers = users.filter((u) =>
+  // ─── Filter chips ───────────────────────────────────────────────────────────
+  const [activeFilter, setActiveFilter] = useState('all');
+  const filterChips = [
+    { id: 'all', label: t('common:all', 'All') },
+    { id: 'online', label: t('common:online', 'Online') },
+    { id: 'unread', label: t('messages:unread', 'Unread') },
+    { id: 'recent', label: t('messages:recent', 'Recent') },
+  ];
+
+  // Category badge derived from real chat state (no fabricated data):
+  //   unread messages  → URGENT (needs attention)
+  //   pending request  → FOLLOW UP (awaiting the counsellor)
+  //   otherwise        → NORMAL
+  const getCategory = (item) => {
+    if (item.unread > 0) return { label: t('messages:urgent', 'URGENT'), color: '#DC2626', bg: '#FEF2F2' };
+    if (item.status === 'pending') return { label: t('messages:followUp', 'FOLLOW UP'), color: '#1D4ED8', bg: '#EFF6FF' };
+    return { label: t('messages:normal', 'NORMAL'), color: '#64748B', bg: '#F1F5F9' };
+  };
+
+  const searchMatched = users.filter((u) =>
     u.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const filteredUsers = searchMatched.filter((u) => {
+    if (activeFilter === 'online') return u.online;
+    if (activeFilter === 'unread') return u.unread > 0;
+    return true; // 'all' and 'recent' (already sorted by recency)
+  });
 
   const handleUserClick = (user) => {
     setSelectedChatId(user.chatId);
@@ -285,9 +322,10 @@ const SMSList = () => {
   };
 
   const renderUserItem = ({ item }) => {
+    const category = getCategory(item);
     return (
       <TouchableOpacity
-        style={[styles.chatRow, selectedChatId === item.chatId && styles.chatRowSelected]}
+        style={[styles.chatCard, selectedChatId === item.chatId && styles.chatRowSelected]}
         onPress={() => handleUserClick(item)}
         activeOpacity={0.75}
       >
@@ -295,10 +333,10 @@ const SMSList = () => {
         <View style={styles.avatarOuter}>
           <View style={styles.avatarWrapper}>
             <ChatListAvatar
-  avatarUrl={item.avatarUrl}
-  avatar={item.avatar}
-  name={item.name}
-/>
+              avatarUrl={item.avatarUrl}
+              avatar={item.avatar}
+              name={item.name}
+            />
           </View>
           <View style={[styles.onlineBadge, { backgroundColor: item.online ? '#22c55e' : '#9CA3AF' }]} />
         </View>
@@ -308,26 +346,61 @@ const SMSList = () => {
             <Text style={styles.nameText} numberOfLines={1}>{item.name}</Text>
             <Text style={[styles.timeText, item.unread > 0 && styles.timeActive]}>{item.time}</Text>
           </View>
+
+          {/* Category badge + meta line */}
+          <View style={styles.metaRow}>
+            <View style={[styles.categoryBadge, { backgroundColor: category.bg }]}>
+              <Text style={[styles.categoryText, { color: category.color }]}>{category.label}</Text>
+            </View>
+            <Text style={styles.metaText} numberOfLines={1}>
+              {item.gender ? `${item.gender}` : ''}
+              {item.online ? ' • Online' : item.lastSeen ? ' • Away' : ''}
+            </Text>
+          </View>
+
           <View style={styles.rowFooter}>
             <TranslatedMessageBubble
               text={item.lastMessage || ''}
               style={[styles.messageText, item.unread > 0 && styles.messageUnread]}
               numberOfLines={1}
             />
-            {item.unread > 0 && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadCount}>{item.unread > 99 ? '99+' : item.unread}</Text>
-              </View>
-            )}
           </View>
         </View>
       </TouchableOpacity>
     );
   };
 
+  const renderListHeader = () => (
+    <>
+      {/* Filter chips */}
+      <View style={styles.chipSection}>
+        <FlatList
+          data={filterChips}
+          keyExtractor={(c) => c.id}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+          renderItem={({ item: chip }) => {
+            const isActive = activeFilter === chip.id;
+            return (
+              <TouchableOpacity
+                style={[styles.chip, isActive && styles.chipActive]}
+                onPress={() => setActiveFilter(chip.id)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{chip.label}</Text>
+              </TouchableOpacity>
+            );
+          }}
+        />
+      </View>
+    </>
+  );
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
+
       <View style={styles.searchSection}>
         <View style={styles.searchContainer}>
           <View style={styles.searchIconWrap}>
@@ -372,6 +445,7 @@ const SMSList = () => {
           data={filteredUsers}
           keyExtractor={(item) => item.id}
           renderItem={renderUserItem}
+          ListHeaderComponent={renderListHeader}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
@@ -381,7 +455,7 @@ const SMSList = () => {
           }
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -392,14 +466,48 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
   },
 
+  // ─── Greeting header ────────────────────────────────────────────────────────
+  greetingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  greetingLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  greetingAvatar: { width: 42, height: 42, borderRadius: 21 },
+  greetingAvatarFallback: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#1D4ED8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  greetingAvatarText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+  greetingTextWrap: { flex: 1 },
+  greetingWelcome: { fontSize: 12, color: '#94A3B8', fontWeight: '500' },
+  greetingName: { fontSize: 16, color: '#0F172A', fontWeight: '800', marginTop: 1 },
+  bellButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellBadge: {
+    position: 'absolute', top: 2, right: 2, minWidth: 17, height: 17, borderRadius: 9,
+    paddingHorizontal: 4, backgroundColor: '#EF4444', borderWidth: 1.5, borderColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  bellBadgeText: { color: '#ffffff', fontSize: 9.5, fontWeight: '800' },
+
   // ─── Search ───────────────────────────────────────────────────────────────
   searchSection: {
     width: '100%',
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    paddingTop: 8,
-    marginBottom: 0,
-    marginTop: -42,
+    paddingVertical: 10,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
@@ -445,17 +553,39 @@ const styles = StyleSheet.create({
     backgroundColor: '#E2E8F0',
   },
 
-  // ─── List ─────────────────────────────────────────────────────────────────
-  list: { width: '100%', paddingBottom: 100 },
-  chatRow: {
-    flexDirection: 'row',
-    width: '100%',
+  // ─── Filter chips ─────────────────────────────────────────────────────────
+  chipSection: { backgroundColor: '#F1F5F9', paddingTop: 12, paddingBottom: 4 },
+  chipRow: { paddingHorizontal: 14, gap: 8 },
+  chip: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    height: 34,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chipActive: { backgroundColor: '#1D4ED8', borderColor: '#1D4ED8' },
+  chipText: { fontSize: 13, fontWeight: '600', color: '#64748B' },
+  chipTextActive: { color: '#FFFFFF' },
+
+  // ─── List ─────────────────────────────────────────────────────────────────
+  list: { width: '100%', paddingBottom: 100, backgroundColor: '#F1F5F9' },
+  chatCard: {
+    flexDirection: 'row',
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderRadius: 16,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   chatRowSelected: { backgroundColor: '#EFF6FF' },
 
@@ -492,25 +622,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 0,
-    marginTop: -32,
   },
-  nameText: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
+  nameText: { fontSize: 15, fontWeight: '700', color: '#0F172A', flex: 1, marginRight: 8 },
   timeText: { fontSize: 11, color: '#94A3B8', minWidth: 56, textAlign: 'right' },
   timeActive: { color: '#1D4ED8', fontWeight: '700' },
+
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, marginBottom: 4 },
+  categoryBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5 },
+  categoryText: { fontSize: 9.5, fontWeight: '800', letterSpacing: 0.3 },
+  metaText: { fontSize: 11.5, color: '#94A3B8', fontWeight: '500', flex: 1 },
+
   rowFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   messageText: { fontSize: 13, color: '#64748B', flex: 1, marginRight: 8 },
   messageUnread: { color: '#1E293B', fontWeight: '600' },
-  unreadBadge: {
-    backgroundColor: '#1D4ED8',
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 6,
-  },
-  unreadCount: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
 
   // ─── Skeleton ─────────────────────────────────────────────────────────────
   shimmerContainer: { flex: 1, width: '100%' },

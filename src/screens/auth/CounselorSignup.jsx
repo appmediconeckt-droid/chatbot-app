@@ -186,7 +186,7 @@ const CounselorSignup = ({ navigation, route }) => {
       });
       if (await persistCounselorSession(response.data)) {
         showNotification('Login successful!');
-        setTimeout(() => navigation.replace('CounselorDashboard'), 1000);
+        setTimeout(() => navigation.replace('CounselorOnboarding'), 1000);
       }
     } catch (err) {
       if (err?.response?.status === 409) {
@@ -240,7 +240,7 @@ const CounselorSignup = ({ navigation, route }) => {
 
       if (response.data.success && await persistCounselorSession(response.data)) {
         showNotification('Counselor registered!');
-        setTimeout(() => navigation.replace('CounselorDashboard'), 1500);
+        setTimeout(() => navigation.replace('CounselorOnboarding'), 1500);
       }
     } catch (error) {
       showNotification(error.response?.data?.message || 'Signup failed', 'error');
@@ -323,7 +323,7 @@ const CounselorSignup = ({ navigation, route }) => {
       });
       if (await persistCounselorSession(response.data)) {
         setShowDeviceConflict(false);
-        navigation.replace('CounselorDashboard');
+        navigation.replace('CounselorOnboarding');
       }
     } catch (err) {
       showNotification('Invalid OTP', 'error');

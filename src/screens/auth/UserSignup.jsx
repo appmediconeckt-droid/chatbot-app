@@ -164,7 +164,7 @@
 //       });
 //       if (await persistUserSession(response.data)) {
 //         showNotification('Login successful!');
-//         setTimeout(() => navigation.replace('UserDashboard'), 1000);
+//         setTimeout(() => navigation.replace('UserOnboarding'), 1000);
 //       }
 //     } catch (err) {
 //       if (err?.response?.status === 409) {
@@ -201,7 +201,7 @@
 //       const response = await axios.post(`${API_BASE_URL}/api/auth/complete-registration`, signupData);
 //       if (response.data.success && await persistUserSession(response.data)) {
 //         showNotification('Account created successfully!');
-//         setTimeout(() => navigation.replace('UserDashboard'), 1500);
+//         setTimeout(() => navigation.replace('UserOnboarding'), 1500);
 //       }
 //     } catch (error) {
 //       showNotification(error.response?.data?.message || 'Registration failed', 'error');
@@ -300,7 +300,7 @@
 //       });
 //       if (await persistUserSession(response.data)) {
 //         setShowDeviceConflict(false);
-//         navigation.replace('UserDashboard');
+//         navigation.replace('UserOnboarding');
 //       }
 //     } catch (err) {
 //       showNotification('Invalid OTP', 'error');
@@ -748,7 +748,7 @@ const UserSignup = ({ navigation, route }) => {
       });
       if (await persistUserSession(response.data)) {
         showNotification('Login successful!');
-        setTimeout(() => navigation.replace('UserDashboard'), 1000);
+        setTimeout(() => navigation.replace('UserOnboarding'), 1000);
       }
     } catch (err) {
       if (err?.response?.status === 409) {
@@ -785,7 +785,7 @@ const UserSignup = ({ navigation, route }) => {
       const response = await axios.post(`${API_BASE_URL}/api/auth/complete-registration`, signupData);
       if (response.data.success && await persistUserSession(response.data)) {
         showNotification('Account created successfully!');
-        setTimeout(() => navigation.replace('UserDashboard'), 1500);
+        setTimeout(() => navigation.replace('UserOnboarding'), 1500);
       }
     } catch (error) {
       showNotification(error.response?.data?.message || 'Registration failed', 'error');
@@ -873,7 +873,7 @@ const UserSignup = ({ navigation, route }) => {
       });
       if (await persistUserSession(response.data)) {
         setShowDeviceConflict(false);
-        navigation.replace('UserDashboard');
+        navigation.replace('UserOnboarding');
       }
     } catch (err) {
       showNotification('Invalid OTP', 'error');

@@ -185,8 +185,8 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         const counselorId = chat?.otherParty?.id;
         const chatId = chat?.chatId || chat?.id;
 
-        // Track pending requests too — once a request exists (pending or
-        // accepted/active) the card shows "Chat Now" instead of "Send Request".
+        // Track pending requests too. The status is what the card branches on:
+        // pending keeps the request state, accepted/active unlocks scheduling.
         if ((status === 'pending' || status === 'accepted' || status === 'active') && counselorId && chatId) {
           acceptedMap[String(counselorId)] = {
             chatId: String(chatId),
@@ -354,6 +354,27 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   };
 
   const handleBookAppointment = (counselor) => {
+    // Scheduling is only available once the counselor has accepted the request.
+    // The card already hides the button, but guard here too so no other entry
+    // point can open the booking modal for an unconnected counselor.
+    const existingChat = acceptedChatsByCounselorId[String(counselor?.id)];
+    const status = String(existingChat?.status || '').toLowerCase();
+    if (status !== 'accepted' && status !== 'active') {
+      Alert.alert(
+        t('appointment:requestRequired', 'Request required'),
+        status === 'pending'
+          ? t(
+              'appointment:requestPendingMessage',
+              'Your request is waiting for the counselor to accept. You can schedule an appointment once it is accepted.'
+            )
+          : t(
+              'appointment:requestFirstMessage',
+              'Send a request to this counselor first. You can schedule an appointment once they accept.'
+            )
+      );
+      return;
+    }
+
     setSelectedCounselorForRequest(counselor);
     const nextSlot = new Date();
     const roundedMinutes = Math.ceil(nextSlot.getMinutes() / 15) * 15;
@@ -375,6 +396,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const bookingTimeLabel = bookingDateTime.toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   });
 
   const handleDateChange = (event, selectedDate) => {
@@ -586,7 +608,13 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   };
 
   const renderCounselorCard = (item) => {
-    const isAccepted = !!acceptedChatsByCounselorId[String(item.id)]?.chatId;
+    // A request must be ACCEPTED before scheduling opens up. A merely pending
+    // request still counts as "no connection yet", so the card keeps showing
+    // the request state instead of the booking/chat actions.
+    const existingChat = acceptedChatsByCounselorId[String(item.id)];
+    const chatStatus = String(existingChat?.status || '').toLowerCase();
+    const isAccepted = !!existingChat?.chatId && (chatStatus === 'accepted' || chatStatus === 'active');
+    const isPending = !!existingChat?.chatId && chatStatus === 'pending';
     const online = !!item.available;
 
     return (
@@ -627,7 +655,43 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
           </View>
         </View>
 
-        {online ? (
+        {isPending ? (
+          // Request sent, counselor hasn't accepted yet — nothing to do but wait.
+          <View style={styles.btnPendingRow}>
+            <Ionicons name="time-outline" size={15} color="#B45309" />
+            <Text style={styles.btnPendingText} numberOfLines={1}>
+              {t('appointment:requestPending', 'Request pending — waiting for counselor to accept')}
+            </Text>
+          </View>
+        ) : !online ? (
+          // Offline is checked before `isAccepted` so "Chat Now" can never
+          // render for a counselor who isn't there to answer. An accepted
+          // counselor can still be booked for a later slot; an unconnected one
+          // can't even be sent a request.
+          <View style={styles.cardOfflineRow}>
+            <Text style={styles.nextAvailText} numberOfLines={1}>
+              {item.nextAvailable
+                ? `${t('appointment:nextAvailable', 'Next Available')} ${item.nextAvailable}`
+                : t('appointment:currentlyUnavailable', 'Currently unavailable')}
+            </Text>
+            {isAccepted ? (
+              <TouchableOpacity
+                style={styles.btnOutlineSm}
+                onPress={() => handleBookAppointment(item)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.btnOutlineText}>{t('appointment:schedule')}</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.btnDisabledSm}>
+                <Text style={styles.btnDisabledSmText}>
+                  {t('appointment:sendRequest', 'Send Request')}
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : isAccepted ? (
+          // Connected and online: scheduling and chat are both unlocked.
           <View style={styles.cardActions}>
             <TouchableOpacity
               style={styles.btnPrimary}
@@ -644,25 +708,21 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
               activeOpacity={0.85}
             >
               <Text style={styles.btnOutlineText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-                {isAccepted ? t('appointment:chatNow') : t('appointment:request', 'Request')}
+                {t('appointment:chatNow')}
               </Text>
             </TouchableOpacity>
           </View>
         ) : (
-          <View style={styles.cardOfflineRow}>
-            <Text style={styles.nextAvailText} numberOfLines={1}>
-              {item.nextAvailable
-                ? `${t('appointment:nextAvailable', 'Next Available')} ${item.nextAvailable}`
-                : t('appointment:currentlyUnavailable', 'Currently unavailable')}
+          // First time with this counselor: request only, no scheduling yet.
+          <TouchableOpacity
+            style={styles.btnPrimaryFull}
+            onPress={() => handleChatNow(item)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.btnPrimaryText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+              {t('appointment:sendRequest', 'Send Request')}
             </Text>
-            <TouchableOpacity
-              style={styles.btnOutlineSm}
-              onPress={() => handleBookAppointment(item)}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.btnOutlineText}>{t('appointment:schedule')}</Text>
-            </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
         )}
       </View>
     );
@@ -711,19 +771,26 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
     );
   });
 
-  // Chips: All / Online / Nearby / Top Rated + specializations from the data
+  // Chips: All / Online / Nearby / Top Rated + specializations from the data.
+  // A counselor's `specialization` is a combined string ("Anxiety , Depression")
+  // so we split on any separator ( , | / ) and add each specialty as its own
+  // chip — otherwise the whole combined string shows up as a single chip.
   const filterChips = (() => {
     const specs = [];
     counselors.forEach((c) => {
-      const s = String(c.specialization || '').split('|')[0].trim();
-      if (s && !specs.includes(s)) specs.push(s);
+      String(c.specialization || '')
+        .split(/[,|/]/)
+        .forEach((part) => {
+          const s = part.trim();
+          if (s && s.toLowerCase() !== 'general' && !specs.includes(s)) specs.push(s);
+        });
     });
     return [
       { id: 'all', label: t('common:all', 'All') },
       { id: 'online', label: t('common:online', 'Online') },
       { id: 'nearby', label: t('appointment:nearby', 'Nearby') },
       { id: 'topRated', label: t('appointment:topRated', 'Top Rated') },
-      ...specs.slice(0, 6).map((s) => ({ id: s, label: s })),
+      ...specs.map((s) => ({ id: s, label: s })),
     ];
   })();
 
@@ -1027,17 +1094,23 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { width: Math.min(screenWidth * 0.92, 520), maxHeight: screenHeight * 0.82 }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Book Appointment with {selectedCounselorForRequest?.name}
-              </Text>
-              <TouchableOpacity onPress={() => setShowBookingModal(false)}>
-                <Text style={styles.modalClose}>×</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitleSmall}>Book Appointment with</Text>
+                <Text style={styles.modalTitleName} numberOfLines={1}>
+                  {selectedCounselorForRequest?.name}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowBookingModal(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={22} color="#0f172a" />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
               <View style={styles.modalInfo}>
-                <Text style={styles.modalSectionTitle}>{t('appointment:appointmentDate')}</Text>
+                <Text style={styles.modalSectionTitle}>{t('appointment:appointmentDate', 'Appointment Date & Time')}</Text>
                 <View style={styles.dateTimeRow}>
                   <TouchableOpacity
                     style={styles.dateTimeCard}
@@ -1050,8 +1123,8 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                     activeOpacity={0.85}
                   >
                     <View style={styles.dateTimeCardHeader}>
-                      <Ionicons name="calendar-outline" size={16} color="#334155" />
-                      <Text style={styles.dateTimeCardLabel}>{t('appointment:date')}</Text>
+                      <Ionicons name="calendar-outline" size={15} color={PATIENT.primary} />
+                      <Text style={styles.dateTimeCardLabel}>{t('appointment:date', 'Date')}</Text>
                     </View>
                     <Text style={styles.dateTimeCardValue}>{bookingDateLabel}</Text>
                   </TouchableOpacity>
@@ -1067,8 +1140,8 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                     activeOpacity={0.85}
                   >
                     <View style={styles.dateTimeCardHeader}>
-                      <Ionicons name="time-outline" size={16} color="#334155" />
-                      <Text style={styles.dateTimeCardLabel}>{t('appointment:time')}</Text>
+                      <Ionicons name="time-outline" size={15} color={PATIENT.primary} />
+                      <Text style={styles.dateTimeCardLabel}>{t('appointment:time', 'Time')}</Text>
                     </View>
                     <Text style={styles.dateTimeCardValue}>{bookingTimeLabel}</Text>
                   </TouchableOpacity>
@@ -1134,23 +1207,25 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
               <View style={styles.modalActions}>
                 <TouchableOpacity
-                  style={[styles.chatButton, { flex: 1 }]}
+                  style={styles.modalCancelBtn}
                   onPress={() => setShowBookingModal(false)}
                   disabled={isLoading}
+                  activeOpacity={0.8}
                 >
-                  <LinearGradient colors={['#64748b', '#475569']} style={styles.chatButtonGradient}>
-                    <Text style={styles.chatButtonText}>{t('common:cancel')}</Text>
-                  </LinearGradient>
+                  <Text style={styles.modalCancelText}>{t('common:cancel', 'Cancel')}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.bookButton, { flex: 1 }]}
+                  style={styles.modalConfirmBtn}
                   onPress={handleConfirmBooking}
                   disabled={isLoading}
+                  activeOpacity={0.85}
                 >
-                  <LinearGradient colors={[PATIENT.gradientFrom, PATIENT.gradientTo]} style={styles.bookButtonGradient}>
-                    <Text style={styles.bookButtonText}>{isLoading ? t('appointment:booking') : t('common:confirm')}</Text>
-                  </LinearGradient>
+                  {isLoading ? (
+                    <ActivityIndicator color="#ffffff" size="small" />
+                  ) : (
+                    <Text style={styles.modalConfirmText}>{t('common:confirm', 'Confirm')}</Text>
+                  )}
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -1572,6 +1647,54 @@ const styles = {
     alignItems: 'center',
     backgroundColor: PATIENT.surface,
   },
+  // Full-width variant used before a request exists — "Send Request" is the
+  // only action available, so it takes the whole row.
+  btnPrimaryFull: {
+    backgroundColor: PATIENT.primary,
+    borderRadius: 10,
+    height: 44,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  btnPendingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFBEB',
+    borderRadius: 10,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 14,
+  },
+  btnPendingText: {
+    flex: 1,
+    color: '#B45309',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  // Unavailable counselors can't receive new requests — shown inert rather than
+  // hidden so the reason stays visible next to the availability text.
+  btnDisabledSm: {
+    borderWidth: 1.4,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    height: 38,
+    paddingHorizontal: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+  },
+  btnDisabledSmText: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   btnOutlineText: {
     color: PATIENT.primary,
     fontSize: 13.5,
@@ -1982,10 +2105,21 @@ const styles = {
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+  modalTitleSmall: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748b',
+    marginBottom: 3,
+  },
+  modalTitleName: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#0f172a',
   },
   modalTitle: {
     fontSize: 18,
@@ -2082,30 +2216,30 @@ const styles = {
     fontSize: 13,
     color: '#0f172a',
     fontWeight: '700',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   dateTimeRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
   },
   dateTimeCard: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#dbe4ee',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: '#e6ebf1',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     backgroundColor: '#f8fafc',
   },
   dateTimeCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   dateTimeCardLabel: {
     fontSize: 12,
-    color: '#475569',
+    color: '#64748b',
     fontWeight: '600',
   },
   dateTimeCardValue: {
@@ -2132,28 +2266,56 @@ const styles = {
   },
   modalTextArea: {
     borderWidth: 1,
-    borderColor: '#dbe4ee',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: '#e6ebf1',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     color: '#0f172a',
     backgroundColor: '#f8fafc',
     minHeight: 100,
+    fontSize: 13,
     textAlignVertical: 'top',
   },
   modalActions: {
     flexDirection: 'row',
-    gap: 10,
-    marginHorizontal: 16,
-    marginBottom: 16,
+    gap: 12,
+    marginHorizontal: 20,
+    marginTop: 4,
+    marginBottom: 20,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#e6ebf1',
+  },
+  modalCancelText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  modalConfirmBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: PATIENT.primary,
+  },
+  modalConfirmText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
   },
   privacyNote: {
     fontSize: 12,
-    color: '#999',
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
+    color: '#94a3b8',
+    fontWeight: '500',
+    marginTop: 16,
   },
   submitButton: {
     margin: 16,
