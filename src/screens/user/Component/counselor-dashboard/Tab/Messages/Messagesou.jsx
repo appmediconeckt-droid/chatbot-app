@@ -28,6 +28,7 @@ import {
 } from '../../../../../../utils/anonymousUser'; 
 import socketService from '../../../../../../services/socketService';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
+import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -436,9 +437,9 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress }) => {
         <View style={styles.empty}>
           <Ionicons name="alert-circle-outline" size={40} color="#94A3B8" />
           <Text style={styles.emptyText}>{t('messages:failedToLoad')}</Text>
-          <TouchableOpacity onPress={fetchChats} style={styles.retryBtn}>
+          <CounselorGradientButton onPress={fetchChats} style={styles.retryBtn}>
             <Text style={styles.retryText}>{t('common:retry')}</Text>
-          </TouchableOpacity>
+          </CounselorGradientButton>
         </View>
       ) : (
         <FlatList
@@ -660,7 +661,6 @@ const styles = StyleSheet.create({
   retryBtn: {
     paddingHorizontal: 24,
     paddingVertical: 10,
-    backgroundColor: '#2563EB',
     borderRadius: 20,
   },
   retryText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },

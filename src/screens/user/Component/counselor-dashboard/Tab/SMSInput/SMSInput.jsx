@@ -33,6 +33,7 @@ import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import useRingtone from '../../../../../../hooks/useRingtone';
 import useScreenshotPrevent from '../../../../../../utils/useScreenshotPrevent';
+import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
 import VideoCallModal from '../../../UserDashboard/Tab/CallModal/VideoCallModal';
 import VoiceCallModal from '../../../UserDashboard/Tab/CallModal/VoiceCallModal';
 import {
@@ -1379,9 +1380,9 @@ const SMSInput = ({ navigation, route }) => {
             <Text style={styles.emptyIcon}>💬</Text>
             <Text style={styles.emptyTitle}>No user selected</Text>
             <Text style={styles.emptyText}>Please select a user from the list to start messaging</Text>
-            <TouchableOpacity style={styles.backToListBtn} onPress={handleBack}>
+            <CounselorGradientButton style={styles.backToListBtn} onPress={handleBack}>
               <Text style={styles.backToListBtnText}>← Back to SMS List</Text>
-            </TouchableOpacity>
+            </CounselorGradientButton>
           </View>
         </View>
       </SafeAreaView>
@@ -1562,7 +1563,7 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 56, marginBottom: 16, opacity: 0.5 },
   emptyTitle: { fontSize: 18, fontWeight: '600', color: '#111827', marginBottom: 6 },
   emptyText: { fontSize: 14, color: '#6B7280', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
-  backToListBtn: { paddingHorizontal: 24, paddingVertical: 10, backgroundColor: '#2563EB', borderRadius: 24, shadowColor: '#2563EB', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 3 },
+  backToListBtn: { paddingHorizontal: 24, paddingVertical: 10, borderRadius: 24, shadowColor: '#004AC6', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 3 },
   backToListBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#EEF2F6' },
   headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 },

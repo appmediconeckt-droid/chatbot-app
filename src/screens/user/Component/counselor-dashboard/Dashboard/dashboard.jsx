@@ -52,6 +52,7 @@ import VoiceCallModal from "../../UserDashboard/Tab/CallModal/VoiceCallModal";
 import safeVibrate from "../../../../../utils/safeVibrate";
 import { useToast } from "../../../../../components/common/ToastProvider";
 import LanguageSelector from '../../../../../components/common/LanguageSelector';
+import CounselorGradientButton from '../../../../../components/common/CounselorGradientButton';
 import { loadUserLanguage } from '../../../../../i18n';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -496,7 +497,9 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
               activeOpacity={0.85}
             >
               <Ionicons name="videocam" size={15} color="#fff" />
-              <Text style={aptStyles.confirmedActionText} numberOfLines={1}>{t('Video Session')}</Text>
+              <Text style={aptStyles.confirmedActionText} numberOfLines={1}>
+                {t('Video Session')}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[aptStyles.confirmedActionBtn, aptStyles.confirmedVoiceBtn]}
@@ -1891,6 +1894,10 @@ export default function CounselorDashboard() {
   const renderAppointmentsTab = () => {
     const now = new Date();
     const isUpcoming = (a) => new Date(a.date) > now;
+    const isPast = (a) => {
+      const appointmentDate = new Date(a.date);
+      return !Number.isNaN(appointmentDate.getTime()) && appointmentDate < now;
+    };
 
     // Filter by tab: All Request / Today / Upcoming, then by search text.
     const byTab =
@@ -1898,6 +1905,8 @@ export default function CounselorDashboard() {
         ? appointments.filter((a) => isSameDay(a.date, now))
         : aptFilter === "upcoming"
         ? appointments.filter((a) => isUpcoming(a))
+        : aptFilter === "past"
+        ? appointments.filter((a) => isPast(a))
         : appointments;
 
     const q = aptSearch.trim().toLowerCase();
@@ -1912,12 +1921,15 @@ export default function CounselorDashboard() {
         ? appointments.filter((a) => isSameDay(a.date, now)).length
         : key === "upcoming"
         ? appointments.filter((a) => isUpcoming(a)).length
+        : key === "past"
+        ? appointments.filter((a) => isPast(a)).length
         : appointments.length;
 
     const filterTabs = [
       { key: 'all', label: t('counselor:allRequest', 'All Request'), icon: 'apps-outline' },
       { key: 'today', label: t('counselor:today', 'Today'), icon: 'today-outline' },
       { key: 'upcoming', label: t('counselor:upcoming', 'Upcoming'), icon: 'calendar-outline' },
+      { key: 'past', label: t('counselor:past', 'Past'), icon: 'time-outline' },
     ];
 
     // Stats
@@ -2018,7 +2030,13 @@ export default function CounselorDashboard() {
         </View>
 
         {/* ── Filter chips ────────────────────────────────────────────────── */}
-        <View style={aptStyles.filterRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator
+          nestedScrollEnabled
+          contentContainerStyle={aptStyles.filterRow}
+          style={aptStyles.filterScroller}
+        >
           {filterTabs.map((ft) => {
             const isActive = aptFilter === ft.key;
             const count = countFor(ft.key);
@@ -2043,7 +2061,7 @@ export default function CounselorDashboard() {
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
         </View>
         {/* end of inset section — list below is edge-to-edge */}
 
@@ -2068,6 +2086,8 @@ export default function CounselorDashboard() {
                 ? t("No pending appointment requests right now. New requests will appear here.")
                 : aptFilter === "confirmed"
                 ? t("No confirmed appointments yet. Accepted requests will show up here.")
+                : aptFilter === "past"
+                ? t("No past appointments found.")
                 : aptFilter === "canceled"
                 ? t("No canceled appointments.")
                 : t("No appointments to show yet.")}
@@ -2202,7 +2222,7 @@ export default function CounselorDashboard() {
               )}
             </Text>
 
-            <TouchableOpacity
+            <CounselorGradientButton
               style={sessStyles.refreshBtn}
               onPress={() => fetchAppointments()}
               activeOpacity={0.9}
@@ -2211,7 +2231,7 @@ export default function CounselorDashboard() {
               <Text style={sessStyles.refreshBtnText}>
                 {t('counselor:refreshSchedule', 'Refresh Schedule')}
               </Text>
-            </TouchableOpacity>
+            </CounselorGradientButton>
 
             <TouchableOpacity
               style={sessStyles.tomorrowBtn}
@@ -3224,7 +3244,6 @@ const sessStyles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     alignSelf: "stretch",
-    backgroundColor: "#2563EB",
     borderRadius: 999,
     paddingVertical: 15,
   },
@@ -3590,11 +3609,17 @@ const aptStyles = StyleSheet.create({
   filterRow: {
     flexDirection: 'row',
     gap: 8,
+    paddingRight: 16,
     marginBottom: 14,
+  },
+  filterScroller: {
+    flexGrow: 0,
   },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 112,
     paddingHorizontal: 16,
     paddingVertical: 9,
     borderRadius: 999,
@@ -3925,11 +3950,12 @@ const aptStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    paddingHorizontal: 10,
     paddingVertical: 12,
     borderRadius: 10,
   },
   confirmedVideoBtn: {
-    flex: 1,
+    flex: 1.35,
     backgroundColor: '#2563EB',
   },
   confirmedVoiceBtn: {
