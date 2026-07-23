@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance, { API_BASE_URL } from '../../../../../../axiosConfig';
 import socketService from '../../../../../../services/socketService';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -253,6 +254,19 @@ const Dashboard = () => {
                       {(apt.status || 'pending').charAt(0).toUpperCase() + (apt.status || 'pending').slice(1)}
                     </Text>
                   </View>
+
+                  {/* Action Buttons */}
+                  <View style={styles.aptActionsRow}>
+                    <TouchableOpacity style={styles.aptActionBtn} activeOpacity={0.7}>
+                      <Ionicons name="videocam" size={18} color="#6366f1" />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.aptActionBtn} activeOpacity={0.7}>
+                      <Ionicons name="call" size={18} color="#10b981" />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.aptActionBtn} activeOpacity={0.7}>
+                      <Ionicons name="chatbubble-ellipses" size={18} color="#f59e0b" />
+                    </TouchableOpacity>
+                  </View>
                 </View>
               );
             })
@@ -439,13 +453,31 @@ const styles = StyleSheet.create({
   aptRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
+    gap: 10,
+    paddingVertical: 14,
     borderTopWidth: 1,
     borderTopColor: '#f1f5f9',
   },
   aptRowFirst: {
     borderTopWidth: 0,
+  },
+  aptActionsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+  },
+  aptActionBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   aptAvatar: {
     width: 44,
@@ -462,6 +494,7 @@ const styles = StyleSheet.create({
   },
   aptInfo: {
     flex: 1,
+    minWidth: 0,
     gap: 4,
   },
   aptPatient: {
@@ -480,12 +513,14 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   statusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 999,
+    minWidth: 60,
+    alignItems: 'center',
   },
   statusPillText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.3,
   },

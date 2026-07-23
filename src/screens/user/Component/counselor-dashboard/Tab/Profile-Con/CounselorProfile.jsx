@@ -1,5 +1,6 @@
 // CounselorProfile.jsx - Modern Full Width Design
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   View,
   Text,
@@ -25,10 +26,13 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import safeVibrate from '../../../../../../utils/safeVibrate';
+import { formatLocation, parseLocation } from '../../../../../../utils/locationFormatter';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 
 const { width } = Dimensions.get('window');
 
+// Document upload specifications (same as web)
+const MAX_CERTIFICATION_DOCUMENTS = 5;
 const VERIFICATION_DOCUMENT_OPTIONS = [
   'Medical / Professional Registration Certificate',
   'Degree or Qualification Certificate',
@@ -36,6 +40,7 @@ const VERIFICATION_DOCUMENT_OPTIONS = [
   'Government ID Proof',
   'Clinic / Hospital Affiliation Proof'
 ];
+const ALLOWED_DOCUMENT_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/jpg', 'image/png'];
 
 const normalizeGender = (value) => {
   if (!value) return '';
@@ -53,6 +58,7 @@ const normalizeBloodGroup = (value) => {
 
 const CounselorProfile = () => {
   const navigation = useNavigation();
+  const { t: tLanguage } = useTranslation();
   const { t } = useLanguageRender();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -123,6 +129,9 @@ const CounselorProfile = () => {
     document: null,
     documentName: ''
   });
+
+  const [documents, setDocuments] = useState([]);
+  const [selectedDocumentType, setSelectedDocumentType] = useState(null);
 
   useEffect(() => {
     fetchCounselorProfile();
@@ -260,18 +269,76 @@ const CounselorProfile = () => {
     }
   };
 
+  const uploadProfilePhoto = async (photoUri, photoType, photoName) => {
+    try {
+      const counsellorId = await AsyncStorage.getItem('counsellorId');
+      const accessToken = await AsyncStorage.getItem('accessToken');
+
+      console.log('Starting photo upload:', {
+        photoUri,
+        photoType,
+        photoName,
+        counsellorId,
+      });
+
+      // Create FormData with proper React Native file structure
+      const photoFormData = new FormData();
+
+      // Append photo with proper React Native format
+      photoFormData.append('profilePhoto', {
+        uri: photoUri,
+        type: photoType || 'image/jpeg',
+        name: photoName || 'profile_photo.jpg',
+      });
+
+      // Use fetch API for better React Native compatibility
+      const response = await fetch(
+        `${API_BASE_URL}/api/auth/update/${counsellorId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            // Let FormData set Content-Type automatically
+          },
+          body: photoFormData,
+        }
+      );
+
+      console.log('Photo upload response status:', response.status);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Photo upload error response:', errorData);
+        throw new Error(errorData.message || `Photo upload failed with status ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('Photo upload success:', result);
+      return result;
+    } catch (error) {
+      console.error('Photo upload error:', error);
+      throw error;
+    }
+  };
+
   const updateCounselorProfile = async (formData) => {
     try {
       const counsellorId = await AsyncStorage.getItem('counsellorId');
       const accessToken = await AsyncStorage.getItem('accessToken');
-      const response = await axios.patch(`${API_BASE_URL}/api/auth/update/${counsellorId}`, formData, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'multipart/form-data'
+
+      const response = await axios.patch(
+        `${API_BASE_URL}/api/auth/update/${counsellorId}`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          timeout: 30000,
         }
-      });
+      );
       return response;
     } catch (error) {
+      console.error('Update profile error:', error);
       throw error;
     }
   };
@@ -294,17 +361,51 @@ const CounselorProfile = () => {
   };
 
   const handleProfilePhotoUpload = async () => {
-    const options = { mediaType: 'photo', includeBase64: false, quality: 0.8 };
+    const options = {
+      mediaType: 'photo',
+      includeBase64: false,
+      quality: 0.7,
+      storageOptions: { skipBackup: true, path: 'images' }
+    };
+
     launchImageLibrary(options, (response) => {
-      if (response.didCancel) return;
-      if (response.errorCode) return;
+      if (response.didCancel) {
+        return;
+      }
+
+      if (response.errorCode) {
+        Alert.alert('Error', 'Failed to pick image. Please try again.');
+        return;
+      }
+
       if (response.assets && response.assets[0]) {
         const asset = response.assets[0];
+
+        // Validate file size (max 10MB)
+        if (asset.fileSize && asset.fileSize > 10 * 1024 * 1024) {
+          Alert.alert('File Too Large', 'Profile photo must be less than 10MB');
+          return;
+        }
+
+        // Validate file type
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+        if (!allowedTypes.includes(asset.type)) {
+          Alert.alert('Invalid Format', 'Only JPG, PNG, GIF, and WEBP images are allowed');
+          return;
+        }
+
+        // Set the photo
         setEditedData(prev => ({
           ...prev,
-          profilePhoto: { uri: asset.uri, type: asset.type, name: asset.fileName },
+          profilePhoto: {
+            uri: asset.uri,
+            type: asset.type || 'image/jpeg',
+            name: asset.fileName || 'profile_photo.jpg'
+          },
           profilePhotoUrl: asset.uri
         }));
+
+        Alert.alert('Success', 'Photo selected. It will be uploaded when you save.');
       }
     });
   };
@@ -372,6 +473,12 @@ const CounselorProfile = () => {
   };
 
   const handleAddCertification = () => {
+    // Validation: Check if verification documents are uploaded first
+    if (documents.length === 0) {
+      Alert.alert('Required', 'Please upload at least 1 verification document before adding certifications');
+      return;
+    }
+
     if (!newCertification.name.trim()) {
       Alert.alert('Error', 'Please enter certification name');
       return;
@@ -405,6 +512,64 @@ const CounselorProfile = () => {
     setEditedData(prev => ({ ...prev, certifications: prev.certifications.filter(cert => cert._id !== certId) }));
   };
 
+  // Document Upload Handlers
+  const handleDocumentUpload = async () => {
+    if (!selectedDocumentType) {
+      Alert.alert('Error', 'Please select a document type');
+      return;
+    }
+
+    if (documents.length >= MAX_CERTIFICATION_DOCUMENTS) {
+      Alert.alert('Limit Reached', `You can upload a maximum of ${MAX_CERTIFICATION_DOCUMENTS} verification documents.`);
+      return;
+    }
+
+    try {
+      launchImageLibrary(
+        {
+          mediaType: 'mixed',
+          includeBase64: false,
+          selectionLimit: 1,
+        },
+        (response) => {
+          if (response.didCancel) return;
+          if (response.errorCode) {
+            Alert.alert('Error', response.errorMessage || 'Failed to pick file');
+            return;
+          }
+
+          const asset = response.assets?.[0];
+          if (!asset) return;
+
+          const fileType = asset.type || '';
+          if (!ALLOWED_DOCUMENT_TYPES.includes(fileType)) {
+            Alert.alert('Invalid File', 'Only PDF, DOC, DOCX, JPG, and PNG files are allowed.');
+            return;
+          }
+
+          const newDoc = {
+            _id: `doc_${Date.now()}`,
+            documentType: selectedDocumentType,
+            documentName: asset.fileName || 'document',
+            uri: asset.uri,
+            type: asset.type,
+            size: asset.fileSize
+          };
+
+          setDocuments(prev => [...prev, newDoc]);
+          setSelectedDocumentType(null);
+          Alert.alert('Success', 'Document uploaded successfully');
+        }
+      );
+    } catch (err) {
+      Alert.alert('Error', 'Failed to upload document');
+    }
+  };
+
+  const handleRemoveDocument = (docId) => {
+    setDocuments(prev => prev.filter(doc => doc._id !== docId));
+  };
+
   const handleSave = async () => {
     try {
       setLoading(true);
@@ -412,7 +577,7 @@ const CounselorProfile = () => {
       setSuccessMessage('');
 
       const totalCertifications = editedData.certifications?.length || 0;
-      if (totalCertifications > 5) {
+      if (totalCertifications > MAX_CERTIFICATION_DOCUMENTS) {
         Alert.alert('Error', 'You can upload a maximum of 5 certification documents.');
         setLoading(false);
         return;
@@ -459,12 +624,29 @@ const CounselorProfile = () => {
         editedData.consultationMode.forEach((mode, index) => formData.append(`consultationMode[${index}]`, mode));
       }
 
+      // Upload photo separately if it exists
       if (editedData.profilePhoto && editedData.profilePhoto.uri) {
-        formData.append('profilePhoto', {
-          uri: editedData.profilePhoto.uri,
-          type: editedData.profilePhoto.type,
-          name: editedData.profilePhoto.name
-        });
+        try {
+          const photoUri = editedData.profilePhoto.uri;
+          const fileName = editedData.profilePhoto.name || 'profile_photo.jpg';
+          const mimeType = editedData.profilePhoto.type || 'image/jpeg';
+
+          console.log('Uploading photo:', { photoUri, fileName, mimeType });
+
+          setSuccessMessage('Uploading photo...');
+          await uploadProfilePhoto(photoUri, mimeType, fileName);
+          console.log('Photo uploaded successfully');
+          setSuccessMessage('Photo uploaded successfully!');
+          setTimeout(() => setSuccessMessage(''), 3000);
+        } catch (photoErr) {
+          console.error('Photo upload error:', photoErr);
+          const photoErrorMsg = photoErr.message || 'Photo upload failed. Please try again with a different image.';
+
+          // Show specific error for photo
+          Alert.alert('Photo Upload Issue', photoErrorMsg);
+
+          // Don't block profile update if photo fails
+        }
       }
 
       const certificationPayload = (editedData.certifications || [])
@@ -504,8 +686,27 @@ const CounselorProfile = () => {
       }
     } catch (err) {
       console.error('Error updating profile:', err);
-      setError(err.response?.data?.message || 'Failed to update profile');
-      setTimeout(() => setError(''), 3000);
+
+      // Handle specific errors
+      let errorMsg = 'Failed to update profile';
+
+      if (err.response?.status === 400) {
+        errorMsg = err.response?.data?.message || 'Invalid data. Please check your inputs.';
+      } else if (err.response?.status === 413) {
+        errorMsg = 'Profile photo is too large. Please use a smaller image.';
+      } else if (err.response?.status === 422) {
+        errorMsg = 'Please fill in all required fields correctly.';
+      } else if (err.message === 'Network Error') {
+        errorMsg = 'Network error. Please check your connection and try again.';
+      } else if (err.response?.data?.message?.includes('photo')) {
+        errorMsg = 'Error uploading photo. Please try again with a different image.';
+      } else {
+        errorMsg = err.response?.data?.message || err.message || 'Failed to update profile';
+      }
+
+      setError(errorMsg);
+      Alert.alert('Error', errorMsg);
+      setTimeout(() => setError(''), 5000);
     } finally {
       setLoading(false);
     }
@@ -795,9 +996,31 @@ const CounselorProfile = () => {
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>{t('profile:location')}</Text>
                 {isEditing ? (
-                  <TextInput style={styles.input} value={editedData.location || ''} onChangeText={(v) => handleInputChange('location', v)} placeholder="Your location" placeholderTextColor="#9CA3AF" />
+                  <TextInput style={styles.input} value={editedData.location || ''} onChangeText={(v) => handleInputChange('location', v)} placeholder="e.g., Bangalore, Pune, Delhi" placeholderTextColor="#9CA3AF" />
                 ) : (
-                  <Text style={styles.detailValue}>{counselor.location || t('profile:notSpecified')}</Text>
+                  <>
+                    {counselor.location ? (
+                      <View style={{ gap: 4 }}>
+                        {counselor.location
+                          .split(',')
+                          .map(loc => loc.trim())
+                          .filter(loc => loc.length > 0)
+                          .map((loc, index) => (
+                            <View key={index} style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: index === 0 ? 0 : 12 }}>
+                              <Text style={[styles.detailValue, { marginRight: 6 }]}>
+                                {index === 0 ? '📍' : '•'}
+                              </Text>
+                              <TranslatedMessageBubble
+                                text={loc}
+                                style={styles.detailValue}
+                              />
+                            </View>
+                          ))}
+                      </View>
+                    ) : (
+                      <Text style={styles.detailValue}>{t('profile:notSpecified')}</Text>
+                    )}
+                  </>
                 )}
               </View>
             </View>
@@ -833,7 +1056,16 @@ const CounselorProfile = () => {
             {isEditing ? (
               <TextInput style={[styles.input, styles.textArea]} value={editedData.aboutMe || ''} onChangeText={(v) => handleInputChange('aboutMe', v)} placeholder="Share your professional journey and expertise..." placeholderTextColor="#9CA3AF" multiline numberOfLines={5} />
             ) : (
-              <Text style={styles.bodyText}>{counselor.aboutMe || '✨ No bio added yet.'}</Text>
+              <>
+                {counselor.aboutMe ? (
+                  <TranslatedMessageBubble
+                    text={counselor.aboutMe}
+                    style={styles.bodyText}
+                  />
+                ) : (
+                  <Text style={styles.bodyText}>✨ No bio added yet.</Text>
+                )}
+              </>
             )}
           </View>
 
@@ -922,7 +1154,57 @@ const CounselorProfile = () => {
             )}
           </View>
 
-          {/* Certifications */}
+          {/* Verification Documents - ABOVE (First) */}
+          {isEditing && (
+            <View style={styles.card}>
+              <View style={styles.documentHeader}>
+                <Icon name="verified-user" size={20} color="#059669" />
+                <Text style={styles.documentTitle}>Verification Documents</Text>
+                <Text style={styles.documentCount}>{documents.length}/{MAX_CERTIFICATION_DOCUMENTS}</Text>
+              </View>
+
+              {/* Document Type Selector - Only shows when limit not reached */}
+              {documents.length < MAX_CERTIFICATION_DOCUMENTS && (
+                <View style={styles.documentTypeSection}>
+                  <Text style={styles.documentTypeLabel}>Select Document Type:</Text>
+                  <View style={styles.documentTypeList}>
+                    {VERIFICATION_DOCUMENT_OPTIONS.map((docType, index) => {
+                      const isSelected = selectedDocumentType === docType;
+                      return (
+                        <TouchableOpacity
+                          key={index}
+                          onPress={() => setSelectedDocumentType(isSelected ? null : docType)}
+                          style={[styles.documentTypeOption, isSelected && styles.documentTypeOptionActive]}
+                        >
+                          <View style={[styles.documentTypeNumber, isSelected && styles.documentTypeNumberActive]}>
+                            <Text style={[styles.documentTypeNumberText, isSelected && styles.documentTypeNumberTextActive]}>
+                              {index + 1}
+                            </Text>
+                          </View>
+                          <Text style={[styles.documentTypeName, isSelected && styles.documentTypeNameActive]}>
+                            {docType}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={handleDocumentUpload}
+                    style={[styles.uploadBtn, !selectedDocumentType && styles.uploadBtnDisabled]}
+                    disabled={!selectedDocumentType}
+                  >
+                    <Icon name="cloud-upload" size={20} color={selectedDocumentType ? "#fff" : "#9CA3AF"} />
+                    <Text style={[styles.uploadBtnText, !selectedDocumentType && styles.uploadBtnTextDisabled]}>
+                      Upload Document
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Certifications - BELOW (Second) */}
           <View style={styles.card}>
             {(isEditing ? editedData.certifications : counselor.certifications).map((cert, i) => (
               <View key={cert._id || i} style={styles.certCard}>
@@ -974,12 +1256,63 @@ const CounselorProfile = () => {
                 <TouchableOpacity onPress={handleUploadCertificationDocument} style={styles.uploadDocBtn}>
                   <Text style={styles.uploadDocBtnText}>{newCertification.documentName ? `Document: ${newCertification.documentName}` : 'Upload Document *'}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={handleAddCertification} style={styles.addCertBtn}>
-                  <Text style={styles.addCertBtnText}>Add Certification</Text>
+                <TouchableOpacity
+                  onPress={handleAddCertification}
+                  style={[styles.addCertBtn, !newCertification.document && styles.addCertBtnDisabled]}
+                  disabled={!newCertification.document}
+                >
+                  <Text style={[styles.addCertBtnText, !newCertification.document && styles.addCertBtnTextDisabled]}>
+                    Add Certification
+                  </Text>
                 </TouchableOpacity>
+                {!newCertification.document && (
+                  <Text style={styles.certRequiredNote}>* Upload certification document first</Text>
+                )}
               </View>
             )}
           </View>
+
+          {/* Uploaded Documents - At Bottom (After Certifications) */}
+          {isEditing && (
+            <View style={styles.card}>
+              <View style={styles.documentHeader}>
+                <Icon name="description" size={20} color="#2563EB" />
+                <Text style={styles.documentTitle}>Uploaded Documents</Text>
+                <Text style={styles.documentCount}>{documents.length}/{MAX_CERTIFICATION_DOCUMENTS}</Text>
+              </View>
+
+              {/* Documents List - Only shows when documents exist */}
+              {documents.length > 0 && (
+                <View style={styles.documentsList}>
+                  <Text style={styles.documentsListTitle}>Your Verification Documents:</Text>
+                  {documents.map((doc, index) => (
+                    <View key={doc._id} style={styles.documentItem}>
+                      <View style={styles.documentItemContent}>
+                        <Icon name="description" size={20} color="#2563EB" />
+                        <View style={styles.documentItemInfo}>
+                          <Text style={styles.documentItemType}>{doc.documentType}</Text>
+                          <Text style={styles.documentItemName} numberOfLines={1}>
+                            {doc.documentName}
+                          </Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => handleRemoveDocument(doc._id)}
+                        style={styles.removeDocBtn}
+                      >
+                        <Icon name="close" size={20} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Empty state - only shows when no documents */}
+              {documents.length === 0 && (
+                <Text style={styles.noDocumentsText}>No documents uploaded yet. Upload documents above in Verification Documents section.</Text>
+              )}
+            </View>
+          )}
 
         </View>
 
@@ -1755,6 +2088,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+  addCertBtnDisabled: {
+    backgroundColor: '#E2E8F0',
+  },
+  addCertBtnTextDisabled: {
+    color: '#9CA3AF',
+  },
+  certRequiredNote: {
+    fontSize: 12,
+    color: '#EF4444',
+    fontStyle: 'italic',
+    marginTop: 8,
+    textAlign: 'center',
+  },
 
   // Card section icon box
   cardIconBox: {
@@ -1809,6 +2155,166 @@ const styles = StyleSheet.create({
     color: '#64748B',
     marginTop: 6,
     lineHeight: 15,
+  },
+
+  // ─── Verification Documents ───────────────────────────────────────────────
+  documentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  documentTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1E293B',
+    flex: 1,
+  },
+  documentCount: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2563EB',
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+
+  documentTypeSection: {
+    marginBottom: 16,
+  },
+  documentTypeLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 10,
+  },
+  documentTypeList: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  documentTypeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+  },
+  documentTypeOptionActive: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#2563EB',
+  },
+  documentTypeNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#CBD5E1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  documentTypeNumberActive: {
+    backgroundColor: '#2563EB',
+  },
+  documentTypeNumberText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  documentTypeNumberTextActive: {
+    color: '#FFFFFF',
+  },
+  documentTypeName: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748B',
+    flex: 1,
+  },
+  documentTypeNameActive: {
+    color: '#2563EB',
+    fontWeight: '600',
+  },
+
+  uploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#2563EB',
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  uploadBtnDisabled: {
+    backgroundColor: '#E2E8F0',
+  },
+  uploadBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  uploadBtnTextDisabled: {
+    color: '#9CA3AF',
+  },
+
+  documentsList: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  documentsListTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 10,
+  },
+  documentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  documentItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 10,
+  },
+  documentItemInfo: {
+    flex: 1,
+  },
+  documentItemType: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2563EB',
+  },
+  documentItemName: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  removeDocBtn: {
+    padding: 8,
+  },
+
+  noDocumentsText: {
+    fontSize: 13,
+    color: '#94A3B8',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 16,
   },
 
 });

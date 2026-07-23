@@ -12,6 +12,8 @@ class ScreenshotPreventModule(private val reactContext: ReactApplicationContext)
 
     @ReactMethod
     fun enable() {
+        if (BuildConfig.DEBUG) return
+
         val activity = reactContext.currentActivity ?: return
         activity.runOnUiThread {
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)

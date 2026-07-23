@@ -971,9 +971,9 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                     <Text style={styles.modalInfoText}>{t('appointment:youCanChatOnceAccepts')}</Text>
                   </>
                 )}
-                <Text style={styles.modalInfoText}>
+                {/* <Text style={styles.modalInfoText}>
                   Average response time: {selectedCounselorForRequest?.responseTime}
-                </Text>
+                </Text> */}
                 <Text style={styles.privacyNote}>
                   You are chatting anonymously. Your real identity is protected.
                 </Text>

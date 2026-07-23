@@ -302,7 +302,7 @@ i18n
     resources,
     lng: 'en-US',
     fallbackLng: 'en-US',
-    ns: ['common', 'auth', 'dashboard', 'counselor', 'messages', 'settings', 'lock', 'language', 'call', 'profile', 'wallet', 'appointment'],
+    ns: ['common', 'auth', 'dashboard', 'counselor', 'messages', 'settings', 'lock', 'language', 'call', 'profile', 'wallet', 'appointment', 'helpPage', 'privacyPage'],
     defaultNS: 'common',
     interpolation: { escapeValue: false },
     compatibilityJSON: 'v4',

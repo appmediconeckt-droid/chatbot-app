@@ -8,6 +8,7 @@ jest.useFakeTimers();
 jest.mock('react-native-incall-manager', () => ({
   startRingtone: jest.fn(),
   stopRingtone: jest.fn(),
+  startRingback: jest.fn(),
   stopRingback: jest.fn(),
   setForceSpeakerphoneOn: jest.fn(),
   setKeepScreenOn: jest.fn(),
@@ -57,7 +58,7 @@ describe('useRingtone', () => {
       jest.advanceTimersByTime(2000);
     });
 
-    expect(InCallManager.startRingtone).toHaveBeenCalledTimes(2);
+    expect(InCallManager.startRingtone).toHaveBeenCalledTimes(1);
 
     act(() => {
       hookApi.stopRinging();
@@ -81,8 +82,8 @@ describe('useRingtone', () => {
       hookApi.startRinging(false);
     });
 
-    expect(InCallManager.start).toHaveBeenCalledWith(
-      expect.objectContaining({ media: 'audio', ringback: '_DTMF_' }),
-    );
+    expect(InCallManager.stopRingback).toHaveBeenCalled();
+    expect(InCallManager.setKeepScreenOn).toHaveBeenCalledWith(true);
+    expect(InCallManager.startRingback).toHaveBeenCalledWith('_BUNDLE_');
   });
 });

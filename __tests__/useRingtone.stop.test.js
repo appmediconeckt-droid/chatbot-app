@@ -6,6 +6,7 @@ import useRingtone from '../src/hooks/useRingtone';
 jest.mock('react-native-incall-manager', () => ({
   startRingtone: jest.fn(),
   stopRingtone: jest.fn(),
+  startRingback: jest.fn(),
   stopRingback: jest.fn(),
   setForceSpeakerphoneOn: jest.fn(),
   setKeepScreenOn: jest.fn(),

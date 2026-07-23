@@ -929,6 +929,11 @@ const UserSignup = ({ navigation, route }) => {
     );
   };
 
+  const scrollContainerStyle = {
+    ...styles.scrollContent,
+    justifyContent: isLogin ? 'center' : 'flex-start',
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
@@ -942,7 +947,7 @@ const UserSignup = ({ navigation, route }) => {
               <Icon name="chevron-left" size={28} color="#ffffff" />
             </TouchableOpacity>
 
-            <ScrollView contentContainerStyle={[styles.scrollContent, isLogin && { paddingTop: height * 0.13 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
+            <ScrollView contentContainerStyle={scrollContainerStyle} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
               <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
                   <View style={styles.logoBadge}><Image source={logo} style={styles.logo} resizeMode="contain" /></View>

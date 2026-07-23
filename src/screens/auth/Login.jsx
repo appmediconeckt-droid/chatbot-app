@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  Dimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -51,6 +52,10 @@ const Login = ({ navigation, route }) => {
   const [fpShowPassword, setFpShowPassword] = useState(false);
   const [fpShowConfirmPassword, setFpShowConfirmPassword] = useState(false);
   const [fpResendTimer, setFpResendTimer] = useState(60);
+
+  // Tablet detection
+  const { width } = Dimensions.get('window');
+  const isTablet = width >= 600;
 
   const normalizeRole = (role) => {
     const value = String(role || '').trim().toLowerCase();
@@ -505,12 +510,17 @@ const Login = ({ navigation, route }) => {
     setFpResendTimer(60);
   };
 
+  const scrollContainerStyle = {
+    ...styles.scrollContainer,
+    justifyContent: 'center',
+  };
+
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
+      <ScrollView contentContainerStyle={scrollContainerStyle}>
         <View style={styles.loginCard}>
           {/* Header Section */}
           <View style={styles.headerSection}>
@@ -960,8 +970,7 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
   },
   loginCard: {
     backgroundColor: '#fff',

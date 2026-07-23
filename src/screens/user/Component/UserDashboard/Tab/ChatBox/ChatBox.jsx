@@ -15,7 +15,6 @@ import {
   StatusBar,
   Dimensions,
   StyleSheet,
-  InteractionManager,
   Linking,
   useWindowDimensions,
 } from "react-native";
@@ -23,10 +22,16 @@ import socketService from '../../../../../../services/socketService';
 import axios from "axios";
 import { API_BASE_URL } from "../../../../../../axiosConfig";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import { pick } from "@react-native-documents/picker";
 import { SafeAreaView } from "react-native-safe-area-context";
+import LinearGradient from "react-native-linear-gradient";
 import Ionicons from "react-native-vector-icons/Ionicons";
+
+// Web ChatBox theme (matches chatbot/src/.../ChatBox.css): indigo → purple.
+const BRAND_GRADIENT = ["#6366f1", "#8b5cf6"];
+const GRADIENT_START = { x: 0, y: 0 };
+const GRADIENT_END = { x: 1, y: 1 };
 // Conditionally import RNFS only on native platforms
 let RNFS;
 if (Platform.OS !== 'web') {
@@ -200,7 +205,10 @@ const ChatBox = () => {
   useScreenshotPrevent();
   const navigation = useNavigation();
   const route = useRoute();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  // Responsive bubble width, mirroring the web CSS breakpoints:
+  // <375px → 85%, phones → 80%, tablets (≥768) → 70%.
+  const bubbleMaxWidth = windowWidth >= 768 ? '70%' : windowWidth < 375 ? '85%' : '80%';
   const { id: counselorId } = route.params || {};
   const { chatId, chatMongoId, counselor: initialCounselor, user: initialUser } = route.params || {};
 
@@ -263,15 +271,24 @@ const ChatBox = () => {
   const [counselorAvatarFailed, setCounselorAvatarFailed] = useState(false);
   const [chatStatus, setChatStatus] = useState(null);
   const [deletingMessageId, setDeletingMessageId] = useState(null);
+  // Track deleted message IDs persistently so they stay deleted across navigation/refresh
+  const [deletedMessageIds, setDeletedMessageIds] = useState(new Set());
+  // Track selected message for action menu
+  const [selectedMessageId, setSelectedMessageId] = useState(null);
 
   const flatListRef = useRef(null);
   const messageInputRef = useRef(null);
   const chatSocketRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fallbackChatIdRef = useRef(chatId || null);
-  const hasInitialAutoScrollRef = useRef(false);
+  // Scroll model mirrors the counselor screen (SMSInput) exactly: a single
+  // "should I stay pinned to newest" flag plus a "have I done the first scroll"
+  // flag. No suppress-timers / drag-handlers — those caused the jitter.
+  const initialLoadDoneRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
-  const suppressAutoScrollUntilRef = useRef(0);
+  // Block the 45-second poll for 5 seconds after a delete, so the server has
+  // time to confirm before a background refetch tries to re-add the deleted msg.
+  const deletedRecentlyRef = useRef(false);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const isSendingRef = useRef(false);
 
@@ -413,80 +430,78 @@ const ChatBox = () => {
   };
 
   const scrollToBottom = useCallback((animated = true) => {
-    InteractionManager.runAfterInteractions(() => {
-      requestAnimationFrame(() => {
-        if (!flatListRef.current) return;
-        try {
-          flatListRef.current.scrollToOffset({ offset: 0, animated });
-        } catch (error) {
-          // Ignore transient race
-        }
-      });
-    });
+    flatListRef.current?.scrollToOffset({ offset: 0, animated });
   }, []);
 
-  const [keyboardPad, setKeyboardPad] = useState(0);
+  // Reported keyboard height while open (0 when hidden).
+  const [keyboardShownHeight, setKeyboardShownHeight] = useState(0);
+  // Measured height of the chat container (via onLayout) and the largest height
+  // we've seen (= the keyboard-hidden / full height). Comparing them tells us
+  // how much Android already shrank the window for the keyboard.
+  const [chatAreaHeight, setChatAreaHeight] = useState(0);
+  const fullChatAreaHeightRef = useRef(0);
 
-  // Keyboard listeners – only update padding
+  const handleChatAreaLayout = useCallback((e) => {
+    const h = e?.nativeEvent?.layout?.height || 0;
+    if (!h) return;
+    setChatAreaHeight(h);
+    if (h > fullChatAreaHeightRef.current) fullChatAreaHeightRef.current = h;
+  }, []);
+
   useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvt, (e) => {
-      const height = e?.endCoordinates?.height || 0;
-      setKeyboardPad(height);
+    // Use keyboardWillShow for BOTH iOS and Android to apply padding BEFORE keyboard appears.
+    // This prevents the gap/delay glitch. keyboardDidShow fires too late.
+    const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
+      setKeyboardShownHeight(e?.endCoordinates?.height || 0);
+      // Keep the newest message visible when the keyboard opens (WhatsApp-style).
+      if (shouldAutoScrollRef.current) scrollToBottom(true);
     });
-
-    const hideSub = Keyboard.addListener(hideEvt, () => {
-      setKeyboardPad(0);
-    });
+    const hideSub = Keyboard.addListener('keyboardWillHide', () => setKeyboardShownHeight(0));
 
     return () => { showSub.remove(); hideSub.remove(); };
-  }, []);
+  }, [scrollToBottom]);
+
+  // Bottom padding = keyboard height MINUS however much the OS already shrank
+  // the window for it (measured, not from Dimensions). If the window fully
+  // resized, the two cancel → pad 0 (no gap — this is the tablet case that was
+  // broken). If the keyboard floats over the app, nothing shrank → pad = full
+  // keyboard height (the phone case). Works regardless of whether the device
+  // resizes for the keyboard. iOS uses KeyboardAvoidingView, so no pad there.
+  const windowShrink = Math.max(0, fullChatAreaHeightRef.current - chatAreaHeight);
+  const keyboardPad = (Platform.OS === 'android' && keyboardShownHeight > 0)
+    ? Math.max(0, keyboardShownHeight - windowShrink)
+    : 0;
+
+  // Call entries the user has deleted (hidden) from this thread. Persisted
+  // locally because there is no server API to delete a call record.
+  const [hiddenCallIds, setHiddenCallIds] = useState([]);
+  const messagesCountRef = useRef(0);
+
+  useEffect(() => {
+    messagesCountRef.current = messages.length;
+  }, [messages.length]);
 
   const messagesForList = useMemo(() => {
     if (!messages?.length && !callHistory?.length) return [];
-    return mergeTimelineForInverted(messages, callHistory);
-  }, [messages, callHistory]);
+    const merged = mergeTimelineForInverted(messages, callHistory);
+    if (!hiddenCallIds.length) return merged;
+    const hidden = new Set(hiddenCallIds.map(String));
+    return merged.filter((item) => !(item.isCall && hidden.has(String(item.id))));
+  }, [messages, callHistory, hiddenCallIds]);
 
-  // Scroll handling
+  // Scroll handling — identical model to the counselor screen (SMSInput).
+  // While the user scrolls, remember whether they are near the newest message
+  // (inverted list: offset 0 = newest). Content-size changes only re-pin when
+  // that flag is set, so scrolling up never yanks the view back down.
   const handleMessagesScroll = useCallback((event) => {
     const { contentOffset } = event.nativeEvent;
-    const distanceFromNewest = contentOffset.y;
-    shouldAutoScrollRef.current = distanceFromNewest <= 32;
-  }, []);
-
-  const handleMessagesScrollBeginDrag = useCallback(() => {
-    suppressAutoScrollUntilRef.current = Date.now() + 2500;
-  }, []);
-
-  const handleMessagesScrollEnd = useCallback((event) => {
-    const distanceFromNewest = event?.nativeEvent?.contentOffset?.y ?? 0;
-    const nearBottom = distanceFromNewest <= 32;
-    shouldAutoScrollRef.current = nearBottom;
-    if (!nearBottom) {
-      suppressAutoScrollUntilRef.current = Date.now() + 2500;
-    }
+    shouldAutoScrollRef.current = contentOffset.y <= 48;
   }, []);
 
   const handleMessagesContentSizeChange = useCallback(() => {
-    if (!messages.length) return;
-
-    if (Date.now() < suppressAutoScrollUntilRef.current) {
-      return;
-    }
-
-    if (!hasInitialAutoScrollRef.current) {
-      hasInitialAutoScrollRef.current = true;
-      shouldAutoScrollRef.current = true;
-      scrollToBottom(false);
-      return;
-    }
-
-    if (shouldAutoScrollRef.current) {
-      scrollToBottom(true);
-    }
-  }, [messages.length, scrollToBottom]);
+    if (shouldAutoScrollRef.current) scrollToBottom(false);
+    initialLoadDoneRef.current = true;
+  }, [scrollToBottom]);
 
   const getChatIdForAPI = useCallback(() => {
     if (chatId) return chatId;
@@ -607,7 +622,7 @@ const ChatBox = () => {
       const apiChatId = getChatIdForAPI();
       const token = await getAuthToken();
       
-      if (!silent && messages.length === 0) setIsLoadingMessages(true);
+      if (!silent && messagesCountRef.current === 0) setIsLoadingMessages(true);
 
       const response = await axios.get(`${API_BASE_URL}/api/chat/chat/${apiChatId}/messages`, {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -622,7 +637,21 @@ const ChatBox = () => {
       if (Array.isArray(messagesArray)) {
         if (responseChatStatus) setChatStatus(responseChatStatus);
 
-        const transformedMessages = messagesArray.map((msg, index) => ({
+        // Deduplicate system messages (e.g., "Sending a new request" that appears 6-7 times)
+        // Keep only the FIRST occurrence of duplicate system messages
+        const seenSystemTexts = new Set();
+        const deduplicatedMessages = messagesArray.filter(msg => {
+          const isSystemMessage = msg.content?.includes('Sending a new request') ||
+                                  msg.content?.includes('expires in');
+          if (isSystemMessage) {
+            const key = msg.content;
+            if (seenSystemTexts.has(key)) return false; // Skip duplicate
+            seenSystemTexts.add(key);
+          }
+          return true;
+        });
+
+        const transformedMessages = deduplicatedMessages.map((msg, index) => ({
           id: msg.id || msg._id || index,
           messageId: msg.messageId,
           text: msg.content,
@@ -638,24 +667,48 @@ const ChatBox = () => {
           status: "sent",
         }));
 
-        setMessages(transformedMessages);
-        
-        if (!hasInitialAutoScrollRef.current) {
-          hasInitialAutoScrollRef.current = true;
-          setTimeout(() => scrollToBottom(false), 50);
+        // Only re-pin to the newest message on the FIRST (non-silent) load.
+        // A silent background refresh (30s poll / manual refresh) must NOT yank
+        // the user's scroll position or force a re-scroll — that was the
+        // "reloading" jump after deleting. The web keeps scroll on refresh
+        // because the browser preserves it; we replicate that here.
+        if (!silent) {
+          initialLoadDoneRef.current = false;
+          shouldAutoScrollRef.current = true;
         }
-        
+
+        setMessages(prev => {
+          // Preserve any optimistic (still-sending) bubble so a poll that lands
+          // mid-send doesn't make it disappear. Server messages win once they
+          // carry the same id.
+          const pending = prev.filter(m => m.isTemporary);
+          // Filter out any message that the server returns if we already deleted it
+          // (tracked in deletedMessageIds). This prevents the "flicker" where a
+          // deleted message reappears if the server-side delete is still in progress.
+          const filtered = transformedMessages.filter(
+            m => !deletedMessageIds.has(String(m.messageId || m.id))
+          );
+          if (!pending.length) return filtered;
+          const serverIds = new Set(
+            filtered.map(m => String(m.messageId || m.id))
+          );
+          const keptPending = pending.filter(
+            m => !serverIds.has(String(m.messageId || m.id))
+          );
+          return [...filtered, ...keptPending];
+        });
+
         return transformedMessages;
       }
     } catch (error) {
       console.error("Error fetching messages from API:", error);
-      if (messages.length === 0) {
+      if (messagesCountRef.current === 0) {
         await loadMessagesFromLocalStorage();
       }
     } finally {
       setIsLoadingMessages(false);
     }
-  }, [getAuthToken, getChatIdForAPI, messages.length, scrollToBottom]);
+  }, [getAuthToken, getChatIdForAPI, loadMessagesFromLocalStorage, deletedMessageIds]);
 
   // Load the call history for THIS conversation
   const loadCallHistory = useCallback(async () => {
@@ -671,12 +724,36 @@ const ChatBox = () => {
     }
   }, [getAuthToken, resolveCurrentUserId, resolveCounselorId]);
 
+  const hiddenCallsStorageKey = useCallback(() => `hiddenCallEntries_${getChatIdForAPI()}`, [getChatIdForAPI]);
+
+  // Load the locally-hidden call entries for this thread.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(hiddenCallsStorageKey());
+        if (active && stored) setHiddenCallIds(JSON.parse(stored) || []);
+      } catch (_) { /* ignore */ }
+    })();
+    return () => { active = false; };
+  }, [hiddenCallsStorageKey]);
+
+  // "Delete" a call bubble = hide it locally + remember the choice.
+  const hideCallEntry = useCallback(async (callItemId) => {
+    if (!callItemId) return;
+    setHiddenCallIds((prev) => {
+      const next = Array.from(new Set([...prev, String(callItemId)]));
+      AsyncStorage.setItem(hiddenCallsStorageKey(), JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, [hiddenCallsStorageKey]);
+
   const loadMessagesFromLocalStorage = useCallback(async () => {
     try {
       const savedChats = JSON.parse(await AsyncStorage.getItem("activeChats") || "[]");
       const chat = savedChats.find(c => c.id === currentChat?.id || c.chatId === getChatIdForAPI());
       if (chat && chat.messages) {
-        hasInitialAutoScrollRef.current = false;
+        initialLoadDoneRef.current = false;
         shouldAutoScrollRef.current = true;
         setMessages(chat.messages);
       }
@@ -760,17 +837,13 @@ const ChatBox = () => {
     isSendingRef.current = true;
     setIsSending(true);
     
+    // Sending your own message always pins to newest; onContentSizeChange
+    // performs the actual scroll (same as the counselor screen).
     shouldAutoScrollRef.current = true;
     setMessages(prev => [...prev, tempUserMessage]);
     setNewMessage("");
     setPendingAttachment(null);
     setShowEmojiPicker(false);
-    
-    setTimeout(() => {
-      if (shouldAutoScrollRef.current) {
-        scrollToBottom(true);
-      }
-    }, 50);
 
     try {
       const sentMsg = await sendMessageToAPI({ messageContent: messageText, file: attachmentToSend });
@@ -795,12 +868,6 @@ const ChatBox = () => {
           status: "sent",
         }];
       });
-      
-      setTimeout(() => {
-        if (shouldAutoScrollRef.current) {
-          scrollToBottom(true);
-        }
-      }, 100);
     } catch (err) {
       console.error("Error in message sending flow:", err);
       setMessages(prev => prev.map(msg => msg.id === tempUserMessage.id ? { ...msg, status: "error", error: "Failed to send message" } : msg));
@@ -814,16 +881,11 @@ const ChatBox = () => {
         status: "error",
       };
       setMessages(prev => [...prev, errorMessage]);
-      setTimeout(() => {
-        if (shouldAutoScrollRef.current) {
-          scrollToBottom(true);
-        }
-      }, 50);
     } finally {
       isSendingRef.current = false;
       setIsSending(false);
     }
-  }, [newMessage, pendingAttachment, isSending, sendMessageToAPI, scrollToBottom]);
+  }, [newMessage, pendingAttachment, isSending, sendMessageToAPI]);
 
   // Delete any persisted message, matching the web chat behavior.
   const deleteMessage = useCallback(async (messageId) => {
@@ -848,40 +910,38 @@ const ChatBox = () => {
     }
     
     const apiChatId = getChatIdForAPI();
-    setDeletingMessageId(String(messageId));
-    
-    try {
-      const token = await getAuthToken();
-      
-      // Use the database _id (stored in `id`) as the primary identifier
-      const deleteId = messageToDelete.id || messageToDelete.messageId;
-      
-      console.log(`🗑️ Deleting message with _id: ${deleteId}`);
-      
-      await axios.delete(
-        `${API_BASE_URL}/api/chat/message/${encodeURIComponent(deleteId)}`,
-        {
-          headers: { Authorization: token ? `Bearer ${token}` : undefined },
-        }
-      );
-      
-      // Remove from UI after successful server deletion
-      setMessages(prev => prev.filter(m => 
-        String(m.id) !== String(messageId) && 
-        String(m.messageId) !== String(messageId)
-      ));
-      
-      // Update local storage
+    const deleteId = messageToDelete.id || messageToDelete.messageId;
+
+    // Optimistic delete: add to deletedMessageIds (persistent) and hide immediately.
+    // When the server returns from a fetch, we filter out any message with an ID
+    // in deletedMessageIds, preventing the "flicker" if the server delete is in progress.
+    setDeletedMessageIds(prev => new Set([...prev, String(messageId), String(messageToDelete.messageId)]));
+    setMessages(prev => prev.filter(m =>
+      String(m.id) !== String(messageId) &&
+      String(m.messageId) !== String(messageId)
+    ));
+
+    // Block all refetches for 10 seconds. The message is marked as deleted in state,
+    // so if a fetch happens and the server hasn't confirmed yet, we filter it out.
+    // But most importantly: without this grace period, multiple deletes or refetches
+    // can race and cause the flicker. This gives the server safe time to confirm.
+    deletedRecentlyRef.current = true;
+    setTimeout(() => {
+      deletedRecentlyRef.current = false;
+    }, 10000);
+
+    // Update local storage cache in the background (non-blocking).
+    (async () => {
       try {
         const savedChats = JSON.parse(await AsyncStorage.getItem("activeChats") || "[]");
         const updatedChats = savedChats.map(c => {
           if (c.chatId === apiChatId || String(c.id) === String(currentChat?.id)) {
-            return { 
-              ...c, 
-              messages: (c.messages || []).filter(m => 
-                String(m.id) !== String(messageId) && 
+            return {
+              ...c,
+              messages: (c.messages || []).filter(m =>
+                String(m.id) !== String(messageId) &&
                 String(m.messageId) !== String(messageId)
-              ) 
+              )
             };
           }
           return c;
@@ -890,25 +950,40 @@ const ChatBox = () => {
       } catch (e) {
         // ignore storage errors
       }
-      
-      // Reload messages from server to sync
-      setTimeout(() => {
-        fetchMessagesFromAPI(true);
-      }, 300);
-      
-      setDeletingMessageId(null);
+    })();
+
+    try {
+      const token = await getAuthToken();
+      await axios.delete(
+        `${API_BASE_URL}/api/chat/message/${encodeURIComponent(deleteId)}`,
+        {
+          headers: { Authorization: token ? `Bearer ${token}` : undefined },
+        }
+      );
       return true;
     } catch (err) {
       console.error("Delete message failed:", err?.response?.data || err.message || err);
+      // Roll back: put the message back where it was.
+      setMessages(prev => {
+        if (prev.some(m => String(m.id) === String(messageToDelete.id))) return prev;
+        const restored = [...prev, messageToDelete];
+        restored.sort((a, b) => {
+          const ta = a.fullTime ? new Date(a.fullTime).getTime() : Date.now();
+          const tb = b.fullTime ? new Date(b.fullTime).getTime() : Date.now();
+          return ta - tb;
+        });
+        return restored;
+      });
       const serverMsg = err?.response?.data?.message || err?.response?.data?.error || "Unknown server error";
       Alert.alert(
         "Delete Failed",
         `Could not delete message from server: ${serverMsg}. Please try again.`
       );
-      setDeletingMessageId(null);
       return false;
+    } finally {
+      setDeletingMessageId(null);
     }
-  }, [getAuthToken, getChatIdForAPI, currentChat, messages, fetchMessagesFromAPI]);
+  }, [getAuthToken, getChatIdForAPI, currentChat, messages]);
 
   const deleteWholeChat = useCallback(async () => {
     const apiChatId = getChatIdForClearAPI();
@@ -1155,8 +1230,9 @@ const ChatBox = () => {
           setCurrentChat(chat);
           if (chat.counselor) setCurrentCounselor(chat.counselor);
           if (chat.messages && chat.messages.length > 0) {
+            initialLoadDoneRef.current = false;
+            shouldAutoScrollRef.current = true;
             setMessages(chat.messages);
-            setTimeout(() => scrollToBottom(false), 50);
           }
           
           if (chat.unread) {
@@ -1179,9 +1255,12 @@ const ChatBox = () => {
           await AsyncStorage.setItem("activeChats", JSON.stringify(updatedChats));
         }
 
-        const silentFetch = messages.length > 0 || (chat && chat.messages && chat.messages.length > 0);
-        await fetchMessagesFromAPI(silentFetch);
-        await loadCallHistory();
+        const silentFetch = messagesCountRef.current > 0 || (chat && chat.messages && chat.messages.length > 0);
+        // Load messages + call history in parallel so they appear together (not call history lagging).
+        await Promise.all([
+          fetchMessagesFromAPI(silentFetch),
+          loadCallHistory(),
+        ]);
         
         setTimeout(() => {
           if (messageInputRef.current) messageInputRef.current.focus();
@@ -1192,7 +1271,15 @@ const ChatBox = () => {
     };
 
     initializeChat();
-  }, [counselorId, chatId, initialCounselor, initialUser, fetchMessagesFromAPI, loadCallHistory, scrollToBottom]);
+    // NOTE: deliberately NOT depending on fetchMessagesFromAPI / loadCallHistory.
+    // Those callbacks change identity whenever currentChat changes, and this
+    // effect calls setCurrentChat() — so including them created an infinite
+    // init→setCurrentChat→callback-identity-change→re-init loop that refetched
+    // the whole thread constantly (messages "reloaded" on every send, and a
+    // just-deleted message kept reappearing/flickering until the server delete
+    // finished). The web ChatBox depends only on these four values too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [counselorId, chatId, initialCounselor, initialUser]);
 
   // Save messages to AsyncStorage
   useEffect(() => {
@@ -1253,15 +1340,12 @@ const ChatBox = () => {
 
         unsubscribers.push(await socketService.on('new-message', (messageData) => {
           const userId = resolveCurrentUserId();
-          if (messageData.senderRole === 'user' && String(messageData.senderId) === String(userId)) {
-            setMessages(prev => prev.filter(msg => !msg.isTemporary));
-            return;
-          }
+          const isOwn = messageData.senderRole === 'user' && String(messageData.senderId) === String(userId);
           const transformedMessage = {
             id: messageData.id || messageData.messageId || `rt_${Date.now()}`,
             messageId: messageData.messageId,
             text: messageData.content,
-            sender: messageData.senderRole === 'user' ? 'user' : 'counselor',
+            sender: isOwn ? 'user' : 'counselor',
             senderRole: messageData.senderRole,
             time: new Date(messageData.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             fullTime: messageData.createdAt,
@@ -1272,15 +1356,26 @@ const ChatBox = () => {
             isRead: messageData.isRead,
             status: 'sent',
           };
-          const shouldKeepAtBottom = shouldAutoScrollRef.current && Date.now() >= suppressAutoScrollUntilRef.current;
+          // Match the counselor screen: a new message pins to newest and the
+          // content-size change performs the scroll.
+          shouldAutoScrollRef.current = true;
           setMessages(prev => {
-            const isDuplicate = prev.some(msg => msg.messageId && messageData.messageId && msg.messageId === messageData.messageId);
-            if (isDuplicate) return prev;
+            // We already have this exact message (e.g. our POST response landed
+            // first) — nothing to do.
+            if (prev.some(msg => msg.messageId && messageData.messageId && msg.messageId === messageData.messageId)) return prev;
+            // Our own echo: swap the optimistic "sending" bubble in place so it
+            // never flickers/disappears. (Previously it was removed and only
+            // re-added by the HTTP response, so the bubble blinked out.)
+            if (isOwn) {
+              const tempIndex = prev.findIndex(m => m.isTemporary);
+              if (tempIndex !== -1) {
+                const next = [...prev];
+                next[tempIndex] = transformedMessage;
+                return next;
+              }
+            }
             return [...prev, transformedMessage];
           });
-          if (shouldKeepAtBottom) {
-            setTimeout(scrollToBottom, 100);
-          }
         }));
 
         unsubscribers.push(await socketService.on('user-typing', ({ userRole, isTyping: typing }) => {
@@ -1337,64 +1432,106 @@ const ChatBox = () => {
   // Fallback polling
   useEffect(() => {
     const interval = setInterval(() => {
-      if (!isSocketConnected && currentChat) fetchMessagesFromAPI();
+      // Silent = background refresh that must not disturb the user's scroll.
+      // Skip if we just deleted a message — the server needs 5 seconds to confirm
+      // before a refetch tries to re-add it (avoid the delete flicker).
+      if (!isSocketConnected && currentChat && !deletedRecentlyRef.current) {
+        fetchMessagesFromAPI(true);
+      }
     }, 45000);
     return () => clearInterval(interval);
   }, [currentChat, isSocketConnected, fetchMessagesFromAPI]);
 
-  useEffect(() => {
-    if (messages.length > 0) {
-      if (Date.now() < suppressAutoScrollUntilRef.current) {
-        return;
+  // Auto-refresh when screen comes into focus (user navigates back to ChatBox)
+  useFocusEffect(
+    useCallback(() => {
+      // Silently refresh messages so they're up-to-date when user enters the screen
+      if (currentChat && !deletedRecentlyRef.current) {
+        fetchMessagesFromAPI(true);
       }
-
-      if (!hasInitialAutoScrollRef.current) {
-        hasInitialAutoScrollRef.current = true;
-        shouldAutoScrollRef.current = true;
-        scrollToBottom(false);
-      } else if (shouldAutoScrollRef.current) {
-        scrollToBottom(true);
-      }
-    }
-  }, [messages.length, scrollToBottom]);
+    }, [currentChat, fetchMessagesFromAPI])
+  );
 
   const handleInputChange = (text) => {
     setNewMessage(text);
     if (text.trim() !== "") handleTypingIndicator();
   };
 
+  const confirmDeleteCall = useCallback((item) => {
+    setConfirmState({
+      visible: true,
+      title: 'Delete Call',
+      message: `Remove this ${item.type === 'video' ? 'video' : 'voice'} call from the chat?\n\nThis action cannot be undone.`,
+      destructive: true,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      onCancel: () => setConfirmState(s => ({ ...s, visible: false })),
+      onConfirm: async () => {
+        setConfirmState(s => ({ ...s, visible: false }));
+        await hideCallEntry(item.id);
+      },
+    });
+  }, [hideCallEntry]);
+
   const renderCallItem = useCallback((item) => {
     const { isOutgoing, isAlert, statusLabel, durationText } = describeCall(item);
+    const isSelected = selectedMessageId === item.id;
+
     return (
-      <View style={[styles.messageRow, isOutgoing ? styles.messageRowRight : styles.messageRowLeft]}>
-        <View style={[styles.callBubble, isOutgoing ? styles.callBubbleOut : styles.callBubbleIn]}>
-          <View style={[styles.callIconCircle, isAlert && styles.callIconCircleAlert]}>
-            <Ionicons
-              name={item.type === "video" ? "videocam" : "call"}
-              size={18}
-              color={isAlert ? "#ef4444" : "#2c50cd"}
-            />
-          </View>
-          <View style={styles.callTextWrap}>
-            <Text style={styles.callTitle}>
-              {isOutgoing ? "Outgoing" : "Incoming"} {item.type === "video" ? "video" : "voice"} call
-            </Text>
-            <View style={styles.callMetaRow}>
+      <>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onLongPress={() => setSelectedMessageId(item.id)}
+          style={[styles.messageRow, isOutgoing ? styles.messageRowRight : styles.messageRowLeft]}
+        >
+          <View style={[styles.callBubble, isOutgoing ? styles.callBubbleOut : styles.callBubbleIn]}>
+            <View style={[styles.callIconCircle, isAlert && styles.callIconCircleAlert]}>
               <Ionicons
-                name={isAlert ? "close-circle" : isOutgoing ? "arrow-up-outline" : "arrow-down-outline"}
-                size={12}
-                color={isAlert ? "#ef4444" : "#64748b"}
+                name={item.type === "video" ? "videocam" : "call"}
+                size={18}
+                color={isAlert ? "#ef4444" : "#6366f1"}
               />
-              <Text style={[styles.callMeta, isAlert && styles.callMetaAlert]}>
-                {statusLabel}{durationText ? ` · ${durationText}` : ""}
-              </Text>
             </View>
+            <View style={styles.callTextWrap}>
+              <Text style={styles.callTitle}>
+                {isOutgoing ? "Outgoing" : "Incoming"} {item.type === "video" ? "video" : "voice"} call
+              </Text>
+              <View style={styles.callMetaRow}>
+                <Ionicons
+                  name={isAlert ? "close-circle" : isOutgoing ? "arrow-up-outline" : "arrow-down-outline"}
+                  size={12}
+                  color={isAlert ? "#ef4444" : "#64748b"}
+                />
+                <Text style={[styles.callMeta, isAlert && styles.callMetaAlert]}>
+                  {statusLabel}{durationText ? ` · ${durationText}` : ""}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.callTime}>{item.time}</Text>
           </View>
-          <Text style={styles.callTime}>{item.time}</Text>
-        </View>
-      </View>
+        </TouchableOpacity>
+        {/* Call delete menu - Only Delete option */}
+        <Modal transparent visible={isSelected} animationType="fade" onRequestClose={() => setSelectedMessageId(null)}>
+          <TouchableOpacity style={styles.actionMenuOverlay} activeOpacity={1} onPress={() => setSelectedMessageId(null)}>
+            <View style={styles.actionMenuBox}>
+              <Text style={styles.actionMenuTitle}>{item.type === 'video' ? 'Video Call' : 'Voice Call'}</Text>
+              <View style={styles.actionMenuDivider} />
+              <TouchableOpacity
+                style={styles.actionMenuItem}
+                onPress={() => {
+                  setSelectedMessageId(null);
+                  confirmDeleteCall(item);
+                }}
+              >
+                <Ionicons name="trash-outline" size={20} color="#dc2626" />
+                <Text style={[styles.actionMenuItemText, { color: '#dc2626', fontWeight: '600' }]}>Delete Call</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      </>
     );
-  }, []);
+  }, [confirmDeleteCall, selectedMessageId]);
 
   const renderMessage = useCallback(({ item }) => {
     if (item.isCall) return renderCallItem(item);
@@ -1410,115 +1547,106 @@ const ChatBox = () => {
     }
 
     const isUser = item.sender === "user";
-    const isDeleting = String(deletingMessageId) === String(item.id) || 
+    const isDeleting = String(deletingMessageId) === String(item.id) ||
                        String(deletingMessageId) === String(item.messageId);
-
     const canDelete = !item.isTemporary && item.status !== "sending" && item.status !== "error";
+
+    const handleDeleteMessage = async () => {
+      if (!canDelete) return;
+      Alert.alert(
+        "Delete Message",
+        "Delete this message? This action cannot be undone.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              await deleteMessage(item.id);
+            },
+          },
+        ],
+      );
+    };
+
+    // Bubble inner content — shared by the gradient (sent) and plain (received)
+    // wrappers so both look identical apart from the background.
+    const inner = (
+      <>
+        {!!item.text && (
+          <TranslatedMessageBubble
+            text={item.text}
+            isUser={isUser}
+            style={[styles.messageText, isUser ? styles.userMessageText : styles.counselorMessageText]}
+          />
+        )}
+        {(item.attachmentName || item.attachmentUrl) && (() => {
+          const url = getAttachmentUrl(item);
+          const name = item.attachmentName || '';
+          const isImage = isImageAttachment(item);
+          if (isImage && url) {
+            return (
+              <TouchableOpacity activeOpacity={0.9} onPress={() => openAttachment(url)}>
+                <Image source={{ uri: url }} style={styles.attachmentImage} resizeMode="cover" />
+              </TouchableOpacity>
+            );
+          }
+          return (
+            <TouchableOpacity activeOpacity={0.85} onPress={() => openAttachment(url)}>
+              <View style={[styles.attachmentBubble, isUser ? styles.userAttachmentBubble : styles.counselorAttachmentBubble]}>
+                <Ionicons name="document-text-outline" size={16} color={isUser ? '#ffffff' : '#6366f1'} />
+                <Text
+                  style={[styles.attachmentBubbleText, isUser ? styles.userAttachmentBubbleText : styles.counselorAttachmentBubbleText]}
+                  numberOfLines={1}
+                >
+                  📎 {name || 'Attachment'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })()}
+        <View style={styles.messageFooter}>
+          <Text style={[styles.messageTime, isUser && styles.messageTimeMine]}>{item.time}</Text>
+          {isUser && item.status === "sending" && <Text style={styles.messageStatusSending}>⌛</Text>}
+          {isUser && item.status === "sent" && (
+            <View style={styles.messageStatusIconWrap}>
+              <Ionicons
+                name={item.isRead ? "checkmark-done" : "checkmark"}
+                size={item.isRead ? 14 : 13}
+                color={item.isRead ? "#c7d2fe" : "rgba(255,255,255,0.6)"}
+              />
+            </View>
+          )}
+          {isUser && item.status === "error" && <Text style={styles.messageStatusError}>⚠️ Failed</Text>}
+        </View>
+      </>
+    );
 
     return (
       <TouchableOpacity
         activeOpacity={1}
-        onLongPress={() => {
-          if (canDelete) {
-            setConfirmState({
-              visible: true,
-              title: 'Delete Message',
-              message: 'Delete this message? This action cannot be undone.',
-              destructive: true,
-              onCancel: () => setConfirmState(s => ({ ...s, visible: false })),
-              onConfirm: async () => {
-                setConfirmState(s => ({ ...s, visible: false }));
-                await deleteMessage(item.id);
-              },
-            });
-          }
-        }}
+        onLongPress={() => canDelete && handleDeleteMessage()}
         style={[styles.messageRow, isUser ? styles.messageRowRight : styles.messageRowLeft]}
       >
-        <View style={[styles.messageBubble, isUser ? styles.messageRight : styles.messageLeft]}>
-          <View style={[styles.messageContent, isUser ? styles.userMessageContent : styles.counselorMessageContent, isDeleting && styles.messageDeleting]}>
-            {!!item.text && (
-              <TranslatedMessageBubble
-                text={item.text}
-                isUser={isUser}
-                style={[styles.messageText, isUser ? styles.userMessageText : styles.counselorMessageText]}
-              />
-            )}
-            {(item.attachmentName || item.attachmentUrl) && (() => {
-              const url = getAttachmentUrl(item);
-              const name = item.attachmentName || '';
-              const isImage = isImageAttachment(item);
-              if (isImage && url) {
-                return (
-                  <TouchableOpacity activeOpacity={0.9} onPress={() => openAttachment(url)}>
-                    <Image
-                      source={{ uri: url }}
-                      style={styles.attachmentImage}
-                      resizeMode="cover"
-                    />
-                  </TouchableOpacity>
-                );
-              }
-              return (
-                <TouchableOpacity activeOpacity={0.85} onPress={() => openAttachment(url)}>
-                  <View style={[styles.attachmentBubble, isUser ? styles.userAttachmentBubble : styles.counselorAttachmentBubble]}>
-                    <Ionicons name="document-text-outline" size={16} color={isUser ? '#ffffff' : '#526071'} />
-                    <Text
-                      style={[styles.attachmentBubbleText, isUser ? styles.userAttachmentBubbleText : styles.counselorAttachmentBubbleText]}
-                      numberOfLines={1}
-                    >
-                      📎 {name || 'Attachment'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })()}
-            <View style={styles.messageFooter}>
-              <Text style={styles.messageTime}>{item.time}</Text>
-              {isUser && item.status === "sending" && <Text style={styles.messageStatusSending}>⌛</Text>}
-              {isUser && item.status === "sent" && (
-                <View style={styles.messageStatusIconWrap}>
-                  <Ionicons
-                    name={item.isRead ? "checkmark-done" : "checkmark"}
-                    size={item.isRead ? 14 : 13}
-                    color={item.isRead ? "#34B7F1" : "#94a3b8"}
-                  />
-                </View>
-              )}
-              {isUser && item.status === "error" && <Text style={styles.messageStatusError}>⚠️ Failed</Text>}
-              
-              {/* Delete icon for persisted messages, same as web */}
-              {canDelete && (
-                <TouchableOpacity
-                  style={styles.deleteIconBtn}
-                  onPress={() => {
-                    setConfirmState({
-                      visible: true,
-                      title: 'Delete Message',
-                      message: 'Delete this message? This action cannot be undone.',
-                      destructive: true,
-                      onCancel: () => setConfirmState(s => ({ ...s, visible: false })),
-                      onConfirm: async () => {
-                        setConfirmState(s => ({ ...s, visible: false }));
-                        await deleteMessage(item.id);
-                      },
-                    });
-                  }}
-                  disabled={isDeleting}
-                >
-                  {isDeleting ? (
-                    <ActivityIndicator size="small" color="#94a3b8" />
-                  ) : (
-                    <Ionicons name="trash-outline" size={14} color="#94a3b8" />
-                  )}
-                </TouchableOpacity>
-              )}
+        <View style={[styles.messageBubble, { maxWidth: bubbleMaxWidth }, isUser ? styles.messageRight : styles.messageLeft]}>
+          {isUser ? (
+            <LinearGradient
+              colors={BRAND_GRADIENT}
+              start={GRADIENT_START}
+              end={GRADIENT_END}
+              style={[styles.messageContent, styles.userMessageContent, isDeleting && styles.messageDeleting]}
+            >
+              {inner}
+            </LinearGradient>
+          ) : (
+            <View style={[styles.messageContent, styles.counselorMessageContent, isDeleting && styles.messageDeleting]}>
+              {inner}
             </View>
-          </View>
+          )}
         </View>
       </TouchableOpacity>
     );
-  }, [renderCallItem, deleteMessage, openAttachment, deletingMessageId]);
+  }, [renderCallItem, deleteMessage, openAttachment, deletingMessageId, bubbleMaxWidth, currentCounselor?.name]);
 
   const renderChatStatusBanner = () => {
     if (!chatStatus || chatStatus === "accepted") return null;
@@ -1560,7 +1688,7 @@ const ChatBox = () => {
         style={styles.keyboardAvoid}
         enabled={Platform.OS === "ios"}
       >
-        <View style={[styles.chatBoxMain, { paddingBottom: keyboardPad }]}>
+        <View style={[styles.chatBoxMain, { paddingBottom: keyboardPad }]} onLayout={handleChatAreaLayout}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -1576,9 +1704,14 @@ const ChatBox = () => {
                       onError={() => setCounselorAvatarFailed(true)}
                     />
                   ) : (
-                    <View style={styles.profileAvatar}>
+                    <LinearGradient
+                      colors={BRAND_GRADIENT}
+                      start={GRADIENT_START}
+                      end={GRADIENT_END}
+                      style={styles.profileAvatar}
+                    >
                       <Text style={styles.profileInitials}>{getInitials(counselorName)}</Text>
-                    </View>
+                    </LinearGradient>
                   )}
                   <View style={[styles.activeDot, counselorOnline ? styles.onlineDot : styles.offlineDot]} />
                 </View>
@@ -1602,10 +1735,10 @@ const ChatBox = () => {
 
             <View style={styles.headerRight}>
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.disabledBtn]} onPress={handleVideoCall} disabled={isInitiatingCall}>
-                <Ionicons name="videocam" size={20} color="#2c50cd" />
+                <Ionicons name="videocam" size={20} color="#6366f1" />
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.disabledBtn]} onPress={handleVoiceCall} disabled={isInitiatingCall}>
-                <Ionicons name="call" size={19} color="#2c50cd" />
+                <Ionicons name="call" size={19} color="#10b981" />
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(!showOptions)}>
                 <Ionicons name="ellipsis-vertical" size={18} color="#526071" />
@@ -1621,17 +1754,9 @@ const ChatBox = () => {
                   <Ionicons name="refresh" size={18} color="#526071" />
                   <Text style={styles.optionText}>Refresh Messages</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.optionItem} onPress={() => { setShowOptions(false); deleteWholeChat(); }}>
+                <TouchableOpacity style={[styles.optionItem, styles.optionItemLast]} onPress={() => { setShowOptions(false); deleteWholeChat(); }}>
                   <Ionicons name="trash-outline" size={18} color="#dc2626" />
                   <Text style={[styles.optionText, styles.optionTextDanger]}>Delete Chat</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.optionItem} onPress={() => { Alert.alert("Report Issue", "Feature coming soon"); setShowOptions(false); }}>
-                  <Ionicons name="warning-outline" size={18} color="#526071" />
-                  <Text style={styles.optionText}>Report Issue</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.optionItem} onPress={() => { Alert.alert("Chat Details", "Feature coming soon"); setShowOptions(false); }}>
-                  <Ionicons name="information-circle-outline" size={18} color="#526071" />
-                  <Text style={styles.optionText}>Chat Details</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
@@ -1651,7 +1776,7 @@ const ChatBox = () => {
 
           {isLoadingMessages && messages.length === 0 ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#2c50cd" />
+              <ActivityIndicator size="large" color="#6366f1" />
               <Text style={styles.loadingText}>Loading messages...</Text>
             </View>
           ) : (
@@ -1663,17 +1788,9 @@ const ChatBox = () => {
               contentContainerStyle={styles.messagesList}
               onContentSizeChange={handleMessagesContentSizeChange}
               onScroll={handleMessagesScroll}
-              onScrollBeginDrag={handleMessagesScrollBeginDrag}
-              onScrollEndDrag={handleMessagesScrollEnd}
-              onMomentumScrollEnd={handleMessagesScrollEnd}
               scrollEventThrottle={16}
-              keyboardShouldPersistTaps="always"
-              keyboardDismissMode="none"
+              keyboardShouldPersistTaps="handled"
               inverted
-              initialNumToRender={15}
-              maxToRenderPerBatch={10}
-              windowSize={10}
-              removeClippedSubviews={Platform.OS === "android"}
               ListHeaderComponent={
                 remoteIsTyping ? (
                   <View style={styles.typingContainer}>
@@ -1746,7 +1863,7 @@ const ChatBox = () => {
             <View style={styles.inputAreaInner}>
             {pendingAttachment && (
               <View style={styles.attachmentPreview}>
-                <Ionicons name="attach" size={16} color="#2c50cd" />
+                <Ionicons name="attach" size={16} color="#6366f1" />
                 <Text style={styles.attachmentPreviewText} numberOfLines={1}>
                   {pendingAttachment.name}
                 </Text>
@@ -1776,18 +1893,22 @@ const ChatBox = () => {
                 </TouchableOpacity>
               </View>
               <TouchableOpacity
-                style={[
-                  styles.sendBtn,
-                  (newMessage.trim() === "" && !pendingAttachment) && styles.sendBtnDisabled,
-                ]}
                 onPress={handleSendMessage}
                 activeOpacity={0.8}
+                disabled={isSending}
               >
-                {isSending ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-                ) : (
-                  <Ionicons name="send" size={20} color="#ffffff" />
-                )}
+                <LinearGradient
+                  colors={(newMessage.trim() === "" && !pendingAttachment) ? ["#a5b4fc", "#c4b5fd"] : BRAND_GRADIENT}
+                  start={GRADIENT_START}
+                  end={GRADIENT_END}
+                  style={styles.sendBtn}
+                >
+                  {isSending ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Ionicons name="send" size={20} color="#ffffff" />
+                  )}
+                </LinearGradient>
               </TouchableOpacity>
             </View>
             </View>
@@ -1826,7 +1947,7 @@ const styles = StyleSheet.create({
   chatBoxMain: {
     flex: 1,
     width: '100%',
-    backgroundColor: "#f7f9fb",
+    backgroundColor: "#fafbfc",
   },
   // Header Styles - Balanced
   header: {
@@ -1837,7 +1958,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     backgroundColor: "#ffffff",
     borderBottomWidth: 1,
-    borderBottomColor: "#e6e8ea",
+    borderBottomColor: "#eef2f6",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
@@ -1867,10 +1988,10 @@ const styles = StyleSheet.create({
   },
   profilePic: {
     position: "relative",
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#d5e4f8",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#eef2ff",
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
@@ -1880,16 +2001,15 @@ const styles = StyleSheet.create({
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#d5e4f8",
   },
   profileAvatarImage: {
     width: "100%",
     height: "100%",
   },
   profileInitials: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "700",
-    color: "#081625",
+    color: "#ffffff",
     textTransform: "uppercase",
   },
   activeDot: {
@@ -1903,7 +2023,7 @@ const styles = StyleSheet.create({
     borderColor: "#ffffff",
   },
   onlineDot: {
-    backgroundColor: "#4caf50",
+    backgroundColor: "#10b981",
   },
   offlineDot: {
     backgroundColor: "#94a3b8",
@@ -1914,9 +2034,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   profileName: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "700",
-    color: "#081625",
+    color: "#0f172a",
     fontFamily: Platform.OS === "ios" ? "Manrope" : "System",
   },
   profileStatusRow: {
@@ -1931,19 +2051,19 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   statusDotOnline: {
-    backgroundColor: "#4caf50",
+    backgroundColor: "#10b981",
   },
   statusDotOffline: {
     backgroundColor: "#94a3b8",
   },
   statusText: {
-    fontSize: 11,
-    color: "#74777c",
+    fontSize: 12,
+    color: "#64748b",
     fontWeight: "500",
   },
   typingText: {
-    fontSize: 11,
-    color: "#2c50cd",
+    fontSize: 12,
+    color: "#10b981",
     fontWeight: "600",
   },
   headerRight: {
@@ -1995,6 +2115,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f2f4f6",
   },
+  optionItemLast: {
+    borderBottomWidth: 0,
+  },
   optionText: {
     fontSize: 14,
     fontWeight: "500",
@@ -2009,13 +2132,13 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     alignItems: "center",
-    backgroundColor: "#fff3e0",
+    backgroundColor: "#e8f5e9",
     borderBottomWidth: 1,
-    borderBottomColor: "#ffe0b2",
+    borderBottomColor: "#c8e6c9",
   },
   statusPending: {
-    backgroundColor: "#fff8e1",
-    borderBottomColor: "#ffecb3",
+    backgroundColor: "#f1f8e9",
+    borderBottomColor: "#dcedc8",
   },
   statusEnded: {
     backgroundColor: "#ffebee",
@@ -2024,7 +2147,7 @@ const styles = StyleSheet.create({
   chatStatusText: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#e65100",
+    color: "#2e7d32",
   },
   // Error Banner
   errorBanner: {
@@ -2061,9 +2184,10 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 760,
     alignSelf: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 16,
+    gap: 10,
+    flexGrow: 1,
   },
   daySeparatorRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 10 },
   daySeparatorLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
@@ -2075,24 +2199,26 @@ const styles = StyleSheet.create({
   callBubbleMeta: { fontSize: 11, color: '#64748b', marginLeft: 6 },
   welcomeCard: {
     flexDirection: "row",
-    backgroundColor: "#eceef0",
+    backgroundColor: "#eef2ff",
     borderRadius: 24,
     padding: 16,
     marginBottom: 20,
     gap: 14,
+    borderWidth: 1,
+    borderColor: "#e0e7ff",
   },
   welcomeAvatar: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#b9c8db",
+    backgroundColor: "#6366f1",
     justifyContent: "center",
     alignItems: "center",
   },
   welcomeInitials: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#081625",
+    color: "#ffffff",
     textTransform: "uppercase",
   },
   welcomeMsg: {
@@ -2232,28 +2358,37 @@ const styles = StyleSheet.create({
     color: "#94a3b8",
     alignSelf: "flex-end",
   },
+  callDeleteBtn: {
+    alignSelf: "flex-start",
+    padding: 2,
+  },
   messageContent: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     alignItems: "flex-end",
     justifyContent: "flex-end",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 22,
+    minWidth: 72,
   },
   userMessageContent: {
-    backgroundColor: "#2c50cd",
-    borderBottomRightRadius: 4,
+    borderBottomRightRadius: 6,
+    shadowColor: "#6366f1",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
   },
   counselorMessageContent: {
     backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: "#e6e8ea",
-    borderBottomLeftRadius: 4,
+    borderColor: "#eef2f6",
+    borderBottomLeftRadius: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
     elevation: 1,
   },
   messageDeleting: {
@@ -2269,7 +2404,7 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   counselorMessageText: {
-    color: "#081625",
+    color: "#0f172a",
   },
   attachmentImage: {
     width: 220,
@@ -2287,10 +2422,10 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   userAttachmentBubble: {
-    backgroundColor: "rgba(255,255,255,0.15)",
+    backgroundColor: "rgba(255,255,255,0.16)",
   },
   counselorAttachmentBubble: {
-    backgroundColor: "#f2f4f6",
+    backgroundColor: "#f1f5f9",
   },
   attachmentBubbleText: {
     fontSize: 12,
@@ -2310,8 +2445,12 @@ const styles = StyleSheet.create({
     paddingBottom: 1,
   },
   messageTime: {
-    fontSize: 10,
-    color: "#8492a5",
+    fontSize: 11,
+    color: "#94a3b8",
+    fontWeight: "500",
+  },
+  messageTimeMine: {
+    color: "#cbd5e1",
   },
   messageStatusSending: {
     fontSize: 10,
@@ -2348,9 +2487,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     paddingHorizontal: 8,
     paddingVertical: 10,
-    backgroundColor: "#eceef0",
+    backgroundColor: "#ffffff",
     alignSelf: "flex-start",
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#eef2f6",
   },
   typingDots: {
     flexDirection: "row",
@@ -2361,7 +2502,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#8492a5",
+    backgroundColor: "#6366f1",
     opacity: 0.6,
   },
   typingDotDelay1: {
@@ -2382,7 +2523,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
     borderTopWidth: 1,
-    borderTopColor: "#e6e8ea",
+    borderTopColor: "#e2e8f0",
     backgroundColor: "#ffffff",
   },
   inputAreaInner: {
@@ -2397,12 +2538,14 @@ const styles = StyleSheet.create({
   attachmentPreview: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#f2f4f6",
+    backgroundColor: "#eef2ff",
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 8,
     marginBottom: 10,
     gap: 8,
+    borderWidth: 1,
+    borderColor: "#e0e7ff",
   },
   attachmentPreviewText: {
     flex: 1,
@@ -2413,11 +2556,13 @@ const styles = StyleSheet.create({
   inputGroup: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    backgroundColor: "#f2f4f6",
+    gap: 8,
+    backgroundColor: "#f0f1f3",
     borderRadius: 28,
     paddingHorizontal: 8,
     paddingVertical: 0,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
   attachBtn: {
     width: 40,
@@ -2425,6 +2570,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "#e7ebff",
+    borderWidth: 1,
+    borderColor: "#dbe0ff",
   },
   inputWrapper: {
     flex: 1,
@@ -2452,21 +2600,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   sendBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#2c50cd",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#2c50cd",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
+    shadowColor: "#6366f1",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
     shadowRadius: 6,
     elevation: 4,
   },
   sendBtnDisabled: {
-    opacity: 0.5,
-    backgroundColor: "#b9c8db",
+    opacity: 0.7,
   },
   // Emoji Picker Modal
   emojiOverlay: {
@@ -2561,7 +2707,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f2f4f6',
   },
   confirmBtnConfirm: {
-    backgroundColor: '#2c50cd',
+    backgroundColor: '#6366f1',
   },
   confirmBtnText: {
     fontSize: 14,
@@ -2585,11 +2731,11 @@ const styles = StyleSheet.create({
   },
   videoCallModal: {
     borderTopWidth: 4,
-    borderTopColor: "#2c50cd",
+    borderTopColor: "#6366f1",
   },
   voiceCallModal: {
     borderTopWidth: 4,
-    borderTopColor: "#4caf50",
+    borderTopColor: "#10b981",
   },
   incomingModalContent: {
     padding: 24,
@@ -2654,7 +2800,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   acceptCallBtn: {
-    backgroundColor: "#2c50cd",
+    backgroundColor: "#10b981",
   },
   rejectCallBtn: {
     backgroundColor: "#ba1a1a",
@@ -2663,6 +2809,49 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  actionMenuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionMenuBox: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    paddingVertical: 8,
+    minWidth: 240,
+    maxWidth: 280,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  actionMenuTitle: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 13,
+    color: '#8892a5',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  actionMenuDivider: {
+    height: 1,
+    backgroundColor: '#f0f3f8',
+    marginVertical: 4,
+  },
+  actionMenuItem: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    gap: 12,
+  },
+  actionMenuItemText: {
+    fontSize: 15,
+    fontWeight: '500',
   },
 });
 

@@ -20,6 +20,7 @@ import {
   Image,
   Linking,
   useWindowDimensions,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
@@ -191,6 +192,9 @@ const SMSInput = ({ navigation, route }) => {
   const fallbackChatIdRef = useRef(null);
   const initialLoadDoneRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
+  // Block poll for 5 seconds after a delete so server can confirm.
+  const deletedRecentlyRef = useRef(false);
+  const deletedMessageIdsRef = useRef(new Set());
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [remoteIsTyping, setRemoteIsTyping] = useState(false);
 
@@ -200,6 +204,7 @@ const SMSInput = ({ navigation, route }) => {
   const [selectedCall, setSelectedCall] = useState(null);
   const [isInitiatingCall, setIsInitiatingCall] = useState(false);
   const [callError, setCallError] = useState(null);
+  const [showOptions, setShowOptions] = useState(false);
 
   // Receiving Call States
   const [showIncomingModal, setShowIncomingModal] = useState(false);
@@ -221,7 +226,30 @@ const SMSInput = ({ navigation, route }) => {
   const [chatStatus, setChatStatus] = useState(null);
   const [pendingAttachment, setPendingAttachment] = useState(null);
   const [deletingMessageId, setDeletingMessageId] = useState(null);
-  
+  // Call entries deleted (hidden) locally — there is no server API to delete a
+  // call record, so we persist the hidden ids per chat.
+  const [hiddenCallIds, setHiddenCallIds] = useState([]);
+  // Track deleted message IDs persistently so they stay deleted across navigation/refresh
+  const [deletedMessageIds, setDeletedMessageIds] = useState(new Set());
+  const getDeletedMessagesStorageKey = useCallback(() => `deletedMessages_${getChatIdForAPI()}`, [chatId, USER_ID, counselorId, selectedUser]);
+  // Android edge-to-edge (RN 0.84): we lift the chat above the keyboard
+  // ourselves. Pad = keyboard height MINUS however much the OS already shrank
+  // the window (measured via onLayout, not Dimensions), so devices that resize
+  // for the keyboard don't get a double-lift gap. See keyboardPad below.
+  const [keyboardShownHeight, setKeyboardShownHeight] = useState(0);
+  const [chatAreaHeight, setChatAreaHeight] = useState(0);
+  const fullChatAreaHeightRef = useRef(0);
+  const handleChatAreaLayout = useCallback((e) => {
+    const h = e?.nativeEvent?.layout?.height || 0;
+    if (!h) return;
+    setChatAreaHeight(h);
+    if (h > fullChatAreaHeightRef.current) fullChatAreaHeightRef.current = h;
+  }, []);
+  const windowShrink = Math.max(0, fullChatAreaHeightRef.current - chatAreaHeight);
+  const keyboardPad = (Platform.OS === 'android' && keyboardShownHeight > 0)
+    ? Math.max(0, keyboardShownHeight - windowShrink)
+    : 0;
+
   // Counselor data
   const [currentCounselor, setCurrentCounselor] = useState(null);
   const [counselorId, setCounselorId] = useState(null);
@@ -418,7 +446,22 @@ const SMSInput = ({ navigation, route }) => {
       });
       if (response.data && response.data.messages) {
         if (response.data.chatStatus) setChatStatus(response.data.chatStatus);
-        const transformed = response.data.messages.map((msg, idx) => ({
+
+        // Deduplicate system messages (e.g., "Sending a new request" that appears 6-7 times)
+        // Keep only the FIRST occurrence of duplicate system messages
+        const seenSystemTexts = new Set();
+        const deduplicatedMessages = response.data.messages.filter(msg => {
+          const isSystemMessage = msg.content?.includes('Sending a new request') ||
+                                  msg.content?.includes('expires in');
+          if (isSystemMessage) {
+            const key = msg.content;
+            if (seenSystemTexts.has(key)) return false; // Skip duplicate
+            seenSystemTexts.add(key);
+          }
+          return true;
+        });
+
+        const transformed = deduplicatedMessages.map((msg, idx) => ({
           id: msg.id || msg._id || msg.messageId || `fetched_${idx}`,
           messageId: msg.messageId,
           text: msg.content,
@@ -435,8 +478,13 @@ const SMSInput = ({ navigation, route }) => {
         }));
         initialLoadDoneRef.current = false;
         shouldAutoScrollRef.current = true;
-        setMessages(transformed);
-        saveMessagesToLocalStorage(transformed);
+        // Filter out any message that we've already deleted (tracked in deletedMessageIds)
+        // so the server response doesn't re-add a message we optimistically deleted.
+        setMessages(prev => {
+          const filtered = transformed.filter(m => !deletedMessageIds.has(String(m.messageId || m.id)));
+          saveMessagesToLocalStorage(filtered);
+          return filtered;
+        });
       }
     } catch (error) {
       if (error?.response?.status === 401) {
@@ -479,12 +527,70 @@ const SMSInput = ({ navigation, route }) => {
 
   // ─── Merged timeline (messages + calls sorted oldest→newest) ────────────
   const getMergedTimeline = useCallback(() => {
-    return [...messages, ...callHistory].sort((a, b) => {
+    const hidden = new Set(hiddenCallIds.map(String));
+    const visibleCalls = callHistory.filter((c) => !hidden.has(String(c.id)));
+    return [...messages, ...visibleCalls].sort((a, b) => {
       const tA = a.fullTime || a.createdAt || a.timestamp;
       const tB = b.fullTime || b.createdAt || b.timestamp;
       return new Date(tA) - new Date(tB);
     });
-  }, [messages, callHistory]);
+  }, [messages, callHistory, hiddenCallIds]);
+
+  const hiddenCallsStorageKey = useCallback(() => `hiddenCallEntries_${getChatIdForAPI()}`, [chatId, USER_ID, counselorId, selectedUser]);
+
+  // Load locally-hidden call entries for this thread.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(hiddenCallsStorageKey());
+        if (active && stored) setHiddenCallIds(JSON.parse(stored) || []);
+      } catch (_) { /* ignore */ }
+    })();
+    return () => { active = false; };
+  }, [hiddenCallsStorageKey]);
+
+  // Load deleted message IDs for this thread so deletions survive app refresh
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(getDeletedMessagesStorageKey());
+        if (active && stored) {
+          const ids = JSON.parse(stored) || [];
+          setDeletedMessageIds(new Set(ids));
+        }
+      } catch (_) { /* ignore */ }
+    })();
+    return () => { active = false; };
+  }, [getDeletedMessagesStorageKey]);
+
+  // Keep ref in sync with deletedMessageIds state so socket listeners see current values
+  useEffect(() => {
+    deletedMessageIdsRef.current = deletedMessageIds;
+  }, [deletedMessageIds]);
+
+  const hideCallEntry = useCallback((callItemId) => {
+    if (!callItemId) return;
+    setHiddenCallIds((prev) => {
+      const next = Array.from(new Set([...prev, String(callItemId)]));
+      AsyncStorage.setItem(hiddenCallsStorageKey(), JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, [hiddenCallsStorageKey]);
+
+  const confirmDeleteCall = useCallback((item) => {
+    Alert.alert(
+      'Delete Call',
+      `Remove this ${item.type === 'video' ? 'video' : 'voice'} call from the chat?\n\nThis action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => {
+          hideCallEntry(item.id);
+        }},
+      ],
+    );
+  }, [hideCallEntry]);
 
   const getItemDayKey = (item) => {
     const ts = item?.fullTime || item?.createdAt || item?.timestamp;
@@ -544,6 +650,12 @@ const SMSInput = ({ navigation, route }) => {
       return currentId && String(currentId) === String(targetId);
     };
 
+    // Add to deletedMessageIds (persistent) and hide immediately.
+    setDeletedMessageIds(prev => {
+      const updated = new Set([...prev, String(targetId), String(messageToDelete.messageId)]);
+      AsyncStorage.setItem(getDeletedMessagesStorageKey(), JSON.stringify(Array.from(updated))).catch(() => {});
+      return updated;
+    });
     setMessages((prev) => {
       const updatedMessages = prev.filter((msg) => !isSameMessage(msg));
       saveMessagesToLocalStorage(updatedMessages);
@@ -569,10 +681,17 @@ const SMSInput = ({ navigation, route }) => {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
+            setError(null);
+            // Optimistic delete: remove instantly, then sync the server in the
+            // background. Roll back if the server call fails.
+            await removeMessageFromState(messageToDelete);
+            // Set grace period (10 seconds) to prevent race conditions with multiple
+            // deletes or concurrent fetches. Message is already marked as deleted above.
+            deletedRecentlyRef.current = true;
+            setTimeout(() => {
+              deletedRecentlyRef.current = false;
+            }, 10000);
             try {
-              setDeletingMessageId(String(messageId));
-              setError(null);
-
               const token = await getAuthToken();
               await axios.delete(`${API_BASE_URL}/api/chat/message/${encodeURIComponent(messageId)}`, {
                 headers: {
@@ -580,21 +699,35 @@ const SMSInput = ({ navigation, route }) => {
                   Authorization: token ? `Bearer ${token}` : "",
                 },
               });
-
-              await removeMessageFromState(messageToDelete);
             } catch (deleteError) {
               if (deleteError?.response?.status === 401) {
                 navigation.replace('RoleSelector', { reason: 'session-expired' });
                 return;
               }
+              // Restore the message since the server delete failed.
+              setDeletedMessageIds(prev => {
+                const updated = new Set(prev);
+                updated.delete(String(messageId));
+                updated.delete(String(messageToDelete.messageId));
+                AsyncStorage.setItem(getDeletedMessagesStorageKey(), JSON.stringify(Array.from(updated))).catch(() => {});
+                return updated;
+              });
+              setMessages((prev) => {
+                if (prev.some((m) => String(getMessageIdentifier(m)) === String(messageId))) return prev;
+                const restored = [...prev, messageToDelete];
+                restored.sort((a, b) => {
+                  const ta = new Date(a.fullTime || a.createdAt || a.timestamp || Date.now()).getTime();
+                  const tb = new Date(b.fullTime || b.createdAt || b.timestamp || Date.now()).getTime();
+                  return ta - tb;
+                });
+                return restored;
+              });
               const errorMsg =
                 deleteError?.response?.data?.error ||
                 deleteError?.response?.data?.message ||
                 deleteError?.message ||
                 "Failed to delete message";
               Alert.alert("Delete Failed", errorMsg);
-            } finally {
-              setDeletingMessageId(null);
             }
           },
         },
@@ -661,6 +794,31 @@ const SMSInput = ({ navigation, route }) => {
   // Counselor ends the session. The backend should mark the chat "ended" and
   // emit the existing `chat-status-update` event so the user's app shows its
   // rating popup. We update our own status locally for immediate feedback.
+
+  // Clear chat function
+  const clearChat = async () => {
+    try {
+      const token = await getAuthToken();
+      const apiChatId = getChatIdForAPI();
+
+      await axios.post(
+        `${API_BASE_URL}/api/chat/clear/${apiChatId}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setMessages([]);
+      setCallHistory([]);
+      setDeletedMessageIds(new Set());
+      Alert.alert("Success", "Chat cleared! You can now start a new conversation.");
+    } catch (error) {
+      Alert.alert(
+        "Error",
+        `Could not clear chat: ${error?.response?.data?.error || error.message || "Failed to clear chat on server"}`
+      );
+    }
+  };
+
   // ─── Call initiation and handling ────────────────────────────────────────
   const initiateVideoCall = async () => {
     if (!selectedUser || !counselorId) {
@@ -867,6 +1025,8 @@ const SMSInput = ({ navigation, route }) => {
         }));
         unsubscribers.push(await socketService.on('new-message', (messageData) => {
           shouldAutoScrollRef.current = true;
+          // Skip if this message was deleted locally
+          if (deletedMessageIdsRef.current.has(String(messageData.messageId || messageData.id || messageData._id))) return;
           const isOwn = messageData.senderRole === 'counsellor' && String(messageData.senderId) === String(counselorId);
           setMessages(prev => {
             if (prev.some(m => m.messageId && m.messageId === messageData.messageId)) return prev;
@@ -966,7 +1126,10 @@ const SMSInput = ({ navigation, route }) => {
 
   useEffect(() => {
     if (!isSocketConnected && selectedUser && counselorId) {
-      const interval = setInterval(() => fetchMessagesFromAPI(), 45000);
+      const interval = setInterval(() => {
+        // Skip if we just deleted a message — let the server confirm first.
+        if (!deletedRecentlyRef.current) fetchMessagesFromAPI();
+      }, 45000);
       return () => clearInterval(interval);
     }
   }, [isSocketConnected, selectedUser, counselorId]);
@@ -1004,8 +1167,15 @@ const SMSInput = ({ navigation, route }) => {
   }, []);
 
   useEffect(() => {
-    const sub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => scrollToBottom(true));
-    return () => sub.remove();
+    // Use keyboardWillShow/Hide for BOTH iOS and Android to apply padding BEFORE keyboard appears.
+    // This prevents the gap/delay glitch. keyboardDidShow fires too late.
+    const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
+      setKeyboardShownHeight(e?.endCoordinates?.height || 0);
+      if (shouldAutoScrollRef.current) scrollToBottom(true);
+    });
+    const hideSub = Keyboard.addListener('keyboardWillHide', () => setKeyboardShownHeight(0));
+
+    return () => { showSub.remove(); hideSub.remove(); };
   }, [scrollToBottom]);
 
   // ─── Render functions ────────────────────────────────────────────────────
@@ -1027,7 +1197,11 @@ const SMSInput = ({ navigation, route }) => {
   const renderCallItem = (item) => {
     const { isOutgoing, isAlert, statusLabel, durationText } = describeCall(item);
     return (
-      <View style={[styles.callRow, isOutgoing ? styles.messageRight : styles.messageLeft]}>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onLongPress={() => confirmDeleteCall(item)}
+        style={[styles.callRow, isOutgoing ? styles.messageRight : styles.messageLeft]}
+      >
         <View style={[styles.callBubble, isOutgoing ? styles.callBubbleOut : styles.callBubbleIn]}>
           <View style={[styles.callIconCircle, isAlert && styles.callIconCircleAlert]}>
             <Ionicons
@@ -1053,7 +1227,7 @@ const SMSInput = ({ navigation, route }) => {
           </View>
           <Text style={styles.callTime}>{item.time}</Text>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -1069,19 +1243,7 @@ const SMSInput = ({ navigation, route }) => {
     }
 
     if (item.isCall) {
-      const isOutgoing = item.direction === 'outgoing';
-      const isVideo = item.type === 'video';
-      return (
-        <View style={[styles.callBubble, isOutgoing ? styles.callBubbleRight : styles.callBubbleLeft]}>
-          <Ionicons name={isVideo ? 'videocam' : 'call'} size={14} color={isOutgoing ? '#2c50cd' : '#526071'} style={{ marginRight: 6 }} />
-          <Text style={styles.callBubbleText}>
-            {isOutgoing ? 'Outgoing' : 'Incoming'} {isVideo ? 'video' : 'voice'} call
-          </Text>
-          <Text style={styles.callBubbleMeta}>
-            {item.time}{item.duration ? ` · ${item.duration}` : ''}
-          </Text>
-        </View>
-      );
+      return renderCallItem(item);
     }
 
     const isMe = item.sender === "me";
@@ -1100,7 +1262,10 @@ const SMSInput = ({ navigation, route }) => {
             style={{ borderWidth: 1.5, borderColor: '#FFFFFF' }}
           />
         )}
-        <View style={[styles.messageContent, isMe ? styles.userMessageContent : styles.counselorMessageContent]}>
+        <Pressable
+          style={[styles.messageContent, isMe ? styles.userMessageContent : styles.counselorMessageContent]}
+          onLongPress={() => canDelete && handleDeleteMessage(item)}
+        >
           {!!item.text && (
             <TranslatedMessageBubble
               text={item.text}
@@ -1131,25 +1296,8 @@ const SMSInput = ({ navigation, route }) => {
           <View style={styles.messageFooter}>
             <Text style={[styles.messageTime, isMe && styles.messageTimeMine]}>{item.time}</Text>
             {renderMessageStatus(item)}
-            {canDelete && (
-              <TouchableOpacity
-                style={styles.deleteIconBtn}
-                onPress={() => handleDeleteMessage(item)}
-                disabled={isDeleting}
-              >
-                {isDeleting ? (
-                  <ActivityIndicator size="small" color={isMe ? "rgba(255,255,255,0.7)" : "#94A3B8"} />
-                ) : (
-                  <Ionicons
-                    name="trash-outline"
-                    size={14}
-                    color={isMe ? "rgba(255,255,255,0.7)" : "#94A3B8"}
-                  />
-                )}
-              </TouchableOpacity>
-            )}
           </View>
-        </View>
+        </Pressable>
       </View>
     );
   };
@@ -1183,9 +1331,14 @@ const SMSInput = ({ navigation, route }) => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor="#2563EB" translucent={false} />
-      <KeyboardAvoidingView style={styles.keyboardAvoid} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={0}>
-        <View style={styles.chatBoxMain}>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoid}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={0}
+        enabled={Platform.OS === "ios"}
+      >
+          <View style={[styles.chatBoxMain, { paddingBottom: keyboardPad }]} onLayout={handleChatAreaLayout}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -1224,6 +1377,9 @@ const SMSInput = ({ navigation, route }) => {
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.actionBtnDisabled]} onPress={initiateVideoCall} disabled={isInitiatingCall}>
                 <Ionicons name="videocam" size={20} color="#FFFFFF" />
               </TouchableOpacity>
+              <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(!showOptions)}>
+                <Ionicons name="ellipsis-vertical" size={18} color="#FFFFFF" />
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -1234,6 +1390,22 @@ const SMSInput = ({ navigation, route }) => {
               <TouchableOpacity onPress={() => setCallError(null)}><Ionicons name="close" size={20} color="#ba1a1a" /></TouchableOpacity>
             </View>
           )}
+
+          {/* Options Modal */}
+          <Modal transparent visible={showOptions} animationType="fade" onRequestClose={() => setShowOptions(false)}>
+            <TouchableOpacity style={styles.optionsOverlay} activeOpacity={1} onPress={() => setShowOptions(false)}>
+              <View style={styles.optionsMenu}>
+                <TouchableOpacity style={styles.optionItem} onPress={() => { fetchMessagesFromAPI(); setShowOptions(false); }}>
+                  <Ionicons name="refresh" size={18} color="#526071" />
+                  <Text style={styles.optionText}>Refresh Messages</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.optionItem, styles.optionItemLast]} onPress={() => { setShowOptions(false); clearChat(); }}>
+                  <Ionicons name="trash-outline" size={18} color="#dc2626" />
+                  <Text style={[styles.optionText, styles.optionTextDanger]}>Clear Chat</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </Modal>
 
           {/* Messages */}
           {isLoadingMessages && messages.length === 0 ? (
@@ -1412,14 +1584,15 @@ const styles = StyleSheet.create({
   callMeta: { fontSize: 12, color: '#64748B' },
   callMetaAlert: { color: '#EF4444', fontWeight: '600' },
   callTime: { fontSize: 11, color: '#94A3B8', alignSelf: 'flex-end' },
-  messageContent: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, maxWidth: screenWidth >= 600 ? 500 : '80%' },
+  callDeleteBtn: { alignSelf: 'flex-start', padding: 2 },
+  messageContent: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'flex-end', justifyContent: 'flex-end', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, maxWidth: screenWidth >= 600 ? 500 : '80%' },
   userMessageContent: { backgroundColor: '#1D4ED8', borderBottomRightRadius: 4, shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 4 },
   counselorMessageContent: { backgroundColor: '#FFFFFF', borderBottomLeftRadius: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
   messageText: { fontSize: 14, lineHeight: 21, fontWeight: '400' },
   userMessageText: { color: '#FFFFFF' },
   counselorMessageText: { color: '#1E293B' },
-  messageFooter: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 4, gap: 3 },
-  messageTime: { fontSize: 10, color: '#94A3B8', fontWeight: '500' },
+  messageFooter: { flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 8, paddingBottom: 1 },
+  messageTime: { fontSize: 11, color: '#94A3B8', fontWeight: '500' },
   messageTimeMine: { color: 'rgba(255,255,255,0.55)' },
   messageStatusSending: { fontSize: 11, color: '#F59E0B', fontWeight: '500' },
   messageStatusIconWrap: { width: 16, alignItems: 'center', justifyContent: 'center' },
@@ -1460,6 +1633,46 @@ const styles = StyleSheet.create({
   acceptBtn: { backgroundColor: '#2563EB' },
   rejectBtn: { backgroundColor: '#DC2626' },
   incomingCallBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
+  // Options Menu Styles
+  optionsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 80,
+    paddingRight: 16,
+  },
+  optionsMenu: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    minWidth: 200,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f2f4f6',
+  },
+  optionItemLast: {
+    borderBottomWidth: 0,
+  },
+  optionText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#191c1e',
+  },
+  optionTextDanger: {
+    color: '#dc2626',
+  },
 });
 
 export default SMSInput;

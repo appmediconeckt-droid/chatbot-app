@@ -27,6 +27,8 @@ import PrivacyPolicy from '../../../UserDashboard/Tab/PrivacyPolicy/PrivacyPolic
 import CounselorWallet from '../Wallet/CounselorWallet';
 
 const TERMS_URL = 'https://mediconeckt.com/terms-of-use/';
+const { width } = Dimensions.get('window');
+const isTablet = width >= 600;
 
 const useShimmer = () => {
   const anim = useRef(new Animated.Value(0)).current;
@@ -98,17 +100,6 @@ const firstName = (full) => {
 
 const INITIAL_PW_FORM = { otp: '', password: '', confirmPassword: '', oldPassword: '', newPassword: '', confirmNewPassword: '' };
 
-// Availability status options. Frontend-only for now — the choice is persisted
-// in AsyncStorage and shown in the UI. Wire `key` to a backend status field
-// later (model currently only has the isOnline boolean).
-const AVAILABILITY_KEY = 'counselorAvailabilityStatus';
-const AVAIL_STATUSES = [
-  { key: 'online',  label: 'Online',  color: '#16A34A', bg: '#DCFCE7', icon: 'check-circle', desc: 'Available — accepting new clients' },
-  { key: 'busy',    label: 'Busy',    color: '#DC2626', bg: '#FEE2E2', icon: 'minus-circle', desc: 'In a session — not taking new requests' },
-  { key: 'away',    label: 'Away',    color: '#D97706', bg: '#FEF3C7', icon: 'clock',        desc: 'Stepped away — back shortly' },
-  { key: 'offline', label: 'Offline', color: '#6B7280', bg: '#F3F4F6', icon: 'power',        desc: 'Not available right now' },
-];
-
 const FEEDBACK_CATEGORIES = [
   { key: 'bug', label: 'Bug', icon: 'alert-triangle' },
   { key: 'suggestion', label: 'Suggestion', icon: 'zap' },
@@ -120,10 +111,6 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
   const { t } = useLanguageRender();
   const [counselor, setCounselor] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  // Availability status (frontend-only, persisted locally)
-  const [availStatus, setAvailStatus] = useState('online');
-  const [availModal, setAvailModal] = useState(false);
 
   // In-app info screens
   const [showHelp, setShowHelp] = useState(false);
@@ -260,38 +247,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
 
   useEffect(() => {
     fetchCounselor();
-    (async () => {
-      try {
-        const saved = await AsyncStorage.getItem(AVAILABILITY_KEY);
-        if (saved && AVAIL_STATUSES.some((s) => s.key === saved)) {
-          setAvailStatus(saved);
-        }
-      } catch (err) {
-        console.log('Failed to load availability status', err);
-      }
-    })();
   }, []);
-
-  const handleSelectAvailability = async (key) => {
-    const prev = availStatus;
-    setAvailStatus(key); // optimistic
-    setAvailModal(false);
-    try {
-      await AsyncStorage.setItem(AVAILABILITY_KEY, key);
-      const token =
-        (await AsyncStorage.getItem('token')) ||
-        (await AsyncStorage.getItem('accessToken'));
-      await axios.patch(
-        `${API_BASE_URL}/api/chat/availability`,
-        { status: key },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-    } catch (err) {
-      console.log('Failed to update availability status', err);
-      setAvailStatus(prev); // revert on failure
-      try { await AsyncStorage.setItem(AVAILABILITY_KEY, prev); } catch {}
-    }
-  };
 
   const fetchCounselor = async () => {
     try {
@@ -308,12 +264,6 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
       );
       if (res.data?.success && res.data.counsellor) {
         setCounselor(res.data.counsellor);
-        // Server is the source of truth for availability — override local cache.
-        const serverStatus = res.data.counsellor.availabilityStatus;
-        if (serverStatus && AVAIL_STATUSES.some((s) => s.key === serverStatus)) {
-          setAvailStatus(serverStatus);
-          AsyncStorage.setItem(AVAILABILITY_KEY, serverStatus).catch(() => {});
-        }
       }
     } catch (err) {
       console.error('Settings: failed to load counselor', err);
@@ -328,7 +278,6 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
     if (id === 'change_password') return openPwModal('change');
     if (id === 'add_password') return openPwModal('set');
     if (id === 'app_lock') return navigation.navigate('PinSetup');
-    if (id === 'availability') return setAvailModal(true);
     if (id === 'contact')
       return Linking.openURL('mailto:support@mediconeckt.com');
     if (id === 'help') return setShowHelp(true);
@@ -351,9 +300,6 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
     ? `${counselor.payoutAccount.bankName || 'Bank'} •••• ${counselor.payoutAccount.maskedNumber}`
     : 'Add a bank account for payouts';
   const payoutBadge = counselor?.payoutAccount?.verified ? 'Verified' : null;
-  const currentAvail =
-    AVAIL_STATUSES.find((s) => s.key === availStatus) || AVAIL_STATUSES[0];
-
   const SECTIONS = [
     {
       title: t('settings:account'),
@@ -366,17 +312,6 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           label: t('counselor:editProfile'),
           subtitle: profileSubtitle,
           value: firstName(counselor?.fullName || counselor?.name) || null,
-          type: 'nav',
-        },
-        {
-          id: 'availability',
-          icon: currentAvail.icon,
-          iconBg: currentAvail.bg,
-          iconColor: currentAvail.color,
-          label: 'Availability',
-          subtitle: currentAvail.desc,
-          badge: currentAvail.label,
-          badgeColor: currentAvail.color,
           type: 'nav',
         },
         {
@@ -501,7 +436,6 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
         <View style={styles.quickRow}>
           {[
             { id: 'profile', icon: 'user', color: '#2563EB', bg: '#EFF6FF', label: t('settings:profile') },
-            { id: 'availability', icon: 'calendar', color: '#0D9488', bg: '#F0FDFA', label: t('settings:schedule') },
             { id: 'payout', icon: 'credit-card', color: '#7C3AED', bg: '#F5F3FF', label: t('settings:payout') },
             { id: 'help', icon: 'help-circle', color: '#D97706', bg: '#FFFBEB', label: t('settings:help') },
           ].map((q) => (
@@ -623,59 +557,10 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
         </View>
       </TouchableOpacity>
 
-      <Text style={styles.footer}>© 2025 Mediconnect. All rights reserved.</Text>
+      <Text style={styles.footer}>© 2026 Mediconnect. All rights reserved.</Text>
         </>
       )}
     </ScrollView>
-
-    {/* Availability Status Modal */}
-    <Modal visible={availModal} animationType="slide" transparent onRequestClose={() => setAvailModal(false)}>
-      <View style={pwStyles.overlay}>
-        <View style={pwStyles.sheet}>
-          <View style={pwStyles.sheetHeader}>
-            <View>
-              <Text style={pwStyles.sheetTitle}>Availability</Text>
-              <Text style={pwStyles.sheetSub}>Set your current status for clients</Text>
-            </View>
-            <TouchableOpacity onPress={() => setAvailModal(false)} style={pwStyles.closeBtn}>
-              <Feather name="x" size={20} color="#64748b" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={pwStyles.body}>
-            {AVAIL_STATUSES.map((s) => {
-              const selected = s.key === availStatus;
-              return (
-                <TouchableOpacity
-                  key={s.key}
-                  activeOpacity={0.75}
-                  onPress={() => handleSelectAvailability(s.key)}
-                  style={[
-                    availStyles.option,
-                    selected && { borderColor: s.color, backgroundColor: `${s.color}0D` },
-                  ]}
-                >
-                  <View style={[availStyles.optionIcon, { backgroundColor: s.bg }]}>
-                    <Feather name={s.icon} size={18} color={s.color} />
-                  </View>
-                  <View style={availStyles.optionBody}>
-                    <Text style={availStyles.optionLabel}>{s.label}</Text>
-                    <Text style={availStyles.optionDesc} numberOfLines={1}>{s.desc}</Text>
-                  </View>
-                  {selected
-                    ? <Feather name="check-circle" size={20} color={s.color} />
-                    : <View style={availStyles.optionDot} />
-                  }
-                </TouchableOpacity>
-              );
-            })}
-            <Text style={availStyles.note}>
-              Your status is saved to your account and shown to clients.
-            </Text>
-          </View>
-        </View>
-      </View>
-    </Modal>
 
     {/* Feedback Modal */}
     <Modal visible={feedbackModal} animationType="slide" transparent onRequestClose={() => setFeedbackModal(false)}>
@@ -764,7 +649,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
     {/* Password Modal */}
     <Modal visible={pwModal} animationType="slide" transparent onRequestClose={() => setPwModal(false)}>
       <KeyboardAvoidingView style={pwStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={pwStyles.sheet}>
+        <View style={[pwStyles.sheet, { maxHeight: isTablet ? '50%' : '90%', flex: 1 }]}>
           {/* Sheet header */}
           <View style={pwStyles.sheetHeader}>
             <View>
@@ -780,7 +665,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={pwStyles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={[pwStyles.body, isTablet && { padding: 36, paddingBottom: 48, gap: 18 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {/* Notice */}
             {!!pwNotice.msg && (
               <View style={[pwStyles.notice, pwNotice.type === 'error' ? pwStyles.noticeError : pwStyles.noticeSuccess]}>
@@ -1206,7 +1091,6 @@ const pwStyles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    maxHeight: '90%',
     borderTopWidth: 3,
     borderColor: '#2563EB',
   },
@@ -1283,45 +1167,6 @@ const pwStyles = StyleSheet.create({
   },
   submitDisabled: { opacity: 0.7 },
   submitText: { color: '#fff', fontWeight: '800', fontSize: 15 },
-});
-
-const availStyles = StyleSheet.create({
-  option: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    borderWidth: 1.5,
-    borderColor: '#E5E7EB',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    marginBottom: 12,
-    backgroundColor: '#fff',
-  },
-  optionIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  optionBody: { flex: 1, minWidth: 0 },
-  optionLabel: { fontSize: 15, fontWeight: '700', color: '#111827' },
-  optionDesc: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
-  optionDot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-  },
-  note: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    textAlign: 'center',
-    marginTop: 4,
-    lineHeight: 16,
-  },
 });
 
 const fbStyles = StyleSheet.create({

@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   View,
   Text,
@@ -175,24 +176,28 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role }) 
           <View style={styles.divider} />
 
           {/* Search Box */}
-          <View style={styles.searchContainer}>
-            <Text style={styles.searchIcon}>🔍</Text>
-            <TextInput
-              style={styles.searchInput}
-              placeholder={t('search_language') || 'Search languages...'}
-              placeholderTextColor="#94A3B8"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-            {searchQuery ? (
-              <TouchableOpacity
-                style={styles.clearButton}
-                onPress={() => setSearchQuery('')}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Text style={styles.clearButtonText}>✕</Text>
-              </TouchableOpacity>
-            ) : null}
+          <View style={styles.searchSection}>
+            <View style={styles.searchContainer}>
+              <View style={styles.searchIconWrap}>
+                <Ionicons name="search-outline" size={18} color="#2563EB" />
+              </View>
+              <TextInput
+                style={styles.searchInput}
+                placeholder={t('search language') || 'Search languages...'}
+                placeholderTextColor="#94A3B8"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery ? (
+                <TouchableOpacity
+                  style={styles.clearButton}
+                  onPress={() => setSearchQuery('')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close-circle" size={18} color="#94A3B8" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
 
           {filteredLanguages.length > 0 ? (
@@ -304,19 +309,31 @@ const styles = StyleSheet.create({
     backgroundColor: '#E2E8F0',
     marginHorizontal: 0,
   },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  searchSection: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
   },
-  searchIcon: {
-    fontSize: 16,
-    marginRight: 10,
-    color: '#94A3B8',
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    height: 46,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  searchIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#EFF6FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
   },
   searchInput: {
     flex: 1,
@@ -327,11 +344,6 @@ const styles = StyleSheet.create({
   clearButton: {
     padding: 4,
     marginLeft: 8,
-  },
-  clearButtonText: {
-    fontSize: 18,
-    color: '#94A3B8',
-    fontWeight: '500',
   },
   list: {
     flexGrow: 0,

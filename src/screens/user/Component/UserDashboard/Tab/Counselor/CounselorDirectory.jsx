@@ -602,10 +602,6 @@ const CounselorDirectoryScreen = ({ navigation }) => {
             <Text style={styles.statLabel}>{t('profile:experience')}</Text>
             <Text style={styles.statValue}>{counselor.experience || 0}y</Text>
           </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>{t('common:continue')}</Text>
-            <Text style={styles.statValue}>{counselor.responseTime || "< 10s"}</Text>
-          </View>
         </View>
 
         <View style={styles.cardFooter}>
@@ -868,8 +864,14 @@ const CounselorDirectoryScreen = ({ navigation }) => {
               </View>
 
               <View style={styles.infoBox}>
-                <Text style={styles.infoText}>⏳ Appointment will be sent for confirmation</Text>
-                <Text style={styles.infoText}>✅ Counselor will be notified instantly</Text>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoIcon}>⏳</Text>
+                  <Text style={styles.infoText}>Appointment will be sent for confirmation</Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoIcon}>✅</Text>
+                  <Text style={styles.infoText}>Counselor will be notified instantly</Text>
+                </View>
               </View>
 
               <TouchableOpacity
@@ -954,10 +956,18 @@ const CounselorDirectoryScreen = ({ navigation }) => {
               )}
 
               <View style={styles.infoBox}>
-                <Text style={styles.infoText}>⏳ Sends a request to the counselor</Text>
-                <Text style={styles.infoText}>✅ You'll be notified when they accept</Text>
-                <Text style={styles.infoText}>💬 Average response time: {selectedCounselor?.responseTime || "< 10 seconds"}</Text>
-                <Text style={[styles.infoText, styles.privacyNote]}>🔒 You are chatting anonymously. Your real identity is protected.</Text>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoIcon}>⏳</Text>
+                  <Text style={styles.infoText}>Sends a request to the counselor</Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoIcon}>✅</Text>
+                  <Text style={styles.infoText}>You'll be notified when they accept</Text>
+                </View>
+                <View style={[styles.infoRow, styles.privacyRow]}>
+                  <Text style={styles.infoIcon}>🔒</Text>
+                  <Text style={[styles.infoText, styles.privacyNote]}>You are chatting anonymously. Your real identity is protected.</Text>
+                </View>
               </View>
 
               <TouchableOpacity
@@ -1396,124 +1406,155 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
+    justifyContent: "flex-end",
     alignItems: "center",
   },
   modalContent: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    width: width * 0.9,
-    maxHeight: height * 0.85,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    width: "100%",
+    maxHeight: width > 480 ? height * 0.95 : height * 0.85,
     padding: 0,
+    paddingBottom: 20,
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: "#E2E8F0",
+    minHeight: 56,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: width > 480 ? 20 : 16,
     fontWeight: "bold",
     color: "#0F172A",
     flex: 1,
+    flexWrap: "wrap",
   },
   modalClose: {
-    fontSize: 24,
+    fontSize: 28,
     color: "#94A3B8",
     fontWeight: "500",
-    padding: 4,
+    padding: 8,
+    minWidth: 44,
+    minHeight: 44,
+    textAlign: "center",
+    textAlignVertical: "center",
   },
   inputGroup: {
-    marginBottom: 20,
-    paddingHorizontal: 20,
+    marginBottom: width > 480 ? 24 : 20,
+    paddingHorizontal: width > 480 ? 28 : 20,
   },
   inputLabel: {
-    fontSize: 14,
-    fontWeight: "500",
+    fontSize: width > 480 ? 15 : 13,
+    fontWeight: "600",
     color: "#0F172A",
-    marginBottom: 8,
+    marginBottom: 10,
   },
   textArea: {
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    borderRadius: 8,
-    padding: 12,
+    borderRadius: 12,
+    padding: width > 480 ? 16 : 14,
     fontSize: 14,
     color: "#0F172A",
-    height: 100,
+    minHeight: width > 480 ? 140 : 110,
     textAlignVertical: "top",
     backgroundColor: "#FFFFFF",
   },
   infoBox: {
-    margin: 20,
-    padding: 16,
-    backgroundColor: "#F8FAFC",
+    marginHorizontal: width > 480 ? 28 : 20,
+    marginVertical: width > 480 ? 16 : 12,
+    padding: width > 480 ? 20 : 16,
+    backgroundColor: "#F0F4FF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E0E7FF",
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 12,
+  },
+  privacyRow: {
+    marginBottom: 0,
+  },
+  infoIcon: {
+    fontSize: width > 480 ? 18 : 16,
+    marginRight: 12,
+    marginTop: 2,
   },
   infoText: {
-    fontSize: 13,
+    fontSize: width > 480 ? 14 : 13,
     color: "#475569",
-    marginBottom: 8,
+    flex: 1,
+    lineHeight: 20,
   },
   privacyNote: {
     color: "#6366F1",
-    fontWeight: "500",
+    fontWeight: "600",
   },
   submitButton: {
     backgroundColor: "#6366F1",
-    padding: 16,
-    borderRadius: 8,
-    margin: 20,
+    paddingVertical: width > 480 ? 18 : 16,
+    paddingHorizontal: width > 480 ? 28 : 20,
+    borderRadius: 12,
+    marginHorizontal: width > 480 ? 28 : 20,
+    marginVertical: width > 480 ? 16 : 12,
     alignItems: "center",
+    minHeight: width > 480 ? 56 : 52,
+    justifyContent: "center",
   },
   submitButtonDisabled: {
     backgroundColor: "#94A3B8",
   },
   submitButtonText: {
-    fontSize: 16,
+    fontSize: width > 480 ? 18 : 16,
     fontWeight: "600",
     color: "#FFFFFF",
   },
   userInfoCard: {
     flexDirection: "row",
-    margin: 20,
-    marginBottom: 16,
-    padding: 16,
+    marginHorizontal: width > 480 ? 28 : 20,
+    marginVertical: width > 480 ? 18 : 16,
+    paddingHorizontal: width > 480 ? 20 : 16,
+    paddingVertical: width > 480 ? 16 : 14,
     backgroundColor: "#F1F5F9",
     borderRadius: 12,
   },
   userInfoIcon: {
-    fontSize: 32,
-    marginRight: 12,
+    fontSize: width > 480 ? 36 : 32,
+    marginRight: 14,
+    minWidth: 40,
   },
   userInfoDetails: {
     flex: 1,
   },
   userInfoLabel: {
-    fontSize: 12,
+    fontSize: width > 480 ? 13 : 12,
     color: "#64748B",
-    marginBottom: 4,
+    marginBottom: 6,
   },
   userInfoName: {
-    fontSize: 16,
+    fontSize: width > 480 ? 18 : 16,
     fontWeight: "bold",
     color: "#6366F1",
     marginBottom: 4,
   },
   userInfoNote: {
-    fontSize: 11,
+    fontSize: width > 480 ? 12 : 11,
     color: "#94A3B8",
     fontStyle: "italic",
   },
   counselorPreview: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-    padding: 16,
+    marginHorizontal: width > 480 ? 28 : 20,
+    marginVertical: width > 480 ? 16 : 12,
+    paddingHorizontal: width > 480 ? 20 : 16,
+    paddingVertical: width > 480 ? 16 : 14,
     backgroundColor: "#EEF2FF",
     borderRadius: 12,
   },
@@ -1522,37 +1563,38 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   counselorPreviewAvatar: {
-    marginRight: 12,
+    marginRight: 14,
   },
   previewAvatarImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: width > 480 ? 56 : 50,
+    height: width > 480 ? 56 : 50,
+    borderRadius: width > 480 ? 28 : 25,
   },
   previewAvatarText: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: width > 480 ? 56 : 50,
+    height: width > 480 ? 56 : 50,
+    borderRadius: width > 480 ? 28 : 25,
     backgroundColor: "#6366F1",
     justifyContent: "center",
     alignItems: "center",
+    fontSize: width > 480 ? 18 : 16,
   },
   counselorPreviewInfo: {
     flex: 1,
   },
   counselorPreviewName: {
-    fontSize: 16,
+    fontSize: width > 480 ? 18 : 16,
     fontWeight: "bold",
     color: "#0F172A",
-    marginBottom: 2,
+    marginBottom: 4,
   },
   counselorPreviewSpecialization: {
-    fontSize: 13,
+    fontSize: width > 480 ? 14 : 13,
     color: "#6366F1",
-    marginBottom: 2,
+    marginBottom: 4,
   },
   counselorPreviewLocation: {
-    fontSize: 12,
+    fontSize: width > 480 ? 13 : 12,
     color: "#64748B",
   },
 });

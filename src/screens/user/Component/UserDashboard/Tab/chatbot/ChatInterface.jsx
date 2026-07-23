@@ -338,7 +338,7 @@ const ChatInterface = ({ setActiveTab }) => {
     try {
       const token = await AsyncStorage.getItem('token') || await AsyncStorage.getItem('accessToken');
       if (!token) return false;
-      const response = await axios.delete(`${API_BASE_URL}/api/chat/chats/${chatId}`, {
+      const response = await axios.delete(`${API_BASE_URL}/api/chat/chat/${chatId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.status === 200 || response.status === 204) {
@@ -379,6 +379,9 @@ const ChatInterface = ({ setActiveTab }) => {
           )));
         }));
 
+        unsubscribers.push(await socketService.on('chat-list-update', () => {
+          fetchChats(false);
+        }));
         unsubscribers.push(await socketService.on('disconnect', () => { socketRef.current = null; }));
         socketRef.current._unsubscribers = unsubscribers;
       } catch (error) {
@@ -395,7 +398,7 @@ const ChatInterface = ({ setActiveTab }) => {
       } catch (e) {}
       socketRef.current = null;
     };
-  }, []);
+  }, [fetchChats]);
 
   useFocusEffect(
     useCallback(() => {
@@ -479,7 +482,9 @@ const ChatInterface = ({ setActiveTab }) => {
 
   const confirmDeleteChat = useCallback(async () => {
     if (selectedCounselor) {
-      const success = await deleteChat(selectedCounselor.id);
+      const success = await deleteChat(
+        selectedCounselor.chatMongoId || selectedCounselor.chatId
+      );
       if (success && Platform.OS === 'android') {
         Vibration.vibrate([50, 30, 50]);
       }
@@ -695,7 +700,7 @@ const ChatInterface = ({ setActiveTab }) => {
                   {t('messages:deleteChatConfirm', 'Are you sure you want to delete this chat?')}
                 </Text>
                 <Text style={styles.deleteWarning}>
-                  {t('messages:deleteChatWarning', '⚠️ This action cannot be undone. All messages will be permanently deleted.')}
+                  {t('messages:deleteChatWarning', 'This removes the current history from your view. New messages will restore the conversation.')}
                 </Text>
                 {selectedCounselor.fullDateTime && (
                   <Text style={styles.chatTimeInfo}>

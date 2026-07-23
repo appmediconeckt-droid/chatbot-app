@@ -23,6 +23,7 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import { useNavigation } from "@react-navigation/native";
 import { API_BASE_URL } from "../../../../axiosConfig";
 import { captureAndSendLocation } from "../../../../utils/locationHelper";
+import { formatLocation } from "../../../../utils/locationFormatter";
 import AvatarGenerator from "./AvatarGenerator";
 import AvatarPicker from "./AvatarPicker";
 
