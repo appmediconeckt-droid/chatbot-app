@@ -1,287 +1,389 @@
-import React from 'react';
-import { useTranslation } from 'react-i18next';
+import React, { useState } from 'react';
 import {
   Alert,
   Linking,
-  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import PATIENT from '../../../../../../theme/palette';
 
-const SUPPORT_EMAIL = 'support@mediconeckt.com';
+const SUPPORT_EMAIL = 'support@mediconekt.com';
+const SUPPORT_PHONE = '+1 (800) 555-0199';
+const EMERGENCY_PHONE = '911';
+const APP_VERSION = '2.1.4';
+const LAST_UPDATED = 'Oct 2024';
 
-const HelpSupport = ({ onClose, onOpenTab }) => {
-  const { t } = useTranslation();
+const HelpSupport = ({ onClose }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedIndices, setExpandedIndices] = useState(new Set());
 
-  const supportOptions = [
+  const quickActions = [
     {
-      icon: 'forum',
-      title: t('helpPage:aiWellnessChat'),
-      text: t('helpPage:aiWellnessDesc'),
-      action: t('helpPage:aiWellnessAction'),
-      tab: 'Chat',
+      icon: 'chat-processing-outline',
+      label: 'Live Chat',
+      subtitle: 'Chat with our support team',
+      iconBg: '#E6F6EC',
+      iconColor: PATIENT.primary,
+      badge: 'Usually online within',
+      badgeColor: PATIENT.primary,
+      badgeBg: '#E6F6EC',
+      action: 'chat',
     },
     {
-      icon: 'medical-services',
-      title: t('helpPage:counselorSupport'),
-      text: t('helpPage:counselorDesc'),
-      action: t('helpPage:counselorAction'),
-      tab: 'Counselor',
+      icon: 'phone-outline',
+      label: 'Call Support',
+      subtitle: 'Talk directly',
+      iconBg: '#E0EBFF',
+      iconColor: '#2563eb',
+      action: 'phone',
     },
     {
-      icon: 'event-available',
-      title: t('helpPage:appointments'),
-      text: t('helpPage:appointmentsDesc'),
-      action: t('helpPage:appointmentsAction'),
-      tab: 'Appointment',
+      icon: 'email-outline',
+      label: 'Email Support',
+      subtitle: 'Send your questions',
+      iconBg: '#E6F6EC',
+      iconColor: PATIENT.primary,
+      badge: 'Within 24 hours',
+      badgeColor: '#94a3b8',
+      badgeBg: '#f1f5f9',
+      action: 'email',
     },
     {
-      icon: 'account-balance-wallet',
-      title: t('helpPage:walletPayments'),
-      text: t('helpPage:walletDesc'),
-      action: t('helpPage:walletAction'),
-      tab: 'Wallet',
+      icon: 'robot-happy-outline',
+      label: 'AI Assistant',
+      subtitle: 'Get instant answers',
+      iconBg: '#E6F6EC',
+      iconColor: PATIENT.primary,
+      badge: '24/7 Available',
+      badgeColor: PATIENT.primary,
+      badgeBg: '#E6F6EC',
+      action: 'ai',
     },
   ];
 
-  const helpChecklist = [
-    t('helpPage:checklist1'),
-    t('helpPage:checklist2'),
-    t('helpPage:checklist3'),
-    t('helpPage:checklist4'),
+  const faqs = [
+    { question: 'How do I book an appointment?', answer: 'To book an appointment, navigate to the Counselors tab, select your preferred counselor, choose your consultation type, and pick a date and time. You\'ll receive a confirmation email with all the details.' },
+    { question: 'How can I cancel or reschedule?', answer: 'You can manage your appointments from the Appointments section. Tap any upcoming appointment to reschedule or cancel. Cancellations made 24 hours before the session are eligible for refunds.' },
+    { question: 'Is my medical data secure?', answer: 'Yes, all your personal and medical data is protected with end-to-end encryption and industry-standard security protocols. Your data is never shared with third parties without your consent.' },
+    { question: 'How do I add funds to my Wallet?', answer: 'Go to the Wallet tab and tap "Add Money". Choose your preferred payment method — card, UPI, or bank transfer — and enter the amount you want to add.' },
   ];
 
-  const issueGuides = [
-    { title: t('helpPage:aiChatNotReply'), text: t('helpPage:aiChatNotReplyDesc') },
-    { title: t('helpPage:counselorChatNotOpen'), text: t('helpPage:counselorChatNotOpenDesc') },
-    { title: t('helpPage:callNotConnecting'), text: t('helpPage:callNotConnectingDesc') },
-    { title: t('helpPage:walletPaymentIssue'), text: t('helpPage:walletPaymentIssueDesc') },
-    { title: t('helpPage:languageWrongTitle'), text: t('helpPage:languageWrongDesc') },
-  ];
+  const toggleFaq = (idx) => {
+    const newSet = new Set(expandedIndices);
+    if (newSet.has(idx)) newSet.delete(idx);
+    else newSet.add(idx);
+    setExpandedIndices(newSet);
+  };
 
-  const openTab = (tab) => {
-    if (typeof onOpenTab === 'function') {
-      onClose?.();
-      onOpenTab(tab);
+  const handleQuickAction = (action) => {
+    if (action === 'email') {
+      Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=Support Request`).catch(() => {
+        Alert.alert('Email Support', `Please email us at ${SUPPORT_EMAIL}`);
+      });
+    } else if (action === 'phone') {
+      Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {
+        Alert.alert('Call Support', `Please call us at ${SUPPORT_PHONE}`);
+      });
+    } else if (action === 'chat') {
+      Alert.alert('Live Chat', 'Connecting you to our support team...');
+    } else if (action === 'ai') {
+      Alert.alert('AI Assistant', 'Ask me anything — I\'m available 24/7 to help you.');
     }
   };
 
-  const emailSupport = () => {
-    const url = `mailto:${SUPPORT_EMAIL}?subject=MediConeckt%20Support%20Request`;
+  const handleEmergency = () => {
+    Alert.alert(
+      'Emergency Contact',
+      'If you are experiencing a medical emergency, please call your local emergency services immediately.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: `Call ${EMERGENCY_PHONE}`, style: 'destructive', onPress: () => Linking.openURL(`tel:${EMERGENCY_PHONE}`) },
+      ]
+    );
+  };
+
+  const handleCrisisResources = () => {
+    Alert.alert('Crisis Resources', 'View mental health crisis helplines and support resources available in your region.');
+  };
+
+  const handleReportIssue = () => {
+    const subject = encodeURIComponent(`Bug Report — Mediconect v${APP_VERSION}`);
+    const body = encodeURIComponent(
+      `Please describe the issue below:\n\n\n---\nApp Version: ${APP_VERSION}\nPlatform: mobile`
+    );
+    const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
     Linking.openURL(url).catch(() => {
-      Alert.alert(t('settings:emailSupportLabel'), `Please email us at ${SUPPORT_EMAIL}`);
+      Alert.alert('Report an Issue', `Please email us at ${SUPPORT_EMAIL} describing the issue.`);
+    });
+  };
+
+  const handleScreenshot = () => {
+    // Lazy-load the image picker so a missing/unlinked native module never
+    // crashes this screen at import time — only when the button is tapped.
+    let launchImageLibrary;
+    try {
+      ({ launchImageLibrary } = require('react-native-image-picker'));
+    } catch (e) {
+      launchImageLibrary = null;
+    }
+    if (typeof launchImageLibrary !== 'function') {
+      Alert.alert('Screenshot', 'Image picker is not available on this build. Please rebuild the app to enable attaching screenshots.');
+      return;
+    }
+    try {
+      launchImageLibrary(
+        { mediaType: 'photo', quality: 0.8, selectionLimit: 1 },
+        (response) => {
+          if (response.didCancel) return;
+          if (response.errorCode) {
+            Alert.alert('Screenshot', response.errorMessage || 'Unable to open the gallery.');
+            return;
+          }
+          const asset = response.assets && response.assets[0];
+          if (asset) {
+            Alert.alert('Screenshot Attached', `${asset.fileName || 'Image'} is ready to send with your report.`);
+          }
+        }
+      );
+    } catch (e) {
+      Alert.alert('Screenshot', 'Unable to open the gallery on this build.');
+    }
+  };
+
+  const handleTermsOfService = () => {
+    const termsUrl = 'https://mediconekt.com/terms-of-service';
+    Linking.openURL(termsUrl).catch(() => {
+      Alert.alert('Terms of Service', 'Unable to open. Please visit mediconekt.com/terms-of-service');
+    });
+  };
+
+  const handlePrivacyPolicy = () => {
+    const privacyUrl = 'https://mediconekt.com/privacy-policy';
+    Linking.openURL(privacyUrl).catch(() => {
+      Alert.alert('Privacy Policy', 'Unable to open. Please visit mediconekt.com/privacy-policy');
     });
   };
 
   return (
-    <View style={styles.root}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onClose} style={styles.headerBtn} hitSlop={12}>
-          <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
+    <SafeAreaView style={s.container} edges={['top']}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+
+      {/* Header */}
+      <View style={s.header}>
+        <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Ionicons name="chevron-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{t('helpPage:title')}</Text>
-        <View style={styles.headerBtn} />
+        <Text style={s.headerTitle}>Help and Support</Text>
+        <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.hero}>
-          <View style={styles.heroIcon}>
-            <MaterialIcons name="help-outline" size={34} color="#2563eb" />
-          </View>
-          <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>{t('helpPage:centerTitle')}</Text>
-            <Text style={styles.heroText}>{t('helpPage:centerDesc')}</Text>
-          </View>
+      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Search Bar */}
+        <View style={s.searchBox}>
+          <Ionicons name="search" size={18} color="#94a3b8" />
+          <TextInput
+            style={s.searchInput}
+            placeholder="Search help articles..."
+            placeholderTextColor="#94a3b8"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
         </View>
 
-        <View style={styles.cardGrid}>
-          {supportOptions.map((item) => (
+        {/* Quick Action Cards */}
+        <View style={s.quickGrid}>
+          {quickActions.map((action, idx) => (
             <TouchableOpacity
-              key={item.title}
-              style={styles.supportCard}
-              activeOpacity={0.82}
-              onPress={() => openTab(item.tab)}
+              key={idx}
+              style={s.actionCard}
+              onPress={() => handleQuickAction(action.action)}
+              activeOpacity={0.8}
             >
-              <View style={styles.cardIcon}>
-                <MaterialIcons name={item.icon} size={24} color="#2563eb" />
+              <View style={[s.actionIcon, { backgroundColor: action.iconBg }]}>
+                <MaterialCommunityIcons name={action.icon} size={22} color={action.iconColor} />
               </View>
-              <Text style={styles.cardTitle}>{item.title}</Text>
-              <Text style={styles.cardText}>{item.text}</Text>
-              <View style={styles.cardAction}>
-                <Text style={styles.cardActionText}>{item.action}</Text>
-                <MaterialIcons name="chevron-right" size={18} color="#2563eb" />
+              <Text style={s.actionLabel}>{action.label}</Text>
+              <Text style={s.actionSubtitle}>{action.subtitle}</Text>
+              {action.badge && (
+                <View style={[s.actionBadge, { backgroundColor: action.badgeBg }]}>
+                  <Text style={[s.actionBadgeText, { color: action.badgeColor }]}>{action.badge}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Popular Questions */}
+        <Text style={s.sectionTitle}>Popular Questions</Text>
+        <View style={s.faqCard}>
+          {faqs.map((faq, idx) => {
+            const isExpanded = expandedIndices.has(idx);
+            return (
+              <View key={idx} style={[s.faqItem, idx === faqs.length - 1 && s.faqItemLast]}>
+                <TouchableOpacity style={s.faqHeader} onPress={() => toggleFaq(idx)} activeOpacity={0.7}>
+                  <Text style={s.faqQuestion}>{faq.question}</Text>
+                  <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={18} color="#94a3b8" />
+                </TouchableOpacity>
+                {isExpanded && <Text style={s.faqAnswer}>{faq.answer}</Text>}
               </View>
-            </TouchableOpacity>
-          ))}
+            );
+          })}
         </View>
 
-        <View style={styles.panel}>
-          <View style={styles.panelHeader}>
-            <MaterialIcons name="person" size={20} color="#0f172a" />
-            <Text style={styles.panelTitle}>{t('helpPage:beforeContact')}</Text>
+        {/* Need Immediate Help */}
+        <View style={s.emergencyCard}>
+          <View style={s.emergencyHeader}>
+            <MaterialCommunityIcons name="alert" size={20} color="#f59e0b" />
+            <Text style={s.emergencyTitle}>Need Immediate Help?</Text>
           </View>
-          {helpChecklist.map((item) => (
-            <View key={item} style={styles.bulletRow}>
-              <MaterialIcons name="check-circle" size={18} color="#16a34a" />
-              <Text style={styles.bulletText}>{item}</Text>
+          <Text style={s.emergencyText}>
+            If you are experiencing a medical emergency, please call your local emergency services immediately.
+          </Text>
+          <TouchableOpacity style={s.emergencyButton} onPress={handleEmergency} activeOpacity={0.85}>
+            <Text style={s.emergencyButtonText}>Emergency Contact</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleCrisisResources} activeOpacity={0.7}>
+            <Text style={s.crisisLink}>Crisis Resources</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Contact Information */}
+        <Text style={s.contactHeading}>CONTACT INFORMATION</Text>
+        <View style={s.contactCard}>
+          <TouchableOpacity style={s.contactRow} onPress={() => handleQuickAction('email')} activeOpacity={0.7}>
+            <View style={s.contactIcon}>
+              <MaterialCommunityIcons name="email-outline" size={20} color={PATIENT.primary} />
             </View>
-          ))}
-        </View>
-
-        <Text style={styles.sectionTitle}>{t('helpPage:commonIssues')}</Text>
-        <View style={styles.issueList}>
-          {issueGuides.map((item) => (
-            <View key={item.title} style={styles.issueCard}>
-              <Text style={styles.issueTitle}>{item.title}</Text>
-              <Text style={styles.issueText}>{item.text}</Text>
+            <View style={s.contactInfo}>
+              <Text style={s.contactLabel}>Email</Text>
+              <Text style={s.contactValue}>{SUPPORT_EMAIL}</Text>
             </View>
-          ))}
+          </TouchableOpacity>
+
+          <View style={s.contactDivider} />
+
+          <TouchableOpacity style={s.contactRow} onPress={() => handleQuickAction('phone')} activeOpacity={0.7}>
+            <View style={s.contactIcon}>
+              <MaterialCommunityIcons name="phone-outline" size={20} color={PATIENT.primary} />
+            </View>
+            <View style={s.contactInfo}>
+              <Text style={s.contactValue}>{SUPPORT_PHONE}</Text>
+              <Text style={s.contactSub}>Mon–Fri, 9am – 5pm EST</Text>
+            </View>
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.supportStrip}>
-          <View style={styles.stripCopy}>
-            <Text style={styles.stripTitle}>{t('helpPage:needMoreHelp')}</Text>
-            <Text style={styles.stripText}>{t('helpPage:needMoreHelpDesc')}</Text>
-          </View>
-          <View style={styles.stripActions}>
-            <TouchableOpacity style={styles.stripBtn} onPress={() => openTab('profile')}>
-              <Text style={styles.stripBtnText}>{t('helpPage:myProfile')}</Text>
+        {/* Report a Problem */}
+        <Text style={s.sectionTitle}>Report a Problem</Text>
+        <View style={s.reportCard}>
+          <Text style={s.reportText}>Encountered a bug or technical issue in the app?</Text>
+          <View style={s.reportButtons}>
+            <TouchableOpacity style={s.reportButton} onPress={handleReportIssue} activeOpacity={0.8}>
+              <MaterialCommunityIcons name="bug-outline" size={18} color="#0f172a" />
+              <Text style={s.reportButtonText}>Report Issue</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.stripBtn} onPress={() => openTab('settings')}>
-              <Text style={styles.stripBtnText}>{t('helpPage:settings')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.stripBtn, styles.stripBtnSecondary]} onPress={emailSupport}>
-              <Text style={[styles.stripBtnText, styles.stripBtnSecondaryText]}>{t('helpPage:emailSupport')}</Text>
+            <TouchableOpacity style={s.reportButton} onPress={handleScreenshot} activeOpacity={0.8}>
+              <MaterialCommunityIcons name="image-outline" size={18} color="#0f172a" />
+              <Text style={s.reportButtonText}>Screenshot</Text>
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Footer Links */}
+        <View style={s.footerCard}>
+          <TouchableOpacity style={s.footerRow} onPress={handleTermsOfService} activeOpacity={0.7}>
+            <Text style={s.footerLabel}>Terms of Service</Text>
+            <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
+          </TouchableOpacity>
+          <View style={s.contactDivider} />
+          <TouchableOpacity style={s.footerRow} onPress={handlePrivacyPolicy} activeOpacity={0.7}>
+            <Text style={s.footerLabel}>Privacy Policy</Text>
+            <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Version Info */}
+        <View style={s.versionBox}>
+          <Text style={s.versionText}>Mediconect Version {APP_VERSION}</Text>
+          <Text style={s.versionSub}>Last updated: {LAST_UPDATED}</Text>
+          <TouchableOpacity activeOpacity={0.7}>
+            <Text style={s.updateLink}>Check for Updates</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={{ height: 20 }} />
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 };
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#f8fafc' },
-  header: {
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderBottomColor: '#e2e8f0',
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingBottom: 14,
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'android' ? 16 : 12,
-  },
-  headerBtn: { width: 40 },
-  headerTitle: { color: '#0f172a', fontSize: 17, fontWeight: '800' },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#eef2f6' },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a' },
   scroll: { flex: 1 },
-  content: { padding: 16, paddingBottom: 42 },
-  hero: {
-    backgroundColor: '#ffffff',
-    borderColor: '#e2e8f0',
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 14,
-    padding: 18,
-  },
-  heroIcon: {
-    alignItems: 'center',
-    backgroundColor: '#eff6ff',
-    borderRadius: 18,
-    height: 58,
-    justifyContent: 'center',
-    width: 58,
-  },
-  heroCopy: { flex: 1 },
-  heroTitle: { color: '#0f172a', fontSize: 20, fontWeight: '900', marginBottom: 6 },
-  heroText: { color: '#64748b', fontSize: 13, lineHeight: 20 },
-  cardGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 16 },
-  supportCard: {
-    backgroundColor: '#ffffff',
-    borderColor: '#e2e8f0',
-    borderRadius: 16,
-    borderWidth: 1,
-    flexGrow: 1,
-    minHeight: 190,
-    padding: 15,
-    width: '47%',
-  },
-  cardIcon: {
-    alignItems: 'center',
-    backgroundColor: '#eff6ff',
-    borderRadius: 14,
-    height: 44,
-    justifyContent: 'center',
-    marginBottom: 12,
-    width: 44,
-  },
-  cardTitle: { color: '#0f172a', fontSize: 15, fontWeight: '800', marginBottom: 7 },
-  cardText: { color: '#64748b', flex: 1, fontSize: 12, lineHeight: 18 },
-  cardAction: { alignItems: 'center', flexDirection: 'row', gap: 2, marginTop: 10 },
-  cardActionText: { color: '#2563eb', fontSize: 12, fontWeight: '800' },
-  panel: {
-    backgroundColor: '#ffffff',
-    borderColor: '#e2e8f0',
-    borderRadius: 16,
-    borderWidth: 1,
-    marginTop: 18,
-    padding: 16,
-  },
-  panelHeader: { alignItems: 'center', flexDirection: 'row', gap: 8, marginBottom: 12 },
-  panelTitle: { color: '#0f172a', fontSize: 16, fontWeight: '900' },
-  bulletRow: { flexDirection: 'row', gap: 9, marginTop: 10 },
-  bulletText: { color: '#334155', flex: 1, fontSize: 13, lineHeight: 19 },
-  sectionTitle: {
-    color: '#64748b',
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-    marginBottom: 10,
-    marginTop: 22,
-    textTransform: 'uppercase',
-  },
-  issueList: { gap: 10 },
-  issueCard: {
-    backgroundColor: '#ffffff',
-    borderColor: '#e2e8f0',
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 15,
-  },
-  issueTitle: { color: '#0f172a', fontSize: 14, fontWeight: '800', marginBottom: 5 },
-  issueText: { color: '#64748b', fontSize: 13, lineHeight: 20 },
-  supportStrip: {
-    backgroundColor: '#0f172a',
-    borderRadius: 18,
-    gap: 16,
-    marginTop: 20,
-    padding: 18,
-  },
-  stripCopy: { gap: 6 },
-  stripTitle: { color: '#ffffff', fontSize: 18, fontWeight: '900' },
-  stripText: { color: '#cbd5e1', fontSize: 13, lineHeight: 20 },
-  stripActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  stripBtn: {
-    backgroundColor: '#2563eb',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-  },
-  stripBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
-  stripBtnSecondary: { backgroundColor: '#ffffff' },
-  stripBtnSecondaryText: { color: '#0f172a' },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16 },
+
+  searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 12, paddingHorizontal: 14, height: 46, gap: 10, borderWidth: 1, borderColor: '#e6ebf1' },
+  searchInput: { flex: 1, fontSize: 14, color: '#0f172a', fontWeight: '500', padding: 0 },
+
+  quickGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 14, rowGap: 12 },
+  actionCard: { width: '48%', backgroundColor: '#ffffff', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#eef2f6' },
+  actionIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  actionLabel: { fontSize: 14, fontWeight: '700', color: '#0f172a', marginBottom: 3 },
+  actionSubtitle: { fontSize: 11, color: '#94a3b8', fontWeight: '500', marginBottom: 8 },
+  actionBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  actionBadgeText: { fontSize: 9, fontWeight: '700' },
+
+  sectionTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a', marginTop: 24, marginBottom: 12 },
+
+  faqCard: { backgroundColor: '#ffffff', borderRadius: 14, borderWidth: 1, borderColor: '#eef2f6', paddingHorizontal: 14 },
+  faqItem: { borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingVertical: 15 },
+  faqItemLast: { borderBottomWidth: 0 },
+  faqHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  faqQuestion: { fontSize: 13.5, fontWeight: '600', color: '#334155', flex: 1, marginRight: 10 },
+  faqAnswer: { fontSize: 12.5, color: '#64748b', lineHeight: 20, marginTop: 10 },
+
+  emergencyCard: { backgroundColor: '#fffbeb', borderRadius: 14, borderWidth: 1, borderColor: '#fde68a', padding: 16, marginTop: 24, alignItems: 'center' },
+  emergencyHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  emergencyTitle: { fontSize: 14, fontWeight: '800', color: '#92400e' },
+  emergencyText: { fontSize: 12, color: '#b45309', textAlign: 'center', lineHeight: 18, marginBottom: 14 },
+  emergencyButton: { backgroundColor: '#f59e0b', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 40, alignSelf: 'stretch', alignItems: 'center' },
+  emergencyButtonText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
+  crisisLink: { fontSize: 13, fontWeight: '700', color: '#d97706', marginTop: 12 },
+
+  contactHeading: { fontSize: 11, fontWeight: '700', color: '#94a3b8', letterSpacing: 0.6, marginTop: 24, marginBottom: 10 },
+  contactCard: { backgroundColor: '#ffffff', borderRadius: 14, borderWidth: 1, borderColor: '#eef2f6', paddingHorizontal: 14 },
+  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 },
+  contactIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: '#E6F6EC', alignItems: 'center', justifyContent: 'center' },
+  contactInfo: { flex: 1 },
+  contactLabel: { fontSize: 11, fontWeight: '600', color: '#94a3b8', marginBottom: 2 },
+  contactValue: { fontSize: 13.5, fontWeight: '700', color: '#0f172a' },
+  contactSub: { fontSize: 11, color: '#94a3b8', fontWeight: '500', marginTop: 2 },
+  contactDivider: { height: 1, backgroundColor: '#f1f5f9' },
+
+  reportCard: { backgroundColor: '#ffffff', borderRadius: 14, borderWidth: 1, borderColor: '#eef2f6', padding: 16 },
+  reportText: { fontSize: 12.5, color: '#64748b', fontWeight: '500', marginBottom: 14 },
+  reportButtons: { flexDirection: 'row', gap: 12 },
+  reportButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e6ebf1', borderRadius: 10, paddingVertical: 11 },
+  reportButtonText: { fontSize: 12.5, fontWeight: '700', color: '#0f172a' },
+
+  footerCard: { backgroundColor: '#ffffff', borderRadius: 14, borderWidth: 1, borderColor: '#eef2f6', paddingHorizontal: 16, marginTop: 24 },
+  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 15 },
+  footerLabel: { fontSize: 13.5, fontWeight: '600', color: '#334155' },
+
+  versionBox: { alignItems: 'center', marginTop: 20 },
+  versionText: { fontSize: 12.5, fontWeight: '600', color: '#64748b' },
+  versionSub: { fontSize: 11.5, color: '#94a3b8', marginTop: 3 },
+  updateLink: { fontSize: 12.5, fontWeight: '700', color: '#2563eb', marginTop: 8 },
 });
 
 export default HelpSupport;

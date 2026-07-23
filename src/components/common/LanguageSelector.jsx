@@ -32,7 +32,10 @@ const LANG_ACCENT = {
   ur: '#14B8A6',
 };
 
-export default function LanguageSelector({ iconColor, iconSize, userId, role }) {
+// `brand` (optional): when set, the whole sheet uses this single accent instead
+// of the per-language rainbow — used by the patient/user side (green palette).
+export default function LanguageSelector({ iconColor, iconSize, userId, role, iconName, brand }) {
+  const brandSoft = brand ? '#E6F6EC' : '#EFF6FF';
   const { t, i18n } = useTranslation();
   const { language: contextLang, setLanguage: setContextLanguage } = useLanguageContext();
   const [visible, setVisible] = useState(false);
@@ -110,12 +113,16 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role }) 
 
   const renderItem = ({ item, index }) => {
     const isActive = item.code === currentLang;
-    const accent = LANG_ACCENT[item.code] || '#3B82F6';
+    const accent = brand || LANG_ACCENT[item.code] || '#3B82F6';
     const initial = item.name?.charAt(0) || item.label?.charAt(0) || '?';
 
     return (
       <TouchableOpacity
-        style={[styles.langRow, isActive && styles.langRowActive]}
+        style={[
+          styles.langRow,
+          isActive && styles.langRowActive,
+          isActive && brand && { backgroundColor: '#F4FAF6' },
+        ]}
         onPress={() => selectLanguage(item.code)}
         activeOpacity={0.65}
       >
@@ -149,7 +156,11 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role }) 
         activeOpacity={0.7}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
-        <Text style={{ fontSize: iconSize || 22, lineHeight: (iconSize || 22) + 2 }}>🌐</Text>
+        {iconName ? (
+          <Ionicons name={iconName} size={iconSize || 22} color={iconColor || '#111827'} />
+        ) : (
+          <Text style={{ fontSize: iconSize || 22, lineHeight: (iconSize || 22) + 2 }}>🌐</Text>
+        )}
       </TouchableOpacity>
 
       <Modal visible={visible} transparent animationType="none" onRequestClose={close} statusBarTranslucent>
@@ -157,10 +168,14 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role }) 
 
         <Animated.View style={[styles.sheet, { transform: [{ scale }], opacity }]}>
           {/* Header */}
-          <View style={styles.header}>
+          <View style={[styles.header, brand && { backgroundColor: '#F4FAF6' }]}>
             <View style={styles.headerLeft}>
-              <View style={styles.headerIconWrap}>
-                <Text style={styles.headerIcon}>🌐</Text>
+              <View style={[styles.headerIconWrap, brand && { backgroundColor: brandSoft }]}>
+                {brand ? (
+                  <Ionicons name="globe-outline" size={20} color={brand} />
+                ) : (
+                  <Text style={styles.headerIcon}>🌐</Text>
+                )}
               </View>
               <View>
                 <Text style={styles.headerTitle}>{t('language:selectLanguage')}</Text>
@@ -178,8 +193,8 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role }) 
           {/* Search Box */}
           <View style={styles.searchSection}>
             <View style={styles.searchContainer}>
-              <View style={styles.searchIconWrap}>
-                <Ionicons name="search-outline" size={18} color="#2563EB" />
+              <View style={[styles.searchIconWrap, brand && { backgroundColor: brandSoft }]}>
+                <Ionicons name="search-outline" size={18} color={brand || '#2563EB'} />
               </View>
               <TextInput
                 style={styles.searchInput}

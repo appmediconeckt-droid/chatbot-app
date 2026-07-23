@@ -27,6 +27,8 @@ import { API_BASE_URL } from '../../../../../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import PATIENT from '../../../../../../theme/palette';
+import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
 
 const { width, height } = Dimensions.get('window');
 
@@ -119,7 +121,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const [selectedCounselorForRequest, setSelectedCounselorForRequest] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState('name');
+  const [activeFilter, setActiveFilter] = useState('all');
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [bookingDateTime, setBookingDateTime] = useState(() => {
     const nextSlot = new Date();
@@ -213,8 +215,8 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         const counselorId = chat?.otherParty?.id;
         const chatId = chat?.chatId || chat?.id;
 
-        // Track pending requests too — once a request exists (pending or
-        // accepted/active) the card shows "Chat Now" instead of "Send Request".
+        // Track pending requests too. The status is what the card branches on:
+        // pending keeps the request state, accepted/active unlocks scheduling.
         if ((status === 'pending' || status === 'accepted' || status === 'active') && counselorId && chatId) {
           acceptedMap[String(counselorId)] = {
             chatId: String(chatId),
@@ -382,6 +384,27 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   };
 
   const handleBookAppointment = (counselor) => {
+    // Scheduling is only available once the counselor has accepted the request.
+    // The card already hides the button, but guard here too so no other entry
+    // point can open the booking modal for an unconnected counselor.
+    const existingChat = acceptedChatsByCounselorId[String(counselor?.id)];
+    const status = String(existingChat?.status || '').toLowerCase();
+    if (status !== 'accepted' && status !== 'active') {
+      Alert.alert(
+        t('appointment:requestRequired', 'Request required'),
+        status === 'pending'
+          ? t(
+              'appointment:requestPendingMessage',
+              'Your request is waiting for the counselor to accept. You can schedule an appointment once it is accepted.'
+            )
+          : t(
+              'appointment:requestFirstMessage',
+              'Send a request to this counselor first. You can schedule an appointment once they accept.'
+            )
+      );
+      return;
+    }
+
     setSelectedCounselorForRequest(counselor);
     const nextSlot = new Date();
     const roundedMinutes = Math.ceil(nextSlot.getMinutes() / 15) * 15;
@@ -403,6 +426,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const bookingTimeLabel = bookingDateTime.toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   });
 
   const handleDateChange = (event, selectedDate) => {
@@ -630,80 +654,128 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
     );
   };
 
-  const renderCounselorRow = ({ item }) => (
-    <TouchableOpacity
-      style={[styles.counselorRowTable, !item.available && styles.unavailableCard]}
-      onPress={() => handleChatNow(item)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.rowLeftWrap}>
-        <View style={styles.rowAvatarWrap}>
-          {item.avatarType === 'image' ? (
-            <Image source={{ uri: item.avatar }} style={styles.rowAvatar} />
-          ) : (
-            <LinearGradient colors={['#667eea', '#764ba2']} style={styles.rowAvatarPlaceholder}>
-              <Text style={styles.rowAvatarText}>{item.avatar}</Text>
-            </LinearGradient>
-          )}
-          <View style={[styles.statusDot, item.available ? styles.online : styles.offline]} />
-        </View>
-        <View style={styles.rowInfoWrap}>
-          <View style={styles.rowTopLine}>
-            <Text style={styles.rowName} numberOfLines={1}>{item.name}</Text>
-            {acceptedChatsByCounselorId[String(item.id)]?.chatId ? (
-              <View style={styles.acceptedBadgeInline}>
-                <Text style={styles.acceptedBadgeText}>{t('appointment:accepted', 'Accepted')}</Text>
-              </View>
-            ) : null}
-          </View>
-          <Text style={styles.rowMeta} numberOfLines={1}>
-            {item.specialization}{item.location ? ` • ${item.location}` : ''}
-          </Text>
-          <View style={styles.rowBottomLine}>
-            <Text style={styles.rowExperience}>{item.experience}</Text>
-            {renderStarRating(item.rating)}
-          </View>
-        </View>
-      </View>
+  const renderCounselorCard = (item) => {
+    // A request must be ACCEPTED before scheduling opens up. A merely pending
+    // request still counts as "no connection yet", so the card keeps showing
+    // the request state instead of the booking/chat actions.
+    const existingChat = acceptedChatsByCounselorId[String(item.id)];
+    const chatStatus = String(existingChat?.status || '').toLowerCase();
+    const isAccepted = !!existingChat?.chatId && (chatStatus === 'accepted' || chatStatus === 'active');
+    const isPending = !!existingChat?.chatId && chatStatus === 'pending';
+    const online = !!item.available;
 
-      <View style={styles.rowActionWrap}>
-        <TouchableOpacity
-          style={[styles.chatButton, !item.available && styles.chatButtonDisabled]}
-          onPress={() => handleChatNow(item)}
-          disabled={!item.available}
-        >
-          <LinearGradient
-            colors={
-              !item.available
-                ? ['#ccc', '#ccc']
-                : acceptedChatsByCounselorId[String(item.id)]?.chatId
-                  ? ['#16a34a', '#15803d']
-                  : ['#667eea', '#764ba2']
-            }
-            style={styles.chatButtonGradient}
-          >
-            <Text style={styles.chatButtonText}>
-              {!item.available
-                ? t('common:offline')
-                : acceptedChatsByCounselorId[String(item.id)]?.chatId
-                  ? t('appointment:chatNow')
-                  : 'Send Request'}
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardTop}>
+          <View style={styles.cardAvatarWrap}>
+            {item.avatarType === 'image' ? (
+              <Image source={{ uri: item.avatar }} style={styles.cardAvatar} />
+            ) : (
+              <LinearGradient
+                colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                style={styles.cardAvatarPlaceholder}
+              >
+                <Text style={styles.cardAvatarText}>{item.avatar}</Text>
+              </LinearGradient>
+            )}
+          </View>
+
+          <View style={styles.cardInfo}>
+            <View style={styles.cardNameRow}>
+              <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
+              <Ionicons name="checkmark-circle" size={15} color={PATIENT.primary} />
+            </View>
+            <Text style={styles.cardSpec} numberOfLines={1}>{item.specialization}</Text>
+            <View style={styles.cardMetaRow}>
+              <Ionicons name="briefcase-outline" size={12.5} color={PATIENT.textSecondary} />
+              <Text style={styles.cardMetaText}>{item.experience}</Text>
+              <Ionicons name="star" size={12.5} color="#F5A623" style={{ marginLeft: 12 }} />
+              <Text style={styles.cardMetaText}>{(Number(item.rating) || 0).toFixed(1)}</Text>
+            </View>
+          </View>
+
+          <View style={[styles.statusPill, online ? styles.statusPillOn : styles.statusPillOff]}>
+            <View style={[styles.statusPillDot, { backgroundColor: online ? PATIENT.online : '#9CA3AF' }]} />
+            <Text style={[styles.statusPillText, { color: online ? PATIENT.primary : '#6B7280' }]}>
+              {online ? t('counselor:available', 'AVAILABLE') : t('common:offline', 'OFFLINE')}
             </Text>
-          </LinearGradient>
-        </TouchableOpacity>
+          </View>
+        </View>
 
-        <TouchableOpacity
-          style={styles.bookButton}
-          onPress={() => handleBookAppointment(item)}
-          activeOpacity={0.85}
-        >
-          <LinearGradient colors={['#0f766e', '#0d9488']} style={styles.bookButtonGradient}>
-            <Text style={styles.bookButtonText}>{t('appointment:schedule')}</Text>
-          </LinearGradient>
-        </TouchableOpacity>
+        {isPending ? (
+          // Request sent, counselor hasn't accepted yet — nothing to do but wait.
+          <View style={styles.btnPendingRow}>
+            <Ionicons name="time-outline" size={15} color="#B45309" />
+            <Text style={styles.btnPendingText} numberOfLines={1}>
+              {t('appointment:requestPending', 'Request pending — waiting for counselor to accept')}
+            </Text>
+          </View>
+        ) : !online ? (
+          // Offline is checked before `isAccepted` so "Chat Now" can never
+          // render for a counselor who isn't there to answer. An accepted
+          // counselor can still be booked for a later slot; an unconnected one
+          // can't even be sent a request.
+          <View style={styles.cardOfflineRow}>
+            <Text style={styles.nextAvailText} numberOfLines={1}>
+              {item.nextAvailable
+                ? `${t('appointment:nextAvailable', 'Next Available')} ${item.nextAvailable}`
+                : t('appointment:currentlyUnavailable', 'Currently unavailable')}
+            </Text>
+            {isAccepted ? (
+              <TouchableOpacity
+                style={styles.btnOutlineSm}
+                onPress={() => handleBookAppointment(item)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.btnOutlineText}>{t('appointment:schedule')}</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.btnDisabledSm}>
+                <Text style={styles.btnDisabledSmText}>
+                  {t('appointment:sendRequest', 'Send Request')}
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : isAccepted ? (
+          // Connected and online: scheduling and chat are both unlocked.
+          <View style={styles.cardActions}>
+            <PatientGradientButton
+              style={styles.btnPrimary}
+              onPress={() => handleBookAppointment(item)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.btnPrimaryText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                {t('appointment:scheduleAppointment', 'Schedule Appointment')}
+              </Text>
+            </PatientGradientButton>
+            <TouchableOpacity
+              style={styles.btnOutline}
+              onPress={() => handleChatNow(item)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.btnOutlineText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                {t('appointment:chatNow')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          // First time with this counselor: request only, no scheduling yet.
+          <PatientGradientButton
+            style={styles.btnPrimaryFull}
+            onPress={() => handleChatNow(item)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.btnPrimaryText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+              {t('appointment:sendRequest', 'Send Request')}
+            </Text>
+          </PatientGradientButton>
+        )}
       </View>
-    </TouchableOpacity>
-  );
+    );
+  };
+
+  const renderCounselorRow = ({ item }) => renderCounselorCard(item);
 
   const renderNotification = ({ item }) => (
     <TouchableOpacity
@@ -746,80 +818,85 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
     );
   });
 
-  const sortedCounselors = [...filteredCounselors].sort((a, b) => {
-    if (sortBy === 'rating') {
-      return (Number(b.rating) || 0) - (Number(a.rating) || 0);
-    }
+  // Chips: All / Online / Nearby / Top Rated + specializations from the data.
+  // A counselor's `specialization` is a combined string ("Anxiety , Depression")
+  // so we split on any separator ( , | / ) and add each specialty as its own
+  // chip — otherwise the whole combined string shows up as a single chip.
+  const filterChips = (() => {
+    const specs = [];
+    counselors.forEach((c) => {
+      String(c.specialization || '')
+        .split(/[,|/]/)
+        .forEach((part) => {
+          const s = part.trim();
+          if (s && s.toLowerCase() !== 'general' && !specs.includes(s)) specs.push(s);
+        });
+    });
+    return [
+      { id: 'all', label: t('common:all', 'All') },
+      { id: 'online', label: t('common:online', 'Online') },
+      { id: 'nearby', label: t('appointment:nearby', 'Nearby') },
+      { id: 'topRated', label: t('appointment:topRated', 'Top Rated') },
+      ...specs.map((s) => ({ id: s, label: s })),
+    ];
+  })();
 
-    if (sortBy === 'experience') {
-      const expA = Number.parseInt(String(a.experience || '0'), 10) || 0;
-      const expB = Number.parseInt(String(b.experience || '0'), 10) || 0;
-      return expB - expA;
-    }
-
-    return String(a.name || '').localeCompare(String(b.name || ''));
+  const chipFiltered = filteredCounselors.filter((c) => {
+    if (activeFilter === 'all') return true;
+    if (activeFilter === 'online') return !!c.available;
+    if (activeFilter === 'nearby') return !!c.location;
+    if (activeFilter === 'topRated') return (Number(c.rating) || 0) >= 4.5;
+    return String(c.specialization || '').toLowerCase().includes(String(activeFilter).toLowerCase());
   });
+
+  const sortedCounselors = [...chipFiltered].sort((a, b) => {
+    if (a.available !== b.available) return a.available ? -1 : 1;
+    return (Number(b.rating) || 0) - (Number(a.rating) || 0);
+  });
+
+  // Top pick shown in "Recommended for you"; the rest fill the list below.
+  const recommended = sortedCounselors[0] || null;
+  const restCounselors = recommended ? sortedCounselors.slice(1) : sortedCounselors;
 
   const renderListHeader = () => (
     <>
-      {/* <View style={styles.header}>
-        <Text style={styles.headerTitle}>Counselor Directory</Text>
-        <Text style={styles.headerSubtitle}>Trusted experts for confidential mental wellness support</Text>
-      </View> */}
-
       <View style={styles.searchContainer}>
+        <Ionicons name="search" size={18} color={PATIENT.textMuted} style={styles.searchIcon} />
         <TextInput
           value={searchQuery}
           onChangeText={setSearchQuery}
-          placeholder={t('appointment:searchCounselorPlaceholder', 'Search counselor by name, specialization, or location')}
-          placeholderTextColor="#9ca3af"
+          placeholder={t('messages:searchCounselors', 'Search counselors...')}
+          placeholderTextColor={PATIENT.textMuted}
           style={styles.searchInput}
         />
-        <TouchableOpacity
-          style={styles.searchActionButton}
-          onPress={() => {
-            if (searchQuery.length > 0) setSearchQuery('');
-          }}
-          activeOpacity={searchQuery.length > 0 ? 0.7 : 1}
-        >
-          <Ionicons
-            name={searchQuery.length > 0 ? 'close' : 'search'}
-            size={18}
-            color={searchQuery.length > 0 ? '#4b5563' : '#6b7280'}
-          />
-        </TouchableOpacity>
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')} activeOpacity={0.7}>
+            <Ionicons name="close-circle" size={16} color={PATIENT.textMuted} />
+          </TouchableOpacity>
+        )}
       </View>
-      
-      <View style={styles.sortRow}>
-        <Text style={styles.sortLabel}>{t('appointment:sort')}</Text>
-        <TouchableOpacity
-          style={[styles.sortChip, sortBy === 'name' && styles.sortChipActive]}
-          onPress={() => setSortBy('name')}
-        >
-          <View style={styles.sortChipContent}>
-            <Ionicons name="text" size={12} color={sortBy === 'name' ? '#4338ca' : '#475569'} />
-            <Text style={[styles.sortChipText, sortBy === 'name' && styles.sortChipTextActive]}>{t('appointment:name')}</Text>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.sortChip, sortBy === 'rating' && styles.sortChipActive]}
-          onPress={() => setSortBy('rating')}
-        >
-          <View style={styles.sortChipContent}>
-            <Ionicons name="star" size={12} color={sortBy === 'rating' ? '#4338ca' : '#475569'} />
-            <Text style={[styles.sortChipText, sortBy === 'rating' && styles.sortChipTextActive]}>{t('appointment:rating')}</Text>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.sortChip, sortBy === 'experience' && styles.sortChipActive]}
-          onPress={() => setSortBy('experience')}
-        >
-          <View style={styles.sortChipContent}>
-            <Ionicons name="briefcase" size={12} color={sortBy === 'experience' ? '#4338ca' : '#475569'} />
-            <Text style={[styles.sortChipText, sortBy === 'experience' && styles.sortChipTextActive]}>{t('appointment:experience')}</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.chipRow}
+      >
+        {filterChips.map((chip) => {
+          const isActive = activeFilter === chip.id;
+          return (
+            <TouchableOpacity
+              key={chip.id}
+              style={[styles.chip, isActive && styles.chipActive]}
+              onPress={() => setActiveFilter(chip.id)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.chipText, isActive && styles.chipTextActive]} numberOfLines={1}>
+                {chip.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
       {notifications.length > 0 ? (
         <View style={styles.notificationsPanel}>
@@ -832,6 +909,26 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
           />
         </View>
       ) : null}
+
+      {recommended ? (
+        <>
+          <Text style={styles.sectionTitle}>
+            {t('appointment:recommendedForYou', 'Recommended for you')}
+          </Text>
+          {renderCounselorCard(recommended)}
+        </>
+      ) : null}
+
+      {restCounselors.length > 0 ? (
+        <View style={styles.sectionRow}>
+          <Text style={styles.sectionTitleInline}>
+            {t('appointment:availableCounselors', 'Available Counselors')}
+          </Text>
+          <TouchableOpacity activeOpacity={0.7} onPress={() => setActiveFilter('all')}>
+            <Text style={styles.seeAll}>{t('appointment:seeAll', 'See All')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
     </>
   );
 
@@ -840,7 +937,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   if (showInitialSkeleton) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+        <StatusBar barStyle="dark-content" backgroundColor={PATIENT.backgroundTint} />
         <CounselorListSkeleton />
       </SafeAreaView>
     );
@@ -848,12 +945,12 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <StatusBar barStyle="dark-content" backgroundColor={PATIENT.backgroundTint} />
 
       {/* Counselors List */}
       <FlatList
         key="table-list"
-        data={sortedCounselors}
+        data={restCounselors}
         renderItem={renderCounselorRow}
         keyExtractor={(item) => item.id}
         numColumns={1}
@@ -865,7 +962,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         onRefresh={fetchCounselors}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <ActivityIndicator size="large" color="#667eea" />
+            <ActivityIndicator size="large" color="#00652C" />
             <Text style={styles.emptyText}>
               {searchQuery.trim() ? 'No counselors match your search.' : 'Loading counselors...'}
             </Text>
@@ -880,126 +977,155 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         transparent={true}
         onRequestClose={() => setShowUserModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { width: Math.min(screenWidth * 0.92, 520), maxHeight: screenHeight * 0.82 }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Start Chat with {selectedCounselorForRequest?.name}
+        <View style={styles.sheetOverlay}>
+          <TouchableOpacity
+            style={styles.sheetBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowUserModal(false)}
+          />
+          <View style={[styles.reqSheet, { maxHeight: screenHeight * 0.88 }]}>
+            <View style={styles.sheetHandle} />
+
+            <View style={styles.reqHeader}>
+              <Text style={styles.reqTitle} numberOfLines={1}>
+                {t('appointment:startChatWith', 'Start Chat with')} {selectedCounselorForRequest?.name}
               </Text>
-              <TouchableOpacity onPress={() => setShowUserModal(false)}>
-                <Text style={styles.modalClose}>×</Text>
+              <TouchableOpacity
+                onPress={() => setShowUserModal(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={22} color="#0f172a" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* User Info Card */}
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+              {/* Anonymous card — green gradient */}
               <LinearGradient
-                colors={['#667eea', '#764ba2']}
-                style={styles.userInfoCard}
+                colors={['#006B2C', '#01CE54']}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={styles.anonCard}
               >
-                <Text style={styles.userInfoIcon}>🔒</Text>
-                <View style={styles.userInfoDetails}>
-                  <Text style={styles.userInfoLabel}>{t('appointment:chatting')}</Text>
-                  <Text style={styles.userInfoName}>
-                    {isLoading ? t('common:loading') : userAnonymous || t('common:loading')}
-                  </Text>
-                  <Text style={styles.userInfoNote}>
-                    This anonymous name will be shown to the counselor
+                <Ionicons
+                  name="lock-closed"
+                  size={92}
+                  color="rgba(255,255,255,0.10)"
+                  style={styles.anonWatermark}
+                />
+                <View style={styles.anonTopRow}>
+                  <Ionicons name="lock-closed" size={17} color="#ffffff" />
+                  <Text style={styles.anonTitle}>
+                    {t('appointment:chatting', "You're chatting anonymously")}
                   </Text>
                 </View>
+
+                <View style={styles.anonPill}>
+                  <Ionicons name="person" size={14} color={PATIENT.primary} />
+                  <Text style={styles.anonPillText} numberOfLines={1}>
+                    {isLoading ? t('common:loading') : userAnonymous || t('common:loading')}
+                  </Text>
+                </View>
+
+                <Text style={styles.anonNote}>
+                  {t('appointment:anonNote', 'Your real identity remains hidden. Only your anonymous name is visible to the counselor.')}
+                </Text>
               </LinearGradient>
 
-              {/* Counselor Preview */}
+              {/* Counselor preview card */}
               {selectedCounselorForRequest && (
-                <View style={styles.counselorPreview}>
-                  <View style={styles.previewHeader}>
-                    <View style={styles.previewAvatar}>
-                      {selectedCounselorForRequest.avatarType === 'image' ? (
-                        <Image
-                          source={{ uri: selectedCounselorForRequest.avatar }}
-                          style={styles.previewAvatarImage}
-                        />
-                      ) : (
-                        <LinearGradient
-                          colors={['#667eea', '#764ba2']}
-                          style={styles.previewAvatarPlaceholder}
-                        >
-                          <Text style={styles.previewAvatarText}>
-                            {selectedCounselorForRequest.avatar}
-                          </Text>
-                        </LinearGradient>
-                      )}
+                <View style={styles.reqCounselorCard}>
+                  <View style={styles.reqAvatarWrap}>
+                    {selectedCounselorForRequest.avatarType === 'image' ? (
+                      <Image
+                        source={{ uri: selectedCounselorForRequest.avatar }}
+                        style={styles.reqAvatarImg}
+                      />
+                    ) : (
+                      <LinearGradient
+                        colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                        style={styles.reqAvatarFallback}
+                      >
+                        <Text style={styles.reqAvatarText}>
+                          {selectedCounselorForRequest.avatar}
+                        </Text>
+                      </LinearGradient>
+                    )}
+                  </View>
+
+                  <View style={styles.reqCounselorInfo}>
+                    <View style={styles.reqNameRow}>
+                      <Text style={styles.reqName} numberOfLines={1}>
+                        {selectedCounselorForRequest.name}
+                      </Text>
+                      <Ionicons name="checkmark-circle" size={14} color={PATIENT.primary} />
                     </View>
-                    <View style={styles.previewInfo}>
-                      <Text style={styles.previewName}>{selectedCounselorForRequest.name}</Text>
-                      <Text style={styles.previewSpecialization}>
-                        {selectedCounselorForRequest.specialization}
+                    <Text style={styles.reqSpec} numberOfLines={1}>
+                      {selectedCounselorForRequest.specialization}
+                    </Text>
+                    <View style={styles.reqMetaRow}>
+                      <Ionicons name="briefcase-outline" size={12} color={PATIENT.textSecondary} />
+                      <Text style={styles.reqMetaText}>{selectedCounselorForRequest.experience}</Text>
+                      <Ionicons name="star" size={12} color="#F5A623" style={{ marginLeft: 10 }} />
+                      <Text style={styles.reqMetaText}>
+                        {(Number(selectedCounselorForRequest.rating) || 0).toFixed(1)}
                       </Text>
                     </View>
                   </View>
+
+                  <View style={styles.reqStatusPill}>
+                    <View
+                      style={[
+                        styles.reqStatusDot,
+                        { backgroundColor: selectedCounselorForRequest.available ? PATIENT.online : '#9CA3AF' },
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.reqStatusText,
+                        { color: selectedCounselorForRequest.available ? PATIENT.primary : '#6B7280' },
+                      ]}
+                    >
+                      {selectedCounselorForRequest.available
+                        ? t('counselor:available', 'AVAILABLE')
+                        : t('common:offline', 'OFFLINE')}
+                    </Text>
+                  </View>
                 </View>
               )}
 
-              {paymentConfig.enabled && (
-                <View style={styles.paidSessionPreview}>
-                  <View style={styles.paidSessionRow}>
-                    <Text style={styles.paidSessionLabel}>Chat Session</Text>
-                    <Text style={styles.paidSessionValue}>
-                      ₹{paymentConfig.fees?.chat || 100} / {paymentConfig.durationMinutes || 30} min
-                    </Text>
-                  </View>
-                  <View style={styles.paidSessionRow}>
-                    <Text style={styles.paidSessionLabel}>Wallet Balance</Text>
-                    <Text style={styles.paidSessionValue}>
-                      ₹{Number(walletBalance || 0).toFixed(2)}
-                    </Text>
-                  </View>
-                  <Text style={styles.paidSessionNote}>
-                    Amount will stay on hold. If counselor does not accept within {paymentConfig.requestExpiryHours || 24} hours, it will be refunded automatically.
+              {/* Info rows */}
+              <View style={styles.reqInfoList}>
+                <View style={styles.reqInfoRow}>
+                  <Ionicons name="information-circle-outline" size={17} color="#94A3B8" />
+                  <Text style={styles.reqInfoText}>
+                    {selectedCounselorForRequest && acceptedChatsByCounselorId[String(selectedCounselorForRequest.id)]?.chatId
+                      ? t('appointment:tapChatNowToContinue')
+                      : t('appointment:youCanChatOnceAccepts')}
                   </Text>
                 </View>
-              )}
-
-              <View style={styles.modalInfo}>
-                {selectedCounselorForRequest && acceptedChatsByCounselorId[String(selectedCounselorForRequest.id)]?.chatId ? (
-                  <>
-                    <Text style={styles.modalInfoText}>{t('appointment:youAlreadyHaveChat')}</Text>
-                    <Text style={styles.modalInfoText}>{t('appointment:tapChatNowToContinue')}</Text>
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.modalInfoText}>{t('appointment:youCanChatOnceAccepts')}</Text>
-                  </>
-                )}
-                {/* <Text style={styles.modalInfoText}>
-                  Average response time: {selectedCounselorForRequest?.responseTime}
-                </Text> */}
-                <Text style={styles.privacyNote}>
-                  You are chatting anonymously. Your real identity is protected.
-                </Text>
+                <View style={styles.reqInfoRow}>
+                  <Ionicons name="shield-checkmark-outline" size={17} color="#94A3B8" />
+                  <Text style={styles.reqInfoText}>
+                    {t('appointment:privacyNote', 'You are chatting anonymously. Your real identity is protected.')}
+                  </Text>
+                </View>
               </View>
 
               <TouchableOpacity
-                style={styles.submitButton}
+                style={[styles.reqSubmitBtn, isLoading && { opacity: 0.7 }]}
                 onPress={sendChatRequest}
                 disabled={isLoading}
+                activeOpacity={0.88}
               >
-                <LinearGradient
-                  colors={
-                    selectedCounselorForRequest && acceptedChatsByCounselorId[String(selectedCounselorForRequest.id)]?.chatId
-                      ? ['#16a34a', '#15803d']
-                      : ['#667eea', '#764ba2']
-                  }
-                  style={styles.submitButtonGradient}
-                >
-                  <Text style={styles.submitButtonText}>
-                    {isLoading
-                      ? t('common:loading')
-                      : selectedCounselorForRequest && acceptedChatsByCounselorId[String(selectedCounselorForRequest.id)]?.chatId
-                        ? t('appointment:chatNow')
-                        : 'Send Request'}
+                {isLoading ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <Text style={styles.reqSubmitText}>
+                    {selectedCounselorForRequest && acceptedChatsByCounselorId[String(selectedCounselorForRequest.id)]?.chatId
+                      ? t('appointment:chatNow')
+                      : t('appointment:sendRequest', 'Send Request')}
                   </Text>
-                </LinearGradient>
+                )}
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -1015,17 +1141,23 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { width: Math.min(screenWidth * 0.92, 520), maxHeight: screenHeight * 0.82 }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Book Appointment with {selectedCounselorForRequest?.name}
-              </Text>
-              <TouchableOpacity onPress={() => setShowBookingModal(false)}>
-                <Text style={styles.modalClose}>×</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitleSmall}>Book Appointment with</Text>
+                <Text style={styles.modalTitleName} numberOfLines={1}>
+                  {selectedCounselorForRequest?.name}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowBookingModal(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={22} color="#0f172a" />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
               <View style={styles.modalInfo}>
-                <Text style={styles.modalSectionTitle}>{t('appointment:appointmentDate')}</Text>
+                <Text style={styles.modalSectionTitle}>{t('appointment:appointmentDate', 'Appointment Date & Time')}</Text>
                 <View style={styles.dateTimeRow}>
                   <TouchableOpacity
                     style={styles.dateTimeCard}
@@ -1038,8 +1170,8 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                     activeOpacity={0.85}
                   >
                     <View style={styles.dateTimeCardHeader}>
-                      <Ionicons name="calendar-outline" size={16} color="#334155" />
-                      <Text style={styles.dateTimeCardLabel}>{t('appointment:date')}</Text>
+                      <Ionicons name="calendar-outline" size={15} color={PATIENT.primary} />
+                      <Text style={styles.dateTimeCardLabel}>{t('appointment:date', 'Date')}</Text>
                     </View>
                     <Text style={styles.dateTimeCardValue}>{bookingDateLabel}</Text>
                   </TouchableOpacity>
@@ -1055,8 +1187,8 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                     activeOpacity={0.85}
                   >
                     <View style={styles.dateTimeCardHeader}>
-                      <Ionicons name="time-outline" size={16} color="#334155" />
-                      <Text style={styles.dateTimeCardLabel}>{t('appointment:time')}</Text>
+                      <Ionicons name="time-outline" size={15} color={PATIENT.primary} />
+                      <Text style={styles.dateTimeCardLabel}>{t('appointment:time', 'Time')}</Text>
                     </View>
                     <Text style={styles.dateTimeCardValue}>{bookingTimeLabel}</Text>
                   </TouchableOpacity>
@@ -1122,23 +1254,25 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
               <View style={styles.modalActions}>
                 <TouchableOpacity
-                  style={[styles.chatButton, { flex: 1 }]}
+                  style={styles.modalCancelBtn}
                   onPress={() => setShowBookingModal(false)}
                   disabled={isLoading}
+                  activeOpacity={0.8}
                 >
-                  <LinearGradient colors={['#64748b', '#475569']} style={styles.chatButtonGradient}>
-                    <Text style={styles.chatButtonText}>{t('common:cancel')}</Text>
-                  </LinearGradient>
+                  <Text style={styles.modalCancelText}>{t('common:cancel', 'Cancel')}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.bookButton, { flex: 1 }]}
+                  style={styles.modalConfirmBtn}
                   onPress={handleConfirmBooking}
                   disabled={isLoading}
+                  activeOpacity={0.85}
                 >
-                  <LinearGradient colors={['#0f766e', '#0d9488']} style={styles.bookButtonGradient}>
-                    <Text style={styles.bookButtonText}>{isLoading ? t('appointment:booking') : t('common:confirm')}</Text>
-                  </LinearGradient>
+                  {isLoading ? (
+                    <ActivityIndicator color="#ffffff" size="small" />
+                  ) : (
+                    <Text style={styles.modalConfirmText}>{t('common:confirm', 'Confirm')}</Text>
+                  )}
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -1153,7 +1287,7 @@ const styles = {
   container: {
     flex: 1,
     width: '100%',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: PATIENT.backgroundTint,
   },
   header: {
     paddingHorizontal: 16,
@@ -1181,7 +1315,7 @@ const styles = {
     marginHorizontal: 12,
     marginTop: 10,
     marginBottom: 6,
-    backgroundColor: '#eef2ff',
+    backgroundColor: '#E6F6EC',
     borderColor: '#c7d2fe',
     borderWidth: 1,
     borderRadius: 12,
@@ -1196,32 +1330,35 @@ const styles = {
   },
   statusInfoText: {
     fontSize: 12,
-    color: '#4338ca',
+    color: '#00652C',
     marginBottom: 2,
   },
   searchContainer: {
-    marginHorizontal: 12,
-    marginTop: 4,
-    marginBottom: 10,
-    backgroundColor: '#ffffff',
-    borderWidth: 1.2,
-    borderColor: '#d9e0ea',
-    borderRadius: 14,
-    paddingLeft: 12,
-    paddingRight: 8,
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 0,
+    backgroundColor: PATIENT.surface,
+    borderWidth: 1,
+    borderColor: PATIENT.border,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    height: 48,
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: '#0f172a',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
-    shadowRadius: 6,
+    shadowRadius: 8,
     elevation: 1,
+  },
+  searchIcon: {
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 11,
-    color: '#111827',
-    fontSize: 14,
+    paddingVertical: 0,
+    color: PATIENT.text,
+    fontSize: 14.5,
   },
   searchActionButton: {
     width: 28,
@@ -1230,6 +1367,395 @@ const styles = {
     backgroundColor: '#f3f4f6',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // ─── Figma chips / sections / cards ───────────────────────────────────────
+  chipRow: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 4,
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 16,
+    height: 34,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: PATIENT.chipBorder,
+    backgroundColor: PATIENT.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chipActive: {
+    backgroundColor: PATIENT.primary,
+    borderColor: PATIENT.primary,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: PATIENT.textSecondary,
+  },
+  chipTextActive: {
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  sectionTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: PATIENT.text,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 10,
+  },
+  sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 10,
+  },
+  sectionTitleInline: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: PATIENT.text,
+  },
+  seeAll: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: PATIENT.primary,
+  },
+  card: {
+    backgroundColor: PATIENT.surface,
+    borderRadius: 18,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 14,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  cardTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  cardAvatarWrap: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    overflow: 'hidden',
+  },
+  cardAvatar: {
+    width: '100%',
+    height: '100%',
+  },
+  cardAvatarPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardAvatarText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  cardInfo: {
+    flex: 1,
+    paddingTop: 2,
+  },
+  cardNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  cardName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: PATIENT.text,
+    flexShrink: 1,
+  },
+  cardSpec: {
+    fontSize: 12,
+    color: PATIENT.textSecondary,
+    marginTop: 2,
+  },
+  cardMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+  },
+  cardMetaText: {
+    fontSize: 12,
+    color: PATIENT.textSecondary,
+    fontWeight: '500',
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    height: 24,
+    borderRadius: 999,
+  },
+  statusPillOn: {
+    backgroundColor: '#E6F6EC',
+  },
+  statusPillOff: {
+    backgroundColor: '#F1F2F4',
+  },
+  statusPillDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusPillText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  // ─── Chat-request bottom sheet (Figma) ────────────────────────────────────
+  sheetOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  sheetBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(15,23,42,0.45)',
+  },
+  reqSheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 22,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E2E8F0',
+    marginBottom: 14,
+  },
+  reqHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    gap: 12,
+  },
+  reqTitle: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  anonCard: {
+    borderRadius: 18,
+    padding: 18,
+    overflow: 'hidden',
+  },
+  anonWatermark: {
+    position: 'absolute',
+    right: -8,
+    top: 6,
+  },
+  anonTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  anonTitle: {
+    color: '#ffffff',
+    fontSize: 14.5,
+    fontWeight: '700',
+  },
+  anonPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    alignSelf: 'flex-start',
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginTop: 14,
+    maxWidth: '80%',
+  },
+  anonPillText: {
+    color: '#0f172a',
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  anonNote: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 12.5,
+    lineHeight: 18,
+    marginTop: 14,
+  },
+  reqCounselorCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#F7FCF9',
+    borderWidth: 1,
+    borderColor: '#E4EFE8',
+    borderRadius: 16,
+    padding: 12,
+    marginTop: 14,
+  },
+  reqAvatarWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  reqAvatarImg: { width: '100%', height: '100%' },
+  reqAvatarFallback: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reqAvatarText: { color: '#fff', fontSize: 17, fontWeight: '700' },
+  reqCounselorInfo: { flex: 1, paddingTop: 1 },
+  reqNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  reqName: { fontSize: 14.5, fontWeight: '700', color: PATIENT.text, flexShrink: 1 },
+  reqSpec: { fontSize: 11.5, color: PATIENT.textSecondary, marginTop: 2 },
+  reqMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  reqMetaText: { fontSize: 11.5, color: PATIENT.textSecondary, fontWeight: '500' },
+  reqStatusPill: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  reqStatusDot: { width: 6, height: 6, borderRadius: 3 },
+  reqStatusText: { fontSize: 9.5, fontWeight: '800', letterSpacing: 0.3 },
+  reqInfoList: { marginTop: 18, gap: 14 },
+  reqInfoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  reqInfoText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: '#64748B' },
+  reqSubmitBtn: {
+    backgroundColor: PATIENT.primary,
+    borderRadius: 12,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  reqSubmitText: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
+
+  cardActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  // flex 1.6 vs 1 — "Schedule Appointment" is a long label and was cramped
+  // against a same-width "Request" button. Padding + shrink keep it on one line
+  // on small screens instead of wrapping.
+  btnPrimary: {
+    flex: 1.6,
+    borderRadius: 10,
+    height: 44,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  btnPrimaryText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  btnOutline: {
+    flex: 1,
+    borderWidth: 1.4,
+    borderColor: PATIENT.primary,
+    borderRadius: 10,
+    height: 44,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: PATIENT.surface,
+  },
+  btnOutlineSm: {
+    borderWidth: 1.4,
+    borderColor: PATIENT.primary,
+    borderRadius: 10,
+    height: 38,
+    paddingHorizontal: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: PATIENT.surface,
+  },
+  // Full-width variant used before a request exists — "Send Request" is the
+  // only action available, so it takes the whole row.
+  btnPrimaryFull: {
+    borderRadius: 10,
+    height: 44,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  btnPendingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFBEB',
+    borderRadius: 10,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 14,
+  },
+  btnPendingText: {
+    flex: 1,
+    color: '#B45309',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  // Unavailable counselors can't receive new requests — shown inert rather than
+  // hidden so the reason stays visible next to the availability text.
+  btnDisabledSm: {
+    borderWidth: 1.4,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    height: 38,
+    paddingHorizontal: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+  },
+  btnDisabledSmText: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  btnOutlineText: {
+    color: PATIENT.primary,
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  cardOfflineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 14,
+  },
+  nextAvailText: {
+    flex: 1,
+    fontSize: 11.5,
+    color: PATIENT.textSecondary,
   },
   searchHelpText: {
     marginHorizontal: 14,
@@ -1266,8 +1792,8 @@ const styles = {
     gap: 4,
   },
   sortChipActive: {
-    backgroundColor: '#e0e7ff',
-    borderColor: '#6366f1',
+    backgroundColor: '#E6F6EC',
+    borderColor: '#00652C',
   },
   sortChipText: {
     fontSize: 12,
@@ -1275,10 +1801,10 @@ const styles = {
     fontWeight: '600',
   },
   sortChipTextActive: {
-    color: '#4338ca',
+    color: '#00652C',
   },
   listContainer: {
-    paddingHorizontal: 10,
+    paddingHorizontal: 0,
     paddingBottom: 24,
     flexGrow: 1,
   },
@@ -1495,7 +2021,7 @@ const styles = {
   },
   specialization: {
     fontSize: 12,
-    color: '#667eea',
+    color: '#00652C',
     fontWeight: '500',
     marginBottom: 4,
   },
@@ -1624,10 +2150,21 @@ const styles = {
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+  modalTitleSmall: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748b',
+    marginBottom: 3,
+  },
+  modalTitleName: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#0f172a',
   },
   modalTitle: {
     fontSize: 18,
@@ -1709,7 +2246,7 @@ const styles = {
   },
   previewSpecialization: {
     fontSize: 12,
-    color: '#667eea',
+    color: '#00652C',
   },
   paidSessionPreview: {
     marginHorizontal: 16,
@@ -1758,30 +2295,30 @@ const styles = {
     fontSize: 13,
     color: '#0f172a',
     fontWeight: '700',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   dateTimeRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
   },
   dateTimeCard: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#dbe4ee',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: '#e6ebf1',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     backgroundColor: '#f8fafc',
   },
   dateTimeCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   dateTimeCardLabel: {
     fontSize: 12,
-    color: '#475569',
+    color: '#64748b',
     fontWeight: '600',
   },
   dateTimeCardValue: {
@@ -1808,28 +2345,56 @@ const styles = {
   },
   modalTextArea: {
     borderWidth: 1,
-    borderColor: '#dbe4ee',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: '#e6ebf1',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     color: '#0f172a',
     backgroundColor: '#f8fafc',
     minHeight: 100,
+    fontSize: 13,
     textAlignVertical: 'top',
   },
   modalActions: {
     flexDirection: 'row',
-    gap: 10,
-    marginHorizontal: 16,
-    marginBottom: 16,
+    gap: 12,
+    marginHorizontal: 20,
+    marginTop: 4,
+    marginBottom: 20,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#e6ebf1',
+  },
+  modalCancelText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  modalConfirmBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: PATIENT.primary,
+  },
+  modalConfirmText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
   },
   privacyNote: {
     fontSize: 12,
-    color: '#999',
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
+    color: '#94a3b8',
+    fontWeight: '500',
+    marginTop: 16,
   },
   submitButton: {
     margin: 16,

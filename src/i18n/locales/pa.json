@@ -99,7 +99,11 @@
     "counselor": "ਸਲਾਹਕਾਰ",
     "myAppointment": "ਮੇਰੀ ਨਿਯੁਕਤੀ",
     "wallet": "ਵਾਲਿਟ",
-    "callHistory": "ਕਾਲ ਇਤਿਹਾਸ"
+    "callHistory": "ਕਾਲ ਇਤਿਹਾਸ",
+    "welcomeBack": "ਮੁੜ ਸਵਾਗਤ ਹੈ,",
+    "goodMorning": "ਸ਼ੁਭ ਸਵੇਰ",
+    "goodAfternoon": "ਸ਼ੁਭ ਦੁਪਹਿਰ",
+    "goodEvening": "ਸ਼ੁਭ ਸ਼ਾਮ"
   },
   "counselor": {
     "myClients": "ਮੇਰੇ ਮਰੀਜ਼",
@@ -173,7 +177,9 @@
     "deleteChat": "ਚੈਟ ਮਿਟਾਓ",
     "deleteChatConfirm": "ਕੀ ਤੁਸੀਂ ਯਕੀਨੀ ਤੌਰ 'ਤੇ ਇਸ ਚੈਟ ਨੂੰ ਮਿਟਾਉਣਾ ਚਾਹੁੰਦੇ ਹੋ?",
     "deleteChatWarning": "⚠️ ਇਹ ਕਾਰਵਾਈ ਵਾਪਸ ਨਹੀਂ ਕੀਤੀ ਜਾ ਸਕਦੀ। ਸਾਰੇ ਸੁਨੇਹੇ ਪੱਕੇ ਤੌਰ 'ਤੇ ਮਿਟਾ ਦਿੱਤੇ ਜਾਣਗੇ।",
-    "lastMessageLabel": "ਆਖਰੀ ਸੁਨੇਹਾ"
+    "lastMessageLabel": "ਆਖਰੀ ਸੁਨੇਹਾ",
+    "recent": "ਹਾਲੀਆ",
+    "recentConversations": "ਹਾਲੀਆ ਗੱਲਬਾਤ"
   },
   "settings": {
     "settings": "ਸੈਟਿੰਗਜ਼",
@@ -390,7 +396,9 @@
     "upi": "UPI",
     "card": "ਕਾਰਡ",
     "netbanking": "ਨੈੱਟ ਬੈਂਕਿੰਗ",
-    "walletPayment": "ਵਾਲਿਟ"
+    "walletPayment": "ਵਾਲਿਟ",
+    "premiumHealth": "ਪ੍ਰੀਮੀਅਮ ਹੈਲਥ",
+    "confirmAndAdd": "ਪੁਸ਼ਟੀ ਕਰੋ ਅਤੇ ਜੋੜੋ"
   },
   "appointment": {
     "counselorDirectory": "ਸਲਾਹਕਾਰ ਨਿਰਦੇਸ਼ਿਕਾ",
@@ -431,7 +439,17 @@
     "failedToBook": "ਅਪੌਇੰਟਮੈਂਟ ਬੁੱਕ ਕਰਨ ਵਿਚ ਅਸਫਲ।",
     "accepted": "ਸਵੀਕਾਰ ਕੀਤਾ",
     "searchCounselorPlaceholder": "ਨਾਮ, ਮਾਹਰਤਾ ਜਾਂ ਸਥਾਨ ਦੁਆਰਾ ਸਲਾਹਕਾਰ ਖੋਜੋ",
-    "sessionReasonPlaceholder": "ਇਸ ਸੈਸ਼ਨ ਵਿੱਚ ਤੁਸੀਂ ਕੀ ਚਰਚਾ ਕਰਨਾ ਚਾਹੁੰਦੇ ਹੋ ਸਾਂਝਾ ਕਰੋ..."
+    "sessionReasonPlaceholder": "ਇਸ ਸੈਸ਼ਨ ਵਿੱਚ ਤੁਸੀਂ ਕੀ ਚਰਚਾ ਕਰਨਾ ਚਾਹੁੰਦੇ ਹੋ ਸਾਂਝਾ ਕਰੋ...",
+    "recommendedForYou": "ਤੁਹਾਡੇ ਲਈ ਸਿਫ਼ਾਰਸ਼",
+    "availableCounselors": "ਉਪਲਬਧ ਸਲਾਹਕਾਰ",
+    "seeAll": "ਸਭ ਵੇਖੋ",
+    "scheduleAppointment": "ਮੁਲਾਕਾਤ ਤੈਅ ਕਰੋ",
+    "request": "ਬੇਨਤੀ",
+    "nearby": "ਨੇੜੇ",
+    "topRated": "ਟਾਪ ਰੇਟਿਡ",
+    "nextAvailable": "ਅਗਲੀ ਉਪਲਬਧਤਾ",
+    "currentlyUnavailable": "ਹੁਣ ਉਪਲਬਧ ਨਹੀਂ",
+    "completed": "ਪੂਰਾ"
   },
   "helpPage": {
     "title": "Help Support",

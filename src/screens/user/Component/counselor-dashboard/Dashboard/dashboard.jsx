@@ -34,6 +34,7 @@ import Feather from "react-native-vector-icons/Feather";
 import LinearGradient from "react-native-linear-gradient";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { BlurView } from "@react-native-community/blur";
 
 // Custom Hooks
@@ -44,6 +45,8 @@ import Messagesou from "../Tab/Messages/Messagesou";
 import PatientRequests from "../Tab/PatientRequests/PatientRequests";
 import CounselorProfile from "../Tab/Profile-Con/CounselorProfile";
 import CounselorSettings from "../Tab/Settings/CounselorSettings";
+import CounselorNotifications from "../Tab/Notifications/CounselorNotifications";
+import CounselorWallet from "../Tab/Wallet/CounselorWallet";
 import VideoCallModal from "../../UserDashboard/Tab/CallModal/VideoCallModal";
 import VoiceCallModal from "../../UserDashboard/Tab/CallModal/VoiceCallModal";
 import safeVibrate from "../../../../../utils/safeVibrate";
@@ -353,82 +356,93 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
     "Anonymous User";
   const initials = patientName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
 
-  const requestedDate = friendlyDateLabel(apt.date);
+  // Meta line: age • gender • Consultation (only shows the parts we actually have)
+  const patientAge = apt.patient?.age || apt.age;
+  const patientGender = apt.patient?.gender || apt.gender;
+  const metaParts = [
+    patientAge ? String(patientAge) : null,
+    patientGender || null,
+    t('Consultation'),
+  ].filter(Boolean);
+
+  const requestedDate = apt.date
+    ? new Date(apt.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+    : "—";
   const requestedTime = apt.date
     ? new Date(apt.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "—";
   const isToday = apt.date ? isSameDay(apt.date, new Date()) : false;
 
-  // Minimal status palette — muted, low-saturation tones for a calm aesthetic.
-  const statusColor = isPending ? "#b45309" : isConfirmed ? "#047857" : "#b91c1c";
-  const statusBg = isPending ? "#fef7e6" : isConfirmed ? "#ecfdf5" : "#fef2f2";
+  // Status palette — Figma uses a blue CONFIRMED pill, amber PENDING, red CANCELED.
+  const statusColor = isPending ? "#b45309" : isConfirmed ? "#2563EB" : "#b91c1c";
+  const statusBg = isPending ? "#fef7e6" : isConfirmed ? "#EFF4FF" : "#fef2f2";
   const statusLabel = isPending ? t('common:pending') : isConfirmed ? t('common:confirmed') : t('common:canceled');
   const statusDot = isPending ? "#f59e0b" : isConfirmed ? "#2563EB" : "#ef4444";
 
-  // Avatar gradient — soft pastel tones, status-aware but minimal.
-  const avatarColors = isCanceled
-    ? ["#fca5a5", "#f87171"]
-    : isConfirmed
-    ? ["#E0F2FE", "#BAE6FD"]
-    : ["#E0F2FE", "#BAE6FD"];
+  // Patient photo (string URL or Cloudinary-style object) → solid-letter avatar fallback.
+  const rawPatientPhoto =
+    apt.patient?.Image || apt.patient?.image || apt.patient?.profilePhoto || apt.patient?.avatar;
+  const patientPhoto = rawPatientPhoto
+    ? String(typeof rawPatientPhoto === 'string' ? rawPatientPhoto : rawPatientPhoto.secure_url || rawPatientPhoto.url || '')
+    : '';
+  const firstLetter = (patientName || '?').trim().charAt(0).toUpperCase();
+  // Deterministic avatar colour per patient (matches the Figma's solid circles).
+  const AVATAR_BGS = ['#B91C1C', '#2563EB', '#7C3AED', '#0D9488', '#D97706', '#DB2777', '#4F46E5'];
+  const avatarBg = AVATAR_BGS[
+    Math.abs(
+      String(patientName).split('').reduce((h, c) => c.charCodeAt(0) + ((h << 5) - h), 0)
+    ) % AVATAR_BGS.length
+  ];
 
   return (
     <Animated.View style={[aptStyles.card, { opacity: entry, transform: [{ translateY }] }]}>
-      {/* Status side-accent (left vertical bar, subtle status tint) */}
-      <View style={[aptStyles.cardSideAccent, { backgroundColor: statusDot + '55' }]} />
-
       <View style={aptStyles.cardBody}>
-        {/* Header row: avatar ring + info + badge */}
+        {/* Header row: avatar + name/meta + status badge */}
         <View style={aptStyles.cardHeader}>
-          {/* Gradient ring around avatar */}
           <View style={aptStyles.avatarRingOuter}>
-            <LinearGradient colors={avatarColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={aptStyles.avatarRing}>
-              <View style={aptStyles.avatarInner}>
-                <Text style={aptStyles.avatarInitials}>{initials || "?"}</Text>
+            {patientPhoto ? (
+              <Image source={{ uri: patientPhoto }} style={aptStyles.avatarPhoto} />
+            ) : (
+              <View style={[aptStyles.avatarSolid, { backgroundColor: avatarBg }]}>
+                <Text style={aptStyles.avatarLetter}>{firstLetter}</Text>
               </View>
-            </LinearGradient>
+            )}
             {isToday && <View style={aptStyles.todayDot} />}
           </View>
 
           <View style={aptStyles.patientInfo}>
             <Text style={aptStyles.patientName} numberOfLines={1}>{patientName}</Text>
-            <View style={aptStyles.consultTag}>
-              <Ionicons name="medkit-outline" size={11} color="#94a3b8" />
-              <Text style={aptStyles.consultTagText}>{t('Consultation')}</Text>
-            </View>
+            <Text style={aptStyles.patientMeta} numberOfLines={1}>{metaParts.join(' • ')}</Text>
           </View>
 
-          <View style={[aptStyles.statusBadge, { backgroundColor: statusBg, borderColor: statusColor + "22" }]}>
-            <View style={[aptStyles.statusBadgeDot, { backgroundColor: statusDot }]} />
+          <View style={[aptStyles.statusBadge, { backgroundColor: statusBg }]}>
+            <View style={[aptStyles.statusBadgeDot, { backgroundColor: statusColor }]} />
             <Text style={[aptStyles.statusText, { color: statusColor }]}>{statusLabel}</Text>
           </View>
         </View>
 
-        {/* Date/time pill — bigger, hero block */}
-        <View style={aptStyles.dateTimeBlock}>
-          <View style={aptStyles.dateTimeIcon}>
-            <Ionicons name="calendar" size={16} color="#2563EB" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={aptStyles.dateTimePrimary}>
-              {t(requestedDate)}
-              {requestedTime !== "—" ? `  •  ${requestedTime}` : ""}
-            </Text>
-            {apt.date && (
-              <Text style={aptStyles.dateTimeSecondary}>
-                {new Date(apt.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
-              </Text>
+        {/* Details panel: date, duration, notes on a light rounded background */}
+        <View style={aptStyles.detailsPanel}>
+          <View style={aptStyles.infoRow}>
+            <Ionicons name="calendar-outline" size={15} color="#64748b" />
+            <Text style={aptStyles.infoRowText}>{t(requestedDate)}</Text>
+            {requestedTime !== "—" && (
+              <Text style={aptStyles.infoRowTime}>{requestedTime}</Text>
             )}
           </View>
-        </View>
 
-        {/* Notes */}
-        {apt.notes && apt.notes.trim() !== "" && (
-          <View style={aptStyles.notesBox}>
-            <Ionicons name="chatbubble-ellipses-outline" size={13} color="#94a3b8" />
-            <Text style={aptStyles.notesText} numberOfLines={3}>{apt.notes}</Text>
+          <View style={aptStyles.infoRow}>
+            <Ionicons name="time-outline" size={15} color="#64748b" />
+            <Text style={aptStyles.infoRowText}>45 {t('Mins Duration')}</Text>
           </View>
-        )}
+
+          {apt.notes && apt.notes.trim() !== "" && (
+            <View style={aptStyles.notesBox}>
+              <Ionicons name="document-text-outline" size={14} color="#64748b" />
+              <Text style={aptStyles.notesText} numberOfLines={3}>{apt.notes}</Text>
+            </View>
+          )}
+        </View>
 
         {/* Actions */}
         {isPending && (
@@ -456,9 +470,9 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
               activeOpacity={0.9}
             >
               <LinearGradient
-                colors={["#2563EB", "#0D9488"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
+                colors={["#003A9B", "#1490FF"]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
                 style={aptStyles.acceptBtnGradient}
               >
                 {isUpdating ? (
@@ -482,7 +496,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
               activeOpacity={0.85}
             >
               <Ionicons name="videocam" size={15} color="#fff" />
-              <Text style={aptStyles.confirmedActionText} numberOfLines={1}>{t('Video Call')}</Text>
+              <Text style={aptStyles.confirmedActionText} numberOfLines={1}>{t('Video Session')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[aptStyles.confirmedActionBtn, aptStyles.confirmedVoiceBtn]}
@@ -497,7 +511,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
               onPress={() => onChat?.(apt)}
               activeOpacity={0.85}
             >
-              <Ionicons name="chatbubbles" size={14} color="#2563EB" />
+              <Ionicons name="chatbubble-outline" size={14} color="#334155" />
               <Text style={[aptStyles.confirmedActionText, aptStyles.confirmedChatText]} numberOfLines={1}>{t('Chat')}</Text>
             </TouchableOpacity>
           </View>
@@ -538,83 +552,71 @@ const SessionCard = ({ apt, onVideoCall, onVoiceCall, onChat, index = 0 }) => {
     "Anonymous User";
   const initials = patientName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
 
-  const dateObj = apt.date ? new Date(apt.date) : null;
-  const isTodaySession = apt.date ? isSameDay(apt.date, new Date()) : false;
-  const isUpcomingSession = dateObj ? dateObj > new Date() : false;
+  // Patient photo → solid initials circle fallback.
+  const rawPhoto = apt.patient?.Image || apt.patient?.image || apt.patient?.profilePhoto || apt.patient?.avatar;
+  const photoUri = rawPhoto
+    ? String(typeof rawPhoto === 'string' ? rawPhoto : rawPhoto.secure_url || rawPhoto.url || '')
+    : '';
 
-  const dateLabel = dateObj
-    ? dateObj.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
-    : "—";
-  const timeLabel = dateObj
-    ? dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : "—";
+  // 30-minute slot → "10:30 AM - 11:00 AM"
+  const start = apt.date ? new Date(apt.date) : null;
+  const end = start ? new Date(start.getTime() + 30 * 60000) : null;
+  const fmt = (d) => (d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—');
+  const timeRange = start ? `${fmt(start)} - ${fmt(end)}` : '—';
 
-  const badgeLabel = isTodaySession
-    ? t('counselor:today', 'Today')
-    : isUpcomingSession
-    ? t('counselor:upcoming', 'Upcoming')
-    : t('counselor:past', 'Past');
-  const badgeColor = isTodaySession ? "#047857" : isUpcomingSession ? "#1D4ED8" : "#64748b";
-  const badgeBg = isTodaySession ? "#ecfdf5" : isUpcomingSession ? "#eff6ff" : "#f1f5f9";
+  // Live now → show IN PROGRESS + the "conduct Session" action.
+  const now = Date.now();
+  const inProgress = !!(start && end && now >= start.getTime() && now <= end.getTime());
+
+  const sessionType = apt.sessionType || apt.type || t('counselor:consultation', 'General Consultation');
 
   return (
     <Animated.View style={[sessStyles.card, { opacity: entry, transform: [{ translateY }] }]}>
-      <View style={sessStyles.cardHeader}>
-        <View style={sessStyles.avatarRingOuter}>
-          <LinearGradient colors={["#E0F2FE", "#BAE6FD"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sessStyles.avatarRing}>
-            <View style={sessStyles.avatarInner}>
-              <Text style={sessStyles.avatarInitials}>{initials || "?"}</Text>
-            </View>
-          </LinearGradient>
-        </View>
+      {/* Time row + live status */}
+      <View style={sessStyles.timeRow}>
+        <Ionicons name="time-outline" size={16} color="#64748b" />
+        <Text style={sessStyles.timeText}>{timeRange}</Text>
+        {inProgress && (
+          <View style={sessStyles.liveBadge}>
+            <Text style={sessStyles.liveBadgeText}>{t('counselor:inProgress', 'IN PROGRESS')}</Text>
+          </View>
+        )}
+      </View>
 
+      {/* Patient */}
+      <View style={sessStyles.patientRow}>
+        {photoUri ? (
+          <Image source={{ uri: photoUri }} style={sessStyles.avatarPhoto} />
+        ) : (
+          <View style={sessStyles.avatarSolid}>
+            <Text style={sessStyles.avatarInitialsText}>{initials || '?'}</Text>
+          </View>
+        )}
         <View style={sessStyles.patientInfo}>
           <Text style={sessStyles.patientName} numberOfLines={1}>{patientName}</Text>
-          <View style={sessStyles.tagsRow}>
-            <View style={[sessStyles.statusBadge, { backgroundColor: badgeBg }]}>
-              <Text style={[sessStyles.statusText, { color: badgeColor }]}>{badgeLabel}</Text>
-            </View>
-            <View style={sessStyles.consultTag}>
-              <Ionicons name="medkit-outline" size={11} color="#94a3b8" />
-              <Text style={sessStyles.consultTagText}>{t('counselor:initialConsultation', 'Initial Consultation')}</Text>
-            </View>
-          </View>
+          <Text style={sessStyles.patientType} numberOfLines={1}>{sessionType}</Text>
         </View>
       </View>
 
-      <View style={sessStyles.detailsBlock}>
-        <View style={sessStyles.detailItem}>
-          <Ionicons name="calendar-outline" size={15} color="#2563EB" />
-          <Text style={sessStyles.detailText}>{dateLabel}</Text>
-        </View>
-        <View style={sessStyles.detailItem}>
-          <Ionicons name="time-outline" size={15} color="#2563EB" />
-          <Text style={sessStyles.detailText}>{timeLabel}</Text>
-        </View>
-        <View style={sessStyles.detailItem}>
-          <Ionicons name="hourglass-outline" size={15} color="#2563EB" />
-          <Text style={sessStyles.detailText}>{t('counselor:duration', 'Duration')}: 45 {t('counselor:minutes', 'minutes')}</Text>
-        </View>
-      </View>
-
-      {apt.notes && apt.notes.trim() !== "" && (
-        <View style={sessStyles.notesBox}>
-          <Ionicons name="chatbubble-ellipses-outline" size={13} color="#94a3b8" />
-          <Text style={sessStyles.notesText} numberOfLines={3}>{apt.notes}</Text>
-        </View>
+      {/* Primary action */}
+      {inProgress ? (
+        <TouchableOpacity
+          style={sessStyles.conductBtn}
+          onPress={() => onVideoCall(apt)}
+          activeOpacity={0.9}
+        >
+          <Ionicons name="videocam" size={17} color="#fff" />
+          <Text style={sessStyles.conductBtnText}>{t('counselor:conductSession', 'conduct Sessions')}</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={sessStyles.viewBtn}
+          onPress={() => onChat(apt)}
+          activeOpacity={0.85}
+        >
+          <Text style={sessStyles.viewBtnText}>{t('counselor:viewDetails', 'View Details')}</Text>
+        </TouchableOpacity>
       )}
-
-      <View style={sessStyles.actions}>
-        <TouchableOpacity style={[sessStyles.actionBtn, sessStyles.videoBtn]} onPress={() => onVideoCall(apt)} activeOpacity={0.85}>
-          <Ionicons name="videocam" size={18} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity style={[sessStyles.actionBtn, sessStyles.voiceBtn]} onPress={() => onVoiceCall(apt)} activeOpacity={0.85}>
-          <Ionicons name="call" size={17} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity style={[sessStyles.actionBtn, sessStyles.chatBtn]} onPress={() => onChat(apt)} activeOpacity={0.85}>
-          <Ionicons name="chatbubbles" size={17} color="#2563EB" />
-        </TouchableOpacity>
-      </View>
     </Animated.View>
   );
 };
@@ -664,7 +666,7 @@ const AppointmentSkeletonCard = () => {
 export default function CounselorDashboard() {
   const { t } = useLanguageRender();
   const insets = useSafeAreaInsets();
-  const MOBILE_HEADER_BAR_HEIGHT = 56;
+  const MOBILE_HEADER_BAR_HEIGHT = 68;
   const topInset = Platform.OS === "ios" ? insets.top : 0;
   const isFocused = useIsFocused();
   const [activeTab, setActiveTab] = useState("messages");
@@ -674,6 +676,7 @@ export default function CounselorDashboard() {
   const [pendingRequests, setPendingRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [currentRequest, setCurrentRequest] = useState(null);
   const [modalCountdown, setModalCountdown] = useState(10);
   const [modalTimer, setModalTimer] = useState(null);
@@ -702,7 +705,8 @@ export default function CounselorDashboard() {
   const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [updatingAppointmentId, setUpdatingAppointmentId] = useState(null);
-  const [aptFilter, setAptFilter] = useState("all"); // "all" | "pending" | "confirmed" | "canceled"
+  const [aptFilter, setAptFilter] = useState("all"); // "all" | "today" | "upcoming"
+  const [aptSearch, setAptSearch] = useState("");
 
   // â”€â”€ Sessions state (today's confirmed appointments — mirrors web SessionsTab) â”€
   const [sessionSelectedDate, setSessionSelectedDate] = useState(new Date());
@@ -1854,6 +1858,27 @@ export default function CounselorDashboard() {
     setShowMobileMenu(false);
   };
 
+  // ── Global greeting header data (used by the single mobile header) ──
+  // profilePhoto may be a string URL or a Cloudinary-style object.
+  const counselorPhotoUri = (() => {
+    const raw = counselorData?.profilePhoto;
+    if (!raw) return null;
+    const uri = typeof raw === 'string' ? raw : raw.secure_url || raw.url;
+    return uri ? String(uri) : null;
+  })();
+
+  const greetingTitle = (() => {
+    const h = new Date().getHours();
+    const g = h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
+    // First name only — surname is dropped (e.g. "Vivek Singh" → "Dr. Vivek").
+    const firstNameOnly =
+      (counselorData?.name || 'Counselor')
+        .replace(/^Dr\.?\s*/i, '')
+        .trim()
+        .split(/\s+/)[0] || 'Counselor';
+    return `${g}, Dr. ${firstNameOnly}`;
+  })();
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -1864,33 +1889,53 @@ export default function CounselorDashboard() {
 
   // â”€â”€ Appointments Tab Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderAppointmentsTab = () => {
-    const filterTabs = [
-      { key: 'all', label: t('common:all'), icon: 'apps-outline' },
-      { key: 'pending', label: t('common:pending'), icon: 'time-outline' },
-      { key: 'confirmed', label: t('common:confirmed'), icon: 'checkmark-circle-outline' },
-      { key: 'canceled', label: t('common:canceled'), icon: 'close-circle-outline' },
-    ];
+    const now = new Date();
+    const isUpcoming = (a) => new Date(a.date) > now;
 
-    const filteredApts =
-      aptFilter === "all"
-        ? appointments
-        : appointments.filter((a) => a.status === aptFilter);
+    // Filter by tab: All Request / Today / Upcoming, then by search text.
+    const byTab =
+      aptFilter === "today"
+        ? appointments.filter((a) => isSameDay(a.date, now))
+        : aptFilter === "upcoming"
+        ? appointments.filter((a) => isUpcoming(a))
+        : appointments;
+
+    const q = aptSearch.trim().toLowerCase();
+    const filteredApts = q
+      ? byTab.filter((a) =>
+          String(a.patient?.anonymous || a.patient?.fullName || "").toLowerCase().includes(q)
+        )
+      : byTab;
 
     const countFor = (key) =>
-      key === "all" ? appointments.length : appointments.filter((a) => a.status === key).length;
+      key === "today"
+        ? appointments.filter((a) => isSameDay(a.date, now)).length
+        : key === "upcoming"
+        ? appointments.filter((a) => isUpcoming(a)).length
+        : appointments.length;
+
+    const filterTabs = [
+      { key: 'all', label: t('counselor:allRequest', 'All Request'), icon: 'apps-outline' },
+      { key: 'today', label: t('counselor:today', 'Today'), icon: 'today-outline' },
+      { key: 'upcoming', label: t('counselor:upcoming', 'Upcoming'), icon: 'calendar-outline' },
+    ];
 
     // Stats
     const pendingCount = appointments.filter((a) => a.status === "pending").length;
     const confirmedCount = appointments.filter((a) => a.status === "confirmed").length;
-    const todayCount = appointments.filter((a) => isSameDay(a.date, new Date())).length;
+    const todayCount = appointments.filter((a) => isSameDay(a.date, now)).length;
 
     // Greeting
-    const hour = new Date().getHours();
-    const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-    const firstName =
-      (counselorData?.name || "").split(" ")[0] ||
-      (counselorData?.name) ||
-      "Counselor";
+    const hour = now.getHours();
+    const greeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
+    const firstName = (
+      (counselorData?.name || "").replace(/^Dr\.?\s*/i, "").split(" ")[0] ||
+      counselorData?.name ||
+      "Counselor"
+    ).toUpperCase();
+    const counselorPhoto = counselorData?.profilePhoto || null;
+    const counselorInitial = (counselorData?.name || "C").charAt(0).toUpperCase();
+    const shortHeaderName = (counselorData?.name || "Counselor").replace(/^Dr\.?\s*/i, "").slice(0, 8);
 
     return (
       <ScrollView
@@ -1901,19 +1946,18 @@ export default function CounselorDashboard() {
           <RefreshControl
             refreshing={loadingAppointments && appointments.length > 0}
             onRefresh={fetchAppointments}
-            colors={["#1E3A8A", "#2563EB"]}
+            colors={["#003A9B", "#1490FF"]}
             tintColor="#2563EB"
           />
         }
       >
-        {/* Inset section: hero, title, filters keep horizontal breathing room.
-            The card list below this wrapper stays edge-to-edge. */}
+        {/* Inset section: hero, search, filters keep horizontal breathing room. */}
         <View style={aptStyles.insetSection}>
         {/* ── Hero ─────────────────────────────────────────────────────────── */}
         <LinearGradient
-          colors={["#1E3A8A", "#2563EB", "#0D9488"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
+          colors={["#003A9B", "#1490FF"]}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
           style={aptStyles.hero}
         >
           {/* Decorative blurred blobs */}
@@ -1924,6 +1968,9 @@ export default function CounselorDashboard() {
             <View style={{ flex: 1 }}>
               <Text style={aptStyles.heroGreeting}>{greeting},</Text>
               <Text style={aptStyles.heroName} numberOfLines={1}>{firstName}</Text>
+              <Text style={aptStyles.heroSubtitle}>
+                {appointments.length} {t('counselor:totalAppointments', 'total appointment(s)')}
+              </Text>
             </View>
             <TouchableOpacity
               style={aptStyles.heroRefreshBtn}
@@ -1934,94 +1981,69 @@ export default function CounselorDashboard() {
             </TouchableOpacity>
           </View>
 
-          <Text style={aptStyles.heroSubtitle}>
-            {todayCount > 0
-              ? `${todayCount} ${t('appointment(s) scheduled for today')}`
-              : `${appointments.length} ${t('total appointment(s)')}`}
-          </Text>
-
-          {/* Inline mini-summary bar */}
+          {/* Stats inner card */}
           <View style={aptStyles.heroSummaryBar}>
             <View style={aptStyles.heroSummaryItem}>
               <Text style={aptStyles.heroSummaryNum}>{pendingCount}</Text>
-              <Text style={aptStyles.heroSummaryLabel}>{t('common:pending')}</Text>
+              <Text style={aptStyles.heroSummaryLabel}>{t('common:pending', 'PENDING')}</Text>
             </View>
             <View style={aptStyles.heroSummaryDivider} />
             <View style={aptStyles.heroSummaryItem}>
               <Text style={aptStyles.heroSummaryNum}>{confirmedCount}</Text>
-              <Text style={aptStyles.heroSummaryLabel}>{t('common:confirmed')}</Text>
+              <Text style={aptStyles.heroSummaryLabel}>{t('common:confirmed', 'CONFIRMED')}</Text>
             </View>
             <View style={aptStyles.heroSummaryDivider} />
             <View style={aptStyles.heroSummaryItem}>
               <Text style={aptStyles.heroSummaryNum}>{todayCount}</Text>
-              <Text style={aptStyles.heroSummaryLabel}>{t('Today')}</Text>
+              <Text style={aptStyles.heroSummaryLabel}>{t('counselor:today', 'TODAY')}</Text>
             </View>
           </View>
         </LinearGradient>
 
-        {/* ── Section title + filter chips ────────────────────────────────── */}
-        <View style={aptStyles.sectionTitleRow}>
-          <Text style={aptStyles.sectionTitle}>{t('All Requests')}</Text>
-          <Text style={aptStyles.sectionCount}>{filteredApts.length} {t('shown')}</Text>
+        {/* ── Search bar ──────────────────────────────────────────────────── */}
+        <View style={aptStyles.searchBox}>
+          <Ionicons name="search" size={18} color="#94a3b8" />
+          <TextInput
+            style={aptStyles.searchInput}
+            placeholder={t('counselor:searchPatients', 'Search patients...')}
+            placeholderTextColor="#94a3b8"
+            value={aptSearch}
+            onChangeText={setAptSearch}
+          />
+          {aptSearch.length > 0 && (
+            <TouchableOpacity onPress={() => setAptSearch("")} activeOpacity={0.7}>
+              <Ionicons name="close-circle" size={16} color="#cbd5e1" />
+            </TouchableOpacity>
+          )}
         </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={aptStyles.filterScroll}
-          contentContainerStyle={aptStyles.filterRow}
-        >
+        {/* ── Filter chips ────────────────────────────────────────────────── */}
+        <View style={aptStyles.filterRow}>
           {filterTabs.map((ft) => {
             const isActive = aptFilter === ft.key;
             const count = countFor(ft.key);
-
-            if (isActive) {
-              return (
-                <TouchableOpacity
-                  key={ft.key}
-                  activeOpacity={0.9}
-                  onPress={() => setAptFilter(ft.key)}
-                >
-                  <LinearGradient
-                    colors={["#2563EB", "#0D9488"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={[aptStyles.filterChip, aptStyles.filterChipActive]}
-                  >
-                    <Ionicons name={ft.icon} size={14} color="#ffffff" style={{ marginRight: 6 }} />
-                    <Text style={[aptStyles.filterChipText, aptStyles.filterChipTextActive]}>
-                      {ft.label}
-                    </Text>
-                    {count > 0 && (
-                      <View style={[aptStyles.filterChipBadge, aptStyles.filterChipBadgeActive]}>
-                        <Text style={[aptStyles.filterChipBadgeText, aptStyles.filterChipBadgeTextActive]}>
-                          {count}
-                        </Text>
-                      </View>
-                    )}
-                  </LinearGradient>
-                </TouchableOpacity>
-              );
-            }
-
             return (
               <TouchableOpacity
                 key={ft.key}
-                style={aptStyles.filterChip}
+                style={[aptStyles.filterChip, isActive && aptStyles.filterChipActive]}
                 onPress={() => setAptFilter(ft.key)}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
-                <Ionicons name={ft.icon} size={14} color="#475569" style={{ marginRight: 6 }} />
-                <Text style={aptStyles.filterChipText}>{ft.label}</Text>
-                {count > 0 && (
+                {isActive && (
+                  <Ionicons name={ft.icon} size={14} color="#ffffff" style={{ marginRight: 6 }} />
+                )}
+                <Text style={[aptStyles.filterChipText, isActive && aptStyles.filterChipTextActive]}>
+                  {ft.label}
+                </Text>
+                {isActive && count > 0 && (
                   <View style={aptStyles.filterChipBadge}>
-                    <Text style={aptStyles.filterChipBadgeText}>{count}</Text>
+                    <Text style={aptStyles.filterChipBadgeText}>{String(count).padStart(2, '0')}</Text>
                   </View>
                 )}
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
         </View>
         {/* end of inset section — list below is edge-to-edge */}
 
@@ -2102,7 +2124,7 @@ export default function CounselorDashboard() {
           <RefreshControl
             refreshing={loadingAppointments && appointments.length > 0}
             onRefresh={fetchAppointments}
-            colors={["#1E3A8A", "#2563EB"]}
+            colors={["#003A9B", "#1490FF"]}
             tintColor="#2563EB"
           />
         }
@@ -2118,7 +2140,8 @@ export default function CounselorDashboard() {
           </View>
 
           <Text style={sessStyles.headerShowing}>
-            {t('counselor:showingFor', 'Showing for')}: {selectedDateLabel}
+            {t('counselor:showingFor', 'Showing for')}:{' '}
+            <Text style={sessStyles.headerShowingDate}>{selectedDateLabel}</Text>
           </Text>
 
           <View style={sessStyles.filterRow}>
@@ -2127,7 +2150,7 @@ export default function CounselorDashboard() {
               onPress={() => setShowSessionDatePicker(true)}
               activeOpacity={0.85}
             >
-              <Ionicons name="calendar" size={15} color="#2563EB" />
+              <Ionicons name="calendar-outline" size={16} color="#2563EB" />
               <Text style={sessStyles.dateBtnText}>{selectedDateLabel}</Text>
             </TouchableOpacity>
             {!isTodaySelected && (
@@ -2162,25 +2185,46 @@ export default function CounselorDashboard() {
             ))}
           </View>
         ) : sessions.length === 0 ? (
-          <View style={[aptStyles.emptyState, { paddingHorizontal: 14 }]}>
-            <LinearGradient colors={["#F0F9FF", "#E0F2FE"]} style={aptStyles.emptyIconWrap}>
-              <Ionicons name="videocam-outline" size={44} color="#2563EB" />
-            </LinearGradient>
-            <Text style={aptStyles.emptyTitle}>
+          <View style={sessStyles.emptyWrap}>
+            <View style={sessStyles.emptyIconCircle}>
+              <Ionicons name="videocam-off-outline" size={46} color="#2563EB" />
+            </View>
+
+            <Text style={sessStyles.emptyTitle}>
               {isTodaySelected
                 ? t('counselor:noSessionsToday', 'No sessions today')
                 : t('counselor:noSessionsForDate', 'No sessions for this date')}
             </Text>
-            <Text style={aptStyles.emptyText}>
-              {t('counselor:sessionsHint', 'Your confirmed sessions for the selected day will appear here.')}
+            <Text style={sessStyles.emptyText}>
+              {t(
+                'counselor:sessionsHint',
+                'Your confirmed sessions for the selected day will appear here. Enjoy the downtime or check upcoming dates.'
+              )}
             </Text>
+
             <TouchableOpacity
-              style={aptStyles.emptyRefreshBtn}
+              style={sessStyles.refreshBtn}
               onPress={() => fetchAppointments()}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="refresh" size={17} color="#ffffff" />
+              <Text style={sessStyles.refreshBtnText}>
+                {t('counselor:refreshSchedule', 'Refresh Schedule')}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={sessStyles.tomorrowBtn}
+              onPress={() => {
+                const tomorrow = new Date(sessionSelectedDate);
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                setSessionSelectedDate(tomorrow);
+              }}
               activeOpacity={0.85}
             >
-              <Ionicons name="refresh" size={14} color="#2563EB" />
-              <Text style={aptStyles.emptyRefreshText}>{t('Refresh')}</Text>
+              <Text style={sessStyles.tomorrowBtnText}>
+                {t('counselor:viewTomorrow', 'View Tomorrow')}
+              </Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -2214,6 +2258,12 @@ export default function CounselorDashboard() {
       case "patients":
         return <PatientRequests />;
       case "earnings": {
+        return <CounselorWallet onClose={() => setActiveTab("dashboard")} />;
+        /*
+         * Legacy hard-coded earnings preview retained temporarily below for
+         * merge compatibility. The live CounselorWallet screen above now owns
+         * earnings, payout history and withdrawal requests.
+         */
         const shimmerOpacity = earningsShimmerAnim.interpolate({
           inputRange: [0, 1],
           outputRange: [0.35, 0.75],
@@ -2254,28 +2304,18 @@ export default function CounselorDashboard() {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.earningsSection}>
-              <View style={styles.earningsSectionHeader}>
-                <View style={styles.earningsSectionHeaderText}>
-                  <Text style={styles.earningsSectionTitle}>Earnings</Text>
-                  <Text style={styles.earningsSectionSubtitle}>
-                    Your payout overview at a glance
-                  </Text>
-                </View>
-                <View style={styles.earningsPeriodPill}>
-                  <Icon name="calendar" size={11} color="#2563EB" />
-                  <Text style={styles.earningsPeriodPillText}>This month</Text>
-                </View>
-              </View>
-
               <LinearGradient
-                colors={['#2563EB', '#0D9488', '#1E3A8A']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
+                colors={['#003A9B', '#1490FF']}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
                 style={styles.earningsHeroCard}
               >
                 <View style={styles.earningsHeroTopRow}>
-                  <View style={styles.earningsHeroIconWrap}>
-                    <Icon name="wallet" size={20} color="#ffffff" />
+                  <View style={styles.earningsHeroTitleRow}>
+                    <View style={styles.earningsHeroIconWrap}>
+                      <Icon name="wallet" size={16} color="#ffffff" />
+                    </View>
+                    <Text style={styles.earningsHeroLabel}>Total Earning</Text>
                   </View>
                   <View style={styles.earningsHeroTrendPill}>
                     <Icon name="arrow-trend-up" size={11} color="#22c55e" />
@@ -2283,19 +2323,18 @@ export default function CounselorDashboard() {
                   </View>
                 </View>
 
-                <Text style={styles.earningsHeroLabel}>Total Earnings</Text>
                 <Text style={styles.earningsHeroAmount}>₹24,500</Text>
                 <Text style={styles.earningsHeroCaption}>
                   Across 45 completed sessions this month
                 </Text>
 
-                <View style={styles.earningsHeroDivider} />
-
-                <View style={styles.earningsHeroBottomRow}>
+                {/* Inner pending / withdrawable card */}
+                <View style={styles.earningsHeroInner}>
                   <View style={styles.earningsHeroMetaItem}>
                     <Text style={styles.earningsHeroMetaLabel}>Pending</Text>
                     <Text style={styles.earningsHeroMetaValue}>₹8,750</Text>
                   </View>
+                  <View style={styles.earningsHeroInnerDivider} />
                   <View style={styles.earningsHeroMetaItem}>
                     <Text style={styles.earningsHeroMetaLabel}>Withdrawable</Text>
                     <Text style={styles.earningsHeroMetaValue}>₹15,750</Text>
@@ -2319,18 +2358,18 @@ export default function CounselorDashboard() {
 
               <View style={styles.earningsMiniGrid}>
                 <View style={styles.earningsMiniCard}>
-                  <View style={[styles.earningsMiniIcon, { backgroundColor: '#dcfce7' }]}>
-                    <Icon name="check" size={14} color="#16a34a" />
+                  <View style={[styles.earningsMiniIcon, { backgroundColor: '#dbeafe' }]}>
+                    <Icon name="circle-check" size={14} color="#2563eb" />
                   </View>
                   <Text style={styles.earningsMiniLabel}>Last 30 Days</Text>
                   <Text style={styles.earningsMiniValue}>₹24,500</Text>
                 </View>
                 <View style={styles.earningsMiniCard}>
                   <View style={[styles.earningsMiniIcon, { backgroundColor: '#dbeafe' }]}>
-                    <Icon name="clock" size={14} color="#2563eb" />
+                    <Icon name="circle-check" size={14} color="#2563eb" />
                   </View>
-                  <Text style={styles.earningsMiniLabel}>Processing</Text>
-                  <Text style={styles.earningsMiniValue}>2-3 days</Text>
+                  <Text style={styles.earningsMiniLabel}>Last 30 Days</Text>
+                  <Text style={styles.earningsMiniValue}>₹24,500</Text>
                 </View>
               </View>
 
@@ -2400,7 +2439,13 @@ export default function CounselorDashboard() {
         );
       }
       case "messages":
-        return <Messagesou />;
+        return (
+          <Messagesou
+            counselorData={counselorData}
+            notifCount={pendingRequests.length}
+            onBellPress={() => setShowNotifications(true)}
+          />
+        );
       case "profile":
         return <CounselorProfile />;
       case "settings":
@@ -2408,10 +2453,18 @@ export default function CounselorDashboard() {
           <CounselorSettings
             onNavigate={(tab) => setActiveTab(tab)}
             onLogout={() => setShowLogoutConfirm(true)}
+            notifCount={pendingRequests.length}
+            onBellPress={() => setShowNotifications(true)}
           />
         );
       default:
-        return <Messagesou />;
+        return (
+          <Messagesou
+            counselorData={counselorData}
+            notifCount={pendingRequests.length}
+            onBellPress={() => setShowNotifications(true)}
+          />
+        );
     }
   };
 
@@ -2483,9 +2536,9 @@ export default function CounselorDashboard() {
                       />
                     ) : (
                       <LinearGradient
-                        colors={["#2563EB", "#1D4ED8"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
+                        colors={["#003A9B", "#1490FF"]}
+                        start={{ x: 0, y: 0.5 }}
+                        end={{ x: 1, y: 0.5 }}
                         style={styles.profileAvatarGradient}
                       >
                         <Text style={styles.profileAvatarInitial}>
@@ -2608,43 +2661,51 @@ export default function CounselorDashboard() {
           </View>
         )}
 
-        {/* Mobile Header */}
+        {/* Mobile Header — ONE global greeting header shown on every tab */}
         {isMobile && (
           <View style={styles.mobileHeader}>
-            <View style={[styles.mobileHeaderBar, { height: MOBILE_HEADER_BAR_HEIGHT, paddingTop: topInset }]}>
+            <View style={[styles.greetingHeaderBar, { paddingTop: topInset + 10 }]}>
+              {/* Avatar → opens the profile tab */}
               <TouchableOpacity
-                style={[styles.menuToggle, showMobileMenu && styles.menuToggleClose]}
-                onPress={() => setShowMobileMenu(!showMobileMenu)}
-                activeOpacity={0.7}
+                style={styles.greetingLeft}
+                activeOpacity={0.8}
+                onPress={() => setActiveTab('profile')}
               >
-                {showMobileMenu ? (
-                  <Feather name="x" size={24} color="#2563EB" />
+                {counselorPhotoUri ? (
+                  <Image source={{ uri: counselorPhotoUri }} style={styles.greetingAvatar} />
                 ) : (
-                  <Icon name="bars" size={20} color="#2563EB" />
+                  <View style={styles.greetingAvatarFallback}>
+                    <Text style={styles.greetingAvatarText}>
+                      {(counselorData?.name || 'C').charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
                 )}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.greetingWelcome}>
+                    {t('counselor:welcomeBack', 'Welcome back,')}
+                  </Text>
+                  <Text style={styles.greetingName} numberOfLines={1}>
+                    {greetingTitle}
+                  </Text>
+                </View>
               </TouchableOpacity>
 
-              <View style={styles.mobileTitle}>
-                <View style={styles.mobileTitleBadge}>
-                  <Image
-                    source={require('../../../../../image/Mediconect Logo-3.png')}
-                    style={styles.mobileTitleLogoImg}
-                    resizeMode="contain"
-                  />
-                </View>
-                <Text style={styles.mobileTitleText}>Mediconeckt</Text>
-              </View>
-
-              <View style={styles.mobileHeaderActions}>
-                <LanguageSelector iconColor="#2563EB" iconSize={20} userId={counsellorId} role="counsellor" />
-                <TouchableOpacity
-                  style={styles.mobileLogoutBtn}
-                  onPress={() => setShowLogoutConfirm(true)}
-                  activeOpacity={0.5}
-                >
-                  <Feather name="log-out" size={20} color="#2563EB" />
-                </TouchableOpacity>
-              </View>
+              {/* Bell only — matches the Figma header exactly */}
+              <TouchableOpacity
+                style={styles.greetingBell}
+                activeOpacity={0.7}
+                onPress={() => setShowNotifications(true)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="notifications-outline" size={22} color="#1D4ED8" />
+                {pendingRequests.length > 0 && (
+                  <View style={styles.greetingBellBadge}>
+                    <Text style={styles.greetingBellBadgeText}>
+                      {pendingRequests.length > 99 ? '99+' : pendingRequests.length}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -2666,9 +2727,9 @@ export default function CounselorDashboard() {
                         />
                       ) : (
                         <LinearGradient
-                          colors={["#2563EB", "#1D4ED8"]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
+                          colors={["#003A9B", "#1490FF"]}
+                          start={{ x: 0, y: 0.5 }}
+                          end={{ x: 1, y: 0.5 }}
                           style={styles.profileAvatarGradient}
                         >
                           <Text style={styles.profileAvatarInitial}>
@@ -2741,6 +2802,14 @@ export default function CounselorDashboard() {
                     ]}
                     onPress={() => handleTabChange(item.id)}
                   >
+                    {activeTab === item.id && (
+                      <LinearGradient
+                        colors={["#003A9B", "#1490FF"]}
+                        start={{ x: 0, y: 0.5 }}
+                        end={{ x: 1, y: 0.5 }}
+                        style={StyleSheet.absoluteFillObject}
+                      />
+                    )}
                     <Icon
                       name={item.icon}
                       size={24}
@@ -2791,6 +2860,18 @@ export default function CounselorDashboard() {
           <View style={styles.mobileBottomNav}>
             {navItems.slice(0, 5).map((item) => {
               const shortLabel = item.label;
+              // Figma-matched icons per tab (MaterialCommunityIcons):
+              //   Chats → chat bubble, Appointments → calendar,
+              //   Sessions → bubble with video camera, Earnings → banknote,
+              //   Settings → gear. Filled variant when active.
+              const active = activeTab === item.id;
+              const bottomIconMap = {
+                messages: active ? "message-text" : "message-text-outline",
+                appointments: active ? "calendar" : "calendar-blank-outline",
+                sessions: active ? "message-video" : "message-video",
+                earnings: active ? "cash" : "cash-multiple",
+                settings: active ? "cog" : "cog-outline",
+              };
               return (
               <TouchableOpacity
                 key={item.id}
@@ -2800,10 +2881,10 @@ export default function CounselorDashboard() {
                 ]}
                 onPress={() => handleTabChange(item.id)}
               >
-                <Icon
-                  name={item.icon}
-                  size={20}
-                  color={activeTab === item.id ? "#2563EB" : "#9CA3AF"}
+                <MaterialCommunityIcons
+                  name={bottomIconMap[item.id] || "circle-outline"}
+                  size={24}
+                  color={active ? "#2563EB" : "#9CA3AF"}
                 />
                 <Text
                   style={[
@@ -2828,11 +2909,29 @@ export default function CounselorDashboard() {
           </View>
         )}
 
+        {/* Pending-request notifications (opened from the bell) */}
+        <Modal
+          visible={showNotifications}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={() => setShowNotifications(false)}
+        >
+          <CounselorNotifications
+            onClose={() => setShowNotifications(false)}
+            onChanged={() => fetchPendingRequests()}
+            onOpenChat={(req) => {
+              setShowNotifications(false);
+              setActiveTab('messages');
+            }}
+          />
+        </Modal>
+
         {/* Main Content */}
         <View
           style={[
             styles.mainContent,
             isMobile && styles.mainContentMobile,
+            // Clear the fixed greeting header on every tab.
             isMobile && { marginTop: topInset + MOBILE_HEADER_BAR_HEIGHT },
             { flexDirection: 'column' },
           ]}
@@ -2927,6 +3026,12 @@ export default function CounselorDashboard() {
                   onPress={handleAcceptRequest}
                   disabled={loadingRequests}
                 >
+                  <LinearGradient
+                    colors={["#003A9B", "#1490FF"]}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={StyleSheet.absoluteFillObject}
+                  />
                   <Icon name="check" size={16} color="#ffffff" />
                   <Text
                     style={[
@@ -3005,47 +3110,53 @@ const sessStyles = StyleSheet.create({
     justifyContent: "space-between",
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "800",
     color: "#0f172a",
   },
   headerCountPill: {
-    backgroundColor: "#ecfdf5",
+    backgroundColor: "#EFF6FF",
     paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingVertical: 6,
     borderRadius: 999,
   },
   headerCountText: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#047857",
+    color: "#2563EB",
   },
   headerShowing: {
     fontSize: 13,
-    color: "#64748b",
+    color: "#94a3b8",
+    fontWeight: "500",
     marginTop: 4,
+  },
+  headerShowingDate: {
+    color: "#334155",
+    fontWeight: "700",
   },
   filterRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 12,
+    marginTop: 14,
     gap: 8,
   },
   dateBtn: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#eff6ff",
+    backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: "#dbeafe",
+    borderColor: "#e2e8f0",
     paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingVertical: 12,
     borderRadius: 12,
   },
   dateBtnText: {
-    fontSize: 13,
+    fontSize: 13.5,
     fontWeight: "600",
-    color: "#1d4ed8",
+    color: "#334155",
   },
   clearBtn: {
     flexDirection: "row",
@@ -3063,10 +3174,10 @@ const sessStyles = StyleSheet.create({
   },
   card: {
     backgroundColor: "#ffffff",
-    borderRadius: 18,
+    borderRadius: 16,
     padding: 16,
-    marginHorizontal: 14,
-    marginBottom: 12,
+    marginHorizontal: 16,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: "#eef2f7",
     shadowColor: "#1e3a8a",
@@ -3075,6 +3186,113 @@ const sessStyles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 2,
   },
+
+  /* ── Empty state (Figma) ── */
+  emptyWrap: {
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingTop: 40,
+  },
+  emptyIconCircle: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: "#F1F5FB",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 26,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#0f172a",
+    textAlign: "center",
+  },
+  emptyText: {
+    fontSize: 13.5,
+    color: "#94a3b8",
+    fontWeight: "500",
+    textAlign: "center",
+    lineHeight: 21,
+    marginTop: 10,
+    marginBottom: 26,
+    paddingHorizontal: 8,
+  },
+  refreshBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    alignSelf: "stretch",
+    backgroundColor: "#2563EB",
+    borderRadius: 999,
+    paddingVertical: 15,
+  },
+  refreshBtnText: { color: "#ffffff", fontSize: 14.5, fontWeight: "700" },
+  tomorrowBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "stretch",
+    backgroundColor: "#ffffff",
+    borderWidth: 1.5,
+    borderColor: "#BFDBFE",
+    borderRadius: 999,
+    paddingVertical: 15,
+    marginTop: 12,
+  },
+  tomorrowBtnText: { color: "#2563EB", fontSize: 14.5, fontWeight: "700" },
+
+  /* ── Figma session card ── */
+  timeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  timeText: { flex: 1, fontSize: 13.5, fontWeight: "700", color: "#334155" },
+  liveBadge: {
+    backgroundColor: "#FEE2E2",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  liveBadgeText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: "#DC2626",
+    letterSpacing: 0.4,
+  },
+  patientRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 14 },
+  avatarPhoto: { width: 46, height: 46, borderRadius: 23 },
+  avatarSolid: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "#DBEAFE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitialsText: { fontSize: 15, fontWeight: "800", color: "#2563EB" },
+  patientType: { fontSize: 12.5, color: "#94a3b8", fontWeight: "500", marginTop: 2 },
+
+  conductBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#2563EB",
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 16,
+  },
+  conductBtnText: { color: "#ffffff", fontSize: 14, fontWeight: "700" },
+  viewBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffffff",
+    borderWidth: 1.5,
+    borderColor: "#BFDBFE",
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 16,
+  },
+  viewBtnText: { color: "#2563EB", fontSize: 14, fontWeight: "700" },
+
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -3199,14 +3417,56 @@ const aptStyles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 0,
-    paddingTop: 14,
+    paddingTop: 0,
     paddingBottom: 100,
   },
-  // Wraps the hero, section title and filter chips so they keep their normal
+  // Wraps the hero, search and filter chips so they keep their normal
   // horizontal breathing room. The card list below stays edge-to-edge.
   insetSection: {
     paddingHorizontal: 14,
+    paddingTop: 12,
   },
+
+  // ─── Greeting header ────────────────────────────────────────────────────────
+  greetingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  greetingLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  greetingAvatar: { width: 42, height: 42, borderRadius: 21 },
+  greetingAvatarFallback: {
+    width: 42, height: 42, borderRadius: 21,
+    backgroundColor: '#1D4ED8', alignItems: 'center', justifyContent: 'center',
+  },
+  greetingAvatarText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+  greetingWelcome: { fontSize: 12, color: '#94A3B8', fontWeight: '500' },
+  greetingName: { fontSize: 16, color: '#0F172A', fontWeight: '800', marginTop: 1 },
+  bellButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  bellBadge: {
+    position: 'absolute', top: 2, right: 2, minWidth: 17, height: 17, borderRadius: 9,
+    paddingHorizontal: 4, backgroundColor: '#EF4444', borderWidth: 1.5, borderColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  bellBadgeText: { color: '#ffffff', fontSize: 9.5, fontWeight: '800' },
+
+  // ─── Search ─────────────────────────────────────────────────────────────────
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    height: 46,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#e6ebf1',
+    marginBottom: 14,
+  },
+  searchInput: { flex: 1, fontSize: 14, color: '#0f172a', fontWeight: '500', padding: 0 },
 
   // ─── Hero ──────────────────────────────────────────────────────────────────
   hero: {
@@ -3250,10 +3510,10 @@ const aptStyles = StyleSheet.create({
     fontWeight: '500',
   },
   heroName: {
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 26,
+    fontWeight: '900',
     color: '#ffffff',
-    letterSpacing: 0.2,
+    letterSpacing: 0.5,
     marginTop: 2,
   },
   heroRefreshBtn: {
@@ -3275,20 +3535,18 @@ const aptStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 16,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(0,0,0,0.16)',
     borderRadius: 14,
-    paddingVertical: 10,
+    paddingVertical: 14,
     paddingHorizontal: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
   },
   heroSummaryItem: {
     flex: 1,
     alignItems: 'center',
   },
   heroSummaryNum: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 22,
+    fontWeight: '900',
     color: '#ffffff',
   },
   heroSummaryLabel: {
@@ -3330,30 +3588,23 @@ const aptStyles = StyleSheet.create({
     marginBottom: 14,
   },
   filterRow: {
+    flexDirection: 'row',
     gap: 8,
-    paddingRight: 4,
+    marginBottom: 14,
   },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 9,
     borderRadius: 999,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
   },
   filterChipActive: {
+    backgroundColor: '#2563EB',
     borderColor: '#2563EB',
-    shadowColor: '#2563EB',
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 3,
   },
   filterChipText: {
     fontSize: 13,
@@ -3364,8 +3615,8 @@ const aptStyles = StyleSheet.create({
     color: '#ffffff',
   },
   filterChipBadge: {
-    backgroundColor: '#F0F9FF',
-    minWidth: 20,
+    backgroundColor: 'rgba(255,255,255,0.28)',
+    minWidth: 22,
     height: 20,
     borderRadius: 10,
     alignItems: 'center',
@@ -3373,15 +3624,9 @@ const aptStyles = StyleSheet.create({
     paddingHorizontal: 6,
     marginLeft: 6,
   },
-  filterChipBadgeActive: {
-    backgroundColor: 'rgba(255,255,255,0.28)',
-  },
   filterChipBadgeText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#2563EB',
-  },
-  filterChipBadgeTextActive: {
     color: '#ffffff',
   },
 
@@ -3418,8 +3663,7 @@ const aptStyles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 14,
     paddingTop: 14,
-    paddingBottom: 6,
-    gap: 12,
+    paddingBottom: 14,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -3427,11 +3671,28 @@ const aptStyles = StyleSheet.create({
     gap: 12,
   },
 
-  // ─── Avatar with gradient ring ────────────────────────────────────────────
+  // ─── Avatar: photo or solid letter circle (matches Figma) ─────────────────
   avatarRingOuter: {
-    width: 54,
-    height: 54,
+    width: 48,
+    height: 48,
     position: 'relative',
+  },
+  avatarPhoto: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  avatarSolid: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarLetter: {
+    fontSize: 19,
+    fontWeight: '700',
+    color: '#ffffff',
   },
   avatarRing: {
     width: 54,
@@ -3469,7 +3730,7 @@ const aptStyles = StyleSheet.create({
   // ─── Patient info ────────────────────────────────────────────────────────
   patientInfo: {
     flex: 1,
-    gap: 4,
+    gap: 3,
   },
   patientName: {
     fontSize: 15,
@@ -3477,19 +3738,13 @@ const aptStyles = StyleSheet.create({
     color: '#0f172a',
     letterSpacing: 0.1,
   },
-  consultTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  consultTagText: {
-    fontSize: 11,
+  patientMeta: {
+    fontSize: 12,
     fontWeight: '500',
     color: '#94a3b8',
-    letterSpacing: 0.2,
   },
 
-  // ─── Status badge ────────────────────────────────────────────────────────
+  // ─── Status badge (pill with dot) ────────────────────────────────────────
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3497,7 +3752,6 @@ const aptStyles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
-    borderWidth: 1,
   },
   statusBadgeDot: {
     width: 6,
@@ -3509,6 +3763,31 @@ const aptStyles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
+  },
+
+  // ─── Details panel (date / duration / notes) ─────────────────────────────
+  detailsPanel: {
+    backgroundColor: '#F4F6FB',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
+    gap: 8,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  infoRowText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  infoRowTime: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2563EB',
+    marginLeft: 2,
   },
 
   // ─── Date/time block (minimal — no background, just a top divider) ───────
@@ -3546,26 +3825,25 @@ const aptStyles = StyleSheet.create({
   notesBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 6,
-    backgroundColor: '#f8fafc',
+    gap: 8,
+    backgroundColor: '#ffffff',
     borderRadius: 10,
-    padding: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: '#E0F2FE',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginTop: 2,
   },
   notesText: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 12.5,
     color: '#526071',
-    lineHeight: 17,
+    lineHeight: 18,
   },
 
   // ─── Action buttons ──────────────────────────────────────────────────────
   actions: {
     flexDirection: 'row',
     gap: 10,
-    paddingBottom: 12,
-    paddingTop: 2,
+    marginTop: 14,
   },
   rejectActionBtn: {
     flex: 1,
@@ -3639,16 +3917,16 @@ const aptStyles = StyleSheet.create({
   // ─── Confirmed appointment actions (video / voice / chat) ─────────────────
   confirmedActions: {
     flexDirection: 'row',
-    gap: 6,
-    marginBottom: 12,
+    gap: 8,
+    marginTop: 14,
   },
   confirmedActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 11,
-    borderRadius: 12,
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 10,
   },
   confirmedVideoBtn: {
     flex: 1,
@@ -3656,22 +3934,22 @@ const aptStyles = StyleSheet.create({
   },
   confirmedVoiceBtn: {
     flex: 1,
-    backgroundColor: '#0D9488',
+    backgroundColor: '#16A34A',
   },
   confirmedChatBtn: {
-    paddingHorizontal: 18,
-    backgroundColor: '#EFF6FF',
+    flex: 1,
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: '#e2e8f0',
   },
   confirmedActionText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#ffffff',
     letterSpacing: 0.1,
   },
   confirmedChatText: {
-    color: '#2563EB',
+    color: '#334155',
   },
 
   // ─── Canceled note ───────────────────────────────────────────────────────
@@ -3679,8 +3957,7 @@ const aptStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 10,
-    paddingBottom: 12,
+    marginTop: 12,
   },
   canceledNoteText: {
     fontSize: 12,
@@ -4198,6 +4475,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+
+  /* ── Global greeting header ── */
+  greetingHeaderBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  greetingLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  greetingAvatar: { width: 40, height: 40, borderRadius: 20 },
+  greetingAvatarFallback: {
+    width: 40, height: 40, borderRadius: 20, backgroundColor: '#1D4ED8',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  greetingAvatarText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+  greetingWelcome: { fontSize: 11.5, color: '#94A3B8', fontWeight: '500' },
+  greetingName: { fontSize: 15.5, color: '#0F172A', fontWeight: '800', marginTop: 1 },
+  greetingActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  greetingBell: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  greetingBellBadge: {
+    position: 'absolute', top: 2, right: 2, minWidth: 17, height: 17, borderRadius: 9,
+    paddingHorizontal: 4, backgroundColor: '#EF4444', borderWidth: 1.5, borderColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  greetingBellBadgeText: { color: '#ffffff', fontSize: 9.5, fontWeight: '800' },
   menuToggle: {
     width: 38,
     height: 38,
@@ -4306,7 +4610,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   mobileNavItemActive: {
-    backgroundColor: "#2563EB",
+    backgroundColor: "transparent",
     shadowColor: "#2563EB",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
@@ -4461,6 +4765,46 @@ const styles = StyleSheet.create({
   earningsScrollContent: {
     paddingBottom: 32,
   },
+
+  // ─── Earnings greeting header ───────────────────────────────────────────────
+  earnGreetingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    marginBottom: 8,
+  },
+  earnGreetingLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  earnGreetingAvatar: { width: 42, height: 42, borderRadius: 21 },
+  earnGreetingAvatarFallback: {
+    width: 42, height: 42, borderRadius: 21,
+    backgroundColor: '#1D4ED8', alignItems: 'center', justifyContent: 'center',
+  },
+  earnGreetingAvatarText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+  earnGreetingWelcome: { fontSize: 12, color: '#94A3B8', fontWeight: '500' },
+  earnGreetingName: { fontSize: 16, color: '#0F172A', fontWeight: '800', marginTop: 1 },
+  earnBellButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  earnBellBadge: {
+    position: 'absolute', top: 2, right: 2, minWidth: 17, height: 17, borderRadius: 9,
+    paddingHorizontal: 4, backgroundColor: '#EF4444', borderWidth: 1.5, borderColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  earnBellBadgeText: { color: '#ffffff', fontSize: 9.5, fontWeight: '800' },
+
+  earningsHeroTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  earningsHeroInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.14)',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    marginTop: 16,
+    marginBottom: 14,
+  },
+  earningsHeroInnerDivider: { width: 1, height: 30, backgroundColor: 'rgba(255,255,255,0.2)' },
   earnSkTitle: {
     width: 140,
     height: 22,
@@ -4589,9 +4933,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   earningsHeroIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 9,
     backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center",
     justifyContent: "center",
@@ -4613,17 +4957,15 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   earningsHeroLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "rgba(255,255,255,0.82)",
-    textTransform: "uppercase",
-    letterSpacing: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#ffffff",
   },
   earningsHeroAmount: {
-    fontSize: 40,
-    fontWeight: "800",
+    fontSize: 34,
+    fontWeight: "900",
     color: "#ffffff",
-    marginTop: 8,
+    marginTop: 14,
     letterSpacing: -0.6,
   },
   earningsHeroCaption: {
@@ -4642,9 +4984,7 @@ const styles = StyleSheet.create({
   },
   earningsHeroMetaItem: {
     flex: 1,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 16,
-    padding: 14,
+    alignItems: "center",
   },
   earningsHeroMetaLabel: {
     fontSize: 12,
@@ -4937,7 +5277,8 @@ const styles = StyleSheet.create({
     borderColor: "#fecaca",
   },
   requestAccept: {
-    backgroundColor: "#2563EB",
+    backgroundColor: "transparent",
+    overflow: "hidden",
     shadowColor: "#2563EB",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,

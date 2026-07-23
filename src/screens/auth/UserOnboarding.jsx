@@ -1,0 +1,293 @@
+import React, { useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  StatusBar,
+  Dimensions,
+  FlatList,
+  Animated,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import LinearGradient from 'react-native-linear-gradient';
+import PATIENT from '../../theme/palette';
+
+const { width } = Dimensions.get('window');
+
+const OnboardingPage1 = () => (
+  <View style={s.page}>
+    <View style={s.illustration}>
+      <Ionicons name="people" size={120} color={PATIENT.primary} />
+    </View>
+    <Text style={s.title}>Your Safe Space to Talk</Text>
+    <Text style={s.description}>
+      Connect with trusted counselors in a private, secure environment designed to support your mental well-being.
+    </Text>
+  </View>
+);
+
+const OnboardingPage2 = () => (
+  <View style={s.page}>
+    <View style={s.counselorCardsContainer}>
+      {[
+        { name: 'Dr. Sarah Jenkins', specialty: 'Anxiety & Stress', rating: '4.9', tags: ['Video', 'Chat'], avatar: '👩‍⚕️' },
+        { name: 'Dr. Michael Chen', specialty: 'Relationships & Family', rating: '4.8', tags: ['In-person'], avatar: '👨‍⚕️' },
+      ].map((counselor, idx) => (
+        <View key={idx} style={s.counselorCard}>
+          <View style={s.cardContent}>
+            <View style={s.counselorHeader}>
+              <View style={s.avatarBox}>
+                <Text style={s.avatarEmoji}>{counselor.avatar}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.counselorName}>{counselor.name}</Text>
+                <Text style={s.counselorSpec}>{counselor.specialty}</Text>
+              </View>
+              <View style={s.ratingBox}>
+                <Ionicons name="star" size={14} color="#F5A623" />
+                <Text style={s.ratingText}>{counselor.rating}</Text>
+              </View>
+            </View>
+            <View style={s.tagsRow}>
+              {counselor.tags.map((tag, i) => (
+                <TouchableOpacity key={i} style={s.tag}>
+                  <Text style={s.tagText}>{tag}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+      ))}
+    </View>
+    <Text style={s.title}>Find the Right Counselor</Text>
+    <Text style={s.description}>
+      Browse experienced counselors based on specialty, language, availability, consultation type, and reviews.
+    </Text>
+  </View>
+);
+
+const OnboardingPage3 = () => (
+  <View style={s.page}>
+    <View style={s.aiIconContainer}>
+      <View style={s.aiIcon}>
+        <Ionicons name="chatbubble" size={60} color={PATIENT.primary} />
+      </View>
+      <Ionicons name="heart" size={24} color={PATIENT.primary} style={s.heartIcon} />
+    </View>
+    <Text style={s.title}>Your AI Wellness Companion</Text>
+    <Text style={s.description}>
+      Get instant emotional support, wellness tips, and guidance anytime before connecting with a counselor.
+    </Text>
+
+    <View style={s.aiChatBox}>
+      <View style={s.aiBubble}>
+        <Text style={s.aiMessage}>Hello 👋 How are you feeling today?</Text>
+      </View>
+      <View style={s.responseButtons}>
+        {['😊 Happy', '😐 Okay', '😟 Stressed'].map((btn, idx) => (
+          <TouchableOpacity key={idx} style={s.responseBtn}>
+            <Text style={s.responseBtnText}>{btn}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  </View>
+);
+
+const OnboardingPage4 = () => (
+  <View style={s.page}>
+    <View style={s.featuresCircle}>
+      <View style={s.centerHeart}>
+        <Ionicons name="heart" size={48} color={PATIENT.primary} />
+      </View>
+      <View style={[s.featureIcon, s.featureTop]}>
+        <MaterialIcons name="event" size={24} color={PATIENT.primary} />
+      </View>
+      <View style={[s.featureIcon, s.featureLeft]}>
+        <Ionicons name="chatbubbles" size={24} color={PATIENT.primary} />
+      </View>
+      <View style={[s.featureIcon, s.featureRight]}>
+        <Ionicons name="shield-checkmark" size={24} color={PATIENT.primary} />
+      </View>
+      <View style={[s.featureIcon, s.featureBottom]}>
+        <Ionicons name="videocam" size={24} color={PATIENT.primary} />
+      </View>
+    </View>
+
+    <Text style={s.title}>Book, Chat & Heal</Text>
+    <Text style={s.description}>
+      Schedule appointments, join secure video sessions, chat with counselors, and track your wellness journey—all in one place.
+    </Text>
+
+    <View style={s.featuresList}>
+      <View style={s.featureRow}>
+        <TouchableOpacity style={s.featureBtn}>
+          <MaterialIcons name="event" size={20} color={PATIENT.primary} />
+          <Text style={s.featureBtnText}>Book Sessions</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.featureBtn}>
+          <Ionicons name="videocam" size={20} color={PATIENT.primary} />
+          <Text style={s.featureBtnText}>Video Calls</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={s.featureRow}>
+        <TouchableOpacity style={s.featureBtn}>
+          <Ionicons name="chatbubble" size={20} color={PATIENT.primary} />
+          <Text style={s.featureBtnText}>Secure Chat</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.featureBtn}>
+          <Ionicons name="shield-checkmark" size={20} color={PATIENT.primary} />
+          <Text style={s.featureBtnText}>End-to-End</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </View>
+);
+
+const UserOnboarding = ({ navigation }) => {
+  const [currentPage, setCurrentPage] = useState(0);
+  const scrollViewRef = useRef(null);
+
+  const pages = [
+    <OnboardingPage1 key="1" />,
+    <OnboardingPage2 key="2" />,
+    <OnboardingPage3 key="3" />,
+    <OnboardingPage4 key="4" />,
+  ];
+
+  const goToNextPage = () => {
+    if (currentPage < pages.length - 1) {
+      setCurrentPage(currentPage + 1);
+      scrollViewRef.current?.scrollTo({ x: (currentPage + 1) * width, animated: true });
+    } else {
+      navigation.replace('UserDashboard');
+    }
+  };
+
+  const onScroll = (event) => {
+    const pageNumber = Math.round(event.nativeEvent.contentOffset.x / width);
+    setCurrentPage(pageNumber);
+  };
+
+  return (
+    <SafeAreaView style={s.container} edges={['top']}>
+      <StatusBar barStyle="dark-content" backgroundColor={PATIENT.backgroundTint} />
+
+      {/* Header */}
+      <View style={s.header}>
+        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={() => navigation.replace('UserDashboard')}>
+          <Text style={s.skipText}>Skip</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Pages */}
+      <ScrollView
+        ref={scrollViewRef}
+        horizontal
+        pagingEnabled
+        scrollEventThrottle={16}
+        onScroll={onScroll}
+        showsHorizontalScrollIndicator={false}
+        scrollEnabled={true}
+        style={s.pagesScroll}
+      >
+        {pages}
+      </ScrollView>
+
+      {/* Dots */}
+      <View style={s.dotsContainer}>
+        {pages.map((_, idx) => (
+          <View
+            key={idx}
+            style={[
+              s.dot,
+              {
+                backgroundColor: idx === currentPage ? PATIENT.primary : '#cbd5e1',
+                width: idx === currentPage ? 24 : 8,
+              },
+            ]}
+          />
+        ))}
+      </View>
+
+      {/* Button */}
+      <TouchableOpacity activeOpacity={0.85} onPress={goToNextPage} style={s.buttonWrapper}>
+        <LinearGradient
+          colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={s.nextBtn}
+        >
+          <Text style={s.nextBtnText}>{currentPage === pages.length - 1 ? 'Get Started' : 'Next'}</Text>
+          {currentPage < pages.length - 1 && <Ionicons name="arrow-forward" size={20} color="#ffffff" />}
+        </LinearGradient>
+      </TouchableOpacity>
+    </SafeAreaView>
+  );
+};
+
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: PATIENT.backgroundTint },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
+  skipText: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
+
+  pagesScroll: { flex: 1 },
+  page: { width, paddingHorizontal: 24, paddingVertical: 40, justifyContent: 'center', gap: 20 },
+
+  illustration: { height: 200, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E6F6EC', borderRadius: 20, marginBottom: 20 },
+
+  title: { fontSize: 24, fontWeight: '800', color: '#0f172a', textAlign: 'center' },
+  description: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 21 },
+
+  counselorCardsContainer: { gap: 12, marginBottom: 20 },
+  counselorCard: { backgroundColor: '#ffffff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#E6F6EC' },
+  cardContent: { gap: 10 },
+  counselorHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  avatarBox: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#E6F6EC', alignItems: 'center', justifyContent: 'center' },
+  avatarEmoji: { fontSize: 24 },
+  counselorName: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  counselorSpec: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  ratingBox: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#E6F6EC', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  ratingText: { fontSize: 12, fontWeight: '600', color: '#0f172a' },
+  tagsRow: { flexDirection: 'row', gap: 8 },
+  tag: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: PATIENT.backgroundTint, borderRadius: 6, borderWidth: 1, borderColor: PATIENT.primary },
+  tagText: { fontSize: 12, fontWeight: '600', color: PATIENT.primary },
+
+  aiIconContainer: { height: 180, justifyContent: 'center', alignItems: 'center', marginBottom: 20, position: 'relative' },
+  aiIcon: { width: 140, height: 140, borderRadius: 70, backgroundColor: '#E6F6EC', alignItems: 'center', justifyContent: 'center' },
+  heartIcon: { position: 'absolute', left: 20, top: 120 },
+
+  aiChatBox: { backgroundColor: '#ffffff', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#E6F6EC', marginBottom: 20 },
+  aiBubble: { backgroundColor: '#E6F6EC', borderRadius: 12, padding: 12, marginBottom: 14 },
+  aiMessage: { fontSize: 13, color: '#0f172a', fontWeight: '500' },
+  responseButtons: { flexDirection: 'row', gap: 8 },
+  responseBtn: { flex: 1, paddingVertical: 8, paddingHorizontal: 10, backgroundColor: PATIENT.backgroundTint, borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1', alignItems: 'center' },
+  responseBtnText: { fontSize: 12, fontWeight: '600', color: '#0f172a' },
+
+  featuresCircle: { height: 240, justifyContent: 'center', alignItems: 'center', marginBottom: 20, position: 'relative' },
+  centerHeart: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#E6F6EC', alignItems: 'center', justifyContent: 'center' },
+  featureIcon: { position: 'absolute', width: 50, height: 50, borderRadius: 25, backgroundColor: '#F9F9FF', borderWidth: 1, borderColor: '#E6F6EC', alignItems: 'center', justifyContent: 'center' },
+  featureTop: { top: 0 },
+  featureLeft: { left: 0, top: 95 },
+  featureRight: { right: 0, top: 95 },
+  featureBottom: { bottom: 0 },
+
+  featuresList: { gap: 10, marginBottom: 20 },
+  featureRow: { flexDirection: 'row', gap: 10 },
+  featureBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, backgroundColor: '#ffffff', borderRadius: 12, borderWidth: 1, borderColor: '#E6F6EC' },
+  featureBtnText: { fontSize: 12, fontWeight: '600', color: '#0f172a' },
+
+  dotsContainer: { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 20 },
+  dot: { height: 8, borderRadius: 4 },
+
+  buttonWrapper: { paddingHorizontal: 20, marginBottom: 20 },
+  nextBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 14 },
+  nextBtnText: { fontSize: 16, fontWeight: '800', color: '#ffffff' },
+});
+
+export default UserOnboarding;

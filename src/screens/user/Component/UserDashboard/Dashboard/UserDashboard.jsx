@@ -20,6 +20,7 @@ import {
   Easing,
   StatusBar,
   PermissionsAndroid,
+  Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -51,10 +52,12 @@ import AvatarPicker from "../../PatientProfile/AvatarPicker";
 import LanguageSelector from '../../../../../components/common/LanguageSelector';
 import RatingPrompt from '../../../../../components/RatingPrompt';
 import { loadUserLanguage } from '../../../../../i18n';
+import PATIENT from '../../../../../theme/palette';
 import RealVideoCallModal from "../Tab/CallModal/VideoCallModal";
 import RealVoiceCallModal from "../Tab/CallModal/VoiceCallModal";
 import HelpSupport from "../Tab/HelpSupport/HelpSupport";
 import PrivacyPolicy from "../Tab/PrivacyPolicy/PrivacyPolicy";
+import NotificationScreen from "../Tab/Notifications/NotificationScreen";
 import UserAccountSettings from "../Tab/UserAccountSettings";
 
 const { width, height } = Dimensions.get("window");
@@ -96,6 +99,21 @@ const ChatPopup = ({
 }) => {
   const [speakingId, setSpeakingId] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [aiAttachment, setAiAttachment] = useState(null);
+
+  const pickAiAttachment = useCallback(() => {
+    launchImageLibrary({ mediaType: "photo", quality: 0.8 }, (res) => {
+      if (res.didCancel || res.errorCode || !res.assets?.[0]?.uri) return;
+      setAiAttachment(res.assets[0].uri);
+    });
+  }, []);
+
+  const handleAiSend = useCallback(() => {
+    const text = (newMessage || "").trim();
+    if (!text && !aiAttachment) return;
+    sendMessage(text, aiAttachment || null);
+    setAiAttachment(null);
+  }, [newMessage, aiAttachment, sendMessage]);
   // Keyboard height reported by the event (0 when hidden).
   const [keyboardShownHeight, setKeyboardShownHeight] = useState(0);
   // Measured popup-overlay height (via onLayout) + the largest we've seen
@@ -137,6 +155,51 @@ const ChatPopup = ({
   const aiVoiceDataChannelRef = useRef(null);
   const aiVoiceTimerRef = useRef(null);
   const micPulse = useRef(new Animated.Value(1)).current;
+  // AI voice orb + waveform animations
+  const orbPulse = useRef(new Animated.Value(0)).current;
+  const WAVE_COUNT = 13;
+  const waveAnims = useRef(
+    Array.from({ length: WAVE_COUNT }, () => new Animated.Value(0.25))
+  ).current;
+
+  // Drive the orb glow + waveform whenever the voice modal is live (not errored).
+  useEffect(() => {
+    const active = aiVoiceOpen && !aiVoiceError && aiVoiceStatus !== "error";
+    if (!active) {
+      orbPulse.stopAnimation();
+      orbPulse.setValue(0);
+      waveAnims.forEach((a) => { a.stopAnimation(); a.setValue(0.25); });
+      return;
+    }
+
+    const orbLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(orbPulse, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(orbPulse, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+    orbLoop.start();
+
+    // Speaking = lively/tall bars, listening/other = calmer.
+    const lively = aiVoiceStatus === "speaking" || aiVoiceStatus === "listening";
+    const barLoops = waveAnims.map((a, i) => {
+      const peak = lively ? (0.5 + Math.random() * 0.5) : (0.3 + Math.random() * 0.25);
+      const dur = lively ? (300 + Math.random() * 260) : (600 + Math.random() * 300);
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * 45),
+          Animated.timing(a, { toValue: peak, duration: dur, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(a, { toValue: 0.22, duration: dur, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        ])
+      );
+    });
+    barLoops.forEach((l) => l.start());
+
+    return () => {
+      orbLoop.stop();
+      barLoops.forEach((l) => l.stop());
+    };
+  }, [aiVoiceOpen, aiVoiceStatus, aiVoiceError, orbPulse, waveAnims]);
 
   const stopAiVoiceTimer = useCallback(() => {
     if (aiVoiceTimerRef.current) {
@@ -198,19 +261,23 @@ const ChatPopup = ({
   // the popup and left a big empty gap. On devices where the keyboard floats
   // over the app, the overlap equals the keyboard height.
   useEffect(() => {
-    // Use keyboardWillShow/Hide to apply padding BEFORE keyboard appears.
-    // This prevents the gap/delay glitch. keyboardDidShow fires too late.
-    const show = Keyboard.addListener('keyboardWillShow', (e) => {
+    // iOS fires keyboardWillShow; Android only reliably fires keyboardDidShow.
+    // Listen to both so the popup resizes above the keyboard on every device.
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvt, (e) => {
       setKeyboardShownHeight(e?.endCoordinates?.height || 0);
     });
-    const hide = Keyboard.addListener('keyboardWillHide', () => setKeyboardShownHeight(0));
+    const hide = Keyboard.addListener(hideEvt, () => setKeyboardShownHeight(0));
     return () => { show.remove(); hide.remove(); };
   }, []);
 
-  // Auto-scroll to bottom whenever a new message arrives or AI starts typing
+  // Auto-scroll to bottom whenever a new message arrives, AI starts typing,
+  // or the keyboard opens (so the latest message stays above the input).
   useEffect(() => {
-    scrollViewRef.current?.scrollToEnd({ animated: true });
-  }, [messages, isLoading]);
+    const id = setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 60);
+    return () => clearTimeout(id);
+  }, [messages, isLoading, keyboardShownHeight]);
 
   // Pulse animation while recording
   useEffect(() => {
@@ -340,14 +407,14 @@ const ChatPopup = ({
   };
 
   const getAiVoiceStatusText = () => {
-    if (aiVoiceError) return "Connection issue";
+    if (aiVoiceError) return "Not connected";
     switch (aiVoiceStatus) {
-      case "connecting": return "Connecting...";
-      case "listening": return "Listening";
-      case "thinking": return "Thinking";
-      case "speaking": return "Speaking";
-      case "error": return "Call ended";
-      default: return "Ready";
+      case "connecting": return "Connecting…";
+      case "listening": return "Listening…";
+      case "thinking": return "Thinking…";
+      case "speaking": return "Speaking…";
+      case "error": return "Not connected";
+      default: return "Ready to talk";
     }
   };
 
@@ -405,7 +472,7 @@ const ChatPopup = ({
         setAiVoiceStatus("listening");
         break;
       case "error":
-        setAiVoiceError(event.error?.message || "AI voice call failed.");
+        setAiVoiceError("I couldn't connect just now. Please try again.");
         setAiVoiceStatus("error");
         break;
       default:
@@ -476,7 +543,7 @@ const ChatPopup = ({
         }
         if (state === "failed" || state === "disconnected" || state === "closed") {
           if (aiVoicePcRef.current) {
-            setAiVoiceError("AI voice call disconnected. Please try again.");
+            setAiVoiceError("The voice connection dropped. Please try again.");
             cleanupAiVoiceCall({ nextStatus: "error" });
             setAiVoiceOpen(true);
           }
@@ -502,7 +569,7 @@ const ChatPopup = ({
         }
       };
       dataChannel.onerror = () => {
-        setAiVoiceError("AI voice connection had an issue.");
+        setAiVoiceError("I couldn't connect just now. Please try again.");
         setAiVoiceStatus("error");
       };
 
@@ -542,7 +609,7 @@ const ChatPopup = ({
       }));
     } catch (error) {
       console.error("[AI Voice] start error:", error);
-      setAiVoiceError(error?.message || "Could not start AI voice call.");
+      setAiVoiceError("I couldn't start voice chat. Please try again.");
       cleanupAiVoiceCall({ nextStatus: "error" });
       setAiVoiceOpen(true);
     }
@@ -569,11 +636,13 @@ const ChatPopup = ({
         <View style={styles.chatPopupBackdrop} />
       </TouchableWithoutFeedback>
       <View style={[styles.chatPopup, {
-        height: keyboardHeight > 0 ? availHeight - keyboardHeight - 40 : popupBaseHeight,
+        height: keyboardShownHeight > 0
+          ? Math.max(availHeight - keyboardHeight - 12, 320)
+          : popupBaseHeight,
         marginBottom: keyboardHeight,
       }]}>
         <LinearGradient
-          colors={['#667eea', '#764ba2']}
+          colors={['#2A8A51', '#0E7552']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={styles.chatPopupHeader}
@@ -583,11 +652,14 @@ const ChatPopup = ({
               colors={['#ffffff', '#f0f0f0']}
               style={[styles.chatAvatar, styles.chatAvatarGradient]}
             >
-              <MaterialIcons name="auto-awesome" size={22} color="#667eea" />
+              <MaterialIcons name="auto-awesome" size={22} color="#2A8A51" />
             </LinearGradient>
             <View>
               <Text style={styles.chatHeaderTitle}>AI Health Assistant</Text>
-              <Text style={styles.chatStatus}>Online • Always Here for You</Text>
+              <View style={styles.chatStatusRow}>
+                <View style={styles.chatStatusDot} />
+                <Text style={styles.chatStatus}>Online • Secure</Text>
+              </View>
             </View>
           </View>
           <View style={styles.chatHeaderActions}>
@@ -643,7 +715,7 @@ const ChatPopup = ({
               >
                 {isAiMsg && (
                   <LinearGradient
-                    colors={['#667eea', '#764ba2']}
+                    colors={['#2A8A51', '#0E7552']}
                     style={[styles.chatAvatar, styles.chatAvatarSmall]}
                   >
                     <MaterialIcons name="auto-awesome" size={14} color="white" />
@@ -661,6 +733,14 @@ const ChatPopup = ({
                       message.sender === "user" && styles.chatBubbleUser,
                     ]}
                   >
+                    {!!message.image && (
+                      <Image
+                        source={{ uri: message.image }}
+                        style={styles.chatBubbleImage}
+                        resizeMode="cover"
+                      />
+                    )}
+                    {!!message.text && (
                     <Text
                       style={[
                         styles.chatBubbleText,
@@ -683,6 +763,7 @@ const ChatPopup = ({
                         return <Text key={`${message.id}_${index}`}>{part}</Text>;
                       })}
                     </Text>
+                    )}
                     {isAiMsg && Array.isArray(message.quickReplies) && message.quickReplies.length > 0 && (
                       <View style={styles.quickRepliesWrap}>
                         {message.quickReplies.map((reply) => (
@@ -711,7 +792,7 @@ const ChatPopup = ({
                       <MaterialIcons
                         name={isSpeaking ? "stop-circle" : "volume-up"}
                         size={14}
-                        color={isSpeaking ? "#ef4444" : "#667eea"}
+                        color={isSpeaking ? "#ef4444" : "#2A8A51"}
                       />
                       <Text style={[styles.speakBtnText, isSpeaking && { color: '#ef4444' }]}>
                         {isSpeaking ? "Stop" : "Listen"}
@@ -724,7 +805,7 @@ const ChatPopup = ({
                     {userPhoto ? (
                       <Image source={{ uri: userPhoto }} style={{ width: '100%', height: '100%', borderRadius: 999 }} />
                     ) : (
-                      <Ionicons name="person-circle" size={18} color="#667eea" />
+                      <Ionicons name="person-circle" size={18} color="#2A8A51" />
                     )}
                   </View>
                 )}
@@ -734,7 +815,7 @@ const ChatPopup = ({
           {isLoading && (
             <View style={[styles.chatMessageWrapper, styles.chatMessageWrapperAi]}>
               <LinearGradient
-                colors={['#667eea', '#764ba2']}
+                colors={['#2A8A51', '#0E7552']}
                 style={[styles.chatAvatar, styles.chatAvatarSmall]}
               >
                 <MaterialIcons name="auto-awesome" size={14} color="white" />
@@ -750,44 +831,74 @@ const ChatPopup = ({
           )}
         </ScrollView>
 
+        {aiAttachment && (
+          <View style={styles.aiAttachPreview}>
+            <Image source={{ uri: aiAttachment }} style={styles.aiAttachThumb} />
+            <Text style={styles.aiAttachName} numberOfLines={1}>Photo attached</Text>
+            <TouchableOpacity onPress={() => setAiAttachment(null)} hitSlop={8}>
+              <MaterialIcons name="close" size={18} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+        )}
         <View style={styles.chatPopupFooter}>
-          {/* Language picker removed — the AI follows the dashboard language automatically. */}
-          <TextInput
-            ref={inputRef}
-            style={styles.chatInput}
-            placeholder="Type your message..."
-            placeholderTextColor="#999"
-            value={newMessage}
-            onChangeText={setNewMessage}
-            onSubmitEditing={() => sendMessage(newMessage)}
-            returnKeyType="send"
-          />
-          <TouchableOpacity
-            style={[styles.micBtn, isRecording && styles.micBtnActive]}
-            onPress={toggleRecording}
-            activeOpacity={0.8}
-          >
-            <Animated.View style={{ transform: [{ scale: micPulse }] }}>
-              <MaterialIcons
-                name={isRecording ? "mic" : "mic-none"}
-                size={20}
-                color={isRecording ? "#fff" : "#667eea"}
-              />
-            </Animated.View>
+          {/* + button → attach photo */}
+          <TouchableOpacity style={styles.plusBtn} activeOpacity={0.75} onPress={pickAiAttachment}>
+            <MaterialIcons name="add" size={22} color="#64748b" />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.sendBtn, (!newMessage.trim() || isLoading) && styles.sendBtnDisabled]}
-            onPress={() => sendMessage(newMessage)}
-            disabled={!newMessage.trim() || isLoading}
-          >
-            <MaterialIcons name="send" size={18} color="white" />
-          </TouchableOpacity>
+
+          {/* Input pill: leading icon + text + mic */}
+          <View style={styles.chatInputPill}>
+            <MaterialIcons name="auto-awesome" size={17} color="#2A8A51" style={styles.chatInputLead} />
+            <TextInput
+              ref={inputRef}
+              style={styles.chatInput}
+              placeholder="Type your question"
+              placeholderTextColor="#94a3b8"
+              value={newMessage}
+              onChangeText={setNewMessage}
+              onSubmitEditing={handleAiSend}
+              returnKeyType="send"
+            />
+            <TouchableOpacity
+              style={styles.inlineMicBtn}
+              onPress={toggleRecording}
+              activeOpacity={0.7}
+            >
+              <Animated.View style={{ transform: [{ scale: micPulse }] }}>
+                <MaterialIcons
+                  name={isRecording ? "mic" : "mic-none"}
+                  size={20}
+                  color={isRecording ? "#ef4444" : "#94a3b8"}
+                />
+              </Animated.View>
+            </TouchableOpacity>
+          </View>
+
+          {/* Green action button: send when typing/attached, else voice */}
+          {(newMessage.trim() || aiAttachment) ? (
+            <TouchableOpacity
+              style={styles.sendBtn}
+              onPress={handleAiSend}
+              disabled={isLoading}
+              activeOpacity={0.85}
+            >
+              <MaterialIcons name="send" size={19} color="white" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.sendBtn}
+              onPress={startAiVoiceCall}
+              activeOpacity={0.85}
+            >
+              <MaterialIcons name="graphic-eq" size={20} color="white" />
+            </TouchableOpacity>
+          )}
         </View>
         {showResetConfirm && (
           <View style={styles.resetConfirmOverlay}>
             <View style={styles.resetConfirmCard}>
               <LinearGradient
-                colors={['#667eea', '#764ba2']}
+                colors={['#2A8A51', '#0E7552']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.resetConfirmIcon}
@@ -830,20 +941,62 @@ const ChatPopup = ({
         >
           <View style={styles.aiVoiceOverlay}>
             <View style={styles.aiVoiceCard}>
-              <LinearGradient
-                colors={['#667eea', '#764ba2']}
-                style={styles.aiVoiceAvatar}
-              >
-                <MaterialIcons name="auto-awesome" size={34} color="#ffffff" />
-              </LinearGradient>
+              <View style={styles.aiVoiceOrbWrap}>
+                <Animated.View
+                  style={[
+                    styles.aiVoiceOrbGlowOuter,
+                    {
+                      opacity: orbPulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.9] }),
+                      transform: [{ scale: orbPulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.25] }) }],
+                    },
+                  ]}
+                />
+                <Animated.View
+                  style={[
+                    styles.aiVoiceOrbGlowInner,
+                    {
+                      opacity: orbPulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }),
+                      transform: [{ scale: orbPulse.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1.12] }) }],
+                    },
+                  ]}
+                />
+                <LinearGradient
+                  colors={['#2A8A51', '#0E7552', '#00652C']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.aiVoiceAvatar}
+                >
+                  <MaterialIcons name="mic" size={40} color="#ffffff" />
+                </LinearGradient>
+              </View>
+
+              <View style={styles.aiVoiceWave}>
+                {waveAnims.map((a, i) => (
+                  <Animated.View
+                    key={i}
+                    style={[styles.aiVoiceWaveBar, { transform: [{ scaleY: a }] }]}
+                  />
+                ))}
+              </View>
+
               <Text style={styles.aiVoiceTitle}>AI Voice Assistant</Text>
               <Text style={styles.aiVoiceStatusText}>{getAiVoiceStatusText()}</Text>
               <Text style={styles.aiVoiceTimer}>{formatAiVoiceTime(aiVoiceTime)}</Text>
               {aiVoiceError ? (
-                <Text style={styles.aiVoiceError}>{aiVoiceError}</Text>
+                <View style={styles.aiVoiceErrorBox}>
+                  <Text style={styles.aiVoiceErrorText}>{aiVoiceError}</Text>
+                  <TouchableOpacity
+                    style={styles.aiVoiceRetryBtn}
+                    onPress={() => { setAiVoiceError(null); startAiVoiceCall(); }}
+                    activeOpacity={0.85}
+                  >
+                    <MaterialIcons name="refresh" size={16} color="#ffffff" />
+                    <Text style={styles.aiVoiceRetryText}>Try Again</Text>
+                  </TouchableOpacity>
+                </View>
               ) : (
                 <Text style={styles.aiVoiceHint}>
-                  Speak when you are ready. The AI will reply after you finish.
+                  Speak when you're ready — I'll reply once you pause.
                 </Text>
               )}
 
@@ -979,129 +1132,105 @@ const CallModal = ({
   const displayInitial = (displayName?.charAt(0) || "C").toUpperCase();
   const isVideo = callType === "video";
 
+  // Expanding ripple rings around the avatar
   const ringStyle = (val) => ({
-    transform: [{ scale: val.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] }) }],
-    opacity: val.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 0.55, 0] }),
+    transform: [{ scale: val.interpolate({ inputRange: [0, 1], outputRange: [1, 1.85] }) }],
+    opacity: val.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 0.5, 0] }),
   });
-  const floatY = floatAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -6] });
-
-  // User gradient: purple / pink (counselor uses teal/blue — keeps each role distinct)
-  const cardGradient = ["rgba(102, 126, 234, 0.92)", "rgba(118, 75, 162, 0.92)", "rgba(190, 75, 200, 0.85)"];
-  const avatarGradient = ["#a78bfa", "#ec4899"];
-  const acceptGradient = ["#10b981", "#059669"];
+  const floatY = floatAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -5] });
+  const callerLocation = callData?.from?.location || callData?.from?.city || null;
 
   return (
-    <Modal transparent visible={isOpen} animationType="fade" onRequestClose={onClose}>
-      <View style={styles.callBackdrop}>
-        <BlurView
-          style={StyleSheet.absoluteFill}
-          blurType="dark"
-          blurAmount={18}
-          reducedTransparencyFallbackColor="#000"
-        />
-        <View style={styles.callBackdropTint} />
+    <Modal transparent={false} visible={isOpen} animationType="fade" onRequestClose={onClose}>
+      <View style={styles.callScreen}>
+        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
+        {/* Top — INCOMING CALL / name / location */}
         <Animated.View
-          style={[
-            styles.glassCard,
-            { transform: [{ scale: scaleAnim }, { translateY: floatY }] },
-          ]}
+          style={[styles.callHeadWrap, { transform: [{ translateY: floatY }] }]}
         >
-          <LinearGradient
-            colors={cardGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.glassCardGradient}
-          >
-            <View style={styles.callTopRow}>
-              <View style={styles.callTopPill}>
-                <Ionicons name={isVideo ? "videocam" : "call"} size={12} color="#fdf4ff" />
-                <Text style={styles.callTopPillText}>
-                  {isVideo ? t('call:incomingVideoCall') : t('call:incomingVoiceCall')}
-                </Text>
-              </View>
+          <Text style={styles.callKicker}>
+            {isVideo ? t('call:incomingVideoCall', 'INCOMING VIDEO CALL') : t('call:incomingCall', 'INCOMING CALL')}
+          </Text>
+          <Text style={styles.callName} numberOfLines={1}>{displayName}</Text>
+          {!!callerLocation && (
+            <View style={styles.callLocRow}>
+              <Ionicons name="location-outline" size={13} color="#94A3B8" />
+              <Text style={styles.callLocText} numberOfLines={1}>{callerLocation}</Text>
             </View>
-
-            <View style={styles.avatarWrap}>
-              <Animated.View style={[styles.waveRing, ringStyle(ring1)]} />
-              <Animated.View style={[styles.waveRing, ringStyle(ring2)]} />
-              <Animated.View style={[styles.waveRing, ringStyle(ring3)]} />
-
-              <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-                <LinearGradient
-                  colors={avatarGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.avatarGradient}
-                >
-                  {profilePhoto ? (
-                    <Image source={{ uri: profilePhoto }} style={styles.avatarImage} />
-                  ) : (
-                    <Text style={styles.avatarInitial}>{displayInitial}</Text>
-                  )}
-                </LinearGradient>
-              </Animated.View>
-            </View>
-
-            <Text style={styles.callerName} numberOfLines={1}>{displayName}</Text>
-            <View style={styles.ringingRow}>
-              <View style={styles.ringingDot} />
-              <Text style={styles.ringingText}>Ringing…</Text>
-            </View>
-
-            <View style={styles.actionsRow}>
-              <View style={styles.actionCol}>
-                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
-                  <TouchableOpacity
-                    onPress={handleReject}
-                    onPressIn={pressIn}
-                    onPressOut={pressOut}
-                    activeOpacity={0.85}
-                    disabled={isRejecting}
-                    style={[styles.fab, styles.fabReject]}
-                  >
-                    {isRejecting ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <MaterialIcons name="call-end" size={28} color="#fff" />
-                    )}
-                  </TouchableOpacity>
-                </Animated.View>
-                <Text style={styles.actionLabel}>
-                  {isRejecting ? t('common:loading') : t('call:reject')}
-                </Text>
-              </View>
-
-              <View style={styles.actionCol}>
-                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
-                  <TouchableOpacity
-                    onPress={handleAccept}
-                    onPressIn={pressIn}
-                    onPressOut={pressOut}
-                    activeOpacity={0.9}
-                    disabled={isAccepting}
-                  >
-                    <LinearGradient
-                      colors={acceptGradient}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={[styles.fab, styles.fabAccept]}
-                    >
-                      {isAccepting ? (
-                        <ActivityIndicator color="#fff" size="small" />
-                      ) : (
-                        <MaterialIcons name={isVideo ? "videocam" : "call"} size={28} color="#fff" />
-                      )}
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </Animated.View>
-                <Text style={styles.actionLabel}>
-                  {isAccepting ? t('call:connecting') : t('call:accept')}
-                </Text>
-              </View>
-            </View>
-          </LinearGradient>
+          )}
         </Animated.View>
+
+        {/* Middle — avatar with ripple rings + ENCRYPTED badge */}
+        <View style={styles.callAvatarZone}>
+          <Animated.View style={[styles.callRing, ringStyle(ring1)]} />
+          <Animated.View style={[styles.callRing, ringStyle(ring2)]} />
+          <Animated.View style={[styles.callRing, ringStyle(ring3)]} />
+
+          <Animated.View style={[styles.callAvatarOuter, { transform: [{ scale: pulseAnim }] }]}>
+            <View style={styles.callAvatar}>
+              {profilePhoto ? (
+                <Image source={{ uri: profilePhoto }} style={styles.callAvatarImg} />
+              ) : (
+                <View style={styles.callAvatarFallback}>
+                  <Text style={styles.callAvatarInitial}>{displayInitial}</Text>
+                </View>
+              )}
+            </View>
+          </Animated.View>
+
+          <View style={styles.encryptedBadge}>
+            <Ionicons name="lock-closed" size={11} color="#0E7552" />
+            <Text style={styles.encryptedText}>ENCRYPTED</Text>
+          </View>
+        </View>
+
+        {/* Bottom — Decline / Accept */}
+        <View style={styles.callActionsRow}>
+          <View style={styles.callActionCol}>
+            <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+              <TouchableOpacity
+                onPress={handleReject}
+                onPressIn={pressIn}
+                onPressOut={pressOut}
+                activeOpacity={0.85}
+                disabled={isRejecting}
+                style={[styles.callFab, styles.callFabDecline]}
+              >
+                {isRejecting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Ionicons name="call" size={26} color="#fff" style={{ transform: [{ rotate: '135deg' }] }} />
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+            <Text style={styles.callActionLabel}>
+              {isRejecting ? t('common:loading') : t('call:reject', 'Decline')}
+            </Text>
+          </View>
+
+          <View style={styles.callActionCol}>
+            <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+              <TouchableOpacity
+                onPress={handleAccept}
+                onPressIn={pressIn}
+                onPressOut={pressOut}
+                activeOpacity={0.9}
+                disabled={isAccepting}
+                style={[styles.callFab, styles.callFabAccept]}
+              >
+                {isAccepting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Ionicons name={isVideo ? "videocam" : "call"} size={26} color="#fff" />
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+            <Text style={styles.callActionLabel}>
+              {isAccepting ? t('call:connecting') : t('call:accept', 'Accept')}
+            </Text>
+          </View>
+        </View>
       </View>
     </Modal>
   );
@@ -1197,6 +1326,61 @@ const aptSkelStyles = StyleSheet.create({
   btnRight: { flex: 1, height: 42, borderRadius: 13, backgroundColor: '#e2e8f0' },
 });
 
+const sheetStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.4)', justifyContent: 'flex-end' },
+  backdrop: { height: 30 },
+  sheet: { flex: 1, backgroundColor: '#ffffff', borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#0f172a', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
+  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1', alignSelf: 'center', marginTop: 12, marginBottom: 18 },
+  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  title: { fontSize: 19, fontWeight: '800', color: '#0f172a' },
+  subtitle: { fontSize: 13.5, fontWeight: '500', color: '#64748b', marginTop: 4 },
+  closeBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  scroll: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 130, gap: 12, flexGrow: 1, justifyContent: 'flex-start' },
+  docCard: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 12 },
+  docAvatar: { width: 48, height: 48, borderRadius: 10, backgroundColor: '#e2e8f0' },
+  docNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 1 },
+  docName: { fontSize: 14, fontWeight: '700', color: '#0f172a', flex: 1 },
+  docSpec: { fontSize: 12, fontWeight: '500', color: '#64748b', marginBottom: 4 },
+  docMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  docMetaText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
+  confirmPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PATIENT.primary, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  confirmDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ffffff' },
+  confirmText: { fontSize: 12, fontWeight: '700', color: '#ffffff' },
+  countBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#E6F6EC' },
+  countIcon: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  countLabel: { fontSize: 11, fontWeight: '500', color: '#64748b' },
+  countValue: { fontSize: 17, fontWeight: '800', color: PATIENT.primary, marginTop: 1 },
+  countDay: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
+  countTime: { fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 1 },
+  pastBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ecfdf5', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#a7f3d0' },
+  pastIcon: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  pastLabel: { fontSize: 11, fontWeight: '500', color: '#059669' },
+  pastValue: { fontSize: 15, fontWeight: '800', color: '#10b981', marginTop: 1 },
+  pastDay: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
+  pastTime: { fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 1 },
+  gridRow: { flexDirection: 'row', gap: 10 },
+  gridCell: { flex: 1, alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 10, padding: 10 },
+  gridIcon: { width: 40, height: 40, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  gridLabel: { fontSize: 10.5, fontWeight: '700', color: '#94a3b8', letterSpacing: 0.5, marginBottom: 3 },
+  gridValue: { fontSize: 13, fontWeight: '700', color: '#0f172a', textAlign: 'center' },
+  timelineCard: { backgroundColor: '#f8fafc', borderRadius: 12, padding: 12 },
+  tlItem: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  tlDotCol: { alignItems: 'center', width: 22 },
+  tlDot: { width: 9, height: 9, borderRadius: 4.5 },
+  tlLine: { width: 2, flex: 1, backgroundColor: '#e2e8f0', marginTop: 6, marginBottom: 6 },
+  tlDate: { fontSize: 11.5, fontWeight: '600', color: '#64748b', marginBottom: 1 },
+  tlStatus: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 },
+  footerPast: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 },
+  closePastBtn: { backgroundColor: PATIENT.primary, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  closePastText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
+  joinBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 14, marginBottom: 12 },
+  joinText: { fontSize: 15, fontWeight: '800', color: '#ffffff' },
+  secRow: { flexDirection: 'row', gap: 12 },
+  secBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, paddingVertical: 12, borderWidth: 1.5, borderColor: '#E6F6EC' },
+  secText: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+});
+
 const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) => {
   const { t } = useTranslation();
   const [appointments, setAppointments] = useState([]);
@@ -1205,7 +1389,30 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const [statusFilter, setStatusFilter] = useState("All");
   const [selectedApt, setSelectedApt] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [countdown, setCountdown] = useState("");
   const socketRef = useRef(null);
+
+  // Live countdown to the session start while the details sheet is open.
+  useEffect(() => {
+    if (!showDetailsModal || !selectedApt?.date) return;
+    console.log('📌 SELECTED APPOINTMENT (View Details opened):', JSON.stringify(selectedApt, null, 2));
+    const target = new Date(selectedApt.date).getTime();
+    const pad = (n) => String(n).padStart(2, "0");
+    const tick = () => {
+      const diff = target - Date.now();
+      if (diff <= 0) {
+        setCountdown("00:00:00");
+        return;
+      }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setCountdown(`${pad(h)}:${pad(m)}:${pad(s)}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [showDetailsModal, selectedApt]);
 
   // Tablet detection for responsive modal
   const screenWidth = Dimensions.get('window').width;
@@ -1217,7 +1424,11 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     try {
       setLoadingAppointments(true);
       const response = await axiosInstance.get('/api/appointments');
-      setAppointments(Array.isArray(response.data) ? response.data : []);
+      const apts = Array.isArray(response.data) ? response.data : [];
+      if (apts.length > 0) {
+        console.log('📋 APPOINTMENT DATA STRUCTURE:', JSON.stringify(apts[0], null, 2));
+      }
+      setAppointments(apts);
     } catch (err) {
       console.error("Error fetching appointments:", err);
       setAppointments([]);
@@ -1285,6 +1496,9 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   if (statusFilter === "Confirmed") {
     displayApts = displayApts.filter((apt) => apt.status === "confirmed");
   }
+  if (statusFilter === "Completed") {
+    displayApts = displayApts.filter((apt) => apt.status === "completed");
+  }
 
   const getStatusStyle = (status) => {
     if (status === "confirmed") return styles.aptStatusConfirmed;
@@ -1294,17 +1508,17 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   };
 
   const getStatusTextColor = (status) => {
-    if (status === "confirmed") return "#5b21b6";
-    if (status === "completed") return "#166534";
-    if (status === "canceled") return "#b91c1c";
-    return "#c2410c";
+    if (status === "confirmed") return PATIENT.primary;
+    if (status === "completed") return PATIENT.primary;
+    if (status === "canceled") return "#B91C1C";
+    return "#C2410C";
   };
 
   const getAccentColor = (status) => {
-    if (status === "confirmed") return "#7c3aed";
-    if (status === "completed") return "#16a34a";
-    if (status === "canceled") return "#ef4444";
-    return "#f97316";
+    if (status === "confirmed") return PATIENT.primary;
+    if (status === "completed") return PATIENT.gradientFrom;
+    if (status === "canceled") return "#EF4444";
+    return "#F97316";
   };
 
   const getAvatarSrc = (apt) => {
@@ -1317,6 +1531,43 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0f172a&color=ffffff&bold=true`;
   };
 
+  // ---- Derived values for the details sheet ----
+  const aptDate = selectedApt?.date ? new Date(selectedApt.date) : null;
+  const isToday = aptDate ? aptDate.toDateString() === new Date().toDateString() : false;
+  const dayLabel = aptDate ? (isToday ? "Today" : aptDate.toLocaleDateString("en-US", { weekday: "short" })) : "";
+  const timeLabel = aptDate ? aptDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-";
+  const dateLabel = aptDate ? aptDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "-";
+  const statusRaw = selectedApt?.status || "pending";
+  const statusCap = statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1);
+  const modeLabel = selectedApt?.mode || selectedApt?.sessionType || "Video Call";
+  const durationLabel = selectedApt?.duration ? `${selectedApt.duration} Minutes` : "45 Minutes";
+  const isPast = activeTab === "Past" || selectedApt?.status === "completed" || selectedApt?.status === "canceled" || (aptDate && aptDate <= new Date());
+  // Extract real talk duration from appointment data
+  const getTalkDuration = () => {
+    if (selectedApt?.actualDuration) return selectedApt.actualDuration;
+    if (selectedApt?.talkTime) return selectedApt.talkTime;
+    if (selectedApt?.callDuration) return selectedApt.callDuration;
+    if (selectedApt?.sessionDuration) return selectedApt.sessionDuration;
+    if (selectedApt?.startTime && selectedApt?.endTime) {
+      const start = new Date(selectedApt.startTime).getTime();
+      const end = new Date(selectedApt.endTime).getTime();
+      return Math.round((end - start) / 60000); // Convert to minutes
+    }
+    return selectedApt?.duration || "45";
+  };
+  const talkDuration = getTalkDuration();
+  const relDay = (d) => {
+    if (!d) return "";
+    const dd = new Date(d);
+    const today = new Date();
+    const yst = new Date();
+    yst.setDate(today.getDate() - 1);
+    const time = dd.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (dd.toDateString() === today.toDateString()) return `Today, ${time}`;
+    if (dd.toDateString() === yst.toDateString()) return "Yesterday";
+    return dd.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
   return (
     <View style={styles.appointmentsRoot}>
       {/* Tabs + Filter bar */}
@@ -1326,33 +1577,63 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             onPress={() => setActiveTab("Upcoming")}
             style={[styles.aptTabBtn, activeTab === "Upcoming" && styles.aptTabBtnActive]}
           >
+            {activeTab === "Upcoming" && (
+              <LinearGradient
+                colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+            )}
             <Text style={[styles.aptTabText, activeTab === "Upcoming" && styles.aptTabTextActive]}>Upcoming</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setActiveTab("Past")}
             style={[styles.aptTabBtn, activeTab === "Past" && styles.aptTabBtnActive]}
           >
+            {activeTab === "Past" && (
+              <LinearGradient
+                colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+            )}
             <Text style={[styles.aptTabText, activeTab === "Past" && styles.aptTabTextActive]}>Past</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.appointmentFilterRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.appointmentFilterRow}
+        >
           {[
-            { key: "All", label: "All" },
-            { key: "Pending", label: "Pending" },
-            { key: "Confirmed", label: "Confirmed" },
+            { key: "All", label: t('common:all', 'All') },
+            { key: "Pending", label: t('common:pending', 'Pending') },
+            { key: "Confirmed", label: t('common:confirmed', 'Confirmed') },
+            { key: "Completed", label: t('appointment:completed', 'completed') },
           ].map((chip) => (
             <TouchableOpacity
               key={chip.key}
               style={[styles.filterChip, statusFilter === chip.key && styles.filterChipActive]}
               onPress={() => setStatusFilter(chip.key)}
+              activeOpacity={0.8}
             >
+              {statusFilter === chip.key && (
+                <LinearGradient
+                  colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+              )}
               <Text style={[styles.filterChipText, statusFilter === chip.key && styles.filterChipTextActive]}>
                 {chip.label}
               </Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </ScrollView>
       </View>
 
       <ScrollView contentContainerStyle={styles.appointmentsList} showsVerticalScrollIndicator={false}>
@@ -1360,7 +1641,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
           <AppointmentsSkeleton />
         ) : displayApts.length === 0 ? (
           <View style={styles.appointmentEmptyCard}>
-            <MaterialIcons name="event-busy" size={40} color="#c7d2fe" />
+            <MaterialIcons name="event-busy" size={40} color="#A7E3BE" />
             <Text style={styles.appointmentEmptyTitle}>No appointments found</Text>
             <Text style={styles.appointmentEmptySubtitle}>
               Try changing filters or book a new session with a counselor.
@@ -1369,23 +1650,40 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
         ) : (
           displayApts.map((apt) => (
             <View key={apt._id} style={styles.appointmentCard}>
-              {/* Accent bar */}
-              <View style={[styles.aptCardAccent, { backgroundColor: getAccentColor(apt.status) }]} />
-
               <View style={styles.appointmentCardHeader}>
                 <View style={styles.aptAvatarWrap}>
                   <Image source={{ uri: getAvatarSrc(apt) }} style={styles.appointmentAvatar} />
                 </View>
                 <View style={styles.appointmentMetaColumn}>
-                  <Text style={styles.appointmentDoctorName} numberOfLines={1}>
-                    Dr. {apt?.counselor?.fullName || "Counselor"}
-                  </Text>
+                  <View style={styles.aptNameRow}>
+                    <Text style={styles.appointmentDoctorName} numberOfLines={1}>
+                      Dr. {apt?.counselor?.fullName || "Counselor"}
+                    </Text>
+                    <Ionicons name="checkmark-circle" size={14} color={PATIENT.primary} />
+                  </View>
                   <Text style={styles.appointmentSpecialization} numberOfLines={1}>
                     {apt?.counselor?.specialization || "Mental Wellness Specialist"}
                   </Text>
+                  <View style={styles.aptMetaRow}>
+                    <Ionicons name="briefcase-outline" size={12} color={PATIENT.textSecondary} />
+                    <Text style={styles.aptMetaText}>
+                      {apt?.counselor?.experience || '4 years'}
+                    </Text>
+                    <Ionicons name="star" size={12} color="#F5A623" style={{ marginLeft: 10 }} />
+                    <Text style={styles.aptMetaText}>
+                      {(Number(apt?.counselor?.rating) || 4.9).toFixed(1)}
+                    </Text>
+                  </View>
                 </View>
                 <View style={[styles.aptStatusPill, getStatusStyle(apt.status)]}>
-                  <Text style={[styles.aptStatusText, { color: getStatusTextColor(apt.status) }]}>{apt.status || "pending"}</Text>
+                  <Ionicons
+                    name={apt.status === 'canceled' ? 'close-circle' : 'checkmark-circle'}
+                    size={11}
+                    color={getStatusTextColor(apt.status)}
+                  />
+                  <Text style={[styles.aptStatusText, { color: getStatusTextColor(apt.status) }]}>
+                    {apt.status || "pending"}
+                  </Text>
                 </View>
               </View>
 
@@ -1393,7 +1691,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 
               <View style={styles.appointmentDateRow}>
                 <View style={styles.aptDateIconWrap}>
-                  <MaterialIcons name="event" size={15} color="#4f46e5" />
+                  <MaterialIcons name="event" size={15} color={PATIENT.primary} />
                 </View>
                 <Text style={styles.appointmentDateText}>
                   {new Date(apt.date).toLocaleDateString("en-US", {
@@ -1405,7 +1703,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 </Text>
                 <View style={styles.aptTimeDot} />
                 <View style={styles.aptDateIconWrap}>
-                  <MaterialIcons name="access-time" size={15} color="#4f46e5" />
+                  <MaterialIcons name="access-time" size={15} color={PATIENT.primary} />
                 </View>
                 <Text style={styles.appointmentDateText}>
                   {new Date(apt.date).toLocaleTimeString([], {
@@ -1423,8 +1721,10 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     setShowDetailsModal(true);
                   }}
                 >
-                  <MaterialIcons name="visibility" size={15} color="#4f46e5" />
-                  <Text style={styles.appointmentDetailsText}>View Details</Text>
+                  <Ionicons name="eye-outline" size={16} color={PATIENT.primary} />
+                  <Text style={styles.appointmentDetailsText}>
+                    {t('counselor:viewDetails', 'View Details')}
+                  </Text>
                 </TouchableOpacity>
 
                 {/* Action Buttons: Video, Voice, Chat */}
@@ -1433,7 +1733,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   onPress={() => onVideoCall && onVideoCall(apt)}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="videocam" size={20} color="#6366f1" />
+                  <Ionicons name="videocam-outline" size={19} color={PATIENT.primary} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -1441,7 +1741,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   onPress={() => onVoiceCall && onVoiceCall(apt)}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="call" size={20} color="#10b981" />
+                  <Ionicons name="call-outline" size={19} color={PATIENT.primary} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -1449,7 +1749,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   onPress={() => onChat && onChat(apt)}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="chatbubble-ellipses" size={20} color="#f59e0b" />
+                  <Ionicons name="chatbubble-outline" size={19} color={PATIENT.primary} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -1460,132 +1760,226 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
       <Modal
         transparent={true}
         visible={showDetailsModal}
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setShowDetailsModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.appointmentDetailsModal, { width: modalWidth, maxWidth: modalMaxWidth }]}>
-            {/* Header with close button */}
-            <View style={styles.detailsModalHeader}>
-              <Text style={styles.detailsModalTitle}>Appointment Details</Text>
+        <View style={sheetStyles.overlay}>
+          <View style={sheetStyles.backdrop}>
+            <TouchableWithoutFeedback onPress={() => setShowDetailsModal(false)}>
+              <View style={{ flex: 1 }} />
+            </TouchableWithoutFeedback>
+          </View>
+
+          <View style={sheetStyles.sheet}>
+            <View style={sheetStyles.grabber} />
+
+            {/* Header */}
+            <View style={sheetStyles.header}>
+              <View style={{ flex: 1 }}>
+                <Text style={sheetStyles.title}>Appointment Details</Text>
+                <Text style={sheetStyles.subtitle}>View your session information</Text>
+              </View>
               <TouchableOpacity
                 onPress={() => setShowDetailsModal(false)}
-                style={styles.detailsCloseBtn}
+                style={sheetStyles.closeBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={20} color="#334155" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.detailsModalContent} showsVerticalScrollIndicator={false}>
-              {/* Counselor Info Section */}
-              <View style={styles.detailsSectionCounselor}>
-                <View style={styles.detailsCounselorAvatar}>
-                  <Image
-                    source={{ uri: getAvatarSrc(selectedApt) }}
-                    style={styles.detailsCounselorImage}
-                  />
-                </View>
-                <View style={styles.detailsCounselorInfo}>
-                  <Text style={styles.detailsCounselorName}>
-                    Dr. {selectedApt?.counselor?.fullName || "Counselor"}
-                  </Text>
-                  <Text style={styles.detailsCounselorSpec}>
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={sheetStyles.scroll}
+              showsVerticalScrollIndicator={false}
+              scrollEnabled={false}
+            >
+              {/* Counselor card */}
+              <View style={sheetStyles.docCard}>
+                <Image source={{ uri: getAvatarSrc(selectedApt) }} style={sheetStyles.docAvatar} />
+                <View style={{ flex: 1 }}>
+                  <View style={sheetStyles.docNameRow}>
+                    <Text style={sheetStyles.docName} numberOfLines={1}>
+                      Dr. {selectedApt?.counselor?.fullName || "Counselor"}
+                    </Text>
+                    <Ionicons name="checkmark-circle" size={15} color={PATIENT.primary} />
+                  </View>
+                  <Text style={sheetStyles.docSpec} numberOfLines={1}>
                     {selectedApt?.counselor?.specialization || "Mental Wellness Specialist"}
                   </Text>
-                </View>
-              </View>
-
-              {/* Status Badge */}
-              <View style={[styles.detailsStatusBadge, { backgroundColor: getAccentColor(selectedApt?.status) + "20" }]}>
-                <View style={[styles.detailsStatusDot, { backgroundColor: getAccentColor(selectedApt?.status) }]} />
-                <Text style={[styles.detailsStatusLabel, { color: getAccentColor(selectedApt?.status) }]}>
-                  {(selectedApt?.status || "pending").charAt(0).toUpperCase() + (selectedApt?.status || "pending").slice(1)}
-                </Text>
-              </View>
-
-              {/* Details Section */}
-              <View style={styles.detailsSection}>
-                <View style={styles.detailsItem}>
-                  <View style={styles.detailsItemIcon}>
-                    <MaterialIcons name="event" size={18} color="#4f46e5" />
-                  </View>
-                  <View style={styles.detailsItemContent}>
-                    <Text style={styles.detailsItemLabel}>Date</Text>
-                    <Text style={styles.detailsItemValue}>
-                      {selectedApt ? new Date(selectedApt.date).toLocaleDateString("en-US", {
-                        weekday: "long",
-                        year: "numeric",
-                        month: "long",
-                        day: "numeric",
-                      }) : "-"}
+                  <View style={sheetStyles.docMetaRow}>
+                    <Ionicons name="briefcase-outline" size={12} color={PATIENT.textSecondary} />
+                    <Text style={sheetStyles.docMetaText}>
+                      {selectedApt?.counselor?.experience || "4 years"}
+                    </Text>
+                    <Ionicons name="star" size={12} color="#F5A623" style={{ marginLeft: 10 }} />
+                    <Text style={sheetStyles.docMetaText}>
+                      {(Number(selectedApt?.counselor?.rating) || 4.9).toFixed(1)}
                     </Text>
                   </View>
                 </View>
-
-                <View style={styles.detailsItem}>
-                  <View style={styles.detailsItemIcon}>
-                    <MaterialIcons name="access-time" size={18} color="#4f46e5" />
-                  </View>
-                  <View style={styles.detailsItemContent}>
-                    <Text style={styles.detailsItemLabel}>Time</Text>
-                    <Text style={styles.detailsItemValue}>
-                      {selectedApt ? new Date(selectedApt.date).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }) : "-"}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.detailsItem}>
-                  <View style={styles.detailsItemIcon}>
-                    <MaterialIcons name="description" size={18} color="#4f46e5" />
-                  </View>
-                  <View style={styles.detailsItemContent}>
-                    <Text style={styles.detailsItemLabel}>Notes</Text>
-                    <Text style={styles.detailsItemValue}>
-                      {selectedApt?.notes || "No notes added"}
-                    </Text>
-                  </View>
+                <View style={sheetStyles.confirmPill}>
+                  <View style={sheetStyles.confirmDot} />
+                  <Text style={sheetStyles.confirmText}>{statusCap}</Text>
                 </View>
               </View>
 
-              {/* Action Buttons */}
-              <View style={styles.detailsActions}>
-                <TouchableOpacity
-                  style={styles.detailsActionBtn}
-                  onPress={() => {
-                    setShowDetailsModal(false);
-                    handleAptChat(selectedApt);
-                  }}
-                >
-                  <Ionicons name="chatbubble-ellipses" size={18} color="#f59e0b" />
-                  <Text style={styles.detailsActionBtnText}>Chat</Text>
-                </TouchableOpacity>
+              {/* Countdown banner (upcoming) OR Session summary (past) */}
+              {!isPast ? (
+                <View style={sheetStyles.countBanner}>
+                  <LinearGradient
+                    colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                    style={sheetStyles.countIcon}
+                  >
+                    <Ionicons name="time-outline" size={22} color="#ffffff" />
+                  </LinearGradient>
+                  <View style={{ flex: 1 }}>
+                    <Text style={sheetStyles.countLabel}>Session starts in</Text>
+                    <Text style={sheetStyles.countValue}>{countdown || "--:--:--"}</Text>
+                  </View>
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text style={sheetStyles.countDay}>{dayLabel}</Text>
+                    <Text style={sheetStyles.countTime}>{timeLabel}</Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={sheetStyles.pastBanner}>
+                  <LinearGradient
+                    colors={["#10b98133", "#34d39933"]}
+                    style={sheetStyles.pastIcon}
+                  >
+                    <Ionicons name="checkmark-circle" size={22} color="#10b981" />
+                  </LinearGradient>
+                  <View style={{ flex: 1 }}>
+                    <Text style={sheetStyles.pastLabel}>Session Completed</Text>
+                    <Text style={sheetStyles.pastValue}>Talk time: {talkDuration} mins</Text>
+                  </View>
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text style={sheetStyles.pastDay}>Ended</Text>
+                    <Text style={sheetStyles.pastTime}>{timeLabel}</Text>
+                  </View>
+                </View>
+              )}
 
-                <TouchableOpacity
-                  style={styles.detailsActionBtn}
-                  onPress={() => {
-                    setShowDetailsModal(false);
-                    handleAptVoiceCall(selectedApt);
-                  }}
-                >
-                  <Ionicons name="call" size={18} color="#10b981" />
-                  <Text style={styles.detailsActionBtnText}>Call</Text>
-                </TouchableOpacity>
+              {/* Info grid */}
+              <View style={sheetStyles.gridRow}>
+                <View style={sheetStyles.gridCell}>
+                  <View style={[sheetStyles.gridIcon, { backgroundColor: "#E7EEFE" }]}>
+                    <MaterialIcons name="event" size={18} color="#2563EB" />
+                  </View>
+                  <Text style={sheetStyles.gridLabel}>DATE</Text>
+                  <Text style={sheetStyles.gridValue}>{dateLabel}</Text>
+                </View>
+                <View style={sheetStyles.gridCell}>
+                  <View style={[sheetStyles.gridIcon, { backgroundColor: "#E6F6EC" }]}>
+                    <MaterialIcons name="schedule" size={18} color={PATIENT.primary} />
+                  </View>
+                  <Text style={sheetStyles.gridLabel}>TIME</Text>
+                  <Text style={sheetStyles.gridValue}>{timeLabel}</Text>
+                </View>
+              </View>
 
-                <TouchableOpacity
-                  style={styles.detailsActionBtn}
-                  onPress={() => {
-                    setShowDetailsModal(false);
-                    handleAptVideoCall(selectedApt);
-                  }}
-                >
-                  <Ionicons name="videocam" size={18} color="#6366f1" />
-                  <Text style={styles.detailsActionBtnText}>Video</Text>
-                </TouchableOpacity>
+              <View style={sheetStyles.gridRow}>
+                <View style={sheetStyles.gridCell}>
+                  <View style={[sheetStyles.gridIcon, { backgroundColor: "#F1EAFE" }]}>
+                    <MaterialIcons name="laptop-mac" size={18} color="#7C3AED" />
+                  </View>
+                  <Text style={sheetStyles.gridLabel}>MODE</Text>
+                  <Text style={sheetStyles.gridValue}>{modeLabel}</Text>
+                </View>
+                <View style={sheetStyles.gridCell}>
+                  <View style={[sheetStyles.gridIcon, { backgroundColor: "#FEF3E2" }]}>
+                    <MaterialIcons name="timer" size={18} color="#F59E0B" />
+                  </View>
+                  <Text style={sheetStyles.gridLabel}>DURATION</Text>
+                  <Text style={sheetStyles.gridValue}>{durationLabel}</Text>
+                </View>
+              </View>
+
+              {/* Activity timeline */}
+              <View style={sheetStyles.timelineCard}>
+                <View style={sheetStyles.tlItem}>
+                  <View style={sheetStyles.tlDotCol}>
+                    <View style={[sheetStyles.tlDot, { backgroundColor: "#CBD5E1" }]} />
+                    <View style={sheetStyles.tlLine} />
+                  </View>
+                  <View style={{ flex: 1, paddingBottom: 14 }}>
+                    <Text style={sheetStyles.tlDate}>{relDay(selectedApt?.createdAt) || "Recently"}</Text>
+                    <Text style={sheetStyles.tlStatus}>Booked</Text>
+                  </View>
+                </View>
+                <View style={sheetStyles.tlItem}>
+                  <View style={sheetStyles.tlDotCol}>
+                    <View style={[sheetStyles.tlDot, { backgroundColor: PATIENT.primary }]} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={sheetStyles.tlDate}>{relDay(selectedApt?.updatedAt) || relDay(selectedApt?.createdAt) || "Today"}</Text>
+                    <Text style={sheetStyles.tlStatus}>{statusCap}</Text>
+                  </View>
+                </View>
               </View>
             </ScrollView>
+
+            {/* Fixed footer actions - only for upcoming */}
+            {!isPast && (
+              <View style={sheetStyles.footer}>
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPress={() => {
+                    setShowDetailsModal(false);
+                    onVideoCall && onVideoCall(selectedApt);
+                  }}
+                >
+                  <LinearGradient
+                    colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={sheetStyles.joinBtn}
+                  >
+                    <Ionicons name="videocam" size={20} color="#ffffff" />
+                    <Text style={sheetStyles.joinText}>Join Video Session</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+
+                <View style={sheetStyles.secRow}>
+                  <TouchableOpacity
+                    style={sheetStyles.secBtn}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      setShowDetailsModal(false);
+                      onChat && onChat(selectedApt);
+                    }}
+                  >
+                    <Ionicons name="chatbubble-ellipses" size={17} color="#F59E0B" />
+                    <Text style={sheetStyles.secText}>Chat</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={sheetStyles.secBtn}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      setShowDetailsModal(false);
+                      onVoiceCall && onVoiceCall(selectedApt);
+                    }}
+                  >
+                    <Ionicons name="call" size={17} color={PATIENT.primary} />
+                    <Text style={sheetStyles.secText}>Call</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* Footer for past appointments - just close button */}
+            {isPast && (
+              <View style={sheetStyles.footerPast}>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => setShowDetailsModal(false)}
+                  style={sheetStyles.closePastBtn}
+                >
+                  <Text style={sheetStyles.closePastText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </View>
       </Modal>
@@ -1602,6 +1996,7 @@ export default function UserDashboard() {
   const [newMessage, setNewMessage] = useState("");
   const [targetCounselor, setTargetCounselor] = useState("");
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -1609,8 +2004,11 @@ export default function UserDashboard() {
   const [aiSessionId, setAiSessionId] = useState(null);
   const [showMoreModal, setShowMoreModal] = useState(false);
   const [showHelpSupport, setShowHelpSupport] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Unread NOTIFICATION count for the header bell (separate from AI-chat unread).
+  const [notifUnread, setNotifUnread] = useState(0);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showResetChatConfirm, setShowResetChatConfirm] = useState(false);
   // Direct booking modal state (opened from appointment "Book Now" button)
@@ -1683,6 +2081,48 @@ export default function UserDashboard() {
       setUnreadCount(0);
     }
   }, [chatOpen]);
+
+  // ── Notification bell: unread count (API) + real-time updates ──
+  const fetchNotifUnread = useCallback(async () => {
+    try {
+      const res = await axiosInstance.get('/api/notifications/unread-count');
+      const c =
+        res.data?.count ??
+        res.data?.unreadCount ??
+        res.data?.unread ??
+        (typeof res.data === 'number' ? res.data : 0);
+      setNotifUnread(Number(c) || 0);
+    } catch (e) {
+      // silent — bell just won't show a badge
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchNotifUnread();
+  }, [fetchNotifUnread]);
+
+  // Re-sync the count whenever the notifications panel closes (marks read there).
+  useEffect(() => {
+    if (!showNotifications) fetchNotifUnread();
+  }, [showNotifications, fetchNotifUnread]);
+
+  // Live push: bump the badge immediately, event name varies by backend.
+  useEffect(() => {
+    let unsubs = [];
+    let mounted = true;
+    const onPush = () => { if (mounted) setNotifUnread((c) => c + 1); };
+    (async () => {
+      try {
+        for (const evt of ['notification', 'new-notification', 'notification:new', 'notification-new']) {
+          unsubs.push(await socketService.on(evt, onPush));
+        }
+      } catch (e) { /* socket optional */ }
+    })();
+    return () => {
+      mounted = false;
+      unsubs.forEach((off) => { try { off(); } catch {} });
+    };
+  }, []);
 
   const startAiChat = useCallback(async (lang) => {
     setIsLoading(true);
@@ -1933,83 +2373,77 @@ export default function UserDashboard() {
     }
   };
 
-  // Handler for appointment video call
-  const handleAptVideoCall = async (apt) => {
+  // Pulls a usable counselor id out of an appointment, whatever shape the
+  // backend used: apt.counselor can be a populated object ({_id}/{id}), a raw
+  // ObjectId string, or the id can live directly on the appointment
+  // (counselorId / counsellorId). Returns a string id or null.
+  const extractCounselorId = (apt) => {
+    const c = apt?.counselor ?? apt?.counsellor;
+    let id =
+      (typeof c === "object" && c ? (c._id || c.id) : c) ||
+      apt?.counselorId ||
+      apt?.counsellorId ||
+      apt?.receiverId;
+    return id ? String(id) : null;
+  };
+
+  const initiateAptCall = async (apt, callType, failLabel) => {
     try {
-      const counselor = apt?.counselor || apt;
+      const counselor = (typeof apt?.counselor === "object" && apt?.counselor) || apt;
       const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
       const currentUserId = userId || await AsyncStorage.getItem("userId");
-      const counselorId = counselor?.id || counselor?._id;
+      const counselorId = extractCounselorId(apt);
 
       if (!currentUserId || !counselorId) {
+        console.warn("Call aborted — missing ids:", { currentUserId, counselorId, apt });
         Alert.alert("Error", "Missing user or counselor information");
         return;
       }
 
+      const payload = {
+        initiatorId: String(currentUserId),
+        initiatorType: "user",
+        receiverId: counselorId,
+        receiverType: "counsellor",
+        callType,
+      };
+      console.log("📞 Initiating call:", payload);
+
       const response = await axios.post(
         `${API_BASE_URL}/api/video/calls/initiate`,
-        {
-          initiatorId: currentUserId,
-          initiatorType: "user",
-          receiverId: counselorId,
-          receiverType: "counsellor",
-          callType: "video",
-        },
+        payload,
         { headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` } }
       );
 
-      if (response.data?.success) {
+      // Backends vary: some return { success, callData }, others return the
+      // call object directly. Treat any 2xx with call data as success.
+      const callData = response.data?.callData || response.data?.call || response.data;
+      if (response.data?.success !== false && callData) {
         navigation.navigate("ChatBox", {
           chatId: null,
-          counselor: counselor,
-          callType: "video",
-          callData: response.data.callData,
+          counselor,
+          callType: callType === "audio" ? "voice" : "video",
+          callData,
         });
+      } else {
+        Alert.alert("Error", response.data?.message || `${failLabel} failed. Please try again.`);
       }
     } catch (error) {
-      Alert.alert("Error", "Failed to initiate video call");
-      console.error("Video call error:", error);
+      // Surface the real reason instead of a generic message.
+      const serverMsg =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message;
+      console.error(`${failLabel} error:`, error?.response?.status, error?.response?.data || error);
+      Alert.alert("Error", serverMsg ? `${failLabel}: ${serverMsg}` : failLabel);
     }
   };
+
+  // Handler for appointment video call
+  const handleAptVideoCall = (apt) => initiateAptCall(apt, "video", "Failed to initiate video call");
 
   // Handler for appointment voice call
-  const handleAptVoiceCall = async (apt) => {
-    try {
-      const counselor = apt?.counselor || apt;
-      const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
-      const currentUserId = userId || await AsyncStorage.getItem("userId");
-      const counselorId = counselor?.id || counselor?._id;
-
-      if (!currentUserId || !counselorId) {
-        Alert.alert("Error", "Missing user or counselor information");
-        return;
-      }
-
-      const response = await axios.post(
-        `${API_BASE_URL}/api/video/calls/initiate`,
-        {
-          initiatorId: currentUserId,
-          initiatorType: "user",
-          receiverId: counselorId,
-          receiverType: "counsellor",
-          callType: "audio",
-        },
-        { headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` } }
-      );
-
-      if (response.data?.success) {
-        navigation.navigate("ChatBox", {
-          chatId: null,
-          counselor: counselor,
-          callType: "voice",
-          callData: response.data.callData,
-        });
-      }
-    } catch (error) {
-      Alert.alert("Error", "Failed to initiate voice call");
-      console.error("Voice call error:", error);
-    }
-  };
+  const handleAptVoiceCall = (apt) => initiateAptCall(apt, "audio", "Failed to initiate voice call");
 
   // Handler for appointment chat
   const handleAptChat = async (apt) => {
@@ -2079,15 +2513,16 @@ export default function UserDashboard() {
     await uploadHeaderPhoto(formData, avatarUrl);
   };
 
-  const sendMessage = async (messageText = newMessage) => {
+  const sendMessage = async (messageText = newMessage, imageUri = null) => {
     const sourceText = typeof messageText === "string" ? messageText : newMessage;
     const trimmedMessage = sourceText.trim();
-    if (!trimmedMessage) return;
+    if (!trimmedMessage && !imageUri) return;
 
     const userMessage = {
       id: Date.now(),
       text: trimmedMessage,
       sender: "user",
+      image: imageUri || null,
     };
     setChatMessages((prev) => [
       ...prev.map((msg) =>
@@ -2099,13 +2534,14 @@ export default function UserDashboard() {
     setIsLoading(true);
 
     try {
+      const outgoingText = trimmedMessage || "I've shared a photo — please take a look.";
       const history = chatMessages.slice(-10).map((msg) => ({
         role: msg.sender === "user" ? "user" : "assistant",
         content: msg.text,
       }));
 
       const response = await axiosInstance.post('/api/ai-chat/send-message', {
-        message: userMessage.text,
+        message: outgoingText,
         history,
         sessionId: aiSessionId,
         language: selectedLang,
@@ -2178,6 +2614,10 @@ export default function UserDashboard() {
   };
 
   const handleLogout = async () => {
+    // The logout request is a network round-trip; without this guard a second
+    // tap fires it again and can race the AsyncStorage.clear() below.
+    if (loggingOut) return;
+    setLoggingOut(true);
     try {
       const refreshToken = await AsyncStorage.getItem("refreshToken");
       try {
@@ -2187,11 +2627,15 @@ export default function UserDashboard() {
       }
 
       await AsyncStorage.clear();
+      setShowLogoutConfirm(false);
       navigation.replace("RoleSelector");
     } catch (error) {
       console.error("Logout error:", error);
       await AsyncStorage.clear();
+      setShowLogoutConfirm(false);
       navigation.replace("RoleSelector");
+    } finally {
+      setLoggingOut(false);
     }
   };
 
@@ -2341,6 +2785,56 @@ export default function UserDashboard() {
     }
   };
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return t('dashboard:goodMorning', 'Good Morning');
+    if (hour < 17) return t('dashboard:goodAfternoon', 'Good Afternoon');
+    return t('dashboard:goodEvening', 'Good Evening');
+  };
+
+  const sidebarItems = [
+    {
+      id: 'profile',
+      icon: 'person-outline',
+      iconActive: 'person',
+      label: t('settings:myProfile'),
+      isActive: active === 'profile',
+      onPress: () => { setShowMoreModal(false); switchDashboardTab('profile'); },
+    },
+    {
+      id: 'Video',
+      icon: 'call-outline',
+      iconActive: 'call',
+      label: t('dashboard:callHistory'),
+      isActive: active === 'Video',
+      onPress: () => { setShowMoreModal(false); handleMenuItemClick('Video'); },
+    },
+    {
+      id: 'settings',
+      icon: 'settings-outline',
+      iconActive: 'settings',
+      label: t('settings:settings'),
+      isActive: active === 'settings',
+      onPress: () => { setShowMoreModal(false); setActive('settings'); },
+    },
+    {
+      id: 'help',
+      icon: 'help-circle-outline',
+      iconActive: 'help-circle',
+      label: t('settings:helpSupport'),
+      isActive: false,
+      onPress: () => { setShowMoreModal(false); setShowHelpSupport(true); },
+    },
+    {
+      id: 'privacy',
+      icon: 'shield-checkmark-outline',
+      iconActive: 'shield-checkmark',
+      label: t('settings:privacyPolicy'),
+      isActive: false,
+      onPress: () => { setShowMoreModal(false); setShowPrivacyPolicy(true); },
+    },
+  ];
+
   const renderContent = () => {
     switch (active) {
       case "Chat":
@@ -2365,7 +2859,7 @@ export default function UserDashboard() {
           />
         );
       case "Wallet":
-        return <WalletDashboard />;
+        return <WalletDashboard userData={userData} />;
       case "Video":
         return <CallHistory />;
       case "profile":
@@ -2381,7 +2875,7 @@ export default function UserDashboard() {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar
         barStyle="dark-content"
-        backgroundColor="#ffffff"
+        backgroundColor={PATIENT.surface}
         translucent={false}
       />
       <RatingPrompt triggerKey={active} />
@@ -2451,85 +2945,35 @@ export default function UserDashboard() {
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity
-          style={styles.headerLeft}
-          onPress={() => setShowProfileMenu(!showProfileMenu)}
-          activeOpacity={0.8}
+          style={styles.menuBtnWrapper}
+          onPress={() => setShowMoreModal(true)}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          accessible={true}
+          accessibilityLabel="Menu"
         >
-          <View style={styles.profileImageWrapper}>
-            {userData.profilePhoto ? (
-              <Image source={{ uri: userData.profilePhoto }} style={styles.profileImageHeader} />
-            ) : (
-              <View style={styles.profileImagePlaceholderHeader}>
-                <Text style={styles.profileInitialsHeader}>
-                  {userData.name?.charAt(0)?.toUpperCase() || 'U'}
-                </Text>
-              </View>
-            )}
-            <View style={styles.onlineDot} />
-          </View>
-          <View style={styles.headerNameWrap}>
-            <Text style={styles.headerName} numberOfLines={1}>{userData.name || 'User'}</Text>
+          <View style={styles.menuBtn}>
+            <View style={[styles.menuLine, { width: 22 }]} />
+            <View style={[styles.menuLine, { width: 22 }]} />
+            <View style={[styles.menuLine, { width: 14 }]} />
           </View>
         </TouchableOpacity>
-        <View style={styles.headerRight}>
-          <LanguageSelector iconColor="#2563EB" iconSize={20} userId={userId} role="user" />
+
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerWelcome}>{t('dashboard:welcomeBack', 'Welcome back,')}</Text>
+          <Text style={styles.headerName} numberOfLines={1}>
+            {getGreeting()}, {(userData.name || 'User').split(' ')[0]}
+          </Text>
         </View>
 
-        {/* Profile Dropdown Menu */}
-        {showProfileMenu && (
-          <Animated.View style={[styles.profileDropdown, { opacity: headerAnim }]}>
-            <View style={styles.dropdownHeader}>
-              <TouchableOpacity
-                style={styles.dropdownAvatarWrap}
-                onPress={() => setShowAvatarChooser(true)}
-                activeOpacity={0.8}
-                disabled={photoUploading}
-              >
-                {userData.profilePhoto ? (
-                  <Image source={{ uri: userData.profilePhoto }} style={styles.dropdownAvatar} />
-                ) : (
-                  <View style={styles.dropdownAvatarPlaceholder}>
-                    <Text style={styles.dropdownAvatarText}>
-                      {userData.name?.charAt(0)?.toUpperCase() || 'U'}
-                    </Text>
-                  </View>
-                )}
-                <View style={styles.dropdownAvatarBadge}>
-                  {photoUploading ? (
-                    <ActivityIndicator size={11} color="#ffffff" />
-                  ) : (
-                    <MaterialIcons name="camera-alt" size={12} color="#ffffff" />
-                  )}
-                </View>
-              </TouchableOpacity>
-              <View style={styles.dropdownUserInfo}>
-                <Text style={styles.dropdownUserName}>{userData.name}</Text>
-                <Text style={styles.dropdownUserEmail}>{userData.email}</Text>
-              </View>
+        <TouchableOpacity style={styles.bellBtn} activeOpacity={0.7} onPress={() => setShowNotifications(true)}>
+          <Ionicons name="notifications-outline" size={22} color={PATIENT.primary} />
+          {notifUnread > 0 && (
+            <View style={styles.bellBadge}>
+              <Text style={styles.bellBadgeText}>{notifUnread > 99 ? '99+' : notifUnread}</Text>
             </View>
-            <View style={styles.dropdownItems}>
-              <TouchableOpacity style={styles.dropdownItem} onPress={handleProfileClick}>
-                <MaterialIcons name="person" size={18} color="#2563EB" />
-                <Text style={styles.dropdownItemText}>{t('settings:myProfile')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.dropdownItem}
-                onPress={() => { setShowProfileMenu(false); setActive("settings"); }}
-              >
-                <MaterialIcons name="settings" size={18} color="#64748b" />
-                <Text style={styles.dropdownItemText}>{t('settings:settings')}</Text>
-              </TouchableOpacity>
-              <View style={styles.dropdownDivider} />
-              <TouchableOpacity
-                style={[styles.dropdownItem, styles.logoutDropdownItem]}
-                onPress={() => setShowLogoutConfirm(true)}
-              >
-                <MaterialIcons name="logout" size={18} color="#ef4444" />
-                <Text style={[styles.dropdownItemText, styles.logoutText]}>{t('auth:logout')}</Text>
-              </TouchableOpacity>
-            </View>
-          </Animated.View>
-        )}
+          )}
+        </TouchableOpacity>
       </View>
 
       {/* MAIN CONTENT */}
@@ -2537,20 +2981,19 @@ export default function UserDashboard() {
         {renderContent()}
       </View>
 
-      {/* AI FLOATING BUTTON - Exactly matching screen.png */}
+      {/* AI FLOATING BUTTON — centred in the bottom nav */}
       <TouchableOpacity
         style={styles.aiButton}
         onPress={() => setChatOpen(true)}
-        activeOpacity={0.8}
+        activeOpacity={0.85}
       >
         <LinearGradient
-          colors={['#4f46e5', '#7c3aed', '#9333ea']}
+          colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.aiButtonGradient}
         >
-          <MaterialIcons name="auto-awesome" size={30} color="white" />
-          <Text style={styles.aiButtonText}>AI</Text>
+          <Ionicons name="sparkles" size={26} color="#ffffff" />
         </LinearGradient>
         {unreadCount > 0 && !chatOpen && (
           <View style={styles.aiUnreadBadge}>
@@ -2584,201 +3027,178 @@ export default function UserDashboard() {
         />
       )}
 
-      {/* BOTTOM NAVIGATION - Exactly matching screen.png */}
-      {/* BOTTOM NAVIGATION - Exactly matching screen.png */}
+      {/* BOTTOM NAVIGATION */}
       <View style={styles.bottomNav}>
-        <TouchableOpacity
-          style={[styles.navItem, active === "Chat" && styles.navItemActive]}
-          onPress={() => handleMenuItemClick("Chat")}
-        >
-          <View style={[styles.navIconWrapper, active === "Chat" && styles.navIconWrapperActive]}>
-            <MaterialIcons
-              name="chat"
-              size={26}
-              color={active === "Chat" ? "#ffffff" : "#94a3b8"}
+        {[
+          { id: 'Chat', icon: 'chatbubble-ellipses-outline', iconActive: 'chatbubble-ellipses', label: t('dashboard:chat') },
+          { id: 'Counselor', icon: 'bulb-outline', iconActive: 'bulb', label: t('dashboard:counselor') },
+        ].map((tab) => (
+          <TouchableOpacity
+            key={tab.id}
+            style={styles.navItem}
+            onPress={() => handleMenuItemClick(tab.id)}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={active === tab.id ? tab.iconActive : tab.icon}
+              size={22}
+              color={active === tab.id ? PATIENT.primary : PATIENT.textMuted}
             />
-          </View>
-          <Text style={[styles.navLabel, active === "Chat" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>{t('dashboard:chat')}</Text>
-        </TouchableOpacity>
+            <Text
+              style={[styles.navLabel, active === tab.id && styles.navLabelActive]}
+              numberOfLines={1}
+            >
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
 
-        <TouchableOpacity
-          style={[styles.navItem, active === "Counselor" && styles.navItemActive]}
-          onPress={() => handleMenuItemClick("Counselor")}
-        >
-          <View style={[styles.navIconWrapper, active === "Counselor" && styles.navIconWrapperActive]}>
-            <MaterialIcons
-              name="psychology"
-              size={24}
-              color={active === "Counselor" ? "#ffffff" : "#94a3b8"}
+        {/* Spacer for the centre AI button */}
+        <View style={styles.navCenterSpacer} />
+
+        {[
+          { id: 'Appointment', icon: 'calendar-outline', iconActive: 'calendar', label: t('dashboard:myAppointment') },
+          { id: 'Wallet', icon: 'wallet-outline', iconActive: 'wallet', label: t('dashboard:wallet') },
+        ].map((tab) => (
+          <TouchableOpacity
+            key={tab.id}
+            style={styles.navItem}
+            onPress={() => handleMenuItemClick(tab.id)}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={active === tab.id ? tab.iconActive : tab.icon}
+              size={22}
+              color={active === tab.id ? PATIENT.primary : PATIENT.textMuted}
             />
-          </View>
-          <Text style={[styles.navLabel, active === "Counselor" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>{t('dashboard:counselor')}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.navItem, active === "Appointment" && styles.navItemActive]}
-          onPress={() => handleMenuItemClick("Appointment")}
-        >
-          <View style={[styles.navIconWrapper, active === "Appointment" && styles.navIconWrapperActive]}>
-            <MaterialIcons
-              name="event-available"
-              size={24}
-              color={active === "Appointment" ? "#ffffff" : "#94a3b8"}
-            />
-          </View>
-          <Text style={[styles.navLabel, active === "Appointment" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>{t('dashboard:myAppointment')}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.navItem, active === "Wallet" && styles.navItemActive]}
-          onPress={() => handleMenuItemClick("Wallet")}
-        >
-          <View style={[styles.navIconWrapper, active === "Wallet" && styles.navIconWrapperActive]}>
-            <MaterialIcons
-              name="account-balance-wallet"
-              size={24}
-              color={active === "Wallet" ? "#ffffff" : "#94a3b8"}
-            />
-          </View>
-          <Text style={[styles.navLabel, active === "Wallet" && styles.navLabelActive]} numberOfLines={1} adjustsFontSizeToFit>{t('dashboard:wallet')}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => setShowMoreModal(true)}
-        >
-          <View style={styles.navIconWrapper}>
-            <MaterialIcons name="more-horiz" size={24} color="#94a3b8" />
-          </View>
-          <Text style={styles.navLabel} numberOfLines={1} adjustsFontSizeToFit>{t('settings:more')}</Text>
-        </TouchableOpacity>
+            <Text
+              style={[styles.navLabel, active === tab.id && styles.navLabelActive]}
+              numberOfLines={1}
+            >
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
-      {/* MORE MODAL - Premium Redesign */}
-      <Modal transparent={true} visible={showMoreModal} animationType="slide">
-        <TouchableOpacity 
-          style={styles.modalOverlay} 
-          activeOpacity={1} 
-          onPress={() => setShowMoreModal(false)}
-        >
-            <TouchableWithoutFeedback>
-              <Animated.View style={[styles.premiumMoreModal, { transform: [{ translateY: 0 }] }]}>
-                <LinearGradient
-                  colors={['#1e293b', '#0f172a']}
-                  style={styles.premiumMoreHeader}
+      {/* SIDEBAR DRAWER */}
+      <Modal
+        transparent
+        visible={showMoreModal}
+        animationType="fade"
+        onRequestClose={() => setShowMoreModal(false)}
+        statusBarTranslucent={true}
+      >
+        <View style={styles.sidebarRoot} pointerEvents="auto">
+          <View style={styles.sidebar}>
+            {/* User card — green gradient */}
+            <LinearGradient
+              colors={['#006B2C', '#01CE54']}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={styles.sbUserCard}
+            >
+              <TouchableOpacity
+                style={styles.sbUserMain}
+                activeOpacity={0.85}
+                onPress={() => { setShowMoreModal(false); switchDashboardTab('profile'); }}
+              >
+                <View style={styles.sbAvatarWrap}>
+                  {userData.profilePhoto ? (
+                    <Image source={{ uri: userData.profilePhoto }} style={styles.sbAvatar} />
+                  ) : (
+                    <View style={styles.sbAvatarPlaceholder}>
+                      <Text style={styles.sbAvatarText}>
+                        {userData.name?.charAt(0)?.toUpperCase() || 'U'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.sbUserInfo}>
+                  <Text style={styles.sbUserName} numberOfLines={1}>{userData.name || 'User'}</Text>
+                  <Text style={styles.sbUserRole} numberOfLines={1}>{t('auth:userRole', 'Patient')}</Text>
+                </View>
+              </TouchableOpacity>
+
+              <View style={styles.sbGlobeWrap}>
+                <LanguageSelector
+                  iconName="globe-outline"
+                  iconColor="#ffffff"
+                  iconSize={20}
+                  userId={userId}
+                  role="user"
+                  brand={PATIENT.primary}
+                />
+              </View>
+            </LinearGradient>
+
+            {/* Menu */}
+            <View style={styles.sbMenu}>
+              {sidebarItems.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[styles.sbItem, item.isActive && styles.sbItemActive]}
+                  onPress={item.onPress}
+                  activeOpacity={0.75}
                 >
-                  <View style={styles.premiumHeaderLine} />
-                  <View style={styles.premiumHeaderTitleRow}>
-                    <Text style={styles.premiumMoreTitle}>{t('settings:settingsAndMore')}</Text>
-                    <TouchableOpacity 
-                      onPress={() => setShowMoreModal(false)}
-                      style={styles.premiumCloseBtn}
-                    >
-                      <MaterialIcons name="close" size={24} color="#ffffff" />
-                    </TouchableOpacity>
+                  <View style={[styles.sbIconChip, item.isActive && styles.sbIconChipActive]}>
+                    <Ionicons
+                      name={item.isActive ? item.iconActive : item.icon}
+                      size={19}
+                      color={item.isActive ? '#ffffff' : PATIENT.primary}
+                    />
                   </View>
-                </LinearGradient>
+                  <Text style={[styles.sbItemText, item.isActive && styles.sbItemTextActive]}>
+                    {item.label}
+                  </Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={17}
+                    color={item.isActive ? PATIENT.primary : '#CBD5E1'}
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
 
-                <ScrollView 
-                  style={styles.premiumMoreBody}
-                  contentContainerStyle={{ paddingBottom: 40 }}
-                  showsVerticalScrollIndicator={false}
-                >
-                  <View style={styles.premiumMoreSection}>
-                    <Text style={styles.premiumSectionTitle}>{t('settings:dashboardServices')}</Text>
-                    {allMenuItems.map((item) => (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={styles.premiumListItem}
-                        onPress={() => handleMenuItemClick(item.id)}
-                      >
-                        <View style={[
-                          styles.premiumListIcon, 
-                          { backgroundColor: active === item.id ? '#eff6ff' : '#f8fafc' }
-                        ]}>
-                          <MaterialIcons 
-                            name={item.icon} 
-                            size={20} 
-                            color={active === item.id ? "#3b82f6" : "#64748b"} 
-                          />
-                        </View>
-                        <Text style={[
-                          styles.premiumListText,
-                          active === item.id && { color: '#3b82f6' }
-                        ]}>
-                          {item.label}
-                        </Text>
-                        <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+            {/* Logout */}
+            <TouchableOpacity
+              style={styles.sbLogout}
+              activeOpacity={0.85}
+              onPress={() => { setShowMoreModal(false); setShowLogoutConfirm(true); }}
+            >
+              <LinearGradient
+                colors={['#DC2626', '#F87171']}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <View style={styles.sbLogoutIcon}>
+                <Ionicons name="log-out-outline" size={19} color="#ffffff" />
+              </View>
+              <Text style={styles.sbLogoutText}>{t('settings:logoutAccount')}</Text>
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />
+            </TouchableOpacity>
+          </View>
 
-                  <View style={styles.premiumMoreSection}>
-                    <Text style={styles.premiumSectionTitle}>{t('settings:accountSettings')}</Text>
-                    <TouchableOpacity 
-                      style={styles.premiumListItem}
-                      onPress={() => {
-                        setShowMoreModal(false);
-                        switchDashboardTab("profile");
-                      }}
-                    >
-                      <View style={[styles.premiumListIcon, { backgroundColor: '#eff6ff' }]}>
-                        <MaterialIcons name="person" size={20} color="#3b82f6" />
-                      </View>
-                      <Text style={styles.premiumListText}>{t('settings:myProfile')}</Text>
-                      <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
-                    </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.sidebarBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowMoreModal(false)}
+          />
+        </View>
+      </Modal>
 
-                    <TouchableOpacity
-                      style={styles.premiumListItem}
-                      onPress={() => { setShowMoreModal(false); setActive("settings"); }}
-                    >
-                      <View style={[styles.premiumListIcon, { backgroundColor: '#eef2ff' }]}>
-                        <MaterialIcons name="settings" size={20} color="#4f46e5" />
-                      </View>
-                      <Text style={styles.premiumListText}>{t('settings:accountSettings')}</Text>
-                      <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.premiumListItem}
-                      onPress={() => { setShowMoreModal(false); setShowHelpSupport(true); }}
-                    >
-                      <View style={[styles.premiumListIcon, { backgroundColor: '#f0fdf4' }]}>
-                        <MaterialIcons name="help-outline" size={20} color="#22c55e" />
-                      </View>
-                      <Text style={styles.premiumListText}>{t('settings:helpSupport')}</Text>
-                      <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.premiumListItem}
-                      onPress={() => { setShowMoreModal(false); setShowPrivacyPolicy(true); }}
-                    >
-                      <View style={[styles.premiumListIcon, { backgroundColor: '#faf5ff' }]}>
-                        <MaterialIcons name="security" size={20} color="#a855f7" />
-                      </View>
-                      <Text style={styles.premiumListText}>{t('settings:privacyPolicy')}</Text>
-                      <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
-                    </TouchableOpacity>
-                  </View>
-
-                  <View style={[styles.premiumMoreSection, { marginBottom: 10 }]}>
-                    <TouchableOpacity
-                      style={styles.premiumLogoutBtn}
-                      onPress={() => {
-                        setShowMoreModal(false);
-                        setShowLogoutConfirm(true);
-                      }}
-                    >
-                      <MaterialIcons name="logout" size={20} color="#ffffff" />
-                      <Text style={styles.premiumLogoutText}>{t('settings:logoutAccount')}</Text>
-                    </TouchableOpacity>
-                  </View>
-                </ScrollView>
-              </Animated.View>
-            </TouchableWithoutFeedback>
-        </TouchableOpacity>
+      {/* Notifications full-screen modal */}
+      <Modal visible={showNotifications} animationType="slide" transparent={false} onRequestClose={() => setShowNotifications(false)}>
+        <NotificationScreen
+          onClose={() => setShowNotifications(false)}
+          onAction={(n) => {
+            setShowNotifications(false);
+            if (n.type === 'appointment') switchDashboardTab('Appointment');
+            else if (n.type === 'message' || n.type === 'chat') switchDashboardTab('Chat');
+            else if (n.type === 'payment' || n.type === 'wallet') switchDashboardTab('Wallet');
+          }}
+        />
       </Modal>
 
       {/* LOGOUT CONFIRM MODAL */}
@@ -2798,31 +3218,55 @@ export default function UserDashboard() {
         />
       </Modal>
 
-      <Modal transparent={true} visible={showLogoutConfirm} animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.confirmModal}>
-            <View style={styles.confirmModalHeader}>
-              <Text style={styles.confirmModalTitle}>{t('settings:confirmLogout')}</Text>
+      <Modal
+        transparent={true}
+        visible={showLogoutConfirm}
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => !loggingOut && setShowLogoutConfirm(false)}
+      >
+        {/* Backdrop tap and Android back both dismiss, matching the rest of the
+            app's sheets. Both are blocked mid-logout so the screen can't be
+            dismissed while the session is being torn down. */}
+        <Pressable
+          style={styles.logoutOverlay}
+          onPress={() => !loggingOut && setShowLogoutConfirm(false)}
+        >
+          <Pressable style={styles.logoutCard} onPress={() => {}}>
+            <View style={styles.logoutIconBadge}>
+              <Ionicons name="log-out-outline" size={26} color={PATIENT.danger} />
             </View>
-            <View style={styles.confirmModalBody}>
-              <Text style={styles.confirmModalText}>{t('settings:logoutConfirm')}</Text>
-            </View>
-            <View style={styles.confirmModalFooter}>
+
+            <Text style={styles.logoutTitle}>{t('settings:confirmLogout')}</Text>
+            <Text style={styles.logoutMessage}>{t('settings:logoutConfirm')}</Text>
+
+            <View style={styles.logoutActions}>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.cancelBtn]}
+                style={styles.logoutCancelBtn}
                 onPress={() => setShowLogoutConfirm(false)}
+                disabled={loggingOut}
+                activeOpacity={0.85}
               >
-                <Text style={styles.cancelBtnText}>{t('common:cancel')}</Text>
+                <Text style={styles.logoutCancelText}>{t('common:cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.confirmLogoutBtn]}
+                style={[styles.logoutConfirmBtn, loggingOut && styles.logoutBtnBusy]}
                 onPress={handleLogout}
+                disabled={loggingOut}
+                activeOpacity={0.85}
               >
-                <Text style={styles.confirmLogoutBtnText}>{t('auth:logout')}</Text>
+                {loggingOut ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <>
+                    <Ionicons name="log-out-outline" size={17} color="#ffffff" />
+                    <Text style={styles.logoutConfirmText}>{t('auth:logout')}</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       {/* DELETE CONFIRM MODAL */}
@@ -2891,7 +3335,7 @@ export default function UserDashboard() {
               onPress={() => { setShowAvatarChooser(false); setShowAvatarBuilder(true); }}
               activeOpacity={0.8}
             >
-              <View style={[styles.avatarChooserIcon, { backgroundColor: '#eef2ff' }]}>
+              <View style={[styles.avatarChooserIcon, { backgroundColor: '#E6F6EC' }]}>
                 <MaterialIcons name="face" size={22} color="#6366f1" />
               </View>
               <View style={styles.avatarChooserTextWrap}>
@@ -2906,7 +3350,7 @@ export default function UserDashboard() {
               onPress={handleHeaderUploadPhoto}
               activeOpacity={0.8}
             >
-              <View style={[styles.avatarChooserIcon, { backgroundColor: '#eff6ff' }]}>
+              <View style={[styles.avatarChooserIcon, { backgroundColor: '#E6F6EC' }]}>
                 <MaterialIcons name="image" size={22} color="#2563eb" />
               </View>
               <View style={styles.avatarChooserTextWrap}>
@@ -3062,41 +3506,235 @@ export default function UserDashboard() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f7f9fb",
+    backgroundColor: PATIENT.backgroundTint,
+  },
+
+  // ─── SIDEBAR DRAWER (Figma) ───────────────────────────────────────────────
+  sidebarRoot: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  sidebar: {
+    width: 276,
+    height: '100%',
+    backgroundColor: '#FFFFFF',
+    borderTopRightRadius: 24,
+    borderBottomRightRadius: 24,
+    borderWidth: 1,
+    borderColor: '#E6E7EC',
+    paddingTop: Platform.OS === 'ios' ? 54 : 38,
+    paddingBottom: 24,
+    paddingHorizontal: 14,
+  },
+  sidebarBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.35)',
+  },
+  sbUserCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 14,
+    borderRadius: 18,
+    shadowColor: PATIENT.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  sbUserMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  sbAvatarWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.5)',
+  },
+  sbAvatar: {
+    width: '100%',
+    height: '100%',
+  },
+  sbAvatarPlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sbAvatarText: {
+    color: '#ffffff',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  sbUserInfo: {
+    flex: 1,
+  },
+  sbUserName: {
+    fontSize: 15.5,
+    fontWeight: '800',
+    color: '#ffffff',
+  },
+  sbUserRole: {
+    fontSize: 12.5,
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 1,
+  },
+  sbGlobeWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sbMenu: {
+    marginTop: 22,
+    gap: 4,
+  },
+  sbItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+  },
+  sbIconChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#E6F6EC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sbIconChipActive: {
+    backgroundColor: PATIENT.primary,
+  },
+  sbItemActive: {
+    backgroundColor: '#F4FAF6',
+  },
+  sbItemText: {
+    flex: 1,
+    fontSize: 14.5,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  sbItemTextActive: {
+    color: PATIENT.primary,
+    fontWeight: '700',
+  },
+  sbLogout: {
+    marginTop: 'auto',
+    width: '100%',
+    height: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    overflow: 'hidden',
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  sbLogoutIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  sbLogoutText: {
+    flex: 1,
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
   },
 
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingTop: Platform.OS === 'ios' ? 10 : 12,
-    paddingBottom: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eef2f7',
-    shadowColor: '#4f46e5',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 4,
+    paddingBottom: 14,
+    backgroundColor: PATIENT.surface,
     zIndex: 100,
   },
-  headerLeft: {
-    flexDirection: 'row',
+  menuBtnWrapper: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    marginRight: 6,
+    justifyContent: 'center',
     alignItems: 'center',
-    flex: 1,
-    gap: 11,
   },
-  headerNameWrap: {
+  menuBtn: {
+    justifyContent: 'center',
+    gap: 4,
+  },
+  menuLine: {
+    height: 2.5,
+    borderRadius: 2,
+    backgroundColor: '#111827',
+  },
+  headerLeft: {
     flex: 1,
     justifyContent: 'center',
   },
+  headerWelcome: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: PATIENT.textSecondary,
+    marginBottom: 1,
+  },
   headerName: {
-    fontSize: 18,
+    fontSize: 16.5,
+    fontWeight: '700',
+    color: PATIENT.text,
+  },
+  bellBtn: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bellDot: {
+    position: 'absolute',
+    top: 8,
+    right: 9,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: PATIENT.danger,
+    borderWidth: 1.5,
+    borderColor: PATIENT.surface,
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: PATIENT.danger,
+    borderWidth: 1.5,
+    borderColor: PATIENT.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellBadgeText: {
+    color: '#ffffff',
+    fontSize: 9.5,
     fontWeight: '800',
-    color: '#0f172a',
-    letterSpacing: 0.2,
   },
   headerRight: {
     flexDirection: 'row',
@@ -3111,7 +3749,7 @@ const styles = StyleSheet.create({
     borderRadius: 23,
     borderWidth: 2,
     borderColor: '#2563EB',
-    backgroundColor: '#eff6ff',
+    backgroundColor: '#E6F6EC',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -3337,47 +3975,38 @@ const styles = StyleSheet.create({
 
   appointmentsRoot: {
     flex: 1,
-    backgroundColor: "#f0f4ff",
+    backgroundColor: PATIENT.backgroundTint,
   },
 
   // Top bar: tabs + filters
   appointmentsTopBar: {
-    backgroundColor: "#ffffff",
-    paddingTop: 14,
-    paddingBottom: 10,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e8ecf5",
-    shadowColor: "#4f46e5",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 3,
+    backgroundColor: PATIENT.backgroundTint,
+    paddingTop: 12,
+    paddingBottom: 4,
   },
   appointmentsTabRow: {
     flexDirection: "row",
-    backgroundColor: "#f0f4ff",
-    borderRadius: 14,
+    backgroundColor: PATIENT.surface,
+    borderRadius: 12,
     padding: 4,
-    marginBottom: 12,
+    marginBottom: 4,
+    marginHorizontal: 16,
+    borderWidth: 1,
+    borderColor: PATIENT.border,
   },
   aptTabBtn: {
     flex: 1,
-    borderRadius: 11,
-    paddingVertical: 9,
+    borderRadius: 9,
+    paddingVertical: 10,
     alignItems: "center",
+    overflow: "hidden",
   },
   aptTabBtnActive: {
-    backgroundColor: "#4f46e5",
-    shadowColor: "#4f46e5",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: "transparent",
   },
   aptTabText: {
-    color: "#6b7280",
-    fontSize: 13,
+    color: PATIENT.textSecondary,
+    fontSize: 13.5,
     fontWeight: "600",
   },
   aptTabTextActive: {
@@ -3387,26 +4016,32 @@ const styles = StyleSheet.create({
   appointmentFilterRow: {
     flexDirection: "row",
     gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 4,
   },
   filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: 16,
+    height: 34,
+    justifyContent: "center",
     borderRadius: 999,
-    backgroundColor: "#f0f4ff",
+    backgroundColor: PATIENT.surface,
     borderWidth: 1,
-    borderColor: "#e0e7ff",
+    borderColor: PATIENT.chipBorder,
+    overflow: "hidden",
   },
   filterChipActive: {
-    backgroundColor: "#4f46e5",
-    borderColor: "#4f46e5",
+    backgroundColor: "transparent",
+    borderColor: PATIENT.primary,
   },
   filterChipText: {
-    color: "#6b7280",
-    fontSize: 12,
-    fontWeight: "600",
+    color: PATIENT.textSecondary,
+    fontSize: 13,
+    fontWeight: "500",
   },
   filterChipTextActive: {
     color: "#ffffff",
+    fontWeight: "600",
   },
 
   // List
@@ -3414,7 +4049,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 120,
     paddingTop: 14,
-    gap: 14,
+    gap: 12,
   },
   appointmentLoaderWrap: {
     alignItems: "center",
@@ -3454,94 +4089,110 @@ const styles = StyleSheet.create({
 
   // Card
   appointmentCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 20,
+    backgroundColor: PATIENT.surface,
+    borderRadius: 18,
     overflow: "hidden",
-    shadowColor: "#4f46e5",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.09,
-    shadowRadius: 18,
-    elevation: 4,
-  },
-  aptCardAccent: {
-    height: 4,
-    width: "100%",
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   appointmentCardHeader: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingTop: 14,
   },
   aptAvatarWrap: {
-    width: 54,
-    height: 54,
-    borderRadius: 16,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     overflow: "hidden",
-    backgroundColor: "#e0e7ff",
+    backgroundColor: "#E6F6EC",
   },
   appointmentAvatar: {
-    width: 54,
-    height: 54,
+    width: 52,
+    height: 52,
   },
   appointmentMetaColumn: {
     flex: 1,
+    paddingTop: 2,
+  },
+  aptNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
   },
   appointmentDoctorName: {
-    color: "#0f172a",
-    fontSize: 16,
+    color: PATIENT.text,
+    fontSize: 15,
     fontWeight: "700",
-    letterSpacing: 0.1,
+    flexShrink: 1,
   },
   appointmentSpecialization: {
-    color: "#6b7280",
+    color: PATIENT.textSecondary,
     fontSize: 12,
-    marginTop: 3,
+    marginTop: 2,
+    fontWeight: "400",
+  },
+  aptMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 6,
+  },
+  aptMetaText: {
+    fontSize: 12,
+    color: PATIENT.textSecondary,
     fontWeight: "500",
   },
   aptStatusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    height: 24,
     borderRadius: 999,
   },
   aptStatusText: {
     fontSize: 10,
-    textTransform: "uppercase",
-    fontWeight: "800",
-    letterSpacing: 0.6,
+    textTransform: "capitalize",
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
   aptStatusPending: {
-    backgroundColor: "#fff4e5",
+    backgroundColor: "#FFF4E5",
   },
   aptStatusConfirmed: {
-    backgroundColor: "#ede9fe",
+    backgroundColor: "#E6F6EC",
   },
   aptStatusCompleted: {
-    backgroundColor: "#dcfce7",
+    backgroundColor: "#E6F6EC",
   },
   aptStatusCanceled: {
-    backgroundColor: "#fee2e2",
+    backgroundColor: "#FEE2E2",
   },
 
   aptDivider: {
     height: 1,
-    backgroundColor: "#f1f5f9",
-    marginHorizontal: 16,
+    backgroundColor: PATIENT.border,
+    marginHorizontal: 14,
     marginTop: 14,
   },
   appointmentDateRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 12,
   },
   aptDateIconWrap: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
-    backgroundColor: "#ede9fe",
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    backgroundColor: "#E6F6EC",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -3549,34 +4200,36 @@ const styles = StyleSheet.create({
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#c7d2fe",
-    marginHorizontal: 4,
+    backgroundColor: PATIENT.chipBorder,
+    marginHorizontal: 6,
   },
   appointmentDateText: {
-    color: "#334155",
+    color: PATIENT.textSecondary,
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   appointmentActionRow: {
     flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
   },
   appointmentDetailsBtn: {
-    paddingVertical: 10,
+    flex: 1,
+    height: 40,
     paddingHorizontal: 12,
-    borderWidth: 1.5,
-    borderColor: "#e0e7ff",
+    borderWidth: 1.4,
+    borderColor: PATIENT.primary,
     borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
     flexDirection: "row",
     gap: 6,
-    backgroundColor: "#f5f3ff",
+    backgroundColor: PATIENT.surface,
   },
   appointmentDetailsText: {
-    color: "#4f46e5",
+    color: PATIENT.primary,
     fontSize: 13,
     fontWeight: "700",
   },
@@ -3601,17 +4254,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   aptActionIconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#f3f4f6",
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "#E6F6EC",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
   },
   appointmentDetailsModal: {
     backgroundColor: "#ffffff",
@@ -3718,7 +4366,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: "#eef2ff",
+    backgroundColor: "#E6F6EC",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -3780,33 +4428,27 @@ const styles = StyleSheet.create({
   // AI FLOATING BUTTON
   aiButton: {
     position: "absolute",
-    bottom: 100,
-    right: 20,
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    shadowColor: "#4f46e5",
+    bottom: Platform.OS === "ios" ? 42 : 28,
+    left: "50%",
+    marginLeft: -30,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 4,
+    borderColor: "#ffffff",
+    shadowColor: PATIENT.primary,
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.45,
-    shadowRadius: 14,
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
     elevation: 12,
     zIndex: 999,
   },
   aiButtonGradient: {
     width: "100%",
     height: "100%",
-    borderRadius: 31,
+    borderRadius: 26,
     justifyContent: "center",
     alignItems: "center",
-    flexDirection: "column",
-    gap: 2,
-  },
-  aiButtonText: {
-    color: "#ffffff",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
-    marginTop: 1,
   },
   aiUnreadBadge: {
     position: "absolute",
@@ -3828,51 +4470,39 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  // BOTTOM NAVIGATION - Matching screen.png
+  // BOTTOM NAVIGATION — Figma
   bottomNav: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "#081625",
+    backgroundColor: PATIENT.surface,
     flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "stretch",
-    height: Platform.OS === "ios" ? 82 : 68,
+    alignItems: "center",
+    height: Platform.OS === "ios" ? 84 : 68,
     borderTopWidth: 1,
-    borderTopColor: "#1e293b",
-    paddingBottom: Platform.OS === "ios" ? 20 : 4,
+    borderTopColor: PATIENT.border,
+    paddingBottom: Platform.OS === "ios" ? 20 : 6,
     zIndex: 998,
   },
   navItem: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 2,
-    overflow: "hidden",
+    gap: 3,
   },
-  navItemActive: {
-    backgroundColor: "#1e2b3c",
-  },
-  navIconWrapper: {
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 2,
-  },
-  navIconWrapperActive: {
-    borderTopWidth: 3,
-    borderTopColor: "#ffffff",
-    paddingTop: 6,
+  navCenterSpacer: {
+    width: 72,
   },
   navLabel: {
-    fontSize: 10,
+    fontSize: 10.5,
     fontWeight: "500",
-    color: "#94a3b8",
-    marginTop: 2,
+    color: PATIENT.textMuted,
     textAlign: "center",
   },
   navLabelActive: {
-    color: "#ffffff",
+    color: PATIENT.primary,
+    fontWeight: "700",
   },
 
   // Chat Popup Styles
@@ -3914,7 +4544,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   chatAvatarGradient: {
-    shadowColor: "#667eea",
+    shadowColor: "#2A8A51",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
@@ -3932,10 +4562,22 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#ffffff",
   },
+  chatStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 3,
+  },
+  chatStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#4ADE80",
+  },
   chatStatus: {
     fontSize: 11,
     color: "rgba(255,255,255,0.9)",
-    marginTop: 2,
+    fontWeight: "500",
   },
   chatHeaderActions: {
     flexDirection: "row",
@@ -3994,13 +4636,43 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   chatBubbleUser: {
-    backgroundColor: "#667eea",
-    borderColor: "#667eea",
+    backgroundColor: "#2A8A51",
+    borderColor: "#2A8A51",
   },
   chatBubbleText: {
     fontSize: 14,
     color: "#333",
     lineHeight: 20,
+  },
+  chatBubbleImage: {
+    width: 180,
+    height: 140,
+    borderRadius: 12,
+    marginBottom: 6,
+    backgroundColor: "#e2e8f0",
+  },
+  aiAttachPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: 12,
+    marginBottom: -2,
+    marginTop: 6,
+    padding: 8,
+    backgroundColor: "#F1F5F9",
+    borderRadius: 12,
+  },
+  aiAttachThumb: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: "#e2e8f0",
+  },
+  aiAttachName: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#334155",
   },
   chatCounselorMention: {
     color: "#1d4ed8",
@@ -4021,9 +4693,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 9,
     borderRadius: 18,
-    backgroundColor: "#eef2ff",
+    backgroundColor: "#E6F6EC",
     borderWidth: 1,
-    borderColor: "#c7d2fe",
+    borderColor: "#A7E3BE",
     alignItems: "center",
   },
   quickReplyBtnDisabled: {
@@ -4101,7 +4773,7 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
   },
   resetStartBtn: {
-    backgroundColor: "#667eea",
+    backgroundColor: "#2A8A51",
   },
   resetBtnDisabled: {
     opacity: 0.6,
@@ -4132,7 +4804,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 6,
     borderRadius: 14,
-    backgroundColor: "#f0f0ff",
+    backgroundColor: "#E6F6EC",
     borderWidth: 1,
     borderColor: "#c7c7f5",
     minWidth: 52,
@@ -4140,7 +4812,7 @@ const styles = StyleSheet.create({
   langBtnText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#667eea",
+    color: "#2A8A51",
   },
   langPickerOverlay: {
     flex: 1,
@@ -4178,7 +4850,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   langPickerItemActive: {
-    backgroundColor: "#f0f0ff",
+    backgroundColor: "#E6F6EC",
   },
   langPickerItemText: {
     fontSize: 14,
@@ -4186,39 +4858,55 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   langPickerItemTextActive: {
-    color: "#667eea",
+    color: "#2A8A51",
     fontWeight: "700",
+  },
+  plusBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#F1F5F9",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  chatInputPill: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F1F5F9",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    height: 44,
+  },
+  chatInputLead: {
+    marginRight: 6,
   },
   chatInput: {
     flex: 1,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 24,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
     fontSize: 14,
-    backgroundColor: "#f8f9fa",
+    color: "#0f172a",
   },
-  micBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: "#667eea",
+  inlineMicBtn: {
+    width: 30,
+    height: 30,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f0f0ff",
-  },
-  micBtnActive: {
-    backgroundColor: "#ef4444",
-    borderColor: "#ef4444",
+    marginLeft: 4,
   },
   sendBtn: {
     width: 44,
     height: 44,
-    backgroundColor: "#667eea",
+    backgroundColor: "#00652C",
     borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#00652C",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
   },
   sendBtnDisabled: {
     opacity: 0.5,
@@ -4232,13 +4920,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: "#f0f0ff",
+    backgroundColor: "#E6F6EC",
     alignSelf: "flex-start",
   },
   speakBtnText: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#667eea",
+    color: "#2A8A51",
   },
   aiVoiceOverlay: {
     flex: 1,
@@ -4260,13 +4948,53 @@ const styles = StyleSheet.create({
     shadowRadius: 28,
     elevation: 18,
   },
-  aiVoiceAvatar: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
+  aiVoiceOrbWrap: {
+    width: 168,
+    height: 168,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 14,
+    marginBottom: 6,
+  },
+  aiVoiceOrbGlowOuter: {
+    position: "absolute",
+    width: 168,
+    height: 168,
+    borderRadius: 84,
+    backgroundColor: "rgba(42,138,81,0.14)",
+  },
+  aiVoiceOrbGlowInner: {
+    position: "absolute",
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    backgroundColor: "rgba(42,138,81,0.22)",
+  },
+  aiVoiceAvatar: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#00652C",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  aiVoiceWave: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    height: 46,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  aiVoiceWaveBar: {
+    width: 4,
+    height: 46,
+    borderRadius: 3,
+    backgroundColor: "#2A8A51",
   },
   aiVoiceTitle: {
     fontSize: 20,
@@ -4278,7 +5006,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 14,
     fontWeight: "700",
-    color: "#667eea",
+    color: "#2A8A51",
   },
   aiVoiceTimer: {
     marginTop: 8,
@@ -4300,6 +5028,37 @@ const styles = StyleSheet.create({
     color: "#dc2626",
     textAlign: "center",
     fontWeight: "600",
+  },
+  aiVoiceErrorBox: {
+    marginTop: 14,
+    alignItems: "center",
+    backgroundColor: "#F9F9FF",
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    width: "100%",
+  },
+  aiVoiceErrorText: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#475569",
+    textAlign: "center",
+    fontWeight: "500",
+    marginBottom: 12,
+  },
+  aiVoiceRetryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    backgroundColor: "#00652C",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  aiVoiceRetryText: {
+    color: "#ffffff",
+    fontSize: 13.5,
+    fontWeight: "700",
   },
   aiVoiceTranscriptBox: {
     width: "100%",
@@ -4342,8 +5101,8 @@ const styles = StyleSheet.create({
     borderColor: "#ef4444",
   },
   aiVoiceControlBtnActiveBlue: {
-    backgroundColor: "#667eea",
-    borderColor: "#667eea",
+    backgroundColor: "#2A8A51",
+    borderColor: "#2A8A51",
   },
   aiVoiceEndBtn: {
     backgroundColor: "#dc2626",
@@ -4357,12 +5116,153 @@ const styles = StyleSheet.create({
   loadingDot: {
     width: 8,
     height: 8,
-    backgroundColor: "#667eea",
+    backgroundColor: "#2A8A51",
     borderRadius: 4,
   },
 
   // Call Modal Styles
   // ─── Glass incoming-call popup (rich animations) ──────────────────────────
+  // ─── Incoming call screen (Figma: clean white, ripple rings) ──────────────
+  callScreen: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 70,
+    paddingBottom: 56,
+    paddingHorizontal: 24,
+  },
+  callHeadWrap: {
+    alignItems: "center",
+  },
+  callKicker: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.6,
+    color: "#94A3B8",
+    textTransform: "uppercase",
+  },
+  callName: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginTop: 12,
+    textAlign: "center",
+  },
+  callLocRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 8,
+  },
+  callLocText: {
+    fontSize: 13.5,
+    color: "#94A3B8",
+    fontWeight: "500",
+  },
+  callAvatarZone: {
+    width: 240,
+    height: 240,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  callRing: {
+    position: "absolute",
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 1.5,
+    borderColor: "#CBD5E1",
+  },
+  callAvatarOuter: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 1.5,
+    borderColor: "#E2E8F0",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffffff",
+  },
+  callAvatar: {
+    width: 118,
+    height: 118,
+    borderRadius: 59,
+    overflow: "hidden",
+  },
+  callAvatarImg: {
+    width: "100%",
+    height: "100%",
+  },
+  callAvatarFallback: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: PATIENT.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  callAvatarInitial: {
+    color: "#ffffff",
+    fontSize: 44,
+    fontWeight: "700",
+  },
+  encryptedBadge: {
+    position: "absolute",
+    bottom: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#EAF6FF",
+    borderWidth: 1,
+    borderColor: "#D3E9F7",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  encryptedText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: "#0E7552",
+    letterSpacing: 0.6,
+  },
+  callActionsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 56,
+  },
+  callActionCol: {
+    alignItems: "center",
+    gap: 10,
+  },
+  callFab: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  callFabDecline: {
+    backgroundColor: "#EF4444",
+    shadowColor: "#EF4444",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.32,
+    shadowRadius: 10,
+    elevation: 7,
+  },
+  callFabAccept: {
+    backgroundColor: "#00875A",
+    shadowColor: "#00875A",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.32,
+    shadowRadius: 10,
+    elevation: 7,
+  },
+  callActionLabel: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#64748B",
+  },
+
   callBackdrop: {
     flex: 1,
     justifyContent: "center",
@@ -4559,7 +5459,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#667eea",
+    borderColor: "#2A8A51",
   },
   localVideoPlaceholder: {
     flex: 1,
@@ -4610,7 +5510,7 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: "#667eea",
+    backgroundColor: "#2A8A51",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 24,
@@ -4628,7 +5528,7 @@ const styles = StyleSheet.create({
   },
   voiceCallStatus: {
     fontSize: 14,
-    color: "#667eea",
+    color: "#2A8A51",
     marginBottom: 32,
   },
   voiceCallBtn: {
@@ -4834,6 +5734,94 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontWeight: "700",
     fontSize: 14,
+  },
+
+  // ── Logout confirmation ──────────────────────────────────────────────────
+  // Uses the PATIENT palette and the same 20px-radius card + soft icon badge
+  // language as the rest of the user-side sheets, instead of the generic
+  // slate dialog with a divider header and grey footer bar.
+  logoutOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 28,
+  },
+  logoutCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: PATIENT.surface,
+    borderRadius: 20,
+    paddingHorizontal: 22,
+    paddingTop: 26,
+    paddingBottom: 18,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  logoutIconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  logoutTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: PATIENT.text,
+    textAlign: "center",
+  },
+  logoutMessage: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    color: PATIENT.textSecondary,
+    textAlign: "center",
+  },
+  logoutActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 22,
+    width: "100%",
+  },
+  logoutCancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.4,
+    borderColor: PATIENT.chipBorder,
+    backgroundColor: PATIENT.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoutCancelText: {
+    color: PATIENT.textSecondary,
+    fontWeight: "700",
+    fontSize: 14.5,
+  },
+  logoutConfirmBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: PATIENT.danger,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  logoutBtnBusy: {
+    opacity: 0.75,
+  },
+  logoutConfirmText: {
+    color: "#ffffff",
+    fontWeight: "800",
+    fontSize: 14.5,
   },
   deleteBtn: {
     backgroundColor: "#ef4444",

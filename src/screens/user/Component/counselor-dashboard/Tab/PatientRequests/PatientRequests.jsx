@@ -39,7 +39,7 @@ const PatientRequests = () => {
       gender: 'Female',
       issue: 'Depression',
       requestedDate: '2024-01-14',
-      status: 'pending',
+      status: 'confirmed',
       priority: 'medium',
       contact: '+91 98765 43211'
     },
@@ -50,7 +50,7 @@ const PatientRequests = () => {
       gender: 'Male',
       issue: 'Work-life balance',
       requestedDate: '2024-01-14',
-      status: 'pending',
+      status: 'accepted',
       priority: 'low',
       contact: '+91 98765 43212'
     },
@@ -120,6 +120,9 @@ const PatientRequests = () => {
   // Filter patients based on status
   const filteredPatients = patients.filter(patient => {
     if (filter === 'all') return true;
+    if (filter === 'accepted') {
+      return patient.status === 'accepted' || patient.status === 'confirmed';
+    }
     return patient.status === filter;
   });
 
@@ -128,6 +131,7 @@ const PatientRequests = () => {
     switch(status) {
       case 'pending': return styles.statusPending;
       case 'accepted': return styles.statusAccepted;
+      case 'confirmed': return styles.statusConfirmed;
       case 'cancelled': return styles.statusCancelled;
       default: return {};
     }
@@ -137,6 +141,7 @@ const PatientRequests = () => {
     switch(status) {
       case 'pending': return styles.statusPendingText;
       case 'accepted': return styles.statusAcceptedText;
+      case 'confirmed': return styles.statusConfirmedText;
       case 'cancelled': return styles.statusCancelledText;
       default: return {};
     }
@@ -184,7 +189,7 @@ const PatientRequests = () => {
   };
 
   const pendingCount = patients.filter(p => p.status === 'pending').length;
-  const acceptedCount = patients.filter(p => p.status === 'accepted').length;
+  const acceptedCount = patients.filter(p => p.status === 'accepted' || p.status === 'confirmed').length;
   const cancelledCount = patients.filter(p => p.status === 'cancelled').length;
 
   return (
@@ -322,16 +327,17 @@ const PatientRequests = () => {
                 </View>
               )}
 
-              {/* Action Buttons - Professional icons with text for confirmed/accepted */}
+              {/* Action Buttons - Professional circular icons for confirmed/accepted */}
               {(patient.status === 'accepted' || patient.status === 'confirmed') && (
                 <View style={styles.actionsRow}>
                   <TouchableOpacity
                     style={styles.actionButtonWithText}
                     activeOpacity={0.65}
                     onPress={() => handleVideoCall(patient)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <View style={[styles.actionIconBtn, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}>
-                      <Ionicons name="videocam" size={20} color="#3b82f6" />
+                    <View style={[styles.actionIconBtn, styles.videoBtnBg]}>
+                      <Ionicons name="videocam" size={24} color="white" />
                     </View>
                     <Text style={styles.actionButtonText}>Video</Text>
                   </TouchableOpacity>
@@ -339,9 +345,10 @@ const PatientRequests = () => {
                     style={styles.actionButtonWithText}
                     activeOpacity={0.65}
                     onPress={() => handleVoiceCall(patient)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <View style={[styles.actionIconBtn, { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }]}>
-                      <Ionicons name="call" size={20} color="#16a34a" />
+                    <View style={[styles.actionIconBtn, styles.voiceBtnBg]}>
+                      <Ionicons name="call" size={24} color="white" />
                     </View>
                     <Text style={styles.actionButtonText}>Voice</Text>
                   </TouchableOpacity>
@@ -349,9 +356,10 @@ const PatientRequests = () => {
                     style={styles.actionButtonWithText}
                     activeOpacity={0.65}
                     onPress={() => handleChat(patient)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <View style={[styles.actionIconBtn, { backgroundColor: '#fffbeb', borderColor: '#fde68a' }]}>
-                      <Ionicons name="chatbubble-ellipses" size={20} color="#d97706" />
+                    <View style={[styles.actionIconBtn, styles.chatBtnBg]}>
+                      <Ionicons name="chatbubble-ellipses" size={24} color="white" />
                     </View>
                     <Text style={styles.actionButtonText}>Chat</Text>
                   </TouchableOpacity>
@@ -595,6 +603,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#c8e6c9',
   },
+  statusConfirmed: {
+    backgroundColor: '#dbeafe',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
   statusCancelled: {
     backgroundColor: '#ffebee',
     borderWidth: 1,
@@ -607,6 +620,7 @@ const styles = StyleSheet.create({
   },
   statusPendingText: { color: '#ef6c00' },
   statusAcceptedText: { color: '#2e7d32' },
+  statusConfirmedText: { color: '#1e40af' },
   statusCancelledText: { color: '#c62828' },
   // Action Buttons
   actionButtons: {
@@ -644,37 +658,43 @@ const styles = StyleSheet.create({
   // Action Buttons for Confirmed Appointments
   actionsRow: {
     flexDirection: 'row',
-    gap: 12,
-    padding: 14,
-    backgroundColor: '#f8f9fa',
+    gap: 20,
+    padding: 18,
+    backgroundColor: 'white',
     borderTopWidth: 1,
     borderTopColor: '#e0e0e0',
     justifyContent: 'center',
+    alignItems: 'center',
   },
   actionButtonWithText: {
     alignItems: 'center',
-    gap: 6,
-    minWidth: 70,
+    gap: 10,
   },
   actionIconBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#ffffff',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.12,
     shadowRadius: 6,
     elevation: 3,
-    borderWidth: 0.5,
-    borderColor: '#e0e0e0',
+  },
+  videoBtnBg: {
+    backgroundColor: '#6366f1',
+  },
+  voiceBtnBg: {
+    backgroundColor: '#10b981',
+  },
+  chatBtnBg: {
+    backgroundColor: '#f59e0b',
   },
   actionButtonText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1f2937',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
   },
   // No Patients
   noPatients: {

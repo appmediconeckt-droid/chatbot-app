@@ -5,36 +5,57 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  ScrollView,
   Animated,
   StatusBar,
   SafeAreaView,
-  Image,
   Alert,
   BackHandler,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-// Import logo
-import logo from '../../image/Mediconect Logo-3.png';
+import { PATIENT, DOCTOR } from '../../theme/palette';
+import AuthBackground from '../../theme/AuthBackground';
 
 const RoleSelector = () => {
   const navigation = useNavigation();
   const [selectedRole, setSelectedRole] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  
+
+  // Responsive: live window size (reacts to rotation / split-screen, unlike a
+  // module-level Dimensions.get). The panel is capped so it stays a centred
+  // card on tablets instead of stretching edge-to-edge.
+  const { width: winW, height: winH } = useWindowDimensions();
+  const isTablet = winW >= 600;
+  const isShort = winH < 700;
+  const R = {
+    panelMaxW: isTablet ? 460 : 420,
+    panelPadH: isTablet ? 30 : 22,
+    panelPadTop: isShort ? 22 : isTablet ? 38 : 30,
+    shield: isTablet ? 54 : 44,
+    spark: isTablet ? 21 : 17,
+    brand: isTablet ? 30 : 24,
+    tagline: isTablet ? 13 : 11.5,
+    portal: isTablet ? 13.5 : 12,
+    roleIcon: isTablet ? 50 : 42,
+    roleIconGlyph: isTablet ? 26 : 22,
+    roleName: isTablet ? 18 : 16,
+    roleSub: isTablet ? 13 : 11.5,
+    cardPadV: isTablet ? 17 : 14,
+  };
+
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
-  const logoScale = useRef(new Animated.Value(0.8)).current;
-  const userCardSlide = useRef(new Animated.Value(50)).current;
-  const counselorCardSlide = useRef(new Animated.Value(50)).current;
+  const slideAnim = useRef(new Animated.Value(18)).current;
+  // Starts near 1 so the panel barely grows — a big 0.8→1 scale pushed the
+  // bottom badge around on tablets while it settled.
+  const logoScale = useRef(new Animated.Value(0.97)).current;
+  const userCardSlide = useRef(new Animated.Value(24)).current;
+  const counselorCardSlide = useRef(new Animated.Value(24)).current;
   const scaleUser = useRef(new Animated.Value(1)).current;
   const scaleCounselor = useRef(new Animated.Value(1)).current;
   const logoFloat = useRef(new Animated.Value(0)).current;
@@ -48,16 +69,16 @@ const RoleSelector = () => {
   const logoHeartbeat = useRef(new Animated.Value(1)).current;
   
   useEffect(() => {
-    // Entrance Sequence
-    Animated.sequence([
-      Animated.parallel([
-        Animated.timing(fadeAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
-        Animated.spring(slideAnim, { toValue: 0, tension: 20, friction: 7, useNativeDriver: true }),
-        Animated.spring(logoScale, { toValue: 1, tension: 15, friction: 6, useNativeDriver: true }),
-      ]),
-      Animated.stagger(200, [
-        Animated.spring(userCardSlide, { toValue: 0, tension: 25, friction: 8, useNativeDriver: true }),
-        Animated.spring(counselorCardSlide, { toValue: 0, tension: 25, friction: 8, useNativeDriver: true }),
+    // Entrance: quick and settled in ~450ms. Everything (incl. the bottom
+    // badge) runs in PARALLEL — the old version faded for 1s and only THEN
+    // staggered the cards on slow springs, leaving the badge hidden ~2s.
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 320, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, tension: 70, friction: 11, useNativeDriver: true }),
+      Animated.spring(logoScale, { toValue: 1, tension: 70, friction: 11, useNativeDriver: true }),
+      Animated.stagger(70, [
+        Animated.spring(userCardSlide, { toValue: 0, tension: 70, friction: 11, useNativeDriver: true }),
+        Animated.spring(counselorCardSlide, { toValue: 0, tension: 70, friction: 11, useNativeDriver: true }),
       ]),
     ]).start();
 
@@ -144,146 +165,154 @@ const RoleSelector = () => {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       
-      <LinearGradient
-        colors={['#0f172a', '#1e293b', '#000000']}
-        style={styles.gradient}
-      >
-        {/* Animated Lava Orbs */}
-        <Animated.View 
-          style={[
-            styles.lavaOrb, 
-            styles.orb1, 
-            { transform: [{ translateY: orb1Anim }, { translateX: orb2Anim }] }
-          ]} 
-        />
-        <Animated.View 
-          style={[
-            styles.lavaOrb, 
-            styles.orb2, 
-            { transform: [{ translateY: orb2Anim }, { translateX: orb1Anim }] }
-          ]} 
-        />
-
-        {/* Floating Particles */}
-        <Animated.View style={[styles.particle, { top: '20%', left: '10%', transform: [{ translateY: particle1 }] }]} />
-        <Animated.View style={[styles.particle, { top: '60%', right: '15%', transform: [{ translateY: particle2 }] }]} />
-        <Animated.View style={[styles.particle, { bottom: '10%', left: '30%', transform: [{ translateX: particle1 }] }]} />
-
+      {/* Soft mesh: green (top-left) → blue (bottom-right) — both portals */}
+      <AuthBackground role="both" style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
-          <Animated.View 
+          {/* Scrolls only when the panel can't fit (tablet / short screens);
+              otherwise flexGrow+center keeps it vertically centred. Without
+              this the bottom badge was clipped by gradient's overflow:hidden. */}
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+          <Animated.View
             style={[
               styles.panel,
-              { 
+              {
+                maxWidth: R.panelMaxW,
+                paddingHorizontal: R.panelPadH,
+                paddingTop: R.panelPadTop,
                 opacity: fadeAnim,
-                transform: [{ translateY: slideAnim }, { scale: logoScale }]
+                transform: [{ translateY: slideAnim }, { scale: logoScale }],
               },
             ]}
           >
-            {/* Header Section */}
-            <View style={styles.header}>
-              <Animated.View style={{ transform: [{ translateY: logoFloat }, { scale: logoHeartbeat }] }}>
-                <View style={styles.logoOuter}>
-                  <Image source={logo} style={styles.logo} resizeMode="contain" />
-                </View>
-              </Animated.View>
-              <View style={styles.brandContainer}>
-                <Text style={styles.brandMain}>Medicone</Text>
-                <Text style={styles.brandAlt}>ckt</Text>
+            {/* Header — blue shield with a white spark (Figma) */}
+            <Animated.View style={{ transform: [{ translateY: logoFloat }, { scale: logoHeartbeat }] }}>
+              <View style={[styles.logoOuter, { width: R.shield * 1.9, height: R.shield * 1.9 }]}>
+                {/* Soft halo behind the shield for depth */}
+                <View
+                  style={[
+                    styles.logoHalo,
+                    { width: R.shield * 1.9, height: R.shield * 1.9, borderRadius: R.shield * 0.95 },
+                  ]}
+                />
+                <Icon name="shield" size={R.shield} color="#4A6CF7" style={styles.logoShield} />
+                <Icon
+                  name="star-four-points"
+                  size={R.spark}
+                  color="#ffffff"
+                  style={[styles.logoSpark, { top: R.shield * 0.75 }]}
+                />
               </View>
-              <Text style={styles.tagline}>Elevate Your Mind, Heal Your Soul</Text>
-            </View>
-            
-            <View style={styles.roleHeader}>
-              <View style={styles.dash} />
-              <Text style={styles.roleTitle}>Select Portal</Text>
-              <View style={styles.dash} />
+            </Animated.View>
+
+            <Text style={[styles.brandTitle, { fontSize: R.brand }]}>Mediconekt</Text>
+            <Text style={[styles.tagline, { fontSize: R.tagline }]}>Elevate Your Mind, Heal Your Soul</Text>
+
+            <View style={styles.portalRow}>
+              <View style={styles.portalRule} />
+              <Text style={[styles.portalLabel, { fontSize: R.portal }]}>Select Portal</Text>
+              <View style={styles.portalRule} />
             </View>
 
-            {/* Cards Row */}
-            <View style={styles.grid}>
-              {/* User Card */}
-              <Animated.View style={[styles.cardWrapper, { transform: [{ translateY: userCardSlide }, { scale: scaleUser }] }]}>
+            {/* Stacked role cards */}
+            <View style={styles.stack}>
+              {/* User → green */}
+              <Animated.View style={{ transform: [{ translateY: userCardSlide }, { scale: scaleUser }] }}>
                 <TouchableOpacity
-                  activeOpacity={1}
+                  activeOpacity={0.9}
                   onPressIn={() => handlePressIn('user')}
                   onPressOut={() => handlePressOut('user')}
                   onPress={() => handleRoleSelect('user')}
                   disabled={isLoading}
-                  style={styles.fullWidth}
+                  style={[
+                    styles.roleCard,
+                    { paddingVertical: R.cardPadV },
+                    selectedRole === 'user' && {
+                      borderColor: PATIENT.primary,
+                      backgroundColor: '#F6FCF9',
+                    },
+                  ]}
                 >
-                  <View style={[styles.card, selectedRole === 'user' && styles.selectedUserCard]}>
-                    {selectedRole === 'user' && (
-                      <View style={styles.selectionCheck}>
-                        <Icon name="check-circle" size={20} color="#6366f1" />
-                      </View>
-                    )}
-                    <LinearGradient
-                      colors={['#6366f1', '#818cf8']}
-                      style={styles.iconContainer}
-                    >
-                      <Icon name="account-group" size={30} color="#ffffff" />
-                    </LinearGradient>
-                    <Text style={styles.roleLabel} numberOfLines={1} adjustsFontSizeToFit>User</Text>
-                    <Text style={styles.roleHint}>I need support</Text>
-                    
-                    {selectedRole === 'user' && isLoading ? (
-                      <ActivityIndicator size="small" color="#6366f1" style={{ marginTop: 10 }} />
-                    ) : (
-                      <View style={styles.goButton}>
-                        <Icon name="chevron-right" size={20} color="#6366f1" />
-                      </View>
-                    )}
+                  <LinearGradient
+                    colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[
+                      styles.roleIcon,
+                      { width: R.roleIcon, height: R.roleIcon, borderRadius: R.roleIcon / 2, shadowColor: PATIENT.primary },
+                    ]}
+                  >
+                    <Icon name="account-group" size={R.roleIconGlyph} color="#ffffff" />
+                  </LinearGradient>
+                  <View style={styles.roleTextWrap}>
+                    <Text style={[styles.roleName, { fontSize: R.roleName }]}>User</Text>
+                    <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>Find trusted counselors</Text>
                   </View>
+                  {selectedRole === 'user' && isLoading ? (
+                    <ActivityIndicator size="small" color={PATIENT.primary} />
+                  ) : (
+                    <View style={[styles.chevWrap, { backgroundColor: '#E6F6EC' }]}>
+                      <Icon name="chevron-right" size={18} color={PATIENT.primary} />
+                    </View>
+                  )}
                 </TouchableOpacity>
               </Animated.View>
-              
-              {/* Counselor Card */}
-              <Animated.View style={[styles.cardWrapper, { transform: [{ translateY: counselorCardSlide }, { scale: scaleCounselor }] }]}>
+
+              {/* Counselor → blue */}
+              <Animated.View style={{ transform: [{ translateY: counselorCardSlide }, { scale: scaleCounselor }] }}>
                 <TouchableOpacity
-                  activeOpacity={1}
+                  activeOpacity={0.9}
                   onPressIn={() => handlePressIn('counselor')}
                   onPressOut={() => handlePressOut('counselor')}
                   onPress={() => handleRoleSelect('counselor')}
                   disabled={isLoading}
-                  style={styles.fullWidth}
+                  style={[
+                    styles.roleCard,
+                    { paddingVertical: R.cardPadV },
+                    selectedRole === 'counselor' && {
+                      borderColor: DOCTOR.primary,
+                      backgroundColor: '#F5F9FF',
+                    },
+                  ]}
                 >
-                  <View style={[styles.card, selectedRole === 'counselor' && styles.selectedCounselorCard]}>
-                    {selectedRole === 'counselor' && (
-                      <View style={[styles.selectionCheck, { borderColor: '#10b981' }]}>
-                        <Icon name="check-circle" size={20} color="#10b981" />
-                      </View>
-                    )}
-                    <LinearGradient
-                      colors={['#10b981', '#34d399']}
-                      style={styles.iconContainer}
-                    >
-                      <Icon name="doctor" size={30} color="#ffffff" />
-                    </LinearGradient>
-                    <Text style={styles.roleLabel} numberOfLines={1} adjustsFontSizeToFit>Counselor</Text>
-                    <Text style={styles.roleHint}>Expert help</Text>
-                    
-                    {selectedRole === 'counselor' && isLoading ? (
-                      <ActivityIndicator size="small" color="#10b981" style={{ marginTop: 10 }} />
-                    ) : (
-                      <View style={[styles.goButton, { backgroundColor: '#ecfdf5' }]}>
-                        <Icon name="chevron-right" size={20} color="#10b981" />
-                      </View>
-                    )}
+                  <LinearGradient
+                    colors={[DOCTOR.gradientFrom, DOCTOR.gradientTo]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[
+                      styles.roleIcon,
+                      { width: R.roleIcon, height: R.roleIcon, borderRadius: R.roleIcon / 2, shadowColor: DOCTOR.primary },
+                    ]}
+                  >
+                    <Icon name="briefcase-variant" size={R.roleIconGlyph} color="#ffffff" />
+                  </LinearGradient>
+                  <View style={styles.roleTextWrap}>
+                    <Text style={[styles.roleName, { fontSize: R.roleName }]}>Counselor</Text>
+                    <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>Manage your practice</Text>
                   </View>
+                  {selectedRole === 'counselor' && isLoading ? (
+                    <ActivityIndicator size="small" color={DOCTOR.primary} />
+                  ) : (
+                    <View style={[styles.chevWrap, { backgroundColor: '#E8F0FE' }]}>
+                      <Icon name="chevron-right" size={18} color={DOCTOR.primary} />
+                    </View>
+                  )}
                 </TouchableOpacity>
               </Animated.View>
             </View>
-            
-            <View style={styles.footer}>
-              <View style={styles.badgeContainer}>
-                <Icon name="shield-lock" size={16} color="#6366f1" />
-                <Text style={styles.badgeText}>End-to-End Encrypted</Text>
-              </View>
-              {/* <Text style={styles.versionText}>v2.0.4 Premium Experience</Text> */}
+
+            {/* Encrypted badge */}
+            <View style={styles.badgeContainer}>
+              <Icon name="shield-lock" size={12} color={DOCTOR.primary} />
+              <Text style={styles.badgeText}>END-TO-END ENCRYPTED</Text>
             </View>
           </Animated.View>
+          </ScrollView>
         </SafeAreaView>
-      </LinearGradient>
+      </AuthBackground>
     </View>
   );
 };
@@ -294,7 +323,6 @@ const styles = StyleSheet.create({
   },
   gradient: {
     flex: 1,
-    overflow: 'hidden',
   },
   lavaOrb: {
     position: 'absolute',
@@ -325,61 +353,123 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
   },
   panel: {
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    borderRadius: 40,
-    padding: 30,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.8)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.15,
-    shadowRadius: 30,
-    elevation: 15,
-  },
-  header: {
+    width: '100%',
+    alignSelf: 'center',
+    // Solid white — a translucent panel let the mesh tint it, so the pure-white
+    // inner cards read as a second colour inside the card.
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    paddingBottom: 24,
     alignItems: 'center',
-    marginBottom: 40,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.12,
+    shadowRadius: 32,
+    elevation: 12,
   },
   logoOuter: {
-    padding: 10,
-    backgroundColor: '#ffffff',
-    borderRadius: 24,
-    shadowColor: '#6366f1',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoHalo: {
+    position: 'absolute',
+    backgroundColor: 'rgba(74, 108, 247, 0.09)',
+  },
+  logoShield: {
+    shadowColor: '#4A6CF7',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
     elevation: 6,
   },
-  logo: {
-    width: 65,
-    height: 65,
+  logoSpark: {
+    position: 'absolute',
   },
-  brandContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  brandMain: {
-    fontSize: 32,
+  brandTitle: {
     fontWeight: '900',
-    color: '#1e293b',
-    letterSpacing: -1,
-  },
-  brandAlt: {
-    fontSize: 32,
-    fontWeight: '400',
-    color: '#6366f1',
-    letterSpacing: -1,
+    color: '#0F172A',
+    letterSpacing: -0.3,
+    marginTop: 6,
   },
   tagline: {
-    fontSize: 14,
-    color: '#64748b',
+    color: '#94A3B8',
     fontWeight: '500',
-    marginTop: 4,
+    marginTop: 5,
+  },
+  portalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 20,
+    marginBottom: 2,
+  },
+  portalRule: {
+    width: 26,
+    height: 1,
+    backgroundColor: '#DDE3EC',
+  },
+  portalLabel: {
+    color: '#94A3B8',
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  chevWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stack: {
+    width: '100%',
+    gap: 12,
+    marginTop: 14,
+  },
+  roleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: '#ECEFF5',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.07,
+    shadowRadius: 14,
+    elevation: 4,
+  },
+  roleIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    // coloured glow — shadowColor is set per-role inline
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.38,
+    shadowRadius: 9,
+    elevation: 6,
+  },
+  roleTextWrap: {
+    flex: 1,
+  },
+  roleName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  roleSub: {
+    fontSize: 11.5,
+    color: '#94A3B8',
+    marginTop: 2,
   },
   roleHeader: {
     flexDirection: 'row',
@@ -501,16 +591,21 @@ const styles = StyleSheet.create({
   badgeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#f5f7ff',
+    gap: 5,
+    alignSelf: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E4EAF5',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 20,
+    borderRadius: 999,
+    marginTop: 22,
   },
   badgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#6366f1',
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#004AC6',
+    letterSpacing: 0.6,
   },
   versionText: {
     fontSize: 10,

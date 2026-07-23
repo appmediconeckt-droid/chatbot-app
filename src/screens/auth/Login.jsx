@@ -20,9 +20,14 @@ import { API_BASE_URL } from '../../axiosConfig';
 import GoogleAuthButton from './components/GoogleAuthButton';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
+import { paletteForRole } from '../../theme/palette';
+import AuthBackground from '../../theme/AuthBackground';
 
 const Login = ({ navigation, route }) => {
   const { t } = useTranslation();
+  // Role decides the whole theme: patient → green, counselor → blue.
+  // Layout/animation stay identical; only the palette swaps.
+  const C = paletteForRole(route?.params?.role);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -234,8 +239,19 @@ const Login = ({ navigation, route }) => {
       socketService.connect().catch(() => {});
 
       const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
+      // The PIN is device-local, so a new phone has none. Require setup before
+      // entering the app, otherwise this first session would be unlocked.
+      const existingPin = await AsyncStorage.getItem('appLockPin');
       setTimeout(() => {
-        navigation.replace('LocationGate', { destination });
+        if (!existingPin) {
+          navigation.replace('PinSetup', {
+            forced: true,
+            destination: 'LocationGate',
+            destinationParams: { destination },
+          });
+        } else {
+          navigation.replace('LocationGate', { destination });
+        }
       }, 800);
     } catch (err) {
       // CRITICAL: Check for both conditions exactly like web version
@@ -516,8 +532,9 @@ const Login = ({ navigation, route }) => {
   };
 
   return (
+    <AuthBackground role={route?.params?.role}>
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: 'transparent' }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={scrollContainerStyle}>
@@ -584,7 +601,11 @@ const Login = ({ navigation, route }) => {
                 style={styles.checkboxContainer}
                 onPress={() => setRememberMe(!rememberMe)}
               >
-                <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                <View style={[
+                  styles.checkbox,
+                  rememberMe && styles.checkboxChecked,
+                  rememberMe && { backgroundColor: C.primary, borderColor: C.primary },
+                ]}>
                   {rememberMe && <Text style={styles.checkmark}>✓</Text>}
                 </View>
                 <Text style={styles.checkboxLabel}>{t('common:confirm')}</Text>
@@ -598,13 +619,17 @@ const Login = ({ navigation, route }) => {
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 activeOpacity={0.6}
               >
-                <Text style={styles.forgotPassword}>{t('auth:forgotPassword')}</Text>
+                <Text style={[styles.forgotPassword, { color: C.primary }]}>{t('auth:forgotPassword')}</Text>
               </TouchableOpacity>
             </View>
 
             {/* Login Button */}
             <TouchableOpacity
-              style={[styles.loginButton, (!email || !password || isLoading) && styles.loginButtonDisabled]}
+              style={[
+                styles.loginButton,
+                { backgroundColor: C.primary, shadowColor: C.primary },
+                (!email || !password || isLoading) && styles.loginButtonDisabled,
+              ]}
               onPress={handleLogin}
               disabled={!email || !password || isLoading}
             >
@@ -668,7 +693,7 @@ const Login = ({ navigation, route }) => {
             <View style={styles.footer}>
               <Text style={styles.footerText}>{t('auth:dontHaveAccount')} </Text>
               <TouchableOpacity onPress={() => navigation.navigate('RoleSelector')}>
-                <Text style={styles.signUpLink}> {t('auth:signup')}</Text>
+                <Text style={[styles.signUpLink, { color: C.primary }]}> {t('auth:signup')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -766,7 +791,7 @@ const Login = ({ navigation, route }) => {
                 {/* ===== STEP 1: EMAIL ===== */}
                 {fpStep === 'email' && (
                   <View style={styles.fpStep}>
-                    <View style={styles.fpIconWrap}>
+                    <View style={[styles.fpIconWrap, { backgroundColor: C.secondaryTint }]}>
                       <Text style={styles.fpIcon}>✉️</Text>
                     </View>
                     <Text style={styles.fpTitle}>Forgot Password</Text>
@@ -792,7 +817,7 @@ const Login = ({ navigation, route }) => {
                     />
 
                     <TouchableOpacity
-                      style={[styles.fpButton, fpLoading && styles.fpButtonDisabled]}
+                      style={[styles.fpButton, { backgroundColor: C.primary, shadowColor: C.primary }, fpLoading && styles.fpButtonDisabled]}
                       onPress={handleForgotPasswordSendOTP}
                       disabled={fpLoading}
                     >
@@ -804,7 +829,7 @@ const Login = ({ navigation, route }) => {
                     <View style={styles.fpFooter}>
                       <Text style={styles.fpFooterText}>Remember your password? </Text>
                       <TouchableOpacity onPress={closeForgotPasswordModal}>
-                        <Text style={styles.fpFooterLink}>Back to Login</Text>
+                        <Text style={[styles.fpFooterLink, { color: C.primary }]}>Back to Login</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -813,12 +838,12 @@ const Login = ({ navigation, route }) => {
                 {/* ===== STEP 2: OTP VERIFICATION ===== */}
                 {fpStep === 'otp' && (
                   <View style={styles.fpStep}>
-                    <View style={styles.fpIconWrap}>
+                    <View style={[styles.fpIconWrap, { backgroundColor: C.secondaryTint }]}>
                       <Text style={styles.fpIcon}>✉️</Text>
                     </View>
                     <Text style={styles.fpTitle}>Verify OTP</Text>
                     <Text style={styles.fpSubtitle}>Enter the 6-digit code sent to</Text>
-                    <Text style={styles.fpEmailDisplay}>{fpEmail}</Text>
+                    <Text style={[styles.fpEmailDisplay, { color: C.primary }]}>{fpEmail}</Text>
 
                     {fpError ? <Text style={styles.fpError}>⚠️ {fpError}</Text> : null}
                     {fpSuccess ? <Text style={styles.fpSuccess}>✓ {fpSuccess}</Text> : null}
@@ -839,7 +864,7 @@ const Login = ({ navigation, route }) => {
                     />
 
                     <TouchableOpacity
-                      style={[styles.fpButton, (fpLoading || !fpOtp) && styles.fpButtonDisabled]}
+                      style={[styles.fpButton, { backgroundColor: C.primary, shadowColor: C.primary }, (fpLoading || !fpOtp) && styles.fpButtonDisabled]}
                       onPress={handleForgotPasswordVerifyOTP}
                       disabled={fpLoading || fpSuccess || !fpOtp}
                     >
@@ -857,6 +882,7 @@ const Login = ({ navigation, route }) => {
                       <Text
                         style={[
                           styles.fpResendText,
+                          { color: C.primary },
                           (fpResendTimer > 0 || fpResending) && styles.fpResendTextDisabled,
                         ]}
                       >
@@ -871,7 +897,7 @@ const Login = ({ navigation, route }) => {
                     <View style={styles.fpFooter}>
                       <Text style={styles.fpFooterText}>Wrong email? </Text>
                       <TouchableOpacity onPress={() => { setFpStep('email'); setFpError(''); }}>
-                        <Text style={styles.fpFooterLink}>Go back</Text>
+                        <Text style={[styles.fpFooterLink, { color: C.primary }]}>Go back</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -880,12 +906,12 @@ const Login = ({ navigation, route }) => {
                 {/* ===== STEP 3: RESET PASSWORD ===== */}
                 {fpStep === 'reset' && (
                   <View style={styles.fpStep}>
-                    <View style={styles.fpIconWrap}>
+                    <View style={[styles.fpIconWrap, { backgroundColor: C.secondaryTint }]}>
                       <Text style={styles.fpIcon}>🔒</Text>
                     </View>
                     <Text style={styles.fpTitle}>Reset Password</Text>
                     <Text style={styles.fpSubtitle}>Create a new password for your account</Text>
-                    <Text style={styles.fpEmailDisplay}>{fpEmail}</Text>
+                    <Text style={[styles.fpEmailDisplay, { color: C.primary }]}>{fpEmail}</Text>
 
                     {fpError ? <Text style={styles.fpError}>⚠️ {fpError}</Text> : null}
                     {fpSuccess ? <Text style={styles.fpSuccess}>✓ {fpSuccess}</Text> : null}
@@ -937,7 +963,7 @@ const Login = ({ navigation, route }) => {
                     </View>
 
                     <TouchableOpacity
-                      style={[styles.fpButton, (fpLoading || fpSuccess) && styles.fpButtonDisabled]}
+                      style={[styles.fpButton, { backgroundColor: C.primary, shadowColor: C.primary }, (fpLoading || fpSuccess) && styles.fpButtonDisabled]}
                       onPress={handleForgotPasswordReset}
                       disabled={fpLoading || fpSuccess}
                     >
@@ -949,7 +975,7 @@ const Login = ({ navigation, route }) => {
                     <View style={styles.fpFooter}>
                       <Text style={styles.fpFooterText}>Remember your password? </Text>
                       <TouchableOpacity onPress={closeForgotPasswordModal}>
-                        <Text style={styles.fpFooterLink}>Back to Login</Text>
+                        <Text style={[styles.fpFooterLink, { color: C.primary }]}>Back to Login</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -960,6 +986,7 @@ const Login = ({ navigation, route }) => {
         </Modal>
       </ScrollView>
     </KeyboardAvoidingView>
+    </AuthBackground>
   );
 };
 

@@ -576,20 +576,10 @@ const CounselorProfile = () => {
       setError('');
       setSuccessMessage('');
 
-      const totalCertifications = editedData.certifications?.length || 0;
-      if (totalCertifications > MAX_CERTIFICATION_DOCUMENTS) {
-        Alert.alert('Error', 'You can upload a maximum of 5 certification documents.');
-        setLoading(false);
-        return;
-      }
-
-      const pendingCertificates = (editedData.certifications || []).filter(cert => String(cert._id || '').startsWith('temp_'));
-      const missingDocCertificates = pendingCertificates.filter(cert => !cert.document?.uri && !cert.documentUrl);
-      if (missingDocCertificates.length > 0) {
-        Alert.alert('Error', 'Please upload a document for each new certificate before saving.');
-        setLoading(false);
-        return;
-      }
+      // NOTE: Verification documents are optional when editing an existing
+      // profile. The `documents` list only holds NEW uploads from this session
+      // (it isn't hydrated from the server), so requiring it here would block
+      // every returning counselor from saving basic profile edits.
 
       const formData = new FormData();
       formData.append('fullName', editedData.fullName);
@@ -779,113 +769,102 @@ const CounselorProfile = () => {
           </View>
         )}
 
-        {/* Profile Header - Full Width */}
+        {/* Profile Header — blue gradient card matching the app design */}
         <LinearGradient
-          colors={['#EFF6FF', '#DBEAFE', '#FFFFFF']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.profileHeader}
+          colors={['#003A9B', '#1490FF']}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={styles.heroCard}
         >
-          <View style={styles.headerContent}>
-            {/* Avatar Section */}
-            <View style={styles.avatarSection}>
-              <View style={styles.avatarWrapper}>
-                {editedData?.profilePhotoUrl ? (
-                  <Image
-                    source={{ uri: editedData.profilePhotoUrl }}
-                    style={styles.avatarImage}
-                  />
-                ) : (
-                  <View style={styles.avatarPlaceholder}>
-                    <Text style={styles.avatarLetter}>
-                      {counselor?.fullName?.charAt(0)?.toUpperCase() || 'C'}
-                    </Text>
-                  </View>
-                )}
-                {isEditing && (
-                  <TouchableOpacity onPress={handleProfilePhotoUpload} style={styles.editPhotoBtn}>
-                    <Icon name="camera-alt" size={18} color="#fff" />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
+          <View style={styles.heroTopRow}>
+            <TouchableOpacity
+              activeOpacity={isEditing ? 0.7 : 1}
+              onPress={isEditing ? handleProfilePhotoUpload : undefined}
+            >
+              {editedData?.profilePhotoUrl ? (
+                <Image source={{ uri: String(editedData.profilePhotoUrl) }} style={styles.heroAvatar} />
+              ) : (
+                <View style={styles.heroAvatarFallback}>
+                  <Text style={styles.heroAvatarText}>
+                    {counselor?.fullName?.charAt(0)?.toUpperCase() || 'C'}
+                  </Text>
+                </View>
+              )}
+              {isEditing && (
+                <View style={styles.heroCamBadge}>
+                  <Icon name="camera-alt" size={13} color="#2563EB" />
+                </View>
+              )}
+            </TouchableOpacity>
 
-            {/* Info Section */}
-            <View style={styles.infoSection}>
+            <View style={styles.heroInfo}>
               {isEditing ? (
                 <TextInput
-                  style={styles.nameInput}
+                  style={styles.heroNameInput}
                   value={editedData.fullName || ''}
                   onChangeText={(value) => handleInputChange('fullName', value)}
                   placeholder="Your Full Name"
-                  placeholderTextColor="#9CA3AF"
+                  placeholderTextColor="rgba(255,255,255,0.6)"
                 />
               ) : (
-                <Text style={styles.counselorName}>{counselor.fullName || 'Your Name'}</Text>
+                <Text style={styles.heroName} numberOfLines={1}>
+                  {counselor.fullName || 'Your Name'}
+                </Text>
               )}
-              
-              <View style={styles.codeRow}>
-                <Icon name="verified" size={14} color="#2563EB" />
-                <Text style={styles.counselorCode}>{counselor.uniqueCode}</Text>
-              </View>
-              
-              <View style={styles.specializationRow}>
-                {counselor.specialization.slice(0, 3).map((spec, i) => (
-                  <View key={i} style={styles.specBadge}>
-                    <Text style={styles.specBadgeText}>{spec}</Text>
-                  </View>
-                ))}
-              </View>
+              <Text style={styles.heroRole} numberOfLines={1}>
+                {counselor.specialization?.[0] || t('counselor:psychologist', 'Psychologist')}
+              </Text>
+              <Text style={styles.heroEmail} numberOfLines={1}>{counselor.email || ''}</Text>
             </View>
 
-            {/* Edit Button */}
-            <View style={styles.editSection}>
-              {!isEditing ? (
-                <TouchableOpacity onPress={() => setIsEditing(true)} style={styles.editBtn}>
-                  <Icon name="edit" size={18} color="#fff" />
-                  <Text style={styles.editBtnText}>{t('common:edit')}</Text>
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.editActions}>
-                  <TouchableOpacity onPress={handleSave} style={styles.saveBtn} disabled={loading}>
-                    <Icon name="check" size={18} color="#fff" />
-                    <Text style={styles.saveBtnText}>{t('common:save')}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={handleCancel} style={styles.cancelBtn}>
-                    <Icon name="close" size={18} color="#6B7280" />
-                    <Text style={styles.cancelBtnText}>{t('common:cancel')}</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
+            {!isEditing && (
+              <TouchableOpacity onPress={() => setIsEditing(true)} style={styles.heroEditBtn} activeOpacity={0.85}>
+                <Icon name="edit" size={12} color="#2563EB" />
+                <Text style={styles.heroEditText}>{t('common:edit')}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
-            {/* Stats Row */}
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <StarRating rating={counselor.rating || 0} size={12} />
-                <Text style={styles.statValue}>{counselor.rating?.toFixed(1) || '0.0'}</Text>
-                <Text style={styles.statLabel}>{t('profile:rating')}</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Icon name="video-call" size={18} color="#2563EB" />
-                <Text style={styles.statValue}>{sessionsCount}</Text>
-                <Text style={styles.statLabel}>{t('profile:sessions')}</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Icon name="people" size={18} color="#2563EB" />
-                <Text style={styles.statValue}>{clientsCount}</Text>
-                <Text style={styles.statLabel}>{t('profile:clients')}</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Icon name="work-history" size={18} color="#2563EB" />
-                <Text style={styles.statValue}>{counselor.experience || 0}y</Text>
-                <Text style={styles.statLabel}>{t('profile:experience')}</Text>
-              </View>
+          {/* Save / Cancel while editing */}
+          {isEditing && (
+            <View style={styles.heroEditActions}>
+              <TouchableOpacity onPress={handleCancel} style={styles.heroCancelBtn} activeOpacity={0.85}>
+                <Text style={styles.heroCancelText}>{t('common:cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleSave} style={styles.heroSaveBtn} disabled={loading} activeOpacity={0.9}>
+                {loading ? (
+                  <ActivityIndicator size="small" color="#2563EB" />
+                ) : (
+                  <>
+                    <Icon name="check" size={15} color="#2563EB" />
+                    <Text style={styles.heroSaveText}>{t('common:save')}</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
+          )}
 
+          {/* Stats strip */}
+          <View style={styles.heroStats}>
+            <View style={styles.heroStatItem}>
+              <Text style={styles.heroStatNum}>{counselor.rating?.toFixed(1) || '0.0'}</Text>
+              <Text style={styles.heroStatLabel}>{t('profile:rating')}</Text>
+            </View>
+            <View style={styles.heroStatDivider} />
+            <View style={styles.heroStatItem}>
+              <Text style={styles.heroStatNum}>{sessionsCount}</Text>
+              <Text style={styles.heroStatLabel}>{t('profile:sessions')}</Text>
+            </View>
+            <View style={styles.heroStatDivider} />
+            <View style={styles.heroStatItem}>
+              <Text style={styles.heroStatNum}>{clientsCount}</Text>
+              <Text style={styles.heroStatLabel}>{t('profile:clients')}</Text>
+            </View>
+            <View style={styles.heroStatDivider} />
+            <View style={styles.heroStatItem}>
+              <Text style={styles.heroStatNum}>{counselor.experience || 0}y</Text>
+              <Text style={styles.heroStatLabel}>{t('profile:experience')}</Text>
+            </View>
           </View>
         </LinearGradient>
 
@@ -1373,6 +1352,68 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flex: 1,
   },
+
+  /* ── Hero card (matches app design language) ── */
+  heroCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 18,
+    padding: 16,
+  },
+  heroTopRow: { flexDirection: 'row', alignItems: 'center' },
+  heroAvatar: {
+    width: 56, height: 56, borderRadius: 28,
+    borderWidth: 2, borderColor: 'rgba(255,255,255,0.5)',
+  },
+  heroAvatarFallback: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  heroAvatarText: { color: '#ffffff', fontSize: 23, fontWeight: '800' },
+  heroCamBadge: {
+    position: 'absolute', bottom: -2, right: -2,
+    width: 22, height: 22, borderRadius: 11, backgroundColor: '#ffffff',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  heroInfo: { flex: 1, marginLeft: 12 },
+  heroName: { fontSize: 16.5, fontWeight: '800', color: '#ffffff' },
+  heroNameInput: {
+    fontSize: 16.5, fontWeight: '800', color: '#ffffff',
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.5)',
+    paddingVertical: 2,
+  },
+  heroRole: { fontSize: 12.5, fontWeight: '600', color: 'rgba(255,255,255,0.9)', marginTop: 3 },
+  heroEmail: { fontSize: 11.5, color: 'rgba(255,255,255,0.75)', marginTop: 2 },
+  heroEditBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#ffffff', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999,
+  },
+  heroEditText: { fontSize: 12, fontWeight: '700', color: '#2563EB' },
+  heroEditActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  heroCancelBtn: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 11,
+    borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)',
+  },
+  heroCancelText: { color: '#ffffff', fontSize: 13.5, fontWeight: '700' },
+  heroSaveBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 11, borderRadius: 10, backgroundColor: '#ffffff',
+  },
+  heroSaveText: { color: '#2563EB', fontSize: 13.5, fontWeight: '800' },
+  heroStats: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.16)', borderRadius: 14,
+    paddingVertical: 12, paddingHorizontal: 6, marginTop: 16,
+  },
+  heroStatItem: { flex: 1, alignItems: 'center' },
+  heroStatNum: { fontSize: 17, fontWeight: '900', color: '#ffffff' },
+  heroStatLabel: {
+    fontSize: 9.5, color: 'rgba(255,255,255,0.85)', fontWeight: '700',
+    letterSpacing: 0.5, textTransform: 'uppercase', marginTop: 3,
+  },
+  heroStatDivider: { width: 1, height: 26, backgroundColor: 'rgba(255,255,255,0.22)' },
 
   // Profile Header — dark teal background
   profileHeader: {

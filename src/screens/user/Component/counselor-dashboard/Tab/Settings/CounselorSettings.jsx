@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import {
   View,
   Text,
+  Image,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -17,10 +18,13 @@ import {
   Platform,
   TextInput,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Feather from 'react-native-vector-icons/Feather';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import LinearGradient from 'react-native-linear-gradient';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import HelpSupport from '../../../UserDashboard/Tab/HelpSupport/HelpSupport';
 import PrivacyPolicy from '../../../UserDashboard/Tab/PrivacyPolicy/PrivacyPolicy';
@@ -106,11 +110,13 @@ const FEEDBACK_CATEGORIES = [
   { key: 'other', label: 'Other', icon: 'message-circle' },
 ];
 
-const CounselorSettings = ({ onNavigate, onLogout }) => {
+const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }) => {
   const navigation = useNavigation();
   const { t } = useLanguageRender();
   const [counselor, setCounselor] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [settingsSearch, setSettingsSearch] = useState('');
+  const [notif, setNotif] = useState({ appointments: true, messages: true, incomingCalls: true });
 
   // In-app info screens
   const [showHelp, setShowHelp] = useState(false);
@@ -277,12 +283,29 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
     if (id === 'payout') return setShowWallet(true);
     if (id === 'change_password') return openPwModal('change');
     if (id === 'add_password') return openPwModal('set');
-    if (id === 'app_lock') return navigation.navigate('PinSetup');
+    // forced:false — must override the screen's initialParams, otherwise the
+    // boot-time forced flag leaks in and the user can't back out.
+    if (id === 'app_lock') return navigation.navigate('PinSetup', { forced: false });
     if (id === 'contact')
       return Linking.openURL('mailto:support@mediconeckt.com');
     if (id === 'help') return setShowHelp(true);
     if (id === 'privacy') return setShowPrivacy(true);
     if (id === 'terms') return Linking.openURL(TERMS_URL);
+    if (id === 'two_factor')
+      return Alert.alert('Two-Factor Authentication', 'Two-factor authentication is enabled for your account.');
+    if (id === 'login_activity')
+      return Alert.alert('Login Activity', 'Review recent sign-ins and active sessions on your account.');
+    if (id === 'blocked_users')
+      return Alert.alert('Blocked Users', 'Manage the list of users you have blocked.');
+    if (id === 'delete_account')
+      return Alert.alert(
+        'Delete Account',
+        'This will permanently delete your account and all data. This action cannot be undone.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: () => {} },
+        ]
+      );
     if (id === 'feedback') {
       setFeedbackNotice({ type: '', msg: '' });
       return setFeedbackModal(true);
@@ -291,6 +314,15 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
 
   const profileName =
     formatName(counselor?.fullName || counselor?.name) || 'Your Profile';
+  // profilePhoto may be a plain URL string OR a Cloudinary-style object
+  // ({ url, secure_url }). Passing an object to <Image source={{uri}}> crashes
+  // RN ("cannot be cast from ReadableNativeMap to string"), so resolve to a
+  // string or null and fall back to the initial avatar.
+  const rawPhoto = counselor?.profilePhoto;
+  const photoUri =
+    typeof rawPhoto === 'string'
+      ? rawPhoto
+      : rawPhoto?.secure_url || rawPhoto?.url || null;
   const profileSubtitle =
     counselor?.email ||
     counselor?.phoneNumber ||
@@ -310,19 +342,14 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           iconBg: '#EFF6FF',
           iconColor: '#2563EB',
           label: t('counselor:editProfile'),
-          subtitle: profileSubtitle,
-          value: firstName(counselor?.fullName || counselor?.name) || null,
           type: 'nav',
         },
         {
           id: 'payout',
           icon: 'credit-card',
-          iconBg: '#ecfeff',
-          iconColor: '#0D9488',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
           label: t('settings:payoutAccount'),
-          subtitle: payoutSubtitle,
-          badge: payoutBadge ? t('common:verified') : null,
-          badgeColor: '#0D9488',
           type: 'nav',
         },
       ],
@@ -336,25 +363,106 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
           iconBg: '#EFF6FF',
           iconColor: '#2563EB',
           label: t('settings:changePassword'),
-          subtitle: t('settings:updatePassword'),
           type: 'nav',
         },
         {
           id: 'add_password',
           icon: 'key',
           iconBg: '#EFF6FF',
-          iconColor: '#0D9488',
-          label: t('settings:addPassword'),
-          subtitle: t('settings:setPasswordOtp'),
+          iconColor: '#2563EB',
+          label: t('settings:addPassword', 'Add Password by OTP'),
           type: 'nav',
         },
         {
           id: 'app_lock',
           icon: 'smartphone',
-          iconBg: '#EDE9FE',
-          iconColor: '#7c3aed',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
           label: t('settings:appLock'),
-          subtitle: t('settings:pinFingerprint'),
+          type: 'nav',
+        },
+        {
+          id: 'two_factor',
+          icon: 'shield',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: t('settings:twoFactor', 'Two-Factor Authentication'),
+          badge: t('settings:enabled', 'Enabled'),
+          badgeColor: '#16A34A',
+          type: 'nav',
+        },
+        {
+          id: 'login_activity',
+          icon: 'activity',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: t('settings:loginActivity', 'Login Activity'),
+          type: 'nav',
+        },
+      ],
+    },
+    {
+      title: t('settings:notifications', 'Notifications'),
+      items: [
+        {
+          id: 'notif_appointments',
+          icon: 'calendar',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: t('counselor:appointment', 'Appointments'),
+          type: 'switch',
+          value: notif.appointments,
+          onChange: (v) => setNotif((p) => ({ ...p, appointments: v })),
+        },
+        {
+          id: 'notif_messages',
+          icon: 'message-square',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: t('counselor:messages', 'Messages'),
+          type: 'switch',
+          value: notif.messages,
+          onChange: (v) => setNotif((p) => ({ ...p, messages: v })),
+        },
+        {
+          id: 'notif_calls',
+          icon: 'phone-incoming',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: t('settings:incomingCalls', 'Incoming Calls'),
+          type: 'switch',
+          value: notif.incomingCalls,
+          onChange: (v) => setNotif((p) => ({ ...p, incomingCalls: v })),
+        },
+      ],
+    },
+    {
+      title: t('settings:privacy', 'Privacy'),
+      items: [
+        {
+          id: 'privacy',
+          icon: 'file-text',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: t('settings:privacyPolicy'),
+          externalLink: true,
+          type: 'nav',
+        },
+        {
+          id: 'blocked_users',
+          icon: 'slash',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: t('settings:blockedUsers', 'Blocked Users'),
+          type: 'nav',
+        },
+        {
+          id: 'delete_account',
+          icon: 'trash-2',
+          iconBg: '#FEF2F2',
+          iconColor: '#EF4444',
+          label: t('settings:deleteAccount', 'Delete Account'),
+          danger: true,
           type: 'nav',
         },
       ],
@@ -365,56 +473,31 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
         {
           id: 'help',
           icon: 'help-circle',
-          iconBg: '#FEF3C7',
-          iconColor: '#D97706',
-          label: t('settings:help'),
-          subtitle: t('settings:commonQuestions'),
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: t('settings:helpCenter', 'Help Center'),
           type: 'nav',
         },
         {
           id: 'contact',
           icon: 'mail',
-          iconBg: '#DCFCE7',
-          iconColor: '#16A34A',
-          label: t('settings:contactSupport'),
-          subtitle: 'support@mediconeckt.com',
-          type: 'nav',
-        },
-        {
-          id: 'feedback',
-          icon: 'edit-2',
           iconBg: '#EFF6FF',
-          iconColor: '#0D9488',
-          label: t('settings:sendFeedback'),
-          subtitle: t('settings:helpUsImprove'),
-          type: 'nav',
-        },
-      ],
-    },
-    {
-      title: t('settings:legal'),
-      items: [
-        {
-          id: 'terms',
-          icon: 'file-text',
-          iconBg: '#F9FAFB',
-          iconColor: '#6B7280',
-          label: t('settings:termsOfService'),
-          subtitle: 'Read our terms of service',
-          type: 'nav',
-        },
-        {
-          id: 'privacy',
-          icon: 'lock',
-          iconBg: '#F9FAFB',
-          iconColor: '#6B7280',
-          label: t('settings:privacyPolicy'),
-          subtitle: 'How we handle your data',
+          iconColor: '#2563EB',
+          label: t('settings:contactSupport'),
           type: 'nav',
         },
       ],
     },
   ];
+
+  // Filter sections/items by the search box.
+  const sq = settingsSearch.trim().toLowerCase();
+  const visibleSections = sq
+    ? SECTIONS.map((s) => ({
+        ...s,
+        items: s.items.filter((it) => String(it.label).toLowerCase().includes(sq)),
+      })).filter((s) => s.items.length > 0)
+    : SECTIONS;
 
   return (
     <>
@@ -423,41 +506,72 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
       showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.scrollContent}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>{t('settings:settings')}</Text>
-        <Text style={styles.headerSub}>
-          {loading ? t('counselor:loadingAccount') : t('counselor:signingInAs', { name: profileName })}
-        </Text>
-      </View>
-
-      {/* Quick actions */}
+      {/* Profile card */}
       {!loading && (
-        <View style={styles.quickRow}>
+        <>
+        <LinearGradient
+          colors={['#003A9B', '#1490FF']}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={styles.profileCard}
+        >
+          <View style={styles.profileTopRow}>
+            <TouchableOpacity activeOpacity={0.85} onPress={() => handleNav('profile')}>
+              {photoUri ? (
+                <Image source={{ uri: String(photoUri) }} style={styles.profileAvatar} />
+              ) : (
+                <View style={styles.profileAvatarFallback}>
+                  <Text style={styles.profileAvatarText}>{(profileName || 'C').charAt(0).toUpperCase()}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={{ flex: 1, marginLeft: 12 }} activeOpacity={0.85} onPress={() => handleNav('profile')}>
+              <Text style={styles.profileName} numberOfLines={1}>{profileName}</Text>
+              <Text style={styles.profileRole} numberOfLines={1}>
+                {counselor?.specialization || t('counselor:psychologist', 'Psychologist')}
+              </Text>
+              <Text style={styles.profileEmail} numberOfLines={1}>{counselor?.email || ''}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.editBtn} activeOpacity={0.85} onPress={() => handleNav('profile')}>
+              <Feather name="edit-2" size={12} color="#2563EB" />
+              <Text style={styles.editBtnText}>{t('common:edit', 'Edit')}</Text>
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
+
+        {/* Tab pills */}
+        <View style={styles.tabPillsRow}>
           {[
-            { id: 'profile', icon: 'user', color: '#2563EB', bg: '#EFF6FF', label: t('settings:profile') },
-            { id: 'payout', icon: 'credit-card', color: '#7C3AED', bg: '#F5F3FF', label: t('settings:payout') },
-            { id: 'help', icon: 'help-circle', color: '#D97706', bg: '#FFFBEB', label: t('settings:help') },
-          ].map((q) => (
-            <TouchableOpacity
-              key={q.id}
-              style={styles.quickItem}
-              activeOpacity={0.7}
-              onPress={() => handleNav(q.id)}
-            >
-              <View style={[styles.quickIcon, { backgroundColor: q.bg }]}>
-                <Feather name={q.icon} size={18} color={q.color} />
-              </View>
-              <Text style={styles.quickLabel}>{q.label}</Text>
+            { id: 'profile', icon: 'user', label: t('settings:profile', 'Profile') },
+            { id: 'payout', icon: 'credit-card', label: t('settings:payout', 'Payout') },
+            { id: 'help', icon: 'help-circle', label: t('settings:help', 'Help') },
+            { id: 'contact', icon: 'mail', label: t('settings:contactSupport', 'Support') },
+          ].map((tab) => (
+            <TouchableOpacity key={tab.id} style={styles.tabPill} activeOpacity={0.8} onPress={() => handleNav(tab.id)}>
+              <Feather name={tab.icon} size={13} color="#475569" />
+              <Text style={styles.tabPillText} numberOfLines={1}>{tab.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* Search settings */}
+        <View style={styles.searchBox}>
+          <Feather name="search" size={17} color="#94a3b8" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder={t('settings:searchSettings', 'Search settings...')}
+            placeholderTextColor="#94a3b8"
+            value={settingsSearch}
+            onChangeText={setSettingsSearch}
+          />
+        </View>
+        </>
       )}
 
       {loading && <SettingsSkeleton />}
 
       {/* Sections */}
-      {!loading && SECTIONS.map((section) => (
+      {!loading && visibleSections.map((section) => (
         <View key={section.title} style={styles.section}>
           <Text style={styles.sectionLabel}>{section.title}</Text>
           <View style={styles.card}>
@@ -479,7 +593,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
                   </View>
 
                   <View style={styles.rowBody}>
-                    <Text style={styles.rowLabel}>{item.label}</Text>
+                    <Text style={[styles.rowLabel, item.danger && styles.rowLabelDanger]}>{item.label}</Text>
                     {!!item.subtitle && (
                       <Text style={styles.rowSub} numberOfLines={1}>
                         {item.subtitle}
@@ -491,7 +605,7 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
                     <Switch
                       value={item.value}
                       onValueChange={item.onChange}
-                      trackColor={{ false: '#e2e8f0', true: '#0D9488' }}
+                      trackColor={{ false: '#e2e8f0', true: '#22C55E' }}
                       thumbColor={'#ffffff'}
                       ios_backgroundColor="#e2e8f0"
                     />
@@ -501,9 +615,12 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
                         <View
                           style={[
                             styles.rowBadge,
-                            { backgroundColor: `${item.badgeColor}1A` },
+                            { backgroundColor: `${item.badgeColor}14` },
                           ]}
                         >
+                          {item.badgeDot && (
+                            <View style={[styles.rowBadgeDot, { backgroundColor: item.badgeColor }]} />
+                          )}
                           <Text
                             style={[
                               styles.rowBadgeText,
@@ -519,7 +636,11 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
                           {item.value}
                         </Text>
                       )}
-                      <Feather name="chevron-right" size={16} color="#cbd5e1" />
+                      {item.externalLink ? (
+                        <Feather name="external-link" size={16} color="#94a3b8" />
+                      ) : !item.danger ? (
+                        <Feather name="chevron-right" size={18} color="#cbd5e1" />
+                      ) : null}
                     </View>
                   )}
                 </RowWrap>
@@ -533,15 +654,15 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
       {!loading && (
         <>
       <View style={styles.versionCard}>
-        <View style={[styles.iconBox, { backgroundColor: '#f1f5f9' }]}>
-          <Feather name="info" size={18} color="#94a3b8" />
+        <View style={[styles.iconBox, { backgroundColor: '#EFF6FF' }]}>
+          <Feather name="smartphone" size={18} color="#2563EB" />
         </View>
         <View style={styles.rowBody}>
-          <Text style={styles.rowLabel}>App Version</Text>
-          <Text style={styles.rowSub}>Mediconnect Counselor v1.2.4 (Build 248)</Text>
+          <Text style={styles.rowLabel}>{t('settings:appVersion', 'App Version')}</Text>
+          <Text style={styles.rowSub}>Mediconneckt v1.2.4 (Build 240)</Text>
         </View>
         <View style={styles.versionPill}>
-          <Text style={styles.versionPillText}>Latest</Text>
+          <Text style={styles.versionPillText}>{t('settings:latest', 'Latest')}</Text>
         </View>
       </View>
 
@@ -549,15 +670,13 @@ const CounselorSettings = ({ onNavigate, onLogout }) => {
       <TouchableOpacity
         style={styles.signOutBtn}
         onPress={onLogout}
-        activeOpacity={0.8}
+        activeOpacity={0.85}
       >
-        <View style={styles.signOutInner}>
-          <Feather name="log-out" size={18} color="#e53935" />
-          <Text style={styles.signOutText}>{t('counselor:signOut')}</Text>
-        </View>
+        <Feather name="log-out" size={18} color="#ffffff" />
+        <Text style={styles.signOutText}>{t('counselor:signOut')}</Text>
       </TouchableOpacity>
 
-      <Text style={styles.footer}>© 2026 Mediconnect. All rights reserved.</Text>
+      <Text style={styles.footer}>© 2026 Mediconneckt. All rights reserved.</Text>
         </>
       )}
     </ScrollView>
@@ -785,28 +904,96 @@ const styles = StyleSheet.create({
     paddingBottom: 48,
   },
 
-  /* ── Header ── */
-  header: {
-    width: '100%',
+  /* ── Greeting header ── */
+  greetingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  greetingLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  greetingAvatar: { width: 42, height: 42, borderRadius: 21 },
+  greetingAvatarFallback: {
+    width: 42, height: 42, borderRadius: 21,
+    backgroundColor: '#1D4ED8', alignItems: 'center', justifyContent: 'center',
+  },
+  greetingAvatarText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+  greetingWelcome: { fontSize: 12, color: '#94A3B8', fontWeight: '500' },
+  greetingName: { fontSize: 16, color: '#0F172A', fontWeight: '800', marginTop: 1 },
+  bellButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  bellBadge: {
+    position: 'absolute', top: 2, right: 2, minWidth: 17, height: 17, borderRadius: 9,
+    paddingHorizontal: 4, backgroundColor: '#EF4444', borderWidth: 1.5, borderColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  bellBadgeText: { color: '#ffffff', fontSize: 9.5, fontWeight: '800' },
+
+  /* ── Profile card ── */
+  profileCard: {
+    marginHorizontal: 16,
+    marginTop: 6,
+    borderRadius: 18,
+    padding: 16,
+  },
+  profileTopRow: { flexDirection: 'row', alignItems: 'center' },
+  profileAvatar: { width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: 'rgba(255,255,255,0.5)' },
+  profileAvatarFallback: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center',
+  },
+  profileAvatarText: { color: '#ffffff', fontSize: 22, fontWeight: '800' },
+  profileName: { fontSize: 16, fontWeight: '800', color: '#ffffff' },
+  profileRole: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.9)', marginTop: 2 },
+  profileEmail: { fontSize: 11, color: 'rgba(255,255,255,0.75)', marginTop: 2 },
+  editBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     backgroundColor: '#ffffff',
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 20,
-    borderBottomWidth: 3,
-    borderBottomColor: '#2563EB',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
   },
-  headerTitle: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#111827',
-    letterSpacing: 0.1,
+  editBtnText: { fontSize: 12, fontWeight: '700', color: '#2563EB' },
+
+  /* ── Tab pills ── */
+  tabPillsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    marginTop: 12,
   },
-  headerSub: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 4,
-    fontWeight: '500',
+  tabPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 999,
+    paddingVertical: 8,
   },
+  tabPillText: { fontSize: 11.5, fontWeight: '700', color: '#475569' },
+
+  /* ── Search ── */
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 16,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    height: 46,
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#e6ebf1',
+  },
+  searchInput: { flex: 1, fontSize: 14, color: '#0f172a', fontWeight: '500', padding: 0 },
 
   /* ── Quick actions ── */
   quickRow: {
@@ -845,26 +1032,32 @@ const styles = StyleSheet.create({
   /* ── Section ── */
   section: {
     width: '100%',
-    marginBottom: 8,
-    marginTop: 16,
+    marginBottom: 4,
+    marginTop: 20,
   },
   sectionLabel: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '800',
-    color: '#2563EB',
-    letterSpacing: 1.4,
+    color: '#64748B',
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
-    paddingHorizontal: 20,
-    marginBottom: 8,
+    paddingHorizontal: 22,
+    marginBottom: 10,
   },
 
   /* ── Card ── */
   card: {
-    width: '100%',
     backgroundColor: '#ffffff',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#E5E7EB',
+    marginHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#EDF1F6',
+    overflow: 'hidden',
+    shadowColor: '#1E293B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
   },
 
   /* ── Row ── */
@@ -872,18 +1065,18 @@ const styles = StyleSheet.create({
     width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 15,
   },
   rowDivider: {
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: '#F4F6F9',
   },
 
   iconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
@@ -892,22 +1085,28 @@ const styles = StyleSheet.create({
   rowBody: {
     flex: 1,
     minWidth: 0,
+    paddingRight: 8,
   },
   rowLabel: {
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: '600',
-    color: '#111827',
+    color: '#1E293B',
+  },
+  rowLabelDanger: {
+    color: '#EF4444',
+    fontWeight: '600',
   },
   rowSub: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#94A3B8',
     marginTop: 2,
+    fontWeight: '500',
   },
   rowTrail: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    maxWidth: '40%',
+    flexShrink: 0,
   },
   rowValue: {
     fontSize: 12,
@@ -916,29 +1115,37 @@ const styles = StyleSheet.create({
     maxWidth: 110,
   },
   rowBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 999,
   },
+  rowBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
   rowBadgeText: {
-    fontSize: 10,
+    fontSize: 10.5,
     fontWeight: '800',
     letterSpacing: 0.3,
   },
 
   /* ── Version Card ── */
   versionCard: {
-    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    paddingHorizontal: 20,
+    marginHorizontal: 16,
+    paddingHorizontal: 16,
     paddingVertical: 15,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#E5E7EB',
-    marginTop: 16,
-    marginBottom: 20,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#EEF2F6',
+    marginTop: 18,
+    marginBottom: 16,
   },
   versionPill: {
     paddingHorizontal: 10,
@@ -957,25 +1164,21 @@ const styles = StyleSheet.create({
 
   /* ── Sign Out ── */
   signOutBtn: {
-    marginHorizontal: 20,
-    borderRadius: 14,
-    backgroundColor: '#fff1f2',
-    borderWidth: 1.5,
-    borderColor: '#fecaca',
-    marginBottom: 20,
-    overflow: 'hidden',
-  },
-  signOutInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
     gap: 10,
+    marginHorizontal: 16,
+    borderRadius: 14,
+    backgroundColor: '#EF4444',
+    paddingVertical: 16,
+    marginTop: 8,
+    marginBottom: 20,
   },
   signOutText: {
     fontSize: 15,
-    fontWeight: '700',
-    color: '#ef4444',
+    fontWeight: '800',
+    color: '#ffffff',
   },
 
   /* ── Footer ── */

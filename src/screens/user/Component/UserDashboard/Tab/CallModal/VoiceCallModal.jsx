@@ -8,6 +8,8 @@ import {
   StyleSheet,
   StatusBar,
   ActivityIndicator,
+  Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -67,6 +69,17 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
   const { startRinging, stopRinging } = useRingtone();
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isSpeaker, setIsSpeaker] = useState(false);
+  // Animated voice waveform
+  const waveAnims = useRef(
+    Array.from({ length: 9 }, () => new Animated.Value(0.3))
+  ).current;
+  // Avatar breathing pulse + expanding ripple rings
+  const avatarPulse = useRef(new Animated.Value(1)).current;
+  const ring1 = useRef(new Animated.Value(0)).current;
+  const ring2 = useRef(new Animated.Value(0)).current;
+  const ring3 = useRef(new Animated.Value(0)).current;
+  // Entrance fade/slide
+  const enterAnim = useRef(new Animated.Value(0)).current;
 
   const toggleSpeaker = () => {
     const next = !isSpeaker;
@@ -143,6 +156,81 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
     callingState === CallingState.LEFT ||
     callingState === CallingState.IDLE;
 
+  // Entrance: fade + rise once on mount.
+  useEffect(() => {
+    Animated.timing(enterAnim, {
+      toValue: 1,
+      duration: 420,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [enterAnim]);
+
+  // Avatar breathing pulse + expanding ripple rings while connecting/connected.
+  useEffect(() => {
+    const active = isConnecting || isConnected;
+    if (!active) {
+      avatarPulse.stopAnimation();
+      avatarPulse.setValue(1);
+      [ring1, ring2, ring3].forEach((r) => { r.stopAnimation(); r.setValue(0); });
+      return;
+    }
+
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(avatarPulse, { toValue: 1.05, duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(avatarPulse, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+
+    const ringLoop = (val, delay) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(val, { toValue: 1, duration: 2200, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+          Animated.timing(val, { toValue: 0, duration: 0, useNativeDriver: true }),
+        ])
+      );
+    const loops = [ringLoop(ring1, 0), ringLoop(ring2, 730), ringLoop(ring3, 1460)];
+    loops.forEach((l) => l.start());
+
+    return () => {
+      pulse.stop();
+      loops.forEach((l) => l.stop());
+    };
+  }, [isConnecting, isConnected, avatarPulse, ring1, ring2, ring3]);
+
+  // Ripple the waveform while the call is live (and not muted).
+  useEffect(() => {
+    const active = isConnected && !isMute;
+    if (!active) {
+      waveAnims.forEach((a) => { a.stopAnimation(); a.setValue(0.3); });
+      return;
+    }
+    const loops = waveAnims.map((a, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * 70),
+          Animated.timing(a, {
+            toValue: 0.55 + Math.random() * 0.45,
+            duration: 320 + Math.random() * 240,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(a, {
+            toValue: 0.28,
+            duration: 320 + Math.random() * 240,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ])
+      )
+    );
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, [isConnected, isMute, waveAnims]);
+
   // Stream "call.ended" events tear down the local state. If that doesn't fire
   // (admin-only end()), this catches it: once the remote was here and is now
   // gone, the other side hung up — leave too.
@@ -198,57 +286,116 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
   const t = isCounselor ? counselorTheme : userTheme;
 
   return (
-    <View style={[styles.audioCallWrap, { backgroundColor: t.bg }]}>
-      {/* Top — avatar, name, timer */}
-      <View style={styles.audioCallTop}>
-        <View style={[styles.avatarCircle, { backgroundColor: t.avatarBg }]}>
-          {profilePhotoUrl ? (
-            <Image source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
-          ) : (
-            <Text style={styles.avatarText}>{displayInitial}</Text>
-          )}
+    <View style={styles.audioCallWrap}>
+      {/* Top — avatar, name, badges, timer, waveform */}
+      <Animated.View
+        style={[
+          styles.audioCallTop,
+          {
+            opacity: enterAnim,
+            transform: [{ translateY: enterAnim.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }],
+          },
+        ]}
+      >
+        <View style={styles.avatarZone}>
+          {[ring1, ring2, ring3].map((r, i) => (
+            <Animated.View
+              key={i}
+              pointerEvents="none"
+              style={[
+                styles.ripple,
+                {
+                  opacity: r.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0] }),
+                  transform: [{ scale: r.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] }) }],
+                },
+              ]}
+            />
+          ))}
+          <Animated.View style={[styles.avatarRing, { transform: [{ scale: avatarPulse }] }]}>
+            <View style={styles.avatarCircle}>
+              {profilePhotoUrl ? (
+                <Image source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
+              ) : (
+                <Text style={styles.avatarText}>{displayInitial}</Text>
+              )}
+            </View>
+          </Animated.View>
         </View>
 
-        <Text style={styles.callerName}>{displayName}</Text>
+        <Text style={styles.callerName} numberOfLines={1}>{displayName}</Text>
 
-        <Text style={[styles.callStateText, { color: t.accent }]}>
-          {isConnecting
-            ? 'Connecting...'
-            : isConnected
-            ? formatTime(elapsedSeconds)
-            : 'Call Ended'}
-        </Text>
+        <View style={styles.badgeRow}>
+          <View style={styles.badgeAudio}>
+            <Text style={styles.badgeAudioText}>HD AUDIO</Text>
+          </View>
+          <View style={styles.badgeSecure}>
+            <Text style={styles.badgeSecureText}>ENCRYPTED</Text>
+          </View>
+        </View>
 
-        {isConnecting && (
-          <ActivityIndicator size="small" color={t.accent} style={{ marginTop: 8 }} />
-        )}
-      </View>
+        <View style={styles.timerRow}>
+          {isConnecting ? (
+            <ActivityIndicator size="small" color="#00652C" />
+          ) : (
+            <Ionicons name="timer-outline" size={15} color="#00652C" />
+          )}
+          <Text style={styles.timerText}>
+            {isConnecting ? 'Connecting…' : isConnected ? formatTime(elapsedSeconds) : 'Call Ended'}
+          </Text>
+        </View>
 
-      {/* Bottom — controls */}
-      <View style={styles.controlsRow}>
-        <TouchableOpacity
-          style={[styles.ctrlBtn, { backgroundColor: t.ctrlBg }, isMute && { backgroundColor: t.ctrlActive }]}
-          onPress={toggleMute}
-        >
-          <Ionicons name={isMute ? 'mic-off' : 'mic'} size={26} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.waveRow}>
+          {waveAnims.map((a, i) => (
+            <Animated.View key={i} style={[styles.waveBar, { transform: [{ scaleY: a }] }]} />
+          ))}
+        </View>
+      </Animated.View>
 
-        <TouchableOpacity style={[styles.ctrlBtn, styles.endBtn]} onPress={onLocalHangup}>
-          <Ionicons
-            name="call"
-            size={26}
-            color="#fff"
-            style={{ transform: [{ rotate: '135deg' }] }}
-          />
-        </TouchableOpacity>
+      {/* Bottom — control panel + end button */}
+      <Animated.View
+        style={[
+          styles.bottomArea,
+          {
+            opacity: enterAnim,
+            transform: [{ translateY: enterAnim.interpolate({ inputRange: [0, 1], outputRange: [26, 0] }) }],
+          },
+        ]}
+      >
+        <View style={styles.controlPanel}>
+          <TouchableOpacity
+            style={[styles.ctrlBtn, isMute && styles.ctrlBtnActive]}
+            onPress={toggleMute}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={isMute ? 'mic-off' : 'mic'}
+              size={24}
+              color={isMute ? '#ffffff' : '#0f172a'}
+            />
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.ctrlBtn, { backgroundColor: t.ctrlBg }, isSpeaker && { backgroundColor: t.ctrlActive }]}
-          onPress={toggleSpeaker}
-        >
-          <Ionicons name={isSpeaker ? 'volume-high' : 'volume-medium'} size={26} color="#fff" />
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={[styles.ctrlBtn, isSpeaker && styles.ctrlBtnActive]}
+            onPress={toggleSpeaker}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={isSpeaker ? 'volume-high' : 'volume-medium'}
+              size={24}
+              color={isSpeaker ? '#ffffff' : '#0f172a'}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.endBtn} onPress={onLocalHangup} activeOpacity={0.85}>
+            <Ionicons
+              name="call"
+              size={26}
+              color="#fff"
+              style={{ transform: [{ rotate: '135deg' }] }}
+            />
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
     </View>
   );
 };
@@ -522,21 +669,23 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
 
   return (
     <Modal visible={isOpen} animationType="slide" transparent={false} onRequestClose={handleClose}>
-      <SafeAreaView style={[styles.container, { backgroundColor: t.bg }]}>
-        <StatusBar barStyle="light-content" backgroundColor={t.header} />
+      <SafeAreaView style={[styles.container, { backgroundColor: '#ffffff' }]}>
+        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-        <View style={[styles.header, { backgroundColor: t.header, borderBottomColor: t.headerBorder }]}>
-          <Text style={styles.headerTitle}>Voice Call</Text>
-          <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
-            <Ionicons name="close" size={22} color="#fff" />
-          </TouchableOpacity>
-        </View>
+        {(loading || !!error) && (
+          <View style={styles.lightHeader}>
+            <Text style={styles.lightHeaderTitle}>Voice Call</Text>
+            <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
+              <Ionicons name="close" size={22} color="#0f172a" />
+            </TouchableOpacity>
+          </View>
+        )}
 
-        <View style={[styles.content, { backgroundColor: t.bg }]}>
+        <View style={[styles.content, { backgroundColor: '#ffffff' }]}>
           {loading && (
             <View style={styles.centerWrap}>
-              <ActivityIndicator size="large" color={t.accent} />
-              <Text style={[styles.statusText, { color: t.accent }]}>Connecting...</Text>
+              <ActivityIndicator size="large" color="#00652C" />
+              <Text style={[styles.statusText, { color: '#00652C' }]}>Connecting...</Text>
             </View>
           )}
 
@@ -544,7 +693,7 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
             <View style={styles.centerWrap}>
               <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
               <Text style={styles.errorText}>{error}</Text>
-              <TouchableOpacity style={[styles.retryBtn, { backgroundColor: t.retryBg }]} onPress={handleClose}>
+              <TouchableOpacity style={[styles.retryBtn, { backgroundColor: '#00652C' }]} onPress={handleClose}>
                 <Text style={styles.retryBtnText}>Close</Text>
               </TouchableOpacity>
             </View>
@@ -603,6 +752,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   headerTitle: { color: '#fff', fontSize: 17, fontWeight: '600' },
+  lightHeader: {
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#ffffff',
+  },
+  lightHeaderTitle: { color: '#0f172a', fontSize: 17, fontWeight: '700' },
   closeBtn: { padding: 4 },
   content: { flex: 1 },
   centerWrap: {
@@ -622,44 +780,164 @@ const styles = StyleSheet.create({
   },
   retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
 
-  // Audio call UI — bg/avatar/ctrl colors applied inline via theme
+  // ─── Audio call UI (Figma: white sheet, green accents) ────────────────────
   audioCallWrap: {
     flex: 1,
+    backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 80,
-    paddingBottom: 60,
   },
   audioCallTop: {
+    flex: 1,
     alignItems: 'center',
-    gap: 16,
+    justifyContent: 'center',
+    paddingBottom: 40,
+  },
+  avatarZone: {
+    width: 148,
+    height: 148,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 48,
+  },
+  ripple: {
+    position: 'absolute',
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    borderWidth: 2,
+    borderColor: '#2A8A51',
+  },
+  avatarRing: {
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    borderWidth: 1.5,
+    borderColor: '#E6E7EC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
   },
   avatarCircle: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
+    width: 122,
+    height: 122,
+    borderRadius: 61,
+    backgroundColor: '#E6F6EC',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
+    overflow: 'hidden',
   },
-  avatarText: { color: '#fff', fontSize: 44, fontWeight: '700' },
-  avatarImage: { width: 110, height: 110, borderRadius: 55 },
+  avatarText: { color: '#00652C', fontSize: 46, fontWeight: '700' },
+  avatarImage: { width: '100%', height: '100%' },
   callerName: {
-    color: '#ffffff',
-    fontSize: 26,
-    fontWeight: '600',
-    letterSpacing: 0.3,
+    color: '#0f172a',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    maxWidth: '82%',
+    textAlign: 'center',
   },
-  callStateText: { fontSize: 16, fontWeight: '400' },
-  controlsRow: { flexDirection: 'row', gap: 24 },
+  badgeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 16,
+  },
+  badgeAudio: {
+    backgroundColor: '#EEF2F7',
+    paddingHorizontal: 11,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  badgeAudioText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748b',
+    letterSpacing: 0.5,
+  },
+  badgeSecure: {
+    backgroundColor: '#E6F6EC',
+    paddingHorizontal: 11,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  badgeSecureText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#00652C',
+    letterSpacing: 0.5,
+  },
+  timerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 18,
+  },
+  timerText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#00652C',
+  },
+  waveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    height: 30,
+    marginTop: 22,
+  },
+  waveBar: {
+    width: 4,
+    height: 30,
+    borderRadius: 3,
+    backgroundColor: '#0E7552',
+  },
+
+  bottomArea: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  controlPanel: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 28,
+    width: '100%',
+    backgroundColor: '#F7F8FA',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingTop: 30,
+    paddingBottom: 38,
+    paddingHorizontal: 16,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 10,
+  },
   ctrlBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#E6F6EC',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  endBtn: { backgroundColor: '#ef4444' },
+  ctrlBtnActive: {
+    backgroundColor: '#00652C',
+  },
+  endBtn: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.32,
+    shadowRadius: 10,
+    elevation: 7,
+  },
 });
 
 export default VoiceCallModal;

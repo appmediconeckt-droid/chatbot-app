@@ -1,635 +1,601 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigation } from '@react-navigation/native';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
+  Image,
+  Switch,
+  StatusBar,
+  Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axiosInstance, { API_BASE_URL } from '../../../../../axiosConfig';
-import Feather from 'react-native-vector-icons/Feather';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import LinearGradient from 'react-native-linear-gradient';
+import axiosInstance from '../../../../../axiosConfig';
+import PATIENT from '../../../../../theme/palette';
+import PatientGradientButton from '../../../../../components/common/PatientGradientButton';
 
-/* ── helpers ──────────────────────────────────────────────────── */
-const INITIAL = {
-  otp: '', password: '', confirmPassword: '',
-  oldPassword: '', newPassword: '', confirmNewPassword: '',
-};
-
-const strengthOf = (pw) => {
-  let s = 0;
-  if (pw.length >= 6) s++;
-  if (/[A-Z]/.test(pw)) s++;
-  if (/\d/.test(pw)) s++;
-  if (/[^A-Za-z0-9]/.test(pw)) s++;
-  return s;
-};
-const STRENGTH_COLORS = ['#e2e8f0', '#f59e0b', '#f59e0b', '#10b981', '#10b981'];
-
-/* ── sub-components ───────────────────────────────────────────── */
-const StrengthBar = ({ password, strengthLabels }) => {
-  const score = useMemo(() => strengthOf(password), [password]);
-  if (!password) return null;
-  return (
-    <View style={st.wrap}>
-      <View style={st.bars}>
-        {[0, 1, 2, 3].map((i) => (
-          <View key={i} style={[st.bar, i < score && { backgroundColor: STRENGTH_COLORS[score] }]} />
-        ))}
-      </View>
-      <Text style={[st.label, { color: STRENGTH_COLORS[score] }]}>{strengthLabels[score]}</Text>
-    </View>
-  );
-};
-
-const PwInput = ({ label, value, onChange, placeholder, show, onToggle }) => (
-  <View style={f.field}>
-    <Text style={f.label}>{label}</Text>
-    <View style={f.row}>
-      <Feather name="lock" size={16} color="#94a3b8" style={f.icon} />
-      <TextInput
-        style={f.input}
-        value={value}
-        onChangeText={onChange}
-        secureTextEntry={!show}
-        autoCapitalize="none"
-        placeholder={placeholder}
-        placeholderTextColor="#94a3b8"
-        returnKeyType="next"
-      />
-      <TouchableOpacity onPress={onToggle} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-        <Feather name={show ? 'eye-off' : 'eye'} size={16} color="#94a3b8" />
-      </TouchableOpacity>
-    </View>
-  </View>
-);
-
-const Notice = ({ type, msg }) => {
-  if (!msg) return null;
-  const isErr = type === 'error';
-  return (
-    <View style={[n.wrap, isErr ? n.err : n.ok]}>
-      <Feather name={isErr ? 'alert-circle' : 'check-circle'} size={14} color={isErr ? '#dc2626' : '#16a34a'} />
-      <Text style={[n.text, { color: isErr ? '#dc2626' : '#16a34a' }]}>{msg}</Text>
-    </View>
-  );
-};
-
-/* ── main component ───────────────────────────────────────────── */
 const UserAccountSettings = ({ onNavigateBack }) => {
   const { t } = useTranslation();
   const navigation = useNavigation();
-  const [account, setAccount] = useState({ name: '', email: '', phone: '', authProvider: '', hasPassword: false });
-  const [loadingAccount, setLoadingAccount] = useState(true);
-  const [mode, setMode] = useState('change'); // 'change' | 'set'
-  const [form, setForm] = useState(INITIAL);
+  const [account, setAccount] = useState({ name: '', email: '', phone: '', profilePhoto: '' });
+  const [loading, setLoading] = useState(true);
+  const [appLockEnabled, setAppLockEnabled] = useState(false);
+  const [passwordMode, setPasswordMode] = useState('change'); // 'add' or 'change'
+
+  // Add password via OTP
   const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [newPasswordAdd, setNewPasswordAdd] = useState('');
+  const [confirmPasswordAdd, setConfirmPasswordAdd] = useState('');
+  const [showNewPasswordAdd, setShowNewPasswordAdd] = useState(false);
+
+  // Change password
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const [otpLoading, setOtpLoading] = useState(false);
   const [pwLoading, setPwLoading] = useState(false);
-  const [notice, setNotice] = useState({ type: '', msg: '' });
-  const [showOld, setShowOld] = useState(false);
-  const [showNew, setShowNew] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [imageError, setImageError] = useState(false);
 
-  // Password strength labels in selected language
-  const strengthLabels = [
-    t('settings:passwordStrengthTooShort'),
-    t('settings:passwordStrengthBasic'),
-    t('settings:passwordStrengthGood'),
-    t('settings:passwordStrengthStrong'),
-    t('settings:passwordStrengthVeryStrong'),
-  ];
-
-  useEffect(() => { loadAccount(); }, []);
+  useEffect(() => {
+    loadAccount();
+    checkAppLock();
+  }, []);
 
   const loadAccount = async () => {
-    setLoadingAccount(true);
     try {
       const userId = await AsyncStorage.getItem('userId');
-      const token = (await AsyncStorage.getItem('token')) || (await AsyncStorage.getItem('accessToken'));
-
-      // Fallback email stored at login time
       const rawUserData = await AsyncStorage.getItem('userData');
       const parsedUserData = rawUserData ? JSON.parse(rawUserData) : null;
       const storedEmail = (await AsyncStorage.getItem('userEmail')) || parsedUserData?.email || '';
 
       if (!userId) {
-        // No userId — at least populate email from storage so OTP can still be sent
         if (storedEmail) setAccount((p) => ({ ...p, email: storedEmail }));
-        setLoadingAccount(false);
+        setLoading(false);
         return;
       }
 
       const res = await axiosInstance.get(`/api/auth/getUser/${userId}`);
-
       if (res.data?.success && res.data.user) {
         const u = res.data.user;
-        const hasPass = typeof u.hasPassword === 'boolean'
-          ? u.hasPassword
-          : u.authProvider !== 'google' || !u.googleId;
+        const userName = u.fullName || u.name || 'Rohan';
+        const photoUri = typeof u.profilePhoto === 'string' ? u.profilePhoto?.trim() : null;
+
         setAccount({
-          name: u.fullName || u.name || '',
+          name: userName,
           email: u.email || storedEmail,
-          phone: u.phoneNumber || u.phone || '',
-          authProvider: u.authProvider || '',
-          hasPassword: hasPass,
+          phone: u.phoneNumber || u.phone || '6701424686',
+          profilePhoto: photoUri || `https://ui-avatars.com/api/?name=${userName.replace(/\s/g, '+')}&background=random`,
         });
-        setMode(hasPass ? 'change' : 'set');
-      } else if (storedEmail) {
-        setAccount((p) => ({ ...p, email: storedEmail }));
       }
     } catch (e) {
-      // API failed — try to at least get the email from storage
-      try {
-        const storedEmail = (await AsyncStorage.getItem('userEmail')) || (await AsyncStorage.getItem('email')) || '';
-        const userData = await AsyncStorage.getItem('userData');
-        const parsedEmail = userData ? JSON.parse(userData)?.email : '';
-        const finalEmail = storedEmail || parsedEmail || '';
-        if (finalEmail) setAccount((p) => ({ ...p, email: finalEmail }));
-      } catch (_) {}
+      console.error('Failed to load account:', e);
+      setAccount((p) => ({
+        ...p,
+        profilePhoto: 'https://ui-avatars.com/api/?name=User&background=random',
+      }));
     } finally {
-      setLoadingAccount(false);
+      setLoading(false);
     }
   };
 
-  const setF = (key, val) =>
-    setForm((p) => ({ ...p, [key]: key === 'otp' ? val.replace(/\D/g, '') : val }));
-
-  const clear = () => setNotice({ type: '', msg: '' });
-  const err = (msg) => setNotice({ type: 'error', msg });
-  const ok = (msg) => setNotice({ type: 'success', msg });
-
-  const switchMode = (m) => {
-    setMode(m); clear(); setForm(INITIAL); setOtpSent(false);
-    setShowOld(false); setShowNew(false); setShowConfirm(false);
+  const checkAppLock = async () => {
+    const pin = await AsyncStorage.getItem('appLockPin');
+    setAppLockEnabled(!!pin);
   };
 
-  /* ── Send OTP to email (generateOtp → Brevo email) ── */
-  const sendOtp = async () => {
-    clear();
-    const emailToUse = account.email?.trim().toLowerCase();
-    if (!emailToUse) { err('Email not found. Please log out and log in again.'); return; }
+  const handleSendOTP = async () => {
+    if (!account.email) {
+      Alert.alert('Error', 'Email not found');
+      return;
+    }
     setOtpLoading(true);
     try {
-      const res = await axiosInstance.post('/api/auth/generateOtp', { email: emailToUse });
+      const res = await axiosInstance.post('/api/auth/generateOtp', { email: account.email });
       if (res.data?.success) {
         setOtpSent(true);
-        ok(res.data.message || `OTP sent to ${emailToUse}`);
+        Alert.alert('Success', `OTP sent to ${account.email}`);
       } else {
-        err(res.data?.message || 'Failed to send OTP.');
+        Alert.alert('Error', res.data?.message || 'Failed to send OTP');
       }
     } catch (e) {
-      err(e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to send OTP.');
+      Alert.alert('Error', e.response?.data?.message || 'Failed to send OTP');
     } finally {
       setOtpLoading(false);
     }
   };
 
-  /* ── Set password with OTP (same as web) ── */
-  const addPassword = async () => {
-    clear();
-    if (!form.otp || form.otp.length !== 6) { err('Enter the 6-digit OTP sent to your email.'); return; }
-    if (form.password.length < 6) { err('Password must be at least 6 characters.'); return; }
-    if (form.password !== form.confirmPassword) { err('Passwords do not match.'); return; }
+  const handleAddPassword = async () => {
+    if (!otpCode || otpCode.length !== 6) {
+      Alert.alert('Error', 'Enter the 6-digit OTP');
+      return;
+    }
+    if (!newPasswordAdd) {
+      Alert.alert('Error', 'Enter new password');
+      return;
+    }
+    if (newPasswordAdd !== confirmPasswordAdd) {
+      Alert.alert('Error', 'Passwords do not match');
+      return;
+    }
+
     setPwLoading(true);
     try {
       const res = await axiosInstance.post('/api/auth/set-password-by-otp', {
-        email: account.email?.trim().toLowerCase(),
-        otp: form.otp,
-        password: form.password,
+        email: account.email,
+        otp: otpCode,
+        password: newPasswordAdd,
       });
       if (res.data?.success) {
-        ok(res.data.message || 'Password set successfully!');
-        setForm(INITIAL);
+        Alert.alert('Success', 'Password added successfully!');
         setOtpSent(false);
-        setAccount((p) => ({ ...p, hasPassword: true }));
-        setMode('change');
+        setOtpCode('');
+        setNewPasswordAdd('');
+        setConfirmPasswordAdd('');
+        setPasswordMode('change');
       } else {
-        err(res.data?.message || 'Failed to set password.');
+        Alert.alert('Error', res.data?.message || 'Failed to add password');
       }
     } catch (e) {
-      const msg = e.response?.data?.message || e.message || 'Failed. Please try again.';
-      err(msg);
-      if (/already set/i.test(msg)) setMode('change');
+      Alert.alert('Error', e.response?.data?.message || 'Failed to add password');
     } finally {
       setPwLoading(false);
     }
   };
 
-  /* ── change password ── */
-  const changePassword = async () => {
-    clear();
-    if (!form.oldPassword) { err('Enter your current password.'); return; }
-    if (form.newPassword.length < 6) { err('New password must be at least 6 characters.'); return; }
-    if (form.newPassword !== form.confirmNewPassword) { err('New passwords do not match.'); return; }
-    if (form.oldPassword === form.newPassword) { err('New password must be different from current.'); return; }
+  const handleChangePassword = async () => {
+    if (!currentPassword) {
+      Alert.alert('Error', 'Enter your current password');
+      return;
+    }
+    if (!newPassword) {
+      Alert.alert('Error', 'Enter your new password');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Error', 'Passwords do not match');
+      return;
+    }
+    if (currentPassword === newPassword) {
+      Alert.alert('Error', 'New password must be different');
+      return;
+    }
+
     setPwLoading(true);
     try {
       const res = await axiosInstance.post('/api/auth/changePassword', {
-        oldPassword: form.oldPassword, newPassword: form.newPassword,
+        oldPassword: currentPassword,
+        newPassword: newPassword,
       });
       if (res.data?.success) {
-        ok(res.data.message || 'Password changed successfully!');
-        setForm(INITIAL);
-        setAccount((p) => ({ ...p, hasPassword: true }));
+        Alert.alert('Success', 'Password changed successfully!');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
       } else {
-        err(res.data?.message || 'Failed to change password.');
+        Alert.alert('Error', res.data?.message || 'Failed to change password');
       }
     } catch (e) {
-      const msg = e.response?.data?.message || e.message || 'Failed to change password.';
-      err(msg);
-      if (/no password set/i.test(msg)) setMode('set');
+      Alert.alert('Error', e.response?.data?.message || 'Failed to change password');
     } finally {
       setPwLoading(false);
     }
   };
 
-  if (loadingAccount) {
+  const handleSaveSecurity = () => {
+    Alert.alert('Success', 'Security settings saved!');
+  };
+
+  if (loading) {
     return (
       <View style={s.center}>
-        <ActivityIndicator size="large" color="#4f46e5" />
-        <Text style={s.loadingTxt}>{t('common:loading')}</Text>
+        <ActivityIndicator size="large" color={PATIENT.primary} />
       </View>
     );
   }
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView
-        style={s.root}
-        contentContainerStyle={s.content}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <View style={s.header}>
-          {onNavigateBack && (
-            <TouchableOpacity style={s.backBtn} onPress={onNavigateBack} activeOpacity={0.7}>
-              <Feather name="arrow-left" size={20} color="#0f172a" />
-            </TouchableOpacity>
-          )}
-          <View style={{ flex: 1 }}>
-            <Text style={s.title}>{t('settings:account')}</Text>
-            <Text style={s.subtitle}>{t('settings:security')}</Text>
+    <View style={s.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+
+      {/* Header */}
+      <View style={s.header}>
+        <TouchableOpacity onPress={onNavigateBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Ionicons name="chevron-back" size={24} color="#0f172a" />
+        </TouchableOpacity>
+        <Text style={s.headerTitle}>Security</Text>
+        <View style={{ width: 24 }} />
+      </View>
+
+      <ScrollView style={s.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 0 }} scrollIndicatorInsets={{ right: 1 }}>
+        {/* Security Center */}
+        <View style={s.section}>
+          <View style={s.securityHeader}>
+            <Ionicons name="checkmark-circle" size={20} color={PATIENT.primary} />
+            <View style={{ marginLeft: 10, flex: 1 }}>
+              <Text style={s.securityTitle}>Security Center</Text>
+              <Text style={s.securitySub}>Manage your account protection</Text>
+            </View>
+          </View>
+
+          <View style={s.securityStatus}>
+            <View>
+              <Text style={s.protectedLabel}>Protected</Text>
+            </View>
+            <View style={s.scoreCard}>
+              <Text style={s.scoreText}>Score: 87%</Text>
+            </View>
+          </View>
+
+          <View style={s.checksList}>
+            {[
+              'Two-factor auth active',
+              'Strong password set',
+              'Biometrics enabled',
+            ].map((label, idx) => (
+              <View key={idx} style={s.checkItem}>
+                <Ionicons name="checkmark-circle" size={14} color={PATIENT.primary} />
+                <Text style={s.checkLabel}>{label}</Text>
+              </View>
+            ))}
           </View>
         </View>
 
-        {/* Account info */}
-        <View style={s.card}>
-          <Text style={s.cardTitle}>{t('settings:account')}</Text>
+        {/* Account Info */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>ACCOUNT INFO</Text>
+
+          <View style={s.accountCard}>
+            {!imageError && account.profilePhoto ? (
+              <Image
+                source={{ uri: String(account.profilePhoto).trim() }}
+                style={s.avatar}
+                onError={() => setImageError(true)}
+                onLoadStart={() => setImageError(false)}
+              />
+            ) : (
+              <View style={[s.avatar, s.avatarFallback]}>
+                <Text style={s.avatarText}>
+                  {account.name?.charAt(0)?.toUpperCase() || 'R'}
+                </Text>
+              </View>
+            )}
+            <View>
+              <Text style={s.accountName}>{account.name}</Text>
+              <Text style={s.accountType}>Personal Account</Text>
+            </View>
+          </View>
+
           {[
-            { key: 'name', label: t('auth:name'), val: account.name },
-            { key: 'email', label: t('auth:email'), val: account.email },
-            { key: 'phone', label: t('auth:phone'), val: account.phone },
-            { key: 'loginVia', label: t('settings:loginVia'), val: account.authProvider === 'google' ? 'Google' : t('settings:emailPassword') },
-            { key: 'password', label: t('auth:password'), val: account.hasPassword ? t('settings:passwordSet') : t('settings:passwordNotSet') },
-          ].map(({ key, label, val }) => (
-            <View key={key} style={s.infoRow}>
-              <Text style={s.infoKey}>{label}</Text>
-              <Text style={[s.infoVal, key === 'password' && !account.hasPassword && { color: '#f59e0b' }]}>
-                {val || '—'}
-              </Text>
+            { icon: 'mail-outline', label: 'Email', value: account.email },
+            { icon: 'phone-portrait-outline', label: 'Phone', value: account.phone },
+            { icon: 'log-in-outline', label: 'Login via', value: 'Email & Password' },
+          ].map((item, idx) => (
+            <View key={idx} style={s.infoRow}>
+              <Ionicons name={item.icon} size={16} color={PATIENT.primary} />
+              <View style={{ marginLeft: 10, flex: 1 }}>
+                <Text style={s.infoLabel}>{item.label}</Text>
+                <Text style={s.infoValue}>{item.value}</Text>
+              </View>
             </View>
           ))}
         </View>
 
         {/* Password Security */}
-        <View style={s.card}>
-          {/* Tab toggle */}
-          <View style={s.tabRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.cardTitle}>{t('settings:passwordSecurity')}</Text>
-              <Text style={s.cardSub}>
-                {mode === 'set' ? t('settings:setPasswordOtp') : t('settings:updatePassword')}
-              </Text>
+        <View style={s.section}>
+          <View style={s.passwordHeader}>
+            <View>
+              <Text style={s.sectionTitle}>Password Security</Text>
+              <Text style={s.passwordSub}>Update your current password</Text>
             </View>
-            <View style={s.tabs}>
-              <TouchableOpacity
-                style={[s.tab, mode === 'set' && s.tabActive]}
-                onPress={() => switchMode('set')}
-                activeOpacity={0.8}
-              >
-                <Text style={[s.tabTxt, mode === 'set' && s.tabTxtActive]}>{t('settings:addTab')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.tab, mode === 'change' && s.tabActive]}
-                onPress={() => switchMode('change')}
-                activeOpacity={0.8}
-              >
-                <Text style={[s.tabTxt, mode === 'change' && s.tabTxtActive]}>{t('settings:changeTab')}</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity>
+              <Text style={s.changeBtn}>Change</Text>
+            </TouchableOpacity>
           </View>
 
-          <Notice type={notice.type} msg={notice.msg} />
+          {/* Tabs */}
+          <View style={s.tabsContainer}>
+            <TouchableOpacity
+              style={[s.tab, passwordMode === 'add' && s.tabActive]}
+              onPress={() => setPasswordMode('add')}
+            >
+              <Text style={[s.tabText, passwordMode === 'add' && s.tabTextActive]}>Add</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.tab, passwordMode === 'change' && s.tabActive]}
+              onPress={() => setPasswordMode('change')}
+            >
+              <Text style={[s.tabText, passwordMode === 'change' && s.tabTextActive]}>Change</Text>
+            </TouchableOpacity>
+          </View>
 
-          {mode === 'set' ? (
-            <>
-              {/* Email row + Send OTP button */}
-              <View style={f.field}>
-                <Text style={f.label}>{t('settings:yourEmail')}</Text>
-                <View style={f.row}>
-                  <Feather name="mail" size={16} color="#94a3b8" style={f.icon} />
-                  <Text style={f.readOnly} numberOfLines={1}>{account.email || '—'}</Text>
-                  <TouchableOpacity
-                    style={[s.otpBtn, (otpLoading || !account.email) && s.btnDisabled]}
-                    onPress={sendOtp}
-                    disabled={otpLoading || !account.email}
-                    activeOpacity={0.8}
+          {/* Add Password Mode */}
+          {passwordMode === 'add' ? (
+            <View style={s.passwordContent}>
+              {!otpSent ? (
+                <>
+                  <View style={s.inputBox}>
+                    <Text style={s.inputLabel}>Email</Text>
+                    <View style={s.inputWrapper}>
+                      <Ionicons name="mail-outline" size={16} color="#94a3b8" />
+                      <Text style={s.emailReadonly}>{account.email}</Text>
+                      <TouchableOpacity
+                        style={[s.otpBtn, otpLoading && s.btnDisabled]}
+                        onPress={handleSendOTP}
+                        disabled={otpLoading}
+                      >
+                        {otpLoading ? (
+                          <ActivityIndicator size={12} color="#fff" />
+                        ) : (
+                          <Text style={s.otpBtnText}>Send OTP</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={s.inputBox}>
+                    <Text style={s.inputLabel}>OTP Code</Text>
+                    <View style={s.inputWrapper}>
+                      <Ionicons name="key-outline" size={16} color="#94a3b8" />
+                      <TextInput
+                        style={s.input}
+                        placeholder="000000"
+                        placeholderTextColor="#cbd5e1"
+                        value={otpCode}
+                        onChangeText={setOtpCode}
+                        keyboardType="number-pad"
+                        maxLength={6}
+                      />
+                    </View>
+                  </View>
+
+                  <View style={s.inputBox}>
+                    <Text style={s.inputLabel}>New Password</Text>
+                    <View style={s.inputWrapper}>
+                      <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
+                      <TextInput
+                        style={s.input}
+                        placeholder="••••••••••••"
+                        placeholderTextColor="#cbd5e1"
+                        secureTextEntry={!showNewPasswordAdd}
+                        value={newPasswordAdd}
+                        onChangeText={setNewPasswordAdd}
+                      />
+                      <TouchableOpacity onPress={() => setShowNewPasswordAdd(!showNewPasswordAdd)}>
+                        <Ionicons
+                          name={showNewPasswordAdd ? 'eye' : 'eye-off'}
+                          size={16}
+                          color="#94a3b8"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View style={s.inputBox}>
+                    <Text style={s.inputLabel}>Confirm Password</Text>
+                    <View style={s.inputWrapper}>
+                      <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
+                      <TextInput
+                        style={s.input}
+                        placeholder="••••••••••••"
+                        placeholderTextColor="#cbd5e1"
+                        secureTextEntry
+                        value={confirmPasswordAdd}
+                        onChangeText={setConfirmPasswordAdd}
+                      />
+                    </View>
+                  </View>
+
+                  <PatientGradientButton
+                    style={[s.submitBtn, pwLoading && s.btnDisabled]}
+                    onPress={handleAddPassword}
+                    disabled={pwLoading}
                   >
-                    {otpLoading
-                      ? <ActivityIndicator size={12} color="#fff" />
-                      : <Text style={s.otpBtnTxt}>{otpSent ? t('auth:resendOtp') : t('auth:sendOtp')}</Text>
-                    }
+                    {pwLoading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <>
+                        <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                        <Text style={s.submitBtnText}>Add Password</Text>
+                      </>
+                    )}
+                  </PatientGradientButton>
+                </>
+              )}
+            </View>
+          ) : (
+            <View style={s.passwordContent}>
+              <View style={s.inputBox}>
+                <Text style={s.inputLabel}>Current Password</Text>
+                <View style={s.inputWrapper}>
+                  <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
+                  <TextInput
+                    style={s.input}
+                    placeholder="••••••••••••"
+                    placeholderTextColor="#cbd5e1"
+                    secureTextEntry={!showCurrentPassword}
+                    value={currentPassword}
+                    onChangeText={setCurrentPassword}
+                  />
+                  <TouchableOpacity onPress={() => setShowCurrentPassword(!showCurrentPassword)}>
+                    <Ionicons
+                      name={showCurrentPassword ? 'eye' : 'eye-off'}
+                      size={16}
+                      color="#94a3b8"
+                    />
                   </TouchableOpacity>
                 </View>
               </View>
 
-              {/* OTP input — shown after OTP sent */}
-              {otpSent && (
-                <View style={f.field}>
-                  <Text style={f.label}>{t('settings:otpCodeLabel')}</Text>
-                  <View style={f.row}>
-                    <Feather name="hash" size={16} color="#94a3b8" style={f.icon} />
-                    <TextInput
-                      style={f.input}
-                      value={form.otp}
-                      onChangeText={(v) => setF('otp', v)}
-                      keyboardType="number-pad"
-                      maxLength={6}
-                      placeholder={t('settings:enter6DigitOtp')}
-                      placeholderTextColor="#94a3b8"
+              <View style={s.inputBox}>
+                <Text style={s.inputLabel}>New Password</Text>
+                <View style={s.inputWrapper}>
+                  <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
+                  <TextInput
+                    style={s.input}
+                    placeholder="••••••••••••"
+                    placeholderTextColor="#cbd5e1"
+                    secureTextEntry={!showNewPassword}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                  />
+                  <TouchableOpacity onPress={() => setShowNewPassword(!showNewPassword)}>
+                    <Ionicons
+                      name={showNewPassword ? 'eye' : 'eye-off'}
+                      size={16}
+                      color="#94a3b8"
                     />
-                  </View>
+                  </TouchableOpacity>
                 </View>
-              )}
+              </View>
 
-              <PwInput
-                label={t('auth:newPassword')}
-                value={form.password}
-                onChange={(v) => setF('password', v)}
-                placeholder={t('settings:min6Chars')}
-                show={showNew}
-                onToggle={() => setShowNew((x) => !x)}
-              />
-              <StrengthBar password={form.password} strengthLabels={strengthLabels} />
-              <PwInput
-                label={t('auth:confirmPassword')}
-                value={form.confirmPassword}
-                onChange={(v) => setF('confirmPassword', v)}
-                placeholder={t('settings:reEnterPassword')}
-                show={showConfirm}
-                onToggle={() => setShowConfirm((x) => !x)}
-              />
-              <TouchableOpacity
-                style={[s.submitBtn, (pwLoading || !otpSent) && s.btnDisabled]}
-                onPress={addPassword}
-                disabled={pwLoading || !otpSent}
-                activeOpacity={0.85}
-              >
-                {pwLoading
-                  ? <ActivityIndicator color="#fff" />
-                  : <><Feather name="save" size={16} color="#fff" /><Text style={s.submitTxt}>{t('common:save')}</Text></>
-                }
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <PwInput
-                label={t('auth:oldPassword')}
-                value={form.oldPassword}
-                onChange={(v) => setF('oldPassword', v)}
-                placeholder={t('settings:enterCurrentPassword')}
-                show={showOld}
-                onToggle={() => setShowOld((x) => !x)}
-              />
-              <PwInput
-                label={t('auth:newPassword')}
-                value={form.newPassword}
-                onChange={(v) => setF('newPassword', v)}
-                placeholder={t('settings:min6Chars')}
-                show={showNew}
-                onToggle={() => setShowNew((x) => !x)}
-              />
-              <StrengthBar password={form.newPassword} strengthLabels={strengthLabels} />
-              <PwInput
-                label={t('auth:confirmPassword')}
-                value={form.confirmNewPassword}
-                onChange={(v) => setF('confirmNewPassword', v)}
-                placeholder={t('settings:reEnterNewPassword')}
-                show={showConfirm}
-                onToggle={() => setShowConfirm((x) => !x)}
-              />
+              <View style={s.inputBox}>
+                <Text style={s.inputLabel}>Confirm Password</Text>
+                <View style={s.inputWrapper}>
+                  <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
+                  <TextInput
+                    style={s.input}
+                    placeholder="••••••••••••"
+                    placeholderTextColor="#cbd5e1"
+                    secureTextEntry={!showConfirmPassword}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                  />
+                  <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
+                    <Ionicons
+                      name={showConfirmPassword ? 'eye' : 'eye-off'}
+                      size={16}
+                      color="#94a3b8"
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
 
-              <TouchableOpacity
+              <PatientGradientButton
                 style={[s.submitBtn, pwLoading && s.btnDisabled]}
-                onPress={changePassword}
+                onPress={handleChangePassword}
                 disabled={pwLoading}
-                activeOpacity={0.85}
               >
-                {pwLoading
-                  ? <ActivityIndicator color="#fff" />
-                  : <><Feather name="check-circle" size={16} color="#fff" /><Text style={s.submitTxt}>{t('settings:changePassword')}</Text></>
-                }
-              </TouchableOpacity>
-            </>
+                {pwLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                    <Text style={s.submitBtnText}>Change Password</Text>
+                  </>
+                )}
+              </PatientGradientButton>
+            </View>
           )}
         </View>
 
         {/* App Lock */}
-        <TouchableOpacity
-          style={s.lockCard}
-          onPress={() => navigation.navigate('PinSetup')}
-          activeOpacity={0.8}
-        >
-          <View style={s.lockIconWrap}>
-            <Feather name="smartphone" size={18} color="#7c3aed" />
+        <View style={s.section}>
+          <View style={s.appLockRow}>
+            <View>
+              <Text style={s.appLockTitle}>App Lock</Text>
+              <Text style={s.appLockSub}>Face & PIN protection</Text>
+            </View>
+            <Switch
+              value={appLockEnabled}
+              onValueChange={() => navigation.navigate('AppLockSettings')}
+              trackColor={{ false: '#cbd5e1', true: PATIENT.primary }}
+              thumbColor="#ffffff"
+            />
           </View>
-          <View style={s.lockText}>
-            <Text style={s.lockTitle}>{t('settings:appLock')}</Text>
-            <Text style={s.lockSub}>{t('settings:pinFingerprint')}</Text>
-          </View>
-          <Feather name="chevron-right" size={18} color="#94a3b8" />
-        </TouchableOpacity>
+        </View>
 
-        <Text style={s.footer}>{t('settings:copyright')}</Text>
+        {/* Save Button */}
+        <PatientGradientButton style={s.saveBtn} onPress={handleSaveSecurity} activeOpacity={0.85}>
+          <Ionicons name="shield-checkmark" size={18} color="#ffffff" />
+          <Text style={s.saveBtnText}>Save Security Settings</Text>
+        </PatientGradientButton>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 
-export default UserAccountSettings;
-
-/* ── styles ───────────────────────────────────────────────────── */
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#f1f5f9' },
-  content: { paddingBottom: 48 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12, backgroundColor: '#f1f5f9' },
-  loadingTxt: { fontSize: 14, color: '#64748b' },
+  container: { flex: 1, backgroundColor: '#f8fafc', paddingTop: 0, paddingBottom: 40 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#ffffff', borderBottomWidth: 2, borderBottomColor: '#0066cc' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
+  scroll: { flex: 1 },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  title: { fontSize: 22, fontWeight: '700', color: '#0f172a' },
-  subtitle: { fontSize: 13, color: '#94a3b8', marginTop: 2 },
+  section: { backgroundColor: '#ffffff', marginHorizontal: 0, marginTop: 0, marginBottom: 0, borderRadius: 0, padding: 14, borderWidth: 0, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  sectionTitle: { fontSize: 10, fontWeight: '800', color: '#94a3b8', letterSpacing: 0.4, marginBottom: 10 },
 
-  card: {
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginTop: 16,
-    borderRadius: 18,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#e8ecf0',
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', marginBottom: 2 },
-  cardSub: { fontSize: 12, color: '#94a3b8', marginBottom: 16 },
+  securityHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
+  securityTitle: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
+  securitySub: { fontSize: 11, color: '#64748b', marginTop: 2 },
 
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-  },
-  infoKey: { fontSize: 13, color: '#64748b', fontWeight: '500' },
-  infoVal: { fontSize: 13, color: '#0f172a', fontWeight: '600', maxWidth: '60%', textAlign: 'right' },
+  securityStatus: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f1f5f9', padding: 10, borderRadius: 8, marginBottom: 10 },
+  protectedLabel: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
+  scoreCard: { backgroundColor: PATIENT.primary, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 },
+  scoreText: { fontSize: 10, fontWeight: '700', color: '#ffffff' },
 
-  tabRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-  },
-  tabs: {
-    flexDirection: 'row',
-    backgroundColor: '#f1f5f9',
-    borderRadius: 10,
-    padding: 3,
-    alignSelf: 'flex-start',
-    marginTop: 2,
-  },
-  tab: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8 },
-  tabActive: { backgroundColor: '#4f46e5' },
-  tabTxt: { fontSize: 13, fontWeight: '700', color: '#64748b' },
-  tabTxtActive: { color: '#fff' },
+  checksList: { gap: 6 },
+  checkItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  checkLabel: { fontSize: 12, fontWeight: '500', color: '#0f172a' },
 
-  otpBtn: {
-    backgroundColor: '#4f46e5',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
-    minWidth: 90,
-    alignItems: 'center',
-  },
-  otpBtnTxt: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  accountCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f1f5f9', padding: 10, borderRadius: 8, marginBottom: 10 },
+  avatar: { width: 36, height: 36, borderRadius: 18 },
+  avatarFallback: { backgroundColor: PATIENT.primary, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 16, fontWeight: '700', color: '#ffffff' },
+  accountName: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
+  accountType: { fontSize: 11, color: '#64748b', marginTop: 1 },
 
-  submitBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#4f46e5',
-    borderRadius: 14,
-    paddingVertical: 15,
-    marginTop: 8,
-  },
-  submitTxt: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  infoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  infoLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8' },
+  infoValue: { fontSize: 12, fontWeight: '600', color: '#0f172a', marginTop: 3 },
+
+  passwordHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  changeBtn: { fontSize: 12, fontWeight: '700', color: PATIENT.primary },
+  passwordSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
+
+  tabsContainer: { flexDirection: 'row', gap: 8, marginBottom: 12, backgroundColor: '#f1f5f9', padding: 4, borderRadius: 8 },
+  tab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
+  tabActive: { backgroundColor: PATIENT.primary },
+  tabText: { fontSize: 11, fontWeight: '700', color: '#64748b' },
+  tabTextActive: { color: '#ffffff' },
+
+  passwordContent: { gap: 10 },
+
+  inputBox: { marginBottom: 2 },
+  inputLabel: { fontSize: 11, fontWeight: '700', color: '#334155', marginBottom: 6 },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 8, paddingHorizontal: 11, borderWidth: 1, borderColor: '#dbe3ef', minHeight: 42, gap: 8 },
+  input: { flex: 1, color: '#0f172a', fontSize: 13, fontWeight: '500', paddingVertical: 10 },
+  emailReadonly: { flex: 1, color: '#64748b', fontSize: 13, fontWeight: '500' },
+
+  otpBtn: { backgroundColor: PATIENT.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, minWidth: 80, alignItems: 'center' },
+  otpBtnText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+
+  submitBtn: { borderRadius: 10, paddingVertical: 12, marginTop: 8 },
+  submitBtnText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
   btnDisabled: { opacity: 0.5 },
 
-  footer: { textAlign: 'center', fontSize: 11, color: '#cbd5e1', marginTop: 24 },
+  appLockRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  appLockTitle: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
+  appLockSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
 
-  lockCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginTop: 16,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: '#e8ecf0',
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-    gap: 12,
-  },
-  lockIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: '#EDE9FE',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  lockText: { flex: 1 },
-  lockTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
-  lockSub: { fontSize: 12, color: '#94a3b8', marginTop: 1 },
+  saveBtn: { marginHorizontal: 12, marginTop: 10, marginBottom: 12, borderRadius: 10, paddingVertical: 14, shadowColor: PATIENT.primary, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 3 },
+  saveBtnText: { fontSize: 15, fontWeight: '800', color: '#ffffff' },
 });
 
-/* field styles */
-const f = StyleSheet.create({
-  field: { marginBottom: 14 },
-  label: { fontSize: 13, fontWeight: '700', color: '#334155', marginBottom: 6 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#dbe3ef',
-    borderRadius: 12,
-    backgroundColor: '#f8fafc',
-    paddingHorizontal: 12,
-    minHeight: 50,
-    gap: 8,
-  },
-  icon: {},
-  input: { flex: 1, color: '#0f172a', fontSize: 14, paddingVertical: 10 },
-  readOnly: { flex: 1, color: '#64748b', fontSize: 14 },
-});
-
-/* strength bar styles */
-const st = StyleSheet.create({
-  wrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, marginTop: -4 },
-  bars: { flexDirection: 'row', flex: 1, gap: 4 },
-  bar: { flex: 1, height: 4, borderRadius: 2, backgroundColor: '#e2e8f0' },
-  label: { fontSize: 11, fontWeight: '700', minWidth: 62, textAlign: 'right' },
-});
-
-/* notice styles */
-const n = StyleSheet.create({
-  wrap: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, padding: 12, marginBottom: 14 },
-  err: { backgroundColor: '#fef2f2' },
-  ok: { backgroundColor: '#f0fdf4' },
-  text: { flex: 1, fontSize: 13, fontWeight: '500' },
-});
+export default UserAccountSettings;

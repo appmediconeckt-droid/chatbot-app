@@ -180,6 +180,35 @@ const IncomingCallModal = ({
   );
 };
 
+// ─── Image Preview Modal Component ────────────────────────────────────────
+const ImagePreviewModal = ({ isVisible, imageUrl, onClose }) => {
+  const [scale, setScale] = useState(1);
+
+  if (!isVisible || !imageUrl) return null;
+
+  return (
+    <Modal visible={isVisible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.imagePreviewOverlay}>
+        <TouchableOpacity
+          style={styles.imagePreviewCloseBtn}
+          onPress={onClose}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="close-circle" size={32} color="white" />
+        </TouchableOpacity>
+
+        <View style={styles.imagePreviewContainer}>
+          <Image
+            source={{ uri: imageUrl }}
+            style={styles.imagePreviewFull}
+            resizeMode="contain"
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 // ─── Main Component ────────────────────────────────────────────────────────
 const SMSInput = ({ navigation, route }) => {
   const { t } = useTranslation();
@@ -225,6 +254,8 @@ const SMSInput = ({ navigation, route }) => {
   const [error, setError] = useState(null);
   const [chatStatus, setChatStatus] = useState(null);
   const [pendingAttachment, setPendingAttachment] = useState(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
+  const [imagePreviewVisible, setImagePreviewVisible] = useState(false);
   const [deletingMessageId, setDeletingMessageId] = useState(null);
   // Call entries deleted (hidden) locally — there is no server API to delete a
   // call record, so we persist the hidden ids per chat.
@@ -369,6 +400,16 @@ const SMSInput = ({ navigation, route }) => {
   const openAttachment = useCallback(async (uri) => {
     if (!uri) return;
     try {
+      // Check if it's an image
+      const isImage = /\.(jpg|jpeg|png|gif|webp|heic|heif)$/i.test(uri);
+      if (isImage) {
+        // Show image preview modal
+        setImagePreviewUrl(uri);
+        setImagePreviewVisible(true);
+        return;
+      }
+
+      // For non-image files, open with default app
       if (Platform.OS === 'android') {
         const fileName = uri.split('/').pop().split('?')[0] || `attachment_${Date.now()}.pdf`;
         const destPath = `${RNFS.CachesDirectoryPath}/${fileName}`;
@@ -1200,7 +1241,7 @@ const SMSInput = ({ navigation, route }) => {
       <TouchableOpacity
         activeOpacity={0.85}
         onLongPress={() => confirmDeleteCall(item)}
-        style={[styles.callRow, isOutgoing ? styles.messageRight : styles.messageLeft]}
+        style={[styles.callRow, isOutgoing ? styles.msgRowRight : styles.msgRowLeft]}
       >
         <View style={[styles.callBubble, isOutgoing ? styles.callBubbleOut : styles.callBubbleIn]}>
           <View style={[styles.callIconCircle, isAlert && styles.callIconCircleAlert]}>
@@ -1235,9 +1276,7 @@ const SMSInput = ({ navigation, route }) => {
     if (item.isDaySeparator) {
       return (
         <View style={styles.daySeparatorRow}>
-          <View style={styles.daySeparatorLine} />
           <Text style={styles.daySeparatorLabel}>{item.label}</Text>
-          <View style={styles.daySeparatorLine} />
         </View>
       );
     }
@@ -1251,53 +1290,73 @@ const SMSInput = ({ navigation, route }) => {
     const isDeleting = String(deletingMessageId) === String(messageId);
     const canDelete = !!messageId && !item.isTemporary && item.status !== "sending" && item.status !== "error";
 
+    const url = getAttachmentUrl(item);
+    const hasAttachment = !!(item.attachmentName || item.attachmentUrl);
+    const isImage = hasAttachment && isImageAttachment(item) && url;
+
+    // Human-readable file meta: "2.4 MB • PDF"
+    const fileName = item.attachmentName || 'Attachment';
+    const ext = (fileName.split('.').pop() || '').toUpperCase();
+    const sizeBytes = Number(item.attachmentSize || item.fileSize || 0);
+    const sizeLabel =
+      sizeBytes > 0
+        ? sizeBytes >= 1024 * 1024
+          ? `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+          : `${Math.max(1, Math.round(sizeBytes / 1024))} KB`
+        : '';
+    const fileMeta = [sizeLabel, ext].filter(Boolean).join(' • ');
+
     return (
-      <View style={[styles.messageBubble, isMe ? styles.messageRight : styles.messageLeft]}>
-        {!isMe && (
-          <ChatAvatar
-            avatarUrl={userDetails.avatarUrl}
-            avatar={userDetails.avatar}
-            name={USER_NAME}
-            size={30}
-            style={{ borderWidth: 1.5, borderColor: '#FFFFFF' }}
-          />
-        )}
-        <Pressable
-          style={[styles.messageContent, isMe ? styles.userMessageContent : styles.counselorMessageContent]}
-          onLongPress={() => canDelete && handleDeleteMessage(item)}
-        >
-          {!!item.text && (
-            <TranslatedMessageBubble
-              text={item.text}
-              style={[styles.messageText, isMe ? styles.userMessageText : styles.counselorMessageText]}
-            />
-          )}
-          {(item.attachmentName || item.attachmentUrl) && (() => {
-            const url = getAttachmentUrl(item);
-            const name = item.attachmentName || '';
-            if (isImageAttachment(item) && url) {
-              return (
-                <TouchableOpacity onPress={() => openAttachment(url)}>
-                  <Image source={{ uri: url }} style={styles.attachmentImage} resizeMode="cover" />
-                </TouchableOpacity>
-              );
-            }
-            return (
+      <View style={[styles.msgRow, isMe ? styles.msgRowRight : styles.msgRowLeft]}>
+        {/* Plain text / image bubble */}
+        {(!!item.text || isImage) && (
+          <Pressable
+            style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}
+            onLongPress={() => canDelete && handleDeleteMessage(item)}
+          >
+            {!!item.text && (
+              <TranslatedMessageBubble
+                text={item.text}
+                style={[styles.messageText, isMe ? styles.userMessageText : styles.counselorMessageText]}
+              />
+            )}
+            {isImage && (
               <TouchableOpacity onPress={() => openAttachment(url)}>
-                <View style={[styles.attachmentBubble, isMe ? styles.userAttachmentBubble : styles.counselorAttachmentBubble]}>
-                  <Ionicons name="document-text-outline" size={16} color={isMe ? '#FFFFFF' : '#2563EB'} />
-                  <Text style={[styles.attachmentBubbleText, isMe ? styles.userAttachmentBubbleText : styles.counselorAttachmentBubbleText]} numberOfLines={1}>
-                    📎 {name || 'Attachment'}
-                  </Text>
-                </View>
+                <Image source={{ uri: url }} style={styles.attachmentImage} resizeMode="cover" />
               </TouchableOpacity>
-            );
-          })()}
-          <View style={styles.messageFooter}>
-            <Text style={[styles.messageTime, isMe && styles.messageTimeMine]}>{item.time}</Text>
-            {renderMessageStatus(item)}
-          </View>
-        </Pressable>
+            )}
+          </Pressable>
+        )}
+
+        {/* File card (non-image attachment) */}
+        {hasAttachment && !isImage && (
+          <Pressable
+            style={[styles.fileCard, isMe ? styles.fileCardMe : styles.fileCardThem]}
+            onPress={() => openAttachment(url)}
+            onLongPress={() => canDelete && handleDeleteMessage(item)}
+          >
+            <View style={[styles.fileIconBox, isMe && styles.fileIconBoxMe]}>
+              <Ionicons name="document-text" size={20} color={isMe ? '#FFFFFF' : '#2563EB'} />
+            </View>
+            <View style={styles.fileInfo}>
+              <Text style={[styles.fileName, isMe && styles.fileNameMe]} numberOfLines={1}>
+                {fileName}
+              </Text>
+              {!!fileMeta && (
+                <Text style={[styles.fileMeta, isMe && styles.fileMetaMe]} numberOfLines={1}>
+                  {fileMeta}
+                </Text>
+              )}
+            </View>
+            <Ionicons name="download-outline" size={20} color={isMe ? '#FFFFFF' : '#2563EB'} />
+          </Pressable>
+        )}
+
+        {/* Timestamp + read receipt OUTSIDE the bubble */}
+        <View style={[styles.msgMeta, isMe ? styles.msgMetaRight : styles.msgMetaLeft]}>
+          <Text style={styles.msgTime}>{item.time}</Text>
+          {isMe && renderMessageStatus(item)}
+        </View>
       </View>
     );
   };
@@ -1343,7 +1402,7 @@ const SMSInput = ({ navigation, route }) => {
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-                <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+                <Ionicons name="arrow-back" size={22} color="#1D4ED8" />
               </TouchableOpacity>
               <View style={styles.userInfo}>
                 <View style={styles.userAvatarWrapper}>
@@ -1371,14 +1430,14 @@ const SMSInput = ({ navigation, route }) => {
               </View>
             </View>
             <View style={styles.callButtons}>
-              <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.actionBtnDisabled]} onPress={initiateVoiceCall} disabled={isInitiatingCall}>
-                <Ionicons name="call" size={19} color="#FFFFFF" />
-              </TouchableOpacity>
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.actionBtnDisabled]} onPress={initiateVideoCall} disabled={isInitiatingCall}>
-                <Ionicons name="videocam" size={20} color="#FFFFFF" />
+                <Ionicons name="videocam-outline" size={22} color="#1D4ED8" />
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.actionBtnDisabled]} onPress={initiateVoiceCall} disabled={isInitiatingCall}>
+                <Ionicons name="call-outline" size={20} color="#1D4ED8" />
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(!showOptions)}>
-                <Ionicons name="ellipsis-vertical" size={18} color="#FFFFFF" />
+                <Ionicons name="ellipsis-vertical" size={18} color="#64748B" />
               </TouchableOpacity>
             </View>
           </View>
@@ -1465,7 +1524,7 @@ const SMSInput = ({ navigation, route }) => {
                 <View style={styles.inputWrapper}>
                   <TextInput
                     style={styles.textInput}
-                    placeholder={isSending ? "Sending..." : "Message"}
+                    placeholder={isSending ? "Sending..." : "Type a message..."}
                     placeholderTextColor="#8492a5"
                     value={message}
                     onChangeText={setMessage}
@@ -1488,6 +1547,7 @@ const SMSInput = ({ navigation, route }) => {
         <VideoCallModal isOpen={isVideoModalOpen} onClose={handleCloseModal} callData={selectedCall} currentUser={{ id: counselorId, role: "counsellor" }} onEndCall={handleEndIncomingCall} />
         <VoiceCallModal isOpen={isVoiceModalOpen} onClose={handleCloseModal} callData={selectedCall} currentUser={{ id: counselorId, role: "counsellor" }} onEndCall={handleEndIncomingCall} />
         <IncomingCallModal isOpen={isFocused && showIncomingModal} onClose={() => setShowIncomingModal(false)} callType={incomingCallData.callType} callerName={incomingCallData.name} callerAvatar={incomingCallData.avatar} callData={incomingCallData} onJoinCall={handleJoinIncomingCall} onRejectCall={handleRejectIncomingCall} />
+        <ImagePreviewModal isVisible={imagePreviewVisible} imageUrl={imagePreviewUrl} onClose={() => setImagePreviewVisible(false)} />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1504,19 +1564,19 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 14, color: '#6B7280', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
   backToListBtn: { paddingHorizontal: 24, paddingVertical: 10, backgroundColor: '#2563EB', borderRadius: 24, shadowColor: '#2563EB', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 3 },
   backToListBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#2563EB', shadowColor: '#1D4ED8', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.18, shadowRadius: 6, elevation: 4 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#EEF2F6' },
   headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 },
   backButton: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginRight: 4 },
   userInfo: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10, minWidth: 0 },
   userAvatarWrapper: { position: 'relative', width: 40, height: 40 },
   activeDot: { width: 10, height: 10, borderRadius: 5, position: 'absolute', bottom: 0, right: 0, borderWidth: 1.5, borderColor: '#FFFFFF' },
   userDetails: { flex: 1, minWidth: 0 },
-  userName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF', marginBottom: 1 },
+  userName: { fontSize: 16, fontWeight: '800', color: '#0F172A', marginBottom: 1 },
   profileStatus: { fontSize: 11 },
-  statusText: { color: 'rgba(255,255,255,0.75)', fontWeight: '500' },
+  statusText: { color: '#16A34A', fontWeight: '600' },
   typingText: { color: '#BFDBFE', fontWeight: '600' },
   callButtons: { flexDirection: 'row', gap: 4 },
-  actionBtn: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)' },
+  actionBtn: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center' },
   actionBtnDisabled: { opacity: 0.4 },
   errorBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF2F2', paddingHorizontal: 16, paddingVertical: 10, marginHorizontal: 16, marginTop: 12, marginBottom: 4, borderRadius: 12, gap: 8 },
   errorIcon: { fontSize: 16, marginRight: 6 },
@@ -1525,9 +1585,81 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: 14, color: '#6B7280', fontWeight: '500' },
   messagesArea: { flex: 1, width: '100%', backgroundColor: '#F1F5F9' },
   messagesList: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: 14, paddingVertical: 16, gap: 6, flexGrow: 1 },
-  daySeparatorRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 10 },
-  daySeparatorLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
-  daySeparatorLabel: { marginHorizontal: 8, fontSize: 11, fontWeight: '700', color: '#475569', backgroundColor: '#e2e8f0', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  daySeparatorRow: { alignItems: 'center', marginVertical: 14 },
+  daySeparatorLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+    backgroundColor: '#E8EDF5',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+
+  /* ── Figma chat bubbles ── */
+  msgRow: { width: '100%', marginBottom: 14 },
+  msgRowLeft: { alignItems: 'flex-start' },
+  msgRowRight: { alignItems: 'flex-end' },
+  bubble: {
+    maxWidth: screenWidth >= 600 ? 500 : '82%',
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderRadius: 18,
+  },
+  bubbleThem: {
+    backgroundColor: '#FFFFFF',
+    borderBottomLeftRadius: 6,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  bubbleMe: {
+    backgroundColor: '#2563EB',
+    borderBottomRightRadius: 6,
+    shadowColor: '#1E3A8A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  msgMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },
+  msgMetaLeft: { alignSelf: 'flex-start', marginLeft: 4 },
+  msgMetaRight: { alignSelf: 'flex-end', marginRight: 4 },
+  msgTime: { fontSize: 11.5, color: '#94A3B8', fontWeight: '500' },
+
+  /* ── File attachment card ── */
+  fileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    maxWidth: screenWidth >= 600 ? 500 : '82%',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 18,
+  },
+  fileCardThem: {
+    backgroundColor: '#FFFFFF',
+    borderBottomLeftRadius: 6,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  fileCardMe: { backgroundColor: '#2563EB', borderBottomRightRadius: 6 },
+  fileIconBox: {
+    width: 42, height: 42, borderRadius: 11,
+    backgroundColor: '#E8EFFB', alignItems: 'center', justifyContent: 'center',
+  },
+  fileIconBoxMe: { backgroundColor: 'rgba(255,255,255,0.22)' },
+  fileInfo: { flex: 1, minWidth: 0 },
+  fileName: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  fileNameMe: { color: '#FFFFFF' },
+  fileMeta: { fontSize: 11.5, color: '#94A3B8', fontWeight: '500', marginTop: 2 },
+  fileMetaMe: { color: 'rgba(255,255,255,0.8)' },
   callBubble: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, marginVertical: 3, maxWidth: '85%', borderWidth: 1 },
   callBubbleRight: { alignSelf: 'flex-end', backgroundColor: '#e8eaff', borderColor: '#c7d2fe' },
   callBubbleLeft: { alignSelf: 'flex-start', backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
@@ -1598,7 +1730,14 @@ const styles = StyleSheet.create({
   messageStatusIconWrap: { width: 16, alignItems: 'center', justifyContent: 'center' },
   messageStatusError: { fontSize: 11, color: '#EF4444', fontWeight: '500' },
   deleteIconBtn: { paddingHorizontal: 4, paddingVertical: 2, marginLeft: 4 },
-  attachmentImage: { width: 220, height: 180, borderRadius: 12, marginTop: 6 },
+  attachmentImage: {
+    width: screenWidth * 0.6,
+    height: screenWidth * 0.6 * 0.75,
+    borderRadius: 12,
+    marginTop: 8,
+    maxWidth: 280,
+    maxHeight: 280,
+  },
   attachmentBubble: { marginTop: 8, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 4 },
   userAttachmentBubble: { backgroundColor: 'rgba(255,255,255,0.15)' },
   counselorAttachmentBubble: { backgroundColor: '#F3F4F6' },
@@ -1610,11 +1749,21 @@ const styles = StyleSheet.create({
   attachmentPreview: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10, gap: 8 },
   attachmentPreviewText: { flex: 1, color: '#111827', fontSize: 12, fontWeight: '500' },
   inputGroupDisabled: { opacity: 0.7 },
-  inputGroup: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F8FAFC', borderRadius: 26, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: '#CBD5E1' },
-  attachBtn: { width: 34, height: 34, borderRadius: 17, justifyContent: 'center', alignItems: 'center', backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#DBEAFE' },
-  inputWrapper: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  inputGroup: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  attachBtn: { width: 42, height: 42, borderRadius: 21, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E8EFFB' },
+  inputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 16,
+    minHeight: 44,
+  },
   textInput: { flex: 1, fontSize: 14, lineHeight: 20, color: '#111827', paddingVertical: Platform.OS === 'ios' ? 6 : 4, paddingHorizontal: 8, maxHeight: 120, minHeight: 36, textAlignVertical: 'center' },
-  sendBtn: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center' },
+  sendBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
   sendBtnActive: { backgroundColor: '#1D4ED8', shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.35, shadowRadius: 5, elevation: 5 },
   sendBtnDisabled: { backgroundColor: '#CBD5E1', opacity: 0.7 },
   incomingCallOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.6)', justifyContent: 'center', alignItems: 'center' },
@@ -1672,6 +1821,31 @@ const styles = StyleSheet.create({
   },
   optionTextDanger: {
     color: '#dc2626',
+  },
+  // Image Preview Modal Styles
+  imagePreviewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePreviewContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  imagePreviewFull: {
+    width: '90%',
+    height: '90%',
+    maxWidth: screenWidth * 0.95,
+  },
+  imagePreviewCloseBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 20,
+    right: 16,
+    zIndex: 10,
+    padding: 8,
   },
 });
 

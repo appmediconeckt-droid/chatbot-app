@@ -99,7 +99,11 @@
     "counselor": "Counselor",
     "myAppointment": "My Appointment",
     "wallet": "Wallet",
-    "callHistory": "Call History"
+    "callHistory": "Call History",
+    "welcomeBack": "Welcome back,",
+    "goodMorning": "Good Morning",
+    "goodAfternoon": "Good Afternoon",
+    "goodEvening": "Good Evening"
   },
   "counselor": {
     "myClients": "My Clients",
@@ -142,7 +146,7 @@
     "noSessionsForDate": "No sessions for this date",
     "sessionsHint": "Your confirmed sessions for the selected day will appear here.",
     "appointmentCanceled": "This appointment was canceled.",
-    "available": "Available",
+    "available": "AVAILABLE",
     "patientsLabel": "Patients",
     "languagesLabel": "Languages",
     "specialtiesLabel": "Specialties",
@@ -185,7 +189,9 @@
     "deleteChat": "Delete Chat",
     "deleteChatConfirm": "Are you sure you want to delete this chat?",
     "deleteChatWarning": "⚠️ This action cannot be undone. All messages will be permanently deleted.",
-    "lastMessageLabel": "Last message"
+    "lastMessageLabel": "Last message",
+    "recent": "Recent",
+    "recentConversations": "Recent Conversations"
   },
   "settings": {
     "settings": "Settings",
@@ -411,7 +417,9 @@
     "upi": "UPI",
     "card": "Card",
     "netbanking": "NetBanking",
-    "walletPayment": "Wallet"
+    "walletPayment": "Wallet",
+    "premiumHealth": "PREMIUM HEALTH",
+    "confirmAndAdd": "Confirm and Add"
   },
   "appointment": {
     "counselorDirectory": "Counselor Directory",
@@ -452,7 +460,17 @@
     "failedToBook": "Failed to book appointment.",
     "accepted": "Accepted",
     "searchCounselorPlaceholder": "Search counselor by name, specialization, or location",
-    "sessionReasonPlaceholder": "Share what you want to discuss in this session..."
+    "sessionReasonPlaceholder": "Share what you want to discuss in this session...",
+    "recommendedForYou": "Recommended for you",
+    "availableCounselors": "Available Counselors",
+    "seeAll": "See All",
+    "scheduleAppointment": "Schedule Appointment",
+    "request": "Request",
+    "nearby": "Nearby",
+    "topRated": "Top Rated",
+    "nextAvailable": "Next Available",
+    "currentlyUnavailable": "Currently unavailable",
+    "completed": "completed"
   },
   "helpPage": {
     "title": "Help Support",

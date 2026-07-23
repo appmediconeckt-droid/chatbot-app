@@ -18,6 +18,7 @@ import axiosInstance, { API_BASE_URL } from '../../../../../../axiosConfig';
 import socketService from '../../../../../../services/socketService';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import LinearGradient from 'react-native-linear-gradient';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -181,13 +182,18 @@ const Dashboard = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => { setRefreshing(true); fetchData(); }}
-            colors={['#4f46e5']}
-            tintColor="#4f46e5"
+            colors={['#003A9B', '#1490FF']}
+            tintColor="#004AC6"
           />
         }
       >
         {/* Welcome */}
-        <View style={styles.welcomeBlock}>
+        <LinearGradient
+          colors={['#003A9B', '#1490FF']}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={styles.welcomeBlock}
+        >
           <View style={styles.welcomeTextWrap}>
             <Text style={styles.welcomeTitle}>
               {t('dashboard:welcomeBack')}{counselorName ? `,` : ''}{'\n'}
@@ -195,7 +201,7 @@ const Dashboard = () => {
             </Text>
             <Text style={styles.dateText}>{getFormattedDate()}</Text>
           </View>
-        </View>
+        </LinearGradient>
 
         {/* Stats row */}
         <View style={styles.statsRow}>
@@ -327,7 +333,6 @@ const styles = StyleSheet.create({
 
   // Welcome
   welcomeBlock: {
-    backgroundColor: '#4f46e5',
     borderRadius: 20,
     padding: 20,
     shadowColor: '#4f46e5',

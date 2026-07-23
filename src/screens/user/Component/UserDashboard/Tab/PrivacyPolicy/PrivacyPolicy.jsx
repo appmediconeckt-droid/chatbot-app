@@ -53,7 +53,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F9F9FF" />
       <View style={styles.header}>
         <TouchableOpacity onPress={onClose} style={styles.headerBtn} hitSlop={12}>
           <MaterialIcons name="arrow-back" size={24} color="#0f172a" />
@@ -69,7 +69,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
       >
         <View style={styles.hero}>
           <View style={styles.heroIcon}>
-            <MaterialIcons name="lock-outline" size={34} color="#2563eb" />
+            <MaterialIcons name="lock-outline" size={34} color="#00652C" />
           </View>
           <View style={styles.heroCopy}>
             <Text style={styles.heroTitle}>{t('privacyPage:centerTitle')}</Text>
@@ -80,7 +80,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
         <View style={styles.highlightRow}>
           {privacyHighlights.map((item) => (
             <View key={item.label} style={styles.highlightCard}>
-              <MaterialIcons name={item.icon} size={22} color="#2563eb" />
+              <MaterialIcons name={item.icon} size={22} color="#00652C" />
               <Text style={styles.highlightLabel}>{item.label}</Text>
               <Text style={styles.highlightValue}>{item.value}</Text>
             </View>
@@ -92,7 +92,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
           {privacyDataGroups.map((group) => (
             <View key={group.title} style={styles.dataCard}>
               <View style={styles.dataIcon}>
-                <MaterialIcons name={group.icon} size={22} color="#2563eb" />
+                <MaterialIcons name={group.icon} size={22} color="#00652C" />
               </View>
               <Text style={styles.dataTitle}>{group.title}</Text>
               <Text style={styles.dataText}>{group.text}</Text>
@@ -134,7 +134,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
 };
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#f8fafc' },
+  root: { flex: 1, backgroundColor: '#F9F9FF' },
   header: {
     alignItems: 'center',
     backgroundColor: '#ffffff',
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
   },
   heroIcon: {
     alignItems: 'center',
-    backgroundColor: '#eff6ff',
+    backgroundColor: '#E6F6EC',
     borderRadius: 18,
     height: 58,
     justifyContent: 'center',
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
   },
   dataIcon: {
     alignItems: 'center',
-    backgroundColor: '#eff6ff',
+    backgroundColor: '#E6F6EC',
     borderRadius: 13,
     height: 40,
     justifyContent: 'center',
@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
   checkText: { color: '#334155', flex: 1, fontSize: 13, lineHeight: 19 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 18 },
   actionBtn: {
-    backgroundColor: '#2563eb',
+    backgroundColor: '#00652C',
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,

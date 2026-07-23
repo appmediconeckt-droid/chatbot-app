@@ -99,7 +99,11 @@
     "counselor": "ಸಲಹೆಗಾರ",
     "myAppointment": "ನನ್ನ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್",
     "wallet": "ವಾಲೆಟ್",
-    "callHistory": "ಕಾಲ್ ಇತಿಹಾಸ"
+    "callHistory": "ಕಾಲ್ ಇತಿಹಾಸ",
+    "welcomeBack": "ಮತ್ತೆ ಸ್ವಾಗತ,",
+    "goodMorning": "ಶುಭೋದಯ",
+    "goodAfternoon": "ಶುಭ ಮಧ್ಯಾಹ್ನ",
+    "goodEvening": "ಶುಭ ಸಂಜೆ"
   },
   "counselor": {
     "myClients": "ನನ್ನ ರೋಗಿಗಳು",
@@ -173,7 +177,9 @@
     "deleteChat": "ಚಾಟ್ ಅಳಿಸಿ",
     "deleteChatConfirm": "ಈ ಚಾಟ್ ಅನ್ನು ಅಳಿಸಲು ನೀವು ಖಚಿತವಾಗಿ ಬಯಸುವಿರಾ?",
     "deleteChatWarning": "⚠️ ಈ ಕ್ರಿಯೆಯನ್ನು ರದ್ದುಗೊಳಿಸಲಾಗುವುದಿಲ್ಲ. ಎಲ್ಲಾ ಸಂದೇಶಗಳನ್ನು ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಲಾಗುತ್ತದೆ.",
-    "lastMessageLabel": "ಕೊನೆಯ ಸಂದೇಶ"
+    "lastMessageLabel": "ಕೊನೆಯ ಸಂದೇಶ",
+    "recent": "ಇತ್ತೀಚಿನ",
+    "recentConversations": "ಇತ್ತೀಚಿನ ಸಂಭಾಷಣೆಗಳು"
   },
   "settings": {
     "settings": "ಸೆಟ್ಟಿಂಗ್‌ಗಳು",
@@ -390,7 +396,9 @@
     "upi": "UPI",
     "card": "ಕಾರ್ಡ್",
     "netbanking": "ನೆಟ್‌ಬ್যಾಂಕಿಂಗ್",
-    "walletPayment": "ವಾಲೆಟ್"
+    "walletPayment": "ವಾಲೆಟ್",
+    "premiumHealth": "ಪ್ರೀಮಿಯಂ ಹೆಲ್ತ್",
+    "confirmAndAdd": "ದೃಢೀಕರಿಸಿ ಮತ್ತು ಸೇರಿಸಿ"
   },
   "appointment": {
     "counselorDirectory": "ಸಲಹೆಗಾರ ನಿರ್ದೇಶಿಕೆ",
@@ -431,7 +439,17 @@
     "failedToBook": "ಅಪಾಯಿಂಟ್ಮೆಂಟ್ ಬುಕ್ ಮಾಡಲು ವಿಫಲ.",
     "accepted": "ಸ್ವೀಕರಿಸಲಾಗಿದೆ",
     "searchCounselorPlaceholder": "ಹೆಸರು, ಪರಿಣತಿ ಅಥವಾ ಸ್ಥಳದ ಮೂಲಕ ಸಲಹೆಗಾರರನ್ನು ಹುಡುಕಿ",
-    "sessionReasonPlaceholder": "ಈ ಸೆಷನ್‌ನಲ್ಲಿ ನೀವು ಏನು ಚರ್ಚಿಸಲು ಬಯಸುತ್ತೀರಿ ಎಂದು ಹಂಚಿಕೊಳ್ಳಿ..."
+    "sessionReasonPlaceholder": "ಈ ಸೆಷನ್‌ನಲ್ಲಿ ನೀವು ಏನು ಚರ್ಚಿಸಲು ಬಯಸುತ್ತೀರಿ ಎಂದು ಹಂಚಿಕೊಳ್ಳಿ...",
+    "recommendedForYou": "ನಿಮಗಾಗಿ ಶಿಫಾರಸು",
+    "availableCounselors": "ಲಭ್ಯವಿರುವ ಸಲಹೆಗಾರರು",
+    "seeAll": "ಎಲ್ಲಾ ನೋಡಿ",
+    "scheduleAppointment": "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ನಿಗದಿಪಡಿಸಿ",
+    "request": "ವಿನಂತಿ",
+    "nearby": "ಹತ್ತಿರ",
+    "topRated": "ಟಾಪ್ ರೇಟೆಡ್",
+    "nextAvailable": "ಮುಂದಿನ ಲಭ್ಯತೆ",
+    "currentlyUnavailable": "ಪ್ರಸ್ತುತ ಲಭ್ಯವಿಲ್ಲ",
+    "completed": "ಪೂರ್ಣ"
   },
   "helpPage": {
     "title": "Help Support",

@@ -99,7 +99,11 @@
     "counselor": "ஆலோசகர்",
     "myAppointment": "என் நியமனம்",
     "wallet": "வாலட்",
-    "callHistory": "அழைப்பு வரலாறு"
+    "callHistory": "அழைப்பு வரலாறு",
+    "welcomeBack": "மீண்டும் வரவேற்கிறோம்,",
+    "goodMorning": "காலை வணக்கம்",
+    "goodAfternoon": "மதிய வணக்கம்",
+    "goodEvening": "மாலை வணக்கம்"
   },
   "counselor": {
     "myClients": "என் வாடிக்கையாளர்கள்",
@@ -173,7 +177,9 @@
     "deleteChat": "அரட்டையை நீக்கு",
     "deleteChatConfirm": "இந்த அரட்டையை நீக்க விரும்புகிறீர்களா?",
     "deleteChatWarning": "⚠️ இந்தச் செயலை மீட்டெடுக்க முடியாது. அனைத்து செய்திகளும் நிரந்தரமாக நீக்கப்படும்.",
-    "lastMessageLabel": "கடைசி செய்தி"
+    "lastMessageLabel": "கடைசி செய்தி",
+    "recent": "சமீபத்திய",
+    "recentConversations": "சமீபத்திய உரையாடல்கள்"
   },
   "settings": {
     "settings": "அமைப்புகள்",
@@ -390,7 +396,9 @@
     "upi": "UPI",
     "card": "கார்டு",
     "netbanking": "நெட்பேங்கிங்",
-    "walletPayment": "வாலட்"
+    "walletPayment": "வாலட்",
+    "premiumHealth": "பிரீமியம் ஹெல்த்",
+    "confirmAndAdd": "உறுதிப்படுத்தி சேர்"
   },
   "appointment": {
     "counselorDirectory": "ஆலோசகர் கோப்பகம்",
@@ -431,7 +439,17 @@
     "failedToBook": "சந்திப்பை பதிவு செய்ய முடியவில்லை.",
     "accepted": "ஏற்கப்பட்டது",
     "searchCounselorPlaceholder": "பெயர், சிறப்பு அல்லது இடம் மூலம் ஆலோசகரைத் தேடுங்கள்",
-    "sessionReasonPlaceholder": "இந்த அமர்வில் நீங்கள் என்ன பேச விரும்புகிறீர்கள் என்பதைப் பகிரவும்..."
+    "sessionReasonPlaceholder": "இந்த அமர்வில் நீங்கள் என்ன பேச விரும்புகிறீர்கள் என்பதைப் பகிரவும்...",
+    "recommendedForYou": "உங்களுக்கு பரிந்துரை",
+    "availableCounselors": "கிடைக்கும் ஆலோசகர்கள்",
+    "seeAll": "அனைத்தும் பார்",
+    "scheduleAppointment": "சந்திப்பை திட்டமிடு",
+    "request": "கோரிக்கை",
+    "nearby": "அருகில்",
+    "topRated": "சிறந்த மதிப்பீடு",
+    "nextAvailable": "அடுத்த கிடைக்கும்",
+    "currentlyUnavailable": "தற்போது கிடைக்கவில்லை",
+    "completed": "நிறைவு"
   },
   "helpPage": {
     "title": "Help Support",
