@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 const modeContent = {
   change: {
@@ -38,6 +39,7 @@ const modeContent = {
 };
 
 const PasswordForm = ({ mode = 'change', onSubmit }) => {
+  const { t } = useLanguageRender();
   const copy = modeContent[mode] || modeContent.change;
   const [email, setEmail] = useState('');
   const [oldPassword, setOldPassword] = useState('');
@@ -153,14 +155,14 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
           <View style={styles.iconCircle}>
             <Icon name={copy.icon} size={28} color="#2563eb" />
           </View>
-          <Text style={styles.title}>{copy.title}</Text>
-          <Text style={styles.subtitle}>{copy.subtitle}</Text>
+          <Text style={styles.title}>{t(copy.title)}</Text>
+          <Text style={styles.subtitle}>{t(copy.subtitle)}</Text>
         </View>
 
         <View style={styles.card}>
           {mode === 'setByOtp' && (
             <View style={styles.field}>
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>{t('Email')}</Text>
               <View style={styles.inputShell}>
                 <Icon name="alternate-email" size={20} color="#64748b" />
                 <TextInput
@@ -169,7 +171,7 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
                   style={styles.input}
                   keyboardType="email-address"
                   autoCapitalize="none"
-                  placeholder="user@example.com"
+                  placeholder={t('user@example.com')}
                   placeholderTextColor="#94a3b8"
                 />
               </View>

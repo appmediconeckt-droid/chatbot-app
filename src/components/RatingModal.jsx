@@ -9,11 +9,21 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
+import LinearGradient from "react-native-linear-gradient";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import StarRating from "./StarRating";
+import { toImageUri } from '../utils/imageUri';
+import useLanguageRender from '../hooks/useLanguageRender';
 
 // Short helper labels shown under the stars to make the choice feel rewarding.
 const STAR_LABELS = ["", "Poor", "Fair", "Good", "Very good", "Excellent"];
+
+// Same gradient and direction as the wallet balance card - this modal only ever
+// renders on the user side (RatingPrompt is mounted in UserDashboard).
+const GREEN_GRADIENT = ["#006B2C", "#01CE54"];
+const GREEN_GRADIENT_MUTED = ["#A8C9B5", "#C4E3D0"];
+const GRADIENT_START = { x: 0, y: 0.5 };
+const GRADIENT_END = { x: 1, y: 0.5 };
 
 /**
  * RatingModal
@@ -48,8 +58,14 @@ const RatingModal = ({
   onNeverAskAgain,
   onClose,
 }) => {
+  const { t } = useLanguageRender();
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState("");
+  const [reviewFocused, setReviewFocused] = useState(false);
+
+  // Resolve once: the raw value may be a Cloudinary object with no usable URL,
+  // in which case we must fall through to the initials avatar.
+  const photoUri = toImageUri(counselorPhoto);
 
   const initials = (counselorName || "C")
     .split(" ")
@@ -77,9 +93,16 @@ const RatingModal = ({
         <View style={styles.card}>
           {success ? (
             <View style={styles.successWrap}>
-              <Text style={styles.successIcon}>🎉</Text>
-              <Text style={styles.title}>Thank you!</Text>
-              <Text style={styles.subtitle}>Your rating has been submitted.</Text>
+              <LinearGradient
+                colors={GREEN_GRADIENT}
+                start={GRADIENT_START}
+                end={GRADIENT_END}
+                style={styles.successBadge}
+              >
+                <Ionicons name="checkmark" size={34} color="#fff" />
+              </LinearGradient>
+              <Text style={styles.title}>{t('Thank you!')}</Text>
+              <Text style={styles.subtitle}>{t('Your rating has been submitted.')}</Text>
             </View>
           ) : (
             <>
@@ -94,16 +117,21 @@ const RatingModal = ({
 
               {/* Avatar */}
               <View style={styles.avatarWrap}>
-                {counselorPhoto ? (
-                  <Image source={{ uri: counselorPhoto }} style={styles.avatar} />
+                {photoUri ? (
+                  <Image source={{ uri: photoUri }} style={styles.avatar} />
                 ) : (
-                  <View style={[styles.avatar, styles.avatarFallback]}>
+                  <LinearGradient
+                    colors={GREEN_GRADIENT}
+                    start={GRADIENT_START}
+                    end={GRADIENT_END}
+                    style={[styles.avatar, styles.avatarFallback]}
+                  >
                     <Text style={styles.avatarText}>{initials}</Text>
-                  </View>
+                  </LinearGradient>
                 )}
               </View>
 
-              <Text style={styles.title}>Rate your counselor</Text>
+              <Text style={styles.title}>{t('Rate your counselor')}</Text>
               <Text style={styles.subtitle}>
                 How was your experience with{" "}
                 <Text style={styles.counselorName}>{counselorName}</Text>?
@@ -124,11 +152,13 @@ const RatingModal = ({
 
               {/* Optional review */}
               <TextInput
-                style={styles.input}
-                placeholder="Add a review (optional)"
+                style={[styles.input, reviewFocused && styles.inputFocused]}
+                placeholder={t('Add a review (optional)')}
                 placeholderTextColor="#9AA5B1"
                 value={review}
                 onChangeText={setReview}
+                onFocus={() => setReviewFocused(true)}
+                onBlur={() => setReviewFocused(false)}
                 multiline
                 maxLength={500}
                 textAlignVertical="top"
@@ -137,16 +167,23 @@ const RatingModal = ({
 
               {/* Submit */}
               <TouchableOpacity
-                style={[styles.submitBtn, (rating < 1 || busy) && styles.submitBtnDisabled]}
+                style={styles.submitBtn}
                 onPress={handleSubmit}
                 disabled={rating < 1 || busy}
                 activeOpacity={0.85}
               >
-                {busy ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.submitText}>Submit rating</Text>
-                )}
+                <LinearGradient
+                  colors={rating < 1 || busy ? GREEN_GRADIENT_MUTED : GREEN_GRADIENT}
+                  start={GRADIENT_START}
+                  end={GRADIENT_END}
+                  style={styles.submitInner}
+                >
+                  {busy ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.submitText}>{t('Submit rating')}</Text>
+                  )}
+                </LinearGradient>
               </TouchableOpacity>
 
               {/* Remind me later */}
@@ -155,7 +192,7 @@ const RatingModal = ({
                 onPress={() => !busy && onRemindLater?.()}
                 disabled={busy}
               >
-                <Text style={styles.laterText}>Remind me later</Text>
+                <Text style={styles.laterText}>{t('Remind me later')}</Text>
               </TouchableOpacity>
 
               {/* Never ask again */}
@@ -164,7 +201,7 @@ const RatingModal = ({
                 onPress={() => !busy && onNeverAskAgain?.()}
                 disabled={busy}
               >
-                <Text style={styles.neverText}>Never ask again</Text>
+                <Text style={styles.neverText}>{t('Never ask again')}</Text>
               </TouchableOpacity>
             </>
           )}
@@ -204,7 +241,12 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   avatarWrap: {
-    marginBottom: 12,
+    marginBottom: 14,
+    padding: 3,
+    borderRadius: 38,
+    backgroundColor: "#E6F6EC",
+    borderWidth: 1,
+    borderColor: "#C9EBD6",
   },
   avatar: {
     width: 64,
@@ -212,7 +254,6 @@ const styles = StyleSheet.create({
     borderRadius: 32,
   },
   avatarFallback: {
-    backgroundColor: "#2c50cd",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -235,7 +276,7 @@ const styles = StyleSheet.create({
   },
   counselorName: {
     fontWeight: "700",
-    color: "#2c50cd",
+    color: "#006B2C",
   },
   starsRow: {
     marginBottom: 8,
@@ -259,18 +300,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#1F2937",
     marginBottom: 16,
+    backgroundColor: "#F8FAFB",
+  },
+  inputFocused: {
+    borderColor: "#01CE54",
+    backgroundColor: "#fff",
   },
   submitBtn: {
     width: "100%",
-    backgroundColor: "#2c50cd",
     borderRadius: 12,
+    // Clips the gradient to the rounded corners.
+    overflow: "hidden",
+  },
+  submitInner: {
     paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
     minHeight: 50,
-  },
-  submitBtnDisabled: {
-    backgroundColor: "#A9B6D9",
   },
   submitText: {
     color: "#fff",
@@ -298,9 +344,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 24,
   },
-  successIcon: {
-    fontSize: 44,
-    marginBottom: 8,
+  successBadge: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
   },
 });
 

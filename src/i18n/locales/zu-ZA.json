@@ -71,7 +71,7 @@
     "passwordMinLength": "Iphasiwedi kumele okungenani ibe nezinhlamvu eziyisi-6",
     "passwordsDoNotMatch": "Amagama-mfihlo awafani",
     "sessionExpired": "Iseshini iphelelwe yisikhathi. Sicela ungene ngemvume futhi.",
-    "chooseRole": "Khetha indlela ofuna ukuyisebenzisa ngayo i-Mediconect",
+    "chooseRole": "Khetha indlela ofuna ukuyisebenzisa ngayo i-Humaeli",
     "userRole": "Umsebenzisi",
     "counselorRole": "Umeluleki",
     "userRoleDesc": "Thola ukwesekwa kwabeluleki abangochwepheshe",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Faka kabusha iphasiwedi",
     "enterCurrentPassword": "Faka iphasiwedi yamanje",
     "reEnterNewPassword": "Faka kabusha iphasiwedi entsha",
-    "copyright": "�� 2025 Mediconnect. Wonke Amalungelo Agodliwe."
+    "copyright": "�� 2025 Humaeli. Wonke Amalungelo Agodliwe."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Usizo Lokusekela",
-    "centerTitle": "Isikhungo sokusekela se-MediConeckt",
-    "centerDesc": "Sebenzisa lesi sikhungo sosekelo ukuze weqele esicini esifanele se-MediConeckt, uxazulule izinkinga ezivamile, futhi uqonde ukuthi ungaxhumana nini nosizo oluphuthumayo ngaphandle kohlelo lokusebenza.",
+    "centerTitle": "Isikhungo sokusekela se-Humaeli",
+    "centerDesc": "Sebenzisa lesi sikhungo sosekelo ukuze weqele esicini esifanele se-Humaeli, uxazulule izinkinga ezivamile, futhi uqonde ukuthi ungaxhumana nini nosizo oluphuthumayo ngaphandle kohlelo lokusebenza.",
     "aiWellnessChat": "Ingxoxo yezempilo ye-AI",
     "aiWellnessDesc": "Buza imibuzo ephathelene nokuphila kahle kwengqondo, sebenzisa okokufaka kwezwi, thola izimpendulo ezisheshayo, futhi uqhubeke nengxoxo yakho yakamuva ye-AI ukusuka kudeshibhodi.",
     "aiWellnessAction": "Vula ingxoxo ye-AI",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Inqubomgomo Yobumfihlo",
-    "centerTitle": "Isikhungo sobumfihlo se-MediConeckt",
-    "centerDesc": "Lesi sikhungo sobumfihlo sichaza ukuthi i-MediConeckt isebenzisa kanjani iphrofayela yakho, ingxoxo, i-aphoyintimenti, isikhwama semali, ikholi, indawo, nedatha yezokuphepha ngaphakathi kwalolu hlelo lokusebenza lweselula.",
+    "centerTitle": "Isikhungo sobumfihlo se-Humaeli",
+    "centerDesc": "Lesi sikhungo sobumfihlo sichaza ukuthi i-Humaeli isebenzisa kanjani iphrofayela yakho, ingxoxo, i-aphoyintimenti, isikhwama semali, ikholi, indawo, nedatha yezokuphepha ngaphakathi kwalolu hlelo lokusebenza lweselula.",
     "otpProtected": "I-OTP ivikelwe",
     "otpProtectedDesc": "Izinguquko ze-imeyili nefoni",
     "anonymousCare": "Ubunikazi bokunakekela obungaziwa",

@@ -71,7 +71,7 @@
     "passwordMinLength": "A senha deve ter pelo menos 6 caracteres",
     "passwordsDoNotMatch": "As senhas não coincidem",
     "sessionExpired": "A sessão expirou. Faça login novamente.",
-    "chooseRole": "Escolha como você deseja usar o Mediconect",
+    "chooseRole": "Escolha como você deseja usar o Humaeli",
     "userRole": "Usuário",
     "counselorRole": "Conselheiro",
     "userRoleDesc": "Obtenha apoio de conselheiros profissionais",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Digite novamente a senha",
     "enterCurrentPassword": "Digite a senha atual",
     "reEnterNewPassword": "Digite novamente a nova senha",
-    "copyright": "© 2025 Mediconnect. Todos os direitos reservados."
+    "copyright": "© 2025 Humaeli. Todos os direitos reservados."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Suporte de ajuda",
-    "centerTitle": "Centro de suporte MediConeckt",
-    "centerDesc": "Use este centro de suporte para acessar o recurso correto do MediConeckt, solucionar problemas comuns e entender quando entrar em contato com ajuda urgente fora do aplicativo.",
+    "centerTitle": "Centro de suporte Humaeli",
+    "centerDesc": "Use este centro de suporte para acessar o recurso correto do Humaeli, solucionar problemas comuns e entender quando entrar em contato com ajuda urgente fora do aplicativo.",
     "aiWellnessChat": "Bate-papo de bem-estar com IA",
     "aiWellnessDesc": "Faça perguntas sobre bem-estar mental, use entrada de voz, obtenha respostas rápidas e continue seu bate-papo recente com IA no painel.",
     "aiWellnessAction": "Abrir bate-papo com IA",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Política de Privacidade",
-    "centerTitle": "Centro de privacidade MediConeckt",
-    "centerDesc": "Este centro de privacidade explica como a MediConeckt usa seu perfil, bate-papo, compromisso, carteira, chamada, localização e dados de segurança dentro deste aplicativo móvel.",
+    "centerTitle": "Centro de privacidade Humaeli",
+    "centerDesc": "Este centro de privacidade explica como a Humaeli usa seu perfil, bate-papo, compromisso, carteira, chamada, localização e dados de segurança dentro deste aplicativo móvel.",
     "otpProtected": "OTP protegido",
     "otpProtectedDesc": "Mudanças de e-mail e telefone",
     "anonymousCare": "Identidade de cuidado anônima",

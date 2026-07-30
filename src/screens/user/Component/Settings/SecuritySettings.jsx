@@ -14,8 +14,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import PATIENT from '../../../../theme/palette';
+import useLanguageRender from '../../../../hooks/useLanguageRender';
 
 const SecuritySettings = ({ navigation }) => {
+  const { t } = useLanguageRender();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -41,7 +43,7 @@ const SecuritySettings = ({ navigation }) => {
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="chevron-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Security</Text>
+        <Text style={s.headerTitle}>{t('Security')}</Text>
         <View style={{ width: 24 }} />
       </View>
 
@@ -53,17 +55,17 @@ const SecuritySettings = ({ navigation }) => {
               <Ionicons name="shield-checkmark" size={28} color={PATIENT.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={s.securityTitle}>Security Center</Text>
-              <Text style={s.securitySubtitle}>Keep your account protection and authentication secure</Text>
+              <Text style={s.securityTitle}>{t('Security Center')}</Text>
+              <Text style={s.securitySubtitle}>{t('Keep your account protection and authentication secure')}</Text>
             </View>
           </View>
 
           <View style={s.securityStatus}>
             <View style={s.statusLeft}>
-              <Text style={s.statusLabel}>Protected</Text>
+              <Text style={s.statusLabel}>{t('Protected')}</Text>
             </View>
             <View style={[s.statusBadge, { backgroundColor: PATIENT.primary }]}>
-              <Text style={s.statusBadgeText}>Score: 87%</Text>
+              <Text style={s.statusBadgeText}>{t('Score: 87%')}</Text>
             </View>
           </View>
 
@@ -75,7 +77,7 @@ const SecuritySettings = ({ navigation }) => {
             ].map((item, idx) => (
               <View key={idx} style={s.checkItem}>
                 <Ionicons name={item.icon} size={18} color={PATIENT.primary} />
-                <Text style={s.checkLabel}>{item.label}</Text>
+                <Text style={s.checkLabel}>{t(item.label)}</Text>
               </View>
             ))}
           </View>
@@ -83,7 +85,7 @@ const SecuritySettings = ({ navigation }) => {
 
         {/* Account Info */}
         <View style={s.section}>
-          <Text style={s.sectionTitle}>ACCOUNT INFO</Text>
+          <Text style={s.sectionTitle}>{t('ACCOUNT INFO')}</Text>
 
           <View style={s.accountCard}>
             <Image
@@ -91,8 +93,8 @@ const SecuritySettings = ({ navigation }) => {
               style={s.accountAvatar}
             />
             <View style={{ flex: 1 }}>
-              <Text style={s.accountName}>Rohan</Text>
-              <Text style={s.accountType}>Personal Account</Text>
+              <Text style={s.accountName}>{t('Rohan')}</Text>
+              <Text style={s.accountType}>{t('Personal Account')}</Text>
             </View>
           </View>
 
@@ -104,7 +106,7 @@ const SecuritySettings = ({ navigation }) => {
             <View key={idx} style={s.infoRow}>
               <Ionicons name={item.icon} size={18} color={PATIENT.primary} />
               <View style={{ flex: 1, marginLeft: 14 }}>
-                <Text style={s.infoLabel}>{item.label}</Text>
+                <Text style={s.infoLabel}>{t(item.label)}</Text>
                 <Text style={s.infoValue}>{item.value}</Text>
               </View>
             </View>
@@ -114,20 +116,20 @@ const SecuritySettings = ({ navigation }) => {
         {/* Password Security */}
         <View style={s.section}>
           <View style={s.passwordHeader}>
-            <Text style={s.sectionTitle}>Password Security</Text>
+            <Text style={s.sectionTitle}>{t('Password Security')}</Text>
             <TouchableOpacity>
-              <Text style={s.cancelBtn}>Cancel</Text>
+              <Text style={s.cancelBtn}>{t('Cancel')}</Text>
             </TouchableOpacity>
           </View>
-          <Text style={s.passwordSubtitle}>Update your current password</Text>
+          <Text style={s.passwordSubtitle}>{t('Update your current password')}</Text>
 
           {/* Current Password */}
           <View style={s.inputBox}>
-            <Text style={s.inputLabel}>Current Password</Text>
+            <Text style={s.inputLabel}>{t('Current Password')}</Text>
             <View style={s.inputWrapper}>
               <TextInput
                 style={s.input}
-                placeholder="••••••••••••"
+                placeholder={t('••••••••••••')}
                 placeholderTextColor="#cbd5e1"
                 secureTextEntry={!showCurrentPassword}
                 value={currentPassword}
@@ -141,16 +143,16 @@ const SecuritySettings = ({ navigation }) => {
                 />
               </TouchableOpacity>
             </View>
-            <Text style={s.inputHint}>Updated 2 mos ago</Text>
+            <Text style={s.inputHint}>{t('Updated 2 mos ago')}</Text>
           </View>
 
           {/* New Password */}
           <View style={s.inputBox}>
-            <Text style={s.inputLabel}>New Password</Text>
+            <Text style={s.inputLabel}>{t('New Password')}</Text>
             <View style={s.inputWrapper}>
               <TextInput
                 style={s.input}
-                placeholder="Enter new password"
+                placeholder={t('Enter new password')}
                 placeholderTextColor="#cbd5e1"
                 secureTextEntry={!showNewPassword}
                 value={newPassword}
@@ -207,11 +209,11 @@ const SecuritySettings = ({ navigation }) => {
 
           {/* Confirm Password */}
           <View style={s.inputBox}>
-            <Text style={s.inputLabel}>Confirm Password</Text>
+            <Text style={s.inputLabel}>{t('Confirm Password')}</Text>
             <View style={s.inputWrapper}>
               <TextInput
                 style={s.input}
-                placeholder="Confirm new password"
+                placeholder={t('Confirm new password')}
                 placeholderTextColor="#cbd5e1"
                 secureTextEntry
                 value={confirmPassword}
@@ -229,7 +231,7 @@ const SecuritySettings = ({ navigation }) => {
               style={s.saveBtn}
             >
               <Ionicons name="checkmark-circle" size={18} color="#ffffff" />
-              <Text style={s.saveBtnText}>Save Changes</Text>
+              <Text style={s.saveBtnText}>{t('Save Changes')}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -238,8 +240,8 @@ const SecuritySettings = ({ navigation }) => {
         <View style={s.section}>
           <View style={s.appLockRow}>
             <View>
-              <Text style={s.appLockTitle}>App Lock</Text>
-              <Text style={s.appLockSubtitle}>Face & PIN protection</Text>
+              <Text style={s.appLockTitle}>{t('App Lock')}</Text>
+              <Text style={s.appLockSubtitle}>{t('Face & PIN protection')}</Text>
             </View>
             <Switch
               value={appLockEnabled}
@@ -253,7 +255,7 @@ const SecuritySettings = ({ navigation }) => {
         {/* Save Security Settings */}
         <TouchableOpacity activeOpacity={0.85} style={s.saveSecurityBtn}>
           <Ionicons name="shield-checkmark" size={18} color="#ffffff" />
-          <Text style={s.saveSecurityBtnText}>Save Security Settings</Text>
+          <Text style={s.saveSecurityBtnText}>{t('Save Security Settings')}</Text>
         </TouchableOpacity>
 
         <View style={{ height: 30 }} />

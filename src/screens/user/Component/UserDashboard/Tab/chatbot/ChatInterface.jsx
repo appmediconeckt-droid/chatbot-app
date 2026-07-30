@@ -25,8 +25,19 @@ import axios from 'axios';
 import socketService from '../../../../../../services/socketService';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import safeVibrate from '../../../../../../utils/safeVibrate';
+import { toImageUri } from '../../../../../../utils/imageUri';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import LinearGradient from 'react-native-linear-gradient';
 import PATIENT from '../../../../../../theme/palette';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+
+// Same gradient and direction as the wallet balance card.
+const WALLET_GRADIENT = ['#006B2C', '#01CE54'];
+// Lets the inactive pill keep its own background while rendering an identically
+// sized gradient layer, so selecting a chip cannot change its width.
+const TRANSPARENT_GRADIENT = ['transparent', 'transparent'];
+const GRADIENT_START = { x: 0, y: 0.5 };
+const GRADIENT_END = { x: 1, y: 0.5 };
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -85,7 +96,7 @@ const resolveOnlineStatus = (person) => {
 
 const ChatInterface = ({ setActiveTab }) => {
   const navigation = useNavigation();
-  const { t } = useTranslation(['messages', 'common', 'dashboard']);
+  const { t } = useLanguageRender();
 
   const [counselors, setCounselors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -248,7 +259,7 @@ const ChatInterface = ({ setActiveTab }) => {
             unread: chat.unreadCount || 0,
             online: resolveOnlineStatus(otherParty),
             lastSeen: otherParty.lastSeen || null,
-            avatar: otherParty.profilePhoto?.url || otherParty.avatar,
+            avatar: toImageUri(otherParty.profilePhoto) || toImageUri(otherParty.avatar),
             specialization,
             chatId: chat.chatId,
             status: chat.status,
@@ -301,7 +312,7 @@ const ChatInterface = ({ setActiveTab }) => {
               unread: chat.unreadCount || 0,
               online: resolveOnlineStatus(otherParty),
               lastSeen: otherParty.lastSeen || null,
-              avatar: otherParty.profilePhoto?.url || otherParty.avatar,
+              avatar: toImageUri(otherParty.profilePhoto) || toImageUri(otherParty.avatar),
               specialization,
               chatId: chat.chatId,
               status: chat.status,
@@ -528,7 +539,9 @@ const ChatInterface = ({ setActiveTab }) => {
   }, [counselors, searchTerm, activeFilter]);
 
   const renderAvatar = (counselor) => {
-    const avatarUrl = counselor.avatar || counselor.profilePhoto?.url;
+    // `?.url` alone missed Cloudinary objects that only carry `secure_url`, and
+    // plain string URLs, so counselors with a photo still showed initials.
+    const avatarUrl = toImageUri(counselor.profilePhoto) || toImageUri(counselor.avatar);
     if (avatarUrl) {
       return (
         <Image
@@ -674,16 +687,27 @@ const ChatInterface = ({ setActiveTab }) => {
         >
           {filterChips.map((chip) => {
             const active = activeFilter === chip.id;
+            // Both states render the same tree with the same metrics - only the
+            // gradient stops and text colour change. Branching the structure (or
+            // the font weight) resized the pill on tap, which shifted the whole
+            // row and pushed the last chip out of the scroll view.
             return (
               <TouchableOpacity
                 key={chip.id}
-                style={[styles.chip, active && styles.chipActive]}
                 onPress={() => setActiveFilter(chip.id)}
                 activeOpacity={0.8}
+                style={styles.chipWrap}
               >
-                <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
-                  {chip.label}
-                </Text>
+                <LinearGradient
+                  colors={active ? WALLET_GRADIENT : TRANSPARENT_GRADIENT}
+                  start={GRADIENT_START}
+                  end={GRADIENT_END}
+                  style={[styles.chip, active && styles.chipActive]}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
+                    {chip.label}
+                  </Text>
+                </LinearGradient>
               </TouchableOpacity>
             );
           })}
@@ -736,7 +760,7 @@ const ChatInterface = ({ setActiveTab }) => {
                     {renderAvatar(selectedCounselor)}
                   </View>
                   <View style={styles.deleteInfo}>
-                    <Text style={styles.deleteName}>{selectedCounselor.name}</Text>
+                    <Text style={styles.deleteName}>{t(selectedCounselor.name)}</Text>
                     <Text style={styles.deleteSpecialization}>
                       {selectedCounselor.specialization}
                     </Text>
@@ -835,18 +859,25 @@ const styles = {
     justifyContent: 'center',
     alignItems: 'center',
   },
-  chipActive: {
-    backgroundColor: PATIENT.primary,
-    borderColor: PATIENT.primary,
+  // Clips the gradient to the pill's rounded corners.
+  chipWrap: {
+    borderRadius: 999,
+    overflow: 'hidden',
+    // Without this the wrapper stretches to the row's cross-axis height.
+    alignSelf: 'flex-start',
   },
+  chipActive: {
+    borderColor: '#006B2C',
+  },
+  // Weight stays fixed across states - bumping it on select made the pill wider
+  // and shifted every chip after it.
   chipText: {
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
     color: PATIENT.textSecondary,
   },
   chipTextActive: {
     color: '#ffffff',
-    fontWeight: '600',
   },
 
   sectionTitle: {

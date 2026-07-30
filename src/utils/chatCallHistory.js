@@ -12,10 +12,26 @@ const normalizeCallType = (value) => {
 };
 
 // The history API returns the row from the current user's perspective:
-// role === 'receiver' means the call came IN to us, anything else is outgoing.
-const getCallDirection = (call) => {
+// role === 'receiver' means the call came IN to us.
+//
+// `role` used to be the only signal, and anything that wasn't literally
+// 'receiver' fell through to 'outgoing' - including a missing/blank role. That
+// put such rows on the right for BOTH parties, and a missed *incoming* call then
+// read as your own "Cancelled" and lost its red alert. So fall back to comparing
+// the initiator id against the viewer, and only give up if neither is available.
+const getCallDirection = (call, currentUserId) => {
   const role = String(call?.role || '').trim().toLowerCase();
-  return role === 'receiver' ? 'incoming' : 'outgoing';
+  if (role === 'receiver') return 'incoming';
+  if (role === 'initiator' || role === 'caller') return 'outgoing';
+
+  const initiator =
+    call?.callerId ?? call?.initiatorId ?? call?.from ?? call?.caller ?? null;
+  if (initiator != null && currentUserId != null) {
+    return String(initiator) === String(currentUserId) ? 'outgoing' : 'incoming';
+  }
+
+  // Genuinely undeterminable - don't assert a direction.
+  return null;
 };
 
 const MISSED_STATUSES = ['missed', 'rejected', 'cancelled', 'canceled'];
@@ -25,7 +41,7 @@ export const isMissedCallStatus = (status) =>
 
 // Turn raw call-history rows into chat-timeline items. Each item carries
 // `isCall: true` and a `fullTime` so it can be merged/sorted alongside messages.
-export const formatCallEntries = (history, peerId) => {
+export const formatCallEntries = (history, peerId, currentUserId) => {
   const list = Array.isArray(history) ? history : [];
 
   return list
@@ -41,7 +57,7 @@ export const formatCallEntries = (history, peerId) => {
         callId: call.id || call.callId || null,
         isCall: true,
         type: normalizeCallType(call.type),
-        direction: getCallDirection(call),
+        direction: getCallDirection(call, currentUserId),
         status: String(call.status || 'completed').trim().toLowerCase(),
         duration: Number(call.duration) > 0 ? Number(call.duration) : 0,
         time: validDate
@@ -65,7 +81,7 @@ export const fetchChatCallEntries = async ({ currentUserId, peerId, token }) => 
       },
     );
 
-    return formatCallEntries(response.data?.history, peerId);
+    return formatCallEntries(response.data?.history, peerId, currentUserId);
   } catch (error) {
     // Non-fatal: if calls can't load, the chat still shows text messages.
     console.warn('Unable to load chat call history:', error?.message);
@@ -100,11 +116,16 @@ export const mergeTimelineForInverted = (messages = [], calls = []) => {
 // Human label + color hints for a call bubble, shared by both screens.
 export const describeCall = (item) => {
   const isOutgoing = item.direction === 'outgoing';
+  // null direction => unknown. Treated as not-outgoing so a missed call still
+  // surfaces on the peer's side with its alert, rather than being hidden as your
+  // own cancellation.
+  const directionKnown = item.direction === 'outgoing' || item.direction === 'incoming';
   const missed = isMissedCallStatus(item.status);
 
   let statusLabel;
   if (missed) {
-    if (isOutgoing) statusLabel = 'Cancelled';
+    if (!directionKnown) statusLabel = 'Missed call';
+    else if (isOutgoing) statusLabel = 'Cancelled';
     else if (item.status === 'rejected') statusLabel = 'Declined';
     else statusLabel = 'Missed';
   } else {

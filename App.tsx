@@ -8,12 +8,14 @@
 import { NewAppScreen } from '@react-native/new-app-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, StatusBar, StyleSheet, Text, useColorScheme, View, Platform } from 'react-native';
+import { ActivityIndicator, AppState, Image, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import {
   SafeAreaProvider,
+  initialWindowMetrics,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
+import { navigationRef } from './src/navigationRef';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import UserSignup from './src/screens/auth/UserSignup';
 // import Landing from "./src/screens/auth/Landing";
@@ -27,7 +29,6 @@ import LocationGate from "./src/screens/auth/LocationGate";
 import ForgotPasswordScreen from "./src/screens/auth/ForgotPasswordScreen";
 import ForgotPasswordOTPScreen from "./src/screens/auth/ForgotPasswordOTPScreen";
 import ResetPasswordScreen from "./src/screens/auth/ResetPasswordScreen";
-import { PermissionsAndroid } from 'react-native';
 
 import UserDashboard from './src/screens/user/Component/UserDashboard/Dashboard/UserDashboard';
 import ChatBox from './src/screens/user/Component/UserDashboard/Tab/ChatBox/ChatBox';
@@ -83,22 +84,6 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// Returns true if location permission is already granted (no dialog needed).
-const isLocationPermissionGranted = async (): Promise<boolean> => {
-  if (Platform.OS !== 'android') return false; // iOS: always go through gate on boot
-  try {
-    const fine = await PermissionsAndroid.check(
-      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-    );
-    const coarse = await PermissionsAndroid.check(
-      PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
-    );
-    return fine || coarse;
-  } catch {
-    return false;
-  }
-};
-
 // Lock as soon as the user leaves the app and opens it again.
 const LOCK_TIMEOUT_MS = 0;
 
@@ -109,9 +94,8 @@ function App() {
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
   const [pinExists, setPinExists] = useState(false);
-  // Where forced PIN setup should continue to once a PIN is saved.
-  const [pinSetupNext, setPinSetupNext] = useState<keyof RootStackParamList>('UserDashboard');
-  const navigationRef = useRef<any>(null);
+  // Shared module-level ref (see src/navigationRef) so the axios interceptor can
+  // reset to Login when the backend kills this device's session.
   const routeNameRef = useRef<string | undefined>(undefined);
   const backgroundedAt = useRef<number | null>(null);
 
@@ -170,27 +154,12 @@ function App() {
 
         if (role === 'counselor' || role === 'user') {
           const destination = role === 'counselor' ? 'CounselorDashboard' : 'UserDashboard';
-          const alreadyGranted = await isLocationPermissionGranted();
 
-          // The PIN lives in device-local storage, so a fresh install/phone has
-          // none and would otherwise skip the lock entirely. Require setup first.
-          if (!storedPin) {
-            setPinSetupNext(alreadyGranted ? destination : 'LocationGate');
-            setBootDestination(destination as 'UserDashboard' | 'CounselorDashboard');
-            setBootRoute('PinSetup');
-            return;
-          }
-
-          if (alreadyGranted) {
-            setBootRoute(destination);
-          } else {
-            // Store destination so LocationGate can read it via route.params.
-            // We set the initial route to LocationGate and pass params via
-            // the initialParams prop on the screen definition — but since
-            // bootRoute is dynamic we use a state approach instead.
-            setBootRoute('LocationGate');
-            setBootDestination(destination as 'UserDashboard' | 'CounselorDashboard');
-          }
+          // Location is requested ONLY during login/registration — never on a
+          // plain app reload. A returning session goes straight to its
+          // dashboard (App Lock, if a PIN exists, is handled above via
+          // setIsLocked). This stops the location page re-appearing every boot.
+          setBootRoute(destination);
         } else {
           setBootRoute('RoleSelector');
         }
@@ -227,21 +196,23 @@ function App() {
 
   if (isBootstrapping) {
     return (
-      <SafeAreaProvider>
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <View style={styles.bootScreen}>
           <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
           <View style={styles.bootGlowTop} />
           <View style={styles.bootGlowBottom} />
           <View style={styles.bootCard}>
             <View style={styles.bootLogoWrap}>
+              {/* Tree-only mark: the full logo is a 2.92:1 wordmark and would
+                  render as a sliver inside this square well. */}
               <Image
-                source={require('./src/image/Mediconect Logo-3.png')}
+                source={require('./src/image/HumaeliIcon.png')}
                 style={styles.bootLogoImage}
                 resizeMode="contain"
               />
             </View>
-            <Text style={styles.bootTitle}>Mediconect Chatbot</Text>
-            <Text style={styles.bootSubtitle}>Inspire, Engage, Connect Online.</Text>
+            <Text style={styles.bootTitle}>Humaeli</Text>
+            <Text style={styles.bootSubtitle}>Empowering People, Inspiring Mental Wellness</Text>
             <View style={styles.bootLoaderRow}>
               <ActivityIndicator size="small" color="#2563eb" />
               <Text style={styles.bootLoaderText}>Preparing dashboard</Text>
@@ -253,7 +224,7 @@ function App() {
   }
 
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       <LanguageProvider>
         <CallProvider>
@@ -278,6 +249,12 @@ function App() {
             initialRouteName={bootRoute}
             screenOptions={{
               headerShown: false,
+              // Swipe back to the previous screen. Android has no interactive
+              // swipe in native-stack, but its system back gesture still pops
+              // the stack, so behaviour matches on both platforms.
+              gestureEnabled: true,
+              fullScreenGestureEnabled: true,
+              animation: 'slide_from_right',
             }}
           >
             {/* <Stack.Screen name="Landing" component={Landing} /> */}
@@ -310,7 +287,7 @@ function App() {
                 <Stack.Screen
                   name='PinSetup'
                   component={PinSetupScreen}
-                  initialParams={{ forced: bootRoute === 'PinSetup', destination: pinSetupNext }}
+                  initialParams={{ forced: false }}
                 />
           </Stack.Navigator>
         </NavigationContainer>

@@ -15,8 +15,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../../axiosConfig';
 import OtpCodeInput from './components/OtpCodeInput';
 import { setAccessToken, setUserEmail, updateVerificationStatus } from './authUtils';
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 const OTPVerification = ({ navigation, route }) => {
+  const { t } = useLanguageRender();
   const [step, setStep] = useState('email');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
@@ -153,9 +155,9 @@ const OTPVerification = ({ navigation, route }) => {
 
         setTimeout(() => {
           if (resolvedRole === 'counselor') {
-            navigation.replace('CounselorDashboard');
+            navigation.replace('LocationGate', { destination: 'CounselorDashboard' });
           } else {
-            navigation.replace('UserDashboard');
+            navigation.replace('LocationGate', { destination: 'UserDashboard' });
           }
         }, 1500);
       }
@@ -212,7 +214,7 @@ const OTPVerification = ({ navigation, route }) => {
             <View>
               <TextInput
                 style={styles.input}
-                placeholder="Enter email"
+                placeholder={t('Enter email')}
                 placeholderTextColor="#999"
                 value={email}
                 onChangeText={setEmail}
@@ -233,7 +235,7 @@ const OTPVerification = ({ navigation, route }) => {
                 {isLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.buttonText}>Send OTP</Text>
+                  <Text style={styles.buttonText}>{t('Send OTP')}</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -255,7 +257,7 @@ const OTPVerification = ({ navigation, route }) => {
               <View style={styles.timerContainer}>
                 {canResend ? (
                   <TouchableOpacity onPress={handleResendOtp} disabled={isLoading}>
-                    <Text style={styles.resendText}>Resend OTP</Text>
+                    <Text style={styles.resendText}>{t('Resend OTP')}</Text>
                   </TouchableOpacity>
                 ) : (
                   <Text style={styles.timerText}>Resend in {formatTime(timer)}</Text>
@@ -273,7 +275,7 @@ const OTPVerification = ({ navigation, route }) => {
                 {isLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.buttonText}>Verify OTP</Text>
+                  <Text style={styles.buttonText}>{t('Verify OTP')}</Text>
                 )}
               </TouchableOpacity>
             </View>

@@ -16,6 +16,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import axiosInstance from '../../../../../../axiosConfig';
 import socketService from '../../../../../../services/socketService';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 
 // Counselor-side palette (blue).
 const C = {
@@ -49,23 +50,23 @@ const TYPE_CONFIG = {
   payout:      { icon: 'payments',               color: '#16A34A', bg: '#DCFCE7' },
   message:     { icon: 'chat-bubble',            color: '#7C3AED', bg: '#F3E8FF' },
   chat:        { icon: 'chat-bubble',            color: '#7C3AED', bg: '#F3E8FF' },
-  call:        { icon: 'call',                   color: '#0D9488', bg: '#CCFBF1' },
+  call:        { icon: 'call',                   color: '#004AC6', bg: '#E7EEFE' },
   reminder:    { icon: 'notifications-active',   color: '#D97706', bg: '#FEF3C7' },
   system:      { icon: 'info',                   color: '#475569', bg: '#EEF1F5' },
   default:     { icon: 'notifications',          color: '#475569', bg: '#EEF1F5' },
 };
 const configFor = (type) => TYPE_CONFIG[String(type || '').toLowerCase()] || TYPE_CONFIG.default;
 
-const relativeTime = (iso) => {
+const relativeTime = (iso, t = (s) => s) => {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const mins = Math.floor((Date.now() - d.getTime()) / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return t('Just now');
+  if (mins < 60) return `${mins}${t('m ago')}`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return `${hrs}${t('h ago')}`;
   const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return `${days}${t('d ago')}`;
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 
@@ -86,7 +87,7 @@ const normalizeNotification = (n) => {
     kind: 'notification',
     id: String(n._id || n.id || n.notificationId || Math.random()),
     type: rawType === 'chat' ? 'message' : rawType,
-    title: n.title || n.heading || 'Notification',
+    title: n.title || n.heading || 'Notification', // fallback only; translated at render
     body: n.message || n.body || n.content || n.text || '',
     createdAt: n.createdAt || n.time || n.timestamp || new Date().toISOString(),
     read: Boolean(n.isRead ?? n.read ?? false),
@@ -106,7 +107,8 @@ const normalizeRequest = (r) => ({
   read: false,
 });
 
-const CounselorNotifications = ({ onClose, onChanged, onOpenChat }) => {
+const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) => {
+  const { t } = useLanguageRender();
   const [filter, setFilter] = useState('all');
   const [requests, setRequests] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -258,15 +260,15 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat }) => {
           <View style={s.cardHead}>
             <View style={s.nameRow}>
               <Text style={s.name} numberOfLines={1}>{name}</Text>
-              <Text style={s.time}>{relativeTime(item.createdAt)}</Text>
+              <Text style={s.time}>{relativeTime(item.createdAt, t)}</Text>
             </View>
-            <Text style={s.subline} numberOfLines={1}>Wants to start a chat</Text>
+            <Text style={s.subline} numberOfLines={1}>{t('Wants to start a chat')}</Text>
           </View>
         </View>
 
         {!!item.message && (
           <View style={s.msgBox}>
-            <Text style={s.msgText} numberOfLines={3}>{item.message}</Text>
+            <Text style={s.msgText} numberOfLines={3}>{t(item.message)}</Text>
           </View>
         )}
 
@@ -282,12 +284,12 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat }) => {
         <View style={s.actions}>
           <TouchableOpacity style={s.declineBtn} onPress={() => respond(item, 'reject')} disabled={busy} activeOpacity={0.85}>
             {busy ? <ActivityIndicator size="small" color={C.danger} /> : (
-              <><Ionicons name="close" size={16} color={C.danger} /><Text style={s.declineText}>Decline</Text></>
+              <><Ionicons name="close" size={16} color={C.danger} /><Text style={s.declineText}>{t('Decline')}</Text></>
             )}
           </TouchableOpacity>
           <TouchableOpacity style={s.acceptBtn} onPress={() => respond(item, 'accept')} disabled={busy} activeOpacity={0.9}>
             {busy ? <ActivityIndicator size="small" color="#fff" /> : (
-              <><Ionicons name="checkmark" size={16} color="#fff" /><Text style={s.acceptText}>Accept</Text></>
+              <><Ionicons name="checkmark" size={16} color="#fff" /><Text style={s.acceptText}>{t('Accept')}</Text></>
             )}
           </TouchableOpacity>
         </View>
@@ -302,7 +304,10 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat }) => {
         key={`n-${item.id}`}
         style={[s.notifCard, !item.read && s.notifUnread]}
         activeOpacity={0.85}
-        onPress={() => markRead(item)}
+        onPress={() => {
+          markRead(item);
+          onAction?.(item);
+        }}
       >
         {!item.read && <View style={[s.rail, { backgroundColor: cfg.color }]} />}
         <View style={[s.notifIcon, { backgroundColor: cfg.bg }]}>
@@ -311,13 +316,13 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat }) => {
         <View style={{ flex: 1 }}>
           <View style={s.nameRow}>
             <Text style={[s.notifTitle, !item.read && s.notifTitleUnread]} numberOfLines={1}>
-              {item.title}
+              {t(item.title)}
             </Text>
             {!item.read && <View style={[s.dot, { backgroundColor: cfg.color }]} />}
           </View>
-          {!!item.body && <Text style={s.notifBody} numberOfLines={2}>{item.body}</Text>}
+          {!!item.body && <Text style={s.notifBody} numberOfLines={2}>{t(item.body)}</Text>}
           <View style={s.notifMetaRow}>
-            <Text style={s.time}>{relativeTime(item.createdAt)}</Text>
+            <Text style={s.time}>{relativeTime(item.createdAt, t)}</Text>
             <TouchableOpacity onPress={() => removeNotification(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="trash-outline" size={16} color="#cbd5e1" />
             </TouchableOpacity>
@@ -328,7 +333,7 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat }) => {
   };
 
   return (
-    <SafeAreaView style={s.root} edges={['top']}>
+    <SafeAreaView style={s.root} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor={C.surface} />
 
       <View style={s.header}>
@@ -336,7 +341,7 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat }) => {
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </TouchableOpacity>
         <View style={s.headerCenter}>
-          <Text style={s.headerTitle}>Notifications</Text>
+          <Text style={s.headerTitle}>{t('Notifications')}</Text>
           {unreadCount > 0 && (
             <View style={s.headerBadge}>
               <Text style={s.headerBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
@@ -344,7 +349,7 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat }) => {
           )}
         </View>
         <TouchableOpacity onPress={markAllRead} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Text style={s.markAll}>Mark all</Text>
+          <Text style={s.markAll}>{t('Mark all')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -360,7 +365,7 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat }) => {
                 onPress={() => setFilter(f.id)}
                 activeOpacity={0.85}
               >
-                <Text style={[s.chipText, active && s.chipTextActive]}>{f.label}</Text>
+                <Text style={[s.chipText, active && s.chipTextActive]}>{t(f.label)}</Text>
                 {n > 0 && (
                   <View style={[s.chipCount, active && s.chipCountActive]}>
                     <Text style={[s.chipCountText, active && s.chipCountTextActive]}>{n}</Text>
@@ -393,13 +398,13 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat }) => {
               <Ionicons name="cloud-offline-outline" size={40} color="#cbd5e1" />
               <Text style={s.emptyText}>{error}</Text>
               <TouchableOpacity style={s.retryBtn} onPress={() => fetchAll()} activeOpacity={0.85}>
-                <Text style={s.retryText}>Retry</Text>
+                <Text style={s.retryText}>{t('Retry')}</Text>
               </TouchableOpacity>
             </View>
           ) : visible.length === 0 ? (
             <View style={s.empty}>
               <Ionicons name="notifications-off-outline" size={40} color="#cbd5e1" />
-              <Text style={s.emptyText}>You're all caught up.</Text>
+              <Text style={s.emptyText}>{t("You're all caught up.")}</Text>
             </View>
           ) : (
             visible.map((item) =>

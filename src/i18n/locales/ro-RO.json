@@ -71,7 +71,7 @@
     "passwordMinLength": "Parola trebuie să aibă cel puțin 6 caractere",
     "passwordsDoNotMatch": "Parolele nu se potrivesc",
     "sessionExpired": "Sesiunea a expirat. Vă rugăm să vă conectați din nou.",
-    "chooseRole": "Alegeți cum doriți să utilizați Mediconect",
+    "chooseRole": "Alegeți cum doriți să utilizați Humaeli",
     "userRole": "Utilizator",
     "counselorRole": "consilier",
     "userRoleDesc": "Obțineți sprijin de la consilieri profesioniști",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Reintroduceți parola",
     "enterCurrentPassword": "Introduceți parola curentă",
     "reEnterNewPassword": "Reintroduceți parola nouă",
-    "copyright": "© 2025 Mediconnect. Toate drepturile rezervate."
+    "copyright": "© 2025 Humaeli. Toate drepturile rezervate."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Ajutor Suport",
-    "centerTitle": "Centrul de asistență MediConeckt",
-    "centerDesc": "Utilizați acest centru de asistență pentru a accesa funcția MediConeckt potrivită, pentru a depana problemele obișnuite și pentru a înțelege când să contactați ajutor urgent în afara aplicației.",
+    "centerTitle": "Centrul de asistență Humaeli",
+    "centerDesc": "Utilizați acest centru de asistență pentru a accesa funcția Humaeli potrivită, pentru a depana problemele obișnuite și pentru a înțelege când să contactați ajutor urgent în afara aplicației.",
     "aiWellnessChat": "Chat de wellness AI",
     "aiWellnessDesc": "Pune întrebări de bunăstare mentală, folosește intrarea vocală, obține răspunsuri rapide și continuă discuția AI recentă din tabloul de bord.",
     "aiWellnessAction": "Deschide chatul AI",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Politica de confidențialitate",
-    "centerTitle": "Centrul de confidențialitate MediConeckt",
-    "centerDesc": "Acest centru de confidențialitate explică modul în care MediConeckt vă folosește profilul, chatul, programarea, portofelul, apelurile, locația și datele de securitate în cadrul acestei aplicații mobile.",
+    "centerTitle": "Centrul de confidențialitate Humaeli",
+    "centerDesc": "Acest centru de confidențialitate explică modul în care Humaeli vă folosește profilul, chatul, programarea, portofelul, apelurile, locația și datele de securitate în cadrul acestei aplicații mobile.",
     "otpProtected": "OTP protejat",
     "otpProtectedDesc": "Modificări de e-mail și telefon",
     "anonymousCare": "Identitate anonimă de îngrijire",

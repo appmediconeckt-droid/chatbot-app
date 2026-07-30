@@ -17,6 +17,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import LinearGradient from 'react-native-linear-gradient';
 import axiosInstance from '../../../../../../axiosConfig';
 import PATIENT from '../../../../../../theme/palette';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 
 const FILTERS = [
   { id: 'All', label: 'All' },
@@ -45,6 +46,7 @@ const statusStyle = (status) => {
 };
 
 const TransactionsHistory = ({ navigation }) => {
+  const { t } = useLanguageRender();
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -148,7 +150,7 @@ const TransactionsHistory = ({ navigation }) => {
             {isCredit ? '+' : '−'}₹{money(tx.amount)}
           </Text>
           <View style={[s.statusBadge, { backgroundColor: `${st.color}20` }]}>
-            <Text style={[s.statusText, { color: st.color }]}>{st.label}</Text>
+            <Text style={[s.statusText, { color: st.color }]}>{t(st.label)}</Text>
           </View>
         </View>
       </View>
@@ -164,7 +166,7 @@ const TransactionsHistory = ({ navigation }) => {
         <TouchableOpacity onPress={() => navigation?.goBack()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="chevron-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Transactions History</Text>
+        <Text style={s.headerTitle}>{t('Transactions History')}</Text>
         <View style={{ width: 24 }} />
       </View>
 
@@ -192,7 +194,7 @@ const TransactionsHistory = ({ navigation }) => {
               style={s.totalGradient}
             >
               <View style={s.totalContent}>
-                <Text style={s.totalLabel}>Available Balance</Text>
+                <Text style={s.totalLabel}>{t('Available Balance')}</Text>
                 <Text style={s.totalAmount}>₹{money(balance)}</Text>
                 <View style={s.savingsRow}>
                   <MaterialCommunityIcons name="chart-line" size={16} color="#ffffff" />
@@ -207,7 +209,7 @@ const TransactionsHistory = ({ navigation }) => {
             <Ionicons name="search" size={18} color="#94a3b8" />
             <TextInput
               style={s.searchInput}
-              placeholder="Search transactions, counselors..."
+              placeholder={t('Search transactions, counselors...')}
               placeholderTextColor="#cbd5e1"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -231,7 +233,7 @@ const TransactionsHistory = ({ navigation }) => {
                   activeOpacity={0.85}
                 >
                   {active && <Ionicons name="checkmark" size={14} color="#ffffff" style={{ marginRight: 4 }} />}
-                  <Text style={[s.filterChipText, active && s.filterChipTextActive]}>{f.label}</Text>
+                  <Text style={[s.filterChipText, active && s.filterChipTextActive]}>{t(f.label)}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -243,13 +245,13 @@ const TransactionsHistory = ({ navigation }) => {
               <Ionicons name="cloud-offline-outline" size={38} color="#cbd5e1" />
               <Text style={s.emptyText}>{error}</Text>
               <TouchableOpacity style={s.retryBtn} onPress={() => fetchWallet()} activeOpacity={0.85}>
-                <Text style={s.retryText}>Retry</Text>
+                <Text style={s.retryText}>{t('Retry')}</Text>
               </TouchableOpacity>
             </View>
           ) : sections.length === 0 ? (
             <View style={s.empty}>
               <Ionicons name="receipt-outline" size={38} color="#cbd5e1" />
-              <Text style={s.emptyText}>No transactions found.</Text>
+              <Text style={s.emptyText}>{t('No transactions found.')}</Text>
             </View>
           ) : (
             sections.map((section) => (

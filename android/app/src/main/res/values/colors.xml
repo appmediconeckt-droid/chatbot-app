@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Plate behind the adaptive launcher icon's tree foreground. White keeps
+         the mark's teal/blue/purple readable at small sizes. -->
+    <color name="ic_launcher_background">#FFFFFF</color>
+
+    <!-- Splash plate. Fixed light value on purpose: AppTheme is a DayNight
+         theme, so an unset splash background resolved to dark grey in dark
+         mode and the boot screen showed the logo on near-black. -->
+    <color name="splash_background">#FFFFFF</color>
+</resources>

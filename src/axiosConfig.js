@@ -1,6 +1,7 @@
 // screens/auth/axiosConfig.js
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { forceSignOut } from './utils/authSession';
 
 // API endpoints for different environments
 // NOTE: no trailing slash — callers append `/api/...`, so a trailing slash here
@@ -85,6 +86,16 @@ const NO_REFRESH_PATHS = [
   '/api/auth/refresh-token',
   '/api/auth/google',
   '/api/auth/verify-login-otp',
+  // OTP + password routes: a 401 here means "wrong OTP / wrong password", not a
+  // dead session. Without them the interceptor would treat a mistyped OTP as an
+  // expired session and sign the user out mid-flow.
+  '/api/auth/generateOtp',
+  '/api/auth/verifyOtp',
+  '/api/auth/set-password-by-otp',
+  '/api/auth/setPassword',
+  '/api/auth/changePassword',
+  '/api/auth/send-forgot-password-otp',
+  '/api/auth/verify-forgot-password-otp',
 ];
 
 axiosInstance.interceptors.response.use(
@@ -107,6 +118,12 @@ axiosInstance.interceptors.response.use(
       // "No refresh token available" message.
       const refreshToken = await AsyncStorage.getItem('refreshToken');
       if (!refreshToken) {
+        // No refresh token but we still hold an access token means this device
+        // thought it was logged in and the server disagrees — another device
+        // signed in and took the session. Bounce to login instead of leaving
+        // the user on a dashboard that 401s on every request.
+        const hadSession = await AsyncStorage.getItem('accessToken');
+        if (hadSession) await forceSignOut();
         return Promise.reject(error);
       }
 
@@ -164,21 +181,11 @@ axiosInstance.interceptors.response.use(
         // Process queue with error
         processQueue(refreshError, null);
 
-        // Clear tokens and redirect to login
-        await AsyncStorage.multiRemove([
-          'accessToken',
-          'token',
-          'refreshToken',
-          'userData',
-          'userId',
-          'userRole',
-          'counsellorId',
-          'counselorId',
-        ]);
-        
-        // You can add navigation here if needed
-        // navigationRef.current?.navigate('UserSignup');
-        
+        // Clears the stored session AND resets navigation to Login. Clearing
+        // alone was the old behaviour, and it left the app sitting on a
+        // dashboard it could no longer load.
+        await forceSignOut();
+
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

@@ -18,6 +18,7 @@ import {
   KeyboardAvoidingView,
   StyleSheet,
   StatusBar,
+  BackHandler,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
@@ -50,10 +51,13 @@ import CounselorWallet from "../Tab/Wallet/CounselorWallet";
 import VideoCallModal from "../../UserDashboard/Tab/CallModal/VideoCallModal";
 import VoiceCallModal from "../../UserDashboard/Tab/CallModal/VoiceCallModal";
 import safeVibrate from "../../../../../utils/safeVibrate";
+import { getAnonymousUserName, getAnonymousUserDisplay } from "../../../../../utils/anonymousUser";
+import GradientFill from "../../../../../components/common/GradientFill";
 import { useToast } from "../../../../../components/common/ToastProvider";
 import LanguageSelector from '../../../../../components/common/LanguageSelector';
 import CounselorGradientButton from '../../../../../components/common/CounselorGradientButton';
 import { loadUserLanguage } from '../../../../../i18n';
+import { DOCTOR, DOCTOR_GRADIENT } from "../../../../../theme/palette";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -138,17 +142,10 @@ const IncomingCallModal = ({
 
   // Match web behavior: prefer the anonymous handle, fall back to whatever
   // name the parent passed (already filtered by the API), and finally "User".
-// Replace this function in IncomingCallModal:
-const getDisplayName = () => {
-  // ✅ IMPORTANT FIX: Match web logic - prioritize anonymous fields
-  // Backend already filters real names for counselor view
-  if (callData?.from?.anonymous) return callData.from.anonymous;
-  if (callData?.from?.anonName) return callData.from.anonName;
-  if (callData?.from?.anonymousName) return callData.from.anonymousName;
-  if (callData?.anonymous) return callData.anonymous;
-  if (callerName) return callerName;
-  return "Anonymous";
-};
+  // Use the SAME resolver as the counselor's chat list (getAnonymousUserName)
+  // so the popup shows the exact same name the counselor sees in Messages.
+  const getDisplayName = () =>
+    getAnonymousUserName(callData?.from || callData || {}, callerName || 'Anonymous User');
   const displayInitial = (getDisplayName()?.charAt(0) || "U").toUpperCase();
 
   const handleAccept = async () => {
@@ -180,10 +177,22 @@ const getDisplayName = () => {
 
   const floatY = floatAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -6] });
 
-  // Counselor gradient: blue theme
-  const cardGradient = ["rgba(30, 64, 175, 0.94)", "rgba(37, 99, 235, 0.90)", "rgba(29, 78, 216, 0.94)"];
-  const avatarGradient = ["#2563EB", "#1E40AF"];
-  const acceptGradient = ["#3B82F6", "#1D4ED8"];
+  // Was ["#2563EB", "#1E40AF"] - a generic blue that ran dark-to-light backwards
+  // and matched nothing else on the counselor side.
+  const avatarGradient = DOCTOR_GRADIENT;
+
+  // Subtitle: caller location if the backend gave us one, else the call type.
+  const callerLocation =
+    callData?.from?.location || callData?.from?.city ||
+    callData?.location || callData?.city || null;
+  // Only the location goes here now - the header line already says whether this
+  // is a voice or a video call, so repeating it read as filler.
+  const subtitle = callerLocation;
+  // Ringing indicator: reuses the avatar pulse rather than a second loop.
+  const liveDotOpacity = pulseAnim.interpolate({
+    inputRange: [1, 1.08],
+    outputRange: [0.3, 1],
+  });
 
   return (
     <Modal transparent visible={isOpen} animationType="fade" onRequestClose={onClose}>
@@ -199,111 +208,94 @@ const getDisplayName = () => {
 
         <Animated.View
           style={[
-            styles.glassCard,
+            styles.incCard,
             { transform: [{ scale: scaleAnim }, { translateY: floatY }] },
           ]}
         >
-          {/* Gradient sheen layer */}
-          <LinearGradient
-            colors={cardGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.glassCardGradient}
-          >
-            {/* Top label */}
-            <View style={styles.callTopRow}>
-              <View style={styles.callTopPill}>
-                <Ionicons name={isVideo ? "videocam" : "call"} size={12} color="#ecfeff" />
-                <Text style={styles.callTopPillText}>
-                  {isVideo ? t('call:incomingVideoCall') : t('call:incomingVoiceCall')}
-                </Text>
-              </View>
-            </View>
+          {/* Header - a live dot plus what kind of call this is. Name and photo
+              used to sit above the avatar, which read upside-down next to any
+              real call screen; the caller's face now comes first. */}
+          <View style={styles.incHeaderRow}>
+            <Animated.View style={[styles.incLiveDot, { opacity: liveDotOpacity }]} />
+            <Text style={styles.incLabel}>
+              {isVideo
+                ? t('call:incomingVideoCall', 'INCOMING VIDEO CALL')
+                : t('call:incomingVoiceCall', 'INCOMING VOICE CALL')}
+            </Text>
+          </View>
 
-            {/* Avatar with three expanding wave rings */}
-            <View style={styles.avatarWrap}>
-              <Animated.View style={[styles.waveRing, ringStyle(ring1)]} />
-              <Animated.View style={[styles.waveRing, ringStyle(ring2)]} />
-              <Animated.View style={[styles.waveRing, ringStyle(ring3)]} />
+          {/* Avatar with expanding wave rings */}
+          <View style={styles.incAvatarWrap}>
+            <Animated.View style={[styles.incWaveRing, ringStyle(ring1)]} />
+            <Animated.View style={[styles.incWaveRing, ringStyle(ring2)]} />
+            <Animated.View style={[styles.incWaveRing, ringStyle(ring3)]} />
 
-              <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-                <LinearGradient
-                  colors={avatarGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.avatarGradient}
-                >
-                  {profilePhoto ? (
-                    <Image source={{ uri: profilePhoto }} style={styles.avatarImage} />
-                  ) : (
-                    <Text style={styles.avatarInitial}>{displayInitial}</Text>
-                  )}
+            <Animated.View style={[styles.incAvatarInner, { transform: [{ scale: pulseAnim }] }]}>
+              {profilePhoto ? (
+                <Image source={{ uri: profilePhoto }} style={styles.incAvatarImg} />
+              ) : (
+                <LinearGradient colors={avatarGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.incAvatarImg}>
+                  <Text style={styles.incAvatarInitial}>{displayInitial}</Text>
                 </LinearGradient>
-              </Animated.View>
+              )}
+            </Animated.View>
+          </View>
+
+          {/* Caller name (same as chat interface) */}
+          <Text style={styles.incName} numberOfLines={1}>{getDisplayName()}</Text>
+
+          {/* Location - rendered only when the backend actually sent one, so an
+              empty row never pushes the buttons around. */}
+          {!!subtitle && (
+            <View style={styles.incSubRow}>
+              <Ionicons name="location-outline" size={14} color="#94A3B8" />
+              <Text style={styles.incSubText} numberOfLines={1}>{subtitle}</Text>
+            </View>
+          )}
+
+          {/* Encrypted badge */}
+          <View style={styles.incEncrypted}>
+            <Ionicons name="shield-checkmark" size={13} color={DOCTOR.primary} />
+            <Text style={styles.incEncryptedText}>{t('call:encrypted', 'ENCRYPTED')}</Text>
+          </View>
+
+          {/* Actions */}
+          <View style={styles.incActions}>
+            {/* Decline */}
+            <View style={styles.incActionCol}>
+              <TouchableOpacity
+                onPress={handleReject}
+                activeOpacity={0.85}
+                disabled={isRejecting}
+                style={[styles.incFab, styles.incFabReject]}
+              >
+                {isRejecting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <MaterialIcons name="call-end" size={26} color="#fff" />
+                )}
+              </TouchableOpacity>
+              <Text style={styles.incActionLabel}>{t('call:reject', 'Decline')}</Text>
             </View>
 
-            {/* Name + state */}
-            <Text style={styles.callerName} numberOfLines={1}>{getDisplayName()}</Text>
-            <View style={styles.ringingRow}>
-              <View style={styles.ringingDot} />
-              <Text style={styles.ringingText}>Ringing…</Text>
+            {/* Accept */}
+            <View style={styles.incActionCol}>
+              <TouchableOpacity
+                onPress={handleAccept}
+                activeOpacity={0.9}
+                disabled={isAccepting}
+                style={[styles.incFab, styles.incFabAccept]}
+              >
+                <GradientFill />
+                {isAccepting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <MaterialIcons name={isVideo ? "videocam" : "call"} size={26} color="#fff" />
+                )}
+              </TouchableOpacity>
+              <Text style={styles.incActionLabel}>{t('call:accept', 'Accept')}</Text>
             </View>
-
-            {/* Action row */}
-            <View style={styles.actionsRow}>
-              {/* Decline */}
-              <View style={styles.actionCol}>
-                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
-                  <TouchableOpacity
-                    onPress={handleReject}
-                    onPressIn={pressIn}
-                    onPressOut={pressOut}
-                    activeOpacity={0.85}
-                    disabled={isRejecting}
-                    style={[styles.fab, styles.fabReject]}
-                  >
-                    {isRejecting ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <MaterialIcons name="call-end" size={28} color="#fff" />
-                    )}
-                  </TouchableOpacity>
-                </Animated.View>
-                <Text style={styles.actionLabel}>
-                  {isRejecting ? t('common:loading') : t('call:reject')}
-                </Text>
-              </View>
-
-              {/* Accept */}
-              <View style={styles.actionCol}>
-                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
-                  <TouchableOpacity
-                    onPress={handleAccept}
-                    onPressIn={pressIn}
-                    onPressOut={pressOut}
-                    activeOpacity={0.9}
-                    disabled={isAccepting}
-                  >
-                    <LinearGradient
-                      colors={acceptGradient}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={[styles.fab, styles.fabAccept]}
-                    >
-                      {isAccepting ? (
-                        <ActivityIndicator color="#fff" size="small" />
-                      ) : (
-                        <MaterialIcons name={isVideo ? "videocam" : "call"} size={28} color="#fff" />
-                      )}
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </Animated.View>
-                <Text style={styles.actionLabel}>
-                  {isAccepting ? t('call:connecting') : t('call:accept')}
-                </Text>
-              </View>
-            </View>
-          </LinearGradient>
+          </View>
         </Animated.View>
       </View>
     </Modal>
@@ -333,7 +325,10 @@ const isSameDay = (a, b) => {
 // ─── Appointment Card ────────────────────────────────────────────────────────
 const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, onChat, updating, index = 0 }) => {
   const { t } = useLanguageRender();
-  const isUpdating = updating === apt._id;
+  // `updating` = { id, status } — only the pressed action spins, both disable.
+  const isAccepting = updating?.id === apt._id && updating?.status === 'confirmed';
+  const isRejecting = updating?.id === apt._id && updating?.status === 'canceled';
+  const isUpdating = isAccepting || isRejecting;
   const isPending = apt.status === "pending";
   const isConfirmed = apt.status === "confirmed";
   const isCanceled = apt.status === "canceled";
@@ -422,7 +417,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
           </View>
         </View>
 
-        {/* Details panel: date, duration, notes on a light rounded background */}
+        {/* Details panel: date, notes on a light rounded background */}
         <View style={aptStyles.detailsPanel}>
           <View style={aptStyles.infoRow}>
             <Ionicons name="calendar-outline" size={15} color="#64748b" />
@@ -430,11 +425,6 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
             {requestedTime !== "—" && (
               <Text style={aptStyles.infoRowTime}>{requestedTime}</Text>
             )}
-          </View>
-
-          <View style={aptStyles.infoRow}>
-            <Ionicons name="time-outline" size={15} color="#64748b" />
-            <Text style={aptStyles.infoRowText}>45 {t('Mins Duration')}</Text>
           </View>
 
           {apt.notes && apt.notes.trim() !== "" && (
@@ -454,7 +444,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
               disabled={isUpdating}
               activeOpacity={0.85}
             >
-              {isUpdating ? (
+              {isRejecting ? (
                 <ActivityIndicator size="small" color="#ef4444" />
               ) : (
                 <>
@@ -476,7 +466,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
                 end={{ x: 1, y: 0.5 }}
                 style={aptStyles.acceptBtnGradient}
               >
-                {isUpdating ? (
+                {isAccepting ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <>
@@ -496,6 +486,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
               onPress={() => onVideoCall?.(apt)}
               activeOpacity={0.85}
             >
+              <GradientFill />
               <Ionicons name="videocam" size={15} color="#fff" />
               <Text style={aptStyles.confirmedActionText} numberOfLines={1}>
                 {t('Video Session')}
@@ -506,6 +497,9 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
               onPress={() => onVoiceCall?.(apt)}
               activeOpacity={0.85}
             >
+              {/* Green wallet gradient, so voice reads distinctly from the blue
+                  video button beside it. */}
+              <GradientFill role="user" />
               <Ionicons name="call" size={14} color="#fff" />
               <Text style={aptStyles.confirmedActionText} numberOfLines={1}>{t('Voice Call')}</Text>
             </TouchableOpacity>
@@ -534,7 +528,7 @@ const AppointmentCard = ({ apt, onAccept, onReject, onVideoCall, onVoiceCall, on
 // ─── Session Card ────────────────────────────────────────────────────────────
 // Mirrors the web SessionsTab card: confirmed appointment for the selected day
 // with a Today/Upcoming/Past badge and video / voice / chat actions.
-const SessionCard = ({ apt, onVideoCall, onVoiceCall, onChat, index = 0 }) => {
+const SessionCard = ({ apt, onVideoCall, onVoiceCall, onChat, onViewDetails, index = 0 }) => {
   const { t } = useLanguageRender();
 
   const entry = useRef(new Animated.Value(0)).current;
@@ -608,13 +602,14 @@ const SessionCard = ({ apt, onVideoCall, onVoiceCall, onChat, index = 0 }) => {
           onPress={() => onVideoCall(apt)}
           activeOpacity={0.9}
         >
+          <GradientFill />
           <Ionicons name="videocam" size={17} color="#fff" />
           <Text style={sessStyles.conductBtnText}>{t('counselor:conductSession', 'conduct Sessions')}</Text>
         </TouchableOpacity>
       ) : (
         <TouchableOpacity
           style={sessStyles.viewBtn}
-          onPress={() => onChat(apt)}
+          onPress={() => onViewDetails?.(apt)}
           activeOpacity={0.85}
         >
           <Text style={sessStyles.viewBtnText}>{t('counselor:viewDetails', 'View Details')}</Text>
@@ -623,6 +618,178 @@ const SessionCard = ({ apt, onVideoCall, onVoiceCall, onChat, index = 0 }) => {
     </Animated.View>
   );
 };
+
+// ─── Session detail modal (Figma) ────────────────────────────────────────────
+const SessionDetailModal = ({ visible, apt, onClose, onStartSession, onAddNotes }) => {
+  const insets = useSafeAreaInsets();
+  const { t } = useLanguageRender();
+  if (!apt) return null;
+
+  const patient = apt.patient || apt.user || {};
+  const name = patient.anonymous || patient.fullName || patient.name || 'Patient';
+  const initials = String(name).split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
+  const rawPhoto = patient.Image || patient.image || patient.profilePhoto || patient.avatar;
+  const photoUri = rawPhoto
+    ? String(typeof rawPhoto === 'string' ? rawPhoto : rawPhoto.secure_url || rawPhoto.url || '')
+    : '';
+
+  const gender = patient.gender ? String(patient.gender).charAt(0).toUpperCase() + String(patient.gender).slice(1) : '';
+  const age = patient.age || patient.ageYears;
+  const genderAge = [gender, age ? `${age} Years` : null].filter(Boolean).join(' • ');
+  const isReturning = patient.isReturning || (patient.visitCount || patient.sessionCount || 0) > 1;
+
+  const start = apt.date ? new Date(apt.date) : null;
+  const end = start ? new Date(start.getTime() + 30 * 60000) : null;
+  const fmtT = (d) => (d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—');
+  const dateStr = start ? start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+  const timeStr = start ? `${fmtT(start)} - ${fmtT(end)}` : '—';
+  const now = Date.now();
+  const inProgress = !!(start && end && now >= start.getTime() && now <= end.getTime());
+  const sessionType = apt.sessionType || apt.type || 'Video Session';
+  const reason = apt.reason || apt.title || 'Consultation';
+  const notes = apt.notes || apt.patientNote || apt.note;
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={sdStyles.overlay}>
+        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+        <View style={[sdStyles.sheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={sdStyles.scroll}>
+            {/* Header */}
+            <View style={sdStyles.header}>
+              {photoUri ? (
+                <Image source={{ uri: photoUri }} style={sdStyles.avatar} />
+              ) : (
+                <View style={[sdStyles.avatar, sdStyles.avatarFallback]}>
+                  <Text style={sdStyles.avatarText}>{initials || '?'}</Text>
+                </View>
+              )}
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={sdStyles.name} numberOfLines={1}>{name}</Text>
+                {!!genderAge && <Text style={sdStyles.genderAge}>{genderAge}</Text>}
+                {isReturning && (
+                  <View style={sdStyles.returnBadge}>
+                    <Ionicons name="shield-checkmark" size={11} color="#2563EB" />
+                    <Text style={sdStyles.returnBadgeText}>{t('Returning Patient')}</Text>
+                  </View>
+                )}
+              </View>
+              <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close" size={22} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={sdStyles.divider} />
+
+            {/* Status chips */}
+            <View style={sdStyles.chipsRow}>
+              <View style={[sdStyles.chip, sdStyles.chipStatus]}>
+                <View style={sdStyles.statusDot} />
+                <Text style={sdStyles.chipStatusText}>{inProgress ? 'In Progress' : (apt.status || 'Scheduled')}</Text>
+              </View>
+              <View style={sdStyles.chip}>
+                <Ionicons name="calendar-outline" size={13} color="#475569" />
+                <Text style={sdStyles.chipText}>{dateStr}</Text>
+              </View>
+              <View style={sdStyles.chip}>
+                <Ionicons name="time-outline" size={13} color="#475569" />
+                <Text style={sdStyles.chipText}>{timeStr}</Text>
+              </View>
+              <View style={sdStyles.chip}>
+                <Ionicons name="videocam-outline" size={13} color="#475569" />
+                <Text style={sdStyles.chipText}>{sessionType}</Text>
+              </View>
+            </View>
+
+            {/* Reason card */}
+            <View style={sdStyles.reasonCard}>
+              <View style={sdStyles.reasonHead}>
+                <View style={sdStyles.reasonIconBox}>
+                  <Ionicons name="document-text-outline" size={16} color="#334155" />
+                </View>
+                <Text style={sdStyles.reasonTitle}>Reason: {reason}</Text>
+              </View>
+              {!!notes && (
+                <View style={sdStyles.quoteBox}>
+                  <Text style={sdStyles.quoteMark}>“</Text>
+                  <Text style={sdStyles.quoteText}>{notes}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Actions */}
+            <TouchableOpacity activeOpacity={0.9} onPress={() => onStartSession?.(apt)} style={sdStyles.startBtnWrap}>
+              <LinearGradient colors={['#003A9B', '#1490FF']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={sdStyles.startBtn}>
+                <Ionicons name="videocam" size={17} color="#fff" />
+                <Text style={sdStyles.startBtnText}>{t('Start Session')}</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const sdStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: '#F3F7FE',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '92%',
+    overflow: 'hidden',
+  },
+  scroll: { padding: 16, paddingBottom: 28 },
+  header: { flexDirection: 'row', alignItems: 'center', paddingTop: 6 },
+  avatar: { width: 52, height: 52, borderRadius: 26 },
+  avatarFallback: { backgroundColor: '#1D4ED8', alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  name: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
+  genderAge: { fontSize: 12.5, color: '#64748b', marginTop: 2 },
+  returnBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+    backgroundColor: '#EAF0FD', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, marginTop: 5,
+  },
+  returnBadgeText: { fontSize: 11, fontWeight: '700', color: '#2563EB' },
+  divider: { height: 1, backgroundColor: '#E7ECF3', marginVertical: 14 },
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: '#E7ECF3', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6,
+  },
+  chipText: { fontSize: 12, fontWeight: '600', color: '#475569' },
+  chipStatus: { backgroundColor: '#E7F8EE', borderColor: '#C6EFD6' },
+  chipStatusText: { fontSize: 12, fontWeight: '700', color: '#16A34A' },
+  statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#22C55E' },
+  reasonCard: {
+    backgroundColor: '#fff', borderWidth: 1, borderColor: '#E7ECF3', borderRadius: 16, padding: 14, marginTop: 16,
+  },
+  reasonHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  reasonIconBox: {
+    width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC',
+  },
+  reasonTitle: { flex: 1, fontSize: 15, fontWeight: '800', color: '#0f172a', lineHeight: 21, marginTop: 3 },
+  quoteBox: {
+    flexDirection: 'row', gap: 8, backgroundColor: '#F1F5F9', borderRadius: 12, padding: 12, marginTop: 12,
+  },
+  quoteMark: { fontSize: 22, color: '#94a3b8', lineHeight: 22, marginTop: -2 },
+  quoteText: { flex: 1, fontSize: 13, color: '#475569', fontStyle: 'italic', lineHeight: 19 },
+  snapLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 1, color: '#94a3b8', marginTop: 20, marginBottom: 10 },
+  snapGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  snapCard: { flexGrow: 1, flexBasis: '46%', borderRadius: 16, padding: 16, alignItems: 'center', gap: 4 },
+  snapCardLabel: { fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 2 },
+  snapCardValue: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
+  startBtnWrap: { marginTop: 22 },
+  startBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 52, borderRadius: 14 },
+  startBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  notesBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    height: 52, borderRadius: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: '#E2E8F0', marginTop: 12,
+  },
+  notesBtnText: { color: '#0f172a', fontSize: 15, fontWeight: '700' },
+});
 
 // â”€â”€ Appointments Shimmer UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const AppointmentSkeletonCard = () => {
@@ -673,6 +840,13 @@ export default function CounselorDashboard() {
   const topInset = Platform.OS === "ios" ? insets.top : 0;
   const isFocused = useIsFocused();
   const [activeTab, setActiveTab] = useState("messages");
+  // Visited tabs, most recent last. Drives back navigation between tabs.
+  const tabHistoryRef = useRef([]);
+  // True while showing a tab that was opened from the mobile menu.
+  const cameFromMenuRef = useRef(false);
+  // True when the menu is on screen only because a back press re-opened it, so
+  // the tab behind it is the one already backed out of.
+  const menuViaBackRef = useRef(false);
   const [isMobile, setIsMobile] = useState(SCREEN_WIDTH <= 768);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -707,7 +881,11 @@ export default function CounselorDashboard() {
   // â”€â”€ Appointment state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(false);
-  const [updatingAppointmentId, setUpdatingAppointmentId] = useState(null);
+  // Tracks which appointment AND which action (confirmed/canceled) is in flight,
+  // so only the button that was pressed shows a spinner — not both.
+  const [updatingAppt, setUpdatingAppt] = useState(null); // { id, status } | null
+  // Session "View Details" modal — holds the appointment being previewed.
+  const [sessionDetail, setSessionDetail] = useState(null);
   const [aptFilter, setAptFilter] = useState("all"); // "all" | "today" | "upcoming"
   const [aptSearch, setAptSearch] = useState("");
 
@@ -883,7 +1061,7 @@ export default function CounselorDashboard() {
 
   // â”€â”€ Update Appointment Status (Accept / Reject) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleUpdateAppointmentStatus = async (id, status) => {
-    setUpdatingAppointmentId(id);
+    setUpdatingAppt({ id, status });
     vibrate([80, 40, 80]);
     try {
       const token = await AsyncStorage.getItem("token");
@@ -922,7 +1100,7 @@ export default function CounselorDashboard() {
       console.error("Error updating appointment status:", err);
       showToast("Failed to update appointment status.", "error");
     } finally {
-      setUpdatingAppointmentId(null);
+      setUpdatingAppt(null);
     }
   };
 
@@ -1122,6 +1300,8 @@ export default function CounselorDashboard() {
 
     const other = chat?.otherParty || {};
     const patientInfo = apt.patient || apt.user || {};
+    // Merge so the resolver can find a photo on either source; chat data wins.
+    const display = getAnonymousUserDisplay({ ...patientInfo, ...other });
     const name =
       other.anonymous || patientInfo.anonymous || patientInfo.fullName || other.name || "Anonymous User";
 
@@ -1134,9 +1314,9 @@ export default function CounselorDashboard() {
       chatId,
       name,
       anonymous: name,
-      gender: other.gender || patientInfo.gender,
-      avatar: other.avatar,
-      avatarUrl: other.avatarUrl || other.profilePhoto?.url || null,
+      gender: other.gender || patientInfo.gender || display.gender,
+      avatar: other.avatar || display.avatar,
+      avatarUrl: display.avatarUrl || null,
       status: chat?.status || "accepted",
       online: other.isOnline || other.online || false,
       isOnline: other.isOnline || other.online || false,
@@ -1855,11 +2035,65 @@ export default function CounselorDashboard() {
     { id: "profile", icon: "chart-pie", label: t('counselor:profile'), badge: 0 },
   ];
 
-  const handleTabChange = (tabId) => {
+  const handleTabChange = (tabId, fromMenu = false) => {
+    menuViaBackRef.current = false;
+    if (tabId === activeTab) { setShowMobileMenu(false); return; }
     vibrate(80);
+    // Remember the menu as the origin so back returns there.
+    cameFromMenuRef.current = fromMenu;
+    // Remember where we came from so back retraces the path instead of jumping
+    // to the home tab.
+    tabHistoryRef.current.push(activeTab);
     setActiveTab(tabId);
     setShowMobileMenu(false);
   };
+
+  // One step back through the tab history.
+  const handleDashboardBack = () => {
+    if (tabHistoryRef.current.length > 0) {
+      setActiveTab(tabHistoryRef.current.pop());
+      return true;
+    }
+    if (activeTab !== 'messages') {
+      setActiveTab('messages');
+      return true;
+    }
+    return false;
+  };
+
+  // This dashboard renders its tabs from state rather than navigator routes, so
+  // Android back had nothing to pop and fell through to the navigator - closing
+  // the app. Unwind the open overlay first, then the tab history.
+  useEffect(() => {
+    // Only while this screen is on top. A screen pushed above it (the chat)
+    // must get the back press itself, otherwise back would silently switch this
+    // dashboard's tab instead of popping the stack.
+    if (!isFocused) return undefined;
+
+    const onBackPress = () => {
+      if (showMobileMenu) {
+        setShowMobileMenu(false);
+        // Menu -> Settings -> back (menu) -> back used to just uncover Settings
+        // again, bouncing between the two. If the menu was re-opened BY a back
+        // press, carry on retracing the tab history instead.
+        if (menuViaBackRef.current) {
+          menuViaBackRef.current = false;
+          handleDashboardBack();
+        }
+        return true;
+      }
+      // Came here from the mobile menu - go back to it.
+      if (cameFromMenuRef.current) {
+        cameFromMenuRef.current = false;
+        menuViaBackRef.current = true;
+        setShowMobileMenu(true);
+        return true;
+      }
+      return handleDashboardBack();
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [isFocused, activeTab, showMobileMenu]);
 
   // ── Global greeting header data (used by the single mobile header) ──
   // profilePhoto may be a string URL or a Cloudinary-style object.
@@ -1872,7 +2106,7 @@ export default function CounselorDashboard() {
 
   const greetingTitle = (() => {
     const h = new Date().getHours();
-    const g = h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
+    const g = h < 12 ? 'Good Morning' : h < 17 ? t('Good Afternoon') : t('Good Evening');
     // First name only — surname is dropped (e.g. "Vivek Singh" → "Dr. Vivek").
     const firstNameOnly =
       (counselorData?.name || 'Counselor')
@@ -2047,6 +2281,7 @@ export default function CounselorDashboard() {
                 onPress={() => setAptFilter(ft.key)}
                 activeOpacity={0.85}
               >
+                {isActive ? <GradientFill /> : null}
                 {isActive && (
                   <Ionicons name={ft.icon} size={14} color="#ffffff" style={{ marginRight: 6 }} />
                 )}
@@ -2113,7 +2348,7 @@ export default function CounselorDashboard() {
                 onVideoCall={(a) => handleInitiateVideoCallFromApt(a, "video")}
                 onVoiceCall={(a) => handleInitiateVideoCallFromApt(a, "audio")}
                 onChat={handleOpenAppointmentChat}
-                updating={updatingAppointmentId}
+                updating={updatingAppt}
               />
             ))}
           </View>
@@ -2257,6 +2492,7 @@ export default function CounselorDashboard() {
                 onVideoCall={(a) => handleInitiateVideoCallFromApt(a, "video")}
                 onVoiceCall={(a) => handleInitiateVideoCallFromApt(a, "audio")}
                 onChat={handleOpenAppointmentChat}
+                onViewDetails={(a) => setSessionDetail(a)}
               />
             ))}
           </View>
@@ -2278,7 +2514,7 @@ export default function CounselorDashboard() {
       case "patients":
         return <PatientRequests />;
       case "earnings": {
-        return <CounselorWallet onClose={() => setActiveTab("dashboard")} />;
+        return <CounselorWallet embedded onClose={() => handleDashboardBack()} />;
         /*
          * Legacy hard-coded earnings preview retained temporarily below for
          * merge compatibility. The live CounselorWallet screen above now owns
@@ -2438,7 +2674,7 @@ export default function CounselorDashboard() {
                       <Icon name={tx.icon} size={14} color={tx.color} />
                     </View>
                     <View style={styles.earningsTxnBody}>
-                      <Text style={styles.earningsTxnName}>{tx.name}</Text>
+                      <Text style={styles.earningsTxnName}>{t(tx.name)}</Text>
                       <Text style={styles.earningsTxnMeta}>
                         {tx.type} {'\u2022'} {tx.date}
                       </Text>
@@ -2471,7 +2707,7 @@ export default function CounselorDashboard() {
       case "settings":
         return (
           <CounselorSettings
-            onNavigate={(tab) => setActiveTab(tab)}
+            onNavigate={(tab) => handleTabChange(tab)}
             onLogout={() => setShowLogoutConfirm(true)}
             notifCount={pendingRequests.length}
             onBellPress={() => setShowNotifications(true)}
@@ -2492,6 +2728,15 @@ export default function CounselorDashboard() {
     <SafeAreaView style={styles.screen} edges={["top"]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <View style={styles.container}>
+        {/* Session detail modal (View Details) */}
+        <SessionDetailModal
+          visible={!!sessionDetail}
+          apt={sessionDetail}
+          onClose={() => setSessionDetail(null)}
+          onStartSession={(a) => { setSessionDetail(null); handleInitiateVideoCallFromApt(a, "video"); }}
+          onAddNotes={(a) => { setSessionDetail(null); handleOpenAppointmentChat(a); }}
+        />
+
         {/* Incoming Call Modal */}
         <IncomingCallModal
           isOpen={isFocused && showIncomingCallModal}
@@ -2529,12 +2774,12 @@ export default function CounselorDashboard() {
             <View style={styles.sidebarBrand}>
               <View style={styles.sidebarBrandIcon}>
                 <Image
-                  source={require('../../../../../image/Mediconect Logo-3.png')}
+                  source={require('../../../../../image/HumaeliIcon.png')}
                   style={styles.sidebarBrandLogoImg}
                   resizeMode="contain"
                 />
               </View>
-              <Text style={styles.sidebarBrandText}>Mediconeckt</Text>
+              <Text style={styles.sidebarBrandText}>Humaeli</Text>
               <View style={styles.sidebarBrandPill}>
                 <Text style={styles.sidebarBrandPillText}>PRO</Text>
               </View>
@@ -2689,7 +2934,7 @@ export default function CounselorDashboard() {
               <TouchableOpacity
                 style={styles.greetingLeft}
                 activeOpacity={0.8}
-                onPress={() => setActiveTab('profile')}
+                onPress={() => handleTabChange('profile')}
               >
                 {counselorPhotoUri ? (
                   <Image source={{ uri: counselorPhotoUri }} style={styles.greetingAvatar} />
@@ -2701,9 +2946,6 @@ export default function CounselorDashboard() {
                   </View>
                 )}
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.greetingWelcome}>
-                    {t('counselor:welcomeBack', 'Welcome back,')}
-                  </Text>
                   <Text style={styles.greetingName} numberOfLines={1}>
                     {greetingTitle}
                   </Text>
@@ -2820,7 +3062,7 @@ export default function CounselorDashboard() {
                       styles.mobileNavItem,
                       activeTab === item.id && styles.mobileNavItemActive,
                     ]}
-                    onPress={() => handleTabChange(item.id)}
+                    onPress={() => handleTabChange(item.id, true)}
                   >
                     {activeTab === item.id && (
                       <LinearGradient
@@ -2941,7 +3183,17 @@ export default function CounselorDashboard() {
             onChanged={() => fetchPendingRequests()}
             onOpenChat={(req) => {
               setShowNotifications(false);
-              setActiveTab('messages');
+              handleTabChange('messages');
+            }}
+            // Same behaviour as the user side: a notification opens the page it
+            // is about instead of just marking itself read.
+            onAction={(n) => {
+              setShowNotifications(false);
+              const type = String(n?.type || '').toLowerCase();
+              if (/earn|payout|withdraw|payment|wallet/.test(type)) handleTabChange('earnings');
+              else if (/appointment|booking|session/.test(type)) handleTabChange('appointments');
+              else if (/message|chat/.test(type)) handleTabChange('messages');
+              else if (/request|patient/.test(type)) handleTabChange('patients');
             }}
           />
         </Modal>
@@ -2960,7 +3212,7 @@ export default function CounselorDashboard() {
           {counselorData && !counselorData.profileCompleted && (
             <TouchableOpacity
               style={profileBanner.wrap}
-              onPress={() => setActiveTab('profile')}
+              onPress={() => handleTabChange('profile')}
               activeOpacity={0.85}
             >
               <View style={profileBanner.left}>
@@ -3294,7 +3546,7 @@ const sessStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: "#2563EB",
+    overflow: "hidden",
     borderRadius: 12,
     paddingVertical: 14,
     marginTop: 16,
@@ -3415,10 +3667,10 @@ const sessStyles = StyleSheet.create({
     justifyContent: "center",
   },
   videoBtn: {
-    backgroundColor: "#2563EB",
+    backgroundColor: "#004AC6",
   },
   voiceBtn: {
-    backgroundColor: "#0D9488",
+    backgroundColor: "#004AC6",
   },
   chatBtn: {
     backgroundColor: "#eff6ff",
@@ -3626,10 +3878,10 @@ const aptStyles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#e5e7eb',
+    overflow: 'hidden',
   },
   filterChipActive: {
-    backgroundColor: '#2563EB',
-    borderColor: '#2563EB',
+    borderColor: '#003A9B',
   },
   filterChipText: {
     fontSize: 13,
@@ -3956,11 +4208,11 @@ const aptStyles = StyleSheet.create({
   },
   confirmedVideoBtn: {
     flex: 1.35,
-    backgroundColor: '#2563EB',
+    overflow: 'hidden',
   },
   confirmedVoiceBtn: {
     flex: 1,
-    backgroundColor: '#16A34A',
+    overflow: 'hidden',
   },
   confirmedChatBtn: {
     flex: 1,
@@ -5447,6 +5699,79 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(8, 20, 32, 0.45)",
   },
+
+  // ── Incoming-call popup (Figma: clean white card) ────────────────────────
+  incCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 30,
+    paddingTop: 28,
+    paddingBottom: 28,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.28,
+    shadowRadius: 34,
+    elevation: 18,
+  },
+  incHeaderRow: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 22 },
+  incLiveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: DOCTOR.gradientTo },
+  incLabel: { fontSize: 12, fontWeight: "700", letterSpacing: 1.6, color: DOCTOR.primary },
+  incName: { fontSize: 26, fontWeight: "800", color: "#0F172A", textAlign: "center", marginBottom: 6 },
+  incSubRow: { flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "90%" },
+  incSubText: { fontSize: 14, color: "#94A3B8", fontWeight: "500", flexShrink: 1 },
+  incAvatarWrap: { width: 176, height: 176, alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  incWaveRing: {
+    position: "absolute",
+    width: 118,
+    height: 118,
+    borderRadius: 59,
+    borderWidth: 2,
+    borderColor: DOCTOR.gradientTo,
+  },
+  incAvatarInner: {
+    width: 118,
+    height: 118,
+    borderRadius: 59,
+    overflow: "hidden",
+    borderWidth: 4,
+    borderColor: "#E7EEFE",
+    backgroundColor: "#E2E8F0",
+  },
+  incAvatarImg: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center" },
+  incAvatarInitial: { color: "#fff", fontSize: 42, fontWeight: "800" },
+  incEncrypted: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#E7EEFE",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: 18,
+    marginBottom: 28,
+  },
+  incEncryptedText: { fontSize: 11, fontWeight: "800", color: DOCTOR.primary, letterSpacing: 1 },
+  incActions: { flexDirection: "row", justifyContent: "space-around", alignSelf: "stretch", paddingHorizontal: 16 },
+  incActionCol: { alignItems: "center", gap: 10 },
+  incFab: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.22,
+    shadowRadius: 9,
+    elevation: 7,
+  },
+  incFabReject: { backgroundColor: "#EF4444" },
+  incFabAccept: { overflow: "hidden" },
+  incActionLabel: { fontSize: 13, fontWeight: "600", color: "#64748B" },
+
   glassCard: {
     width: "100%",
     maxWidth: 380,

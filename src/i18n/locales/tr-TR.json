@@ -71,7 +71,7 @@
     "passwordMinLength": "Şifre en az 6 karakter olmalıdır",
     "passwordsDoNotMatch": "Şifreler eşleşmiyor",
     "sessionExpired": "Oturumun süresi doldu. Lütfen tekrar giriş yapın.",
-    "chooseRole": "Mediconect'i nasıl kullanmak istediğinizi seçin",
+    "chooseRole": "Humaeli'i nasıl kullanmak istediğinizi seçin",
     "userRole": "Kullanıcı",
     "counselorRole": "Danışman",
     "userRoleDesc": "Profesyonel danışmanlardan destek alın",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Şifreyi tekrar girin",
     "enterCurrentPassword": "Mevcut şifreyi girin",
     "reEnterNewPassword": "Yeni şifreyi tekrar girin",
-    "copyright": "© 2025 Mediconnect. Her hakkı saklıdır."
+    "copyright": "© 2025 Humaeli. Her hakkı saklıdır."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Yardım Destek",
-    "centerTitle": "MediConeckt destek merkezi",
-    "centerDesc": "Doğru MediConeckt özelliğine geçmek, yaygın sorunları gidermek ve uygulama dışında acil yardıma ne zaman başvurmanız gerektiğini anlamak için bu destek merkezini kullanın.",
+    "centerTitle": "Humaeli destek merkezi",
+    "centerDesc": "Doğru Humaeli özelliğine geçmek, yaygın sorunları gidermek ve uygulama dışında acil yardıma ne zaman başvurmanız gerektiğini anlamak için bu destek merkezini kullanın.",
     "aiWellnessChat": "Yapay zeka sağlıklı yaşam sohbeti",
     "aiWellnessDesc": "Akıl sağlığına yönelik sorular sorun, sesli girişi kullanın, hızlı yanıtlar alın ve son yapay zeka sohbetinize kontrol panelinden devam edin.",
     "aiWellnessAction": "AI sohbetini aç",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Gizlilik Politikası",
-    "centerTitle": "MediConeckt gizlilik merkezi",
-    "centerDesc": "Bu gizlilik merkezi, MediConeckt'in bu mobil uygulama içindeki profilinizi, sohbetinizi, randevunuzu, cüzdanınızı, çağrınızı, konumunuzu ve güvenlik verilerinizi nasıl kullandığını açıklar.",
+    "centerTitle": "Humaeli gizlilik merkezi",
+    "centerDesc": "Bu gizlilik merkezi, Humaeli'in bu mobil uygulama içindeki profilinizi, sohbetinizi, randevunuzu, cüzdanınızı, çağrınızı, konumunuzu ve güvenlik verilerinizi nasıl kullandığını açıklar.",
     "otpProtected": "OTP korumalı",
     "otpProtectedDesc": "E-posta ve telefon değişiklikleri",
     "anonymousCare": "Anonim bakım kimliği",

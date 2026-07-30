@@ -71,7 +71,7 @@
     "passwordMinLength": "የይለፍ ቃል ቢያንስ 6 ቁምፊዎች መሆን አለበት።",
     "passwordsDoNotMatch": "የይለፍ ቃሎች አይዛመዱም።",
     "sessionExpired": "ክፍለ ጊዜው አልፎበታል። እባክዎ እንደገና ይግቡ።",
-    "chooseRole": "Mediconectን እንዴት መጠቀም እንደምትፈልግ ምረጥ",
+    "chooseRole": "Humaeliን እንዴት መጠቀም እንደምትፈልግ ምረጥ",
     "userRole": "ተጠቃሚ",
     "counselorRole": "መካሪ",
     "userRoleDesc": "ከባለሙያ አማካሪዎች ድጋፍ ያግኙ",
@@ -264,7 +264,7 @@
     "reEnterPassword": "የይለፍ ቃል እንደገና አስገባ",
     "enterCurrentPassword": "የአሁኑን የይለፍ ቃል ያስገቡ",
     "reEnterNewPassword": "አዲስ የይለፍ ቃል እንደገና አስገባ",
-    "copyright": "© 2025 Mediconnect. ሁሉም መብቶች የተጠበቁ ናቸው።"
+    "copyright": "© 2025 Humaeli. ሁሉም መብቶች የተጠበቁ ናቸው።"
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "እገዛ ድጋፍ",
-    "centerTitle": "MediConekt የድጋፍ ማዕከል",
-    "centerDesc": "ወደ ትክክለኛው የ MediConeckt ባህሪ ለመዝለል፣ የተለመዱ ችግሮችን ለመፍታት እና ከመተግበሪያው ውጭ አስቸኳይ እርዳታን መቼ ማግኘት እንዳለቦት ለመረዳት ይህንን የድጋፍ ማእከል ይጠቀሙ።",
+    "centerTitle": "Humaeli የድጋፍ ማዕከል",
+    "centerDesc": "ወደ ትክክለኛው የ Humaeli ባህሪ ለመዝለል፣ የተለመዱ ችግሮችን ለመፍታት እና ከመተግበሪያው ውጭ አስቸኳይ እርዳታን መቼ ማግኘት እንዳለቦት ለመረዳት ይህንን የድጋፍ ማእከል ይጠቀሙ።",
     "aiWellnessChat": "AI ደህንነት ውይይት",
     "aiWellnessDesc": "የአእምሮ ጤንነት ጥያቄዎችን ይጠይቁ፣ የድምጽ ግብአትን ይጠቀሙ፣ ፈጣን ምላሾችን ያግኙ እና የቅርብ ጊዜ የ AI ውይይትዎን ከዳሽቦርድ ይቀጥሉ።",
     "aiWellnessAction": "AI ውይይትን ይክፈቱ",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "የግላዊነት ፖሊሲ",
-    "centerTitle": "MediConeckt የግላዊነት ማዕከል",
-    "centerDesc": "ይህ የግላዊነት ማዕከል MediConeckt የእርስዎን መገለጫ፣ ውይይት፣ ቀጠሮ፣ ቦርሳ፣ ጥሪ፣ አካባቢ እና የደህንነት ውሂብ በዚህ የሞባይል መተግበሪያ ውስጥ እንዴት እንደሚጠቀም ያብራራል።",
+    "centerTitle": "Humaeli የግላዊነት ማዕከል",
+    "centerDesc": "ይህ የግላዊነት ማዕከል Humaeli የእርስዎን መገለጫ፣ ውይይት፣ ቀጠሮ፣ ቦርሳ፣ ጥሪ፣ አካባቢ እና የደህንነት ውሂብ በዚህ የሞባይል መተግበሪያ ውስጥ እንዴት እንደሚጠቀም ያብራራል።",
     "otpProtected": "OTP የተጠበቀ",
     "otpProtectedDesc": "ኢሜል እና የስልክ ለውጦች",
     "anonymousCare": "ስም-አልባ እንክብካቤ ማንነት",

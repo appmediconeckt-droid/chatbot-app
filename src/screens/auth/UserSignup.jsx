@@ -23,7 +23,7 @@
 // import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 // // Import logo
-// import logo from '../../image/Mediconect Logo-3.png';
+// import logo from '../../image/HumaeliIcon.png';
 // import GoogleAuthButton from './components/GoogleAuthButton';
 // import { sendLocationSilently } from '../../utils/locationHelper';
 // import socketService from '../../services/socketService';
@@ -347,7 +347,7 @@
 //               {isVerified ? (
 //                 <Icon name="check-decagram" size={18} color="#10b981" />
 //               ) : (
-//                 <Text style={styles.verifyBtnText}>Verify</Text>
+//                 <Text style={styles.verifyBtnText}>{t('Verify')}</Text>
 //               )}
 //             </TouchableOpacity>
 //           )}
@@ -374,8 +374,8 @@
 //               <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
 //                 <View style={styles.header}>
 //                   <View style={styles.logoBadge}><Image source={logo} style={styles.logo} resizeMode="contain" /></View>
-//                   <View style={styles.brandContainer}><Text style={styles.brandMain}>Medicone</Text><Text style={styles.brandAlt}>ckt</Text></View>
-//                   <Text style={styles.tagline}>{isLogin ? 'Welcome back, seeker' : 'Begin your journey'}</Text>
+//                   <View style={styles.brandContainer}><Text style={[styles.brandMain, { color: '#00652C' }]}>{t('Humaeli')}</Text></View>
+//                   <Text style={styles.tagline}>{'Begin your journey'}</Text>
 //                 </View>
 
 //                 <View style={styles.formPanel}>
@@ -397,20 +397,20 @@
 //                   <Animated.View key="pwd-row" style={{ opacity: fieldAnims[6] }}>
 //                     <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
 //                       <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
-//                       <TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} placeholder="Password" placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} />
+//                       <TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} placeholder={t('Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} />
 //                       <TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
 //                     </View>
 //                   </Animated.View>
 //                   {isLogin && (
 //                     <TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}>
-//                       <Text style={styles.forgotText}>Forgot password?</Text>
+//                       <Text style={styles.forgotText}>{t('Forgot password?')}</Text>
 //                     </TouchableOpacity>
 //                   )}
 //                   {!isLogin && (
 //                     <Animated.View key="cpwd-row" style={{ opacity: fieldAnims[7] }}>
 //                       <View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}>
 //                         <Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
-//                         <TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={() => setFocusedField('confirmPassword')} onBlur={() => setFocusedField(null)} placeholder="Confirm Password" placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} />
+//                         <TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={() => setFocusedField('confirmPassword')} onBlur={() => setFocusedField(null)} placeholder={t('Confirm Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} />
 //                         <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
 //                       </View>
 //                     </Animated.View>
@@ -462,12 +462,12 @@
 //               <View style={[styles.modalIcon, { backgroundColor: '#f5f7ff' }]}><Icon name={showOtpModal.type === 'email' ? 'email-fast-outline' : 'cellphone-text'} size={40} color="#00652C" /></View>
 //               <Text style={styles.modalTitle}>Verify Your {showOtpModal.type === 'email' ? 'Email' : 'Phone'}</Text>
 //               <Text style={styles.modalSub}>Enter the code sent to {showOtpModal.value}</Text>
-//               <TextInput style={styles.otpInput} value={otpCode} onChangeText={setOtpCode} placeholder="000000" placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
+//               <TextInput style={styles.otpInput} value={otpCode} onChangeText={setOtpCode} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
 //               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
 //               <TouchableOpacity style={styles.modalActionBtn} onPress={handleVerifyOtp} disabled={isVerifyingOtp}>
-//                 {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Verify Now</Text>}
+//                 {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Now')}</Text>}
 //               </TouchableOpacity>
-//               <TouchableOpacity onPress={() => setShowOtpModal({ show: false, type: '', value: '' })} style={styles.cancelBtn}><Text style={styles.cancelText}>Go Back</Text></TouchableOpacity>
+//               <TouchableOpacity onPress={() => setShowOtpModal({ show: false, type: '', value: '' })} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Go Back')}</Text></TouchableOpacity>
 //             </View>
 //           </View>
 //         </Modal>
@@ -477,21 +477,21 @@
 //           <View style={styles.modalOverlay}>
 //             <View style={styles.modalContent}>
 //               <View style={styles.modalIcon}><Icon name="devices" size={40} color="#00652C" /></View>
-//               <Text style={styles.modalTitle}>Active Session Detected</Text>
+//               <Text style={styles.modalTitle}>{t('Active Session Detected')}</Text>
 //               <Text style={styles.modalSub}>You are logged in on another device. Would you like to log out from all other devices and log in here?</Text>
 //               {!deviceOtpSent ? (
 //                 <TouchableOpacity style={styles.modalActionBtn} onPress={handleSendDeviceOtp} disabled={isSendingDeviceOtp}>
-//                   {isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Log out other devices</Text>}
+//                   {isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Log out other devices')}</Text>}
 //                 </TouchableOpacity>
 //               ) : (
 //                 <View style={styles.otpWrapper}>
-//                   <TextInput style={styles.otpInput} value={deviceOtp} onChangeText={setDeviceOtp} placeholder="Enter OTP" placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
+//                   <TextInput style={styles.otpInput} value={deviceOtp} onChangeText={setDeviceOtp} placeholder={t('Enter OTP')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
 //                   <TouchableOpacity style={styles.modalActionBtn} onPress={handleVerifyDeviceOtp} disabled={isVerifyingDeviceOtp}>
-//                     {isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Verify & Login</Text>}
+//                     {isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify & Login')}</Text>}
 //                   </TouchableOpacity>
 //                 </View>
 //               )}
-//               <TouchableOpacity onPress={() => setShowDeviceConflict(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity>
+//               <TouchableOpacity onPress={() => setShowDeviceConflict(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity>
 //             </View>
 //           </View>
 //         </Modal>
@@ -603,13 +603,15 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import AuthBackground from '../../theme/AuthBackground';
 
 // Import logo
-import logo from '../../image/Mediconect Logo-3.png';
+import logo from '../../image/HumaeliIcon.png';
 import GoogleAuthButton from './components/GoogleAuthButton';
 import ForgotPasswordModal from './components/ForgotPasswordModal';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 const UserSignup = ({ navigation, route }) => {
+  const { t } = useLanguageRender();
   const { width, height } = useWindowDimensions();
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
@@ -627,6 +629,10 @@ const UserSignup = ({ navigation, route }) => {
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
+  // Holds the running entrance animation so a mode switch can stop it cleanly.
+  const entranceAnimRef = useRef(null);
+  // Entrance plays on open only; later mode toggles skip it.
+  const firstEntranceRef = useRef(true);
   const orb1Anim = useRef(new Animated.Value(0)).current;
   const orb2Anim = useRef(new Animated.Value(0)).current;
   const particle1 = useRef(new Animated.Value(0)).current;
@@ -662,18 +668,55 @@ const UserSignup = ({ navigation, route }) => {
 
   const genderOptions = ['Male', 'Female', 'Other'];
 
+  // Toggling Login <-> Create Account re-runs this entrance animation. It used to
+  // reset every value to 0 and start a new animation WITHOUT stopping the
+  // previous one - and calling setValue() on a native-driven value that still has
+  // an animation attached can leave it stuck at 0. Every field is wrapped in an
+  // Animated.View with `opacity: fieldAnims[i]`, so a stuck 0 renders the entire
+  // form invisible - the blank page after switching back to Login.
+  //
+  // Stop the in-flight animation first, and if the new one gets interrupted, snap
+  // the values to their end state so the form can never be left invisible.
+  // The panel's opacity is bound to `fadeAnim` and every field's to
+  // `fieldAnims[i]`, so if any of those is left at 0 the page renders completely
+  // blank - no error, just nothing. That is what happened when switching from
+  // Create Account back to Login: the effect reset all values to 0 and started a
+  // new animation over the top of the previous one, and setValue() on a
+  // native-driven value that still has an animation attached can leave it stuck.
+  //
+  // The entrance animation now runs once, when the screen opens. A mode toggle
+  // just snaps everything to its visible end state, so the form cannot be left
+  // invisible regardless of animation timing.
   useEffect(() => {
+    entranceAnimRef.current?.stop();
+
+    const showImmediately = () => {
+      fadeAnim.setValue(1);
+      slideAnim.setValue(0);
+      fieldAnims.forEach(anim => anim.setValue(1));
+    };
+
+    if (!firstEntranceRef.current) {
+      showImmediately();
+      return;
+    }
+    firstEntranceRef.current = false;
+
     fadeAnim.setValue(0);
     slideAnim.setValue(30);
     fieldAnims.forEach(anim => anim.setValue(0));
 
-    Animated.parallel([
+    entranceAnimRef.current = Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
       Animated.spring(slideAnim, { toValue: 0, tension: 20, friction: 7, useNativeDriver: true }),
-      Animated.stagger(40, fieldAnims.map(anim => 
+      Animated.stagger(40, fieldAnims.map(anim =>
         Animated.spring(anim, { toValue: 1, tension: 25, friction: 8, useNativeDriver: true })
       ))
-    ]).start();
+    ]);
+    // If the entrance is interrupted, don't leave anything part-faded.
+    entranceAnimRef.current.start(({ finished }) => {
+      if (!finished) showImmediately();
+    });
   }, [isLogin]);
 
   useEffect(() => {
@@ -748,7 +791,10 @@ const UserSignup = ({ navigation, route }) => {
       });
       if (await persistUserSession(response.data)) {
         showNotification('Login successful!');
-        setTimeout(() => navigation.replace('UserOnboarding'), 1000);
+        // Onboarding is for NEW accounts only - logging back in went through the
+        // whole 4-page tour every time, which is what made it look like the tour
+        // belonged to login. Signup below still routes to it.
+        setTimeout(() => navigation.replace('LocationGate', { destination: 'UserDashboard' }), 1000);
       }
     } catch (err) {
       if (err?.response?.status === 409) {
@@ -785,7 +831,7 @@ const UserSignup = ({ navigation, route }) => {
       const response = await axios.post(`${API_BASE_URL}/api/auth/complete-registration`, signupData);
       if (response.data.success && await persistUserSession(response.data)) {
         showNotification('Account created successfully!');
-        setTimeout(() => navigation.replace('UserOnboarding'), 1500);
+        setTimeout(() => navigation.replace('LocationGate', { destination: 'UserOnboarding' }), 1500);
       }
     } catch (error) {
       showNotification(error.response?.data?.message || 'Registration failed', 'error');
@@ -873,7 +919,8 @@ const UserSignup = ({ navigation, route }) => {
       });
       if (await persistUserSession(response.data)) {
         setShowDeviceConflict(false);
-        navigation.replace('UserOnboarding');
+        // Still a login, just via the device-conflict OTP - not a new account.
+        navigation.replace('LocationGate', { destination: 'UserDashboard' });
       }
     } catch (err) {
       showNotification('Invalid OTP', 'error');
@@ -920,7 +967,7 @@ const UserSignup = ({ navigation, route }) => {
               {isVerified ? (
                 <Icon name="check-decagram" size={18} color="#10b981" />
               ) : (
-                <Text style={styles.verifyBtnText}>Verify</Text>
+                <Text style={styles.verifyBtnText}>{t('Verify')}</Text>
               )}
             </TouchableOpacity>
           )}
@@ -950,8 +997,8 @@ const UserSignup = ({ navigation, route }) => {
               <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
                   <View style={styles.logoBadge}><Image source={logo} style={styles.logo} resizeMode="contain" /></View>
-                  <View style={styles.brandContainer}><Text style={styles.brandMain}>Medicone</Text><Text style={styles.brandAlt}>ckt</Text></View>
-                  <Text style={styles.tagline}>{isLogin ? 'Welcome back, seeker' : 'Begin your journey'}</Text>
+                  <View style={styles.brandContainer}><Text style={[styles.brandMain, { color: '#00652C' }]}>{t('Humaeli')}</Text></View>
+                  <Text style={styles.tagline}>{'Begin your journey'}</Text>
                 </View>
 
                 <View style={styles.formPanel}>
@@ -973,27 +1020,38 @@ const UserSignup = ({ navigation, route }) => {
                   <Animated.View key="pwd-row" style={{ opacity: fieldAnims[6] }}>
                     <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
                       <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
-                      <TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} placeholder="Password" placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} />
+                      <TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} placeholder={t('Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} />
                       <TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
                     </View>
                   </Animated.View>
                   {isLogin && (
                     <TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}>
-                      <Text style={styles.forgotText}>Forgot password?</Text>
+                      <Text style={styles.forgotText}>{t('Forgot password?')}</Text>
                     </TouchableOpacity>
                   )}
                   {!isLogin && (
                     <Animated.View key="cpwd-row" style={{ opacity: fieldAnims[7] }}>
                       <View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}>
                         <Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
-                        <TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={() => setFocusedField('confirmPassword')} onBlur={() => setFocusedField(null)} placeholder="Confirm Password" placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} />
+                        <TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={() => setFocusedField('confirmPassword')} onBlur={() => setFocusedField(null)} placeholder={t('Confirm Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} />
                         <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
                       </View>
                     </Animated.View>
                   )}
                   <Animated.View key="submit-row" style={{ opacity: fieldAnims[8], marginTop: 10 }}>
-                    <TouchableOpacity style={styles.submitBtn} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
-                      {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>{isLogin ? 'Login' : 'Join Now'}</Text>}
+                    <TouchableOpacity activeOpacity={0.9} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
+                      <LinearGradient
+                        colors={['#006B2C', '#01CE54']}
+                        start={{ x: 0, y: 0.5 }}
+                        end={{ x: 1, y: 0.5 }}
+                        style={styles.submitBtn}
+                      >
+                        {isLoading ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={styles.submitBtnText}>{isLogin ? 'Login' : 'Create Account'}</Text>
+                        )}
+                      </LinearGradient>
                     </TouchableOpacity>
                   </Animated.View>
                   <Animated.View key="google-row" style={{ opacity: fieldAnims[8], marginTop: 14 }}>
@@ -1038,12 +1096,12 @@ const UserSignup = ({ navigation, route }) => {
               <View style={[styles.modalIcon, { backgroundColor: '#f5f7ff' }]}><Icon name={showOtpModal.type === 'email' ? 'email-fast-outline' : 'cellphone-text'} size={40} color="#00652C" /></View>
               <Text style={styles.modalTitle}>Verify Your {showOtpModal.type === 'email' ? 'Email' : 'Phone'}</Text>
               <Text style={styles.modalSub}>Enter the code sent to {showOtpModal.value}</Text>
-              <TextInput style={styles.otpInput} value={otpCode} onChangeText={setOtpCode} placeholder="000000" placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
+              <TextInput style={styles.otpInput} value={otpCode} onChangeText={setOtpCode} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
               <TouchableOpacity style={styles.modalActionBtn} onPress={handleVerifyOtp} disabled={isVerifyingOtp}>
-                {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Verify Now</Text>}
+                {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Now')}</Text>}
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setShowOtpModal({ show: false, type: '', value: '' })} style={styles.cancelBtn}><Text style={styles.cancelText}>Go Back</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowOtpModal({ show: false, type: '', value: '' })} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Go Back')}</Text></TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -1053,21 +1111,21 @@ const UserSignup = ({ navigation, route }) => {
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalIcon}><Icon name="devices" size={40} color="#00652C" /></View>
-              <Text style={styles.modalTitle}>Active Session Detected</Text>
+              <Text style={styles.modalTitle}>{t('Active Session Detected')}</Text>
               <Text style={styles.modalSub}>You are logged in on another device. Would you like to log out from all other devices and log in here?</Text>
               {!deviceOtpSent ? (
                 <TouchableOpacity style={styles.modalActionBtn} onPress={handleSendDeviceOtp} disabled={isSendingDeviceOtp}>
-                  {isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Log out other devices</Text>}
+                  {isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Log out other devices')}</Text>}
                 </TouchableOpacity>
               ) : (
                 <View style={styles.otpWrapper}>
-                  <TextInput style={styles.otpInput} value={deviceOtp} onChangeText={setDeviceOtp} placeholder="Enter OTP" placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
+                  <TextInput style={styles.otpInput} value={deviceOtp} onChangeText={setDeviceOtp} placeholder={t('Enter OTP')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
                   <TouchableOpacity style={styles.modalActionBtn} onPress={handleVerifyDeviceOtp} disabled={isVerifyingDeviceOtp}>
-                    {isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Verify & Login</Text>}
+                    {isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify & Login')}</Text>}
                   </TouchableOpacity>
                 </View>
               )}
-              <TouchableOpacity onPress={() => setShowDeviceConflict(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowDeviceConflict(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity>
             </View>
           </View>
         </Modal>

@@ -14,19 +14,21 @@ import {
   Modal,
   ScrollView,
   Linking,
+  BackHandler,
 } from 'react-native';
 
 // India's national mental-health helpline (Tele-MANAS). Change to your own
 // support line or a local crisis number as needed.
 const CRISIS_HELPLINE = '14416';
-const SUPPORT_EMAIL = 'support@mediconeckt.com';
+const SUPPORT_EMAIL = 'support@humaeli.com';
 import { isBiometricAvailable, authenticateWithBiometrics } from '../../utils/biometrics';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PATIENT, DOCTOR } from '../../theme/palette';
 import AuthBackground from '../../theme/AuthBackground';
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 const { width, height } = Dimensions.get('window');
 const PIN_LENGTH = 4;
@@ -133,7 +135,8 @@ const AppLockScreen = ({
   confirmPin = undefined,
   forced = false,
 }) => {
-  const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  const { t } = useLanguageRender();
   const [pin, setPin] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
@@ -165,6 +168,31 @@ const AppLockScreen = ({
     })();
   }, []);
 
+  // ── Android back ────────────────────────────────────────────────────────────
+  // This screen had no back handler at all. In unlock mode it renders as an
+  // overlay ABOVE the navigator, so a back press fell through to whatever screen
+  // was underneath: it popped that screen invisibly, and once nothing was left
+  // to pop it closed the app to the phone's home screen. Either way the user
+  // lost the page they were on.
+  //
+  // Registered on mount, so it sits on top of any screen-level handler (RN calls
+  // the most recently added one first) and this screen decides what back means.
+  useEffect(() => {
+    const onBack = () => {
+      // Unlock mode (no onCancel): the lock is a barrier, so swallow the press.
+      // Nothing under it moves, and the screen the user left is still there once
+      // they unlock.
+      if (!onCancel) return true;
+      // Setup / confirm mode: hand it to the same handler as the on-screen
+      // cancel link, so confirm steps back to setup rather than skipping out of
+      // the flow, and a forced setup can't be escaped at all.
+      onCancel();
+      return true;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+    return () => sub.remove();
+  }, [onCancel]);
+
   // ── Animation refs ──────────────────────────────────────────────────────────
   const slideAnim  = useRef(new Animated.Value(height * 0.06)).current;
   const fadeAnim   = useRef(new Animated.Value(0)).current;
@@ -190,7 +218,7 @@ const AppLockScreen = ({
     const timer = setTimeout(async () => {
       const { available } = await isBiometricAvailable();
       if (available) {
-        const { success } = await authenticateWithBiometrics('Unlock Mediconect');
+        const { success } = await authenticateWithBiometrics('Unlock Humaeli');
         if (success) triggerSuccess();
       }
     }, 350); // slight delay so the screen finishes sliding in
@@ -315,7 +343,7 @@ const AppLockScreen = ({
       return;
     }
     const label = biometryType === 'FaceID' ? 'Face ID' : biometryType === 'TouchID' ? 'Touch ID' : 'Fingerprint';
-    const { success } = await authenticateWithBiometrics(`Use ${label} to unlock Mediconect`);
+    const { success } = await authenticateWithBiometrics(`Use ${label} to unlock Humaeli`);
     if (success) triggerSuccess();
   }, [triggerSuccess]);
 
@@ -346,8 +374,7 @@ const AppLockScreen = ({
 
   const dial = (num) => Linking.openURL(`tel:${num}`).catch(() => {});
 
-  // Load the saved emergency contact (cached in userData at login) and open the
-  // themed sheet, so a person in crisis can reach help without unlocking.
+  
   const emergencyContact = useCallback(async () => {
     let ec = null;
     try {
@@ -382,9 +409,9 @@ const AppLockScreen = ({
           {/* ── Header ────────────────────────────────────────────────────── */}
           <View style={s.header}>
             <Ionicons name="shield-checkmark" size={20} color={C.primary} />
-            <Text style={[s.brand, { color: C.primary }]}>Mediconeckt</Text>
+            <Text style={[s.brand, { color: C.primary }]}>{t('Humaeli')}</Text>
           </View>
-          <Text style={s.secureLabel}>SECURE ACCESS REQUIRED</Text>
+          <Text style={s.secureLabel}>{t('SECURE ACCESS REQUIRED')}</Text>
 
           {mode === 'unlock' && !showKeypad ? (
             /* ═══ Face-ID landing view ═══ */
@@ -395,8 +422,8 @@ const AppLockScreen = ({
                 </View>
               </View>
 
-              <Text style={s.title}>{t('lock:welcomeBack', 'Unlock Mediconeckt')}</Text>
-              <Text style={s.subtitle}>Face ID or passcode</Text>
+              <Text style={s.title}>{t('lock:welcomeBack', 'Unlock Humaeli')}</Text>
+              <Text style={s.subtitle}>{t('Face ID or passcode')}</Text>
 
               <TouchableOpacity activeOpacity={0.88} onPress={handleBiometric} style={s.primaryBtnWrap}>
                 <LinearGradient
@@ -406,16 +433,16 @@ const AppLockScreen = ({
                   style={s.primaryBtn}
                 >
                   <Ionicons name="lock-open" size={17} color="#fff" />
-                  <Text style={s.primaryBtnText}>Unlock</Text>
+                  <Text style={s.primaryBtnText}>{t('Unlock')}</Text>
                 </LinearGradient>
               </TouchableOpacity>
 
               <TouchableOpacity style={s.secondaryBtn} activeOpacity={0.8} onPress={() => setShowKeypad(true)}>
-                <Text style={s.secondaryBtnText}>Use PIN instead</Text>
+                <Text style={s.secondaryBtnText}>{t('Use PIN instead')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity onPress={emergencyContact} activeOpacity={0.7} style={s.emergencyBtn}>
-                <Text style={[s.emergencyText, { color: C.primary }]}>EMERGENCY CONTACT</Text>
+                <Text style={[s.emergencyText, { color: C.primary }]}>{t('EMERGENCY CONTACT')}</Text>
               </TouchableOpacity>
             </>
           ) : (
@@ -478,7 +505,7 @@ const AppLockScreen = ({
 
               {mode === 'unlock' ? (
                 <TouchableOpacity style={s.textLink} activeOpacity={0.7} onPress={() => setShowKeypad(false)}>
-                  <Text style={s.textLinkLabel}>Use Face ID instead</Text>
+                  <Text style={s.textLinkLabel}>{t('Use Face ID instead')}</Text>
                 </TouchableOpacity>
               ) : onCancel && !(forced && mode === 'setup') ? (
                 <TouchableOpacity style={s.textLink} activeOpacity={0.7} onPress={onCancel}>
@@ -504,14 +531,14 @@ const AppLockScreen = ({
         {showEmergency && (
           <View style={s.emgOverlay}>
             <TouchableOpacity style={s.emgBackdrop} activeOpacity={1} onPress={() => setShowEmergency(false)} />
-            <View style={s.emgSheet}>
+            <View style={[s.emgSheet, { paddingBottom: Math.max(insets.bottom, 26) }]}>
               <View style={s.emgHandle} />
 
               <View style={[s.emgIcon, { backgroundColor: C.secondaryTint }]}>
                 <Ionicons name="medical" size={24} color={C.primary} />
               </View>
-              <Text style={s.emgTitle}>Need help right now?</Text>
-              <Text style={s.emgSub}>Reach help immediately — no unlock needed.</Text>
+              <Text style={s.emgTitle}>{t('Need help right now?')}</Text>
+              <Text style={s.emgSub}>{t('Reach help immediately — no unlock needed.')}</Text>
 
               <View style={s.emgList}>
                 {emergency ? (
@@ -542,7 +569,7 @@ const AppLockScreen = ({
                     <Ionicons name="pulse" size={19} color="#EF4444" />
                   </View>
                   <View style={s.emgRowText}>
-                    <Text style={s.emgRowTitle}>Crisis helpline</Text>
+                    <Text style={s.emgRowTitle}>{t('Crisis helpline')}</Text>
                     <Text style={s.emgRowSub}>Tele-MANAS · {CRISIS_HELPLINE}</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
@@ -557,7 +584,7 @@ const AppLockScreen = ({
                     <Ionicons name="mail" size={19} color="#64748B" />
                   </View>
                   <View style={s.emgRowText}>
-                    <Text style={s.emgRowTitle}>Email support</Text>
+                    <Text style={s.emgRowTitle}>{t('Email support')}</Text>
                     <Text style={s.emgRowSub} numberOfLines={1}>{SUPPORT_EMAIL}</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
@@ -565,7 +592,7 @@ const AppLockScreen = ({
               </View>
 
               <TouchableOpacity style={s.emgCancel} activeOpacity={0.8} onPress={() => setShowEmergency(false)}>
-                <Text style={s.emgCancelText}>Cancel</Text>
+                <Text style={s.emgCancelText}>{t('Cancel')}</Text>
               </TouchableOpacity>
             </View>
           </View>

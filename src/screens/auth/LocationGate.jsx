@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { PermissionsAndroid } from 'react-native';
 import { captureAndSendLocation } from '../../utils/locationHelper';
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 const checkLocationPermission = async () => {
   if (Platform.OS !== 'android') return 'granted';
@@ -75,7 +76,15 @@ const REASONS = [
 
 // phase: idle | requesting | locating | denied | never_ask_again
 const LocationGate = ({ navigation, route }) => {
+  const { t } = useLanguageRender();
   const { destination, destinationParams = {} } = route.params;
+
+  // Role → theme: counselor = blue, user = green (matches the rest of the app).
+  // The destination name tells us the role, so no extra param is needed.
+  const isCounselor = /counsel/i.test(String(destination || ''));
+  const C = isCounselor
+    ? { bg: '#EFF4FE', blob1: '#C3D8FB', blob2: '#A8C6F8', primary: '#004AC6', primaryDark: '#003A9B', headline: '#0B2A6B' }
+    : { bg: '#F0FDF4', blob1: '#BBF7D0', blob2: '#A7F3D0', primary: '#059669', primaryDark: '#047857', headline: '#064E3B' };
 
   const [phase, setPhase] = useState('idle');
   const [attempt, setAttempt] = useState(0);
@@ -167,7 +176,7 @@ const LocationGate = ({ navigation, route }) => {
       <View key={i} style={styles.reasonRow}>
         <Text style={styles.reasonIcon}>{r.icon}</Text>
         <View style={styles.reasonText}>
-          <Text style={styles.reasonTitle}>{r.title}</Text>
+          <Text style={styles.reasonTitle}>{t(r.title)}</Text>
           <Text style={styles.reasonBody}>{r.body}</Text>
         </View>
       </View>
@@ -195,14 +204,14 @@ const LocationGate = ({ navigation, route }) => {
   const renderPrimaryButton = () => {
     if (phase === 'never_ask_again') {
       return (
-        <TouchableOpacity style={styles.btnPrimary} onPress={handleOpenSettings}>
-          <Text style={styles.btnPrimaryText}>Open Settings</Text>
+        <TouchableOpacity style={[styles.btnPrimary, { backgroundColor: C.primary, shadowColor: C.primary }]} onPress={handleOpenSettings}>
+          <Text style={styles.btnPrimaryText}>{t('Open Settings')}</Text>
         </TouchableOpacity>
       );
     }
     return (
       <TouchableOpacity
-        style={[styles.btnPrimary, isWorking && styles.btnDisabled]}
+        style={[styles.btnPrimary, { backgroundColor: C.primary, shadowColor: C.primary }, isWorking && styles.btnDisabled]}
         onPress={handleAllow}
         disabled={isWorking}
       >
@@ -215,7 +224,7 @@ const LocationGate = ({ navigation, route }) => {
           </View>
         ) : (
           <Text style={styles.btnPrimaryText}>
-            {phase === 'denied' ? '🔄  Try Again' : '📍  Allow Location Access'}
+            {phase === 'denied' ? t('🔄  Try Again') : t('📍  Allow Location Access')}
           </Text>
         )}
       </TouchableOpacity>
@@ -226,17 +235,17 @@ const LocationGate = ({ navigation, route }) => {
     if (!canSkip || isWorking) return null;
     return (
       <TouchableOpacity style={styles.btnSkip} onPress={handleSkip}>
-        <Text style={styles.btnSkipText}>Continue without location</Text>
+        <Text style={styles.btnSkipText}>{t('Continue without location')}</Text>
       </TouchableOpacity>
     );
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f0fdf4" />
+    <View style={[styles.container, { backgroundColor: C.bg }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
 
-      <View style={styles.blobTopRight} />
-      <View style={styles.blobBottomLeft} />
+      <View style={[styles.blobTopRight, { backgroundColor: C.blob1 }]} />
+      <View style={[styles.blobBottomLeft, { backgroundColor: C.blob2 }]} />
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -244,14 +253,13 @@ const LocationGate = ({ navigation, route }) => {
         keyboardShouldPersistTaps="handled"
       >
         {/* Pulsing pin icon */}
-        <Animated.View style={[styles.pinCircle, { transform: [{ scale: pulse }] }]}>
+        <Animated.View style={[styles.pinCircle, { shadowColor: C.primaryDark, transform: [{ scale: pulse }] }]}>
           <Text style={styles.pinEmoji}>📍</Text>
         </Animated.View>
 
-        <Text style={styles.headline}>
+        <Text style={[styles.headline, { color: C.headline }]}>
           {phase === 'denied' || phase === 'never_ask_again'
-            ? 'Location Recommended'
-            : 'Enable Location'}
+            ? t('Location Recommended') : t('Enable Location')}
         </Text>
         <Text style={styles.subheadline}>
           {phase === 'denied' || phase === 'never_ask_again'
@@ -261,7 +269,7 @@ const LocationGate = ({ navigation, route }) => {
 
         {/* Why we need it */}
         <View style={styles.reasonsCard}>
-          <Text style={styles.reasonsTitle}>Why we need your location</Text>
+          <Text style={styles.reasonsTitle}>{t('Why we need your location')}</Text>
           {renderReasons()}
         </View>
 

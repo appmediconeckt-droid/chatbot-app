@@ -7,6 +7,8 @@ import {
   StyleSheet,
   StatusBar,
   ActivityIndicator,
+  Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -16,25 +18,17 @@ import axios from 'axios';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import useRingtone from '../../../../../../hooks/useRingtone';
 import { useScreenshotPreventModal } from '../../../../../../utils/useScreenshotPrevent';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 
 import {
   StreamVideo,
   StreamVideoClient,
   StreamCall,
-  CallContent,
+  ParticipantView,
   FloatingParticipantView,
   useCallStateHooks,
   CallingState,
 } from '@stream-io/video-react-native-sdk';
-
-// Local-video PiP pinned top-right with rounded corners (Figma).
-const FloatingPiP = (props) => (
-  <FloatingParticipantView
-    {...props}
-    alignment="top-right"
-    participantViewStyle={styles.pipView}
-  />
-);
 
 const resolveCallDisplayName = (callData, isCounselor) => {
   const apiCallData = callData?.apiCallData || {};
@@ -83,7 +77,6 @@ const VideoControls = ({ onHangupCallHandler }) => {
   return (
     <View style={styles.controlsWrap}>
       <View style={styles.controlsBar}>
-        <View style={styles.controlsHandle} />
         <View style={styles.controlsRow}>
           <TouchableOpacity
             style={[styles.vcBtn, isMute && styles.vcBtnActive]}
@@ -138,10 +131,11 @@ const VideoControls = ({ onHangupCallHandler }) => {
 // ─── Inner call UI ────────────────────────────────────────────────────────────
 // onLocalHangup: user pressed end button (sends call.end() to kill for both sides)
 // onRemoteEnded: remote side already ended, just cleanup locally
-const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, participantName }) => {
-  const { useCallCallingState, useRemoteParticipants } = useCallStateHooks();
+const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, participantName, participantPhoto }) => {
+  const { useCallCallingState, useRemoteParticipants, useLocalParticipant } = useCallStateHooks();
   const callingState = useCallCallingState();
   const remoteParticipants = useRemoteParticipants();
+  const localParticipant = useLocalParticipant();
   const { startRinging, stopRinging } = useRingtone();
 
   // Guard: fire remote-ended callback only once per session
@@ -218,31 +212,84 @@ const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, partici
   }, [hasRemote]);
   const timerText = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
 
-  return (
-    <View style={{ flex: 1 }}>
-      <CallContent
-        onHangupCallHandler={onLocalHangup}
-        layout="spotlight"
-        CallControls={VideoControls}
-        FloatingParticipantView={FloatingPiP}
-        ParticipantLabel={null}
-      />
+  // Give InCallManager an active audio session for the duration of the call so
+  // the Speaker button can actually switch the route (setForceSpeakerphoneOn is
+  // a no-op without a session). Without this the speaker toggle did nothing on
+  // the counselor side. Stops on unmount.
+  useEffect(() => {
+    try { InCallManager.start({ media: 'video' }); } catch (_) {}
+    return () => { try { InCallManager.stop(); } catch (_) {} };
+  }, []);
 
-      {/* Name + timer overlay (top-left), above the video */}
-      {!!participantName && (
-        <View style={styles.participantNameBadge} pointerEvents="none">
-          <Text style={styles.participantNameText} numberOfLines={1}>{participantName}</Text>
-          <Text style={styles.participantTimerText}>
-            {hasRemote ? timerText : isOutgoing ? 'Calling…' : 'Connecting…'}
-          </Text>
+  // Once connected (ringing has stopped, which resets the route), force the
+  // loudspeaker on — video calls should default to speaker. Defined AFTER the
+  // ringback effect so it runs last and wins the route.
+  useEffect(() => {
+    if (hasRemote) {
+      try { InCallManager.setForceSpeakerphoneOn(true); } catch (_) {}
+    }
+  }, [hasRemote]);
+
+  const remote = remoteParticipants[0];
+  const initial = String(participantName || 'U').trim().charAt(0).toUpperCase() || 'U';
+
+  return (
+    <View style={styles.callRoot}>
+      {/* Full-screen remote video (no border, cover) */}
+      {remote ? (
+        <ParticipantView
+          participant={remote}
+          style={styles.fullVideo}
+          objectFit="cover"
+          ParticipantLabel={null}
+          ParticipantNetworkQualityIndicator={null}
+          ParticipantReaction={null}
+        />
+      ) : (
+        <View style={styles.waitingWrap}>
+          <View style={styles.waitingAvatar}>
+            {!isCounselor && participantPhoto ? (
+              <Image source={{ uri: participantPhoto }} style={styles.waitingAvatarImg} />
+            ) : (
+              <Text style={styles.waitingInitial}>{initial}</Text>
+            )}
+          </View>
+          <Text style={styles.waitingName} numberOfLines={1}>{participantName}</Text>
+          <Text style={styles.waitingStatus}>{isOutgoing ? 'Calling…' : 'Connecting…'}</Text>
         </View>
       )}
+
+      {/* Local self-view — Stream's FloatingParticipantView renders the local
+          camera reliably (a raw ParticipantView left the PiP blank). Top-right,
+          rounded, no signal/label chrome. */}
+      {localParticipant && (
+        <FloatingParticipantView
+          participant={localParticipant}
+          alignment="top-right"
+          objectFit="cover"
+          participantViewStyle={styles.pipFloat}
+          ParticipantNetworkQualityIndicator={null}
+          ParticipantReaction={null}
+        />
+      )}
+
+      {/* Name + timer overlay (top-left) — only once connected */}
+      {!!participantName && remote && (
+        <View style={styles.participantNameBadge} pointerEvents="none">
+          <Text style={styles.participantNameText} numberOfLines={1}>{participantName}</Text>
+          <Text style={styles.participantTimerText}>{timerText}</Text>
+        </View>
+      )}
+
+      {/* Bottom controls */}
+      <VideoControls onHangupCallHandler={onLocalHangup} />
     </View>
   );
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) => {
+  const { t } = useLanguageRender();
   useScreenshotPreventModal(isOpen);
   const [client, setClient] = useState(null);
   const [call, setCall] = useState(null);
@@ -265,12 +312,19 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
     callData?.currentUserType === 'counsellor' ||
     callData?.currentUserType === 'counselor';
   const displayName = resolveCallDisplayName(callData, isCounselorView);
+  // Same source and guard VoiceCallModal uses, so both calls show the same face.
+  const rawPhoto = callData?.profilePic || callData?.receiver?.profilePhoto || null;
+  const participantPhoto =
+    typeof rawPhoto === 'string' && /^https?:\/\//i.test(rawPhoto) ? rawPhoto : null;
 
   const cleanup = useCallback(async (endForAll = false) => {
     if (cleaningUpRef.current) return;
     cleaningUpRef.current = true;
 
     stopRinging();
+    // Release the audio session opened for ringback so it doesn't leak after
+    // the call ends (outgoing calls open it via InCallManager.start).
+    try { InCallManager.stop(); } catch (_) {}
     cancelledRef.current = true;
     if (cancelledRef._pollInterval) {
       clearInterval(cancelledRef._pollInterval);
@@ -515,7 +569,7 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
           {loading && (
             <View style={styles.centerWrap}>
               <ActivityIndicator size="large" color="#ffffff" />
-              <Text style={[styles.statusText, { color: '#ffffff' }]}>Connecting...</Text>
+              <Text style={[styles.statusText, { color: '#ffffff' }]}>{t('Connecting...')}</Text>
             </View>
           )}
 
@@ -524,7 +578,7 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
               <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
               <Text style={styles.errorText}>{error}</Text>
               <TouchableOpacity style={[styles.retryBtn, { backgroundColor: '#EF4444' }]} onPress={handleClose}>
-                <Text style={styles.retryBtnText}>Close</Text>
+                <Text style={styles.retryBtnText}>{t('Close')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -536,6 +590,7 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
                   onLocalHangup={() => handleClose(true)}
                   onRemoteEnded={() => handleClose(false)}
                   participantName={displayName}
+                  participantPhoto={participantPhoto}
                   isOutgoing={callData?.isIncoming !== true}
                   isCounselor={isCounselorView}
                 />
@@ -578,11 +633,28 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  pipView: {
-    borderRadius: 14,
+  // Full-screen remote video + waiting state
+  callRoot: { flex: 1, backgroundColor: '#0B0B0F' },
+  fullVideo: { ...StyleSheet.absoluteFillObject, backgroundColor: '#0B0B0F' },
+  waitingWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  waitingAvatar: {
+    width: 112, height: 112, borderRadius: 56, overflow: 'hidden',
+    backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center', marginBottom: 16,
+  },
+  waitingAvatarImg: { width: '100%', height: '100%', borderRadius: 56 },
+  waitingInitial: { color: '#fff', fontSize: 44, fontWeight: '800' },
+  waitingName: { color: '#fff', fontSize: 22, fontWeight: '700', marginBottom: 6 },
+  waitingStatus: { color: 'rgba(255,255,255,0.65)', fontSize: 14, fontWeight: '500' },
+  // Local self-view PiP — rounded, white border, dark placeholder (Figma).
+  // width/height here override the SDK's default (23% of screen) to make it bigger.
+  pipFloat: {
+    width: 118,
+    height: 162,
+    borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.85)',
+    borderColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: '#15151A',
   },
   // Name + timer overlay — top-left, plain white text over the video (Figma)
   participantNameBadge: {
@@ -616,24 +688,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 10,
-    paddingBottom: 10,
+    paddingHorizontal: 12,
+    paddingBottom: Platform.OS === 'ios' ? 32 : 22,
   },
-  // Light frosted sheet with dark-grey circular buttons (per Figma)
+  // Dark translucent sheet with dark-grey circular buttons (per Figma)
   controlsBar: {
-    backgroundColor: 'rgba(236, 238, 241, 0.30)',
-    borderRadius: 28,
-    paddingTop: 9,
-    paddingBottom: 16,
-    paddingHorizontal: 10,
-  },
-  controlsHandle: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(120, 130, 145, 0.55)',
-    marginBottom: 14,
+    backgroundColor: 'rgba(28, 30, 34, 0.38)',
+    borderRadius: 32,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
   },
   controlsRow: {
     flexDirection: 'row',

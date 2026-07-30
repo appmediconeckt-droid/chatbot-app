@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   View,
+  Image,
   Text,
   ScrollView,
   TouchableOpacity,
@@ -15,23 +16,41 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import PATIENT from '../../theme/palette';
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 const { width } = Dimensions.get('window');
 
-const OnboardingPage1 = () => (
-  <View style={s.page}>
-    <View style={s.illustration}>
-      <Ionicons name="people" size={120} color={PATIENT.primary} />
+// The supplied artwork is taller than a fixed 200px band would allow, so the
+// card takes its shape FROM the image (via the asset's real dimensions) instead
+// of letterboxing it inside tinted bars.
+const OnboardingHero = ({ source }) => {
+  const meta = Image.resolveAssetSource(source);
+  const ratio = meta && meta.height ? meta.width / meta.height : 1.4;
+  return (
+    <View style={[s.illustration, { aspectRatio: ratio }]}>
+      <Image source={source} style={s.illustrationImage} resizeMode="contain" />
     </View>
-    <Text style={s.title}>Your Safe Space to Talk</Text>
+  );
+};
+
+const OnboardingPage1 = () => {
+  const { t } = useLanguageRender();
+  return (
+  <View style={s.page}>
+    <OnboardingHero source={require('../../public/user1.png')} />
+    <Text style={s.title}>{t('Your Safe Space to Talk')}</Text>
     <Text style={s.description}>
       Connect with trusted counselors in a private, secure environment designed to support your mental well-being.
     </Text>
   </View>
 );
+};
 
-const OnboardingPage2 = () => (
+const OnboardingPage2 = () => {
+  const { t } = useLanguageRender();
+  return (
   <View style={s.page}>
+    <OnboardingHero source={require('../../public/user2.png')} />
     <View style={s.counselorCardsContainer}>
       {[
         { name: 'Dr. Sarah Jenkins', specialty: 'Anxiety & Stress', rating: '4.9', tags: ['Video', 'Chat'], avatar: '👩‍⚕️' },
@@ -44,7 +63,7 @@ const OnboardingPage2 = () => (
                 <Text style={s.avatarEmoji}>{counselor.avatar}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={s.counselorName}>{counselor.name}</Text>
+                <Text style={s.counselorName}>{t(counselor.name)}</Text>
                 <Text style={s.counselorSpec}>{counselor.specialty}</Text>
               </View>
               <View style={s.ratingBox}>
@@ -63,14 +82,17 @@ const OnboardingPage2 = () => (
         </View>
       ))}
     </View>
-    <Text style={s.title}>Find the Right Counselor</Text>
+    <Text style={s.title}>{t('Find the Right Counselor')}</Text>
     <Text style={s.description}>
       Browse experienced counselors based on specialty, language, availability, consultation type, and reviews.
     </Text>
   </View>
 );
+};
 
-const OnboardingPage3 = () => (
+const OnboardingPage3 = () => {
+  const { t } = useLanguageRender();
+  return (
   <View style={s.page}>
     <View style={s.aiIconContainer}>
       <View style={s.aiIcon}>
@@ -78,14 +100,14 @@ const OnboardingPage3 = () => (
       </View>
       <Ionicons name="heart" size={24} color={PATIENT.primary} style={s.heartIcon} />
     </View>
-    <Text style={s.title}>Your AI Wellness Companion</Text>
+    <Text style={s.title}>{t('Your AI Wellness Companion')}</Text>
     <Text style={s.description}>
       Get instant emotional support, wellness tips, and guidance anytime before connecting with a counselor.
     </Text>
 
     <View style={s.aiChatBox}>
       <View style={s.aiBubble}>
-        <Text style={s.aiMessage}>Hello 👋 How are you feeling today?</Text>
+        <Text style={s.aiMessage}>{t('Hello 👋 How are you feeling today?')}</Text>
       </View>
       <View style={s.responseButtons}>
         {['😊 Happy', '😐 Okay', '😟 Stressed'].map((btn, idx) => (
@@ -97,8 +119,11 @@ const OnboardingPage3 = () => (
     </View>
   </View>
 );
+};
 
-const OnboardingPage4 = () => (
+const OnboardingPage4 = () => {
+  const { t } = useLanguageRender();
+  return (
   <View style={s.page}>
     <View style={s.featuresCircle}>
       <View style={s.centerHeart}>
@@ -118,7 +143,7 @@ const OnboardingPage4 = () => (
       </View>
     </View>
 
-    <Text style={s.title}>Book, Chat & Heal</Text>
+    <Text style={s.title}>{t('Book, Chat & Heal')}</Text>
     <Text style={s.description}>
       Schedule appointments, join secure video sessions, chat with counselors, and track your wellness journey—all in one place.
     </Text>
@@ -127,28 +152,30 @@ const OnboardingPage4 = () => (
       <View style={s.featureRow}>
         <TouchableOpacity style={s.featureBtn}>
           <MaterialIcons name="event" size={20} color={PATIENT.primary} />
-          <Text style={s.featureBtnText}>Book Sessions</Text>
+          <Text style={s.featureBtnText}>{t('Book Sessions')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.featureBtn}>
           <Ionicons name="videocam" size={20} color={PATIENT.primary} />
-          <Text style={s.featureBtnText}>Video Calls</Text>
+          <Text style={s.featureBtnText}>{t('Video Calls')}</Text>
         </TouchableOpacity>
       </View>
       <View style={s.featureRow}>
         <TouchableOpacity style={s.featureBtn}>
           <Ionicons name="chatbubble" size={20} color={PATIENT.primary} />
-          <Text style={s.featureBtnText}>Secure Chat</Text>
+          <Text style={s.featureBtnText}>{t('Secure Chat')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.featureBtn}>
           <Ionicons name="shield-checkmark" size={20} color={PATIENT.primary} />
-          <Text style={s.featureBtnText}>End-to-End</Text>
+          <Text style={s.featureBtnText}>{t('End-to-End')}</Text>
         </TouchableOpacity>
       </View>
     </View>
   </View>
 );
+};
 
 const UserOnboarding = ({ navigation }) => {
+  const { t } = useLanguageRender();
   const [currentPage, setCurrentPage] = useState(0);
   const scrollViewRef = useRef(null);
 
@@ -181,7 +208,7 @@ const UserOnboarding = ({ navigation }) => {
       <View style={s.header}>
         <View style={{ width: 24 }} />
         <TouchableOpacity onPress={() => navigation.replace('UserDashboard')}>
-          <Text style={s.skipText}>Skip</Text>
+          <Text style={s.skipText}>{t('Skip')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -223,7 +250,7 @@ const UserOnboarding = ({ navigation }) => {
           end={{ x: 1, y: 0 }}
           style={s.nextBtn}
         >
-          <Text style={s.nextBtnText}>{currentPage === pages.length - 1 ? 'Get Started' : 'Next'}</Text>
+          <Text style={s.nextBtnText}>{currentPage === pages.length - 1 ? t('Get Started') : t('Next')}</Text>
           {currentPage < pages.length - 1 && <Ionicons name="arrow-forward" size={20} color="#ffffff" />}
         </LinearGradient>
       </TouchableOpacity>
@@ -239,7 +266,8 @@ const s = StyleSheet.create({
   pagesScroll: { flex: 1 },
   page: { width, paddingHorizontal: 24, paddingVertical: 40, justifyContent: 'center', gap: 20 },
 
-  illustration: { height: 200, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E6F6EC', borderRadius: 20, marginBottom: 20 },
+  illustrationImage: { width: '100%', height: '100%' },
+  illustration: { width: '100%', overflow: 'hidden', justifyContent: 'center', alignItems: 'center', backgroundColor: '#E6F6EC', borderRadius: 20, marginBottom: 20 },
 
   title: { fontSize: 24, fontWeight: '800', color: '#0f172a', textAlign: 'center' },
   description: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 21 },

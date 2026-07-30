@@ -892,8 +892,7 @@ const CounselorProfile = () => {
               {pct < 100 && (
                 <Text style={styles.completionHint}>
                   {pct < 50 ? 'Add specialization, experience & location to get discovered' :
-                   pct < 80 ? 'Almost there! Fill remaining fields to appear in search' :
-                   'Just a few fields left to complete your profile'}
+                   pct < 80 ? t('Almost there! Fill remaining fields to appear in search') : t('Just a few fields left to complete your profile')}
                 </Text>
               )}
             </View>
@@ -904,6 +903,10 @@ const CounselorProfile = () => {
         <View style={styles.tabContent}>
           {/* Personal info card — age, gender, blood group, email, phone, location, address */}
           <View style={styles.card}>
+            <View style={styles.sectionHead}>
+              <Icon name="person-outline" size={18} color="#004AC6" />
+              <Text style={styles.cardTitle}>{t('Personal Information')}</Text>
+            </View>
             <View style={styles.detailRow}>
               <Icon name="cake" size={18} color="#2563EB" />
               <View style={styles.detailContent}>
@@ -1032,6 +1035,10 @@ const CounselorProfile = () => {
 
           {/* Bio */}
           <View style={styles.card}>
+            <View style={styles.sectionHead}>
+              <Icon name="info-outline" size={18} color="#004AC6" />
+              <Text style={styles.cardTitle}>{t('About Me')}</Text>
+            </View>
             {isEditing ? (
               <TextInput style={[styles.input, styles.textArea]} value={editedData.aboutMe || ''} onChangeText={(v) => handleInputChange('aboutMe', v)} placeholder="Share your professional journey and expertise..." placeholderTextColor="#9CA3AF" multiline numberOfLines={5} />
             ) : (
@@ -1050,6 +1057,10 @@ const CounselorProfile = () => {
 
           {/* Specializations */}
           <View style={styles.card}>
+            <View style={styles.sectionHead}>
+              <Icon name="psychology" size={18} color="#004AC6" />
+              <Text style={styles.cardTitle}>{t('Specializations')}</Text>
+            </View>
             <View style={styles.chipContainer}>
               {(isEditing ? editedData.specialization : counselor.specialization).map((spec, i) => (
                 <View key={i} style={styles.chip}>
@@ -1068,6 +1079,10 @@ const CounselorProfile = () => {
 
           {/* Education & Experience */}
           <View style={styles.card}>
+            <View style={styles.sectionHead}>
+              <Icon name="school" size={18} color="#004AC6" />
+              <Text style={styles.cardTitle}>{t('Education & Experience')}</Text>
+            </View>
             <View style={styles.detailRow}>
               <Icon name="menu-book" size={18} color="#7C3AED" />
               <View style={styles.detailContent}>
@@ -1094,6 +1109,10 @@ const CounselorProfile = () => {
 
           {/* Consultation Mode */}
           <View style={styles.card}>
+            <View style={styles.sectionHead}>
+              <Icon name="devices" size={18} color="#004AC6" />
+              <Text style={styles.cardTitle}>{t('Consultation Mode')}</Text>
+            </View>
             <View style={styles.chipContainer}>
               {(isEditing ? editedData.consultationMode : counselor.consultationMode).map((mode, i) => (
                 <View key={i} style={[styles.chip, styles.modeChip]}>
@@ -1117,6 +1136,10 @@ const CounselorProfile = () => {
 
           {/* Languages */}
           <View style={styles.card}>
+            <View style={styles.sectionHead}>
+              <Icon name="translate" size={18} color="#004AC6" />
+              <Text style={styles.cardTitle}>{t('Languages')}</Text>
+            </View>
             <View style={styles.chipContainer}>
               {(isEditing ? editedData.languages : counselor.languages).map((lang, i) => (
                 <View key={i} style={[styles.chip, styles.langChip]}>
@@ -1185,11 +1208,15 @@ const CounselorProfile = () => {
 
           {/* Certifications - BELOW (Second) */}
           <View style={styles.card}>
+            <View style={styles.sectionHead}>
+              <Icon name="workspace-premium" size={18} color="#004AC6" />
+              <Text style={styles.cardTitle}>{t('Licenses & Certificates')}</Text>
+            </View>
             {(isEditing ? editedData.certifications : counselor.certifications).map((cert, i) => (
               <View key={cert._id || i} style={styles.certCard}>
                 <View style={styles.certHeader}>
                   <Icon name="workspace-premium" size={18} color="#D97706" />
-                  <Text style={styles.certName}>{cert.name}</Text>
+                  <Text style={styles.certName}>{t(cert.name)}</Text>
                   {isEditing && <TouchableOpacity onPress={() => handleRemoveCertification(cert._id)}><Icon name="delete-outline" size={18} color="#EF4444" /></TouchableOpacity>}
                 </View>
                 <View style={styles.certDetails}>
@@ -1822,8 +1849,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
+  // Shared heading row for every profile section.
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginBottom: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF1F5',
+  },
   cardTitle: {
-    fontSize: 17,
+    fontSize: 15.5,
     fontWeight: '700',
     color: '#1F2937',
   },

@@ -26,6 +26,34 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import api, { API_BASE_URL } from "../../../../../../axiosConfig";
 import StarRating from "../../../../../../components/StarRating";
 import { useAutoTranslate } from "../../../../../../hooks/useAutoTranslate";
+import LinearGradient from "react-native-linear-gradient";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// Same gradient and direction as the wallet balance card.
+const WALLET_GRADIENT = ["#006B2C", "#01CE54"];
+// Lets an inactive pill keep its own background behind an identically sized
+// gradient layer, so selecting a chip cannot change its width.
+const TRANSPARENT_GRADIENT = ["transparent", "transparent"];
+const GRADIENT_START = { x: 0, y: 0.5 };
+const GRADIENT_END = { x: 1, y: 0.5 };
+
+/**
+ * Filter pill. Active state is the wallet gradient rather than a flat fill.
+ * Both states render the same tree with the same metrics - only the gradient
+ * stops and text colour change - so selecting a chip never resizes the row.
+ */
+const FilterChip = ({ label, active, onPress }) => (
+  <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={styles.filterChipWrap}>
+    <LinearGradient
+      colors={active ? WALLET_GRADIENT : TRANSPARENT_GRADIENT}
+      start={GRADIENT_START}
+      end={GRADIENT_END}
+      style={[styles.filterChip, active && styles.filterChipActive]}
+    >
+      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{label}</Text>
+    </LinearGradient>
+  </TouchableOpacity>
+);
 
 const { width, height } = Dimensions.get("window");
 
@@ -82,6 +110,7 @@ const getProfilePhotoUrl = (counselor) => {
 };
 
 const CounselorDirectoryScreen = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   const [searchTerm, setSearchTerm] = useState("");
   const [searchLocation, setSearchLocation] = useState("");
@@ -743,24 +772,18 @@ const CounselorDirectoryScreen = ({ navigation }) => {
             {allTreatments.length > 0 && (
               <View style={styles.filtersContainer}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <TouchableOpacity
-                    style={[styles.filterChip, selectedCategory === "all" && styles.filterChipActive]}
+                  <FilterChip
+                    label="All"
+                    active={selectedCategory === "all"}
                     onPress={() => setSelectedCategory("all")}
-                  >
-                    <Text style={[styles.filterChipText, selectedCategory === "all" && styles.filterChipTextActive]}>
-                      All
-                    </Text>
-                  </TouchableOpacity>
+                  />
                   {allTreatments.slice(0, 12).map((treatment) => (
-                    <TouchableOpacity
+                    <FilterChip
                       key={treatment}
-                      style={[styles.filterChip, selectedCategory === treatment && styles.filterChipActive]}
+                      label={treatment}
+                      active={selectedCategory === treatment}
                       onPress={() => setSelectedCategory(treatment)}
-                    >
-                      <Text style={[styles.filterChipText, selectedCategory === treatment && styles.filterChipTextActive]}>
-                        {treatment}
-                      </Text>
-                    </TouchableOpacity>
+                    />
                   ))}
                 </ScrollView>
               </View>
@@ -823,7 +846,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
         }}
       >
         <KeyboardAvoidingView behavior="height" style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 20) }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Book Appointment with {selectedCounselor?.name}</Text>
               <TouchableOpacity onPress={() => {
@@ -937,7 +960,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                       )}
                     </View>
                     <View style={styles.counselorPreviewInfo}>
-                      <Text style={styles.counselorPreviewName}>{selectedCounselor.name}</Text>
+                      <Text style={styles.counselorPreviewName}>{t(selectedCounselor.name)}</Text>
                       <Text style={styles.counselorPreviewSpecialization}>{selectedCounselor.specialization}</Text>
                       {selectedCounselor.ratingCount > 0 && (
                         <StarRating
@@ -1119,18 +1142,26 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: "#F1F5F9",
+  },
+  // Clips the gradient to the pill's rounded corners and owns the row spacing -
+  // a margin on the inner chip would sit inside the clip as dead space.
+  filterChipWrap: {
+    borderRadius: 20,
+    overflow: "hidden",
     marginRight: 8,
+    alignSelf: "flex-start",
   },
   filterChipActive: {
-    backgroundColor: "#6366F1",
+    backgroundColor: "transparent",
   },
+  // Weight stays fixed across states - bumping it on select widened the pill.
   filterChipText: {
     fontSize: 14,
+    fontWeight: "600",
     color: "#475569",
   },
   filterChipTextActive: {
     color: "#FFFFFF",
-    fontWeight: "600",
   },
   sortBar: {
     paddingHorizontal: 20,

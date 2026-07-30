@@ -1,5 +1,6 @@
 // Landing.js - Fixed Header with Logo
 import React, { useState, useEffect, useRef } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   SafeAreaView,
   ScrollView,
@@ -78,14 +79,14 @@ const DOCTORS_DATA = [
 ];
 
 const TESTIMONIALS_DATA = [
-  { id: 1, quote: "MediConeckt helped me through my depression during COVID lockdown in Mumbai. The AI understood my cultural context and connected me with an amazing therapist from AIIMS within 24 hours.", author: "Rahul Sharma", role: "Software Engineer, Mumbai", rating: 5 },
-  { id: 2, quote: "As a psychiatrist practicing in Bangalore, I appreciate how MediConeckt bridges the gap between technology and Indian mental health care. Their referral system is seamless and culturally sensitive.", author: "Dr. Lakshmi Narayan", role: "Consultant Psychiatrist, NIMHANS", rating: 5 },
+  { id: 1, quote: "Humaeli helped me through my depression during COVID lockdown in Mumbai. The AI understood my cultural context and connected me with an amazing therapist from AIIMS within 24 hours.", author: "Rahul Sharma", role: "Software Engineer, Mumbai", rating: 5 },
+  { id: 2, quote: "As a psychiatrist practicing in Bangalore, I appreciate how Humaeli bridges the gap between technology and Indian mental health care. Their referral system is seamless and culturally sensitive.", author: "Dr. Lakshmi Narayan", role: "Consultant Psychiatrist, NIMHANS", rating: 5 },
   { id: 3, quote: "The mood tracking feature helped me identify patterns related to work pressure in IT industry. Combined with the AI support, it's been a game-changer for managing my anxiety.", author: "Priya Patel", role: "Tech Professional, Pune", rating: 5 },
-  { id: 4, quote: "My teenage son was struggling with academic pressure. The child psychologist from Delhi and the AI support helped him tremendously. Thank you MediConeckt!", author: "Amit Singh", role: "Parent, Delhi NCR", rating: 5 }
+  { id: 4, quote: "My teenage son was struggling with academic pressure. The child psychologist from Delhi and the AI support helped him tremendously. Thank you Humaeli!", author: "Amit Singh", role: "Parent, Delhi NCR", rating: 5 }
 ];
 
 const FAQS_DATA = [
-  { q: 'Is MediConeckt available in Indian languages?', a: 'Yes! We currently support English, Hindi, Tamil, Telugu, Bengali, Marathi, Gujarati, and Kannada. More languages coming soon.' },
+  { q: 'Is Humaeli available in Indian languages?', a: 'Yes! We currently support English, Hindi, Tamil, Telugu, Bengali, Marathi, Gujarati, and Kannada. More languages coming soon.' },
   { q: 'Are the doctors qualified in India?', a: 'All our doctors are licensed medical professionals in India, with degrees from top institutions like AIIMS, NIMHANS, CMC Vellore, and are registered with the Medical Council of India.' },
   { q: 'Is my data protected under Indian laws?', a: 'Absolutely! We comply with Indian data protection laws and IT Act 2000. Your conversations are confidential and encrypted.' },
   { q: 'Do you accept Indian health insurance?', a: 'Yes, we work with all major Indian insurance providers including ICICI Lombard, Star Health, New India Assurance, and others.' },
@@ -103,9 +104,10 @@ const NAV_ITEMS = [
 ];
 
 const Landing = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
   // State hooks
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState([{ id: 1, text: "Namaste! I'm your AI assistant. Main aapki kaise madad kar sakta hoon? (How can I help you today?)", sender: 'ai' }]);
+  const [chatMessages, setChatMessages] = useState([{ id: 1, text: "Namaste! I'm Humaelio, your AI assistant. Main aapki kaise madad kar sakta hoon? (How can I help you today?)", sender: 'ai' }]);
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -293,12 +295,12 @@ const Landing = ({ navigation }) => {
             {/* Logo Image */}
             <View style={styles.logoWrapper}>
               <Image 
-                source={require('../../image/Mediconect Logo-3.png')}
+                source={require('../../image/HumaeliIcon.png')}
                 style={styles.logoImage}
                 resizeMode="contain"
               />
               <Text style={[styles.logoText, { color: isHeaderSolid ? '#1a3a4a' : '#ffffff' }]}>
-                Medi<Text style={[styles.logoHighlight, { color: isHeaderSolid ? '#2e86ab' : '#ffd166' }]}>Coneckt</Text>
+                Humaeli
               </Text>
             </View>
           </View>
@@ -421,7 +423,7 @@ const Landing = ({ navigation }) => {
               <View style={styles.chatPreview}>
                 <View style={styles.chatPreviewHeader}>
                   <View style={styles.chatPreviewAvatar}><Icon name="robot" size={20} color="#2e86ab" /></View>
-                  <View><Text style={styles.chatPreviewName}>MediConeckt Assistant</Text><Text style={styles.chatPreviewStatus}>Online • Hindi/English Support</Text></View>
+                  <View><Text style={styles.chatPreviewName}>Humaeli Assistant</Text><Text style={styles.chatPreviewStatus}>Online • Hindi/English Support</Text></View>
                 </View>
                 <View style={styles.chatPreviewMessages}>
                   <View style={[styles.chatMessage, styles.chatMessageAI]}><Text>Namaste! I'm here to listen. How are you feeling today?</Text></View>
@@ -537,7 +539,7 @@ const Landing = ({ navigation }) => {
           <View style={styles.container}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Stories from Across India</Text>
-              <Text style={styles.sectionDescription}>Real stories from people across India who found support and healing through MediConeckt.</Text>
+              <Text style={styles.sectionDescription}>Real stories from people across India who found support and healing through Humaeli.</Text>
             </View>
             <View style={styles.testimonialsContainer}>
               <FlatList
@@ -577,7 +579,7 @@ const Landing = ({ navigation }) => {
           <View style={styles.container}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Frequently Asked Questions</Text>
-              <Text style={styles.sectionDescription}>Get answers to common questions about MediConeckt services in India.</Text>
+              <Text style={styles.sectionDescription}>Get answers to common questions about Humaeli services in India.</Text>
             </View>
             <View style={styles.faqContainer}>
               {FAQS_DATA.map((faq, index) => (
@@ -641,7 +643,7 @@ const Landing = ({ navigation }) => {
               </View>
             </View>
             <View style={styles.footerBottom}>
-              <Text style={styles.copyrightText}>© {new Date().getFullYear()} MediConeckt India. All rights reserved.</Text>
+              <Text style={styles.copyrightText}>© {new Date().getFullYear()} Humaeli India. All rights reserved.</Text>
               <View style={styles.emergencyNotice}>
                 <Icon name="exclamation-triangle" size={14} color="#FF9800" />
                 <Text style={styles.emergencyText}><Text style={styles.emergencyBold}>24/7 Crisis Support:</Text> Call +91-9152987821</Text>
@@ -659,11 +661,11 @@ const Landing = ({ navigation }) => {
       {/* Chat Modal */}
       <Modal visible={chatOpen} animationType="slide" transparent onRequestClose={() => setChatOpen(false)}>
         <View style={styles.chatPopup}>
-          <View style={styles.chatPopupContent}>
+          <View style={[styles.chatPopupContent, { paddingBottom: Math.max(insets.bottom, 12) }]}>
             <View style={styles.chatPopupHeader}>
               <View style={styles.chatHeaderInfo}>
                 <View style={styles.chatAvatar}><Icon name="robot" size={20} color="#FFF" /></View>
-                <View><Text style={styles.chatHeaderTitle}>AI Assistant</Text><Text style={styles.chatHeaderStatus}>Available in 8 Languages</Text></View>
+                <View><Text style={styles.chatHeaderTitle}>Humaelio - AI Assistant</Text><Text style={styles.chatHeaderStatus}>Available in 8 Languages</Text></View>
               </View>
               <TouchableOpacity onPress={() => setChatOpen(false)}><Icon name="times" size={20} color="#FFF" /></TouchableOpacity>
             </View>
@@ -1002,7 +1004,7 @@ const styles = StyleSheet.create({
   
   // Chat Modal
   chatPopup: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  chatPopupContent: { backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, height: height * 0.7 },
+  chatPopupContent: { backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, height: height * 0.7, },
   chatPopupHeader: { backgroundColor: '#2e86ab', padding: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopLeftRadius: 24, borderTopRightRadius: 24 },
   chatHeaderInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   chatAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },

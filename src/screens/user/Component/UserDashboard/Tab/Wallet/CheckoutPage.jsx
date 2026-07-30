@@ -13,8 +13,10 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import PATIENT from '../../../../../../theme/palette';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 
 const CheckoutPage = ({ navigation, route }) => {
+  const { t } = useLanguageRender();
   const [selectedPayment, setSelectedPayment] = useState('card');
   const appointment = route?.params?.appointment || {
     counselor: { fullName: 'Dr. Emily Chen', profilePhoto: 'https://ui-avatars.com/api/?name=Emily+Chen' },
@@ -42,7 +44,7 @@ const CheckoutPage = ({ navigation, route }) => {
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="chevron-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Checkout</Text>
+        <Text style={s.headerTitle}>{t('Checkout')}</Text>
         <View style={{ width: 24 }} />
       </View>
 
@@ -58,14 +60,14 @@ const CheckoutPage = ({ navigation, route }) => {
 
         {/* Appointment Details */}
         <View style={s.detailsSection}>
-          <Text style={s.sectionTitle}>APPOINTMENT DETAILS</Text>
+          <Text style={s.sectionTitle}>{t('APPOINTMENT DETAILS')}</Text>
 
           <View style={s.detailRow}>
             <View style={s.detailIcon}>
               <MaterialIcons name="event" size={18} color={PATIENT.primary} />
             </View>
             <View style={s.detailContent}>
-              <Text style={s.detailLabel}>Date & Time</Text>
+              <Text style={s.detailLabel}>{t('Date & Time')}</Text>
               <Text style={s.detailValue}>{appointment.date} {appointment.time}</Text>
             </View>
           </View>
@@ -75,7 +77,7 @@ const CheckoutPage = ({ navigation, route }) => {
               <Ionicons name="videocam-outline" size={18} color={PATIENT.primary} />
             </View>
             <View style={s.detailContent}>
-              <Text style={s.detailLabel}>Consultation Type</Text>
+              <Text style={s.detailLabel}>{t('Consultation Type')}</Text>
               <Text style={s.detailValue}>{appointment.type}</Text>
             </View>
           </View>
@@ -83,7 +85,7 @@ const CheckoutPage = ({ navigation, route }) => {
 
         {/* Payment Method Selection */}
         <View style={s.paymentSection}>
-          <Text style={s.sectionTitle}>PAY WITH</Text>
+          <Text style={s.sectionTitle}>{t('PAY WITH')}</Text>
           <View style={s.paymentMethods}>
             {paymentMethods.map((method) => (
               <TouchableOpacity
@@ -106,7 +108,7 @@ const CheckoutPage = ({ navigation, route }) => {
             style={s.amountGradient}
           >
             <View style={s.amountContent}>
-              <Text style={s.amountLabel}>Amount to Pay</Text>
+              <Text style={s.amountLabel}>{t('Amount to Pay')}</Text>
               <Text style={s.amountValue}>₹{total.toFixed(2)}</Text>
             </View>
             <Ionicons name="checkmark-circle" size={24} color="#ffffff" />
@@ -115,20 +117,20 @@ const CheckoutPage = ({ navigation, route }) => {
 
         {/* Payment Summary */}
         <View style={s.summarySection}>
-          <Text style={s.sectionTitle}>PAYMENT SUMMARY</Text>
+          <Text style={s.sectionTitle}>{t('PAYMENT SUMMARY')}</Text>
 
           <View style={s.summaryRow}>
-            <Text style={s.summaryLabel}>Consultation Fee</Text>
+            <Text style={s.summaryLabel}>{t('Consultation Fee')}</Text>
             <Text style={s.summaryValue}>₹{consultationFee.toFixed(2)}</Text>
           </View>
 
           <View style={s.summaryRow}>
-            <Text style={s.summaryLabel}>GST (18%)</Text>
+            <Text style={s.summaryLabel}>{t('GST (18%)')}</Text>
             <Text style={s.summaryValue}>₹{gst.toFixed(2)}</Text>
           </View>
 
           <View style={[s.summaryRow, s.summaryRowTotal]}>
-            <Text style={s.summaryLabelTotal}>Total</Text>
+            <Text style={s.summaryLabelTotal}>{t('Total')}</Text>
             <Text style={s.summaryValueTotal}>₹{total.toFixed(2)}</Text>
           </View>
         </View>
@@ -142,7 +144,7 @@ const CheckoutPage = ({ navigation, route }) => {
             style={s.confirmGradient}
           >
             <Ionicons name="checkmark-circle" size={20} color="#ffffff" />
-            <Text style={s.confirmButtonText}>Confirm Payment</Text>
+            <Text style={s.confirmButtonText}>{t('Confirm Payment')}</Text>
           </LinearGradient>
         </TouchableOpacity>
 

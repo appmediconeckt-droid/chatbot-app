@@ -71,7 +71,7 @@
     "passwordMinLength": "Salasanassa on oltava vähintään 6 merkkiä",
     "passwordsDoNotMatch": "Salasanat eivät täsmää",
     "sessionExpired": "Istunto vanhentunut. Kirjaudu uudelleen.",
-    "chooseRole": "Valitse, kuinka haluat käyttää Mediconectia",
+    "chooseRole": "Valitse, kuinka haluat käyttää Humaeli",
     "userRole": "Käyttäjä",
     "counselorRole": "Neuvonantaja",
     "userRoleDesc": "Hanki tukea ammattitaitoisilta neuvonantajilta",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Kirjoita salasana uudelleen",
     "enterCurrentPassword": "Anna nykyinen salasana",
     "reEnterNewPassword": "Kirjoita uusi salasana uudelleen",
-    "copyright": "© 2025 Mediconnect. Kaikki oikeudet pidätetään."
+    "copyright": "© 2025 Humaeli. Kaikki oikeudet pidätetään."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Apua tuki",
-    "centerTitle": "MediConeckt tukikeskus",
-    "centerDesc": "Käytä tätä tukikeskusta siirtyäksesi oikeaan MediConeckt-ominaisuuteen, tehdäksesi yleisten ongelmien vianmäärityksen ja selvittääksesi, milloin ottaa yhteyttä kiireelliseen apuun sovelluksen ulkopuolella.",
+    "centerTitle": "Humaeli tukikeskus",
+    "centerDesc": "Käytä tätä tukikeskusta siirtyäksesi oikeaan Humaeli-ominaisuuteen, tehdäksesi yleisten ongelmien vianmäärityksen ja selvittääksesi, milloin ottaa yhteyttä kiireelliseen apuun sovelluksen ulkopuolella.",
     "aiWellnessChat": "AI hyvinvointikeskustelu",
     "aiWellnessDesc": "Kysy mielenterveyteen liittyviä kysymyksiä, käytä äänisyöttöä, vastaanota nopeita vastauksia ja jatka äskettäistä tekoälychattiasi kojelaudalta.",
     "aiWellnessAction": "Avaa AI-chat",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Tietosuojakäytäntö",
-    "centerTitle": "MediConeckt tietosuojakeskus",
-    "centerDesc": "Tämä tietosuojakeskus selittää, kuinka MediConeckt käyttää profiiliasi, chattia, tapaamista, lompakkoa, puhelua, sijaintia ja suojaustietojasi tässä mobiilisovelluksessa.",
+    "centerTitle": "Humaeli tietosuojakeskus",
+    "centerDesc": "Tämä tietosuojakeskus selittää, kuinka Humaeli käyttää profiiliasi, chattia, tapaamista, lompakkoa, puhelua, sijaintia ja suojaustietojasi tässä mobiilisovelluksessa.",
     "otpProtected": "OTP suojattu",
     "otpProtectedDesc": "Sähköpostin ja puhelimen muutokset",
     "anonymousCare": "Anonyymi hoitohenkilöllisyys",

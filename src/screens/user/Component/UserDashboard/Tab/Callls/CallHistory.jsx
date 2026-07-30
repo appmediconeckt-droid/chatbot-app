@@ -11,9 +11,11 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 
 import RealVideoCallModal from '../CallModal/VideoCallModal';
 import RealVoiceCallModal from '../CallModal/VoiceCallModal';
@@ -96,6 +98,7 @@ const getProfilePhotoUrl = (call) => {
 };
 
 const CallHistory = () => {
+  const { t } = useLanguageRender();
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
@@ -510,7 +513,7 @@ const CallHistory = () => {
           {isMissed ? (
             <View style={styles.missedCallBadge}>
               <Ionicons name="call" size={16} color="#ef4444" />
-              <Text style={styles.missedCallText}>Missed Call</Text>
+              <Text style={styles.missedCallText}>{t('Missed Call')}</Text>
             </View>
           ) : call.type === "video" ? (
             <Ionicons name="videocam" size={22} color="#00652C" />
@@ -533,7 +536,7 @@ const CallHistory = () => {
       return (
         <View style={styles.callNoResults}>
           <ActivityIndicator size="large" color="#00652C" />
-          <Text style={styles.callNoResultsTitle}>Loading call history...</Text>
+          <Text style={styles.callNoResultsTitle}>{t('Loading call history...')}</Text>
         </View>
       );
     }
@@ -541,17 +544,17 @@ const CallHistory = () => {
     return (
       <View style={styles.callNoResults}>
         <Ionicons name="call-outline" size={56} color="#94a3b8" />
-        <Text style={styles.callNoResultsTitle}>No calls found</Text>
-        <Text style={styles.callNoResultsSubtitle}>Try changing your search or filter</Text>
+        <Text style={styles.callNoResultsTitle}>{t('No calls found')}</Text>
+        <Text style={styles.callNoResultsSubtitle}>{t('Try changing your search or filter')}</Text>
       </View>
     );
   };
 
   const filterButtons = [
-    { key: 'all', label: 'All' },
-    { key: 'missed', label: 'Missed' },
-    { key: 'incoming', label: 'Incoming' },
-    { key: 'outgo', label: 'Outgo' },
+    { key: 'all', label: t('All') },
+    { key: 'missed', label: t('Missed') },
+    { key: 'incoming', label: t('Incoming') },
+    { key: 'outgo', label: t('Outgoing') },
   ];
 
   return (
@@ -566,7 +569,7 @@ const CallHistory = () => {
             <Ionicons name="search" size={18} color="#74777c" />
             <TextInput
               style={styles.callSearchInput}
-              placeholder="Search contacts..."
+              placeholder={t('Search contacts...')}
               placeholderTextColor="#8696a0"
               value={searchTerm}
               onChangeText={setSearchTerm}
@@ -580,25 +583,40 @@ const CallHistory = () => {
         </View>
 
         <View style={styles.callFilters}>
-          {filterButtons.map((filter) => (
-            <TouchableOpacity
-              key={filter.key}
-              style={[
-                styles.callFilterBtn,
-                activeFilter === filter.key && styles.callFilterBtnActive,
-              ]}
-              onPress={() => setActiveFilter(filter.key)}
-            >
-              <Text
-                style={[
-                  styles.callFilterBtnText,
-                  activeFilter === filter.key && styles.callFilterBtnTextActive,
-                ]}
+          {filterButtons.map((filter) => {
+            const isActive = activeFilter === filter.key;
+            return (
+              <TouchableOpacity
+                key={filter.key}
+                style={styles.callFilterBtnWrap}
+                activeOpacity={0.85}
+                onPress={() => setActiveFilter(filter.key)}
               >
-                {filter.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
+                {isActive ? (
+                  // Same gradient/direction as the wallet balance card.
+                  <LinearGradient
+                    colors={['#006B2C', '#01CE54']}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={[styles.callFilterBtn, styles.callFilterBtnActive]}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.callFilterBtnText, styles.callFilterBtnTextActive]}
+                    >
+                      {filter.label}
+                    </Text>
+                  </LinearGradient>
+                ) : (
+                  <View style={styles.callFilterBtn}>
+                    <Text numberOfLines={1} style={styles.callFilterBtnText}>
+                      {filter.label}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {callError ? (
@@ -716,20 +734,27 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 8,
   },
+  // Chips share the row equally instead of sizing to their text - with the full
+  // "Outgoing" label, auto-width chips overflow a 360dp screen.
+  callFilterBtnWrap: {
+    flex: 1,
+  },
   callFilterBtn: {
     paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 6,
     borderRadius: 10,
     backgroundColor: "#f1f5f9",
     borderWidth: 1,
     borderColor: "#e2e8f0",
+    alignItems: "center",
+    justifyContent: "center",
   },
   callFilterBtnActive: {
-    backgroundColor: "#00652C",
-    borderColor: "#00652C",
+    backgroundColor: "transparent",
+    borderColor: "#006B2C",
   },
   callFilterBtnText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
     color: "#64748b",
   },

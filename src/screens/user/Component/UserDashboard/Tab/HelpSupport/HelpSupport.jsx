@@ -6,63 +6,72 @@ import {
   StatusBar,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import PATIENT from '../../../../../../theme/palette';
 
-const SUPPORT_EMAIL = 'support@mediconekt.com';
+const SUPPORT_EMAIL = 'support@humaeli.com';
 const SUPPORT_PHONE = '+1 (800) 555-0199';
-const EMERGENCY_PHONE = '911';
+// India's unified emergency number (police / ambulance / fire). Was '911',
+// which simply does not connect from an Indian network.
+const EMERGENCY_PHONE = '112';
 const APP_VERSION = '2.1.4';
-const LAST_UPDATED = 'Oct 2024';
+const LAST_UPDATED = 'July 2026';
+// Matches applicationId in android/app/build.gradle.
+const STORE_ID = 'com.chatbots';
+// Real, region-aware directory of verified crisis lines. Deliberately not a
+// hardcoded list of numbers - a wrong helpline number is worse than none.
+const HELPLINE_DIRECTORY = 'https://findahelpline.com';
 
-const HelpSupport = ({ onClose }) => {
-  const [searchQuery, setSearchQuery] = useState('');
+// onOpenTab / onOpenAiChat come from UserDashboard. CounselorSettings mounts
+// this screen without them, so every use is guarded with a working fallback.
+const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
+  const { t } = useLanguageRender();
   const [expandedIndices, setExpandedIndices] = useState(new Set());
 
   const quickActions = [
     {
       icon: 'chat-processing-outline',
-      label: 'Live Chat',
-      subtitle: 'Chat with our support team',
+      label: t('Live Chat'),
+      subtitle: t('Chat with our support team'),
       iconBg: '#E6F6EC',
       iconColor: PATIENT.primary,
-      badge: 'Usually online within',
+      badge: t('Usually online within'),
       badgeColor: PATIENT.primary,
       badgeBg: '#E6F6EC',
       action: 'chat',
     },
     {
       icon: 'phone-outline',
-      label: 'Call Support',
-      subtitle: 'Talk directly',
+      label: t('Call Support'),
+      subtitle: t('Talk directly'),
       iconBg: '#E0EBFF',
       iconColor: '#2563eb',
       action: 'phone',
     },
     {
       icon: 'email-outline',
-      label: 'Email Support',
-      subtitle: 'Send your questions',
+      label: t('Email Support'),
+      subtitle: t('Send your questions'),
       iconBg: '#E6F6EC',
       iconColor: PATIENT.primary,
-      badge: 'Within 24 hours',
+      badge: t('Within 24 hours'),
       badgeColor: '#94a3b8',
       badgeBg: '#f1f5f9',
       action: 'email',
     },
     {
       icon: 'robot-happy-outline',
-      label: 'AI Assistant',
-      subtitle: 'Get instant answers',
+      label: t('Humaelio'),
+      subtitle: t('Get instant answers'),
       iconBg: '#E6F6EC',
       iconColor: PATIENT.primary,
-      badge: '24/7 Available',
+      badge: t('24/7 Available'),
       badgeColor: PATIENT.primary,
       badgeBg: '#E6F6EC',
       action: 'ai',
@@ -70,10 +79,10 @@ const HelpSupport = ({ onClose }) => {
   ];
 
   const faqs = [
-    { question: 'How do I book an appointment?', answer: 'To book an appointment, navigate to the Counselors tab, select your preferred counselor, choose your consultation type, and pick a date and time. You\'ll receive a confirmation email with all the details.' },
-    { question: 'How can I cancel or reschedule?', answer: 'You can manage your appointments from the Appointments section. Tap any upcoming appointment to reschedule or cancel. Cancellations made 24 hours before the session are eligible for refunds.' },
-    { question: 'Is my medical data secure?', answer: 'Yes, all your personal and medical data is protected with end-to-end encryption and industry-standard security protocols. Your data is never shared with third parties without your consent.' },
-    { question: 'How do I add funds to my Wallet?', answer: 'Go to the Wallet tab and tap "Add Money". Choose your preferred payment method — card, UPI, or bank transfer — and enter the amount you want to add.' },
+    { question: t('How do I book an appointment?'), answer: t("To book an appointment, navigate to the Counselors tab, select your preferred counselor, choose your consultation type, and pick a date and time. You'll receive a confirmation email with all the details.") },
+    { question: t('How can I cancel or reschedule?'), answer: t('You can manage your appointments from the Appointments section. Tap any upcoming appointment to reschedule or cancel. Cancellations made 24 hours before the session are eligible for refunds.') },
+    { question: t('Is my medical data secure?'), answer: t('Yes, all your personal and medical data is protected with end-to-end encryption and industry-standard security protocols. Your data is never shared with third parties without your consent.') },
+    { question: t('How do I add funds to my Wallet?'), answer: t('Go to the Wallet tab and tap "Add Money". Choose your preferred payment method — card, UPI, or bank transfer — and enter the amount you want to add.') },
   ];
 
   const toggleFaq = (idx) => {
@@ -93,9 +102,22 @@ const HelpSupport = ({ onClose }) => {
         Alert.alert('Call Support', `Please call us at ${SUPPORT_PHONE}`);
       });
     } else if (action === 'chat') {
-      Alert.alert('Live Chat', 'Connecting you to our support team...');
+      // Open the real chat tab rather than a dead confirmation dialog.
+      if (onOpenTab) {
+        onClose?.();
+        onOpenTab('Chat');
+      } else {
+        Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=Live Chat Request`).catch(() => {
+          Alert.alert('Live Chat', `Chat isn't available here. Please email ${SUPPORT_EMAIL}.`);
+        });
+      }
     } else if (action === 'ai') {
-      Alert.alert('AI Assistant', 'Ask me anything — I\'m available 24/7 to help you.');
+      // Opens Humaelio, the AI assistant that already exists on the dashboard.
+      if (onOpenAiChat) {
+        onOpenAiChat();
+      } else {
+        Alert.alert('Humaelio', 'Open Humaelio from the dashboard chat button.');
+      }
     }
   };
 
@@ -111,11 +133,40 @@ const HelpSupport = ({ onClose }) => {
   };
 
   const handleCrisisResources = () => {
-    Alert.alert('Crisis Resources', 'View mental health crisis helplines and support resources available in your region.');
+    Alert.alert(
+      'Crisis Resources',
+      'If you are in immediate danger, call emergency services. You can also browse verified crisis helplines for your country.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Find a helpline',
+          onPress: () => {
+            Linking.openURL(HELPLINE_DIRECTORY).catch(() => {
+              Alert.alert('Crisis Resources', `Unable to open a browser. Please visit ${HELPLINE_DIRECTORY}`);
+            });
+          },
+        },
+        {
+          text: `Call ${EMERGENCY_PHONE}`,
+          style: 'destructive',
+          onPress: () => Linking.openURL(`tel:${EMERGENCY_PHONE}`),
+        },
+      ]
+    );
+  };
+
+  const handleCheckForUpdates = () => {
+    // market:// opens the Play Store app directly; the https URL is the fallback
+    // when the store app isn't installed.
+    Linking.openURL(`market://details?id=${STORE_ID}`).catch(() => {
+      Linking.openURL(`https://play.google.com/store/apps/details?id=${STORE_ID}`).catch(() => {
+        Alert.alert('Check for Updates', `You are on version ${APP_VERSION}. Unable to open the store.`);
+      });
+    });
   };
 
   const handleReportIssue = () => {
-    const subject = encodeURIComponent(`Bug Report — Mediconect v${APP_VERSION}`);
+    const subject = encodeURIComponent(`Bug Report — Humaeli v${APP_VERSION}`);
     const body = encodeURIComponent(
       `Please describe the issue below:\n\n\n---\nApp Version: ${APP_VERSION}\nPlatform: mobile`
     );
@@ -125,55 +176,8 @@ const HelpSupport = ({ onClose }) => {
     });
   };
 
-  const handleScreenshot = () => {
-    // Lazy-load the image picker so a missing/unlinked native module never
-    // crashes this screen at import time — only when the button is tapped.
-    let launchImageLibrary;
-    try {
-      ({ launchImageLibrary } = require('react-native-image-picker'));
-    } catch (e) {
-      launchImageLibrary = null;
-    }
-    if (typeof launchImageLibrary !== 'function') {
-      Alert.alert('Screenshot', 'Image picker is not available on this build. Please rebuild the app to enable attaching screenshots.');
-      return;
-    }
-    try {
-      launchImageLibrary(
-        { mediaType: 'photo', quality: 0.8, selectionLimit: 1 },
-        (response) => {
-          if (response.didCancel) return;
-          if (response.errorCode) {
-            Alert.alert('Screenshot', response.errorMessage || 'Unable to open the gallery.');
-            return;
-          }
-          const asset = response.assets && response.assets[0];
-          if (asset) {
-            Alert.alert('Screenshot Attached', `${asset.fileName || 'Image'} is ready to send with your report.`);
-          }
-        }
-      );
-    } catch (e) {
-      Alert.alert('Screenshot', 'Unable to open the gallery on this build.');
-    }
-  };
-
-  const handleTermsOfService = () => {
-    const termsUrl = 'https://mediconekt.com/terms-of-service';
-    Linking.openURL(termsUrl).catch(() => {
-      Alert.alert('Terms of Service', 'Unable to open. Please visit mediconekt.com/terms-of-service');
-    });
-  };
-
-  const handlePrivacyPolicy = () => {
-    const privacyUrl = 'https://mediconekt.com/privacy-policy';
-    Linking.openURL(privacyUrl).catch(() => {
-      Alert.alert('Privacy Policy', 'Unable to open. Please visit mediconekt.com/privacy-policy');
-    });
-  };
-
   return (
-    <SafeAreaView style={s.container} edges={['top']}>
+    <SafeAreaView style={s.container} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
       {/* Header */}
@@ -181,23 +185,11 @@ const HelpSupport = ({ onClose }) => {
         <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="chevron-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Help and Support</Text>
+        <Text style={s.headerTitle}>{t('Help and Support')}</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Search Bar */}
-        <View style={s.searchBox}>
-          <Ionicons name="search" size={18} color="#94a3b8" />
-          <TextInput
-            style={s.searchInput}
-            placeholder="Search help articles..."
-            placeholderTextColor="#94a3b8"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-        </View>
-
         {/* Quick Action Cards */}
         <View style={s.quickGrid}>
           {quickActions.map((action, idx) => (
@@ -210,8 +202,8 @@ const HelpSupport = ({ onClose }) => {
               <View style={[s.actionIcon, { backgroundColor: action.iconBg }]}>
                 <MaterialCommunityIcons name={action.icon} size={22} color={action.iconColor} />
               </View>
-              <Text style={s.actionLabel}>{action.label}</Text>
-              <Text style={s.actionSubtitle}>{action.subtitle}</Text>
+              <Text style={s.actionLabel}>{t(action.label)}</Text>
+              <Text style={s.actionSubtitle}>{t(action.subtitle)}</Text>
               {action.badge && (
                 <View style={[s.actionBadge, { backgroundColor: action.badgeBg }]}>
                   <Text style={[s.actionBadgeText, { color: action.badgeColor }]}>{action.badge}</Text>
@@ -222,7 +214,7 @@ const HelpSupport = ({ onClose }) => {
         </View>
 
         {/* Popular Questions */}
-        <Text style={s.sectionTitle}>Popular Questions</Text>
+        <Text style={s.sectionTitle}>{t('Popular Questions')}</Text>
         <View style={s.faqCard}>
           {faqs.map((faq, idx) => {
             const isExpanded = expandedIndices.has(idx);
@@ -242,28 +234,28 @@ const HelpSupport = ({ onClose }) => {
         <View style={s.emergencyCard}>
           <View style={s.emergencyHeader}>
             <MaterialCommunityIcons name="alert" size={20} color="#f59e0b" />
-            <Text style={s.emergencyTitle}>Need Immediate Help?</Text>
+            <Text style={s.emergencyTitle}>{t('Need Immediate Help?')}</Text>
           </View>
           <Text style={s.emergencyText}>
             If you are experiencing a medical emergency, please call your local emergency services immediately.
           </Text>
           <TouchableOpacity style={s.emergencyButton} onPress={handleEmergency} activeOpacity={0.85}>
-            <Text style={s.emergencyButtonText}>Emergency Contact</Text>
+            <Text style={s.emergencyButtonText}>{t('Emergency Contact')}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={handleCrisisResources} activeOpacity={0.7}>
-            <Text style={s.crisisLink}>Crisis Resources</Text>
+            <Text style={s.crisisLink}>{t('Crisis Resources')}</Text>
           </TouchableOpacity>
         </View>
 
         {/* Contact Information */}
-        <Text style={s.contactHeading}>CONTACT INFORMATION</Text>
+        <Text style={s.contactHeading}>{t('CONTACT INFORMATION')}</Text>
         <View style={s.contactCard}>
           <TouchableOpacity style={s.contactRow} onPress={() => handleQuickAction('email')} activeOpacity={0.7}>
             <View style={s.contactIcon}>
               <MaterialCommunityIcons name="email-outline" size={20} color={PATIENT.primary} />
             </View>
             <View style={s.contactInfo}>
-              <Text style={s.contactLabel}>Email</Text>
+              <Text style={s.contactLabel}>{t('Email')}</Text>
               <Text style={s.contactValue}>{SUPPORT_EMAIL}</Text>
             </View>
           </TouchableOpacity>
@@ -276,46 +268,29 @@ const HelpSupport = ({ onClose }) => {
             </View>
             <View style={s.contactInfo}>
               <Text style={s.contactValue}>{SUPPORT_PHONE}</Text>
-              <Text style={s.contactSub}>Mon–Fri, 9am – 5pm EST</Text>
+              <Text style={s.contactSub}>Mon–Fri, 9am – 5pm IST</Text>
             </View>
           </TouchableOpacity>
         </View>
 
         {/* Report a Problem */}
-        <Text style={s.sectionTitle}>Report a Problem</Text>
+        <Text style={s.sectionTitle}>{t('Report a Problem')}</Text>
         <View style={s.reportCard}>
-          <Text style={s.reportText}>Encountered a bug or technical issue in the app?</Text>
+          <Text style={s.reportText}>{t('Encountered a bug or technical issue in the app?')}</Text>
           <View style={s.reportButtons}>
             <TouchableOpacity style={s.reportButton} onPress={handleReportIssue} activeOpacity={0.8}>
               <MaterialCommunityIcons name="bug-outline" size={18} color="#0f172a" />
-              <Text style={s.reportButtonText}>Report Issue</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.reportButton} onPress={handleScreenshot} activeOpacity={0.8}>
-              <MaterialCommunityIcons name="image-outline" size={18} color="#0f172a" />
-              <Text style={s.reportButtonText}>Screenshot</Text>
+              <Text style={s.reportButtonText}>{t('Report Issue')}</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Footer Links */}
-        <View style={s.footerCard}>
-          <TouchableOpacity style={s.footerRow} onPress={handleTermsOfService} activeOpacity={0.7}>
-            <Text style={s.footerLabel}>Terms of Service</Text>
-            <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
-          </TouchableOpacity>
-          <View style={s.contactDivider} />
-          <TouchableOpacity style={s.footerRow} onPress={handlePrivacyPolicy} activeOpacity={0.7}>
-            <Text style={s.footerLabel}>Privacy Policy</Text>
-            <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
-          </TouchableOpacity>
-        </View>
-
         {/* Version Info */}
         <View style={s.versionBox}>
-          <Text style={s.versionText}>Mediconect Version {APP_VERSION}</Text>
+          <Text style={s.versionText}>Humaeli Version {APP_VERSION}</Text>
           <Text style={s.versionSub}>Last updated: {LAST_UPDATED}</Text>
-          <TouchableOpacity activeOpacity={0.7}>
-            <Text style={s.updateLink}>Check for Updates</Text>
+          <TouchableOpacity activeOpacity={0.7} onPress={handleCheckForUpdates}>
+            <Text style={s.updateLink}>{t('Check for Updates')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -332,8 +307,6 @@ const s = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16 },
 
-  searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 12, paddingHorizontal: 14, height: 46, gap: 10, borderWidth: 1, borderColor: '#e6ebf1' },
-  searchInput: { flex: 1, fontSize: 14, color: '#0f172a', fontWeight: '500', padding: 0 },
 
   quickGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 14, rowGap: 12 },
   actionCard: { width: '48%', backgroundColor: '#ffffff', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#eef2f6' },
@@ -376,9 +349,6 @@ const s = StyleSheet.create({
   reportButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e6ebf1', borderRadius: 10, paddingVertical: 11 },
   reportButtonText: { fontSize: 12.5, fontWeight: '700', color: '#0f172a' },
 
-  footerCard: { backgroundColor: '#ffffff', borderRadius: 14, borderWidth: 1, borderColor: '#eef2f6', paddingHorizontal: 16, marginTop: 24 },
-  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 15 },
-  footerLabel: { fontSize: 13.5, fontWeight: '600', color: '#334155' },
 
   versionBox: { alignItems: 'center', marginTop: 20 },
   versionText: { fontSize: 12.5, fontWeight: '600', color: '#64748b' },

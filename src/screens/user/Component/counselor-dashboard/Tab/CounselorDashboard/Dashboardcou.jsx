@@ -196,7 +196,6 @@ const Dashboard = () => {
         >
           <View style={styles.welcomeTextWrap}>
             <Text style={styles.welcomeTitle}>
-              {t('dashboard:welcomeBack')}{counselorName ? `,` : ''}{'\n'}
               {counselorName ? <Text style={styles.welcomeName}>{counselorName} 👋</Text> : '👋'}
             </Text>
             <Text style={styles.dateText}>{getFormattedDate()}</Text>
@@ -211,7 +210,7 @@ const Dashboard = () => {
                 <MaterialIcons name={s.icon} size={20} color={s.color} />
               </View>
               <Text style={[styles.statValue, { color: s.color }]}>{s.value}</Text>
-              <Text style={[styles.statLabel, { color: s.color }]}>{s.label}</Text>
+              <Text style={[styles.statLabel, { color: s.color }]}>{t(s.label)}</Text>
             </View>
           ))}
         </View>
@@ -264,10 +263,10 @@ const Dashboard = () => {
                   {/* Action Buttons */}
                   <View style={styles.aptActionsRow}>
                     <TouchableOpacity style={styles.aptActionBtn} activeOpacity={0.7}>
-                      <Ionicons name="videocam" size={18} color="#6366f1" />
+                      <Ionicons name="videocam" size={18} color="#004AC6" />
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.aptActionBtn} activeOpacity={0.7}>
-                      <Ionicons name="call" size={18} color="#10b981" />
+                      <Ionicons name="call" size={18} color="#004AC6" />
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.aptActionBtn} activeOpacity={0.7}>
                       <Ionicons name="chatbubble-ellipses" size={18} color="#f59e0b" />
@@ -300,7 +299,7 @@ const Dashboard = () => {
                 <View style={[styles.quickIconBox, { backgroundColor: q.color + '22' }]}>
                   <MaterialIcons name={q.icon} size={22} color={q.color} />
                 </View>
-                <Text style={[styles.quickLabel, { color: q.color }]}>{q.label}</Text>
+                <Text style={[styles.quickLabel, { color: q.color }]}>{t(q.label)}</Text>
               </TouchableOpacity>
             ))}
           </View>

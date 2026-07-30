@@ -11,14 +11,18 @@ import {
   AppState,
   RefreshControl,
   Platform,
+  Animated,
+  Modal,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from 'react-native-vector-icons/Feather';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import axiosInstance from '../../../../../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import { DOCTOR } from '../../../../../../theme/palette';
 import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
+import GradientFill from '../../../../../../components/common/GradientFill';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 
 // Payout-domain statuses returned by the backend (`normalizeWithdrawalStatus`).
 const STATUS_META = {
@@ -27,6 +31,16 @@ const STATUS_META = {
   paid: { color: '#15803D', bg: '#DCFCE7', label: 'Paid' },
   rejected: { color: '#B91C1C', bg: '#FEE2E2', label: 'Rejected' },
   refunded: { color: '#B91C1C', bg: '#FEE2E2', label: 'Refunded' },
+};
+
+// What MAX types into the amount field. String(balance) put the raw float in,
+// so a balance carrying binary noise from the earnings split (e.g.
+// 4999.999999999999) filled the box with a dozen decimals. Rounds DOWN to
+// paise: rounding up would land above the real balance and fail the
+// "Insufficient balance" check on submit.
+const toAmountInput = (v) => {
+  const value = Math.floor((Number(v) || 0) * 100) / 100;
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 };
 
 const money = (v) =>
@@ -52,7 +66,205 @@ const toApiDate = (date) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 
-const CounselorWallet = ({ onClose }) => {
+// `embedded` = rendered inside the counselor dashboard's Earnings tab, which
+// already sits below the global header (its own top safe-area inset). In that
+// case we skip the top edge here so we don't add a second inset — the gap it
+// created looked like a big empty space. As a full-screen modal it keeps top.
+// ─── Loading skeleton (mirrors the earnings layout) ──────────────────────────
+const useShimmer = () => {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 850, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 850, useNativeDriver: true }),
+      ]),
+    ).start();
+  }, [anim]);
+  return anim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 0.85] });
+};
+
+const WalletSkeleton = ({ safeEdges }) => {
+  const opacity = useShimmer();
+  const Line = ({ w, h, mt = 0, dark = false }) => (
+    <Animated.View
+      style={{ width: w, height: h, marginTop: mt, borderRadius: 6, opacity, backgroundColor: dark ? '#EDF1F6' : '#E2E8F0' }}
+    />
+  );
+  return (
+    <SafeAreaView style={styles.safe} edges={safeEdges}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Balance card */}
+        <View style={skel.balanceCard}>
+          <Line w={130} h={13} dark />
+          <Line w={170} h={30} mt={12} dark />
+          <Line w={150} h={12} mt={14} dark />
+          <Animated.View style={[skel.balanceBtn, { opacity }]} />
+        </View>
+
+
+        {/* Summary stat cards - four, matching summaryCards */}
+        <View style={skel.summaryGrid}>
+          {[1, 2, 3, 4].map((i) => (
+            <View key={i} style={skel.summaryCard}>
+              <Line w="70%" h={10} />
+              <Line w="55%" h={20} mt={12} />
+              <Line w="80%" h={9} mt={10} />
+            </View>
+          ))}
+        </View>
+
+        {/* Revenue split - counselor share + platform commission */}
+        {[1, 2].map((i) => (
+          <View key={i} style={skel.splitCard}>
+            <Line w={130} h={11} />
+            <View style={skel.splitRow}>
+              <Line w={60} h={24} />
+              <Line w={140} h={10} />
+            </View>
+            <Animated.View style={[skel.splitTrack, { opacity }]} />
+          </View>
+        ))}
+
+        {/* Earning history */}
+        <View style={skel.card}>
+          <Line w={120} h={15} />
+          {[1, 2, 3].map((i) => (
+            <View key={i} style={skel.listRow}>
+              <View style={{ flex: 1 }}>
+                <Line w="55%" h={12} />
+                <Line w="75%" h={9} mt={7} />
+              </View>
+              <Line w={70} h={14} />
+            </View>
+          ))}
+        </View>
+
+        {/* Withdrawal requests */}
+        <View style={skel.card}>
+          <Line w={150} h={15} />
+          {[1, 2].map((i) => (
+            <View key={i} style={skel.listRow}>
+              <View style={{ flex: 1 }}>
+                <Line w="45%" h={12} />
+                <Line w="65%" h={9} mt={7} />
+              </View>
+              <Animated.View style={[skel.statusPill, { opacity }]} />
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+const skel = StyleSheet.create({
+  balanceCard: { borderRadius: 20, padding: 20, marginBottom: 16, backgroundColor: '#DCE3EC' },
+  balanceBtn: { height: 46, borderRadius: 12, marginTop: 18, backgroundColor: '#EDF1F6' },
+  card: {
+    backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#e5e7eb',
+    padding: 16, marginBottom: 16,
+  },
+  dateRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  dateBox: { flex: 1, height: 56, borderRadius: 12, backgroundColor: '#E2E8F0' },
+  applyBtn: { width: 110, height: 44, borderRadius: 12, marginTop: 14, backgroundColor: '#E2E8F0' },
+  summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
+  summaryCard: {
+    flexGrow: 1, flexBasis: '46%', backgroundColor: '#fff', borderRadius: 14,
+    borderWidth: 1, borderColor: '#e5e7eb', padding: 14,
+  },
+  // Mirrors the two revenue-split cards.
+  splitCard: {
+    backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#e5e7eb',
+    padding: 16, marginBottom: 16,
+  },
+  splitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
+  splitTrack: { height: 8, borderRadius: 999, backgroundColor: '#E2E8F0', marginTop: 12 },
+  // Rows inside earning history / withdrawal requests.
+  listRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingVertical: 14, marginTop: 4,
+  },
+  statusPill: { width: 66, height: 22, borderRadius: 999, backgroundColor: '#E2E8F0' },
+});
+
+// ─── Pagination ──────────────────────────────────────────────────────────────
+// Both history lists used to render every row, so a counselor with a long
+// earning history had the Withdrawal requests card pushed metres down the
+// scroll - it was effectively invisible. Each list now shows one page at a time.
+const PAGE_SIZE = 5;
+
+const pageCountOf = (total) => Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+// Numbers to draw. Long histories collapse to first / window / last with gaps,
+// so the row never wraps: 1 … 4 [5] 6 … 12
+const pageNumbers = (current, total) => {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const out = [1];
+  const from = Math.max(2, current - 1);
+  const to = Math.min(total - 1, current + 1);
+  if (from > 2) out.push('gapL');
+  for (let i = from; i <= to; i += 1) out.push(i);
+  if (to < total - 1) out.push('gapR');
+  out.push(total);
+  return out;
+};
+
+const Pagination = ({ page, total, onChange }) => {
+  const { t } = useLanguageRender();
+  const pages = pageCountOf(total);
+  if (pages <= 1) return null;
+
+  const first = (page - 1) * PAGE_SIZE + 1;
+  const last = Math.min(page * PAGE_SIZE, total);
+
+  const Arrow = ({ dir, disabled }) => (
+    <TouchableOpacity
+      style={[styles.pageBox, disabled && styles.pageBoxDisabled]}
+      disabled={disabled}
+      onPress={() => onChange(dir === 'prev' ? page - 1 : page + 1)}
+      activeOpacity={0.75}
+    >
+      <Feather
+        name={dir === 'prev' ? 'chevron-left' : 'chevron-right'}
+        size={16}
+        color={disabled ? '#9DB0CC' : '#004AC6'}
+      />
+    </TouchableOpacity>
+  );
+
+  return (
+    <View style={styles.pagination}>
+      <Text style={styles.pageSummary}>
+        {t('Showing')} {first}-{last} {t('of')} {total}
+      </Text>
+      <View style={styles.pageRow}>
+        <Arrow dir="prev" disabled={page <= 1} />
+        {pageNumbers(page, pages).map((n) =>
+          typeof n === 'string' ? (
+            <View key={n} style={styles.pageGap}>
+              <Text style={styles.pageGapText}>…</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              key={n}
+              style={[styles.pageBox, n === page && styles.pageBoxActive]}
+              onPress={() => onChange(n)}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.pageBoxText, n === page && styles.pageBoxTextActive]}>{n}</Text>
+            </TouchableOpacity>
+          ),
+        )}
+        <Arrow dir="next" disabled={page >= pages} />
+      </View>
+    </View>
+  );
+};
+
+const CounselorWallet = ({ onClose, embedded = false }) => {
+  const { t } = useLanguageRender();
+  const safeEdges = embedded ? ['bottom'] : ['top', 'bottom'];
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -72,6 +284,10 @@ const CounselorWallet = ({ onClose }) => {
   const [draftRange, setDraftRange] = useState({ from: null, to: null });
   const [dateFilter, setDateFilter] = useState({ from: '', to: '' });
   const [picker, setPicker] = useState(null); // 'from' | 'to' | null
+  const [showDateFilter, setShowDateFilter] = useState(false);
+  const insets = useSafeAreaInsets();
+  const [earningsPage, setEarningsPage] = useState(1);
+  const [withdrawalsPage, setWithdrawalsPage] = useState(1);
 
   // Keeps the polling effect from re-subscribing on every state change.
   const filterRef = useRef(dateFilter);
@@ -123,6 +339,9 @@ const CounselorWallet = ({ onClose }) => {
     }
     setError('');
     setDateFilter({ from, to });
+    // Collapse the panel once applied - the filter icon keeps its active dot, so
+    // the state stays visible without the panel occupying the screen.
+    setShowDateFilter(false);
   };
 
   const clearDateFilter = () => {
@@ -133,6 +352,25 @@ const CounselorWallet = ({ onClose }) => {
 
   const earnings = data?.earnings || [];
   const withdrawals = data?.withdrawals || [];
+
+  // The 15s poll and the date filter both change list length under our feet;
+  // without this a counselor left on page 4 of a list that shrank to 2 pages
+  // would stare at an empty card.
+  useEffect(() => {
+    setEarningsPage((p) => Math.min(p, pageCountOf(earnings.length)));
+  }, [earnings.length]);
+  useEffect(() => {
+    setWithdrawalsPage((p) => Math.min(p, pageCountOf(withdrawals.length)));
+  }, [withdrawals.length]);
+
+  const pagedEarnings = earnings.slice(
+    (earningsPage - 1) * PAGE_SIZE,
+    earningsPage * PAGE_SIZE,
+  );
+  const pagedWithdrawals = withdrawals.slice(
+    (withdrawalsPage - 1) * PAGE_SIZE,
+    withdrawalsPage * PAGE_SIZE,
+  );
   const verifiedPayoutAccount = data?.payoutAccount?.isVerified ? data.payoutAccount : null;
   const counselorPercentage = data?.split?.counselorPercentage ?? 80;
   const platformPercentage = data?.split?.platformPercentage ?? 20;
@@ -140,16 +378,44 @@ const CounselorWallet = ({ onClose }) => {
   const standardOption = data?.payoutOptions?.standard || {};
   const balance = Number(data?.balance || 0);
 
-  const { estimatedFee, estimatedPayout, selectedFeePercent } = useMemo(() => {
+  // Does the backend actually tell us what the instant fee is? A missing
+  // feePercent is NOT the same as a 0% fee - showing "0% FEE / -Rs.0.00" for
+  // missing data told the counselor the transfer was free when nobody knew.
+  const hasInstantFeeData =
+    instantOption.feePercent !== undefined && instantOption.feePercent !== null;
+  const instantIsFree = instantOption.isFirstFree === true;
+
+  const { estimatedFee, estimatedPayout, selectedFeePercent, canEstimate } = useMemo(() => {
     const requested = Number(amount || 0);
-    const feePercent = payoutType === 'instant' ? Number(instantOption.feePercent || 0) : 0;
-    const fee = Math.round((requested * feePercent + Number.EPSILON) * 100) / 100;
+    if (payoutType !== 'instant') {
+      // Standard payout has no fee, so the counselor receives the full amount.
+      return {
+        selectedFeePercent: 0,
+        estimatedFee: 0,
+        estimatedPayout: requested,
+        canEstimate: true,
+      };
+    }
+    // isFirstFree was ignored here: the box said "your first instant payout is
+    // free" while "You will receive" still had the fee taken off it.
+    if (instantIsFree) {
+      return { selectedFeePercent: 0, estimatedFee: 0, estimatedPayout: requested, canEstimate: true };
+    }
+    if (!hasInstantFeeData) {
+      return { selectedFeePercent: 0, estimatedFee: 0, estimatedPayout: 0, canEstimate: false };
+    }
+    // feePercent is a percentage (2 => 2%), so divide by 100. It was being used
+    // as a plain multiplier, which charged 2x the amount as "fee" and left
+    // "You will receive" pinned at Rs.0.00 for every instant payout.
+    const feePercent = Number(instantOption.feePercent);
+    const fee = Math.round((requested * (feePercent / 100) + Number.EPSILON) * 100) / 100;
     return {
       selectedFeePercent: feePercent,
       estimatedFee: fee,
       estimatedPayout: Math.max(0, requested - fee),
+      canEstimate: true,
     };
-  }, [amount, payoutType, instantOption.feePercent]);
+  }, [amount, payoutType, instantOption.feePercent, hasInstantFeeData, instantIsFree]);
 
   const submitWithdrawal = async () => {
     const numericAmount = Number(amount);
@@ -208,41 +474,51 @@ const CounselorWallet = ({ onClose }) => {
   };
 
   if (loading) {
-    return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#4f46e5" />
-        </View>
-      </SafeAreaView>
-    );
+    return <WalletSkeleton safeEdges={safeEdges} />;
   }
 
   const summaryCards = [
     ['Available balance', data?.balance, 'Ready for withdrawal'],
     [
-      data?.period?.filtered ? 'Earned in selected period' : 'Total earned',
+      data?.period?.filtered ? t('Earned in selected period') : t('Total earned'),
       data?.totalEarned,
       `${counselorPercentage}% counselor share`,
     ],
     ['Available for payout', data?.pendingPayout, 'Earned, but not withdrawn yet'],
     [
-      data?.period?.filtered ? 'Period gross session value' : 'Gross session value',
+      data?.period?.filtered ? t('Period gross session value') : t('Gross session value'),
       data?.grossRevenue,
       `Platform received ${money(data?.platformCommission)}`,
     ],
   ];
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={safeEdges}>
+      {/* `onClose` was accepted but never used and no header was rendered, so
+          opening this screen as a modal (from Settings or Help & Support) left
+          no way back. Skipped when embedded in the Earnings tab, which already
+          has the dashboard's own navigation. */}
+      {!embedded && onClose ? (
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={onClose}
+            style={styles.backBtn}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Feather name="chevron-left" size={24} color="#0f172a" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>{t('Earnings &amp; Payouts')}</Text>
+          {/* Balances the back button so the title stays optically centred. */}
+          <View style={styles.backBtn} />
+        </View>
+      ) : null}
+
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <Text style={styles.pageSub}>
-          Live earning data from completed paid chat, voice and video sessions.
-        </Text>
 
         {!!error && (
           <View style={styles.errorBox}>
@@ -257,10 +533,21 @@ const CounselorWallet = ({ onClose }) => {
           end={{ x: 1, y: 0.5 }}
           style={styles.balanceCard}
         >
-          <Text style={styles.balanceLabel}>Available Balance</Text>
+          {/* Filter lives here now: the standalone "Filter by date" card took a
+              full screen of height for something used occasionally. */}
+          <TouchableOpacity
+            style={styles.filterIconBtn}
+            onPress={() => setShowDateFilter((v) => !v)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            activeOpacity={0.8}
+          >
+            <Feather name="filter" size={16} color="#ffffff" />
+            {(dateFilter.from || dateFilter.to) && <View style={styles.filterActiveDot} />}
+          </TouchableOpacity>
+          <Text style={styles.balanceLabel}>{t('Available Balance')}</Text>
           <Text style={styles.balanceValue}>{money(balance)}</Text>
           <View style={styles.balanceFooter}>
-            <Feather name="trending-up" size={14} color="#c7d2fe" />
+            <Feather name="trending-up" size={14} color="#C7DAFB" />
             <Text style={styles.balanceSub}>Total earned: {money(data?.totalEarned)}</Text>
           </View>
           <TouchableOpacity
@@ -274,45 +561,68 @@ const CounselorWallet = ({ onClose }) => {
           </TouchableOpacity>
         </LinearGradient>
 
-        {/* Date filter */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Filter by date</Text>
-          <Text style={styles.cardSub}>
-            View complete earnings and withdrawals for any selected period.
-          </Text>
-          <View style={styles.dateRow}>
-            <TouchableOpacity style={styles.dateBtn} onPress={() => setPicker('from')}>
-              <Text style={styles.dateBtnLabel}>From</Text>
-              <Text style={styles.dateBtnValue}>
-                {draftRange.from ? formatDate(draftRange.from) : 'Any'}
+        {/* Date filter popup, opened by the filter icon on the balance card. */}
+        <Modal
+          visible={showDateFilter}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowDateFilter(false)}
+        >
+          <View style={styles.filterOverlay}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={() => setShowDateFilter(false)}
+            />
+            <View style={[styles.filterSheet, { paddingBottom: Math.max(insets.bottom, 18) }]}>
+              <View style={styles.filterGrabber} />
+              <View style={styles.filterHeadRow}>
+                <Text style={styles.cardTitle}>{t('Filter by date')}</Text>
+                <TouchableOpacity
+                  onPress={() => setShowDateFilter(false)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Feather name="x" size={18} color="#6B7C99" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.cardSub}>
+                {t('View complete earnings and withdrawals for any selected period.')}
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.dateBtn} onPress={() => setPicker('to')}>
-              <Text style={styles.dateBtnLabel}>To</Text>
-              <Text style={styles.dateBtnValue}>
-                {draftRange.to ? formatDate(draftRange.to) : 'Any'}
-              </Text>
-            </TouchableOpacity>
+              <View style={styles.dateRow}>
+                <TouchableOpacity style={styles.dateBtn} onPress={() => setPicker('from')}>
+                  <Text style={styles.dateBtnLabel}>{t('From')}</Text>
+                  <Text style={styles.dateBtnValue}>
+                    {draftRange.from ? formatDate(draftRange.from) : t('Any')}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.dateBtn} onPress={() => setPicker('to')}>
+                  <Text style={styles.dateBtnLabel}>{t('To')}</Text>
+                  <Text style={styles.dateBtnValue}>
+                    {draftRange.to ? formatDate(draftRange.to) : t('Any')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.dateActions}>
+                <CounselorGradientButton style={styles.applyBtn} onPress={applyDateFilter}>
+                  <Text style={styles.applyBtnText}>{t('Apply')}</Text>
+                </CounselorGradientButton>
+                {(dateFilter.from || dateFilter.to) && (
+                  <TouchableOpacity style={styles.clearBtn} onPress={clearDateFilter}>
+                    <Text style={styles.clearBtnText}>{t('Clear')}</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {data?.period?.filtered && (
+                <Text style={styles.periodNote}>
+                  {t('Showing')} {data.period.earningCount} {t('earning records and')}{' '}
+                  {data.period.withdrawalCount} {t('withdrawals')}
+                  {data.period.from ? ` ${t('from')} ${data.period.from}` : ''}
+                  {data.period.to ? ` ${t('to')} ${data.period.to}` : ''}.
+                </Text>
+              )}
+            </View>
           </View>
-          <View style={styles.dateActions}>
-            <CounselorGradientButton style={styles.applyBtn} onPress={applyDateFilter}>
-              <Text style={styles.applyBtnText}>Apply</Text>
-            </CounselorGradientButton>
-            {(dateFilter.from || dateFilter.to) && (
-              <TouchableOpacity style={styles.clearBtn} onPress={clearDateFilter}>
-                <Text style={styles.clearBtnText}>Clear</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          {data?.period?.filtered && (
-            <Text style={styles.periodNote}>
-              Showing {data.period.earningCount} earning records and{' '}
-              {data.period.withdrawalCount} withdrawals
-              {data.period.from ? ` from ${data.period.from}` : ''}
-              {data.period.to ? ` to ${data.period.to}` : ''}.
-            </Text>
-          )}
-        </View>
+        </Modal>
 
         {picker && (
           <DateTimePicker
@@ -330,78 +640,91 @@ const CounselorWallet = ({ onClose }) => {
         {/* Withdrawal form */}
         {showWithdrawal && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Withdraw your earnings</Text>
+            <Text style={styles.cardTitle}>{t('Withdraw your earnings')}</Text>
             <Text style={styles.cardSub}>
-              Funds will be transferred to the bank account below.
+              {t('Funds will be transferred to the bank account below.')}
             </Text>
 
-            <Text style={styles.stepLabel}>1 · Withdrawal amount</Text>
+            <Text style={styles.stepLabel}>1 · {t('Withdrawal amount')}</Text>
             <View style={styles.amountBox}>
               <Text style={styles.currency}>₹</Text>
               <TextInput
                 style={styles.amountInput}
-                placeholder="0.00"
+                placeholder={t('0.00')}
                 placeholderTextColor="#9ca3af"
                 keyboardType="numeric"
                 value={amount}
                 onChangeText={setAmount}
               />
-              <TouchableOpacity onPress={() => setAmount(String(balance))}>
-                <Text style={styles.maxBtn}>MAX</Text>
+              <TouchableOpacity onPress={() => setAmount(toAmountInput(balance))}>
+                <Text style={styles.maxBtn}>{t('MAX')}</Text>
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.stepLabel}>2 · Payout speed</Text>
+            <Text style={styles.stepLabel}>2 · {t('Payout speed')}</Text>
             <TouchableOpacity
               style={[styles.speedOption, payoutType === 'standard' && styles.speedOptionActive]}
               onPress={() => setPayoutType('standard')}
             >
               <View style={{ flex: 1 }}>
-                <Text style={styles.speedTitle}>Standard payout</Text>
+                <Text style={styles.speedTitle}>{t('Standard payout')}</Text>
                 <Text style={styles.speedSub}>
-                  Free · Within {standardOption.etaDays || 3} business days
+                  {t('Free')} · {t('Within')} {standardOption.etaDays || 3} {t('business days')}
                 </Text>
               </View>
-              <Text style={styles.speedTag}>FREE</Text>
+              <Text style={styles.speedTag}>{t('FREE')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.speedOption, payoutType === 'instant' && styles.speedOptionActive]}
               onPress={() => setPayoutType('instant')}
             >
               <View style={{ flex: 1 }}>
-                <Text style={styles.speedTitle}>Instant payout</Text>
+                <Text style={styles.speedTitle}>{t('Instant payout')}</Text>
                 <Text style={styles.speedSub}>
-                  Money arrives within {instantOption.etaMinutes || 30} minutes
+                  {t('Money arrives within')} {instantOption.etaMinutes || 30} {t('minutes')}
                 </Text>
               </View>
               <Text style={styles.speedTag}>
-                {instantOption.isFirstFree ? 'FIRST ONE FREE' : `${instantOption.feePercent || 0}% FEE`}
+                {instantIsFree
+                  ? 'FIRST ONE FREE'
+                  : hasInstantFeeData
+                  ? `${Number(instantOption.feePercent)}% FEE`
+                  : 'FEE APPLIES'}
               </Text>
             </TouchableOpacity>
 
             {payoutType === 'instant' && (
               <View style={styles.feeBox}>
-                {instantOption.isFirstFree ? (
+                {instantIsFree ? (
                   <Text style={styles.feeText}>
                     Your first instant payout is free. No transfer fee this time.
                   </Text>
-                ) : (
+                ) : canEstimate ? (
                   <Text style={styles.feeText}>
                     Instant payout fee ({selectedFeePercent}%): -{money(estimatedFee)}
                   </Text>
+                ) : (
+                  <Text style={styles.feeText}>
+                    The transfer fee for this payout will be confirmed when it is
+                    processed.
+                  </Text>
                 )}
-                <View style={styles.feeRow}>
-                  <Text style={styles.feeLabel}>You will receive</Text>
-                  <Text style={styles.feeValue}>{money(estimatedPayout)}</Text>
-                </View>
+                {/* Only shown when the fee is actually known - a figure here
+                    that ignored an unknown fee would be wrong, not just vague. */}
+                {canEstimate && (
+                  <View style={styles.feeRow}>
+                    <Text style={styles.feeLabel}>{t('You will receive')}</Text>
+                    <Text style={styles.feeValue}>{money(estimatedPayout)}</Text>
+                  </View>
+                )}
               </View>
             )}
 
             {verifiedPayoutAccount ? (
               <>
-                <Text style={styles.stepLabel}>3 · Verified payout account</Text>
+                <Text style={styles.stepLabel}>3 · {t('Verified payout account')}</Text>
                 <View style={styles.verifiedBox}>
-                  <Feather name="check-circle" size={18} color="#15803d" />
+                  <Feather name="check-circle" size={18} color="#004AC6" />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.verifiedBank}>{verifiedPayoutAccount.bankName}</Text>
                     <Text style={styles.verifiedMeta}>
@@ -414,44 +737,44 @@ const CounselorWallet = ({ onClose }) => {
               </>
             ) : (
               <>
-                <Text style={styles.stepLabel}>3 · Verify bank account</Text>
-                <Text style={styles.cardSub}>Required only for your first withdrawal.</Text>
+                <Text style={styles.stepLabel}>3 · {t('Verify bank account')}</Text>
+                <Text style={styles.cardSub}>{t('Required only for your first withdrawal.')}</Text>
 
-                <Text style={styles.label}>Account holder name</Text>
+                <Text style={styles.label}>{t('Account holder name')}</Text>
                 <TextInput
                   style={styles.input}
                   value={accountName}
                   onChangeText={setAccountName}
-                  placeholder="Name as shown on bank account"
+                  placeholder={t('Name as shown on bank account')}
                   placeholderTextColor="#9ca3af"
                 />
 
-                <Text style={styles.label}>Account number</Text>
+                <Text style={styles.label}>{t('Account number')}</Text>
                 <TextInput
                   style={styles.input}
                   value={accountNumber}
                   onChangeText={setAccountNumber}
-                  placeholder="Enter account number"
+                  placeholder={t('Enter account number')}
                   placeholderTextColor="#9ca3af"
                   keyboardType="number-pad"
                 />
 
-                <Text style={styles.label}>IFSC code</Text>
+                <Text style={styles.label}>{t('IFSC code')}</Text>
                 <TextInput
                   style={styles.input}
                   value={ifsc}
                   onChangeText={(v) => setIfsc(v.toUpperCase())}
-                  placeholder="Example: SBIN0001234"
+                  placeholder={t('Example: SBIN0001234')}
                   placeholderTextColor="#9ca3af"
                   autoCapitalize="characters"
                 />
 
-                <Text style={styles.label}>Bank name</Text>
+                <Text style={styles.label}>{t('Bank name')}</Text>
                 <TextInput
                   style={styles.input}
                   value={bankName}
                   onChangeText={setBankName}
-                  placeholder="Enter bank name"
+                  placeholder={t('Enter bank name')}
                   placeholderTextColor="#9ca3af"
                 />
               </>
@@ -477,7 +800,7 @@ const CounselorWallet = ({ onClose }) => {
                 <>
                   <Feather name="send" size={16} color="#fff" />
                   <Text style={styles.submitText}>
-                    {payoutType === 'instant' ? 'Withdraw instantly' : 'Request withdrawal'}
+                    {payoutType === 'instant' ? t('Withdraw instantly') : t('Request withdrawal')}
                   </Text>
                 </>
               )}
@@ -497,20 +820,22 @@ const CounselorWallet = ({ onClose }) => {
         </View>
 
         {/* Revenue split */}
-        <View style={[styles.splitCard, { backgroundColor: '#eef2ff', borderColor: '#c7d2fe' }]}>
-          <Text style={[styles.splitLabel, { color: '#4338ca' }]}>Counselor share</Text>
+        <View style={[styles.splitCard, { backgroundColor: '#EFF4FE', borderColor: '#C7DAFB' }]}>
+          <Text style={[styles.splitLabel, { color: '#003A9B' }]}>{t('Counselor share')}</Text>
           <View style={styles.splitRow}>
-            <Text style={[styles.splitValue, { color: '#1e1b4b' }]}>{counselorPercentage}%</Text>
-            <Text style={[styles.splitHint, { color: '#4338ca' }]}>
+            <Text style={[styles.splitValue, { color: '#002357' }]}>{counselorPercentage}%</Text>
+            <Text style={[styles.splitHint, { color: '#003A9B' }]}>
               ₹{Math.round(500 * counselorPercentage / 100)} from every ₹500
             </Text>
           </View>
-          <View style={[styles.splitTrack, { backgroundColor: '#e0e7ff' }]}>
-            <View style={[styles.splitFill, { width: `${counselorPercentage}%`, backgroundColor: '#4f46e5' }]} />
+          <View style={[styles.splitTrack, { backgroundColor: '#DCE8FB' }]}>
+            <View style={[styles.splitFill, { width: `${counselorPercentage}%`, overflow: 'hidden' }]}>
+              <GradientFill />
+            </View>
           </View>
         </View>
         <View style={[styles.splitCard, { backgroundColor: '#fffbeb', borderColor: '#fde68a' }]}>
-          <Text style={[styles.splitLabel, { color: '#b45309' }]}>Platform commission</Text>
+          <Text style={[styles.splitLabel, { color: '#b45309' }]}>{t('Platform commission')}</Text>
           <View style={styles.splitRow}>
             <Text style={[styles.splitValue, { color: '#451a03' }]}>{platformPercentage}%</Text>
             <Text style={[styles.splitHint, { color: '#b45309' }]}>
@@ -524,9 +849,9 @@ const CounselorWallet = ({ onClose }) => {
 
         {/* Earning history */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Earning history</Text>
+          <Text style={styles.cardTitle}>{t('Earning history')}</Text>
           {earnings.length ? (
-            earnings.map((earning) => (
+            pagedEarnings.map((earning) => (
               <View key={String(earning._id)} style={styles.earnRow}>
                 <View style={styles.earnHead}>
                   <View style={{ flex: 1 }}>
@@ -570,19 +895,19 @@ const CounselorWallet = ({ onClose }) => {
               </View>
             ))
           ) : (
-            <Text style={styles.empty}>No paid session earnings yet.</Text>
+            <Text style={styles.empty}>{t('No paid session earnings yet.')}</Text>
           )}
+          <Pagination page={earningsPage} total={earnings.length} onChange={setEarningsPage} />
         </View>
 
         {/* Withdrawal requests */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Withdrawal requests</Text>
+          <Text style={styles.cardTitle}>{t('Withdrawal requests')}</Text>
           <Text style={styles.cardSub}>
-            Approved means the payout is being processed. Paid appears after the bank transfer
-            completes.
+            {t('Approved means the payout is being processed. Paid appears after the bank transfer completes.')}
           </Text>
           {withdrawals.length ? (
-            withdrawals.map((item) => {
+            pagedWithdrawals.map((item) => {
               const meta = STATUS_META[item.status] || STATUS_META.pending;
               return (
                 <View key={String(item._id)} style={styles.histRow}>
@@ -612,14 +937,19 @@ const CounselorWallet = ({ onClose }) => {
                     )}
                   </View>
                   <View style={[styles.statusBadge, { backgroundColor: meta.bg }]}>
-                    <Text style={[styles.statusText, { color: meta.color }]}>{meta.label}</Text>
+                    <Text style={[styles.statusText, { color: meta.color }]}>{t(meta.label)}</Text>
                   </View>
                 </View>
               );
             })
           ) : (
-            <Text style={styles.empty}>No withdrawal requests yet.</Text>
+            <Text style={styles.empty}>{t('No withdrawal requests yet.')}</Text>
           )}
+          <Pagination
+            page={withdrawalsPage}
+            total={withdrawals.length}
+            onChange={setWithdrawalsPage}
+          />
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -627,6 +957,29 @@ const CounselorWallet = ({ onClose }) => {
 };
 
 const styles = StyleSheet.create({
+  pagination: { marginTop: 14, gap: 10 },
+  pageSummary: { fontSize: 12, color: '#6B7C99', fontWeight: '600' },
+  pageRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  pageBox: {
+    minWidth: 34,
+    height: 34,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#D6E0F5',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  // Active page carries the counselor blue so it reads as the same family as
+  // the earnings card.
+  pageBoxActive: { backgroundColor: '#004AC6', borderColor: '#004AC6' },
+  pageBoxDisabled: { backgroundColor: '#F1F5FC', borderColor: '#E4EAF6' },
+  pageBoxText: { fontSize: 13, fontWeight: '700', color: '#33456B' },
+  pageBoxTextActive: { color: '#FFFFFF' },
+  pageGap: { minWidth: 18, height: 34, alignItems: 'center', justifyContent: 'center' },
+  pageGapText: { fontSize: 13, color: '#9DB0CC', fontWeight: '700' },
+
   safe: { flex: 1, backgroundColor: '#f4f7ff' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
@@ -639,9 +992,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
-  backBtn: { width: 22 },
+  backBtn: { width: 28, alignItems: 'flex-start' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
-  content: { padding: 16, paddingBottom: 48 },
+  content: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 48 },
   pageSub: { fontSize: 13, color: '#64748b', marginBottom: 14 },
   errorBox: {
     borderWidth: 1,
@@ -653,10 +1006,48 @@ const styles = StyleSheet.create({
   },
   errorText: { color: '#be123c', fontSize: 13, fontWeight: '600' },
   balanceCard: { borderRadius: 20, padding: 20, marginBottom: 16 },
+  filterIconBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  // Small dot so an active filter is visible without opening the panel.
+  filterActiveDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#FFD166',
+  },
+  filterHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  filterOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
+  filterSheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+  },
+  filterGrabber: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#D6E0F5',
+    marginBottom: 14,
+  },
   balanceLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 13, letterSpacing: 0.4 },
   balanceValue: { color: '#fff', fontSize: 32, fontWeight: '800', marginTop: 6 },
   balanceFooter: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 },
-  balanceSub: { color: '#c7d2fe', fontSize: 12, fontWeight: '600' },
+  balanceSub: { color: '#C7DAFB', fontSize: 12, fontWeight: '600' },
   withdrawCta: {
     marginTop: 16,
     backgroundColor: '#fff',
@@ -664,7 +1055,7 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     alignItems: 'center',
   },
-  withdrawCtaText: { color: '#4f46e5', fontWeight: '800', fontSize: 14 },
+  withdrawCtaText: { color: '#004AC6', fontWeight: '800', fontSize: 14 },
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -679,7 +1070,7 @@ const styles = StyleSheet.create({
   stepLabel: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#4f46e5',
+    color: '#004AC6',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginTop: 16,
@@ -711,7 +1102,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   clearBtnText: { color: '#334155', fontWeight: '800', fontSize: 13 },
-  periodNote: { marginTop: 10, fontSize: 12, fontWeight: '600', color: '#4338ca' },
+  periodNote: { marginTop: 10, fontSize: 12, fontWeight: '600', color: '#003A9B' },
   amountBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -722,7 +1113,7 @@ const styles = StyleSheet.create({
   },
   currency: { color: '#334155', fontWeight: '700', fontSize: 18, marginRight: 6 },
   amountInput: { flex: 1, fontSize: 20, fontWeight: '700', color: '#0f172a', paddingVertical: 12 },
-  maxBtn: { color: '#4f46e5', fontWeight: '800', fontSize: 13, paddingHorizontal: 6 },
+  maxBtn: { color: '#004AC6', fontWeight: '800', fontSize: 13, paddingHorizontal: 6 },
   speedOption: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -733,12 +1124,12 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 8,
   },
-  speedOptionActive: { borderColor: '#4f46e5', backgroundColor: '#eef2ff' },
+  speedOptionActive: { borderColor: '#004AC6', backgroundColor: '#EFF4FE' },
   speedTitle: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
   speedSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  speedTag: { fontSize: 10, fontWeight: '900', color: '#4f46e5', letterSpacing: 0.4 },
+  speedTag: { fontSize: 10, fontWeight: '900', color: '#004AC6', letterSpacing: 0.4 },
   feeBox: {
-    backgroundColor: '#eef2ff',
+    backgroundColor: '#EFF4FE',
     borderRadius: 12,
     padding: 12,
     marginTop: 4,
@@ -750,15 +1141,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
   },
-  feeLabel: { fontSize: 12, color: '#4338ca', fontWeight: '700' },
-  feeValue: { fontSize: 16, color: '#1e1b4b', fontWeight: '800' },
+  feeLabel: { fontSize: 12, color: '#003A9B', fontWeight: '700' },
+  feeValue: { fontSize: 16, color: '#002357', fontWeight: '800' },
   verifiedBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    backgroundColor: '#f0fdf4',
+    backgroundColor: '#EFF4FE',
     borderWidth: 1,
-    borderColor: '#bbf7d0',
+    borderColor: '#C7DAFB',
     borderRadius: 12,
     padding: 12,
   },

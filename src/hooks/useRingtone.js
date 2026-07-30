@@ -11,6 +11,9 @@ let globalIsRinging = false;
 let globalMode = null;
 let globalSession = 0;
 let ringFailsafeTimer = null;
+// Some Android builds silently drop Vibration's repeat flag, so we also re-arm
+// the vibration on an interval while an incoming call is ringing.
+let vibrationInterval = null;
 const listeners = new Set();
 
 const notify = () => {
@@ -18,6 +21,7 @@ const notify = () => {
   listeners.forEach((fn) => { try { fn(snapshot); } catch (_) {} });
 };
 const forceStopAudio = () => {
+  if (vibrationInterval) { clearInterval(vibrationInterval); vibrationInterval = null; }
   Vibration.cancel();
   if (InCallManager) {
     try { InCallManager.stopRingtone(); } catch (_) {}
@@ -70,12 +74,22 @@ const startRingingGlobal = (incoming = true) => {
       // startRingtone loops natively — call once, no JS timer needed.
       try { InCallManager.startRingtone("_BUNDLE_"); } catch (_) {}
     }
-    Vibration.vibrate(VIBRATION_PATTERN, true);
+    // Repeat vibration + interval fallback (some Android builds ignore repeat).
+    try { Vibration.vibrate(VIBRATION_PATTERN, true); } catch (_) {}
+    if (vibrationInterval) clearInterval(vibrationInterval);
+    vibrationInterval = setInterval(() => {
+      if (globalIsRinging && globalMode === "incoming") {
+        try { Vibration.vibrate(VIBRATION_PATTERN, false); } catch (_) {}
+      }
+    }, 2400);
   } else {
     if (InCallManager) {
       try { InCallManager.stopRingback(); } catch (_) {}
       try { InCallManager.setKeepScreenOn(true); } catch (_) {}
-      try { InCallManager.startRingback("_BUNDLE_"); } catch (_) {}
+      // Ringback needs an active audio session, otherwise it stays silent on
+      // many Android builds. start({ ringback }) opens the session AND plays the
+      // bundled ringback loop in one call — reliable, unlike a bare startRingback().
+      try { InCallManager.start({ media: "audio", ringback: "_BUNDLE_" }); } catch (_) {}
     }
   }
 

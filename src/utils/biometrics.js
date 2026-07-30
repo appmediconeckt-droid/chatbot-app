@@ -16,7 +16,7 @@ export async function isBiometricAvailable() {
   }
 }
 
-export async function authenticateWithBiometrics(promptMessage = 'Unlock Mediconect') {
+export async function authenticateWithBiometrics(promptMessage = 'Unlock Humaeli') {
   if (!RNBiometrics) return { success: false };
   try {
     const rnBiometrics = new RNBiometrics({ allowDeviceCredentials: false });

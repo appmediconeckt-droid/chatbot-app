@@ -15,6 +15,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import i18n, { LANGUAGES, saveUserLanguage, LANG_STORAGE_KEY } from '../../i18n';
 import { useLanguageContext } from '../../contexts/LanguageContext';
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -34,9 +35,23 @@ const LANG_ACCENT = {
 
 // `brand` (optional): when set, the whole sheet uses this single accent instead
 // of the per-language rainbow — used by the patient/user side (green palette).
-export default function LanguageSelector({ iconColor, iconSize, userId, role, iconName, brand }) {
-  const brandSoft = brand ? '#E6F6EC' : '#EFF6FF';
-  const { t, i18n } = useTranslation();
+export default function LanguageSelector({ iconColor, iconSize, userId, role, iconName, brand, triggerStyle, children }) {
+  // Blend the brand toward white so the soft fills always belong to whatever
+  // accent was passed in - previously these were hardcoded green.
+  const mixWithWhite = (hex, amount) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    const blend = (c) => Math.round(c + (255 - c) * amount);
+    const r = blend((n >> 16) & 255);
+    const g = blend((n >> 8) & 255);
+    const b = blend(n & 255);
+    return `rgb(${r}, ${g}, ${b})`;
+  };
+  const brandSoft = (brand && mixWithWhite(brand, 0.88)) || '#EFF6FF';
+  const brandFaint = (brand && mixWithWhite(brand, 0.95)) || '#F8FAFF';
+  const { i18n } = useTranslation();
+  const { t } = useLanguageRender();
   const { language: contextLang, setLanguage: setContextLanguage } = useLanguageContext();
   const [visible, setVisible] = useState(false);
   const [scale] = useState(new Animated.Value(0.88));
@@ -121,7 +136,7 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role, ic
         style={[
           styles.langRow,
           isActive && styles.langRowActive,
-          isActive && brand && { backgroundColor: '#F4FAF6' },
+          isActive && brand && { backgroundColor: brandFaint },
         ]}
         onPress={() => selectLanguage(item.code)}
         activeOpacity={0.65}
@@ -134,7 +149,7 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role, ic
 
         <View style={styles.langLabels}>
           <Text style={[styles.langNative, isActive && { color: accent }]}>{item.name || item.label}</Text>
-          <Text style={styles.langEnglish}>{item.label}</Text>
+          <Text style={styles.langEnglish}>{t(item.label)}</Text>
         </View>
 
         {isActive ? (
@@ -152,11 +167,13 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role, ic
     <>
       <TouchableOpacity
         onPress={open}
-        style={styles.trigger}
+        style={triggerStyle || styles.trigger}
         activeOpacity={0.7}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        hitSlop={children ? undefined : { top: 10, bottom: 10, left: 10, right: 10 }}
       >
-        {iconName ? (
+        {children ? (
+          children
+        ) : iconName ? (
           <Ionicons name={iconName} size={iconSize || 22} color={iconColor || '#111827'} />
         ) : (
           <Text style={{ fontSize: iconSize || 22, lineHeight: (iconSize || 22) + 2 }}>🌐</Text>
@@ -168,7 +185,7 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role, ic
 
         <Animated.View style={[styles.sheet, { transform: [{ scale }], opacity }]}>
           {/* Header */}
-          <View style={[styles.header, brand && { backgroundColor: '#F4FAF6' }]}>
+          <View style={[styles.header, brand && { backgroundColor: brandFaint }]}>
             <View style={styles.headerLeft}>
               <View style={[styles.headerIconWrap, brand && { backgroundColor: brandSoft }]}>
                 {brand ? (

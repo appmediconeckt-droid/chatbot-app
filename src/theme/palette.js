@@ -41,4 +41,31 @@ export const paletteForRole = (role) => {
   return r === 'counselor' || r === 'counsellor' ? DOCTOR : PATIENT;
 };
 
+/**
+ * Brand gradients, ready to spread into <LinearGradient>.
+ *
+ * This is the gradient on the wallet balance card, and the one every primary
+ * action / active chip on the user side should use. Import these instead of
+ * re-typing the hex pairs, so the whole app shifts together if the brand does.
+ *
+ *   <LinearGradient colors={PATIENT_GRADIENT} {...GRADIENT_DIRECTION} />
+ */
+export const PATIENT_GRADIENT = [PATIENT.gradientFrom, PATIENT.gradientTo];
+export const DOCTOR_GRADIENT = [DOCTOR.gradientFrom, DOCTOR.gradientTo];
+
+// Horizontal, matching the wallet card.
+export const GRADIENT_DIRECTION = {
+  start: { x: 0, y: 0.5 },
+  end: { x: 1, y: 0.5 },
+};
+
+// Lets an inactive pill keep its own background behind an identically sized
+// gradient layer, so selecting it cannot change its width.
+export const TRANSPARENT_GRADIENT = ['transparent', 'transparent'];
+
+export const gradientForRole = (role) => {
+  const r = String(role || '').trim().toLowerCase();
+  return r === 'counselor' || r === 'counsellor' ? DOCTOR_GRADIENT : PATIENT_GRADIENT;
+};
+
 export default PATIENT;

@@ -29,6 +29,16 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import PATIENT from '../../../../../../theme/palette';
 import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
+import { toImageUri } from '../../../../../../utils/imageUri';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// Same gradient and direction as the wallet balance card.
+const WALLET_GRADIENT = ['#006B2C', '#01CE54'];
+// Lets an inactive pill keep its own background behind an identically sized
+// gradient layer, so selecting a chip cannot change its width.
+const TRANSPARENT_GRADIENT = ['transparent', 'transparent'];
+const GRADIENT_START = { x: 0, y: 0.5 };
+const GRADIENT_END = { x: 1, y: 0.5 };
 
 const { width, height } = Dimensions.get('window');
 
@@ -105,6 +115,7 @@ const resolveOnlineStatus = (person) => {
 };
 
 const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { t } = useLanguageRender();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -233,6 +244,14 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   };
 
   const openChatBox = (counselor, acceptedChat) => {
+    // The photo has to travel with the counselor. Without these fields ChatBox
+    // had nothing to resolve and fell back to the green initials avatar.
+    // Resolved to a string here on purpose: `counselor.avatar` holds *initials*
+    // when there is no photo, and ChatBox would turn that into a bogus
+    // `${API_BASE_URL}/AM` image URL.
+    const photoUri = toImageUri(counselor.profilePhoto) ||
+      (counselor.avatarType === 'image' ? toImageUri(counselor.avatar) : null);
+
     navigation.navigate('ChatBox', {
       chatId: acceptedChat.chatId,
       counselor: {
@@ -240,17 +259,16 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         name: counselor.name,
         specialization: counselor.specialization,
         online: counselor.online ?? counselor.available,
+        profilePhoto: photoUri,
+        avatar: photoUri,
+        avatarType: photoUri ? 'image' : 'text',
       },
     });
   };
 
-  // Function to get counselor profile photo URL
-  const getProfilePhotoUrl = (counselor) => {
-    if (counselor.profilePhoto && counselor.profilePhoto.url) {
-      return counselor.profilePhoto.url;
-    }
-    return null;
-  };
+  // Only checked `.url`, so Cloudinary objects carrying just `secure_url` (and
+  // plain string URLs) resolved to null and the card showed initials instead.
+  const getProfilePhotoUrl = (counselor) => toImageUri(counselor?.profilePhoto);
 
   // Function to get initials for avatar fallback
   const getInitials = (name) => {
@@ -278,7 +296,10 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         name: c.fullName,
         specialization: Array.isArray(c.specialization) ? c.specialization.join(' , ') : (c.specialization || 'General'),
         experience: `${c.experience || 0} years`,
-        rating: c.rating || 4.5,
+        // 0 when the backend has no rating yet. It used to default to 4.5, which
+        // both faked a 4.5-star score for every unrated counselor and broke the
+        // "Top Rated" filter (threshold is also 4.5).
+        rating: Number(c.rating) > 0 ? Number(c.rating) : 0,
         online: resolveOnlineStatus(c),
         available: resolveOnlineStatus(c),
         avatar: getProfilePhotoUrl(c) || getInitials(c.fullName),
@@ -669,7 +690,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         <View style={styles.cardTop}>
           <View style={styles.cardAvatarWrap}>
             {item.avatarType === 'image' ? (
-              <Image source={{ uri: item.avatar }} style={styles.cardAvatar} />
+              <Image source={{ uri: toImageUri(item.avatar) }} style={styles.cardAvatar} />
             ) : (
               <LinearGradient
                 colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
@@ -682,7 +703,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
           <View style={styles.cardInfo}>
             <View style={styles.cardNameRow}>
-              <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
+              <Text style={styles.cardName} numberOfLines={1}>{t(item.name)}</Text>
               <Ionicons name="checkmark-circle" size={15} color={PATIENT.primary} />
             </View>
             <Text style={styles.cardSpec} numberOfLines={1}>{item.specialization}</Text>
@@ -690,7 +711,10 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
               <Ionicons name="briefcase-outline" size={12.5} color={PATIENT.textSecondary} />
               <Text style={styles.cardMetaText}>{item.experience}</Text>
               <Ionicons name="star" size={12.5} color="#F5A623" style={{ marginLeft: 12 }} />
-              <Text style={styles.cardMetaText}>{(Number(item.rating) || 0).toFixed(1)}</Text>
+              {/* "New" rather than 0.0 - an unrated counselor isn't a zero-star one. */}
+              <Text style={styles.cardMetaText}>
+                {Number(item.rating) > 0 ? Number(item.rating).toFixed(1) : 'New'}
+              </Text>
             </View>
           </View>
 
@@ -800,7 +824,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         {item.type === 'message' && '💬'}
       </Text>
       <View style={styles.notificationContent}>
-        <Text style={styles.notificationTitle}>{item.title}</Text>
+        <Text style={styles.notificationTitle}>{t(item.title)}</Text>
         <Text style={styles.notificationMessage}>{item.message}</Text>
         <Text style={styles.notificationTime}>{item.timestamp}</Text>
       </View>
@@ -841,10 +865,24 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
     ];
   })();
 
+  // "See All" only reset the chip, so it did nothing at all when the chip was
+  // already "all" - and it left an active search term in place.
+  const clearFilters = () => {
+    setActiveFilter('all');
+    setSearchQuery('');
+  };
+
+  // True when a chip or the search box is narrowing the list, i.e. when there is
+  // actually something for "See All" to clear.
+  const isFiltered = activeFilter !== 'all' || searchQuery.trim().length > 0;
+
   const chipFiltered = filteredCounselors.filter((c) => {
     if (activeFilter === 'all') return true;
     if (activeFilter === 'online') return !!c.available;
     if (activeFilter === 'nearby') return !!c.location;
+    // Real ratings only. Counselors used to be given a default rating of 4.5 on
+    // load, and this threshold is 4.5, so "Top Rated" matched every one of them
+    // and looked identical to "All".
     if (activeFilter === 'topRated') return (Number(c.rating) || 0) >= 4.5;
     return String(c.specialization || '').toLowerCase().includes(String(activeFilter).toLowerCase());
   });
@@ -858,6 +896,11 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const recommended = sortedCounselors[0] || null;
   const restCounselors = recommended ? sortedCounselors.slice(1) : sortedCounselors;
 
+  // Render this via `ListHeaderComponent={renderListHeader()}` - passing the
+  // function itself makes VirtualizedList treat it as a component *type*, and
+  // this arrow is a new function every render, so the whole header (search
+  // TextInput included) remounted on each keystroke and lost focus after one
+  // character.
   const renderListHeader = () => (
     <>
       <View style={styles.searchContainer}>
@@ -883,16 +926,25 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
       >
         {filterChips.map((chip) => {
           const isActive = activeFilter === chip.id;
+          // Same tree and metrics in both states - only the gradient stops and
+          // text colour change, so selecting a chip can't resize the row.
           return (
             <TouchableOpacity
               key={chip.id}
-              style={[styles.chip, isActive && styles.chipActive]}
+              style={styles.chipWrap}
               onPress={() => setActiveFilter(chip.id)}
               activeOpacity={0.8}
             >
-              <Text style={[styles.chipText, isActive && styles.chipTextActive]} numberOfLines={1}>
-                {chip.label}
-              </Text>
+              <LinearGradient
+                colors={isActive ? WALLET_GRADIENT : TRANSPARENT_GRADIENT}
+                start={GRADIENT_START}
+                end={GRADIENT_END}
+                style={[styles.chip, isActive && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, isActive && styles.chipTextActive]} numberOfLines={1}>
+                  {chip.label}
+                </Text>
+              </LinearGradient>
             </TouchableOpacity>
           );
         })}
@@ -924,9 +976,14 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
           <Text style={styles.sectionTitleInline}>
             {t('appointment:availableCounselors', 'Available Counselors')}
           </Text>
-          <TouchableOpacity activeOpacity={0.7} onPress={() => setActiveFilter('all')}>
-            <Text style={styles.seeAll}>{t('appointment:seeAll', 'See All')}</Text>
-          </TouchableOpacity>
+          {/* The list is never capped - every match is already rendered - so with
+              no filter or search active "See All" had nothing to reveal and
+              looked broken. Show it only when it genuinely widens the list. */}
+          {isFiltered ? (
+            <TouchableOpacity activeOpacity={0.7} onPress={clearFilters}>
+              <Text style={styles.seeAll}>{t('appointment:seeAll', 'See All')}</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : null}
     </>
@@ -954,19 +1011,37 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         renderItem={renderCounselorRow}
         keyExtractor={(item) => item.id}
         numColumns={1}
-        ListHeaderComponent={renderListHeader}
+        ListHeaderComponent={renderListHeader()}
         contentContainerStyle={[styles.listContainer, { paddingBottom: listBottomSpace }]}
         ListFooterComponent={<View style={{ height: listBottomSpace }} />}
         showsVerticalScrollIndicator={false}
         refreshing={refreshing}
         onRefresh={fetchCounselors}
+        // `data` is restCounselors, i.e. the matches *minus* the recommended
+        // one, so it empties both when a filter matches nothing AND when it
+        // matches exactly one (already shown above). Only the first case is
+        // empty. And a spinner reading "Loading counselors..." used to show
+        // whenever a filter returned nothing, which is why Online looked broken
+        // instead of simply having no results.
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <ActivityIndicator size="large" color="#00652C" />
-            <Text style={styles.emptyText}>
-              {searchQuery.trim() ? 'No counselors match your search.' : 'Loading counselors...'}
-            </Text>
-          </View>
+          sortedCounselors.length > 0 ? null : counselors.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <ActivityIndicator size="large" color="#00652C" />
+              <Text style={styles.emptyText}>Loading counselors...</Text>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="funnel-outline" size={26} color={PATIENT.textMuted} />
+              <Text style={styles.emptyText}>
+                {searchQuery.trim()
+                  ? 'No counselors match your search.'
+                  : 'No counselors match this filter.'}
+              </Text>
+              <TouchableOpacity onPress={clearFilters} activeOpacity={0.8} style={styles.emptyResetBtn}>
+                <Text style={styles.emptyResetText}>Show all counselors</Text>
+              </TouchableOpacity>
+            </View>
+          )
         }
       />
 
@@ -983,7 +1058,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
             activeOpacity={1}
             onPress={() => setShowUserModal(false)}
           />
-          <View style={[styles.reqSheet, { maxHeight: screenHeight * 0.88 }]}>
+          <View style={[styles.reqSheet, { maxHeight: screenHeight * 0.88, paddingBottom: Math.max(insets.bottom, 22) }]}>
             <View style={styles.sheetHandle} />
 
             <View style={styles.reqHeader}>
@@ -1037,7 +1112,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                   <View style={styles.reqAvatarWrap}>
                     {selectedCounselorForRequest.avatarType === 'image' ? (
                       <Image
-                        source={{ uri: selectedCounselorForRequest.avatar }}
+                        source={{ uri: toImageUri(selectedCounselorForRequest.avatar) }}
                         style={styles.reqAvatarImg}
                       />
                     ) : (
@@ -1263,16 +1338,23 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.modalConfirmBtn}
+                  style={styles.modalConfirmBtnWrap}
                   onPress={handleConfirmBooking}
                   disabled={isLoading}
                   activeOpacity={0.85}
                 >
-                  {isLoading ? (
-                    <ActivityIndicator color="#ffffff" size="small" />
-                  ) : (
-                    <Text style={styles.modalConfirmText}>{t('common:confirm', 'Confirm')}</Text>
-                  )}
+                  <LinearGradient
+                    colors={WALLET_GRADIENT}
+                    start={GRADIENT_START}
+                    end={GRADIENT_END}
+                    style={styles.modalConfirmBtn}
+                  >
+                    {isLoading ? (
+                      <ActivityIndicator color="#ffffff" size="small" />
+                    ) : (
+                      <Text style={styles.modalConfirmText}>{t('common:confirm', 'Confirm')}</Text>
+                    )}
+                  </LinearGradient>
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -1386,18 +1468,23 @@ const styles = {
     justifyContent: 'center',
     alignItems: 'center',
   },
-  chipActive: {
-    backgroundColor: PATIENT.primary,
-    borderColor: PATIENT.primary,
+  chipWrap: {
+    borderRadius: 999,
+    overflow: 'hidden',
+    // Without this the wrapper stretches to the row's cross-axis height.
+    alignSelf: 'flex-start',
   },
+  chipActive: {
+    borderColor: '#006B2C',
+  },
+  // Weight stays fixed across states - bumping it on select widened the pill.
   chipText: {
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
     color: PATIENT.textSecondary,
   },
   chipTextActive: {
     color: '#ffffff',
-    fontWeight: '600',
   },
   sectionTitle: {
     fontSize: 13.5,
@@ -2377,13 +2464,16 @@ const styles = {
     fontWeight: '700',
     color: '#0f172a',
   },
-  modalConfirmBtn: {
+  // Wrapper owns flex + clips the gradient to the rounded corners.
+  modalConfirmBtnWrap: {
     flex: 1,
-    paddingVertical: 14,
     borderRadius: 12,
+    overflow: 'hidden',
+  },
+  modalConfirmBtn: {
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: PATIENT.primary,
   },
   modalConfirmText: {
     fontSize: 14,
@@ -2420,6 +2510,21 @@ const styles = {
     marginTop: 12,
     fontSize: 14,
     color: '#666',
+    textAlign: 'center',
+  },
+  emptyResetBtn: {
+    marginTop: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: 1.4,
+    borderColor: '#C9EBD6',
+    backgroundColor: '#F4FBF7',
+  },
+  emptyResetText: {
+    color: '#0F5132',
+    fontSize: 13,
+    fontWeight: '700',
   },
 };
 

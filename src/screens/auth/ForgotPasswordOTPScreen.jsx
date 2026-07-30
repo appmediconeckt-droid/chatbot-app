@@ -14,6 +14,7 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import axios from "axios";
 import { API_BASE_URL } from "../../axiosConfig";
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 export default function ForgotPasswordOTPScreen() {
   const navigation = useNavigation();
@@ -133,8 +134,8 @@ export default function ForgotPasswordOTPScreen() {
           <View style={styles.iconWrapper}>
             <Ionicons name="mail-outline" size={48} color="#2c50cd" />
           </View>
-          <Text style={styles.title}>Verify OTP</Text>
-          <Text style={styles.subtitle}>Enter the 6-digit code sent to</Text>
+          <Text style={styles.title}>{t('Verify OTP')}</Text>
+          <Text style={styles.subtitle}>{t('Enter the 6-digit code sent to')}</Text>
           <Text style={styles.emailDisplay}>{email}</Text>
         </View>
 
@@ -147,7 +148,7 @@ export default function ForgotPasswordOTPScreen() {
 
         {/* OTP Input */}
         <View style={styles.form}>
-          <Text style={styles.label}>One-Time Password *</Text>
+          <Text style={styles.label}>{t('One-Time Password *')}</Text>
           <View style={styles.inputWrapper}>
             <Ionicons
               name="lock-closed-outline"
@@ -157,7 +158,7 @@ export default function ForgotPasswordOTPScreen() {
             />
             <TextInput
               style={styles.input}
-              placeholder="000000"
+              placeholder={t('000000')}
               placeholderTextColor="#94a3b8"
               value={otp}
               onChangeText={(text) => {
@@ -180,13 +181,13 @@ export default function ForgotPasswordOTPScreen() {
           {loading ? (
             <ActivityIndicator color="#ffffff" size="small" />
           ) : (
-            <Text style={styles.verifyBtnText}>Verify OTP</Text>
+            <Text style={styles.verifyBtnText}>{t('Verify OTP')}</Text>
           )}
         </TouchableOpacity>
 
         {/* Resend OTP */}
         <View style={styles.resendBox}>
-          <Text style={styles.resendText}>Didn't receive OTP?</Text>
+          <Text style={styles.resendText}>{t("Didn't receive OTP?")}</Text>
           {canResend ? (
             <TouchableOpacity onPress={handleResendOTP} disabled={resending}>
               <Text style={styles.resendLink}>

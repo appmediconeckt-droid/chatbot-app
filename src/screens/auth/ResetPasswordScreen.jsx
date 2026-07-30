@@ -14,6 +14,7 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import axios from "axios";
 import { API_BASE_URL } from "../../axiosConfig";
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 export default function ResetPasswordScreen() {
   const navigation = useNavigation();
@@ -105,8 +106,8 @@ export default function ResetPasswordScreen() {
           <View style={styles.iconWrapper}>
             <Ionicons name="checkmark-circle-outline" size={48} color="#2c50cd" />
           </View>
-          <Text style={styles.title}>Reset Password</Text>
-          <Text style={styles.subtitle}>Create a new password for your account</Text>
+          <Text style={styles.title}>{t('Reset Password')}</Text>
+          <Text style={styles.subtitle}>{t('Create a new password for your account')}</Text>
         </View>
 
         {/* Error Message */}
@@ -118,7 +119,7 @@ export default function ResetPasswordScreen() {
 
         {/* New Password Input */}
         <View style={styles.form}>
-          <Text style={styles.label}>New Password *</Text>
+          <Text style={styles.label}>{t('New Password *')}</Text>
           <View style={styles.inputWrapper}>
             <Ionicons
               name="lock-closed-outline"
@@ -128,7 +129,7 @@ export default function ResetPasswordScreen() {
             />
             <TextInput
               style={styles.input}
-              placeholder="Enter new password"
+              placeholder={t('Enter new password')}
               placeholderTextColor="#94a3b8"
               value={password}
               onChangeText={(text) => {
@@ -149,12 +150,12 @@ export default function ResetPasswordScreen() {
               />
             </TouchableOpacity>
           </View>
-          <Text style={styles.hint}>At least 3 characters</Text>
+          <Text style={styles.hint}>{t('At least 3 characters')}</Text>
         </View>
 
         {/* Confirm Password Input */}
         <View style={styles.form}>
-          <Text style={styles.label}>Confirm Password *</Text>
+          <Text style={styles.label}>{t('Confirm Password *')}</Text>
           <View style={styles.inputWrapper}>
             <Ionicons
               name="lock-closed-outline"
@@ -164,7 +165,7 @@ export default function ResetPasswordScreen() {
             />
             <TextInput
               style={styles.input}
-              placeholder="Confirm new password"
+              placeholder={t('Confirm new password')}
               placeholderTextColor="#94a3b8"
               value={confirmPassword}
               onChangeText={(text) => {
@@ -196,15 +197,15 @@ export default function ResetPasswordScreen() {
           {loading ? (
             <ActivityIndicator color="#ffffff" size="small" />
           ) : (
-            <Text style={styles.resetBtnText}>Reset Password</Text>
+            <Text style={styles.resetBtnText}>{t('Reset Password')}</Text>
           )}
         </TouchableOpacity>
 
         {/* Back to Login */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Remember your password?</Text>
+          <Text style={styles.footerText}>{t('Remember your password?')}</Text>
           <TouchableOpacity onPress={() => navigation.navigate("Login")}>
-            <Text style={styles.loginLink}>Back to Login</Text>
+            <Text style={styles.loginLink}>{t('Back to Login')}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

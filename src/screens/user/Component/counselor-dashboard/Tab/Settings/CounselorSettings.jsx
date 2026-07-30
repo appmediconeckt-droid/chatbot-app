@@ -26,11 +26,15 @@ import Feather from 'react-native-vector-icons/Feather';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
-import HelpSupport from '../../../UserDashboard/Tab/HelpSupport/HelpSupport';
-import PrivacyPolicy from '../../../UserDashboard/Tab/PrivacyPolicy/PrivacyPolicy';
+import CounselorHelpSupport from './CounselorHelpSupport';
+import GradientFill from '../../../../../../components/common/GradientFill';
+import { DOCTOR } from '../../../../../../theme/palette';
+import CounselorPrivacyPolicy from './CounselorPrivacyPolicy';
 import CounselorWallet from '../Wallet/CounselorWallet';
+import LanguageSelector from '../../../../../../components/common/LanguageSelector';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const TERMS_URL = 'https://mediconeckt.com/terms-of-use/';
+const TERMS_URL = 'https://humaeli.com/terms-of-use/';
 const { width } = Dimensions.get('window');
 const isTablet = width >= 600;
 
@@ -71,17 +75,26 @@ const SettingsSkeleton = () => {
   );
   return (
     <View style={skel.wrap}>
-      <View style={skel.quickRow}>
-        {[1, 2, 3, 4].map((i) => (
-          <View key={i} style={skel.quickItem}>
-            <Animated.View style={[skel.quickIcon, { opacity }]} />
-            <Animated.View style={[skel.quickLabel, { opacity }]} />
-          </View>
-        ))}
-      </View>
-      <SkSection rows={4} />
-      <SkSection rows={2} />
+      {/* Search bar */}
+      <Animated.View style={[skel.searchBar, { opacity }]} />
+
+      {/* Sections — mirror the live page: Account(3), Security(3), Privacy(2), Support(2) */}
       <SkSection rows={3} />
+      <SkSection rows={3} />
+      <SkSection rows={2} />
+      <SkSection rows={2} />
+
+      {/* App version card */}
+      <View style={skel.versionCard}>
+        <Animated.View style={[skel.iconBox, { opacity }]} />
+        <View style={skel.body}>
+          <Animated.View style={[skel.lineLg, { opacity }]} />
+          <Animated.View style={[skel.lineSm, { opacity }]} />
+        </View>
+      </View>
+
+      {/* Sign out */}
+      <Animated.View style={[skel.signOut, { opacity }]} />
     </View>
   );
 };
@@ -111,12 +124,12 @@ const FEEDBACK_CATEGORIES = [
 ];
 
 const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }) => {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { t } = useLanguageRender();
   const [counselor, setCounselor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [settingsSearch, setSettingsSearch] = useState('');
-  const [notif, setNotif] = useState({ appointments: true, messages: true, incomingCalls: true });
 
   // In-app info screens
   const [showHelp, setShowHelp] = useState(false);
@@ -167,6 +180,11 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   const [pwMode, setPwMode] = useState('change'); // 'change' | 'set'
   const [pwForm, setPwForm] = useState(INITIAL_PW_FORM);
   const [otpSent, setOtpSent] = useState(false);
+  // Confirmed locally - there is no verify-only endpoint, so the code is really
+  // checked when the password is saved. This just gates the password fields so
+  // the counselor does one step at a time instead of meeting the whole form.
+  const [otpVerified, setOtpVerified] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
   const [pwLoading, setPwLoading] = useState(false);
   const [pwNotice, setPwNotice] = useState({ type: '', msg: '' });
   const [showOld, setShowOld] = useState(false);
@@ -177,6 +195,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     setPwMode(mode);
     setPwForm(INITIAL_PW_FORM);
     setOtpSent(false);
+    setOtpVerified(false);
     setPwNotice({ type: '', msg: '' });
     setShowOld(false); setShowNew(false); setShowConfirm(false);
     setPwModal(true);
@@ -194,6 +213,8 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
       const res = await axios.post(`${API_BASE_URL}/api/auth/generateOtp`, { email });
       if (res.data?.success) {
         setOtpSent(true);
+        setOtpVerified(false);
+        setPw('otp', '');
         setPwNotice({ type: 'success', msg: res.data.message || 'OTP sent to your email.' });
       } else {
         setPwNotice({ type: 'error', msg: res.data?.message || 'Failed to send OTP.' });
@@ -201,6 +222,48 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     } catch (err) {
       setPwNotice({ type: 'error', msg: err.response?.data?.message || err.message || 'Failed to send OTP.' });
     } finally { setPwLoading(false); }
+  };
+
+  // Checks the code against the server before the password fields appear, so a
+  // wrong OTP is caught here instead of after a password has been typed. The
+  // token verifyOtp returns is deliberately IGNORED - this counselor is already
+  // signed in and the stored session must not change.
+  const handleVerifyOtp = async () => {
+    setPwNotice({ type: '', msg: '' });
+    if (!pwForm.otp || pwForm.otp.length !== 6) {
+      setPwNotice({ type: 'error', msg: 'Enter the 6-digit OTP.' });
+      return;
+    }
+    setOtpVerifying(true);
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/auth/verifyOtp`, {
+        email: counselor?.email?.trim().toLowerCase(),
+        otp: pwForm.otp,
+      });
+      if (res.data?.success) {
+        setOtpVerified(true);
+      } else {
+        setPwNotice({ type: 'error', msg: res.data?.message || 'That OTP is not correct.' });
+      }
+    } catch (err) {
+      setPwNotice({
+        type: 'error',
+        msg: err.response?.data?.message || 'That OTP is not correct.',
+      });
+    } finally {
+      setOtpVerifying(false);
+    }
+  };
+
+  // A bad code only surfaces on save, so step back to the OTP rather than leave
+  // the counselor on a password form that will keep failing.
+  const pwFailed = (message, fallback) => {
+    const msg = message || fallback;
+    if (/otp|code|expired|invalid/i.test(msg)) {
+      setOtpVerified(false);
+      setPw('otp', '');
+    }
+    setPwNotice({ type: 'error', msg });
   };
 
   const handleSetPassword = async () => {
@@ -220,12 +283,13 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         setPwNotice({ type: 'success', msg: res.data.message || 'Password set successfully.' });
         setPwForm(INITIAL_PW_FORM);
         setOtpSent(false);
+        setOtpVerified(false);
         setPwModal(false);
       } else {
-        setPwNotice({ type: 'error', msg: res.data?.message || 'Failed to set password.' });
+        pwFailed(res.data?.message, 'Failed to set password.');
       }
     } catch (err) {
-      setPwNotice({ type: 'error', msg: err.response?.data?.message || err.message || 'Failed to set password.' });
+      pwFailed(err.response?.data?.message || err.message, 'Failed to set password.');
     } finally { setPwLoading(false); }
   };
 
@@ -283,20 +347,14 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     if (id === 'payout') return setShowWallet(true);
     if (id === 'change_password') return openPwModal('change');
     if (id === 'add_password') return openPwModal('set');
-    // forced:false — must override the screen's initialParams, otherwise the
-    // boot-time forced flag leaks in and the user can't back out.
-    if (id === 'app_lock') return navigation.navigate('PinSetup', { forced: false });
+    // App Lock manage screen: view status, set/change/remove the PIN, and the
+    // biometric toggle. Opt-in — nothing is forced.
+    if (id === 'app_lock') return navigation.navigate('AppLockSettings');
     if (id === 'contact')
-      return Linking.openURL('mailto:support@mediconeckt.com');
+      return Linking.openURL('mailto:support@humaeli.com');
     if (id === 'help') return setShowHelp(true);
     if (id === 'privacy') return setShowPrivacy(true);
     if (id === 'terms') return Linking.openURL(TERMS_URL);
-    if (id === 'two_factor')
-      return Alert.alert('Two-Factor Authentication', 'Two-factor authentication is enabled for your account.');
-    if (id === 'login_activity')
-      return Alert.alert('Login Activity', 'Review recent sign-ins and active sessions on your account.');
-    if (id === 'blocked_users')
-      return Alert.alert('Blocked Users', 'Manage the list of users you have blocked.');
     if (id === 'delete_account')
       return Alert.alert(
         'Delete Account',
@@ -341,7 +399,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           icon: 'user',
           iconBg: '#EFF6FF',
           iconColor: '#2563EB',
-          label: t('counselor:editProfile'),
+          label: t('counselor:profile'),
           type: 'nav',
         },
         {
@@ -351,6 +409,14 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           iconColor: '#2563EB',
           label: t('settings:payoutAccount'),
           type: 'nav',
+        },
+        {
+          id: 'language',
+          icon: 'globe',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: t('settings:language', 'Language'),
+          type: 'language',
         },
       ],
     },
@@ -381,59 +447,6 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           label: t('settings:appLock'),
           type: 'nav',
         },
-        {
-          id: 'two_factor',
-          icon: 'shield',
-          iconBg: '#EFF6FF',
-          iconColor: '#2563EB',
-          label: t('settings:twoFactor', 'Two-Factor Authentication'),
-          badge: t('settings:enabled', 'Enabled'),
-          badgeColor: '#16A34A',
-          type: 'nav',
-        },
-        {
-          id: 'login_activity',
-          icon: 'activity',
-          iconBg: '#EFF6FF',
-          iconColor: '#2563EB',
-          label: t('settings:loginActivity', 'Login Activity'),
-          type: 'nav',
-        },
-      ],
-    },
-    {
-      title: t('settings:notifications', 'Notifications'),
-      items: [
-        {
-          id: 'notif_appointments',
-          icon: 'calendar',
-          iconBg: '#EFF6FF',
-          iconColor: '#2563EB',
-          label: t('counselor:appointment', 'Appointments'),
-          type: 'switch',
-          value: notif.appointments,
-          onChange: (v) => setNotif((p) => ({ ...p, appointments: v })),
-        },
-        {
-          id: 'notif_messages',
-          icon: 'message-square',
-          iconBg: '#EFF6FF',
-          iconColor: '#2563EB',
-          label: t('counselor:messages', 'Messages'),
-          type: 'switch',
-          value: notif.messages,
-          onChange: (v) => setNotif((p) => ({ ...p, messages: v })),
-        },
-        {
-          id: 'notif_calls',
-          icon: 'phone-incoming',
-          iconBg: '#EFF6FF',
-          iconColor: '#2563EB',
-          label: t('settings:incomingCalls', 'Incoming Calls'),
-          type: 'switch',
-          value: notif.incomingCalls,
-          onChange: (v) => setNotif((p) => ({ ...p, incomingCalls: v })),
-        },
       ],
     },
     {
@@ -444,16 +457,9 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           icon: 'file-text',
           iconBg: '#EFF6FF',
           iconColor: '#2563EB',
+          // No externalLink icon: this opens the in-app privacy screen, it does
+          // not leave the app, so the chevron is the honest affordance.
           label: t('settings:privacyPolicy'),
-          externalLink: true,
-          type: 'nav',
-        },
-        {
-          id: 'blocked_users',
-          icon: 'slash',
-          iconBg: '#EFF6FF',
-          iconColor: '#2563EB',
-          label: t('settings:blockedUsers', 'Blocked Users'),
           type: 'nav',
         },
         {
@@ -506,54 +512,8 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
       showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.scrollContent}
     >
-      {/* Profile card */}
       {!loading && (
         <>
-        <LinearGradient
-          colors={['#003A9B', '#1490FF']}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={styles.profileCard}
-        >
-          <View style={styles.profileTopRow}>
-            <TouchableOpacity activeOpacity={0.85} onPress={() => handleNav('profile')}>
-              {photoUri ? (
-                <Image source={{ uri: String(photoUri) }} style={styles.profileAvatar} />
-              ) : (
-                <View style={styles.profileAvatarFallback}>
-                  <Text style={styles.profileAvatarText}>{(profileName || 'C').charAt(0).toUpperCase()}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity style={{ flex: 1, marginLeft: 12 }} activeOpacity={0.85} onPress={() => handleNav('profile')}>
-              <Text style={styles.profileName} numberOfLines={1}>{profileName}</Text>
-              <Text style={styles.profileRole} numberOfLines={1}>
-                {counselor?.specialization || t('counselor:psychologist', 'Psychologist')}
-              </Text>
-              <Text style={styles.profileEmail} numberOfLines={1}>{counselor?.email || ''}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.editBtn} activeOpacity={0.85} onPress={() => handleNav('profile')}>
-              <Feather name="edit-2" size={12} color="#2563EB" />
-              <Text style={styles.editBtnText}>{t('common:edit', 'Edit')}</Text>
-            </TouchableOpacity>
-          </View>
-        </LinearGradient>
-
-        {/* Tab pills */}
-        <View style={styles.tabPillsRow}>
-          {[
-            { id: 'profile', icon: 'user', label: t('settings:profile', 'Profile') },
-            { id: 'payout', icon: 'credit-card', label: t('settings:payout', 'Payout') },
-            { id: 'help', icon: 'help-circle', label: t('settings:help', 'Help') },
-            { id: 'contact', icon: 'mail', label: t('settings:contactSupport', 'Support') },
-          ].map((tab) => (
-            <TouchableOpacity key={tab.id} style={styles.tabPill} activeOpacity={0.8} onPress={() => handleNav(tab.id)}>
-              <Feather name={tab.icon} size={13} color="#475569" />
-              <Text style={styles.tabPillText} numberOfLines={1}>{tab.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
         {/* Search settings */}
         <View style={styles.searchBox}>
           <Feather name="search" size={17} color="#94a3b8" />
@@ -570,13 +530,56 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
 
       {loading && <SettingsSkeleton />}
 
+      {/* Nothing matched the search - say so rather than showing a blank page. */}
+      {!loading && !!sq && visibleSections.length === 0 ? (
+        <View style={styles.noResults}>
+          <Feather name="search" size={26} color="#94a3b8" />
+          <Text style={styles.noResultsTitle}>{t('No settings found')}</Text>
+          <Text style={styles.noResultsSub}>
+            {t('Try a different word, or clear the search to see everything.')}
+          </Text>
+          <TouchableOpacity
+            style={styles.noResultsBtn}
+            onPress={() => setSettingsSearch('')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.noResultsBtnText}>{t('Clear search')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
       {/* Sections */}
       {!loading && visibleSections.map((section) => (
         <View key={section.title} style={styles.section}>
-          <Text style={styles.sectionLabel}>{section.title}</Text>
+          <Text style={styles.sectionLabel}>{t(section.title)}</Text>
           <View style={styles.card}>
             {section.items.map((item, idx) => {
               const isLast = idx === section.items.length - 1;
+
+              // Language: the whole row is a LanguageSelector trigger (opens the
+              // shared language sheet). Matches the Figma's Account → Language row.
+              if (item.type === 'language') {
+                return (
+                  <LanguageSelector
+                    key={item.id}
+                    brand={DOCTOR.primary}
+                    userId={counselor?._id}
+                    role="counselor"
+                    triggerStyle={[styles.row, !isLast && styles.rowDivider]}
+                  >
+                    <View style={[styles.iconBox, { backgroundColor: item.iconBg }]}>
+                      <Feather name={item.icon} size={18} color={item.iconColor} />
+                    </View>
+                    <View style={styles.rowBody}>
+                      <Text style={styles.rowLabel}>{t(item.label)}</Text>
+                    </View>
+                    <View style={styles.rowTrail}>
+                      <Feather name="chevron-right" size={18} color="#cbd5e1" />
+                    </View>
+                  </LanguageSelector>
+                );
+              }
+
               const RowWrap = item.type === 'switch' ? View : TouchableOpacity;
               const rowProps =
                 item.type === 'switch'
@@ -593,7 +596,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   </View>
 
                   <View style={styles.rowBody}>
-                    <Text style={[styles.rowLabel, item.danger && styles.rowLabelDanger]}>{item.label}</Text>
+                    <Text style={[styles.rowLabel, item.danger && styles.rowLabelDanger]}>{t(item.label)}</Text>
                     {!!item.subtitle && (
                       <Text style={styles.rowSub} numberOfLines={1}>
                         {item.subtitle}
@@ -615,7 +618,10 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                         <View
                           style={[
                             styles.rowBadge,
-                            { backgroundColor: `${item.badgeColor}14` },
+                            {
+                              backgroundColor: `${item.badgeColor}14`,
+                              borderColor: `${item.badgeColor}33`,
+                            },
                           ]}
                         >
                           {item.badgeDot && (
@@ -659,10 +665,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         </View>
         <View style={styles.rowBody}>
           <Text style={styles.rowLabel}>{t('settings:appVersion', 'App Version')}</Text>
-          <Text style={styles.rowSub}>Mediconneckt v1.2.4 (Build 240)</Text>
-        </View>
-        <View style={styles.versionPill}>
-          <Text style={styles.versionPillText}>{t('settings:latest', 'Latest')}</Text>
+          <Text style={styles.rowSub}>Humaeli v1.2.4 (Build 240)</Text>
         </View>
       </View>
 
@@ -676,7 +679,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         <Text style={styles.signOutText}>{t('counselor:signOut')}</Text>
       </TouchableOpacity>
 
-      <Text style={styles.footer}>© 2026 Mediconneckt. All rights reserved.</Text>
+      <Text style={styles.footer}>© 2026 Humaeli. All rights reserved.</Text>
         </>
       )}
     </ScrollView>
@@ -684,7 +687,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     {/* Feedback Modal */}
     <Modal visible={feedbackModal} animationType="slide" transparent onRequestClose={() => setFeedbackModal(false)}>
       <KeyboardAvoidingView style={pwStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={pwStyles.sheet}>
+        <View style={[pwStyles.sheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <View style={pwStyles.sheetHeader}>
             <View>
               <Text style={pwStyles.sheetTitle}>Send Feedback</Text>
@@ -715,7 +718,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                     style={[fbStyles.catChip, active && fbStyles.catChipActive]}
                   >
                     <Feather name={c.icon} size={14} color={active ? '#2563EB' : '#64748b'} />
-                    <Text style={[fbStyles.catText, active && fbStyles.catTextActive]}>{c.label}</Text>
+                    <Text style={[fbStyles.catText, active && fbStyles.catTextActive]}>{t(c.label)}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -741,6 +744,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
               onPress={handleSubmitFeedback}
               disabled={feedbackLoading || !feedbackMessage.trim()}
             >
+              <GradientFill />
               {feedbackLoading ? <ActivityIndicator color="#fff" /> : (
                 <><Feather name="send" size={16} color="#fff" /><Text style={pwStyles.submitText}>Submit</Text></>
               )}
@@ -752,12 +756,24 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
 
     {/* Help & Support */}
     <Modal visible={showHelp} animationType="slide" transparent={false} onRequestClose={() => setShowHelp(false)}>
-      <HelpSupport onClose={() => setShowHelp(false)} />
+      <CounselorHelpSupport
+        onClose={() => setShowHelp(false)}
+        // RN won't mount a second Modal while this one is dismissing, so the
+        // handoff waits for the close animation before opening the next screen.
+        onOpenEarnings={() => {
+          setShowHelp(false);
+          setTimeout(() => setShowWallet(true), 320);
+        }}
+        onOpenProfile={() => {
+          setShowHelp(false);
+          setTimeout(() => onNavigate?.('profile'), 320);
+        }}
+      />
     </Modal>
 
     {/* Privacy Policy */}
     <Modal visible={showPrivacy} animationType="slide" transparent={false} onRequestClose={() => setShowPrivacy(false)}>
-      <PrivacyPolicy onClose={() => setShowPrivacy(false)} />
+      <CounselorPrivacyPolicy onClose={() => setShowPrivacy(false)} />
     </Modal>
 
     {/* Earnings & Payouts */}
@@ -768,7 +784,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     {/* Password Modal */}
     <Modal visible={pwModal} animationType="slide" transparent onRequestClose={() => setPwModal(false)}>
       <KeyboardAvoidingView style={pwStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={[pwStyles.sheet, { maxHeight: isTablet ? '50%' : '90%', flex: 1 }]}>
+        <View style={[pwStyles.sheet, { maxHeight: isTablet ? '80%' : '90%' }]}>
           {/* Sheet header */}
           <View style={pwStyles.sheetHeader}>
             <View>
@@ -784,7 +800,12 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={[pwStyles.body, isTablet && { padding: 36, paddingBottom: 48, gap: 18 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView
+            bounces={false}
+            contentContainerStyle={[pwStyles.body, isTablet && { padding: 36, gap: 18 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             {/* Notice */}
             {!!pwNotice.msg && (
               <View style={[pwStyles.notice, pwNotice.type === 'error' ? pwStyles.noticeError : pwStyles.noticeSuccess]}>
@@ -802,6 +823,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                     <Feather name="mail" size={15} color="#94a3b8" />
                     <Text style={pwStyles.emailText} numberOfLines={1}>{counselor?.email || '—'}</Text>
                     <TouchableOpacity style={pwStyles.otpBtn} onPress={handleSendOtp} disabled={pwLoading}>
+                      <GradientFill />
                       {pwLoading && !otpSent
                         ? <ActivityIndicator size={12} color="#fff" />
                         : <Text style={pwStyles.otpBtnText}>{otpSent ? t('auth:resendOtp') : t('auth:sendOtp')}</Text>
@@ -809,7 +831,8 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                     </TouchableOpacity>
                   </View>
                 </View>
-                {otpSent && (
+                {/* Step 2 - the code, with its own Verify button. */}
+                {otpSent && !otpVerified && (
                   <View style={pwStyles.field}>
                     <Text style={pwStyles.label}>{t('auth:enterOtp')}</Text>
                     <View style={pwStyles.shell}>
@@ -823,9 +846,40 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                         placeholder="6-digit OTP"
                         placeholderTextColor="#94a3b8"
                       />
+                      <TouchableOpacity
+                        style={[
+                          pwStyles.otpBtn,
+                          (pwForm.otp.length !== 6 || otpVerifying) && pwStyles.submitDisabled,
+                        ]}
+                        onPress={handleVerifyOtp}
+                        disabled={pwForm.otp.length !== 6 || otpVerifying}
+                      >
+                        <GradientFill />
+                        {otpVerifying ? (
+                          <ActivityIndicator size={12} color="#fff" />
+                        ) : (
+                          <Text style={pwStyles.otpBtnText}>{t('auth:verify', 'Verify')}</Text>
+                        )}
+                      </TouchableOpacity>
                     </View>
                   </View>
                 )}
+
+                {otpVerified && (
+                  <View style={pwStyles.otpDoneRow}>
+                    <Feather name="check-circle" size={15} color="#004AC6" />
+                    <Text style={pwStyles.otpDoneText}>
+                      {t('auth:enterOtp')} · {pwForm.otp}
+                    </Text>
+                    <TouchableOpacity onPress={() => setOtpVerified(false)}>
+                      <Text style={pwStyles.otpDoneChange}>{t('common:edit', 'Change')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {/* Step 3 - the password pair appears only once the code is in.
+                    Both boxes used to render before an OTP had even been sent. */}
+                {otpVerified && (
+                  <>
                 <View style={pwStyles.field}>
                   <Text style={pwStyles.label}>{t('auth:newPassword')}</Text>
                   <View style={pwStyles.shell}>
@@ -842,11 +896,14 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                     <TouchableOpacity onPress={() => setShowConfirm((x) => !x)}><Feather name={showConfirm ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
                   </View>
                 </View>
-                <TouchableOpacity style={[pwStyles.submitBtn, (pwLoading || !otpSent) && pwStyles.submitDisabled]} onPress={handleSetPassword} disabled={pwLoading || !otpSent}>
+                <TouchableOpacity style={[pwStyles.submitBtn, pwLoading && pwStyles.submitDisabled]} onPress={handleSetPassword} disabled={pwLoading}>
+                  <GradientFill />
                   {pwLoading ? <ActivityIndicator color="#fff" /> : (
                     <><Feather name="save" size={16} color="#fff" /><Text style={pwStyles.submitText}>{t('common:save')}</Text></>
                   )}
                 </TouchableOpacity>
+                  </>
+                )}
               </>
             ) : (
               <>
@@ -878,6 +935,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                 </View>
 
                 <TouchableOpacity style={[pwStyles.submitBtn, pwLoading && pwStyles.submitDisabled]} onPress={handleChangePassword} disabled={pwLoading}>
+                  <GradientFill />
                   {pwLoading ? <ActivityIndicator color="#fff" /> : (
                     <><Feather name="check-circle" size={16} color="#fff" /><Text style={pwStyles.submitText}>{t('settings:changePassword')}</Text></>
                   )}
@@ -985,13 +1043,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     marginHorizontal: 16,
-    marginTop: 14,
-    paddingHorizontal: 14,
-    height: 46,
+    marginTop: 16,
+    paddingHorizontal: 16,
+    height: 48,
     backgroundColor: '#ffffff',
-    borderRadius: 999,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#e6ebf1',
+    borderColor: '#EAEEF3',
   },
   searchInput: { flex: 1, fontSize: 14, color: '#0f172a', fontWeight: '500', padding: 0 },
 
@@ -1035,14 +1093,38 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     marginTop: 20,
   },
+  noResults: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingVertical: 46,
+  },
+  noResultsTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 12 },
+  noResultsSub: {
+    fontSize: 12.5,
+    lineHeight: 19,
+    color: '#94a3b8',
+    textAlign: 'center',
+    marginTop: 6,
+  },
+  noResultsBtn: {
+    marginTop: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: 1.4,
+    borderColor: '#C7DAFB',
+    backgroundColor: '#EFF4FE',
+  },
+  noResultsBtnText: { fontSize: 13, fontWeight: '700', color: '#003A9B' },
   sectionLabel: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '800',
-    color: '#64748B',
-    letterSpacing: 0.8,
+    color: '#94A3B8',
+    letterSpacing: 1.1,
     textTransform: 'uppercase',
     paddingHorizontal: 22,
-    marginBottom: 10,
+    marginBottom: 8,
+    marginTop: 6,
   },
 
   /* ── Card ── */
@@ -1121,6 +1203,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   rowBadgeDot: {
     width: 6,
@@ -1193,7 +1277,6 @@ const styles = StyleSheet.create({
 const skel = StyleSheet.create({
   wrap: {
     width: '100%',
-    paddingTop: 4,
   },
   quickRow: {
     width: '100%',
@@ -1224,33 +1307,67 @@ const skel = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#e2e8f0',
   },
+  // Search bar (matches styles.searchBox: mx16, h48, radius14)
+  searchBar: {
+    height: 48,
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 14,
+    backgroundColor: '#e8ecf0',
+  },
   section: {
     width: '100%',
-    marginBottom: 12,
+    marginTop: 20,
+    marginBottom: 4,
   },
   sectionLabel: {
-    height: 8,
+    height: 9,
     width: 90,
     borderRadius: 4,
     backgroundColor: '#e2e8f0',
-    marginLeft: 20,
+    marginLeft: 22,
     marginBottom: 10,
   },
+  // Card (matches styles.card: mx16, rounded, bordered)
   card: {
-    width: '100%',
+    marginHorizontal: 16,
     backgroundColor: '#ffffff',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#e8ecf0',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#EDF1F6',
+    overflow: 'hidden',
   },
   row: {
     width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#F4F6F9',
+  },
+  // App version card (matches styles.versionCard)
+  versionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 18,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#EEF2F6',
+    backgroundColor: '#ffffff',
+  },
+  // Sign out button (matches styles.signOutBtn)
+  signOut: {
+    height: 52,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 20,
+    borderRadius: 14,
+    backgroundColor: '#e8ecf0',
   },
   iconBox: {
     width: 40,
@@ -1295,8 +1412,7 @@ const pwStyles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     borderTopWidth: 3,
-    borderColor: '#2563EB',
-  },
+    borderColor: '#003A9B', },
   sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1317,7 +1433,7 @@ const pwStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#DBEAFE',
   },
-  body: { padding: 20, paddingBottom: 36 },
+  body: { padding: 20, paddingBottom: 20 },
   notice: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1345,7 +1461,7 @@ const pwStyles = StyleSheet.create({
   input: { flex: 1, color: '#111827', fontSize: 14, paddingVertical: 10 },
   emailText: { flex: 1, color: '#64748b', fontSize: 14 },
   otpBtn: {
-    backgroundColor: '#2563EB',
+    overflow: 'hidden',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
@@ -1353,12 +1469,24 @@ const pwStyles = StyleSheet.create({
     alignItems: 'center',
   },
   otpBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  otpDoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#E7EEFE',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 14,
+  },
+  otpDoneText: { flex: 1, color: '#0F172A', fontSize: 12.5, fontWeight: '600' },
+  otpDoneChange: { color: '#004AC6', fontSize: 12, fontWeight: '700' },
   submitBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#2563EB',
+    overflow: 'hidden',
     borderRadius: 12,
     paddingVertical: 14,
     marginTop: 8,
