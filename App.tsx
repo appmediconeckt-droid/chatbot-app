@@ -8,7 +8,7 @@
 import { NewAppScreen } from '@react-native/new-app-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, StatusBar, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Modal, StatusBar, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
 import {
   SafeAreaProvider,
   initialWindowMetrics,
@@ -86,6 +86,35 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 // Lock as soon as the user leaves the app and opens it again.
 const LOCK_TIMEOUT_MS = 0;
+
+// ─── Popups must reach the bottom of the screen ──────────────────────────────
+// An Android Modal window stops above the navigation bar by default. This app
+// draws its own bottom tab bar down there, so every popup left a visible strip
+// of the dashboard below it. navigationBarTranslucent lets the modal window
+// extend over that area; React Native requires statusBarTranslucent with it.
+//
+// Set as defaults so all ~59 modals get it. Modal is a class component, so
+// defaultProps is still honoured in React 19 (only function components lost it).
+// Merged, not replaced: Modal already ships `visible` and `hardwareAccelerated`.
+Modal.defaultProps = {
+  ...(Modal.defaultProps || {}),
+  statusBarTranslucent: true,
+  navigationBarTranslucent: true,
+};
+
+// ─── Uniform text sizing across devices ──────────────────────────────────────
+// Android's display "Font size" setting scales every Text/TextInput; at the
+// largest setting labels grow ~1.3x and overflow this app's fixed-height rows.
+// Capping keeps large-text devices readable without the layout changing shape.
+const MAX_FONT_SCALE = 1.2;
+const withFontCap = (Component: any) => {
+  Component.defaultProps = Component.defaultProps || {};
+  if (Component.defaultProps.maxFontSizeMultiplier === undefined) {
+    Component.defaultProps.maxFontSizeMultiplier = MAX_FONT_SCALE;
+  }
+};
+withFontCap(Text);
+withFontCap(TextInput);
 
 function App() {
   const isDarkMode = useColorScheme() === 'dark';

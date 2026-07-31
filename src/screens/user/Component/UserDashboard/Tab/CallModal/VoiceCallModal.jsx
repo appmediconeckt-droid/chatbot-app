@@ -452,9 +452,11 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
   const handleCloseRef = useRef(null);
 
   const { stopRinging } = useRingtone();
-  const isCounselorView =
-    callData?.currentUserType === 'counsellor' ||
-    callData?.currentUserType === 'counselor';
+  // Matched loosely on purpose. The counselor dashboard was sending
+  // "counsellour" (a typo), which equalled neither spelling - so this was always
+  // false and the counselor got the USER call screen: green theme, the caller's
+  // photo shown, and the close cross that should not be there.
+  const isCounselorView = /counsell?o?u?r/i.test(String(callData?.currentUserType || ''));
   const displayName = resolveCallDisplayName(callData, isCounselorView);
 
   const cleanup = useCallback(async (endForAll = false) => {
@@ -702,7 +704,17 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
   const t = isCounselorView ? counselorTheme : userTheme;
 
   return (
-    <Modal visible={isOpen} animationType="slide" transparent={false} onRequestClose={handleClose}>
+    <Modal
+      visible={isOpen}
+      animationType="slide"
+      transparent={false}
+      // Explicit, not relying on the app-wide default: without these the modal
+      // window stops above the navigation bar and the dashboard's tab bar stayed
+      // visible in a strip under the call screen.
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={handleClose}
+    >
       <SafeAreaView style={[styles.container, { backgroundColor: '#ffffff' }]}>
         <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 

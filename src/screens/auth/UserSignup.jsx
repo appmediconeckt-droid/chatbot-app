@@ -366,7 +366,7 @@
 
 //         <SafeAreaView style={styles.safeArea}>
 //           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : null} style={styles.flex}>
-//             <TouchableOpacity style={styles.backBtn} onPress={() => navigation.replace('RoleSelector')}>
+//             <TouchableOpacity style={styles.backBtn} onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.replace('RoleSelector'))}>
 //               <Icon name="chevron-left" size={28} color="#ffffff" />
 //             </TouchableOpacity>
 
@@ -989,7 +989,7 @@ const UserSignup = ({ navigation, route }) => {
       <AuthBackground role="user" style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : null} style={styles.flex}>
-            <TouchableOpacity style={styles.backBtn} onPress={() => navigation.replace('RoleSelector')}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.replace('RoleSelector'))}>
               <Icon name="chevron-left" size={28} color="#0F172A" />
             </TouchableOpacity>
 

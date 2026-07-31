@@ -26,10 +26,12 @@ export const resetToLogin = (role) => {
 
   navigationRef.dispatch(
     CommonActions.reset({
-      index: 0,
+      // RoleSelector sits underneath so back from the login screen returns
+      // there instead of closing the app. index 1 = the login screen is shown.
+      index: 1,
       // reset, not navigate: the dashboard must not stay on the back stack for
       // a session that no longer exists.
-      routes: [{ name: screen, params }],
+      routes: [{ name: 'RoleSelector' }, { name: screen, params }],
     }),
   );
   setTimeout(() => {

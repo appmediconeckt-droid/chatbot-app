@@ -58,6 +58,7 @@ import LanguageSelector from '../../../../../components/common/LanguageSelector'
 import CounselorGradientButton from '../../../../../components/common/CounselorGradientButton';
 import { loadUserLanguage } from '../../../../../i18n';
 import { DOCTOR, DOCTOR_GRADIENT } from "../../../../../theme/palette";
+import { toImageUri } from "../../../../../utils/imageUri";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -195,7 +196,7 @@ const IncomingCallModal = ({
   });
 
   return (
-    <Modal transparent visible={isOpen} animationType="fade" onRequestClose={onClose}>
+    <Modal statusBarTranslucent navigationBarTranslucent transparent visible={isOpen} animationType="fade" onRequestClose={onClose}>
       {/* Dimmed blurred backdrop */}
       <View style={styles.callBackdrop}>
         <BlurView
@@ -650,7 +651,7 @@ const SessionDetailModal = ({ visible, apt, onClose, onStartSession, onAddNotes 
   const notes = apt.notes || apt.patientNote || apt.note;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal statusBarTranslucent navigationBarTranslucent visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={sdStyles.overlay}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
         <View style={[sdStyles.sheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
@@ -1192,7 +1193,7 @@ export default function CounselorDashboard() {
           type: isVoice ? "voice" : "video",
           status: response.data.status || "ringing",
           currentUserId: storedCounsellorId,
-          currentUserType: "counsellour",
+          currentUserType: "counsellor",
           apiCallData: rawCall,
           initiator: rawCall?.initiator,
           receiver: rawCall?.receiver,
@@ -1488,7 +1489,7 @@ export default function CounselorDashboard() {
       initiatorId: detailedCall?.initiator?.id || detailedCall?.initiator?._id,
       receiverId: detailedCall?.receiver?.id || detailedCall?.receiver?._id,
       currentUserId: counsellorId,
-      currentUserType: "counsellour",
+      currentUserType: "counsellor",
       from: callData.from,
     };
 
@@ -1916,15 +1917,11 @@ export default function CounselorDashboard() {
           { headers: token ? { Authorization: `Bearer ${token}` } : {} }
         );
         const data = res.data?.counsellor;
-        let profilePhotoUrl = null;
-        if (data.profilePhoto) {
-          if (typeof data.profilePhoto === "string")
-            profilePhotoUrl = data.profilePhoto;
-          else if (data.profilePhoto.url)
-            profilePhotoUrl = data.profilePhoto.url;
-          else if (data.profilePhoto.publicId)
-            profilePhotoUrl = `https://res.cloudinary.com/dfll8lwos/image/upload/${data.profilePhoto.publicId}`;
-        }
+        // Was a hand-rolled chain that checked string / .url / .publicId but NOT
+        // .secure_url - which is what Cloudinary actually returns, so the header
+        // avatar came out null while the profile page (using this same helper)
+        // showed the photo fine.
+        const profilePhotoUrl = toImageUri(data.profilePhoto) || null;
         const missingFields = [];
         if (!data.specialization || (Array.isArray(data.specialization) && data.specialization.length === 0)) missingFields.push('Specialization');
         if (!data.experience) missingFields.push('Experience');
@@ -2097,12 +2094,9 @@ export default function CounselorDashboard() {
 
   // ── Global greeting header data (used by the single mobile header) ──
   // profilePhoto may be a string URL or a Cloudinary-style object.
-  const counselorPhotoUri = (() => {
-    const raw = counselorData?.profilePhoto;
-    if (!raw) return null;
-    const uri = typeof raw === 'string' ? raw : raw.secure_url || raw.url;
-    return uri ? String(uri) : null;
-  })();
+  // Same helper as everywhere else: handles a plain string, { url },
+  // { secure_url }, { uri } and a bare Cloudinary { publicId }.
+  const counselorPhotoUri = toImageUri(counselorData?.profilePhoto) || null;
 
   const greetingTitle = (() => {
     const h = new Date().getHours();
@@ -3119,7 +3113,15 @@ export default function CounselorDashboard() {
 
         {/* Mobile Bottom Navigation */}
         {isMobile && !showMobileMenu && (
-          <View style={styles.mobileBottomNav}>
+          <View
+            style={[
+              styles.mobileBottomNav,
+              {
+                height: (Platform.OS === 'ios' ? 84 : 66) + insets.bottom,
+                paddingBottom: (Platform.OS === 'ios' ? 24 : 8) + insets.bottom,
+              },
+            ]}
+          >
             {navItems.slice(0, 5).map((item) => {
               const shortLabel = item.label;
               // Figma-matched icons per tab (MaterialCommunityIcons):
@@ -3172,7 +3174,7 @@ export default function CounselorDashboard() {
         )}
 
         {/* Pending-request notifications (opened from the bell) */}
-        <Modal
+        <Modal statusBarTranslucent navigationBarTranslucent
           visible={showNotifications}
           animationType="slide"
           transparent={false}
@@ -3239,7 +3241,7 @@ export default function CounselorDashboard() {
         </View>
 
         {/* Chat Request Modal */}
-        <Modal transparent visible={showRequestModal} animationType="slide">
+        <Modal statusBarTranslucent navigationBarTranslucent transparent visible={showRequestModal} animationType="slide">
           <View style={styles.requestModalOverlay}>
             <View style={styles.requestModal}>
               <View style={styles.requestModalHeader}>
@@ -3329,7 +3331,7 @@ export default function CounselorDashboard() {
         </Modal>
 
         {/* Logout Confirmation Modal */}
-        <Modal
+        <Modal statusBarTranslucent navigationBarTranslucent
           transparent
           visible={showLogoutConfirm}
           animationType="fade"
@@ -3689,7 +3691,8 @@ const aptStyles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 0,
     paddingTop: 0,
-    paddingBottom: 100,
+    // Clears the bottom nav at its tallest (66 + a ~48px gesture inset).
+    paddingBottom: 130,
   },
   // Wraps the hero, search and filter chips so they keep their normal
   // horizontal breathing room. The card list below stays edge-to-edge.

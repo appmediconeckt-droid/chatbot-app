@@ -685,7 +685,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     </ScrollView>
 
     {/* Feedback Modal */}
-    <Modal visible={feedbackModal} animationType="slide" transparent onRequestClose={() => setFeedbackModal(false)}>
+    <Modal statusBarTranslucent navigationBarTranslucent visible={feedbackModal} animationType="slide" transparent onRequestClose={() => setFeedbackModal(false)}>
       <KeyboardAvoidingView style={pwStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={[pwStyles.sheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <View style={pwStyles.sheetHeader}>
@@ -755,7 +755,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     </Modal>
 
     {/* Help & Support */}
-    <Modal visible={showHelp} animationType="slide" transparent={false} onRequestClose={() => setShowHelp(false)}>
+    <Modal statusBarTranslucent navigationBarTranslucent visible={showHelp} animationType="slide" transparent={false} onRequestClose={() => setShowHelp(false)}>
       <CounselorHelpSupport
         onClose={() => setShowHelp(false)}
         // RN won't mount a second Modal while this one is dismissing, so the
@@ -772,17 +772,17 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     </Modal>
 
     {/* Privacy Policy */}
-    <Modal visible={showPrivacy} animationType="slide" transparent={false} onRequestClose={() => setShowPrivacy(false)}>
+    <Modal statusBarTranslucent navigationBarTranslucent visible={showPrivacy} animationType="slide" transparent={false} onRequestClose={() => setShowPrivacy(false)}>
       <CounselorPrivacyPolicy onClose={() => setShowPrivacy(false)} />
     </Modal>
 
     {/* Earnings & Payouts */}
-    <Modal visible={showWallet} animationType="slide" transparent={false} onRequestClose={() => setShowWallet(false)}>
+    <Modal statusBarTranslucent navigationBarTranslucent visible={showWallet} animationType="slide" transparent={false} onRequestClose={() => setShowWallet(false)}>
       <CounselorWallet onClose={() => setShowWallet(false)} />
     </Modal>
 
     {/* Password Modal */}
-    <Modal visible={pwModal} animationType="slide" transparent onRequestClose={() => setPwModal(false)}>
+    <Modal statusBarTranslucent navigationBarTranslucent visible={pwModal} animationType="slide" transparent onRequestClose={() => setPwModal(false)}>
       <KeyboardAvoidingView style={pwStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={[pwStyles.sheet, { maxHeight: isTablet ? '80%' : '90%' }]}>
           {/* Sheet header */}

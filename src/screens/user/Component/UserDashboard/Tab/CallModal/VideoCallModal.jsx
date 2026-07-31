@@ -308,9 +308,9 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
   const handleCloseRef = useRef(null);
 
   const { stopRinging } = useRingtone();
-  const isCounselorView =
-    callData?.currentUserType === 'counsellor' ||
-    callData?.currentUserType === 'counselor';
+  // Loose match: the counselor dashboard sent "counsellour" (typo), which matched
+  // neither exact spelling, so counselors were shown the user variant of the call.
+  const isCounselorView = /counsell?o?u?r/i.test(String(callData?.currentUserType || ''));
   const displayName = resolveCallDisplayName(callData, isCounselorView);
   // Same source and guard VoiceCallModal uses, so both calls show the same face.
   const rawPhoto = callData?.profilePic || callData?.receiver?.profilePhoto || null;
@@ -558,7 +558,14 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
   if (!isOpen) return null;
 
   return (
-    <Modal visible={isOpen} animationType="slide" transparent={false} onRequestClose={handleClose}>
+    <Modal
+      visible={isOpen}
+      animationType="slide"
+      transparent={false}
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={handleClose}
+    >
       {/* Full-bleed video: no SafeAreaView insets, no "Video Call" header bar
           and no dark container — those produced the black band over the video.
           The name/timer and controls float on top of the stream instead. */}

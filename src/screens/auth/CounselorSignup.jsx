@@ -429,7 +429,7 @@ const CounselorSignup = ({ navigation, route }) => {
       <AuthBackground role="counselor" style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : null} style={styles.flex}>
-            <TouchableOpacity style={styles.backBtn} onPress={() => navigation.replace('RoleSelector')}><Icon name="chevron-left" size={28} color="#0F172A" /></TouchableOpacity>
+            <TouchableOpacity style={styles.backBtn} onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.replace('RoleSelector'))}><Icon name="chevron-left" size={28} color="#0F172A" /></TouchableOpacity>
             <ScrollView contentContainerStyle={scrollContainerStyle} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
               <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>

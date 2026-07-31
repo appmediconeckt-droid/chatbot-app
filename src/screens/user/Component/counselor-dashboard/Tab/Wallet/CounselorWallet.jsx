@@ -533,17 +533,6 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
           end={{ x: 1, y: 0.5 }}
           style={styles.balanceCard}
         >
-          {/* Filter lives here now: the standalone "Filter by date" card took a
-              full screen of height for something used occasionally. */}
-          <TouchableOpacity
-            style={styles.filterIconBtn}
-            onPress={() => setShowDateFilter((v) => !v)}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            activeOpacity={0.8}
-          >
-            <Feather name="filter" size={16} color="#ffffff" />
-            {(dateFilter.from || dateFilter.to) && <View style={styles.filterActiveDot} />}
-          </TouchableOpacity>
           <Text style={styles.balanceLabel}>{t('Available Balance')}</Text>
           <Text style={styles.balanceValue}>{money(balance)}</Text>
           <View style={styles.balanceFooter}>
@@ -559,6 +548,19 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
               {showWithdrawal ? 'Close' : 'Withdraw funds'}
             </Text>
           </TouchableOpacity>
+          {/* Rendered LAST on purpose. It is absolutely positioned, and on Android
+              later siblings paint above earlier ones and swallow their touches -
+              as the first child, the balance label and amount covered most of it
+              and only a sliver at the top responded to taps. */}
+          <TouchableOpacity
+            style={styles.filterIconBtn}
+            onPress={() => setShowDateFilter((v) => !v)}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            activeOpacity={0.8}
+          >
+            <Feather name="filter" size={16} color="#ffffff" />
+            {(dateFilter.from || dateFilter.to) && <View style={styles.filterActiveDot} />}
+          </TouchableOpacity>
         </LinearGradient>
 
         {/* Date filter popup, opened by the filter icon on the balance card. */}
@@ -566,6 +568,8 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
           visible={showDateFilter}
           transparent
           animationType="slide"
+          statusBarTranslucent
+          navigationBarTranslucent
           onRequestClose={() => setShowDateFilter(false)}
         >
           <View style={styles.filterOverlay}>
@@ -1010,6 +1014,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 14,
     right: 14,
+    zIndex: 3,
+    elevation: 3,
     width: 34,
     height: 34,
     borderRadius: 17,

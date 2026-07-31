@@ -81,7 +81,7 @@ const AI_NAME = 'Humaelio';
 const AI_CHAT_TITLE = `${AI_NAME} - AI Assistant`;
 const AI_VOICE_TITLE = `${AI_NAME} - Voice Assistant`;
 
-const AI_WELCOME_MESSAGE = "Hi! Welcome back 💙 How are you feeling right now?";
+const AI_WELCOME_MESSAGE = "Hello, I'm Humaelio AI. How are you feeling today?";
 const AI_WELCOME_QUICK_REPLIES = ["😢 Low", "😐 Okay", "🙂 Good", "✨ Great"];
 
 // Improved ChatPopup Component
@@ -651,7 +651,7 @@ const ChatPopup = ({
   };
 
   return (
-  <Modal
+  <Modal statusBarTranslucent navigationBarTranslucent
     animationType="slide"
     transparent={true}
     visible={true}
@@ -974,7 +974,7 @@ const ChatPopup = ({
             </View>
           </View>
         )}
-        <Modal
+        <Modal statusBarTranslucent navigationBarTranslucent
           animationType="fade"
           transparent={true}
           visible={aiVoiceOpen}
@@ -1183,7 +1183,7 @@ const CallModal = ({
   const callerLocation = callData?.from?.location || callData?.from?.city || null;
 
   return (
-    <Modal transparent={false} visible={isOpen} animationType="fade" onRequestClose={onClose}>
+    <Modal statusBarTranslucent navigationBarTranslucent transparent={false} visible={isOpen} animationType="fade" onRequestClose={onClose}>
       <View style={styles.callScreen}>
         <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
@@ -1820,7 +1820,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
         )}
       </ScrollView>
 
-      <Modal
+      <Modal statusBarTranslucent navigationBarTranslucent
         transparent={true}
         visible={showDetailsModal}
         animationType="slide"
@@ -2075,6 +2075,10 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 };
 
 export default function UserDashboard() {
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  // The bottom tab bar had a fixed paddingBottom (6 on Android), so on a phone
+  // with gesture navigation its labels were clipped by the gesture bar.
+  const navInsets = useSafeAreaInsets();
   const { i18n } = useTranslation();
   const { t } = useLanguageRender();
   const navigation = useNavigation();
@@ -2240,7 +2244,9 @@ export default function UserDashboard() {
         setChatMessages([
           {
             id: Date.now(),
-            text: response.data.data?.aiResponse || AI_WELCOME_MESSAGE,
+            // Keep the opening message app-owned so the assistant name remains
+            // consistent even if the API is still configured with an older brand.
+            text: AI_WELCOME_MESSAGE,
             sender: "ai",
             quickReplies: response.data.data?.quickReplies || AI_WELCOME_QUICK_REPLIES,
           },
@@ -2452,6 +2458,9 @@ export default function UserDashboard() {
 
   const fetchUserData = async () => {
     try {
+      // Clear any previous image-load failure so a freshly uploaded photo gets
+      // a fair attempt instead of staying on initials.
+      setAvatarFailed(false);
       const storedUserId = await AsyncStorage.getItem("userId");
       if (!storedUserId) return;
 
@@ -2465,9 +2474,17 @@ export default function UserDashboard() {
           name: user.fullName || "",
           email: user.email || "",
           phone: user.phoneNumber || "",
-          // `?.url` alone dropped plain-string photo URLs and passed Cloudinary
-          // objects lacking `url` straight through to <Image>.
-          profilePhoto: toImageUri(user.profilePhoto) || "",
+          // Field name varies by endpoint/record in this backend, and reading only
+          // `profilePhoto` left the sidebar avatar blank while the profile page
+          // (which also falls back to its own local state) showed one. Each is
+          // run through toImageUri, so any string / {url} / {secure_url} /
+          // {publicId} shape resolves.
+          profilePhoto:
+            toImageUri(user.profilePhoto) ||
+            toImageUri(user.profilePic) ||
+            toImageUri(user.avatar) ||
+            toImageUri(user.photo) ||
+            "",
         });
       }
     } catch (error) {
@@ -3011,7 +3028,7 @@ export default function UserDashboard() {
   };
 
   // Profile / Call history / Settings only flip `active`, so they work straight
-  // away. Help & Support and Privacy Policy are separate <Modal>s, and React
+  // away. Help & Support and Privacy Policy are separate <Modal statusBarTranslucent navigationBarTranslucent>s, and React
   // Native will not mount a second Modal while the sidebar Modal is still
   // dismissing - the open call was simply swallowed. Let the sidebar finish
   // fading out first.
@@ -3292,7 +3309,15 @@ export default function UserDashboard() {
       )}
 
       {/* BOTTOM NAVIGATION */}
-      <View style={styles.bottomNav}>
+      <View
+        style={[
+          styles.bottomNav,
+          {
+            height: (Platform.OS === 'ios' ? 84 : 68) + navInsets.bottom,
+            paddingBottom: (Platform.OS === 'ios' ? 20 : 6) + navInsets.bottom,
+          },
+        ]}
+      >
         {[
           { id: 'Chat', icon: 'chatbubble-ellipses-outline', iconActive: 'chatbubble-ellipses', label: t('dashboard:chat') },
           { id: 'Counselor', icon: 'bulb-outline', iconActive: 'bulb', label: t('dashboard:counselor') },
@@ -3346,7 +3371,7 @@ export default function UserDashboard() {
       </View>
 
       {/* SIDEBAR DRAWER */}
-      <Modal
+      <Modal statusBarTranslucent navigationBarTranslucent
         transparent
         visible={showMoreModal}
         animationType="fade"
@@ -3368,8 +3393,13 @@ export default function UserDashboard() {
                 onPress={() => { setShowMoreModal(false); switchDashboardTab('profile'); }}
               >
                 <View style={styles.sbAvatarWrap}>
-                  {userData.profilePhoto ? (
-                    <Image source={{ uri: userData.profilePhoto }} style={styles.sbAvatar} />
+                  {userData.profilePhoto && !avatarFailed ? (
+                    <Image
+                      source={{ uri: userData.profilePhoto }}
+                      style={styles.sbAvatar}
+                      // A dead URL used to leave an empty circle. Show initials.
+                      onError={() => setAvatarFailed(true)}
+                    />
                   ) : (
                     <View style={styles.sbAvatarPlaceholder}>
                       <Text style={styles.sbAvatarText}>
@@ -3459,7 +3489,7 @@ export default function UserDashboard() {
       </Modal>
 
       {/* Notifications full-screen modal */}
-      <Modal visible={showNotifications} animationType="slide" transparent={false} onRequestClose={() => setShowNotifications(false)}>
+      <Modal statusBarTranslucent navigationBarTranslucent visible={showNotifications} animationType="slide" transparent={false} onRequestClose={() => setShowNotifications(false)}>
         <NotificationScreen
           onClose={() => setShowNotifications(false)}
           onAction={(n) => {
@@ -3473,7 +3503,7 @@ export default function UserDashboard() {
 
       {/* LOGOUT CONFIRM MODAL */}
       {/* Help & Support full-screen modal */}
-      <Modal visible={showHelpSupport} animationType="slide" transparent={false} onRequestClose={() => closeSidebarChild(() => setShowHelpSupport(false))}>
+      <Modal statusBarTranslucent navigationBarTranslucent visible={showHelpSupport} animationType="slide" transparent={false} onRequestClose={() => closeSidebarChild(() => setShowHelpSupport(false))}>
         <HelpSupport
           onClose={() => closeSidebarChild(() => setShowHelpSupport(false))}
           onOpenTab={switchDashboardTab}
@@ -3482,14 +3512,14 @@ export default function UserDashboard() {
       </Modal>
 
       {/* Privacy Policy full-screen modal */}
-      <Modal visible={showPrivacyPolicy} animationType="slide" transparent={false} onRequestClose={() => closeSidebarChild(() => setShowPrivacyPolicy(false))}>
+      <Modal statusBarTranslucent navigationBarTranslucent visible={showPrivacyPolicy} animationType="slide" transparent={false} onRequestClose={() => closeSidebarChild(() => setShowPrivacyPolicy(false))}>
         <PrivacyPolicy
           onClose={() => closeSidebarChild(() => setShowPrivacyPolicy(false))}
           onOpenTab={switchDashboardTab}
         />
       </Modal>
 
-      <Modal
+      <Modal statusBarTranslucent navigationBarTranslucent
         transparent={true}
         visible={showLogoutConfirm}
         animationType="fade"
@@ -3555,7 +3585,7 @@ export default function UserDashboard() {
       </Modal>
 
       {/* DELETE CONFIRM MODAL */}
-      <Modal transparent={true} visible={showDeleteConfirm} animationType="fade">
+      <Modal statusBarTranslucent navigationBarTranslucent transparent={true} visible={showDeleteConfirm} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModal}>
             <View style={styles.confirmModalHeader}>
@@ -3583,7 +3613,7 @@ export default function UserDashboard() {
       </Modal>
 
       {/* DELETE SUCCESS MODAL */}
-      <Modal transparent={true} visible={deleteSuccess} animationType="fade">
+      <Modal statusBarTranslucent navigationBarTranslucent transparent={true} visible={deleteSuccess} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={[styles.confirmModal, styles.successModal]}>
             <View style={styles.confirmModalHeader}>
@@ -3600,7 +3630,7 @@ export default function UserDashboard() {
       </Modal>
 
       {/* Avatar action chooser (from header popup) */}
-      <Modal
+      <Modal statusBarTranslucent navigationBarTranslucent
         visible={showAvatarChooser}
         transparent
         animationType="fade"
@@ -3665,7 +3695,7 @@ export default function UserDashboard() {
       />
 
       {/* Direct Booking Modal - opened from appointment "Book Now" button */}
-      <Modal
+      <Modal statusBarTranslucent navigationBarTranslucent
         visible={showDirectBookingModal}
         animationType="slide"
         transparent={true}
@@ -4336,7 +4366,8 @@ const styles = StyleSheet.create({
   // List
   appointmentsList: {
     paddingHorizontal: 16,
-    paddingBottom: 120,
+    // Clears the bottom nav at its tallest (68 + a ~48px gesture inset).
+    paddingBottom: 130,
     paddingTop: 14,
     gap: 12,
   },
