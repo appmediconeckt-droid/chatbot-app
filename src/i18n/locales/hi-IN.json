@@ -22,7 +22,17 @@
     "delete": "हटाएं",
     "confirm": "पुष्टि करें",
     "send": "भेजें",
-    "attach": "संलग्न करें",
+    "aiQuickReplyLow": "कम",
+    "aiQuickReplyOkay": "ठीक है",
+    "aiQuickReplyGood": "अच्छा",
+    "aiQuickReplyGreat": "बहुत बढ़िया",
+    "aiPhotoAttached": "फोटो संलग्न",
+    "aiTryAgain": "फिर से प्रयास करें",
+    "aiVoiceHint": "जब आप तैयार हों तब बोलें — आप रुकते ही मैं जवाब दूँगा।",
+    "resetChatTitle": "नई चैट शुरू करें?",
+    "resetChatMessage": "यह वर्तमान AI चैट को साफ करता है और स्वागत विकल्पों के साथ फिर से शुरू करता है।",
+    "startFresh": "नया शुरू करें",
+    "startingFresh": "शुरू हो रहा है..."
     "or": "या",
     "verified": "सत्यापित",
     "online": "ऑनलाइन",
@@ -100,6 +110,12 @@
     "myAppointment": "मेरी अपॉइंटमेंट",
     "wallet": "बटुआ",
     "callHistory": "कॉल इतिहास"
+    "wallet": "बटुआ",
+    "callHistory": "कॉल इतिहास",
+    "aiQuickReplyLow": "कम",
+    "aiQuickReplyOkay": "ठीक है",
+    "aiQuickReplyGood": "अच्छा",
+    "aiQuickReplyGreat": "बहुत बढ़िया"
   },
   "counselor": {
     "myClients": "मेरे मरीज़",

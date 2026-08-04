@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import i18n, { LANGUAGES, saveUserLanguage, LANG_STORAGE_KEY } from '../../i18n';
 import { useLanguageContext } from '../../contexts/LanguageContext';
 import useLanguageRender from '../../hooks/useLanguageRender';
+import AutoTranslatedText from '../AutoTranslatedText';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -149,7 +150,9 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role, ic
 
         <View style={styles.langLabels}>
           <Text style={[styles.langNative, isActive && { color: accent }]}>{item.name || item.label}</Text>
-          <Text style={styles.langEnglish}>{t(item.label)}</Text>
+          <AutoTranslatedText style={styles.langEnglish}>
+            {item.label}
+          </AutoTranslatedText>
         </View>
 
         {isActive ? (

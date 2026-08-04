@@ -22,7 +22,17 @@
     "delete": "Delete",
     "confirm": "Confirm",
     "send": "Send",
-    "attach": "Attach",
+    "aiQuickReplyLow": "Low",
+    "aiQuickReplyOkay": "Okay",
+    "aiQuickReplyGood": "Good",
+    "aiQuickReplyGreat": "Great",
+    "aiPhotoAttached": "Photo attached",
+    "aiTryAgain": "Try Again",
+    "aiVoiceHint": "Speak when you're ready — I'll reply once you pause.",
+    "resetChatTitle": "Start a fresh chat?",
+    "resetChatMessage": "This clears the current AI chat and starts again with the welcome mood options.",
+    "startFresh": "Start Fresh",
+    "startingFresh": "Starting..."
     "or": "or",
     "verified": "Verified",
     "online": "Online",
@@ -100,6 +110,12 @@
     "myAppointment": "My Appointment",
     "wallet": "Wallet",
     "callHistory": "Call History"
+    "wallet": "Wallet",
+    "callHistory": "Call History",
+    "aiQuickReplyLow": "Low",
+    "aiQuickReplyOkay": "Okay",
+    "aiQuickReplyGood": "Good",
+    "aiQuickReplyGreat": "Great"
   },
   "counselor": {
     "myClients": "My Clients",

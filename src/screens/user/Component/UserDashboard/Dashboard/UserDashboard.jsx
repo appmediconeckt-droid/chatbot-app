@@ -54,6 +54,8 @@ import AvatarPicker from "../../PatientProfile/AvatarPicker";
 import LanguageSelector from '../../../../../components/common/LanguageSelector';
 import RatingPrompt from '../../../../../components/RatingPrompt';
 import { loadUserLanguage } from '../../../../../i18n';
+import AutoTranslatedText from '../../../../../components/AutoTranslatedText';
+import { translationService } from '../../../../../i18n/translationService';
 import PATIENT from '../../../../../theme/palette';
 import RealVideoCallModal from "../Tab/CallModal/VideoCallModal";
 import RealVoiceCallModal from "../Tab/CallModal/VoiceCallModal";
@@ -78,11 +80,17 @@ const AI_GRADIENT = ['#006B2C', '#01CE54'];
 // changes with the surface (chat vs voice) so it reads as one assistant in two
 // modes rather than two products.
 const AI_NAME = 'Humaelio';
-const AI_CHAT_TITLE = `${AI_NAME} - AI Assistant`;
-const AI_VOICE_TITLE = `${AI_NAME} - Voice Assistant`;
+const AI_CHAT_TITLE_SUFFIX = 'AI Assistant';
+const AI_VOICE_TITLE_SUFFIX = 'Voice Assistant';
 
 const AI_WELCOME_MESSAGE = "Hello, I'm Humaelio AI. How are you feeling today?";
 const AI_WELCOME_QUICK_REPLIES = ["😢 Low", "😐 Okay", "🙂 Good", "✨ Great"];
+const AI_QUICK_REPLY_KEYS = {
+  '😢 Low': 'aiQuickReplyLow',
+  '😐 Okay': 'aiQuickReplyOkay',
+  '🙂 Good': 'aiQuickReplyGood',
+  '✨ Great': 'aiQuickReplyGreat',
+};
 
 // Improved ChatPopup Component
 const VOICE_LANGUAGES = [
@@ -120,6 +128,7 @@ const ChatPopup = ({
   const [speakingId, setSpeakingId] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [aiAttachment, setAiAttachment] = useState(null);
+  const [aiInputPlaceholder, setAiInputPlaceholder] = useState('Type your question');
 
   const pickAiAttachment = useCallback(() => {
     launchImageLibrary({ mediaType: "photo", quality: 0.8 }, (res) => {
@@ -134,6 +143,33 @@ const ChatPopup = ({
     sendMessage(text, aiAttachment || null);
     setAiAttachment(null);
   }, [newMessage, aiAttachment, sendMessage]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const translatePlaceholder = async () => {
+      try {
+        const translated = await translationService.translate(
+          'Type your question',
+          selectedLang || 'en-US',
+          'en-US'
+        );
+        if (isMounted) {
+          setAiInputPlaceholder(translated || 'Type your question');
+        }
+      } catch (_) {
+        if (isMounted) {
+          setAiInputPlaceholder('Type your question');
+        }
+      }
+    };
+
+    translatePlaceholder();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedLang]);
   // Keyboard height reported by the event (0 when hidden).
   const [keyboardShownHeight, setKeyboardShownHeight] = useState(0);
   // Measured popup-overlay height (via onLayout) + the largest we've seen
@@ -692,10 +728,14 @@ const ChatPopup = ({
             {/* flex:1 + numberOfLines so a longer name shrinks/ellipsizes here
                 instead of running underneath the header icons. */}
             <View style={styles.chatHeaderText}>
-              <Text style={styles.chatHeaderTitle} numberOfLines={1}>{AI_CHAT_TITLE}</Text>
+              <Text style={styles.chatHeaderTitle} numberOfLines={1}>
+                {AI_NAME} - <AutoTranslatedText style={styles.chatHeaderTitle}>{AI_CHAT_TITLE_SUFFIX}</AutoTranslatedText>
+              </Text>
               <View style={styles.chatStatusRow}>
                 <View style={styles.chatStatusDot} />
-                <Text style={styles.chatStatus} numberOfLines={1}>Online • Secure</Text>
+                <AutoTranslatedText style={styles.chatStatus} numberOfLines={1}>
+                  Online • Secure
+                </AutoTranslatedText>
               </View>
             </View>
           </View>
@@ -778,28 +818,39 @@ const ChatPopup = ({
                       />
                     )}
                     {!!message.text && (
-                    <Text
-                      style={[
-                        styles.chatBubbleText,
-                        message.sender === "user" && styles.chatBubbleTextUser,
-                      ]}
-                    >
-                      {textParts.map((part, index) => {
-                        if (part.startsWith("[") && part.endsWith("]")) {
-                          const counselorName = part.slice(1, -1).trim();
-                          return (
-                            <Text
-                              key={`${message.id}_${index}`}
-                              style={styles.chatCounselorMention}
-                              onPress={() => onCounselorPress?.(counselorName)}
-                            >
-                              {counselorName}
-                            </Text>
-                          );
-                        }
-                        return <Text key={`${message.id}_${index}`}>{part}</Text>;
-                      })}
-                    </Text>
+                      message.sender === 'ai' ? (
+                        <AutoTranslatedText
+                          style={[
+                            styles.chatBubbleText,
+                            message.sender === "user" && styles.chatBubbleTextUser,
+                          ]}
+                        >
+                          {message.text}
+                        </AutoTranslatedText>
+                      ) : (
+                        <Text
+                          style={[
+                            styles.chatBubbleText,
+                            message.sender === "user" && styles.chatBubbleTextUser,
+                          ]}
+                        >
+                          {textParts.map((part, index) => {
+                            if (part.startsWith("[") && part.endsWith("]")) {
+                              const counselorName = part.slice(1, -1).trim();
+                              return (
+                                <Text
+                                  key={`${message.id}_${index}`}
+                                  style={styles.chatCounselorMention}
+                                  onPress={() => onCounselorPress?.(counselorName)}
+                                >
+                                  {counselorName}
+                                </Text>
+                              );
+                            }
+                            return <Text key={`${message.id}_${index}`}>{part}</Text>;
+                          })}
+                        </Text>
+                      )
                     )}
                     {isAiMsg && Array.isArray(message.quickReplies) && message.quickReplies.length > 0 && (
                       <View style={styles.quickRepliesWrap}>
@@ -814,7 +865,9 @@ const ChatPopup = ({
                             disabled={isLoading}
                             onPress={() => sendQuickReply?.(reply)}
                           >
-                            <Text style={styles.quickReplyText}>{reply}</Text>
+                            <Text style={styles.quickReplyText}>
+                              {t(`dashboard:${AI_QUICK_REPLY_KEYS[reply] || ''}`, reply)}
+                            </Text>
                           </TouchableOpacity>
                         ))}
                       </View>
@@ -871,7 +924,7 @@ const ChatPopup = ({
         {aiAttachment && (
           <View style={styles.aiAttachPreview}>
             <Image source={{ uri: toImageUri(aiAttachment) }} style={styles.aiAttachThumb} />
-            <Text style={styles.aiAttachName} numberOfLines={1}>Photo attached</Text>
+            <Text style={styles.aiAttachName} numberOfLines={1}>{t('dashboard:aiPhotoAttached')}</Text>
             <TouchableOpacity onPress={() => setAiAttachment(null)} hitSlop={8}>
               <MaterialIcons name="close" size={18} color="#64748b" />
             </TouchableOpacity>
@@ -889,7 +942,7 @@ const ChatPopup = ({
             <TextInput
               ref={inputRef}
               style={styles.chatInput}
-              placeholder="Type your question"
+              placeholder={aiInputPlaceholder}
               placeholderTextColor="#94a3b8"
               value={newMessage}
               onChangeText={setNewMessage}
@@ -947,10 +1000,8 @@ const ChatPopup = ({
               >
                 <MaterialIcons name="refresh" size={26} color="#ffffff" />
               </LinearGradient>
-              <Text style={styles.resetConfirmTitle}>Start a fresh chat?</Text>
-              <Text style={styles.resetConfirmText}>
-                This clears the current AI chat and starts again with the welcome mood options.
-              </Text>
+              <Text style={styles.resetConfirmTitle}>{t('dashboard:resetChatTitle')}</Text>
+              <Text style={styles.resetConfirmText}>{t('dashboard:resetChatMessage')}</Text>
               <View style={styles.resetConfirmActions}>
                 <TouchableOpacity
                   style={[styles.resetConfirmBtn, styles.resetCancelBtn]}
@@ -958,7 +1009,7 @@ const ChatPopup = ({
                   disabled={isLoading}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.resetCancelText}>Cancel</Text>
+                  <Text style={styles.resetCancelText}>{t('common:cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.resetConfirmBtn, styles.resetStartBtn, isLoading && styles.resetBtnDisabled]}
@@ -967,7 +1018,7 @@ const ChatPopup = ({
                   activeOpacity={0.85}
                 >
                   <Text style={styles.resetStartText}>
-                    {isLoading ? "Starting..." : "Start Fresh"}
+                    {isLoading ? t('dashboard:startingFresh') : t('dashboard:startFresh')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1021,7 +1072,9 @@ const ChatPopup = ({
                 ))}
               </View>
 
-              <Text style={styles.aiVoiceTitle}>{AI_VOICE_TITLE}</Text>
+              <Text style={styles.aiVoiceTitle}>
+                {AI_NAME} - <AutoTranslatedText style={styles.aiVoiceTitle}>{AI_VOICE_TITLE_SUFFIX}</AutoTranslatedText>
+              </Text>
               <Text style={styles.aiVoiceStatusText}>{getAiVoiceStatusText()}</Text>
               <Text style={styles.aiVoiceTimer}>{formatAiVoiceTime(aiVoiceTime)}</Text>
               {aiVoiceError ? (
@@ -1033,13 +1086,11 @@ const ChatPopup = ({
                     activeOpacity={0.85}
                   >
                     <MaterialIcons name="refresh" size={16} color="#ffffff" />
-                    <Text style={styles.aiVoiceRetryText}>Try Again</Text>
+                    <Text style={styles.aiVoiceRetryText}>{t('dashboard:aiTryAgain')}</Text>
                   </TouchableOpacity>
                 </View>
               ) : (
-                <Text style={styles.aiVoiceHint}>
-                  Speak when you're ready — I'll reply once you pause.
-                </Text>
+                  <Text style={styles.aiVoiceHint}>{t('dashboard:aiVoiceHint')}</Text>
               )}
 
               {aiVoiceTranscript.length > 0 && (
@@ -2247,6 +2298,7 @@ export default function UserDashboard() {
             // Keep the opening message app-owned so the assistant name remains
             // consistent even if the API is still configured with an older brand.
             text: AI_WELCOME_MESSAGE,
+            system: 'welcome',
             sender: "ai",
             quickReplies: response.data.data?.quickReplies || AI_WELCOME_QUICK_REPLIES,
           },
@@ -2260,6 +2312,7 @@ export default function UserDashboard() {
         {
           id: Date.now(),
           text: AI_WELCOME_MESSAGE,
+            system: 'welcome',
           sender: "ai",
           quickReplies: AI_WELCOME_QUICK_REPLIES,
         },
@@ -3262,27 +3315,6 @@ export default function UserDashboard() {
         {renderContent()}
       </View>
 
-      {/* AI FLOATING BUTTON — centred in the bottom nav */}
-      <TouchableOpacity
-        style={styles.aiButton}
-        onPress={() => setChatOpen(true)}
-        activeOpacity={0.85}
-      >
-        <LinearGradient
-          colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.aiButtonGradient}
-        >
-          <Ionicons name="sparkles" size={26} color="#ffffff" />
-        </LinearGradient>
-        {unreadCount > 0 && !chatOpen && (
-          <View style={styles.aiUnreadBadge}>
-            <Text style={styles.aiUnreadBadgeText}>{unreadCount}</Text>
-          </View>
-        )}
-      </TouchableOpacity>
-
       {/* CHAT POPUP */}
       {chatOpen && (
         <ChatPopup
@@ -3310,6 +3342,7 @@ export default function UserDashboard() {
 
       {/* BOTTOM NAVIGATION */}
       <View
+        pointerEvents="box-none"
         style={[
           styles.bottomNav,
           {
@@ -3369,6 +3402,29 @@ export default function UserDashboard() {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* AI FLOATING BUTTON — centred above the bottom nav */}
+      <TouchableOpacity
+        style={styles.aiButton}
+        onPress={() => setChatOpen(true)}
+        activeOpacity={0.85}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        accessibilityLabel="Open Humaelio AI"
+      >
+        <LinearGradient
+          colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.aiButtonGradient}
+        >
+          <Ionicons name="sparkles" size={26} color="#ffffff" />
+        </LinearGradient>
+        {unreadCount > 0 && !chatOpen && (
+          <View style={styles.aiUnreadBadge}>
+            <Text style={styles.aiUnreadBadgeText}>{unreadCount}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
 
       {/* SIDEBAR DRAWER */}
       <Modal statusBarTranslucent navigationBarTranslucent
