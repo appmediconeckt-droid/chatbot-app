@@ -32,7 +32,7 @@
     "resetChatTitle": "Start a fresh chat?",
     "resetChatMessage": "This clears the current AI chat and starts again with the welcome mood options.",
     "startFresh": "Start Fresh",
-    "startingFresh": "Starting..."
+    "startingFresh": "Starting...",
     "or": "or",
     "verified": "Verified",
     "online": "Online",
@@ -109,7 +109,7 @@
     "counselor": "Counselor",
     "myAppointment": "My Appointment",
     "wallet": "Wallet",
-    "callHistory": "Call History"
+    "callHistory": "Call History",
     "wallet": "Wallet",
     "callHistory": "Call History",
     "aiQuickReplyLow": "Low",

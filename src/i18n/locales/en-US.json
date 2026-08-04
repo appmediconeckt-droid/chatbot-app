@@ -99,7 +99,7 @@
     "counselor": "Counselor",
     "myAppointment": "My Appointment",
     "wallet": "Wallet",
-    "callHistory": "Call History"
+    "callHistory": "Call History",
     "wallet": "Wallet",
     "callHistory": "Call History",
     "aiQuickReplyLow": "Low",
@@ -519,7 +519,7 @@
     "resetChatTitle": "Start a fresh chat?",
     "resetChatMessage": "This clears the current AI chat and starts again with the welcome mood options.",
     "startFresh": "Start Fresh",
-    "startingFresh": "Starting..."
+    "startingFresh": "Starting...",
     "checklist": "Your privacy checklist",
     "checklistItem1": "Use your anonymous name for counselor interactions when you do not want your real name displayed.",
     "checklistItem2": "Keep emergency contact and medical profile details accurate if you choose to fill them in.",

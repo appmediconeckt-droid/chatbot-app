@@ -32,7 +32,7 @@
     "resetChatTitle": "नई चैट शुरू करें?",
     "resetChatMessage": "यह वर्तमान AI चैट को साफ करता है और स्वागत विकल्पों के साथ फिर से शुरू करता है।",
     "startFresh": "नया शुरू करें",
-    "startingFresh": "शुरू हो रहा है..."
+    "startingFresh": "शुरू हो रहा है...",
     "or": "या",
     "verified": "सत्यापित",
     "online": "ऑनलाइन",
@@ -109,7 +109,7 @@
     "counselor": "परामर्शदाता",
     "myAppointment": "मेरी अपॉइंटमेंट",
     "wallet": "बटुआ",
-    "callHistory": "कॉल इतिहास"
+    "callHistory": "कॉल इतिहास",
     "wallet": "बटुआ",
     "callHistory": "कॉल इतिहास",
     "aiQuickReplyLow": "कम",

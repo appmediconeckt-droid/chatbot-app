@@ -2714,9 +2714,21 @@ export default function UserDashboard() {
     const trimmedMessage = sourceText.trim();
     if (!trimmedMessage && !imageUri) return;
 
+    let outgoingText = trimmedMessage;
+    if (trimmedMessage && selectedLang && !['en', 'en-US', 'en-IN', 'en-GB'].includes(selectedLang)) {
+      try {
+        const translated = await translationService.translate(trimmedMessage, selectedLang, 'en-US');
+        if (translated && translated.trim()) {
+          outgoingText = translated.trim();
+        }
+      } catch (error) {
+        console.warn('[AI-CHAT] outgoing translate failed:', error?.message || error);
+      }
+    }
+
     const userMessage = {
       id: Date.now(),
-      text: trimmedMessage,
+      text: outgoingText,
       sender: "user",
       image: imageUri || null,
     };
@@ -2730,14 +2742,14 @@ export default function UserDashboard() {
     setIsLoading(true);
 
     try {
-      const outgoingText = trimmedMessage || "I've shared a photo — please take a look.";
+      const outgoingPayloadText = outgoingText || "I've shared a photo — please take a look.";
       const history = chatMessages.slice(-10).map((msg) => ({
         role: msg.sender === "user" ? "user" : "assistant",
         content: msg.text,
       }));
 
       const response = await axiosInstance.post('/api/ai-chat/send-message', {
-        message: outgoingText,
+        message: outgoingPayloadText,
         history,
         sessionId: aiSessionId,
         language: selectedLang,
