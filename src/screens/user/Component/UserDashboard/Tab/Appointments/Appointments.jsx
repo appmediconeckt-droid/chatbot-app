@@ -191,7 +191,6 @@ const Appointments = ({ navigation }) => {
   return (
     <SafeAreaView style={s.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-
       {/* Header */}
       <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>

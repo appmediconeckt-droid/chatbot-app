@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Image,
@@ -8,8 +8,6 @@ import {
   StyleSheet,
   StatusBar,
   Dimensions,
-  FlatList,
-  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -49,44 +47,13 @@ const OnboardingPage1 = () => {
 const OnboardingPage2 = () => {
   const { t } = useLanguageRender();
   return (
-  <View style={s.page}>
-    <OnboardingHero source={require('../../public/user2.png')} />
-    <View style={s.counselorCardsContainer}>
-      {[
-        { name: 'Dr. Sarah Jenkins', specialty: 'Anxiety & Stress', rating: '4.9', tags: ['Video', 'Chat'], avatar: '👩‍⚕️' },
-        { name: 'Dr. Michael Chen', specialty: 'Relationships & Family', rating: '4.8', tags: ['In-person'], avatar: '👨‍⚕️' },
-      ].map((counselor, idx) => (
-        <View key={idx} style={s.counselorCard}>
-          <View style={s.cardContent}>
-            <View style={s.counselorHeader}>
-              <View style={s.avatarBox}>
-                <Text style={s.avatarEmoji}>{counselor.avatar}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.counselorName}>{t(counselor.name)}</Text>
-                <Text style={s.counselorSpec}>{counselor.specialty}</Text>
-              </View>
-              <View style={s.ratingBox}>
-                <Ionicons name="star" size={14} color="#F5A623" />
-                <Text style={s.ratingText}>{counselor.rating}</Text>
-              </View>
-            </View>
-            <View style={s.tagsRow}>
-              {counselor.tags.map((tag, i) => (
-                <TouchableOpacity key={i} style={s.tag}>
-                  <Text style={s.tagText}>{tag}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        </View>
-      ))}
+    <View style={s.page}>
+      <OnboardingHero source={require('../../public/user2.png')} />
+      <Text style={s.title}>{t('Find the Right Counselor')}</Text>
+      <Text style={s.description}>
+        Browse experienced counselors based on specialty, language, availability, consultation type, and reviews.
+      </Text>
     </View>
-    <Text style={s.title}>{t('Find the Right Counselor')}</Text>
-    <Text style={s.description}>
-      Browse experienced counselors based on specialty, language, availability, consultation type, and reviews.
-    </Text>
-  </View>
 );
 };
 
@@ -174,7 +141,7 @@ const OnboardingPage4 = () => {
 );
 };
 
-const UserOnboarding = ({ navigation }) => {
+const UserOnboarding = ({ navigation, previewMode = false, onPreviewComplete }) => {
   const { t } = useLanguageRender();
   const [currentPage, setCurrentPage] = useState(0);
   const scrollViewRef = useRef(null);
@@ -186,14 +153,33 @@ const UserOnboarding = ({ navigation }) => {
     <OnboardingPage4 key="4" />,
   ];
 
+  const finishOnboarding = () => {
+    if (previewMode && onPreviewComplete) {
+      onPreviewComplete();
+      return;
+    }
+    navigation.replace('UserDashboard');
+  };
+
   const goToNextPage = () => {
     if (currentPage < pages.length - 1) {
       setCurrentPage(currentPage + 1);
       scrollViewRef.current?.scrollTo({ x: (currentPage + 1) * width, animated: true });
     } else {
-      navigation.replace('UserDashboard');
+      finishOnboarding();
     }
   };
+
+  useEffect(() => {
+    if (!previewMode) return undefined;
+
+    const delay = currentPage < pages.length - 1 ? 1300 : 1600;
+    const timer = setTimeout(() => {
+      goToNextPage();
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [currentPage, previewMode]);
 
   const onScroll = (event) => {
     const pageNumber = Math.round(event.nativeEvent.contentOffset.x / width);
@@ -207,7 +193,7 @@ const UserOnboarding = ({ navigation }) => {
       {/* Header */}
       <View style={s.header}>
         <View style={{ width: 24 }} />
-        <TouchableOpacity onPress={() => navigation.replace('UserDashboard')}>
+        <TouchableOpacity onPress={finishOnboarding}>
           <Text style={s.skipText}>{t('Skip')}</Text>
         </TouchableOpacity>
       </View>
@@ -264,27 +250,13 @@ const s = StyleSheet.create({
   skipText: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
 
   pagesScroll: { flex: 1 },
-  page: { width, paddingHorizontal: 24, paddingVertical: 40, justifyContent: 'center', gap: 20 },
+  page: { width, paddingHorizontal: 24, paddingTop: 20, paddingBottom: 12, justifyContent: 'center', gap: 18 },
 
   illustrationImage: { width: '100%', height: '100%' },
-  illustration: { width: '100%', overflow: 'hidden', justifyContent: 'center', alignItems: 'center', backgroundColor: '#E6F6EC', borderRadius: 20, marginBottom: 20 },
+  illustration: { width: '100%', overflow: 'hidden', justifyContent: 'center', alignItems: 'center', backgroundColor: '#E6F6EC', borderRadius: 24, marginBottom: 8 },
 
-  title: { fontSize: 24, fontWeight: '800', color: '#0f172a', textAlign: 'center' },
-  description: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 21 },
-
-  counselorCardsContainer: { gap: 12, marginBottom: 20 },
-  counselorCard: { backgroundColor: '#ffffff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#E6F6EC' },
-  cardContent: { gap: 10 },
-  counselorHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  avatarBox: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#E6F6EC', alignItems: 'center', justifyContent: 'center' },
-  avatarEmoji: { fontSize: 24 },
-  counselorName: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
-  counselorSpec: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  ratingBox: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#E6F6EC', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  ratingText: { fontSize: 12, fontWeight: '600', color: '#0f172a' },
-  tagsRow: { flexDirection: 'row', gap: 8 },
-  tag: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: PATIENT.backgroundTint, borderRadius: 6, borderWidth: 1, borderColor: PATIENT.primary },
-  tagText: { fontSize: 12, fontWeight: '600', color: PATIENT.primary },
+  title: { fontSize: 24, fontWeight: '800', color: '#0f172a', textAlign: 'center', marginTop: 2 },
+  description: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 21, paddingHorizontal: 8 },
 
   aiIconContainer: { height: 180, justifyContent: 'center', alignItems: 'center', marginBottom: 20, position: 'relative' },
   aiIcon: { width: 140, height: 140, borderRadius: 70, backgroundColor: '#E6F6EC', alignItems: 'center', justifyContent: 'center' },

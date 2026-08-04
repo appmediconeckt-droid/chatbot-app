@@ -30,6 +30,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import PATIENT from '../../../../../../theme/palette';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
 
 // Same gradient and direction as the wallet balance card.
 const WALLET_GRADIENT = ['#006B2C', '#01CE54'];
@@ -444,7 +445,7 @@ const ChatInterface = ({ setActiveTab }) => {
   const handleStartNewChat = useCallback(() => {
     safeVibrate(100);
     if (setActiveTab) {
-      setActiveTab('Live Chat');
+      setActiveTab('Counselor');
     } else {
       navigation.navigate('CounselorDirectory');
     }
@@ -635,9 +636,13 @@ const ChatInterface = ({ setActiveTab }) => {
             <Text style={styles.emptyText}>
               {t('messages:startConversationCounselor', 'Start a conversation with a counselor')}
             </Text>
-            <TouchableOpacity style={styles.startButton} onPress={handleStartNewChat}>
+            <PatientGradientButton
+              style={[styles.startButton, { overflow: 'hidden' }]}
+              contentStyle={{ paddingHorizontal: 20, paddingVertical: 12 }}
+              onPress={handleStartNewChat}
+            >
               <Text style={styles.startButtonText}>{t('messages:startNewChat', 'Start a new chat')}</Text>
-            </TouchableOpacity>
+            </PatientGradientButton>
           </>
         )}
       </View>
@@ -1078,7 +1083,6 @@ const styles = {
   startButton: {
     paddingHorizontal: 20,
     paddingVertical: 12,
-    backgroundColor: '#4f46e5',
     borderRadius: 8,
   },
   startButtonText: {

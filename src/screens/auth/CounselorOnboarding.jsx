@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Image,
@@ -104,7 +104,7 @@ const OnboardingPage4 = () => {
 );
 };
 
-const CounselorOnboarding = ({ navigation }) => {
+const CounselorOnboarding = ({ navigation, previewMode = false, onPreviewComplete }) => {
   const { t } = useLanguageRender();
   const [currentPage, setCurrentPage] = useState(0);
   const scrollViewRef = useRef(null);
@@ -116,14 +116,33 @@ const CounselorOnboarding = ({ navigation }) => {
     <OnboardingPage4 key="4" />,
   ];
 
+  const finishOnboarding = () => {
+    if (previewMode && onPreviewComplete) {
+      onPreviewComplete();
+      return;
+    }
+    navigation.replace('CounselorDashboard');
+  };
+
   const goToNextPage = () => {
     if (currentPage < pages.length - 1) {
       setCurrentPage(currentPage + 1);
       scrollViewRef.current?.scrollTo({ x: (currentPage + 1) * width, animated: true });
     } else {
-      navigation.replace('CounselorDashboard');
+      finishOnboarding();
     }
   };
+
+  useEffect(() => {
+    if (!previewMode) return undefined;
+
+    const delay = currentPage < pages.length - 1 ? 1300 : 1600;
+    const timer = setTimeout(() => {
+      goToNextPage();
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [currentPage, previewMode]);
 
   const onScroll = (event) => {
     const pageNumber = Math.round(event.nativeEvent.contentOffset.x / width);
@@ -137,7 +156,7 @@ const CounselorOnboarding = ({ navigation }) => {
       {/* Header */}
       <View style={s.header}>
         <View style={{ width: 24 }} />
-        <TouchableOpacity onPress={() => navigation.replace('CounselorDashboard')}>
+        <TouchableOpacity onPress={finishOnboarding}>
           <Text style={s.skipText}>{t('Skip')}</Text>
         </TouchableOpacity>
       </View>
