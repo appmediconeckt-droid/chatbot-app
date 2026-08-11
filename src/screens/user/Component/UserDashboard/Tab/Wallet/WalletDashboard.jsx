@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  Linking,
   TextInput,
   TouchableOpacity,
   Alert,
@@ -21,16 +22,79 @@ import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import RazorpayCheckout from 'react-native-razorpay';
 import axiosInstance from '../../../../../../axiosConfig';
-import PATIENT from '../../../../../../theme/palette';
+import PATIENT, {
+  PATIENT_GRADIENT,
+  TRANSPARENT_GRADIENT,
+  GRADIENT_DIRECTION,
+} from '../../../../../../theme/palette';
+
+const SUPPORT_EMAIL = 'support@humaeli.com';
 import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
 
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000];
+// No 'wallet' entry: paying from the wallet to top up the same wallet is
+// circular, and Razorpay would reject it anyway.
 const PAYMENT_METHODS = [
   { id: 'upi', labelKey: 'wallet:upi', icon: 'payments' },
   { id: 'card', labelKey: 'wallet:card', icon: 'credit-card' },
   { id: 'bank', labelKey: 'wallet:netbanking', icon: 'account-balance' },
-  { id: 'wallet', labelKey: 'wallet:walletPayment', icon: 'account-balance-wallet' },
 ];
+
+// App method id -> the Razorpay method name.
+const RAZORPAY_METHOD = { upi: 'upi', card: 'card', bank: 'netbanking' };
+const RAZORPAY_BLOCK_NAME = {
+  upi: 'UPI',
+  card: 'Card',
+  netbanking: 'Net Banking',
+};
+
+// Puts the method chosen in-app at the TOP of checkout, already expanded.
+//
+// Two earlier attempts at this failed:
+//   - the `method` flags (everything off but one) dead-ended with "No
+//     appropriate payment method found" when the single enabled method had
+//     nothing usable on the device;
+//   - `prefill.method`, which Razorpay quietly ignores in the Android
+//     checkout, so it fell back to its default order - net banking first.
+// display.blocks is the mechanism that actually controls what is shown and in
+// what order. show_default_blocks is FALSE: the method was already picked on
+// the Add Funds screen, so checkout shows that one block and nothing else -
+// pick UPI and you get the UPI screen, not a second menu. To change method the
+// user backs out and taps a different tile.
+//
+// UPI is listed as TWO instruments, not one instrument with two flows:
+// Razorpay expects a single flow per instrument, and an instrument it can't
+// parse is dropped silently - which empties the block and produces exactly the
+// "No appropriate payment method found" dead end. 'intent' is the installed-app
+// list (GPay / PhonePe / Paytm), 'collect' is the "enter your UPI ID" field, so
+// a device with no UPI app installed can still pay.
+const checkoutDisplayConfig = (methodId) => {
+  const method = RAZORPAY_METHOD[methodId];
+  if (!method) return null;
+  return {
+    display: {
+      blocks: {
+        chosen: {
+          name: RAZORPAY_BLOCK_NAME[method],
+          instruments:
+            method === 'upi'
+              ? [
+                  { method: 'upi', flows: ['intent'] },
+                  { method: 'upi', flows: ['collect'] },
+                ]
+              : [{ method }],
+        },
+      },
+      sequence: ['block.chosen'],
+      preferences: { show_default_blocks: false },
+    },
+  };
+};
+
+// Razorpay's theme takes one flat colour, but the wallet card is a gradient
+// (#006B2C -> #01CE54). Its midpoint reads as the same brand green on the
+// checkout header; the gradient's dark start alone looked muddy there.
+const CHECKOUT_THEME = '#009C40';
 
 const WalletSkeleton = () => {
   const anim = useRef(new Animated.Value(0)).current;
@@ -77,6 +141,21 @@ const WalletDashboard = ({ userData = {} }) => {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [activeTab, setActiveTab] = useState('add-money');
+  const scrollRef = useRef(null);
+  // Y offset of the tab strip inside the scroll content, captured on layout.
+  const tabsYRef = useRef(0);
+
+  // The tab strip and its panels sit below the balance card, stats and spending
+  // summary. The card's "Add Funds" / "View History" buttons only called
+  // setActiveTab, which switched a panel that was off-screen - so nothing
+  // appeared to happen. Scroll the section into view as well.
+  const goToTab = (tab) => {
+    setActiveTab(tab);
+    scrollRef.current?.scrollTo({
+      y: Math.max(0, tabsYRef.current - 12),
+      animated: true,
+    });
+  };
 
   useEffect(() => {
     fetchWalletData();
@@ -159,10 +238,16 @@ const WalletDashboard = ({ userData = {} }) => {
         amount: orderData.amount,
         currency: 'INR',
         order_id: orderData.order_id,
-        name: 'Mediconeckt Wallet',
-        description: 'Wallet Top-up',
+        // Was 'Humaeli Wallet' / 'Wallet Top-up' - the header repeated "wallet"
+        // twice and read like a product name. Brand on top, purpose below.
+        name: 'Humaeli',
+        description: `Add ₹${numericAmount} to your wallet`,
         ...(Object.keys(prefill).length ? { prefill } : {}),
-        theme: { color: '#4648d4' },
+        // The method was already chosen in-app - show it first, expanded.
+        ...(checkoutDisplayConfig(paymentMethod)
+          ? { config: checkoutDisplayConfig(paymentMethod) }
+          : {}),
+        theme: { color: CHECKOUT_THEME },
       };
       console.log('[wallet] opening Razorpay with options:', JSON.stringify(options));
 
@@ -178,7 +263,23 @@ const WalletDashboard = ({ userData = {} }) => {
       }, 120000);
 
       try {
-        const data = await RazorpayCheckout.open(options);
+        let data;
+        try {
+          data = await RazorpayCheckout.open(options);
+        } catch (err) {
+          // "No appropriate payment method found" means the one block we asked
+          // for resolved to nothing usable on this key or this device (e.g. UPI
+          // not activated on the Razorpay account). Showing only the chosen
+          // method is the point, but a dead end is worse than a menu - reopen
+          // once with Razorpay's full list so the payment can still go through.
+          const noMethod = /no\s+appropriate\s+payment\s+method/i.test(
+            String(err?.description || err?.message || ''),
+          );
+          if (!noMethod || !options.config) throw err;
+          console.warn('[wallet] chosen method unavailable, reopening unrestricted');
+          const { config: unavailable, ...allMethods } = options;
+          data = await RazorpayCheckout.open(allMethods);
+        }
         settled = true;
         clearTimeout(watchdog);
         console.log('[wallet] payment success:', JSON.stringify(data));
@@ -300,11 +401,11 @@ const WalletDashboard = ({ userData = {} }) => {
       </View>
 
       <View style={styles.cardButtonsRow}>
-        <TouchableOpacity style={styles.primaryMiniAction} onPress={() => setActiveTab('add-money')}>
+        <TouchableOpacity style={styles.primaryMiniAction} onPress={() => goToTab('add-money')}>
           <MaterialIcons name="add" size={17} color={PATIENT.primary} />
           <Text style={styles.primaryMiniActionText}>{t('wallet:addFunds')}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.ghostMiniAction} onPress={() => setActiveTab('transactions')}>
+        <TouchableOpacity style={styles.ghostMiniAction} onPress={() => goToTab('transactions')}>
           <MaterialIcons name="history" size={16} color="#ffffff" />
           <Text style={styles.ghostMiniActionText}>{t('wallet:viewHistory')}</Text>
         </TouchableOpacity>
@@ -336,7 +437,7 @@ const WalletDashboard = ({ userData = {} }) => {
         spendingSummary.breakdown.map((item, index) => (
           <View key={`${item.label}-${index}`} style={styles.progressItem}>
             <View style={styles.progressHeader}>
-              <Text style={styles.progressLabel}>{item.label}</Text>
+              <Text style={styles.progressLabel}>{t(item.label)}</Text>
               <Text style={styles.progressValue}>{formatCurrency(item.amount)}</Text>
             </View>
             <View style={styles.progressTrack}>
@@ -478,14 +579,24 @@ const WalletDashboard = ({ userData = {} }) => {
     </View>
   );
 
+  const openPaymentSupport = () => {
+    const subject = encodeURIComponent('Payment help - Humaeli wallet');
+    Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}`).catch(() => {
+      Alert.alert(t('wallet:support'), `Please email us at ${SUPPORT_EMAIL}`);
+    });
+  };
+
   const renderSupport = () => (
     <View style={styles.supportCard}>
       <View style={{ flex: 1 }}>
         <Text style={styles.supportLabel}>{t('wallet:needPaymentHelp')}</Text>
         <Text style={styles.supportText}>{t('wallet:supportTeamAvailable')}</Text>
       </View>
-      <TouchableOpacity style={styles.supportAction}>
-        <Text style={styles.supportActionText}>{t('wallet:support')}</Text>
+      {/* Had no onPress at all - tapping it did nothing. */}
+      <TouchableOpacity style={styles.supportActionWrap} onPress={openPaymentSupport} activeOpacity={0.85}>
+        <LinearGradient colors={PATIENT_GRADIENT} {...GRADIENT_DIRECTION} style={styles.supportAction}>
+          <Text style={styles.supportActionText}>{t('wallet:support')}</Text>
+        </LinearGradient>
       </TouchableOpacity>
     </View>
   );
@@ -509,6 +620,7 @@ const WalletDashboard = ({ userData = {} }) => {
     <View style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#F9F9FF" />
       <ScrollView
+        ref={scrollRef}
         style={styles.container}
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(120, insets.bottom + 96) }]}
         showsVerticalScrollIndicator={false}
@@ -523,18 +635,38 @@ const WalletDashboard = ({ userData = {} }) => {
         {renderStats()}
         {renderSpendingSummary()}
 
-        <View style={styles.tabs}>
+        {/* Both tabs render the same tree with the same metrics - only the
+            gradient stops and text colour change - so switching can't resize
+            them. Gradient matches the balance card above. */}
+        <View
+          style={styles.tabs}
+          onLayout={(e) => { tabsYRef.current = e.nativeEvent.layout.y; }}
+        >
           <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'add-money' && styles.tabBtnActive]}
+            style={styles.tabBtnWrap}
             onPress={() => setActiveTab('add-money')}
+            activeOpacity={0.85}
           >
-            <TranslatedMessageBubble text={t('wallet:addMoney')} style={[styles.tabBtnText, activeTab === 'add-money' && styles.tabBtnTextActive]} />
+            <LinearGradient
+              colors={activeTab === 'add-money' ? PATIENT_GRADIENT : TRANSPARENT_GRADIENT}
+              {...GRADIENT_DIRECTION}
+              style={styles.tabBtn}
+            >
+              <TranslatedMessageBubble text={t('wallet:addMoney')} style={[styles.tabBtnText, activeTab === 'add-money' && styles.tabBtnTextActive]} />
+            </LinearGradient>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'transactions' && styles.tabBtnActive]}
+            style={styles.tabBtnWrap}
             onPress={() => setActiveTab('transactions')}
+            activeOpacity={0.85}
           >
-            <Text style={[styles.tabBtnText, activeTab === 'transactions' && styles.tabBtnTextActive]}>{t('wallet:transactionHistory')}</Text>
+            <LinearGradient
+              colors={activeTab === 'transactions' ? PATIENT_GRADIENT : TRANSPARENT_GRADIENT}
+              {...GRADIENT_DIRECTION}
+              style={styles.tabBtn}
+            >
+              <Text style={[styles.tabBtnText, activeTab === 'transactions' && styles.tabBtnTextActive]}>{t('wallet:transactionHistory')}</Text>
+            </LinearGradient>
           </TouchableOpacity>
         </View>
 
@@ -842,14 +974,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
-  tabBtn: {
+  // Wrapper owns flex + clips the gradient to the pill radius.
+  tabBtnWrap: {
     flex: 1,
     borderRadius: 99,
+    overflow: 'hidden',
+  },
+  tabBtn: {
     alignItems: 'center',
     paddingVertical: 10,
-  },
-  tabBtnActive: {
-    backgroundColor: PATIENT.primary,
   },
   tabBtnText: {
     color: '#64748b',
@@ -1047,9 +1180,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  supportAction: {
-    backgroundColor: PATIENT.primary,
+  supportActionWrap: {
     borderRadius: 10,
+    overflow: 'hidden',
+  },
+  supportAction: {
     paddingVertical: 9,
     paddingHorizontal: 14,
   },

@@ -28,13 +28,22 @@ import { captureAndSendLocation } from "../../../../utils/locationHelper";
 import { formatLocation } from "../../../../utils/locationFormatter";
 import AvatarGenerator from "./AvatarGenerator";
 import AvatarPicker from "./AvatarPicker";
-import PATIENT from "../../../../theme/palette";
+import PATIENT, {
+  PATIENT_GRADIENT,
+  TRANSPARENT_GRADIENT,
+  GRADIENT_DIRECTION,
+} from "../../../../theme/palette";
+import LinearGradient from "react-native-linear-gradient";
+import { toImageUri } from '../../../../utils/imageUri';
+import useLanguageRender from '../../../../hooks/useLanguageRender';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get("window");
 
 const PatientProfile = ({ onProfileUpdate }) => {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { t } = useTranslation();
+  const { t } = useLanguageRender();
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [profileImage, setProfileImage] = useState(null);
@@ -111,27 +120,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
     },
   });
 
-  const insuranceProviders = [
-    "Star Health Insurance",
-    "ICICI Lombard",
-    "HDFC ERGO",
-    "Bajaj Allianz",
-    "New India Assurance",
-    "National Insurance",
-    "Oriental Insurance",
-    "United India Insurance",
-    "Max Bupa Health Insurance",
-    "Care Health Insurance",
-  ];
 
-  const insuranceTypes = [
-    "Individual",
-    "Family Floater",
-    "Senior Citizen",
-    "Critical Illness",
-    "Group Health Insurance",
-    "Maternity Insurance",
-  ];
 
   const bloodGroups = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
   const genders = ["Male", "Female", "Other"];
@@ -173,14 +162,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
     allergies: "",
     chronicConditions: "",
     currentMedications: "",
-    insuranceProvider: "",
-    policyNumber: "",
-    groupNumber: "",
-    coverageAmount: "",
-    validityDate: "",
-    nominee: "",
-    relationship: "",
-    insuranceType: "",
   });
 
   useEffect(() => {
@@ -355,14 +336,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
       currentMedications: Array.isArray(data.medicalInfo.currentMedications)
         ? data.medicalInfo.currentMedications.join(", ")
         : "",
-      insuranceProvider: data.insuranceInfo.provider || "",
-      policyNumber: data.insuranceInfo.policyNumber || "",
-      groupNumber: data.insuranceInfo.groupNumber || "",
-      coverageAmount: data.insuranceInfo.coverageAmount || "",
-      validityDate: data.insuranceInfo.validityDate || "",
-      nominee: data.insuranceInfo.nominee || "",
-      relationship: data.insuranceInfo.relationship || "",
-      insuranceType: data.insuranceInfo.insuranceType || "",
     });
   };
 
@@ -620,10 +593,47 @@ const PatientProfile = ({ onProfileUpdate }) => {
       await captureAndSendLocation("manual");
       showNotificationMessage("Location updated successfully", "success");
     } catch (err) {
-      showNotificationMessage(
-        err.message || "Failed to update location",
-        "error",
-      );
+      // The notification banner auto-hides after 3s, which is far too short for
+      // anything the user has to act on - and there is nothing to tap. So a
+      // permission problem gets a dialog that opens Settings directly instead of
+      // a message telling them to hunt through Android menus, and a failed fix
+      // gets a Retry. Everything else stays a simple banner.
+      const kind = err?.kind;
+      const message =
+        err?.message ||
+        "Couldn't update your location. Please try again.";
+
+      // The user just declined the system prompt - they already answered. Popping
+      // a second dialog telling them to allow it is nagging, so acknowledge it
+      // quietly and let them tap Update again whenever they want.
+      if (kind === "permission") {
+        showNotificationMessage("Location not updated", "error");
+        return;
+      }
+
+      // Permanently blocked: the system prompt will never reappear, so Settings
+      // is genuinely the only way. Worth one dialog.
+      if (kind === "blocked") {
+        Alert.alert(
+          "Location is turned off",
+          "Location permission is blocked for Humaeli, so it can't be updated from here. You can turn it back on in Settings.",
+          [
+            { text: "Not now", style: "cancel" },
+            { text: "Open settings", onPress: () => Linking.openSettings() },
+          ],
+        );
+        return;
+      }
+
+      if (kind === "no-fix") {
+        Alert.alert("Couldn't find your location", message, [
+          { text: "Cancel", style: "cancel" },
+          { text: "Try again", onPress: () => handleUpdateLocation() },
+        ]);
+        return;
+      }
+
+      showNotificationMessage(message, "error");
     } finally {
       setIsUpdatingLocation(false);
     }
@@ -687,17 +697,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
       };
       formData.append("medicalInfo", JSON.stringify(medicalObj));
 
-      const insuranceObj = {
-        provider: editFormData.insuranceProvider,
-        policyNumber: editFormData.policyNumber,
-        groupNumber: editFormData.groupNumber,
-        coverageAmount: editFormData.coverageAmount,
-        validityDate: editFormData.validityDate?.trim() || null,
-        nominee: editFormData.nominee,
-        relationship: editFormData.relationship,
-        insuranceType: editFormData.insuranceType,
-      };
-      formData.append("insuranceInfo", JSON.stringify(insuranceObj));
 
       if (profileImageFile) {
         formData.append("profilePhoto", profileImageFile);
@@ -780,7 +779,16 @@ const PatientProfile = ({ onProfileUpdate }) => {
   const renderNotification = () => {
     if (!showNotification.show) return null;
     return (
-      <View style={[styles.notification, styles[showNotification.type]]}>
+      <View style={styles.notification}>
+        {showNotification.type === "success" ? (
+          <LinearGradient
+            colors={PATIENT_GRADIENT}
+            {...GRADIENT_DIRECTION}
+            style={styles.notificationFill}
+          />
+        ) : (
+          <View style={[styles.notificationFill, styles.notificationError]} />
+        )}
         <Text style={styles.notificationText}>{showNotification.message}</Text>
       </View>
     );
@@ -799,15 +807,19 @@ const PatientProfile = ({ onProfileUpdate }) => {
         >
           {patientData.personalInfo.profilePhoto ? (
             <Image
-              source={{ uri: patientData.personalInfo.profilePhoto }}
+              source={{ uri: toImageUri(patientData.personalInfo.profilePhoto) }}
               style={styles.avatarImage}
             />
           ) : (
-            <View style={styles.avatarPlaceholder}>
+            <LinearGradient
+              colors={PATIENT_GRADIENT}
+              {...GRADIENT_DIRECTION}
+              style={styles.avatarPlaceholder}
+            >
               <Text style={styles.avatarPlaceholderText}>
                 {getInitials(patientData.personalInfo.name)}
               </Text>
-            </View>
+            </LinearGradient>
           )}
           {photoUploading && (
             <View style={styles.avatarUploading}>
@@ -851,12 +863,18 @@ const PatientProfile = ({ onProfileUpdate }) => {
       </View>
 
       <TouchableOpacity
-        style={styles.editProfileBtn}
+        style={styles.editProfileBtnWrap}
         onPress={openEditModal}
         activeOpacity={0.85}
       >
-        <Ionicons name="create-outline" size={18} color="#ffffff" />
-        <Text style={styles.editProfileBtnText}>{t('profile:editProfile', 'Edit Profile')}</Text>
+        <LinearGradient
+          colors={PATIENT_GRADIENT}
+          {...GRADIENT_DIRECTION}
+          style={styles.editProfileBtn}
+        >
+          <Ionicons name="create-outline" size={18} color="#ffffff" />
+          <Text style={styles.editProfileBtnText}>{t('profile:editProfile', 'Edit Profile')}</Text>
+        </LinearGradient>
       </TouchableOpacity>
     </View>
   );
@@ -912,14 +930,13 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
   const renderAddress = () => (
     <View style={styles.card}>
+      {/* No action icon here - the header's Edit Profile button already covers
+          editing, and tapping the address itself should not navigate anywhere. */}
       <View style={styles.cardHeaderRow}>
         <View style={styles.cardTitleRow}>
           <Ionicons name="home" size={19} color="#00652C" />
           <Text style={styles.cardTitle}>{t('profile:address')}</Text>
         </View>
-        <TouchableOpacity onPress={openEditModal} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="create-outline" size={18} color="#94A3B8" />
-        </TouchableOpacity>
       </View>
       <View style={styles.addressDisplay}>
         <Text style={styles.addressText}>
@@ -957,7 +974,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       </View>
       <View style={styles.emergencyDisplay}>
         <View style={styles.sosBadge}>
-          <Text style={styles.sosBadgeText}>SOS</Text>
+          <Text style={styles.sosBadgeText}>{t('SOS')}</Text>
         </View>
         <View style={styles.emergencyDetails}>
           <Text style={styles.emergencyName}>
@@ -1060,65 +1077,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
     </View>
   );
 
-  const renderInsuranceInfo = () => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={styles.cardTitleRow}>
-          <Ionicons name="shield-checkmark" size={20} color="#00652C" />
-          <Text style={styles.cardTitle}>{t('profile:insurancePlans')}</Text>
-        </View>
-      </View>
-      {patientData.insuranceInfo?.provider ? (
-        <View style={styles.insuranceDisplay}>
-          <View style={styles.insuranceHeader}>
-            <Text style={styles.insuranceProvider}>
-              {patientData.insuranceInfo.provider}
-            </Text>
-            <View style={styles.insuranceBadge}>
-              <Text style={styles.insuranceBadgeText}>
-                {patientData.insuranceInfo.insuranceType}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.insuranceDetails}>
-            <View>
-              <Text style={styles.insuranceLabel}>{t('profile:policyNumber')}:</Text>
-              <Text style={styles.insuranceValue}>
-                {patientData.insuranceInfo.policyNumber}
-              </Text>
-            </View>
-            <View>
-              <Text style={styles.insuranceLabel}>{t('profile:groupNumber')}:</Text>
-              <Text style={styles.insuranceValue}>
-                {patientData.insuranceInfo.groupNumber}
-              </Text>
-            </View>
-            <View>
-              <Text style={styles.insuranceLabel}>{t('profile:coverageAmount')}:</Text>
-              <Text style={styles.insuranceValue}>
-                {patientData.insuranceInfo.coverageAmount}
-              </Text>
-            </View>
-            <View>
-              <Text style={styles.insuranceLabel}>{t('profile:validity')}:</Text>
-              <Text style={styles.insuranceValue}>
-                {formatDate(patientData.insuranceInfo.validityDate)}
-              </Text>
-            </View>
-            <View>
-              <Text style={styles.insuranceLabel}>{t('profile:nominee')}:</Text>
-              <Text style={styles.insuranceValue}>
-                {patientData.insuranceInfo.nominee} (
-                {patientData.insuranceInfo.relationship})
-              </Text>
-            </View>
-          </View>
-        </View>
-      ) : (
-        <Text style={styles.noData}>{t('profile:noInsuranceInfo')}</Text>
-      )}
-    </View>
-  );
 
   const renderEditModal = () => (
     <Modal
@@ -1128,7 +1086,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       onRequestClose={handleCancelEdit}
     >
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
+        <View style={[styles.modalContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{t('settings:editProfile')}</Text>
             <TouchableOpacity onPress={handleCancelEdit} style={styles.closeModal}>
@@ -1145,7 +1103,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   <View style={styles.avatarPreview}>
                     {profileImage || patientData.personalInfo.profilePhoto ? (
                       <Image
-                        source={{ uri: profileImage || patientData.personalInfo.profilePhoto }}
+                        source={{ uri: toImageUri(profileImage) || toImageUri(patientData.personalInfo.profilePhoto) }}
                         style={styles.avatarPreviewImage}
                       />
                     ) : (
@@ -1161,10 +1119,17 @@ const PatientProfile = ({ onProfileUpdate }) => {
                       <Text style={styles.uploadBtnText}>📷 {t('profile:changePhoto')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={styles.generateAvatarBtn}
+                      style={styles.generateAvatarBtnWrap}
                       onPress={() => setShowAvatarBuilder(true)}
+                      activeOpacity={0.85}
                     >
-                      <Text style={styles.generateAvatarBtnText}>✨ {t('profile:createAvatar')}</Text>
+                      <LinearGradient
+                        colors={PATIENT_GRADIENT}
+                        {...GRADIENT_DIRECTION}
+                        style={styles.generateAvatarBtn}
+                      >
+                        <Text style={styles.generateAvatarBtnText}>✨ {t('profile:createAvatar')}</Text>
+                      </LinearGradient>
                     </TouchableOpacity>
                     {(profileImage || patientData.personalInfo.profilePhoto) && (
                       <TouchableOpacity style={styles.removeBtn} onPress={handleRemoveImage}>
@@ -1172,7 +1137,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                       </TouchableOpacity>
                     )}
                   </View>
-                  <Text style={styles.uploadHint}>JPG, PNG, GIF (max 5MB) · or generate an avatar</Text>
+                  <Text style={styles.uploadHint}>{t('JPG, PNG, GIF (max 5MB) · or generate an avatar')}</Text>
                 </View>
               </View>
 
@@ -1204,7 +1169,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     style={styles.input}
                     value={editFormData.anonymous}
                     onChangeText={(text) => handleEditFormChange("anonymous", text)}
-                    placeholder="Used in anonymous chats"
+                    placeholder={t('Used in anonymous chats')}
                     placeholderTextColor="#94a3b8"
                   />
                 </View>
@@ -1216,7 +1181,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                       style={styles.input}
                       value={editFormData.dateOfBirth}
                       onChangeText={(text) => handleEditFormChange("dateOfBirth", text)}
-                      placeholder="YYYY-MM-DD"
+                      placeholder={t('YYYY-MM-DD')}
                       placeholderTextColor="#94a3b8"
                     />
                   </View>
@@ -1235,25 +1200,32 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   <View style={styles.formGroup}>
                     <Text style={styles.formLabel}>{t('profile:gender')} *</Text>
                     <View style={styles.selectContainer}>
-                      {genders.map((gender) => (
-                        <TouchableOpacity
-                          key={gender}
-                          style={[
-                            styles.selectOption,
-                            editFormData.gender === gender.toLowerCase() && styles.selectOptionActive,
-                          ]}
-                          onPress={() => handleEditFormChange("gender", gender.toLowerCase())}
-                        >
-                          <Text
-                            style={[
-                              styles.selectOptionText,
-                              editFormData.gender === gender.toLowerCase() && styles.selectOptionTextActive,
-                            ]}
+                      {genders.map((gender) => {
+                        const isActive = editFormData.gender === gender.toLowerCase();
+                        return (
+                          <TouchableOpacity
+                            key={gender}
+                            style={styles.selectOptionWrap}
+                            onPress={() => handleEditFormChange("gender", gender.toLowerCase())}
+                            activeOpacity={0.85}
                           >
-                            {gender}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
+                            <LinearGradient
+                              colors={isActive ? PATIENT_GRADIENT : TRANSPARENT_GRADIENT}
+                              {...GRADIENT_DIRECTION}
+                              style={[styles.selectOption, isActive && styles.selectOptionActive]}
+                            >
+                              <Text
+                                style={[
+                                  styles.selectOptionText,
+                                  isActive && styles.selectOptionTextActive,
+                                ]}
+                              >
+                                {gender}
+                              </Text>
+                            </LinearGradient>
+                          </TouchableOpacity>
+                        );
+                      })}
                     </View>
                   </View>
                   <View style={styles.formGroup}>
@@ -1300,8 +1272,8 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     )}
                     {emailChange.verified && (
                       <View style={styles.verifiedBadge}>
-                        <Ionicons name="checkmark-circle" size={18} color="#10b981" />
-                        <Text style={styles.verifiedText}>Verified</Text>
+                        <Ionicons name="checkmark-circle" size={18} color={PATIENT.primary} />
+                        <Text style={styles.verifiedText}>{t('Verified')}</Text>
                       </View>
                     )}
                   </View>
@@ -1318,7 +1290,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                         }
                         keyboardType="number-pad"
                         maxLength={6}
-                        placeholder="6-digit OTP"
+                        placeholder={t('6-digit OTP')}
                         placeholderTextColor="#94a3b8"
                       />
                       <TouchableOpacity
@@ -1370,8 +1342,8 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     )}
                     {phoneChange.verified && (
                       <View style={styles.verifiedBadge}>
-                        <Ionicons name="checkmark-circle" size={18} color="#10b981" />
-                        <Text style={styles.verifiedText}>Verified</Text>
+                        <Ionicons name="checkmark-circle" size={18} color={PATIENT.primary} />
+                        <Text style={styles.verifiedText}>{t('Verified')}</Text>
                       </View>
                     )}
                   </View>
@@ -1388,7 +1360,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                         }
                         keyboardType="number-pad"
                         maxLength={6}
-                        placeholder="6-digit OTP"
+                        placeholder={t('6-digit OTP')}
                         placeholderTextColor="#94a3b8"
                       />
                       <TouchableOpacity
@@ -1531,7 +1503,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     style={styles.input}
                     value={editFormData.allergies}
                     onChangeText={(text) => handleEditFormChange("allergies", text)}
-                    placeholder="e.g., Penicillin, Dust"
+                    placeholder={t('e.g., Penicillin, Dust')}
                     placeholderTextColor="#94a3b8"
                   />
                 </View>
@@ -1541,7 +1513,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     style={styles.input}
                     value={editFormData.chronicConditions}
                     onChangeText={(text) => handleEditFormChange("chronicConditions", text)}
-                    placeholder="e.g., Diabetes, Hypertension"
+                    placeholder={t('e.g., Diabetes, Hypertension')}
                     placeholderTextColor="#94a3b8"
                   />
                 </View>
@@ -1551,127 +1523,12 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     style={styles.input}
                     value={editFormData.currentMedications}
                     onChangeText={(text) => handleEditFormChange("currentMedications", text)}
-                    placeholder="e.g., Metformin 500mg"
+                    placeholder={t('e.g., Metformin 500mg')}
                     placeholderTextColor="#94a3b8"
                   />
                 </View>
               </View>
 
-              {/* Insurance */}
-              <View style={styles.formSection}>
-                <Text style={styles.sectionTitle}>{t('profile:insuranceInformation')}</Text>
-                <View style={styles.formRow}>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:provider')}</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollPicker}>
-                      {insuranceProviders.map((p) => (
-                        <TouchableOpacity
-                          key={p}
-                          style={[
-                            styles.pickerOption,
-                            editFormData.insuranceProvider === p && styles.pickerOptionActive,
-                          ]}
-                          onPress={() => handleEditFormChange("insuranceProvider", p)}
-                        >
-                          <Text
-                            style={[
-                              styles.pickerOptionText,
-                              editFormData.insuranceProvider === p && styles.pickerOptionTextActive,
-                            ]}
-                          >
-                            {p}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:insuranceType')}</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollPicker}>
-                      {insuranceTypes.map((t) => (
-                        <TouchableOpacity
-                          key={t}
-                          style={[
-                            styles.pickerOption,
-                            editFormData.insuranceType === t && styles.pickerOptionActive,
-                          ]}
-                          onPress={() => handleEditFormChange("insuranceType", t)}
-                        >
-                          <Text
-                            style={[
-                              styles.pickerOptionText,
-                              editFormData.insuranceType === t && styles.pickerOptionTextActive,
-                            ]}
-                          >
-                            {t}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                </View>
-
-                <View style={styles.formRow}>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:policyNumber')}</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editFormData.policyNumber}
-                      onChangeText={(text) => handleEditFormChange("policyNumber", text)}
-                    />
-                  </View>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:groupNumber')}</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editFormData.groupNumber}
-                      onChangeText={(text) => handleEditFormChange("groupNumber", text)}
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.formRow}>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:coverageAmount')}</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editFormData.coverageAmount}
-                      onChangeText={(text) => handleEditFormChange("coverageAmount", text)}
-                      placeholder="₹5,00,000"
-                      placeholderTextColor="#94a3b8"
-                    />
-                  </View>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:validityDate')}</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editFormData.validityDate}
-                      onChangeText={(text) => handleEditFormChange("validityDate", text)}
-                      placeholder="YYYY-MM-DD"
-                      placeholderTextColor="#94a3b8"
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.formRow}>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:nominee')}</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editFormData.nominee}
-                      onChangeText={(text) => handleEditFormChange("nominee", text)}
-                    />
-                  </View>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:relationship')}</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editFormData.relationship}
-                      onChangeText={(text) => handleEditFormChange("relationship", text)}
-                    />
-                  </View>
-                </View>
-              </View>
             </View>
           </ScrollView>
 
@@ -1684,13 +1541,20 @@ const PatientProfile = ({ onProfileUpdate }) => {
               <Text style={styles.btnSecondaryText}>{t('common:cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.btnPrimary}
+              style={styles.btnPrimaryWrap}
               onPress={handleSaveProfile}
               disabled={loading}
+              activeOpacity={0.85}
             >
-              <Text style={styles.btnPrimaryText}>
-                {loading ? t('profile:saving') : t('profile:saveChanges')}
-              </Text>
+              <LinearGradient
+                colors={PATIENT_GRADIENT}
+                {...GRADIENT_DIRECTION}
+                style={styles.btnPrimary}
+              >
+                <Text style={styles.btnPrimaryText}>
+                  {loading ? t('profile:saving') : t('profile:saveChanges')}
+                </Text>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
         </View>
@@ -1727,15 +1591,22 @@ const PatientProfile = ({ onProfileUpdate }) => {
           </View>
           <TouchableOpacity
             style={[
-              styles.locationUpdateBtn,
+              styles.locationUpdateBtnWrap,
               isUpdatingLocation && styles.verifyBtnDisabled,
             ]}
             onPress={handleUpdateLocation}
             disabled={isUpdatingLocation}
+            activeOpacity={0.85}
           >
-            <Text style={styles.locationUpdateBtnText}>
-              {isUpdatingLocation ? t('profile:updating') : t('profile:update')}
-            </Text>
+            <LinearGradient
+              colors={PATIENT_GRADIENT}
+              {...GRADIENT_DIRECTION}
+              style={styles.locationUpdateBtn}
+            >
+              <Text style={styles.locationUpdateBtnText}>
+                {isUpdatingLocation ? t('profile:updating') : t('profile:update')}
+              </Text>
+            </LinearGradient>
           </TouchableOpacity>
         </View>
         <View style={styles.content}>
@@ -1743,7 +1614,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
           {renderAddress()}
           {renderEmergencyContact()}
           {renderMedicalInfo()}
-          {renderInsuranceInfo()}
         </View>
       </ScrollView>
       {renderEditModal()}
@@ -1758,7 +1628,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
         <TouchableWithoutFeedback onPress={() => setShowBloodGroupDropdown(false)}>
           <View style={styles.dropdownOverlay}>
             <View style={styles.dropdownContent}>
-              <Text style={styles.dropdownTitle}>Select Blood Group</Text>
+              <Text style={styles.dropdownTitle}>{t('Select Blood Group')}</Text>
               <ScrollView showsVerticalScrollIndicator={false} style={styles.dropdownList}>
                 {bloodGroups.map((bg) => (
                   <TouchableOpacity
@@ -1813,7 +1683,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
           activeOpacity={1}
           onPress={() => setShowAvatarChooser(false)}
         >
-          <View style={styles.chooserSheet}>
+          <View style={[styles.chooserSheet, { paddingBottom: Math.max(insets.bottom, 28) }]}>
             <View style={styles.chooserHandle} />
             <Text style={styles.chooserTitle}>{t('profile:changePhoto', 'Change Profile Photo')}</Text>
 
@@ -1882,7 +1752,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   confirmBtn: {
-    backgroundColor: "#10b981",
+    backgroundColor: PATIENT.primary,
   },
   verifyBtnText: {
     color: "#fff",
@@ -1896,7 +1766,7 @@ const styles = StyleSheet.create({
   },
   verifiedText: {
     marginLeft: 4,
-    color: "#10b981",
+    color: PATIENT.primary,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -1940,11 +1810,13 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginLeft: 8,
   },
+  locationUpdateBtnWrap: {
+    borderRadius: 8,
+    overflow: "hidden",
+  },
   locationUpdateBtn: {
-    backgroundColor: "#00652C",
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 8,
   },
   locationUpdateBtnText: {
     color: "#fff",
@@ -2050,11 +1922,16 @@ const styles = StyleSheet.create({
     right: 16,
     padding: 14,
     borderRadius: 12,
+    overflow: "hidden",
     zIndex: 1000,
     elevation: 10,
   },
-  success: { backgroundColor: "#10b981" },
-  error: { backgroundColor: "#ef4444" },
+  // Absolute fill so the gradient sits behind the text without re-parenting it.
+  notificationFill: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 12,
+  },
+  notificationError: { backgroundColor: PATIENT.danger },
   notificationText: {
     color: "white",
     fontWeight: "700",
@@ -2085,7 +1962,6 @@ const styles = StyleSheet.create({
     height: 84,
     borderRadius: 42,
     overflow: "hidden",
-    backgroundColor: PATIENT.primary,
   },
   avatarImage: {
     width: "100%",
@@ -2236,16 +2112,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: PATIENT.border,
   },
+  // Wrapper owns the radius/clip + outer spacing; the gradient fills it.
+  editProfileBtnWrap: {
+    borderRadius: 12,
+    overflow: "hidden",
+    marginTop: 16,
+    width: "100%",
+  },
   editProfileBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: PATIENT.primary,
-    borderRadius: 12,
     paddingVertical: 14,
-    marginTop: 16,
-    width: "100%",
   },
   editProfileBtnText: {
     color: "#ffffff",
@@ -2467,39 +2346,6 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     fontSize: 14,
   },
-  insuranceDisplay: {
-    gap: 16,
-  },
-  insuranceHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  insuranceProvider: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#1e293b",
-  },
-  insuranceBadge: {
-    backgroundColor: "#E6F6EC",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  insuranceBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#00652C",
-  },
-  insuranceGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 16,
-  },
-  insuranceItem: {
-    width: "45%",
-    gap: 4,
-  },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.8)",
@@ -2509,8 +2355,7 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-    height: height * 0.9,
-  },
+    height: height * 0.9, },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -2580,11 +2425,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-  btnPrimary: {
+  btnPrimaryWrap: {
     flex: 1,
-    backgroundColor: "#00652C",
-    paddingVertical: 14,
     borderRadius: 12,
+    overflow: "hidden",
+  },
+  btnPrimary: {
+    paddingVertical: 14,
     alignItems: "center",
   },
   btnPrimaryText: {
@@ -2650,11 +2497,13 @@ const styles = StyleSheet.create({
     color: "#00652C",
     fontWeight: "700",
   },
+  generateAvatarBtnWrap: {
+    borderRadius: 8,
+    overflow: "hidden",
+  },
   generateAvatarBtn: {
-    backgroundColor: "#2A8A51",
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 8,
   },
   generateAvatarBtnText: {
     color: "#fff",
@@ -2693,12 +2542,18 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     alignItems: "center",
     justifyContent: "center",
+  },
+  // Wrapper clips the gradient and now owns the sizing (flex/minWidth moved off
+  // the inner view, which no longer sits directly in the row).
+  selectOptionWrap: {
     flex: 1,
     minWidth: "30%",
+    borderRadius: 12,
+    overflow: "hidden",
   },
   selectOptionActive: {
-    backgroundColor: "#00652C",
-    borderColor: "#00652C",
+    backgroundColor: "transparent",
+    borderColor: "#006B2C",
   },
   selectOptionText: {
     fontSize: 14,

@@ -7,11 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0911ADD75FDD439CB5028A67 /* rigntone.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 7BA55CC36F5F4675A2F736FA /* rigntone.mp3 */; };
 		0C80B921A6F3F58F76C31292 /* libPods-chatbots.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-chatbots.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		455C54D2ACC40E233343659B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
-		0911ADD75FDD439CB5028A67 /* rigntone.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 7BA55CC36F5F4675A2F736FA /* rigntone.mp3 */; };
 		A6B0C7A1D2E3F4A5B6C7D8E9 /* incallmanager_ringtone.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = A6B0C7A1D2E3F4A5B6C7D8EA /* incallmanager_ringtone.mp3 */; };
 		A6B0C7A1D2E3F4A5B6C7D8EB /* incallmanager_ringback.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = A6B0C7A1D2E3F4A5B6C7D8EC /* incallmanager_ringback.mp3 */; };
 /* End PBXBuildFile section */
@@ -25,11 +26,11 @@
 		5709B34CF0A7D63546082F79 /* Pods-chatbots.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-chatbots.release.xcconfig"; path = "Target Support Files/Pods-chatbots/Pods-chatbots.release.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-chatbots.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-chatbots.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = chatbots/AppDelegate.swift; sourceTree = "<group>"; };
+		7BA55CC36F5F4675A2F736FA /* rigntone.mp3 */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = rigntone.mp3; path = ../assets/rigntone.mp3; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = chatbots/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		A6B0C7A1D2E3F4A5B6C7D8EA /* incallmanager_ringtone.mp3 */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = incallmanager_ringtone.mp3; path = ../assets/incallmanager_ringtone.mp3; sourceTree = "<group>"; };
+		A6B0C7A1D2E3F4A5B6C7D8EC /* incallmanager_ringback.mp3 */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = incallmanager_ringback.mp3; path = ../assets/incallmanager_ringback.mp3; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
-		7BA55CC36F5F4675A2F736FA /* rigntone.mp3 */ = {isa = PBXFileReference; name = "rigntone.mp3"; path = "../assets/rigntone.mp3"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
-		A6B0C7A1D2E3F4A5B6C7D8EA /* incallmanager_ringtone.mp3 */ = {isa = PBXFileReference; name = "incallmanager_ringtone.mp3"; path = "../assets/incallmanager_ringtone.mp3"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
-		A6B0C7A1D2E3F4A5B6C7D8EC /* incallmanager_ringback.mp3 */ = {isa = PBXFileReference; name = "incallmanager_ringback.mp3"; path = "../assets/incallmanager_ringback.mp3"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -54,6 +55,16 @@
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
 			);
 			name = chatbots;
+			sourceTree = "<group>";
+		};
+		2A4F961CFFF74841A3F99C0E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				7BA55CC36F5F4675A2F736FA /* rigntone.mp3 */,
+				A6B0C7A1D2E3F4A5B6C7D8EA /* incallmanager_ringtone.mp3 */,
+				A6B0C7A1D2E3F4A5B6C7D8EC /* incallmanager_ringback.mp3 */,
+			);
+			name = Resources;
 			sourceTree = "<group>";
 		};
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
@@ -103,17 +114,6 @@
 			);
 			path = Pods;
 			sourceTree = "<group>";
-		};
-		2A4F961CFFF74841A3F99C0E /* Resources */ = {
-			isa = "PBXGroup";
-			children = (
-				7BA55CC36F5F4675A2F736FA /* rigntone.mp3 */,
-				A6B0C7A1D2E3F4A5B6C7D8EA /* incallmanager_ringtone.mp3 */,
-				A6B0C7A1D2E3F4A5B6C7D8EC /* incallmanager_ringback.mp3 */,
-			);
-			name = Resources;
-			sourceTree = "<group>";
-			path = "";
 		};
 /* End PBXGroup section */
 
@@ -180,6 +180,7 @@
 				0911ADD75FDD439CB5028A67 /* rigntone.mp3 in Resources */,
 				A6B0C7A1D2E3F4A5B6C7D8E9 /* incallmanager_ringtone.mp3 in Resources */,
 				A6B0C7A1D2E3F4A5B6C7D8EB /* incallmanager_ringback.mp3 in Resources */,
+				455C54D2ACC40E233343659B /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -210,9 +211,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-chatbots/Pods-chatbots-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-chatbots/Pods-chatbots-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -249,9 +254,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-chatbots/Pods-chatbots-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-chatbots/Pods-chatbots-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -279,6 +288,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 67GAY488ZW;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = chatbots/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -309,6 +319,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 67GAY488ZW;
 				INFOPLIST_FILE = chatbots/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -391,6 +402,10 @@
 				);
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CFLAGS = (
+					"$(inherited)",
+					"-DRCT_REMOVE_LEGACY_ARCH=1",
+				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-DFOLLY_NO_CONFIG",
@@ -398,8 +413,13 @@
 					"-DFOLLY_USE_LIBCPP=1",
 					"-DFOLLY_CFG_NO_COROUTINES=1",
 					"-DFOLLY_HAVE_CLOCK_GETTIME=1",
+					"-DRCT_REMOVE_LEGACY_ARCH=1",
 				);
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				USE_HERMES = true;
 			};
 			name = Debug;
 		};
@@ -456,6 +476,10 @@
 					"\"$(inherited)\"",
 				);
 				MTL_ENABLE_DEBUG_INFO = NO;
+				OTHER_CFLAGS = (
+					"$(inherited)",
+					"-DRCT_REMOVE_LEGACY_ARCH=1",
+				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-DFOLLY_NO_CONFIG",
@@ -463,8 +487,12 @@
 					"-DFOLLY_USE_LIBCPP=1",
 					"-DFOLLY_CFG_NO_COROUTINES=1",
 					"-DFOLLY_HAVE_CLOCK_GETTIME=1",
+					"-DRCT_REMOVE_LEGACY_ARCH=1",
 				);
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				USE_HERMES = true;
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;

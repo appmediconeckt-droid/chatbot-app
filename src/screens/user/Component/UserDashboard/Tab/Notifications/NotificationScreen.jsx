@@ -13,9 +13,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import axiosInstance from '../../../../../../axiosConfig';
 import socketService from '../../../../../../services/socketService';
-import PATIENT from '../../../../../../theme/palette';
+import LinearGradient from 'react-native-linear-gradient';
+import PATIENT, {
+  PATIENT_GRADIENT,
+  TRANSPARENT_GRADIENT,
+  GRADIENT_DIRECTION,
+} from '../../../../../../theme/palette';
 
 const FILTERS = [
   { id: 'all', label: 'All' },
@@ -57,21 +63,22 @@ const normalize = (n) => {
 };
 
 // "2m", "3h", "5d" — compact relative time, falls back to a date.
-const relativeTime = (iso) => {
+const relativeTime = (iso, t = (s) => s) => {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const diff = Date.now() - d.getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return t('Just now');
+  if (mins < 60) return `${mins}${t('m ago')}`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return `${hrs}${t('h ago')}`;
   const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return `${days}${t('d ago')}`;
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 
 const NotificationScreen = ({ onClose, onAction }) => {
+  const { t } = useLanguageRender();
   const [filter, setFilter] = useState('all');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -189,7 +196,7 @@ const NotificationScreen = ({ onClose, onAction }) => {
   };
 
   return (
-    <SafeAreaView style={s.root} edges={['top']}>
+    <SafeAreaView style={s.root} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor={PATIENT.surface} />
 
       {/* Header */}
@@ -198,11 +205,11 @@ const NotificationScreen = ({ onClose, onAction }) => {
           <Ionicons name="chevron-back" size={24} color="#0f172a" />
         </TouchableOpacity>
         <View style={s.headerCenter}>
-          <Text style={s.headerTitle}>Notifications</Text>
+          <Text style={s.headerTitle}>{t('Notifications')}</Text>
           {unreadCount > 0 && (
-            <View style={s.headerBadge}>
+            <LinearGradient colors={PATIENT_GRADIENT} {...GRADIENT_DIRECTION} style={s.headerBadge}>
               <Text style={s.headerBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
-            </View>
+            </LinearGradient>
           )}
         </View>
         <TouchableOpacity
@@ -210,7 +217,7 @@ const NotificationScreen = ({ onClose, onAction }) => {
           disabled={unreadCount === 0}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={[s.markAll, unreadCount === 0 && s.markAllDisabled]}>Mark all</Text>
+          <Text style={[s.markAll, unreadCount === 0 && s.markAllDisabled]}>{t('Mark all')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -225,18 +232,26 @@ const NotificationScreen = ({ onClose, onAction }) => {
             const active = filter === f.id;
             const count = f.id === 'unread' ? unreadCount : 0;
             return (
+              // Same tree and metrics in both states - only the gradient stops
+              // and text colour change - so selecting a chip can't resize the row.
               <TouchableOpacity
                 key={f.id}
-                style={[s.chip, active && s.chipActive]}
+                style={s.chipTouch}
                 onPress={() => setFilter(f.id)}
                 activeOpacity={0.85}
               >
-                <Text style={[s.chipText, active && s.chipTextActive]}>{f.label}</Text>
-                {count > 0 && (
-                  <View style={[s.chipCount, active && s.chipCountActive]}>
-                    <Text style={[s.chipCountText, active && s.chipCountTextActive]}>{count}</Text>
-                  </View>
-                )}
+                <LinearGradient
+                  colors={active ? PATIENT_GRADIENT : TRANSPARENT_GRADIENT}
+                  {...GRADIENT_DIRECTION}
+                  style={[s.chip, active && s.chipActive]}
+                >
+                  <Text style={[s.chipText, active && s.chipTextActive]}>{t(f.label)}</Text>
+                  {count > 0 && (
+                    <View style={[s.chipCount, active && s.chipCountActive]}>
+                      <Text style={[s.chipCountText, active && s.chipCountTextActive]}>{count}</Text>
+                    </View>
+                  )}
+                </LinearGradient>
               </TouchableOpacity>
             );
           })}
@@ -267,13 +282,13 @@ const NotificationScreen = ({ onClose, onAction }) => {
               <Ionicons name="cloud-offline-outline" size={40} color="#cbd5e1" />
               <Text style={s.emptyText}>{error}</Text>
               <TouchableOpacity style={s.retryBtn} onPress={() => fetchNotifications()} activeOpacity={0.85}>
-                <Text style={s.retryText}>Retry</Text>
+                <Text style={s.retryText}>{t('Retry')}</Text>
               </TouchableOpacity>
             </View>
           ) : visible.length === 0 ? (
             <View style={s.empty}>
               <Ionicons name="notifications-off-outline" size={40} color="#cbd5e1" />
-              <Text style={s.emptyText}>You're all caught up.</Text>
+              <Text style={s.emptyText}>{t("You're all caught up.")}</Text>
             </View>
           ) : (
             visible.map((n) => {
@@ -294,13 +309,13 @@ const NotificationScreen = ({ onClose, onAction }) => {
                   <View style={s.cardBody}>
                     <View style={s.cardTopRow}>
                       <Text style={[s.cardTitle, !n.read && s.cardTitleUnread]} numberOfLines={1}>
-                        {n.title}
+                        {t(n.title)}
                       </Text>
                       {!n.read && <View style={[s.unreadDot, { backgroundColor: cfg.color }]} />}
                     </View>
-                    {!!n.body && <Text style={s.cardText} numberOfLines={2}>{n.body}</Text>}
+                    {!!n.body && <Text style={s.cardText} numberOfLines={2}>{t(n.body)}</Text>}
                     <View style={s.cardMetaRow}>
-                      <Text style={s.cardTime}>{relativeTime(n.createdAt)}</Text>
+                      <Text style={s.cardTime}>{relativeTime(n.createdAt, t)}</Text>
                       <TouchableOpacity
                         onPress={() => removeItem(n.id)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -340,9 +355,9 @@ const s = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     paddingHorizontal: 6,
-    backgroundColor: PATIENT.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   headerBadgeText: { color: '#ffffff', fontSize: 11, fontWeight: '800' },
   markAll: { fontSize: 13, fontWeight: '700', color: PATIENT.primary, width: 60, textAlign: 'right' },
@@ -367,9 +382,13 @@ const s = StyleSheet.create({
     backgroundColor: PATIENT.surface,
     justifyContent: 'center',
   },
-  chipActive: { backgroundColor: PATIENT.primary, borderColor: PATIENT.primary },
-  chipText: { fontSize: 13, fontWeight: '600', color: PATIENT.textSecondary },
-  chipTextActive: { color: '#ffffff', fontWeight: '700' },
+  // Wrapper clips the gradient to the pill radius; alignSelf stops it
+  // stretching to the row's cross-axis height.
+  chipTouch: { borderRadius: 999, overflow: 'hidden', alignSelf: 'center' },
+  chipActive: { borderColor: '#006B2C' },
+  // Weight fixed across states - bumping it on select widened the pill.
+  chipText: { fontSize: 13, fontWeight: '700', color: PATIENT.textSecondary },
+  chipTextActive: { color: '#ffffff' },
   chipCount: {
     minWidth: 18,
     height: 18,

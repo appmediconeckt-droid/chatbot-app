@@ -13,8 +13,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import PATIENT from '../../../../../../theme/palette';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 
 const Appointments = ({ navigation }) => {
+  const { t } = useLanguageRender();
   const [activeTab, setActiveTab] = useState('upcoming');
 
   const upcomingAppointments = [
@@ -139,7 +141,7 @@ const Appointments = ({ navigation }) => {
             activeOpacity={0.8}
           >
             <MaterialCommunityIcons name="video-outline" size={18} color="#ffffff" />
-            <Text style={s.callButtonText}>Video</Text>
+            <Text style={s.callButtonText}>{t('Video')}</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -148,7 +150,7 @@ const Appointments = ({ navigation }) => {
             activeOpacity={0.8}
           >
             <MaterialCommunityIcons name="phone-outline" size={18} color="#ffffff" />
-            <Text style={s.callButtonText}>Voice</Text>
+            <Text style={s.callButtonText}>{t('Voice')}</Text>
           </TouchableOpacity>
         )}
 
@@ -160,7 +162,7 @@ const Appointments = ({ navigation }) => {
               activeOpacity={0.8}
             >
               <MaterialCommunityIcons name="calendar-edit-outline" size={16} color={PATIENT.primary} />
-              <Text style={s.secondaryButtonText}>Reschedule</Text>
+              <Text style={s.secondaryButtonText}>{t('Reschedule')}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -169,7 +171,7 @@ const Appointments = ({ navigation }) => {
               activeOpacity={0.8}
             >
               <MaterialCommunityIcons name="close-outline" size={16} color="#ef4444" />
-              <Text style={[s.secondaryButtonText, { color: '#ef4444' }]}>Cancel</Text>
+              <Text style={[s.secondaryButtonText, { color: '#ef4444' }]}>{t('Cancel')}</Text>
             </TouchableOpacity>
           </>
         ) : (
@@ -179,7 +181,7 @@ const Appointments = ({ navigation }) => {
             activeOpacity={0.8}
           >
             <MaterialCommunityIcons name="calendar-plus-outline" size={16} color={PATIENT.primary} />
-            <Text style={s.secondaryButtonText}>Rebook</Text>
+            <Text style={s.secondaryButtonText}>{t('Rebook')}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -189,13 +191,12 @@ const Appointments = ({ navigation }) => {
   return (
     <SafeAreaView style={s.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-
       {/* Header */}
       <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="chevron-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>My Appointments</Text>
+        <Text style={s.headerTitle}>{t('My Appointments')}</Text>
         <View style={{ width: 24 }} />
       </View>
 
@@ -206,7 +207,7 @@ const Appointments = ({ navigation }) => {
           onPress={() => setActiveTab('upcoming')}
           activeOpacity={0.7}
         >
-          <Text style={[s.tabText, activeTab === 'upcoming' && s.tabTextActive]}>Upcoming</Text>
+          <Text style={[s.tabText, activeTab === 'upcoming' && s.tabTextActive]}>{t('Upcoming')}</Text>
           {activeTab === 'upcoming' && <View style={s.tabIndicator} />}
         </TouchableOpacity>
 
@@ -215,7 +216,7 @@ const Appointments = ({ navigation }) => {
           onPress={() => setActiveTab('past')}
           activeOpacity={0.7}
         >
-          <Text style={[s.tabText, activeTab === 'past' && s.tabTextActive]}>Past</Text>
+          <Text style={[s.tabText, activeTab === 'past' && s.tabTextActive]}>{t('Past')}</Text>
           {activeTab === 'past' && <View style={s.tabIndicator} />}
         </TouchableOpacity>
       </View>
@@ -231,7 +232,7 @@ const Appointments = ({ navigation }) => {
           <View style={s.emptyContainer}>
             <Ionicons name="calendar-outline" size={48} color="#cbd5e1" />
             <Text style={s.emptyText}>
-              {activeTab === 'upcoming' ? 'No upcoming appointments' : 'No past appointments'}
+              {activeTab === 'upcoming' ? t('No upcoming appointments') : t('No past appointments')}
             </Text>
           </View>
         }

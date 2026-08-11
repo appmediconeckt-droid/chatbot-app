@@ -3,9 +3,12 @@ import {
   View, Text, Modal, TouchableOpacity, Image,
   ScrollView, StyleSheet, Dimensions, ActivityIndicator, Alert,
 } from "react-native";
+import LinearGradient from "react-native-linear-gradient";
+import { PATIENT_GRADIENT, GRADIENT_DIRECTION } from "../../../../theme/palette";
 import * as ImagePicker from "react-native-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axiosInstance, { API_BASE_URL } from "../../../../axiosConfig";
+import useLanguageRender from '../../../../hooks/useLanguageRender';
 
 const { width: SW } = Dimensions.get("window");
 const BASE = "https://api.dicebear.com/7.x/avataaars/png";
@@ -336,6 +339,7 @@ async function generateAiAvatar(photoBase64, token) {
 }
 
 const AvatarBuilder = ({ visible, onSelect, onClose }) => {
+  const { t } = useLanguageRender();
   const [opts, setOpts]           = useState({ ...DEFAULT });
   const [activeTab, setActiveTab] = useState("skin");
   const [phase, setPhase]         = useState("capture");
@@ -485,7 +489,7 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
           {phase === "capture" && !analyzing && (
             <View style={S.capturePhase}>
               <Text style={S.captureIcon}>📸</Text>
-              <Text style={S.captureTitle}>Create your AI Avatar</Text>
+              <Text style={S.captureTitle}>{t('Create your AI Avatar')}</Text>
               <Text style={S.captureDesc}>
                 Take a selfie or upload a photo — we'll analyze your skin tone and generate
                 a matching cartoon avatar instantly.
@@ -502,7 +506,7 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
           {analyzing && (
             <View style={S.analyzingWrap}>
               <ActivityIndicator size="large" color="#667eea" />
-              <Text style={S.analyzingText}>Analyzing your photo...</Text>
+              <Text style={S.analyzingText}>{t('Analyzing your photo...')}</Text>
             </View>
           )}
 
@@ -551,7 +555,7 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
                 {TABS.map(t => (
                   <TouchableOpacity key={t.id} style={[S.tab, activeTab === t.id && S.tabActive]} onPress={() => setActiveTab(t.id)}>
                     <Text style={S.tabIcon}>{t.icon}</Text>
-                    <Text style={[S.tabLabel, activeTab === t.id && S.tabLabelActive]}>{t.label}</Text>
+                    <Text style={[S.tabLabel, activeTab === t.id && S.tabLabelActive]}>{t(t.label)}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -561,7 +565,7 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
 
                 {activeTab === "skin" && (
                   <View style={S.section}>
-                    <Text style={S.sectionTitle}>Skin Tone</Text>
+                    <Text style={S.sectionTitle}>{t('Skin Tone')}</Text>
                     <View style={S.swatches}>
                       {SKIN_COLORS.map(c => <Swatch key={c.id} color={c.id} selected={opts.skinColor === c.id} onPress={() => set("skinColor", c.id)} />)}
                     </View>
@@ -571,13 +575,13 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
                 {activeTab === "hair" && (
                   <>
                     <View style={S.section}>
-                      <Text style={S.sectionTitle}>Hair Style</Text>
+                      <Text style={S.sectionTitle}>{t('Hair Style')}</Text>
                       <View style={S.pills}>
                         {HAIR_STYLES.map(o => <Pill key={o.id} label={o.label} selected={opts.top === o.id} onPress={() => set("top", o.id)} />)}
                       </View>
                     </View>
                     <View style={S.section}>
-                      <Text style={S.sectionTitle}>Hair Color</Text>
+                      <Text style={S.sectionTitle}>{t('Hair Color')}</Text>
                       <View style={S.swatches}>
                         {HAIR_COLORS.map(c => <Swatch key={c.id} color={c.id} selected={opts.hairColor === c.id} onPress={() => set("hairColor", c.id)} />)}
                       </View>
@@ -588,13 +592,13 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
                 {activeTab === "eyes" && (
                   <>
                     <View style={S.section}>
-                      <Text style={S.sectionTitle}>Eye Style</Text>
+                      <Text style={S.sectionTitle}>{t('Eye Style')}</Text>
                       <View style={S.pills}>
                         {EYES.map(o => <Pill key={o.id} label={o.label} selected={opts.eyes === o.id} onPress={() => set("eyes", o.id)} />)}
                       </View>
                     </View>
                     <View style={S.section}>
-                      <Text style={S.sectionTitle}>Eyebrows</Text>
+                      <Text style={S.sectionTitle}>{t('Eyebrows')}</Text>
                       <View style={S.pills}>
                         {EYEBROWS.map(o => <Pill key={o.id} label={o.label} selected={opts.eyebrows === o.id} onPress={() => set("eyebrows", o.id)} />)}
                       </View>
@@ -604,7 +608,7 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
 
                 {activeTab === "mouth" && (
                   <View style={S.section}>
-                    <Text style={S.sectionTitle}>Mouth</Text>
+                    <Text style={S.sectionTitle}>{t('Mouth')}</Text>
                     <View style={S.pills}>
                       {MOUTH.map(o => <Pill key={o.id} label={o.label} selected={opts.mouth === o.id} onPress={() => set("mouth", o.id)} />)}
                     </View>
@@ -614,14 +618,14 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
                 {activeTab === "facial" && (
                   <>
                     <View style={S.section}>
-                      <Text style={S.sectionTitle}>Facial Hair</Text>
+                      <Text style={S.sectionTitle}>{t('Facial Hair')}</Text>
                       <View style={S.pills}>
                         {FACIAL_HAIR.map(o => <Pill key={o.id} label={o.label} selected={opts.facialHair === o.id} onPress={() => set("facialHair", o.id)} />)}
                       </View>
                     </View>
                     {opts.facialHair !== "none" && (
                       <View style={S.section}>
-                        <Text style={S.sectionTitle}>Beard Color</Text>
+                        <Text style={S.sectionTitle}>{t('Beard Color')}</Text>
                         <View style={S.swatches}>
                           {FACIAL_HAIR_COLORS.map(c => <Swatch key={c.id} color={c.id} selected={opts.facialHairColor === c.id} onPress={() => set("facialHairColor", c.id)} />)}
                         </View>
@@ -632,7 +636,7 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
 
                 {activeTab === "extras" && (
                   <View style={S.section}>
-                    <Text style={S.sectionTitle}>Accessories</Text>
+                    <Text style={S.sectionTitle}>{t('Accessories')}</Text>
                     <View style={S.pills}>
                       {ACCESSORIES.map(o => <Pill key={o.id} label={o.label} selected={opts.accessories === o.id} onPress={() => set("accessories", o.id)} />)}
                     </View>
@@ -642,13 +646,13 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
                 {activeTab === "clothes" && (
                   <>
                     <View style={S.section}>
-                      <Text style={S.sectionTitle}>Outfit</Text>
+                      <Text style={S.sectionTitle}>{t('Outfit')}</Text>
                       <View style={S.pills}>
                         {CLOTHING.map(o => <Pill key={o.id} label={o.label} selected={opts.clothing === o.id} onPress={() => set("clothing", o.id)} />)}
                       </View>
                     </View>
                     <View style={[S.section, { paddingBottom: 16 }]}>
-                      <Text style={S.sectionTitle}>Outfit Color</Text>
+                      <Text style={S.sectionTitle}>{t('Outfit Color')}</Text>
                       <View style={S.swatches}>
                         {CLOTHES_COLORS.map(c => <Swatch key={c.id} color={c.id} selected={opts.clothesColor === c.id} onPress={() => set("clothesColor", c.id)} />)}
                       </View>
@@ -665,7 +669,7 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
           {phase === "result" && analyzing && (
             <View style={S.loadingContainer}>
               <ActivityIndicator size="large" color="#2c50cd" />
-              <Text style={S.loadingText}>Generating Avatar...</Text>
+              <Text style={S.loadingText}>{t('Generating Avatar...')}</Text>
             </View>
           )}
 
@@ -675,10 +679,12 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
                 <Text style={S.retakeText}>↩ Retake</Text>
               </TouchableOpacity>
               <TouchableOpacity style={S.cancelBtn} onPress={onClose}>
-                <Text style={S.cancelText}>Cancel</Text>
+                <Text style={S.cancelText}>{t('Cancel')}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={S.useBtn} onPress={handleUse}>
-                <Text style={S.useText}>✨ Use Avatar</Text>
+              <TouchableOpacity style={S.useBtnWrap} onPress={handleUse} activeOpacity={0.85}>
+                <LinearGradient colors={PATIENT_GRADIENT} {...GRADIENT_DIRECTION} style={S.useBtn}>
+                  <Text style={S.useText}>✨ Use Avatar</Text>
+                </LinearGradient>
               </TouchableOpacity>
             </View>
           )}
@@ -742,7 +748,10 @@ const S = StyleSheet.create({
   retakeText:    { fontSize:13, color:"#64748b", fontWeight:"500" },
   cancelBtn:     { paddingHorizontal:14, paddingVertical:11, borderRadius:10, borderWidth:1.5, borderColor:"#e2e8f0", alignItems:"center" },
   cancelText:    { fontSize:13, color:"#64748b", fontWeight:"500" },
-  useBtn:        { flex:1, paddingVertical:12, borderRadius:10, backgroundColor:"#667eea", alignItems:"center", shadowColor:"#667eea", shadowOpacity:0.4, shadowRadius:8, elevation:4 },
+  // Wrapper owns flex/radius/shadow and clips the gradient; the inner view is
+  // just the fill, so it can't carry the corner radius on its own.
+  useBtnWrap:    { flex:1, borderRadius:10, overflow:"hidden", shadowColor:"#006B2C", shadowOpacity:0.4, shadowRadius:8, elevation:4 },
+  useBtn:        { paddingVertical:12, alignItems:"center" },
   useText:       { fontSize:14, fontWeight:"700", color:"#fff" },
 });
 

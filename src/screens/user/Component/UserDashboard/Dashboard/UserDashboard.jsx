@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from 'react-i18next';
+import useLanguageRender from '../../../../../hooks/useLanguageRender';
 import {
   View,
   Text,
@@ -21,8 +22,9 @@ import {
   StatusBar,
   PermissionsAndroid,
   Pressable,
+  BackHandler,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, useIsFocused } from "@react-navigation/native";
 import axios from "axios";
@@ -52,6 +54,8 @@ import AvatarPicker from "../../PatientProfile/AvatarPicker";
 import LanguageSelector from '../../../../../components/common/LanguageSelector';
 import RatingPrompt from '../../../../../components/RatingPrompt';
 import { loadUserLanguage } from '../../../../../i18n';
+import AutoTranslatedText from '../../../../../components/AutoTranslatedText';
+import { translationService } from '../../../../../i18n/translationService';
 import PATIENT from '../../../../../theme/palette';
 import RealVideoCallModal from "../Tab/CallModal/VideoCallModal";
 import RealVoiceCallModal from "../Tab/CallModal/VoiceCallModal";
@@ -59,11 +63,34 @@ import HelpSupport from "../Tab/HelpSupport/HelpSupport";
 import PrivacyPolicy from "../Tab/PrivacyPolicy/PrivacyPolicy";
 import NotificationScreen from "../Tab/Notifications/NotificationScreen";
 import UserAccountSettings from "../Tab/UserAccountSettings";
+import { toImageUri } from "../../../../../utils/imageUri";
 
 const { width, height } = Dimensions.get("window");
 
-const AI_WELCOME_MESSAGE = "Hi! Welcome back 💙 How are you feeling right now?";
+// Time for a Modal to finish dismissing. RN can only transition one Modal at a
+// time, so opening the next one any sooner gets silently dropped.
+const MODAL_DISMISS_MS = 320;
+
+// The AI surfaces used to run on their own green pair (#2A8A51 / #0E7552),
+// which read as a different brand from the wallet card. One constant now, so
+// header, avatars and the voice orb can't drift apart again.
+const AI_GRADIENT = ['#006B2C', '#01CE54'];
+
+// The assistant's name. Product name stays 'Humaelio'; the descriptor after it
+// changes with the surface (chat vs voice) so it reads as one assistant in two
+// modes rather than two products.
+const AI_NAME = 'Humaelio';
+const AI_CHAT_TITLE_SUFFIX = 'AI Assistant';
+const AI_VOICE_TITLE_SUFFIX = 'Voice Assistant';
+
+const AI_WELCOME_MESSAGE = "Hello, I'm Humaelio AI. How are you feeling today?";
 const AI_WELCOME_QUICK_REPLIES = ["😢 Low", "😐 Okay", "🙂 Good", "✨ Great"];
+const AI_QUICK_REPLY_KEYS = {
+  '😢 Low': 'aiQuickReplyLow',
+  '😐 Okay': 'aiQuickReplyOkay',
+  '🙂 Good': 'aiQuickReplyGood',
+  '✨ Great': 'aiQuickReplyGreat',
+};
 
 // Improved ChatPopup Component
 const VOICE_LANGUAGES = [
@@ -97,9 +124,11 @@ const ChatPopup = ({
   onLangChange,
   userPhoto,
 }) => {
+  const { t } = useLanguageRender();
   const [speakingId, setSpeakingId] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [aiAttachment, setAiAttachment] = useState(null);
+  const [aiInputPlaceholder, setAiInputPlaceholder] = useState('Type your question');
 
   const pickAiAttachment = useCallback(() => {
     launchImageLibrary({ mediaType: "photo", quality: 0.8 }, (res) => {
@@ -114,6 +143,33 @@ const ChatPopup = ({
     sendMessage(text, aiAttachment || null);
     setAiAttachment(null);
   }, [newMessage, aiAttachment, sendMessage]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const translatePlaceholder = async () => {
+      try {
+        const translated = await translationService.translate(
+          'Type your question',
+          selectedLang || 'en-US',
+          'en-US'
+        );
+        if (isMounted) {
+          setAiInputPlaceholder(translated || 'Type your question');
+        }
+      } catch (_) {
+        if (isMounted) {
+          setAiInputPlaceholder('Type your question');
+        }
+      }
+    };
+
+    translatePlaceholder();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedLang]);
   // Keyboard height reported by the event (0 when hidden).
   const [keyboardShownHeight, setKeyboardShownHeight] = useState(0);
   // Measured popup-overlay height (via onLayout) + the largest we've seen
@@ -133,7 +189,9 @@ const ChatPopup = ({
   const keyboardHeight = keyboardShownHeight > 0
     ? Math.max(0, keyboardShownHeight - overlayShrink)
     : 0;
-  const availHeight = overlayHeight;
+  // Keep the popup clear of the status bar / notch.
+  const insets = useSafeAreaInsets();
+  const availHeight = Math.max(0, overlayHeight - insets.top);
 
   // Detect tablet: width >= 600 is typically tablet range
   const isTablet = width >= 600;
@@ -371,8 +429,7 @@ const ChatPopup = ({
       console.warn('[STT] start error:', e?.message ?? e);
       setIsRecording(false);
       Alert.alert('Voice Error', e?.message?.includes('available')
-        ? 'Speech recognition is not available on this device.'
-        : 'Could not start voice input. Please try again.');
+        ? t('Speech recognition is not available on this device.') : t('Could not start voice input. Please try again.'));
     }
   };
 
@@ -630,7 +687,21 @@ const ChatPopup = ({
   };
 
   return (
-  <Modal animationType="slide" transparent={true} visible={true} statusBarTranslucent>
+  <Modal statusBarTranslucent navigationBarTranslucent
+    animationType="slide"
+    transparent={true}
+    visible={true}
+    statusBarTranslucent
+    onRequestClose={() => {
+      // Close the reset confirmation first if it's showing, so back unwinds one
+      // layer at a time rather than dismissing the whole assistant.
+      if (showResetConfirm) {
+        onCancelReset?.();
+        return;
+      }
+      onClose?.();
+    }}
+  >
     <View style={styles.chatPopupOverlay} onLayout={handleOverlayLayout}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.chatPopupBackdrop} />
@@ -638,13 +709,13 @@ const ChatPopup = ({
       <View style={[styles.chatPopup, {
         height: keyboardShownHeight > 0
           ? Math.max(availHeight - keyboardHeight - 12, 320)
-          : popupBaseHeight,
+          : Math.min(popupBaseHeight, Math.max(availHeight - 12, 320)),
         marginBottom: keyboardHeight,
       }]}>
         <LinearGradient
-          colors={['#2A8A51', '#0E7552']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
+          colors={AI_GRADIENT}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
           style={styles.chatPopupHeader}
         >
           <View style={styles.chatHeaderInfo}>
@@ -652,13 +723,19 @@ const ChatPopup = ({
               colors={['#ffffff', '#f0f0f0']}
               style={[styles.chatAvatar, styles.chatAvatarGradient]}
             >
-              <MaterialIcons name="auto-awesome" size={22} color="#2A8A51" />
+              <MaterialIcons name="auto-awesome" size={22} color="#006B2C" />
             </LinearGradient>
-            <View>
-              <Text style={styles.chatHeaderTitle}>AI Health Assistant</Text>
+            {/* flex:1 + numberOfLines so a longer name shrinks/ellipsizes here
+                instead of running underneath the header icons. */}
+            <View style={styles.chatHeaderText}>
+              <Text style={styles.chatHeaderTitle} numberOfLines={1}>
+                {AI_NAME} - <AutoTranslatedText style={styles.chatHeaderTitle}>{AI_CHAT_TITLE_SUFFIX}</AutoTranslatedText>
+              </Text>
               <View style={styles.chatStatusRow}>
                 <View style={styles.chatStatusDot} />
-                <Text style={styles.chatStatus}>Online • Secure</Text>
+                <AutoTranslatedText style={styles.chatStatus} numberOfLines={1}>
+                  Online • Secure
+                </AutoTranslatedText>
               </View>
             </View>
           </View>
@@ -715,7 +792,7 @@ const ChatPopup = ({
               >
                 {isAiMsg && (
                   <LinearGradient
-                    colors={['#2A8A51', '#0E7552']}
+                    colors={AI_GRADIENT}
                     style={[styles.chatAvatar, styles.chatAvatarSmall]}
                   >
                     <MaterialIcons name="auto-awesome" size={14} color="white" />
@@ -733,36 +810,47 @@ const ChatPopup = ({
                       message.sender === "user" && styles.chatBubbleUser,
                     ]}
                   >
-                    {!!message.image && (
+                    {!!toImageUri(message.image) && (
                       <Image
-                        source={{ uri: message.image }}
+                        source={{ uri: toImageUri(message.image) }}
                         style={styles.chatBubbleImage}
                         resizeMode="cover"
                       />
                     )}
                     {!!message.text && (
-                    <Text
-                      style={[
-                        styles.chatBubbleText,
-                        message.sender === "user" && styles.chatBubbleTextUser,
-                      ]}
-                    >
-                      {textParts.map((part, index) => {
-                        if (part.startsWith("[") && part.endsWith("]")) {
-                          const counselorName = part.slice(1, -1).trim();
-                          return (
-                            <Text
-                              key={`${message.id}_${index}`}
-                              style={styles.chatCounselorMention}
-                              onPress={() => onCounselorPress?.(counselorName)}
-                            >
-                              {counselorName}
-                            </Text>
-                          );
-                        }
-                        return <Text key={`${message.id}_${index}`}>{part}</Text>;
-                      })}
-                    </Text>
+                      message.sender === 'ai' ? (
+                        <AutoTranslatedText
+                          style={[
+                            styles.chatBubbleText,
+                            message.sender === "user" && styles.chatBubbleTextUser,
+                          ]}
+                        >
+                          {message.text}
+                        </AutoTranslatedText>
+                      ) : (
+                        <Text
+                          style={[
+                            styles.chatBubbleText,
+                            message.sender === "user" && styles.chatBubbleTextUser,
+                          ]}
+                        >
+                          {textParts.map((part, index) => {
+                            if (part.startsWith("[") && part.endsWith("]")) {
+                              const counselorName = part.slice(1, -1).trim();
+                              return (
+                                <Text
+                                  key={`${message.id}_${index}`}
+                                  style={styles.chatCounselorMention}
+                                  onPress={() => onCounselorPress?.(counselorName)}
+                                >
+                                  {counselorName}
+                                </Text>
+                              );
+                            }
+                            return <Text key={`${message.id}_${index}`}>{part}</Text>;
+                          })}
+                        </Text>
+                      )
                     )}
                     {isAiMsg && Array.isArray(message.quickReplies) && message.quickReplies.length > 0 && (
                       <View style={styles.quickRepliesWrap}>
@@ -777,7 +865,9 @@ const ChatPopup = ({
                             disabled={isLoading}
                             onPress={() => sendQuickReply?.(reply)}
                           >
-                            <Text style={styles.quickReplyText}>{reply}</Text>
+                            <Text style={styles.quickReplyText}>
+                              {t(`dashboard:${AI_QUICK_REPLY_KEYS[reply] || ''}`, reply)}
+                            </Text>
                           </TouchableOpacity>
                         ))}
                       </View>
@@ -792,7 +882,7 @@ const ChatPopup = ({
                       <MaterialIcons
                         name={isSpeaking ? "stop-circle" : "volume-up"}
                         size={14}
-                        color={isSpeaking ? "#ef4444" : "#2A8A51"}
+                        color={isSpeaking ? "#ef4444" : "#006B2C"}
                       />
                       <Text style={[styles.speakBtnText, isSpeaking && { color: '#ef4444' }]}>
                         {isSpeaking ? "Stop" : "Listen"}
@@ -802,10 +892,10 @@ const ChatPopup = ({
                 </View>
                 {message.sender === "user" && (
                   <View style={[styles.chatAvatar, styles.chatAvatarSmall, styles.userAvatar]}>
-                    {userPhoto ? (
-                      <Image source={{ uri: userPhoto }} style={{ width: '100%', height: '100%', borderRadius: 999 }} />
+                    {toImageUri(userPhoto) ? (
+                      <Image source={{ uri: toImageUri(userPhoto) }} style={{ width: '100%', height: '100%', borderRadius: 999 }} />
                     ) : (
-                      <Ionicons name="person-circle" size={18} color="#2A8A51" />
+                      <Ionicons name="person-circle" size={18} color="#006B2C" />
                     )}
                   </View>
                 )}
@@ -815,7 +905,7 @@ const ChatPopup = ({
           {isLoading && (
             <View style={[styles.chatMessageWrapper, styles.chatMessageWrapperAi]}>
               <LinearGradient
-                colors={['#2A8A51', '#0E7552']}
+                colors={AI_GRADIENT}
                 style={[styles.chatAvatar, styles.chatAvatarSmall]}
               >
                 <MaterialIcons name="auto-awesome" size={14} color="white" />
@@ -833,8 +923,8 @@ const ChatPopup = ({
 
         {aiAttachment && (
           <View style={styles.aiAttachPreview}>
-            <Image source={{ uri: aiAttachment }} style={styles.aiAttachThumb} />
-            <Text style={styles.aiAttachName} numberOfLines={1}>Photo attached</Text>
+            <Image source={{ uri: toImageUri(aiAttachment) }} style={styles.aiAttachThumb} />
+            <Text style={styles.aiAttachName} numberOfLines={1}>{t('dashboard:aiPhotoAttached')}</Text>
             <TouchableOpacity onPress={() => setAiAttachment(null)} hitSlop={8}>
               <MaterialIcons name="close" size={18} color="#64748b" />
             </TouchableOpacity>
@@ -848,16 +938,21 @@ const ChatPopup = ({
 
           {/* Input pill: leading icon + text + mic */}
           <View style={styles.chatInputPill}>
-            <MaterialIcons name="auto-awesome" size={17} color="#2A8A51" style={styles.chatInputLead} />
+            <MaterialIcons name="auto-awesome" size={17} color="#006B2C" style={styles.chatInputLead} />
             <TextInput
               ref={inputRef}
               style={styles.chatInput}
-              placeholder="Type your question"
+              placeholder={aiInputPlaceholder}
               placeholderTextColor="#94a3b8"
               value={newMessage}
               onChangeText={setNewMessage}
               onSubmitEditing={handleAiSend}
               returnKeyType="send"
+              multiline
+              // Grows with the text, then scrolls - so a long question stays
+              // readable instead of running off the end of one line.
+              maxLength={2000}
+              textAlignVertical="center"
             />
             <TouchableOpacity
               style={styles.inlineMicBtn}
@@ -898,17 +993,15 @@ const ChatPopup = ({
           <View style={styles.resetConfirmOverlay}>
             <View style={styles.resetConfirmCard}>
               <LinearGradient
-                colors={['#2A8A51', '#0E7552']}
+                colors={AI_GRADIENT}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.resetConfirmIcon}
               >
                 <MaterialIcons name="refresh" size={26} color="#ffffff" />
               </LinearGradient>
-              <Text style={styles.resetConfirmTitle}>Start a fresh chat?</Text>
-              <Text style={styles.resetConfirmText}>
-                This clears the current AI chat and starts again with the welcome mood options.
-              </Text>
+              <Text style={styles.resetConfirmTitle}>{t('dashboard:resetChatTitle')}</Text>
+              <Text style={styles.resetConfirmText}>{t('dashboard:resetChatMessage')}</Text>
               <View style={styles.resetConfirmActions}>
                 <TouchableOpacity
                   style={[styles.resetConfirmBtn, styles.resetCancelBtn]}
@@ -916,7 +1009,7 @@ const ChatPopup = ({
                   disabled={isLoading}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.resetCancelText}>Cancel</Text>
+                  <Text style={styles.resetCancelText}>{t('common:cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.resetConfirmBtn, styles.resetStartBtn, isLoading && styles.resetBtnDisabled]}
@@ -925,14 +1018,14 @@ const ChatPopup = ({
                   activeOpacity={0.85}
                 >
                   <Text style={styles.resetStartText}>
-                    {isLoading ? "Starting..." : "Start Fresh"}
+                    {isLoading ? t('dashboard:startingFresh') : t('dashboard:startFresh')}
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         )}
-        <Modal
+        <Modal statusBarTranslucent navigationBarTranslucent
           animationType="fade"
           transparent={true}
           visible={aiVoiceOpen}
@@ -961,9 +1054,9 @@ const ChatPopup = ({
                   ]}
                 />
                 <LinearGradient
-                  colors={['#2A8A51', '#0E7552', '#00652C']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
+                  colors={AI_GRADIENT}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
                   style={styles.aiVoiceAvatar}
                 >
                   <MaterialIcons name="mic" size={40} color="#ffffff" />
@@ -979,7 +1072,9 @@ const ChatPopup = ({
                 ))}
               </View>
 
-              <Text style={styles.aiVoiceTitle}>AI Voice Assistant</Text>
+              <Text style={styles.aiVoiceTitle}>
+                {AI_NAME} - <AutoTranslatedText style={styles.aiVoiceTitle}>{AI_VOICE_TITLE_SUFFIX}</AutoTranslatedText>
+              </Text>
               <Text style={styles.aiVoiceStatusText}>{getAiVoiceStatusText()}</Text>
               <Text style={styles.aiVoiceTimer}>{formatAiVoiceTime(aiVoiceTime)}</Text>
               {aiVoiceError ? (
@@ -991,13 +1086,11 @@ const ChatPopup = ({
                     activeOpacity={0.85}
                   >
                     <MaterialIcons name="refresh" size={16} color="#ffffff" />
-                    <Text style={styles.aiVoiceRetryText}>Try Again</Text>
+                    <Text style={styles.aiVoiceRetryText}>{t('dashboard:aiTryAgain')}</Text>
                   </TouchableOpacity>
                 </View>
               ) : (
-                <Text style={styles.aiVoiceHint}>
-                  Speak when you're ready — I'll reply once you pause.
-                </Text>
+                  <Text style={styles.aiVoiceHint}>{t('dashboard:aiVoiceHint')}</Text>
               )}
 
               {aiVoiceTranscript.length > 0 && (
@@ -1054,7 +1147,7 @@ const CallModal = ({
   onAcceptCall,
   onRejectCall,
 }) => {
-  const { t } = useTranslation();
+  const { t } = useLanguageRender();
   const [isAccepting, setIsAccepting] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
 
@@ -1128,7 +1221,7 @@ const CallModal = ({
   if (!isOpen) return null;
 
   const displayName = callData?.from?.fullName || callerName || "Counselor";
-  const profilePhoto = callData?.from?.profilePhoto || callerImage;
+  const profilePhoto = toImageUri(callData?.from?.profilePhoto) || toImageUri(callerImage);
   const displayInitial = (displayName?.charAt(0) || "C").toUpperCase();
   const isVideo = callType === "video";
 
@@ -1141,7 +1234,7 @@ const CallModal = ({
   const callerLocation = callData?.from?.location || callData?.from?.city || null;
 
   return (
-    <Modal transparent={false} visible={isOpen} animationType="fade" onRequestClose={onClose}>
+    <Modal statusBarTranslucent navigationBarTranslucent transparent={false} visible={isOpen} animationType="fade" onRequestClose={onClose}>
       <View style={styles.callScreen}>
         <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
@@ -1180,7 +1273,7 @@ const CallModal = ({
           </Animated.View>
 
           <View style={styles.encryptedBadge}>
-            <Ionicons name="lock-closed" size={11} color="#0E7552" />
+            <Ionicons name="lock-closed" size={11} color="#006B2C" />
             <Text style={styles.encryptedText}>ENCRYPTED</Text>
           </View>
         </View>
@@ -1326,8 +1419,17 @@ const aptSkelStyles = StyleSheet.create({
   btnRight: { flex: 1, height: 42, borderRadius: 13, backgroundColor: '#e2e8f0' },
 });
 
+// Counselor names are often stored with the title already on them, so blindly
+// prefixing produced "Dr. Dr. Naina Sharma".
+const counselorDisplayName = (apt) => {
+  const name = String(apt?.counselor?.fullName || '').trim() || 'Counselor';
+  return /^(dr\.?|doctor)\s/i.test(name) ? name : `Dr. ${name}`;
+};
+
 const sheetStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.4)', justifyContent: 'flex-end' },
+  // Height is set at render from the top inset - a flat 30 crowded the status
+  // bar on devices with a taller one and left a gap on devices with none.
   backdrop: { height: 30 },
   sheet: { flex: 1, backgroundColor: '#ffffff', borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#0f172a', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
   grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1', alignSelf: 'center', marginTop: 12, marginBottom: 18 },
@@ -1335,7 +1437,8 @@ const sheetStyles = StyleSheet.create({
   title: { fontSize: 19, fontWeight: '800', color: '#0f172a' },
   subtitle: { fontSize: 13.5, fontWeight: '500', color: '#64748b', marginTop: 4 },
   closeBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  scroll: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 130, gap: 12, flexGrow: 1, justifyContent: 'flex-start' },
+  // paddingBottom is overridden at render with the measured footer height.
+  scroll: { paddingHorizontal: 18, paddingTop: 12, gap: 12, flexGrow: 1, justifyContent: 'flex-start' },
   docCard: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 12 },
   docAvatar: { width: 48, height: 48, borderRadius: 10, backgroundColor: '#e2e8f0' },
   docNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 1 },
@@ -1343,7 +1446,9 @@ const sheetStyles = StyleSheet.create({
   docSpec: { fontSize: 12, fontWeight: '500', color: '#64748b', marginBottom: 4 },
   docMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   docMetaText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
-  confirmPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PATIENT.primary, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  // flexShrink 0: the name column beside it is flex:1, so without this a long
+  // counselor name or a longer translated status squashed the pill.
+  confirmPill: { flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PATIENT.primary, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
   confirmDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ffffff' },
   confirmText: { fontSize: 12, fontWeight: '700', color: '#ffffff' },
   countBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#E6F6EC' },
@@ -1372,7 +1477,9 @@ const sheetStyles = StyleSheet.create({
   tlStatus: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 },
   footerPast: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 },
-  closePastBtn: { backgroundColor: PATIENT.primary, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  // Wrapper clips the gradient to the rounded corners.
+  closePastBtnWrap: { borderRadius: 12, overflow: 'hidden' },
+  closePastBtn: { paddingVertical: 12, alignItems: 'center' },
   closePastText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
   joinBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 14, marginBottom: 12 },
   joinText: { fontSize: 15, fontWeight: '800', color: '#ffffff' },
@@ -1382,7 +1489,7 @@ const sheetStyles = StyleSheet.create({
 });
 
 const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) => {
-  const { t } = useTranslation();
+  const { t } = useLanguageRender();
   const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(true);
   const [activeTab, setActiveTab] = useState("Upcoming");
@@ -1391,6 +1498,13 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [countdown, setCountdown] = useState("");
   const socketRef = useRef(null);
+  // The details sheet is a Modal, so it sits OUTSIDE the screen's SafeAreaView
+  // and nothing was compensating for the device's bottom inset. On a phone with
+  // gesture navigation the footer's Chat / Call row ran under the system bar.
+  const sheetInsets = useSafeAreaInsets();
+  // Footer is absolutely positioned, so the scroll needs to reserve its height.
+  // It was a hardcoded 130 that barely fitted and never accounted for the inset.
+  const [footerHeight, setFooterHeight] = useState(130);
 
   // Live countdown to the session start while the details sheet is open.
   useEffect(() => {
@@ -1585,7 +1699,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 style={StyleSheet.absoluteFillObject}
               />
             )}
-            <Text style={[styles.aptTabText, activeTab === "Upcoming" && styles.aptTabTextActive]}>Upcoming</Text>
+            <Text style={[styles.aptTabText, activeTab === "Upcoming" && styles.aptTabTextActive]}>{t('Upcoming')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setActiveTab("Past")}
@@ -1599,7 +1713,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 style={StyleSheet.absoluteFillObject}
               />
             )}
-            <Text style={[styles.aptTabText, activeTab === "Past" && styles.aptTabTextActive]}>Past</Text>
+            <Text style={[styles.aptTabText, activeTab === "Past" && styles.aptTabTextActive]}>{t('Past')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -1642,9 +1756,9 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
         ) : displayApts.length === 0 ? (
           <View style={styles.appointmentEmptyCard}>
             <MaterialIcons name="event-busy" size={40} color="#A7E3BE" />
-            <Text style={styles.appointmentEmptyTitle}>No appointments found</Text>
+            <Text style={styles.appointmentEmptyTitle}>{t('No appointments found')}</Text>
             <Text style={styles.appointmentEmptySubtitle}>
-              Try changing filters or book a new session with a counselor.
+              {t('Try changing filters or book a new session with a counselor.')}
             </Text>
           </View>
         ) : (
@@ -1662,7 +1776,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     <Ionicons name="checkmark-circle" size={14} color={PATIENT.primary} />
                   </View>
                   <Text style={styles.appointmentSpecialization} numberOfLines={1}>
-                    {apt?.counselor?.specialization || "Mental Wellness Specialist"}
+                    {apt?.counselor?.specialization || t('Mental Wellness Specialist')}
                   </Text>
                   <View style={styles.aptMetaRow}>
                     <Ionicons name="briefcase-outline" size={12} color={PATIENT.textSecondary} />
@@ -1757,14 +1871,15 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
         )}
       </ScrollView>
 
-      <Modal
+      <Modal statusBarTranslucent navigationBarTranslucent
         transparent={true}
         visible={showDetailsModal}
         animationType="slide"
+        statusBarTranslucent
         onRequestClose={() => setShowDetailsModal(false)}
       >
         <View style={sheetStyles.overlay}>
-          <View style={sheetStyles.backdrop}>
+          <View style={[sheetStyles.backdrop, { height: Math.max(sheetInsets.top, 24) }]}>
             <TouchableWithoutFeedback onPress={() => setShowDetailsModal(false)}>
               <View style={{ flex: 1 }} />
             </TouchableWithoutFeedback>
@@ -1776,8 +1891,8 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             {/* Header */}
             <View style={sheetStyles.header}>
               <View style={{ flex: 1 }}>
-                <Text style={sheetStyles.title}>Appointment Details</Text>
-                <Text style={sheetStyles.subtitle}>View your session information</Text>
+                <Text style={sheetStyles.title}>{t('Appointment Details')}</Text>
+                <Text style={sheetStyles.subtitle}>{t('View your session information')}</Text>
               </View>
               <TouchableOpacity
                 onPress={() => setShowDetailsModal(false)}
@@ -1790,9 +1905,10 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={sheetStyles.scroll}
+              contentContainerStyle={[sheetStyles.scroll, { paddingBottom: footerHeight + 16 }]}
               showsVerticalScrollIndicator={false}
-              scrollEnabled={false}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
             >
               {/* Counselor card */}
               <View style={sheetStyles.docCard}>
@@ -1800,7 +1916,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 <View style={{ flex: 1 }}>
                   <View style={sheetStyles.docNameRow}>
                     <Text style={sheetStyles.docName} numberOfLines={1}>
-                      Dr. {selectedApt?.counselor?.fullName || "Counselor"}
+                      {counselorDisplayName(selectedApt)}
                     </Text>
                     <Ionicons name="checkmark-circle" size={15} color={PATIENT.primary} />
                   </View>
@@ -1834,7 +1950,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     <Ionicons name="time-outline" size={22} color="#ffffff" />
                   </LinearGradient>
                   <View style={{ flex: 1 }}>
-                    <Text style={sheetStyles.countLabel}>Session starts in</Text>
+                    <Text style={sheetStyles.countLabel}>{t('Session starts in')}</Text>
                     <Text style={sheetStyles.countValue}>{countdown || "--:--:--"}</Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
@@ -1851,11 +1967,11 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     <Ionicons name="checkmark-circle" size={22} color="#10b981" />
                   </LinearGradient>
                   <View style={{ flex: 1 }}>
-                    <Text style={sheetStyles.pastLabel}>Session Completed</Text>
+                    <Text style={sheetStyles.pastLabel}>{t('Session Completed')}</Text>
                     <Text style={sheetStyles.pastValue}>Talk time: {talkDuration} mins</Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
-                    <Text style={sheetStyles.pastDay}>Ended</Text>
+                    <Text style={sheetStyles.pastDay}>{t('Ended')}</Text>
                     <Text style={sheetStyles.pastTime}>{timeLabel}</Text>
                   </View>
                 </View>
@@ -1867,15 +1983,15 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   <View style={[sheetStyles.gridIcon, { backgroundColor: "#E7EEFE" }]}>
                     <MaterialIcons name="event" size={18} color="#2563EB" />
                   </View>
-                  <Text style={sheetStyles.gridLabel}>DATE</Text>
-                  <Text style={sheetStyles.gridValue}>{dateLabel}</Text>
+                  <Text style={sheetStyles.gridLabel}>{t('DATE')}</Text>
+                  <Text style={sheetStyles.gridValue} numberOfLines={2}>{dateLabel}</Text>
                 </View>
                 <View style={sheetStyles.gridCell}>
                   <View style={[sheetStyles.gridIcon, { backgroundColor: "#E6F6EC" }]}>
                     <MaterialIcons name="schedule" size={18} color={PATIENT.primary} />
                   </View>
-                  <Text style={sheetStyles.gridLabel}>TIME</Text>
-                  <Text style={sheetStyles.gridValue}>{timeLabel}</Text>
+                  <Text style={sheetStyles.gridLabel}>{t('TIME')}</Text>
+                  <Text style={sheetStyles.gridValue} numberOfLines={2}>{timeLabel}</Text>
                 </View>
               </View>
 
@@ -1884,15 +2000,15 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   <View style={[sheetStyles.gridIcon, { backgroundColor: "#F1EAFE" }]}>
                     <MaterialIcons name="laptop-mac" size={18} color="#7C3AED" />
                   </View>
-                  <Text style={sheetStyles.gridLabel}>MODE</Text>
-                  <Text style={sheetStyles.gridValue}>{modeLabel}</Text>
+                  <Text style={sheetStyles.gridLabel}>{t('MODE')}</Text>
+                  <Text style={sheetStyles.gridValue} numberOfLines={2}>{modeLabel}</Text>
                 </View>
                 <View style={sheetStyles.gridCell}>
                   <View style={[sheetStyles.gridIcon, { backgroundColor: "#FEF3E2" }]}>
                     <MaterialIcons name="timer" size={18} color="#F59E0B" />
                   </View>
-                  <Text style={sheetStyles.gridLabel}>DURATION</Text>
-                  <Text style={sheetStyles.gridValue}>{durationLabel}</Text>
+                  <Text style={sheetStyles.gridLabel}>{t('DURATION')}</Text>
+                  <Text style={sheetStyles.gridValue} numberOfLines={2}>{durationLabel}</Text>
                 </View>
               </View>
 
@@ -1905,7 +2021,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   </View>
                   <View style={{ flex: 1, paddingBottom: 14 }}>
                     <Text style={sheetStyles.tlDate}>{relDay(selectedApt?.createdAt) || "Recently"}</Text>
-                    <Text style={sheetStyles.tlStatus}>Booked</Text>
+                    <Text style={sheetStyles.tlStatus}>{t('Booked')}</Text>
                   </View>
                 </View>
                 <View style={sheetStyles.tlItem}>
@@ -1922,12 +2038,19 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 
             {/* Fixed footer actions - only for upcoming */}
             {!isPast && (
-              <View style={sheetStyles.footer}>
+              <View
+                style={[
+                  sheetStyles.footer,
+                  { paddingBottom: Math.max(sheetInsets.bottom, 12) + 8 },
+                ]}
+                onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
+              >
                 <TouchableOpacity
                   activeOpacity={0.9}
                   onPress={() => {
+                    const apt = selectedApt;
                     setShowDetailsModal(false);
-                    onVideoCall && onVideoCall(selectedApt);
+                    setTimeout(() => onVideoCall && onVideoCall(apt), MODAL_DISMISS_MS);
                   }}
                 >
                   <LinearGradient
@@ -1937,7 +2060,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     style={sheetStyles.joinBtn}
                   >
                     <Ionicons name="videocam" size={20} color="#ffffff" />
-                    <Text style={sheetStyles.joinText}>Join Video Session</Text>
+                    <Text style={sheetStyles.joinText}>{t('Join Video Session')}</Text>
                   </LinearGradient>
                 </TouchableOpacity>
 
@@ -1946,23 +2069,25 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     style={sheetStyles.secBtn}
                     activeOpacity={0.85}
                     onPress={() => {
+                      const apt = selectedApt;
                       setShowDetailsModal(false);
-                      onChat && onChat(selectedApt);
+                      setTimeout(() => onChat && onChat(apt), MODAL_DISMISS_MS);
                     }}
                   >
                     <Ionicons name="chatbubble-ellipses" size={17} color="#F59E0B" />
-                    <Text style={sheetStyles.secText}>Chat</Text>
+                    <Text style={sheetStyles.secText}>{t('Chat')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={sheetStyles.secBtn}
                     activeOpacity={0.85}
                     onPress={() => {
+                      const apt = selectedApt;
                       setShowDetailsModal(false);
-                      onVoiceCall && onVoiceCall(selectedApt);
+                      setTimeout(() => onVoiceCall && onVoiceCall(apt), MODAL_DISMISS_MS);
                     }}
                   >
                     <Ionicons name="call" size={17} color={PATIENT.primary} />
-                    <Text style={sheetStyles.secText}>Call</Text>
+                    <Text style={sheetStyles.secText}>{t('Call')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1970,13 +2095,26 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 
             {/* Footer for past appointments - just close button */}
             {isPast && (
-              <View style={sheetStyles.footerPast}>
+              <View
+                style={[
+                  sheetStyles.footerPast,
+                  { paddingBottom: Math.max(sheetInsets.bottom, 12) + 8 },
+                ]}
+                onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
+              >
                 <TouchableOpacity
                   activeOpacity={0.85}
                   onPress={() => setShowDetailsModal(false)}
-                  style={sheetStyles.closePastBtn}
+                  style={sheetStyles.closePastBtnWrap}
                 >
-                  <Text style={sheetStyles.closePastText}>Close</Text>
+                  <LinearGradient
+                    colors={['#006B2C', '#01CE54']}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={sheetStyles.closePastBtn}
+                  >
+                    <Text style={sheetStyles.closePastText}>{t('Close')}</Text>
+                  </LinearGradient>
                 </TouchableOpacity>
               </View>
             )}
@@ -1988,7 +2126,12 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 };
 
 export default function UserDashboard() {
-  const { t, i18n } = useTranslation();
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  // The bottom tab bar had a fixed paddingBottom (6 on Android), so on a phone
+  // with gesture navigation its labels were clipped by the gesture bar.
+  const navInsets = useSafeAreaInsets();
+  const { i18n } = useTranslation();
+  const { t } = useLanguageRender();
   const navigation = useNavigation();
   const isFocused = useIsFocused();
   const [active, setActive] = useState("Chat");
@@ -2003,6 +2146,18 @@ export default function UserDashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [aiSessionId, setAiSessionId] = useState(null);
   const [showMoreModal, setShowMoreModal] = useState(false);
+  // Which sidebar entry to highlight when that entry opens a modal instead of a
+  // tab. Profile / Call history / Settings can just read `active`, but Help and
+  // Privacy have no tab of their own, so their selection is remembered here.
+  const [sidebarSection, setSidebarSection] = useState(null);
+  // Visited tabs, most recent last. Drives back navigation between tabs.
+  const tabHistoryRef = useRef([]);
+  // True while a screen opened from the sidebar is showing.
+  const cameFromSidebarRef = useRef(false);
+  // True when the sidebar is on screen only because a back press re-opened it.
+  // The screen sitting behind it is then the one the user just backed out of,
+  // so the next back must skip past it instead of landing on it again.
+  const sidebarViaBackRef = useRef(false);
   const [showHelpSupport, setShowHelpSupport] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
@@ -2057,7 +2212,7 @@ export default function UserDashboard() {
 
   const handleAIContactClick = (name) => {
     setTargetCounselor(name);
-    setActive("Counselor");
+    switchDashboardTab("Counselor");
     setChatOpen(false);
   };
 
@@ -2140,7 +2295,10 @@ export default function UserDashboard() {
         setChatMessages([
           {
             id: Date.now(),
-            text: response.data.data?.aiResponse || AI_WELCOME_MESSAGE,
+            // Keep the opening message app-owned so the assistant name remains
+            // consistent even if the API is still configured with an older brand.
+            text: AI_WELCOME_MESSAGE,
+            system: 'welcome',
             sender: "ai",
             quickReplies: response.data.data?.quickReplies || AI_WELCOME_QUICK_REPLIES,
           },
@@ -2154,6 +2312,7 @@ export default function UserDashboard() {
         {
           id: Date.now(),
           text: AI_WELCOME_MESSAGE,
+            system: 'welcome',
           sender: "ai",
           quickReplies: AI_WELCOME_QUICK_REPLIES,
         },
@@ -2352,6 +2511,9 @@ export default function UserDashboard() {
 
   const fetchUserData = async () => {
     try {
+      // Clear any previous image-load failure so a freshly uploaded photo gets
+      // a fair attempt instead of staying on initials.
+      setAvatarFailed(false);
       const storedUserId = await AsyncStorage.getItem("userId");
       if (!storedUserId) return;
 
@@ -2365,7 +2527,17 @@ export default function UserDashboard() {
           name: user.fullName || "",
           email: user.email || "",
           phone: user.phoneNumber || "",
-          profilePhoto: user.profilePhoto?.url || "",
+          // Field name varies by endpoint/record in this backend, and reading only
+          // `profilePhoto` left the sidebar avatar blank while the profile page
+          // (which also falls back to its own local state) showed one. Each is
+          // run through toImageUri, so any string / {url} / {secure_url} /
+          // {publicId} shape resolves.
+          profilePhoto:
+            toImageUri(user.profilePhoto) ||
+            toImageUri(user.profilePic) ||
+            toImageUri(user.avatar) ||
+            toImageUri(user.photo) ||
+            "",
         });
       }
     } catch (error) {
@@ -2389,7 +2561,7 @@ export default function UserDashboard() {
 
   const initiateAptCall = async (apt, callType, failLabel) => {
     try {
-      const counselor = (typeof apt?.counselor === "object" && apt?.counselor) || apt;
+      const counselor = normalizeAptCounselor(apt);
       const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
       const currentUserId = userId || await AsyncStorage.getItem("userId");
       const counselorId = extractCounselorId(apt);
@@ -2446,12 +2618,36 @@ export default function UserDashboard() {
   const handleAptVoiceCall = (apt) => initiateAptCall(apt, "audio", "Failed to initiate voice call");
 
   // Handler for appointment chat
+  // An appointment's counselor carries `fullName` and possibly a Cloudinary photo
+  // object, while ChatBox and the call modals read `name` / `profilePhoto`. Passing
+  // the raw object through is why the call header and the chat header showed a
+  // placeholder name and no avatar. Used by every appointment -> chat/call route.
+  const normalizeAptCounselor = (apt) => {
+    const raw = (typeof apt?.counselor === "object" && apt.counselor) || {};
+    const photo = toImageUri(raw.profilePhoto) || toImageUri(raw.avatar);
+    const id = extractCounselorId(apt) || raw._id || raw.id || null;
+    return {
+      ...raw,
+      id,
+      _id: raw._id || id,
+      name: raw.fullName || raw.name || "Counselor",
+      fullName: raw.fullName || raw.name || "Counselor",
+      specialization: raw.specialization || "",
+      profilePhoto: photo,
+      avatar: photo,
+      avatarType: photo ? "image" : "text",
+      phoneNumber: raw.phoneNumber || raw.phone || null,
+      online: Boolean(raw.isOnline ?? raw.online ?? false),
+    };
+  };
+
   const handleAptChat = async (apt) => {
     try {
-      const counselor = apt?.counselor || apt;
+      const counselor = normalizeAptCounselor(apt);
+
       navigation.navigate("ChatBox", {
         chatId: null,
-        counselor: counselor,
+        counselor,
         user: userData,
       });
     } catch (error) {
@@ -2518,9 +2714,21 @@ export default function UserDashboard() {
     const trimmedMessage = sourceText.trim();
     if (!trimmedMessage && !imageUri) return;
 
+    let outgoingText = trimmedMessage;
+    if (trimmedMessage && selectedLang && !['en', 'en-US', 'en-IN', 'en-GB'].includes(selectedLang)) {
+      try {
+        const translated = await translationService.translate(trimmedMessage, selectedLang, 'en-US');
+        if (translated && translated.trim()) {
+          outgoingText = translated.trim();
+        }
+      } catch (error) {
+        console.warn('[AI-CHAT] outgoing translate failed:', error?.message || error);
+      }
+    }
+
     const userMessage = {
       id: Date.now(),
-      text: trimmedMessage,
+      text: outgoingText,
       sender: "user",
       image: imageUri || null,
     };
@@ -2534,14 +2742,14 @@ export default function UserDashboard() {
     setIsLoading(true);
 
     try {
-      const outgoingText = trimmedMessage || "I've shared a photo — please take a look.";
+      const outgoingPayloadText = outgoingText || "I've shared a photo — please take a look.";
       const history = chatMessages.slice(-10).map((msg) => ({
         role: msg.sender === "user" ? "user" : "assistant",
         content: msg.text,
       }));
 
       const response = await axiosInstance.post('/api/ai-chat/send-message', {
-        message: outgoingText,
+        message: outgoingPayloadText,
         history,
         sessionId: aiSessionId,
         language: selectedLang,
@@ -2607,9 +2815,101 @@ export default function UserDashboard() {
     switchDashboardTab("profile");
   };
 
+  // Android hardware back had no handler here, so on any tab other than Chat -
+  // Settings, Profile, Wallet, Call history - it fell straight through to the
+  // navigator, where this screen is the initial route, and closed the app.
+  // Unwind the visible layer instead: overlay first, then tab, then let it exit.
+  useEffect(() => {
+    // Only while this screen is on top. A screen pushed above it (ChatBox,
+    // CounselorTable...) must get the back press itself, otherwise back would
+    // silently switch this dashboard's tab instead of popping the stack.
+    if (!isFocused) return undefined;
+
+    const onBackPress = () => {
+      // Topmost first, roughly in z-order. The AI voice sheet lives inside
+      // ChatPopup and closes itself via its own onRequestClose.
+      if (chatOpen) { setChatOpen(false); return true; }
+      if (showLogoutConfirm) { setShowLogoutConfirm(false); return true; }
+      if (showAvatarBuilder) { setShowAvatarBuilder(false); return true; }
+      if (showAvatarChooser) { setShowAvatarChooser(false); return true; }
+      if (showDirectBookingModal) { setShowDirectBookingModal(false); return true; }
+      if (showPrivacyPolicy) { closeSidebarChild(() => setShowPrivacyPolicy(false)); return true; }
+      if (showHelpSupport) { closeSidebarChild(() => setShowHelpSupport(false)); return true; }
+      if (showNotifications) { setShowNotifications(false); return true; }
+      if (showMoreModal) return handleSidebarBack();
+
+      // Came here from the sidebar - go back to the sidebar.
+      if (cameFromSidebarRef.current) {
+        cameFromSidebarRef.current = false;
+        sidebarViaBackRef.current = true;
+        setShowMoreModal(true);
+        return true;
+      }
+
+      // Otherwise retrace the tab history one step at a time. Jumping straight
+      // to the home tab loses everything in between, which is what made back
+      // feel like it went "home" instead of back.
+      return handleDashboardBack();
+    };
+
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [
+    isFocused,
+    active,
+    chatOpen,
+    showLogoutConfirm,
+    showAvatarBuilder,
+    showAvatarChooser,
+    showDirectBookingModal,
+    showPrivacyPolicy,
+    showHelpSupport,
+    showNotifications,
+    showMoreModal,
+  ]);
+
+  // One step back through the tab history. Used by the hardware/system back and
+  // by in-screen back arrows so both behave the same.
+  const handleDashboardBack = () => {
+    setSidebarSection(null);
+    if (tabHistoryRef.current.length > 0) {
+      setActive(tabHistoryRef.current.pop());
+      return true;
+    }
+    if (active !== 'Chat') {
+      setActive('Chat');
+      return true;
+    }
+    return false;
+  };
+
+  // Back press while the sidebar is open. This has to be shared: the sidebar is
+  // a Modal, and a Modal's onRequestClose consumes the Android back press before
+  // the screen-level BackHandler ever sees it - so putting the logic only in the
+  // BackHandler did nothing at all while the drawer was up.
+  const handleSidebarBack = () => {
+    setShowMoreModal(false);
+    // Re-opened BY a back press means the screen behind it is the one already
+    // backed out of (Settings / Profile / Call history). Keep retracing so the
+    // user lands on the tab they came from instead of bouncing back into it.
+    if (sidebarViaBackRef.current) {
+      sidebarViaBackRef.current = false;
+      handleDashboardBack();
+    }
+    return true;
+  };
+
   const switchDashboardTab = (tabId) => {
+    // Cleared before the early return: picking a tab always drops the sidebar's
+    // modal-section highlight, even if that tab was already active.
+    setSidebarSection(null);
+    cameFromSidebarRef.current = false;
+    setShowMoreModal(false);
     if (active === tabId) return;
     safeVibrate(100);
+    // Remember where we came from so back retraces the path rather than jumping
+    // straight to the home tab.
+    tabHistoryRef.current.push(active);
     setActive(tabId);
   };
 
@@ -2792,46 +3092,89 @@ export default function UserDashboard() {
     return t('dashboard:goodEvening', 'Good Evening');
   };
 
+  // Profile / Call history / Settings only flip `active`, so they work straight
+  // away. Help & Support and Privacy Policy are separate <Modal statusBarTranslucent navigationBarTranslucent>s, and React
+  // Native will not mount a second Modal while the sidebar Modal is still
+  // dismissing - the open call was simply swallowed. Let the sidebar finish
+  // fading out first.
+  const closeSidebarThen = (open) => {
+    sidebarViaBackRef.current = false;
+    // Sidebar stays open behind the child. Nothing is dismissing, so the child
+    // Modal mounts immediately - and closing it reveals the sidebar with no gap.
+    cameFromSidebarRef.current = true;
+    open();
+  };
+
+  // Dismissing a screen opened from the sidebar just uncovers the sidebar.
+  const closeSidebarChild = (close) => {
+    close();
+    cameFromSidebarRef.current = false;
+    // Drop the section highlight too. Without this the sidebar still showed
+    // Help/Privacy as the active row after returning, and because every tab row
+    // is gated on `!sidebarSection` none of them could light up either.
+    setSidebarSection(null);
+  };
+
+
+  // Opening a tab from the sidebar records the sidebar as the origin, so back
+  // returns there rather than to the tab that happened to be underneath.
+  const openTabFromSidebar = (tabId, go) => {
+    sidebarViaBackRef.current = false;
+    setShowMoreModal(false);
+    (go || switchDashboardTab)(tabId);
+    // Set after the switch: switchDashboardTab clears this flag for ordinary
+    // tab changes, and this one is not ordinary.
+    cameFromSidebarRef.current = true;
+  };
+
   const sidebarItems = [
     {
       id: 'profile',
       icon: 'person-outline',
       iconActive: 'person',
       label: t('settings:myProfile'),
-      isActive: active === 'profile',
-      onPress: () => { setShowMoreModal(false); switchDashboardTab('profile'); },
+      // `!sidebarSection` so a tab and a modal section are never both lit.
+      isActive: !sidebarSection && active === 'profile',
+      onPress: () => openTabFromSidebar('profile'),
     },
     {
       id: 'Video',
       icon: 'call-outline',
       iconActive: 'call',
       label: t('dashboard:callHistory'),
-      isActive: active === 'Video',
-      onPress: () => { setShowMoreModal(false); handleMenuItemClick('Video'); },
+      isActive: !sidebarSection && active === 'Video',
+      onPress: () => openTabFromSidebar('Video', handleMenuItemClick),
     },
     {
       id: 'settings',
       icon: 'settings-outline',
       iconActive: 'settings',
       label: t('settings:settings'),
-      isActive: active === 'settings',
-      onPress: () => { setShowMoreModal(false); setActive('settings'); },
+      isActive: !sidebarSection && active === 'settings',
+      // Routed through switchDashboardTab so it clears sidebarSection too.
+      onPress: () => openTabFromSidebar('settings'),
     },
     {
       id: 'help',
       icon: 'help-circle-outline',
       iconActive: 'help-circle',
       label: t('settings:helpSupport'),
-      isActive: false,
-      onPress: () => { setShowMoreModal(false); setShowHelpSupport(true); },
+      isActive: sidebarSection === 'help',
+      onPress: () => {
+        setSidebarSection('help');
+        closeSidebarThen(() => setShowHelpSupport(true));
+      },
     },
     {
       id: 'privacy',
       icon: 'shield-checkmark-outline',
       iconActive: 'shield-checkmark',
       label: t('settings:privacyPolicy'),
-      isActive: false,
-      onPress: () => { setShowMoreModal(false); setShowPrivacyPolicy(true); },
+      isActive: sidebarSection === 'privacy',
+      onPress: () => {
+        setSidebarSection('privacy');
+        closeSidebarThen(() => setShowPrivacyPolicy(true));
+      },
     },
   ];
 
@@ -2863,9 +3206,13 @@ export default function UserDashboard() {
       case "Video":
         return <CallHistory />;
       case "profile":
-        return <PatientProfile />;
+        // The dashboard reads userData once on mount, so a photo changed inside
+        // the profile tab left the sidebar avatar (and the header) showing the
+        // old one until the app restarted. PatientProfile already fires this
+        // callback after a successful save - it just was never wired up.
+        return <PatientProfile onProfileUpdate={fetchUserData} />;
       case "settings":
-        return <UserAccountSettings onNavigateBack={() => setActive("Chat")} />;
+        return <UserAccountSettings onNavigateBack={() => handleDashboardBack()} />;
       default:
         return <ChatInterface />;
     }
@@ -2946,7 +3293,7 @@ export default function UserDashboard() {
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.menuBtnWrapper}
-          onPress={() => setShowMoreModal(true)}
+          onPress={() => { sidebarViaBackRef.current = false; setShowMoreModal(true); }}
           activeOpacity={0.7}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           accessible={true}
@@ -2960,7 +3307,6 @@ export default function UserDashboard() {
         </TouchableOpacity>
 
         <View style={styles.headerLeft}>
-          <Text style={styles.headerWelcome}>{t('dashboard:welcomeBack', 'Welcome back,')}</Text>
           <Text style={styles.headerName} numberOfLines={1}>
             {getGreeting()}, {(userData.name || 'User').split(' ')[0]}
           </Text>
@@ -2980,27 +3326,6 @@ export default function UserDashboard() {
       <View style={styles.contentContainer}>
         {renderContent()}
       </View>
-
-      {/* AI FLOATING BUTTON — centred in the bottom nav */}
-      <TouchableOpacity
-        style={styles.aiButton}
-        onPress={() => setChatOpen(true)}
-        activeOpacity={0.85}
-      >
-        <LinearGradient
-          colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.aiButtonGradient}
-        >
-          <Ionicons name="sparkles" size={26} color="#ffffff" />
-        </LinearGradient>
-        {unreadCount > 0 && !chatOpen && (
-          <View style={styles.aiUnreadBadge}>
-            <Text style={styles.aiUnreadBadgeText}>{unreadCount}</Text>
-          </View>
-        )}
-      </TouchableOpacity>
 
       {/* CHAT POPUP */}
       {chatOpen && (
@@ -3028,7 +3353,16 @@ export default function UserDashboard() {
       )}
 
       {/* BOTTOM NAVIGATION */}
-      <View style={styles.bottomNav}>
+      <View
+        pointerEvents="box-none"
+        style={[
+          styles.bottomNav,
+          {
+            height: (Platform.OS === 'ios' ? 84 : 68) + navInsets.bottom,
+            paddingBottom: (Platform.OS === 'ios' ? 20 : 6) + navInsets.bottom,
+          },
+        ]}
+      >
         {[
           { id: 'Chat', icon: 'chatbubble-ellipses-outline', iconActive: 'chatbubble-ellipses', label: t('dashboard:chat') },
           { id: 'Counselor', icon: 'bulb-outline', iconActive: 'bulb', label: t('dashboard:counselor') },
@@ -3081,12 +3415,35 @@ export default function UserDashboard() {
         ))}
       </View>
 
+      {/* AI FLOATING BUTTON — centred above the bottom nav */}
+      <TouchableOpacity
+        style={styles.aiButton}
+        onPress={() => setChatOpen(true)}
+        activeOpacity={0.85}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        accessibilityLabel="Open Humaelio AI"
+      >
+        <LinearGradient
+          colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.aiButtonGradient}
+        >
+          <Ionicons name="sparkles" size={26} color="#ffffff" />
+        </LinearGradient>
+        {unreadCount > 0 && !chatOpen && (
+          <View style={styles.aiUnreadBadge}>
+            <Text style={styles.aiUnreadBadgeText}>{unreadCount}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+
       {/* SIDEBAR DRAWER */}
-      <Modal
+      <Modal statusBarTranslucent navigationBarTranslucent
         transparent
         visible={showMoreModal}
         animationType="fade"
-        onRequestClose={() => setShowMoreModal(false)}
+        onRequestClose={handleSidebarBack}
         statusBarTranslucent={true}
       >
         <View style={styles.sidebarRoot} pointerEvents="auto">
@@ -3104,8 +3461,13 @@ export default function UserDashboard() {
                 onPress={() => { setShowMoreModal(false); switchDashboardTab('profile'); }}
               >
                 <View style={styles.sbAvatarWrap}>
-                  {userData.profilePhoto ? (
-                    <Image source={{ uri: userData.profilePhoto }} style={styles.sbAvatar} />
+                  {userData.profilePhoto && !avatarFailed ? (
+                    <Image
+                      source={{ uri: userData.profilePhoto }}
+                      style={styles.sbAvatar}
+                      // A dead URL used to leave an empty circle. Show initials.
+                      onError={() => setAvatarFailed(true)}
+                    />
                   ) : (
                     <View style={styles.sbAvatarPlaceholder}>
                       <Text style={styles.sbAvatarText}>
@@ -3134,12 +3496,18 @@ export default function UserDashboard() {
 
             {/* Menu */}
             <View style={styles.sbMenu}>
+              {/* Pressable, not TouchableOpacity: opacity alone gave no visible
+                  feedback, so Help and Privacy looked dead when tapped. */}
               {sidebarItems.map((item) => (
-                <TouchableOpacity
+                <Pressable
                   key={item.id}
-                  style={[styles.sbItem, item.isActive && styles.sbItemActive]}
+                  style={({ pressed }) => [
+                    styles.sbItem,
+                    item.isActive && styles.sbItemActive,
+                    pressed && styles.sbItemPressed,
+                  ]}
                   onPress={item.onPress}
-                  activeOpacity={0.75}
+                  android_ripple={{ color: '#D7F0E1', borderless: false }}
                 >
                   <View style={[styles.sbIconChip, item.isActive && styles.sbIconChipActive]}>
                     <Ionicons
@@ -3156,7 +3524,7 @@ export default function UserDashboard() {
                     size={17}
                     color={item.isActive ? PATIENT.primary : '#CBD5E1'}
                   />
-                </TouchableOpacity>
+                </Pressable>
               ))}
             </View>
 
@@ -3189,7 +3557,7 @@ export default function UserDashboard() {
       </Modal>
 
       {/* Notifications full-screen modal */}
-      <Modal visible={showNotifications} animationType="slide" transparent={false} onRequestClose={() => setShowNotifications(false)}>
+      <Modal statusBarTranslucent navigationBarTranslucent visible={showNotifications} animationType="slide" transparent={false} onRequestClose={() => setShowNotifications(false)}>
         <NotificationScreen
           onClose={() => setShowNotifications(false)}
           onAction={(n) => {
@@ -3203,22 +3571,23 @@ export default function UserDashboard() {
 
       {/* LOGOUT CONFIRM MODAL */}
       {/* Help & Support full-screen modal */}
-      <Modal visible={showHelpSupport} animationType="slide" transparent={false} onRequestClose={() => setShowHelpSupport(false)}>
+      <Modal statusBarTranslucent navigationBarTranslucent visible={showHelpSupport} animationType="slide" transparent={false} onRequestClose={() => closeSidebarChild(() => setShowHelpSupport(false))}>
         <HelpSupport
-          onClose={() => setShowHelpSupport(false)}
+          onClose={() => closeSidebarChild(() => setShowHelpSupport(false))}
           onOpenTab={switchDashboardTab}
+          onOpenAiChat={() => { setShowHelpSupport(false); setChatOpen(true); }}
         />
       </Modal>
 
       {/* Privacy Policy full-screen modal */}
-      <Modal visible={showPrivacyPolicy} animationType="slide" transparent={false} onRequestClose={() => setShowPrivacyPolicy(false)}>
+      <Modal statusBarTranslucent navigationBarTranslucent visible={showPrivacyPolicy} animationType="slide" transparent={false} onRequestClose={() => closeSidebarChild(() => setShowPrivacyPolicy(false))}>
         <PrivacyPolicy
-          onClose={() => setShowPrivacyPolicy(false)}
+          onClose={() => closeSidebarChild(() => setShowPrivacyPolicy(false))}
           onOpenTab={switchDashboardTab}
         />
       </Modal>
 
-      <Modal
+      <Modal statusBarTranslucent navigationBarTranslucent
         transparent={true}
         visible={showLogoutConfirm}
         animationType="fade"
@@ -3233,8 +3602,15 @@ export default function UserDashboard() {
           onPress={() => !loggingOut && setShowLogoutConfirm(false)}
         >
           <Pressable style={styles.logoutCard} onPress={() => {}}>
-            <View style={styles.logoutIconBadge}>
-              <Ionicons name="log-out-outline" size={26} color={PATIENT.danger} />
+            <View style={styles.logoutIconRing}>
+              <LinearGradient
+                colors={['#006B2C', '#01CE54']}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={styles.logoutIconBadge}
+              >
+                <Ionicons name="log-out-outline" size={26} color="#ffffff" />
+              </LinearGradient>
             </View>
 
             <Text style={styles.logoutTitle}>{t('settings:confirmLogout')}</Text>
@@ -3255,14 +3631,21 @@ export default function UserDashboard() {
                 disabled={loggingOut}
                 activeOpacity={0.85}
               >
-                {loggingOut ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-                ) : (
-                  <>
-                    <Ionicons name="log-out-outline" size={17} color="#ffffff" />
-                    <Text style={styles.logoutConfirmText}>{t('auth:logout')}</Text>
-                  </>
-                )}
+                <LinearGradient
+                  colors={['#006B2C', '#01CE54']}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={styles.logoutConfirmInner}
+                >
+                  {loggingOut ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <>
+                      <Ionicons name="log-out-outline" size={17} color="#ffffff" />
+                      <Text style={styles.logoutConfirmText}>{t('auth:logout')}</Text>
+                    </>
+                  )}
+                </LinearGradient>
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -3270,7 +3653,7 @@ export default function UserDashboard() {
       </Modal>
 
       {/* DELETE CONFIRM MODAL */}
-      <Modal transparent={true} visible={showDeleteConfirm} animationType="fade">
+      <Modal statusBarTranslucent navigationBarTranslucent transparent={true} visible={showDeleteConfirm} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModal}>
             <View style={styles.confirmModalHeader}>
@@ -3298,7 +3681,7 @@ export default function UserDashboard() {
       </Modal>
 
       {/* DELETE SUCCESS MODAL */}
-      <Modal transparent={true} visible={deleteSuccess} animationType="fade">
+      <Modal statusBarTranslucent navigationBarTranslucent transparent={true} visible={deleteSuccess} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={[styles.confirmModal, styles.successModal]}>
             <View style={styles.confirmModalHeader}>
@@ -3315,7 +3698,7 @@ export default function UserDashboard() {
       </Modal>
 
       {/* Avatar action chooser (from header popup) */}
-      <Modal
+      <Modal statusBarTranslucent navigationBarTranslucent
         visible={showAvatarChooser}
         transparent
         animationType="fade"
@@ -3380,7 +3763,7 @@ export default function UserDashboard() {
       />
 
       {/* Direct Booking Modal - opened from appointment "Book Now" button */}
-      <Modal
+      <Modal statusBarTranslucent navigationBarTranslucent
         visible={showDirectBookingModal}
         animationType="slide"
         transparent={true}
@@ -3618,6 +4001,10 @@ const styles = StyleSheet.create({
   },
   sbItemActive: {
     backgroundColor: '#F4FAF6',
+  },
+  // Touch feedback for every row, including ones that never become active.
+  sbItemPressed: {
+    backgroundColor: '#E6F6EC',
   },
   sbItemText: {
     flex: 1,
@@ -4047,7 +4434,8 @@ const styles = StyleSheet.create({
   // List
   appointmentsList: {
     paddingHorizontal: 16,
-    paddingBottom: 120,
+    // Clears the bottom nav at its tallest (68 + a ~48px gesture inset).
+    paddingBottom: 130,
     paddingTop: 14,
     gap: 12,
   },
@@ -4530,11 +4918,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: 10,
   },
+  // flex:1 lets this column give way to the action icons; without it the title
+  // kept its intrinsic width and overlapped the reset/call/close buttons.
   chatHeaderInfo: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
+  },
+  chatHeaderText: {
+    flex: 1,
   },
   chatAvatar: {
     width: 44,
@@ -4544,7 +4939,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   chatAvatarGradient: {
-    shadowColor: "#2A8A51",
+    shadowColor: "#006B2C",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
@@ -4558,9 +4953,10 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   chatHeaderTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
     color: "#ffffff",
+    letterSpacing: -0.2,
   },
   chatStatusRow: {
     flexDirection: "row",
@@ -4582,7 +4978,8 @@ const styles = StyleSheet.create({
   chatHeaderActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
+    flexShrink: 0,
   },
   chatIconBtn: {
     width: 32,
@@ -4636,8 +5033,8 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   chatBubbleUser: {
-    backgroundColor: "#2A8A51",
-    borderColor: "#2A8A51",
+    backgroundColor: "#006B2C",
+    borderColor: "#006B2C",
   },
   chatBubbleText: {
     fontSize: 14,
@@ -4773,7 +5170,7 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
   },
   resetStartBtn: {
-    backgroundColor: "#2A8A51",
+    backgroundColor: "#006B2C",
   },
   resetBtnDisabled: {
     opacity: 0.6,
@@ -4812,7 +5209,7 @@ const styles = StyleSheet.create({
   langBtnText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#2A8A51",
+    color: "#006B2C",
   },
   langPickerOverlay: {
     flex: 1,
@@ -4858,7 +5255,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   langPickerItemTextActive: {
-    color: "#2A8A51",
+    color: "#006B2C",
     fontWeight: "700",
   },
   plusBtn: {
@@ -4874,9 +5271,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#F1F5F9",
-    borderRadius: 999,
+    borderRadius: 22,
     paddingHorizontal: 12,
-    height: 44,
+    // minHeight rather than height, so the pill expands as the input wraps.
+    minHeight: 44,
+    paddingVertical: 4,
   },
   chatInputLead: {
     marginRight: 6,
@@ -4887,6 +5286,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     fontSize: 14,
     color: "#0f172a",
+    // ~4 lines before it starts scrolling internally.
+    maxHeight: 96,
   },
   inlineMicBtn: {
     width: 30,
@@ -4898,11 +5299,11 @@ const styles = StyleSheet.create({
   sendBtn: {
     width: 44,
     height: 44,
-    backgroundColor: "#00652C",
+    backgroundColor: "#006B2C",
     borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#00652C",
+    shadowColor: "#006B2C",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
@@ -4926,7 +5327,7 @@ const styles = StyleSheet.create({
   speakBtnText: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#2A8A51",
+    color: "#006B2C",
   },
   aiVoiceOverlay: {
     flex: 1,
@@ -4960,14 +5361,14 @@ const styles = StyleSheet.create({
     width: 168,
     height: 168,
     borderRadius: 84,
-    backgroundColor: "rgba(42,138,81,0.14)",
+    backgroundColor: "rgba(0, 107, 44,0.14)",
   },
   aiVoiceOrbGlowInner: {
     position: "absolute",
     width: 128,
     height: 128,
     borderRadius: 64,
-    backgroundColor: "rgba(42,138,81,0.22)",
+    backgroundColor: "rgba(0, 107, 44,0.22)",
   },
   aiVoiceAvatar: {
     width: 90,
@@ -4975,7 +5376,7 @@ const styles = StyleSheet.create({
     borderRadius: 45,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#00652C",
+    shadowColor: "#006B2C",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.45,
     shadowRadius: 16,
@@ -4994,7 +5395,7 @@ const styles = StyleSheet.create({
     width: 4,
     height: 46,
     borderRadius: 3,
-    backgroundColor: "#2A8A51",
+    backgroundColor: "#006B2C",
   },
   aiVoiceTitle: {
     fontSize: 20,
@@ -5006,7 +5407,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 14,
     fontWeight: "700",
-    color: "#2A8A51",
+    color: "#006B2C",
   },
   aiVoiceTimer: {
     marginTop: 8,
@@ -5050,7 +5451,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    backgroundColor: "#00652C",
+    backgroundColor: "#006B2C",
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 999,
@@ -5101,8 +5502,8 @@ const styles = StyleSheet.create({
     borderColor: "#ef4444",
   },
   aiVoiceControlBtnActiveBlue: {
-    backgroundColor: "#2A8A51",
-    borderColor: "#2A8A51",
+    backgroundColor: "#006B2C",
+    borderColor: "#006B2C",
   },
   aiVoiceEndBtn: {
     backgroundColor: "#dc2626",
@@ -5116,7 +5517,7 @@ const styles = StyleSheet.create({
   loadingDot: {
     width: 8,
     height: 8,
-    backgroundColor: "#2A8A51",
+    backgroundColor: "#006B2C",
     borderRadius: 4,
   },
 
@@ -5762,27 +6163,35 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 12,
   },
+  // Soft green halo around the gradient badge - reads as brand, not as an alarm.
+  // Logging out is reversible, so the old red danger treatment overstated it.
+  logoutIconRing: {
+    padding: 5,
+    borderRadius: 34,
+    backgroundColor: "#E6F6EC",
+    marginBottom: 16,
+  },
   logoutIconBadge: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#FEF2F2",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 14,
   },
   logoutTitle: {
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: "800",
     color: PATIENT.text,
     textAlign: "center",
+    letterSpacing: -0.2,
   },
   logoutMessage: {
     marginTop: 8,
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 21,
     color: PATIENT.textSecondary,
     textAlign: "center",
+    paddingHorizontal: 4,
   },
   logoutActions: {
     flexDirection: "row",
@@ -5795,13 +6204,14 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 12,
     borderWidth: 1.4,
-    borderColor: PATIENT.chipBorder,
-    backgroundColor: PATIENT.surface,
+    // Tinted rather than plain grey so the pair reads as one set.
+    borderColor: "#C9EBD6",
+    backgroundColor: "#F4FBF7",
     alignItems: "center",
     justifyContent: "center",
   },
   logoutCancelText: {
-    color: PATIENT.textSecondary,
+    color: "#0F5132",
     fontWeight: "700",
     fontSize: 14.5,
   },
@@ -5809,7 +6219,11 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 48,
     borderRadius: 12,
-    backgroundColor: PATIENT.danger,
+    // Clips the gradient to the rounded corners.
+    overflow: "hidden",
+  },
+  logoutConfirmInner: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

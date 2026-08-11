@@ -25,8 +25,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import ZoomableImageViewer from '../../../../../../components/common/ZoomableImageViewer';
+import LinearGradient from 'react-native-linear-gradient';
 import RNFS from 'react-native-fs';
 import { pick } from '@react-native-documents/picker';
+import { DOCTOR } from '../../../../../../theme/palette';
 
 import socketService from '../../../../../../services/socketService';
 import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
@@ -41,6 +44,9 @@ import {
   getAnonymousUserAvatar,
   getAnonymousUserDisplay,
 } from '../../../../../../utils/anonymousUser';
+import GradientFill from '../../../../../../components/common/GradientFill';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import ChatSkeleton from "../../../../../../components/common/ChatSkeleton";
 import {
   fetchChatCallEntries,
   mergeTimelineForInverted,
@@ -48,6 +54,14 @@ import {
 } from '../../../../../../utils/chatCallHistory';
 
 const { width: screenWidth } = Dimensions.get('window');
+
+// ─── Sent-bubble gradient ─────────────────────────────────────────────────
+// EXACT same gradient as the counselor Earnings "Available Balance" box
+// (DOCTOR.gradientFrom → gradientTo, horizontal). Pulled from the shared
+// palette so it stays identical to earnings + login/signup.
+const SENT_GRADIENT = [DOCTOR.gradientFrom, DOCTOR.gradientTo];
+const SENT_GRADIENT_START = { x: 0, y: 0.5 };
+const SENT_GRADIENT_END = { x: 1, y: 0.5 };
 
 // ─── Avatar Colors (same as SMSList) ──────────────────────────────────────
 const AVATAR_BG_COLORS = ['#4f46e5','#0891b2','#059669','#b45309','#c2410c','#7e22ce','#be123c','#1e40af'];
@@ -98,7 +112,7 @@ const IncomingCallModal = ({
   onJoinCall,
   onRejectCall,
 }) => {
-  const { t } = useTranslation();
+  const { t } = useLanguageRender();
   const { width: winWidth } = useWindowDimensions();
   const [isJoining, setIsJoining] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
@@ -171,6 +185,7 @@ const IncomingCallModal = ({
                 {isRejecting ? <ActivityIndicator size="small" color="white" /> : <Text style={styles.incomingCallBtnText}>{t('call:reject')}</Text>}
               </TouchableOpacity>
               <TouchableOpacity style={[styles.incomingCallBtn, styles.acceptBtn]} onPress={handleJoin} disabled={isJoining}>
+                <GradientFill />
                 {isJoining ? <ActivityIndicator size="small" color="white" /> : <Text style={styles.incomingCallBtnText}>{t('call:accept')}</Text>}
               </TouchableOpacity>
             </View>
@@ -181,38 +196,9 @@ const IncomingCallModal = ({
   );
 };
 
-// ─── Image Preview Modal Component ────────────────────────────────────────
-const ImagePreviewModal = ({ isVisible, imageUrl, onClose }) => {
-  const [scale, setScale] = useState(1);
-
-  if (!isVisible || !imageUrl) return null;
-
-  return (
-    <Modal visible={isVisible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.imagePreviewOverlay}>
-        <TouchableOpacity
-          style={styles.imagePreviewCloseBtn}
-          onPress={onClose}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="close-circle" size={32} color="white" />
-        </TouchableOpacity>
-
-        <View style={styles.imagePreviewContainer}>
-          <Image
-            source={{ uri: imageUrl }}
-            style={styles.imagePreviewFull}
-            resizeMode="contain"
-          />
-        </View>
-      </View>
-    </Modal>
-  );
-};
-
 // ─── Main Component ────────────────────────────────────────────────────────
 const SMSInput = ({ navigation, route }) => {
-  const { t } = useTranslation();
+  const { t } = useLanguageRender();
   const isFocused = useIsFocused();
   useScreenshotPrevent();
   const location = route.params || {};
@@ -250,6 +236,11 @@ const SMSInput = ({ navigation, route }) => {
   // Message states
   const [messages, setMessages] = useState([]);
   const [callHistory, setCallHistory] = useState([]);
+  // Messages and call history are separate requests. The spinner cleared as soon
+  // as the MESSAGES landed, so the thread rendered and the call bubbles dropped
+  // in seconds later - the same jump the user side had. Hold the first paint
+  // until both have settled.
+  const [timelineReady, setTimelineReady] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState(null);
@@ -264,23 +255,9 @@ const SMSInput = ({ navigation, route }) => {
   // Track deleted message IDs persistently so they stay deleted across navigation/refresh
   const [deletedMessageIds, setDeletedMessageIds] = useState(new Set());
   const getDeletedMessagesStorageKey = useCallback(() => `deletedMessages_${getChatIdForAPI()}`, [chatId, USER_ID, counselorId, selectedUser]);
-  // Android edge-to-edge (RN 0.84): we lift the chat above the keyboard
-  // ourselves. Pad = keyboard height MINUS however much the OS already shrank
-  // the window (measured via onLayout, not Dimensions), so devices that resize
-  // for the keyboard don't get a double-lift gap. See keyboardPad below.
-  const [keyboardShownHeight, setKeyboardShownHeight] = useState(0);
-  const [chatAreaHeight, setChatAreaHeight] = useState(0);
-  const fullChatAreaHeightRef = useRef(0);
-  const handleChatAreaLayout = useCallback((e) => {
-    const h = e?.nativeEvent?.layout?.height || 0;
-    if (!h) return;
-    setChatAreaHeight(h);
-    if (h > fullChatAreaHeightRef.current) fullChatAreaHeightRef.current = h;
-  }, []);
-  const windowShrink = Math.max(0, fullChatAreaHeightRef.current - chatAreaHeight);
-  const keyboardPad = (Platform.OS === 'android' && keyboardShownHeight > 0)
-    ? Math.max(0, keyboardShownHeight - windowShrink)
-    : 0;
+  // Keyboard spacing is handled entirely by KeyboardAvoidingView (behavior
+  // "padding", enabled on BOTH platforms) — same as the user-side ChatBox. The
+  // old manual pad hack never worked under Android edge-to-edge, so it's gone.
 
   // Counselor data
   const [currentCounselor, setCurrentCounselor] = useState(null);
@@ -564,6 +541,10 @@ const SMSInput = ({ navigation, route }) => {
           duration: c.duration || null,
         }));
       setCallHistory(formatted);
+      AsyncStorage.setItem(
+        `counselorCallHistory_${chatId || cId}`,
+        JSON.stringify(formatted),
+      ).catch(() => {});
     } catch { setCallHistory([]); }
   }, [USER_ID, counselorId]);
 
@@ -1017,10 +998,31 @@ const SMSInput = ({ navigation, route }) => {
   // ─── Effects ─────────────────────────────────────────────────────────────
   useEffect(() => { loadCounselorData(); }, []);
   useEffect(() => {
-    if (selectedUser && counselorId) {
-      fetchMessagesFromAPI();
-      fetchCallHistory();
-    }
+    if (!selectedUser || !counselorId) return undefined;
+    let alive = true;
+    (async () => {
+      // Paint from cache first when we have it, so the thread appears complete
+      // straight away and the network refresh below is invisible.
+      try {
+        const cached = await AsyncStorage.getItem(
+          `counselorCallHistory_${chatId || counselorId}`,
+        );
+        if (alive && cached) setCallHistory(JSON.parse(cached) || []);
+      } catch (_) { /* cache is best-effort */ }
+
+      // In parallel, not one-after-the-other, and the gate opens only when both
+      // are done. try/finally so a rejected request opens the gate too - the
+      // error branch below the skeleton is what should be shown then, not an
+      // endless skeleton waiting on the 6s guard.
+      try {
+        await Promise.all([fetchMessagesFromAPI(), fetchCallHistory()]);
+      } finally {
+        if (alive) setTimelineReady(true);
+      }
+    })();
+    // Never let a hung request leave the thread behind a skeleton forever.
+    const guard = setTimeout(() => { if (alive) setTimelineReady(true); }, 6000);
+    return () => { alive = false; clearTimeout(guard); };
   }, [selectedUser, chatId, counselorId]);
 
   // Load call history for this conversation and merge it into the thread.
@@ -1039,6 +1041,9 @@ const SMSInput = ({ navigation, route }) => {
     }
   };
 
+  // Secondary refresh once both ids are known. It used to be the ONLY thing that
+  // loaded call history on this screen when the ids resolved late, which is why
+  // the bubbles appeared well after the messages.
   useEffect(() => {
     if (counselorId && USER_ID) loadCallHistory();
   }, [counselorId, USER_ID, chatId]);
@@ -1209,13 +1214,17 @@ const SMSInput = ({ navigation, route }) => {
   }, []);
 
   useEffect(() => {
-    // Use keyboardWillShow/Hide for BOTH iOS and Android to apply padding BEFORE keyboard appears.
-    // This prevents the gap/delay glitch. keyboardDidShow fires too late.
-    const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
-      setKeyboardShownHeight(e?.endCoordinates?.height || 0);
+    // iOS fires keyboardWillShow (pre-animation); Android ONLY fires
+    // keyboardDidShow. KeyboardAvoidingView does the lifting — these listeners
+    // just keep the newest message visible (WhatsApp-style). Same as user side.
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvt, () => {
       if (shouldAutoScrollRef.current) scrollToBottom(true);
     });
-    const hideSub = Keyboard.addListener('keyboardWillHide', () => setKeyboardShownHeight(0));
+    const hideSub = Keyboard.addListener(hideEvt, () => {
+      if (shouldAutoScrollRef.current) scrollToBottom(true);
+    });
 
     return () => { showSub.remove(); hideSub.remove(); };
   }, [scrollToBottom]);
@@ -1227,7 +1236,15 @@ const SMSInput = ({ navigation, route }) => {
       case "sending": return <Text style={styles.messageStatusSending}>⌛</Text>;
       case "sent": return (
         <View style={styles.messageStatusIconWrap}>
-          <Ionicons name={msg.isRead ? "checkmark-done" : "checkmark"} size={msg.isRead ? 14 : 13} color={msg.isRead ? "#BFDBFE" : "rgba(255,255,255,0.55)"} />
+          {/* Contrast against the blue bubble: the old delivered tick was
+              rgba(255,255,255,0.55) = 2.6:1, under the 3:1 minimum for icons, so
+              it was legible on some screens and invisible on others. Read is now
+              solid white (5.6:1), delivered 0.85 white (4.5:1). */}
+          <Ionicons
+            name={msg.isRead ? "checkmark-done" : "checkmark"}
+            size={15}
+            color={msg.isRead ? "#FFFFFF" : "rgba(255,255,255,0.85)"}
+          />
         </View>
       );
       case "error": return <Text style={styles.messageStatusError}>⚠️ Failed</Text>;
@@ -1277,7 +1294,7 @@ const SMSInput = ({ navigation, route }) => {
     if (item.isDaySeparator) {
       return (
         <View style={styles.daySeparatorRow}>
-          <Text style={styles.daySeparatorLabel}>{item.label}</Text>
+          <Text style={styles.daySeparatorLabel}>{t(item.label)}</Text>
         </View>
       );
     }
@@ -1307,51 +1324,98 @@ const SMSInput = ({ navigation, route }) => {
         : '';
     const fileMeta = [sizeLabel, ext].filter(Boolean).join(' • ');
 
+    // For image messages the server stores the file name as the text content.
+    // Never show that as a caption — only show a real, user-typed caption.
+    const looksLikeFilename = (txt) => {
+      const s = String(txt || '').trim();
+      if (!s) return false;
+      return s === (item.attachmentName || '') ||
+        /\.(jpe?g|png|gif|webp|heic|heif|pdf|docx?|xlsx?|pptx?|zip|mp4|mov|mp3)(\?|$)/i.test(s);
+    };
+    const showCaption = !!item.text && !looksLikeFilename(item.text);
+    const isImageOnly = isImage && !showCaption;
+
     return (
       <View style={[styles.msgRow, isMe ? styles.msgRowRight : styles.msgRowLeft]}>
-        {/* Plain text / image bubble */}
-        {(!!item.text || isImage) && (
-          <Pressable
-            style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}
-            onLongPress={() => canDelete && handleDeleteMessage(item)}
-          >
-            {!!item.text && (
-              <TranslatedMessageBubble
-                text={item.text}
-                style={[styles.messageText, isMe ? styles.userMessageText : styles.counselorMessageText]}
-              />
-            )}
-            {isImage && (
-              <TouchableOpacity onPress={() => openAttachment(url)}>
+        {/* Plain text / image bubble — sent = earnings gradient, received = white */}
+        {(showCaption || isImage) && (() => {
+          // Image-only: NO bubble background — just the rounded photo itself
+          // (professional, WhatsApp-style). Tap to open, long-press to delete.
+          if (isImageOnly) {
+            return (
+              <Pressable
+                onPress={() => openAttachment(url)}
+                onLongPress={() => canDelete && handleDeleteMessage(item)}
+                style={styles.imageOnlyWrap}
+              >
                 <Image source={{ uri: url }} style={styles.attachmentImage} resizeMode="cover" />
-              </TouchableOpacity>
-            )}
-          </Pressable>
-        )}
-
-        {/* File card (non-image attachment) */}
-        {hasAttachment && !isImage && (
-          <Pressable
-            style={[styles.fileCard, isMe ? styles.fileCardMe : styles.fileCardThem]}
-            onPress={() => openAttachment(url)}
-            onLongPress={() => canDelete && handleDeleteMessage(item)}
-          >
-            <View style={[styles.fileIconBox, isMe && styles.fileIconBoxMe]}>
-              <Ionicons name="document-text" size={20} color={isMe ? '#FFFFFF' : '#2563EB'} />
-            </View>
-            <View style={styles.fileInfo}>
-              <Text style={[styles.fileName, isMe && styles.fileNameMe]} numberOfLines={1}>
-                {fileName}
-              </Text>
-              {!!fileMeta && (
-                <Text style={[styles.fileMeta, isMe && styles.fileMetaMe]} numberOfLines={1}>
-                  {fileMeta}
-                </Text>
+              </Pressable>
+            );
+          }
+          const inner = (
+            <>
+              {showCaption && (
+                <TranslatedMessageBubble
+                  text={item.text}
+                  style={[styles.messageText, isMe ? styles.userMessageText : styles.counselorMessageText]}
+                />
               )}
-            </View>
-            <Ionicons name="download-outline" size={20} color={isMe ? '#FFFFFF' : '#2563EB'} />
-          </Pressable>
-        )}
+              {isImage && (
+                <TouchableOpacity onPress={() => openAttachment(url)} activeOpacity={0.9}>
+                  <Image
+                    source={{ uri: url }}
+                    style={[styles.attachmentImage, showCaption && styles.attachmentImageCaption]}
+                    resizeMode="cover"
+                  />
+                </TouchableOpacity>
+              )}
+            </>
+          );
+          return isMe ? (
+            <Pressable onLongPress={() => canDelete && handleDeleteMessage(item)} style={styles.bubbleMeWrap}>
+              <LinearGradient colors={SENT_GRADIENT} start={SENT_GRADIENT_START} end={SENT_GRADIENT_END} style={[styles.bubble, styles.bubbleMe]}>
+                {inner}
+              </LinearGradient>
+            </Pressable>
+          ) : (
+            <Pressable style={[styles.bubble, styles.bubbleThem]} onLongPress={() => canDelete && handleDeleteMessage(item)}>
+              {inner}
+            </Pressable>
+          );
+        })()}
+
+        {/* File card (non-image attachment) — sent = earnings gradient, received = white */}
+        {hasAttachment && !isImage && (() => {
+          const inner = (
+            <>
+              <View style={[styles.fileIconBox, isMe && styles.fileIconBoxMe]}>
+                <Ionicons name="document-text" size={20} color={isMe ? '#FFFFFF' : '#2563EB'} />
+              </View>
+              <View style={styles.fileInfo}>
+                <Text style={[styles.fileName, isMe && styles.fileNameMe]} numberOfLines={1}>
+                  {fileName}
+                </Text>
+                {!!fileMeta && (
+                  <Text style={[styles.fileMeta, isMe && styles.fileMetaMe]} numberOfLines={1}>
+                    {fileMeta}
+                  </Text>
+                )}
+              </View>
+              <Ionicons name="download-outline" size={20} color={isMe ? '#FFFFFF' : '#2563EB'} />
+            </>
+          );
+          return isMe ? (
+            <Pressable style={styles.bubbleMeWrap} onPress={() => openAttachment(url)} onLongPress={() => canDelete && handleDeleteMessage(item)}>
+              <LinearGradient colors={SENT_GRADIENT} start={SENT_GRADIENT_START} end={SENT_GRADIENT_END} style={[styles.fileCard, styles.fileCardMe]}>
+                {inner}
+              </LinearGradient>
+            </Pressable>
+          ) : (
+            <Pressable style={[styles.fileCard, styles.fileCardThem]} onPress={() => openAttachment(url)} onLongPress={() => canDelete && handleDeleteMessage(item)}>
+              {inner}
+            </Pressable>
+          );
+        })()}
 
         {/* Timestamp + read receipt OUTSIDE the bubble */}
         <View style={[styles.msgMeta, isMe ? styles.msgMetaRight : styles.msgMetaLeft]}>
@@ -1378,8 +1442,8 @@ const SMSInput = ({ navigation, route }) => {
         <View style={styles.emptyContainer}>
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>💬</Text>
-            <Text style={styles.emptyTitle}>No user selected</Text>
-            <Text style={styles.emptyText}>Please select a user from the list to start messaging</Text>
+            <Text style={styles.emptyTitle}>{t('No user selected')}</Text>
+            <Text style={styles.emptyText}>{t('Please select a user from the list to start messaging')}</Text>
             <CounselorGradientButton style={styles.backToListBtn} onPress={handleBack}>
               <Text style={styles.backToListBtnText}>← Back to SMS List</Text>
             </CounselorGradientButton>
@@ -1391,21 +1455,20 @@ const SMSInput = ({ navigation, route }) => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
       <KeyboardAvoidingView
         style={styles.keyboardAvoid}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior="padding"
         keyboardVerticalOffset={0}
-        enabled={Platform.OS === "ios"}
       >
-          <View style={[styles.chatBoxMain, { paddingBottom: keyboardPad }]} onLayout={handleChatAreaLayout}>
-          {/* Header */}
+          <View style={styles.chatBoxMain}>
+          {/* Header — white bg, blue icons (matches Figma). Long-press the name for Refresh/Clear. */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
-              <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-                <Ionicons name="arrow-back" size={22} color="#1D4ED8" />
+              <TouchableOpacity style={styles.backButton} onPress={handleBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="arrow-back" size={24} color="#2563EB" />
               </TouchableOpacity>
-              <View style={styles.userInfo}>
+              <Pressable style={styles.userInfo} onLongPress={() => setShowOptions(true)}>
                 <View style={styles.userAvatarWrapper}>
                   <ChatAvatar
                     avatarUrl={userDetails.avatarUrl}
@@ -1414,13 +1477,13 @@ const SMSInput = ({ navigation, route }) => {
                     size={40}
                     style={{ borderWidth: 2, borderColor: '#FFFFFF' }}
                   />
-                  <View style={[styles.activeDot, { backgroundColor: resolveOnlineStatus(selectedUser) ? "#4caf50" : "#9CA3AF" }]} />
+                  <View style={[styles.activeDot, { backgroundColor: resolveOnlineStatus(selectedUser) ? "#22C55E" : "#9CA3AF" }]} />
                 </View>
                 <View style={styles.userDetails}>
-                  <Text style={styles.userName}>{USER_NAME}</Text>
+                  <Text style={styles.userName} numberOfLines={1}>{USER_NAME}</Text>
                   <Text style={styles.profileStatus}>
                     {remoteIsTyping ? (
-                      <Text style={styles.typingText}>Typing...</Text>
+                      <Text style={styles.typingText}>{t('Typing...')}</Text>
                     ) : (
                       <Text style={styles.statusText}>
                         {resolveOnlineStatus(selectedUser) ? "Online" : "Offline"}
@@ -1428,17 +1491,14 @@ const SMSInput = ({ navigation, route }) => {
                     )}
                   </Text>
                 </View>
-              </View>
+              </Pressable>
             </View>
             <View style={styles.callButtons}>
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.actionBtnDisabled]} onPress={initiateVideoCall} disabled={isInitiatingCall}>
-                <Ionicons name="videocam-outline" size={22} color="#1D4ED8" />
+                <Ionicons name="videocam-outline" size={24} color="#004AC6" />
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.actionBtnDisabled]} onPress={initiateVoiceCall} disabled={isInitiatingCall}>
-                <Ionicons name="call-outline" size={20} color="#1D4ED8" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(!showOptions)}>
-                <Ionicons name="ellipsis-vertical" size={18} color="#64748B" />
+                <Ionicons name="call-outline" size={22} color="#004AC6" />
               </TouchableOpacity>
             </View>
           </View>
@@ -1457,27 +1517,24 @@ const SMSInput = ({ navigation, route }) => {
               <View style={styles.optionsMenu}>
                 <TouchableOpacity style={styles.optionItem} onPress={() => { fetchMessagesFromAPI(); setShowOptions(false); }}>
                   <Ionicons name="refresh" size={18} color="#526071" />
-                  <Text style={styles.optionText}>Refresh Messages</Text>
+                  <Text style={styles.optionText}>{t('Refresh Messages')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.optionItem, styles.optionItemLast]} onPress={() => { setShowOptions(false); clearChat(); }}>
                   <Ionicons name="trash-outline" size={18} color="#dc2626" />
-                  <Text style={[styles.optionText, styles.optionTextDanger]}>Clear Chat</Text>
+                  <Text style={[styles.optionText, styles.optionTextDanger]}>{t('Clear Chat')}</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
           </Modal>
 
           {/* Messages */}
-          {isLoadingMessages && messages.length === 0 ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#2563EB" />
-              <Text style={styles.loadingText}>Loading messages...</Text>
-            </View>
+          {!timelineReady ? (
+            <ChatSkeleton role="counselor" />
           ) : error && messages.length === 0 ? (
             <View style={styles.errorMessage}>
               <Text style={styles.errorIcon}>⚠️</Text>
               <Text style={styles.errorText}>{error}</Text>
-              <TouchableOpacity onPress={fetchMessagesFromAPI}><Text style={styles.retryBtn}>Retry</Text></TouchableOpacity>
+              <TouchableOpacity onPress={fetchMessagesFromAPI}><Text style={styles.retryBtn}>{t('Retry')}</Text></TouchableOpacity>
             </View>
           ) : (
             <FlatList
@@ -1501,8 +1558,8 @@ const SMSInput = ({ navigation, route }) => {
               ListEmptyComponent={
                 <View style={styles.emptyMessages}>
                   <Text style={styles.emptyMessagesIcon}>💬</Text>
-                  <Text style={styles.emptyMessagesText}>No messages yet</Text>
-                  <Text style={styles.emptyMessagesSubtext}>Start a conversation by sending a message</Text>
+                  <Text style={styles.emptyMessagesText}>{t('No messages yet')}</Text>
+                  <Text style={styles.emptyMessagesSubtext}>{t('Start a conversation by sending a message')}</Text>
                 </View>
               }
             />
@@ -1514,7 +1571,7 @@ const SMSInput = ({ navigation, route }) => {
               {pendingAttachment && (
                 <View style={styles.attachmentPreview}>
                   <Ionicons name="attach" size={16} color="#2563EB" />
-                  <Text style={styles.attachmentPreviewText} numberOfLines={1}>{pendingAttachment.name}</Text>
+                  <Text style={styles.attachmentPreviewText} numberOfLines={1}>{t(pendingAttachment.name)}</Text>
                   <TouchableOpacity onPress={() => setPendingAttachment(null)}><Ionicons name="close-circle" size={18} color="#9CA3AF" /></TouchableOpacity>
                 </View>
               )}
@@ -1534,11 +1591,19 @@ const SMSInput = ({ navigation, route }) => {
                   />
                 </View>
                 <TouchableOpacity
-                  style={[styles.sendBtn, ((message.trim() !== "" || pendingAttachment) && !isSending) ? styles.sendBtnActive : styles.sendBtnDisabled]}
+                  activeOpacity={0.85}
                   onPress={handleSendMessage}
                   disabled={(!message.trim() && !pendingAttachment) || isSending}
                 >
-                  <Ionicons name="send" size={20} color="#FFFFFF" />
+                  {(message.trim() !== "" || pendingAttachment) && !isSending ? (
+                    <LinearGradient colors={SENT_GRADIENT} start={SENT_GRADIENT_START} end={SENT_GRADIENT_END} style={[styles.sendBtn, styles.sendBtnActive]}>
+                      <Ionicons name="send" size={20} color="#FFFFFF" />
+                    </LinearGradient>
+                  ) : (
+                    <View style={[styles.sendBtn, styles.sendBtnDisabled]}>
+                      <Ionicons name="send" size={20} color="#FFFFFF" />
+                    </View>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
@@ -1548,7 +1613,11 @@ const SMSInput = ({ navigation, route }) => {
         <VideoCallModal isOpen={isVideoModalOpen} onClose={handleCloseModal} callData={selectedCall} currentUser={{ id: counselorId, role: "counsellor" }} onEndCall={handleEndIncomingCall} />
         <VoiceCallModal isOpen={isVoiceModalOpen} onClose={handleCloseModal} callData={selectedCall} currentUser={{ id: counselorId, role: "counsellor" }} onEndCall={handleEndIncomingCall} />
         <IncomingCallModal isOpen={isFocused && showIncomingModal} onClose={() => setShowIncomingModal(false)} callType={incomingCallData.callType} callerName={incomingCallData.name} callerAvatar={incomingCallData.avatar} callData={incomingCallData} onJoinCall={handleJoinIncomingCall} onRejectCall={handleRejectIncomingCall} />
-        <ImagePreviewModal isVisible={imagePreviewVisible} imageUrl={imagePreviewUrl} onClose={() => setImagePreviewVisible(false)} />
+        <ZoomableImageViewer
+          visible={imagePreviewVisible}
+          uri={imagePreviewUrl}
+          onClose={() => setImagePreviewVisible(false)}
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1574,7 +1643,7 @@ const styles = StyleSheet.create({
   userDetails: { flex: 1, minWidth: 0 },
   userName: { fontSize: 16, fontWeight: '800', color: '#0F172A', marginBottom: 1 },
   profileStatus: { fontSize: 11 },
-  statusText: { color: '#16A34A', fontWeight: '600' },
+  statusText: { color: '#2563EB', fontWeight: '600' },
   typingText: { color: '#BFDBFE', fontWeight: '600' },
   callButtons: { flexDirection: 'row', gap: 4 },
   actionBtn: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center' },
@@ -1617,8 +1686,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  bubbleMeWrap: { maxWidth: screenWidth >= 600 ? 500 : '82%' },
   bubbleMe: {
-    backgroundColor: '#2563EB',
     borderBottomRightRadius: 6,
     shadowColor: '#1E3A8A',
     shadowOffset: { width: 0, height: 3 },
@@ -1650,7 +1719,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  fileCardMe: { backgroundColor: '#2563EB', borderBottomRightRadius: 6 },
+  fileCardMe: { borderBottomRightRadius: 6 },
   fileIconBox: {
     width: 42, height: 42, borderRadius: 11,
     backgroundColor: '#E8EFFB', alignItems: 'center', justifyContent: 'center',
@@ -1682,7 +1751,7 @@ const styles = StyleSheet.create({
   messageRight: { justifyContent: 'flex-end' },
   messageLeft: { justifyContent: 'flex-start' },
   // ─── Call entry bubble (WhatsApp-style) ───────────────────────────────────
-  callRow: { width: '100%', flexDirection: 'row', marginBottom: 6 },
+  callRow: { width: '100%', marginBottom: 6 },
   callBubble: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1732,12 +1801,23 @@ const styles = StyleSheet.create({
   messageStatusError: { fontSize: 11, color: '#EF4444', fontWeight: '500' },
   deleteIconBtn: { paddingHorizontal: 4, paddingVertical: 2, marginLeft: 4 },
   attachmentImage: {
-    width: screenWidth * 0.6,
-    height: screenWidth * 0.6 * 0.75,
-    borderRadius: 12,
-    marginTop: 8,
-    maxWidth: 280,
-    maxHeight: 280,
+    width: screenWidth >= 600 ? 300 : 236,
+    height: screenWidth >= 600 ? 224 : 176,
+    borderRadius: 11,
+    backgroundColor: '#EEF1F5',
+  },
+  // Extra gap only when a real caption sits above the image.
+  attachmentImageCaption: { marginTop: 8 },
+  // Image-only: white card FRAME around the photo (matches the user-side chat).
+  imageOnlyWrap: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 6,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.10,
+    shadowRadius: 8,
+    elevation: 3,
   },
   attachmentBubble: { marginTop: 8, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 4 },
   userAttachmentBubble: { backgroundColor: 'rgba(255,255,255,0.15)' },
@@ -1765,12 +1845,12 @@ const styles = StyleSheet.create({
   },
   textInput: { flex: 1, fontSize: 14, lineHeight: 20, color: '#111827', paddingVertical: Platform.OS === 'ios' ? 6 : 4, paddingHorizontal: 8, maxHeight: 120, minHeight: 36, textAlignVertical: 'center' },
   sendBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
-  sendBtnActive: { backgroundColor: '#1D4ED8', shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.35, shadowRadius: 5, elevation: 5 },
+  sendBtnActive: { shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.35, shadowRadius: 5, elevation: 5 },
   sendBtnDisabled: { backgroundColor: '#CBD5E1', opacity: 0.7 },
   incomingCallOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.6)', justifyContent: 'center', alignItems: 'center' },
   incomingCallModal: { maxWidth: 360, backgroundColor: '#FFFFFF', borderRadius: 24, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 10 },
-  videoCallModal: { borderTopWidth: 3, borderTopColor: '#2563EB' },
-  voiceCallModal: { borderTopWidth: 3, borderTopColor: '#0D9488' },
+  videoCallModal: { borderTopWidth: 3, borderTopColor: '#003A9B' },
+  voiceCallModal: { borderTopWidth: 3, borderTopColor: '#003A9B' },
   incomingCallContent: { padding: 24, alignItems: 'center' },
   incomingCallerInfo: { alignItems: 'center', marginBottom: 24 },
   incomingCallerAvatar: { width: 90, height: 90, borderRadius: 45, justifyContent: 'center', alignItems: 'center', marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 6 },
@@ -1780,7 +1860,7 @@ const styles = StyleSheet.create({
   incomingCallMessage: { fontSize: 12, color: '#2563EB', fontWeight: '500' },
   incomingCallControls: { flexDirection: 'row', gap: 12, width: '100%' },
   incomingCallBtn: { flex: 1, paddingVertical: 12, borderRadius: 28, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
-  acceptBtn: { backgroundColor: '#2563EB' },
+  acceptBtn: { overflow: 'hidden' },
   rejectBtn: { backgroundColor: '#DC2626' },
   incomingCallBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
   // Options Menu Styles
@@ -1824,30 +1904,6 @@ const styles = StyleSheet.create({
     color: '#dc2626',
   },
   // Image Preview Modal Styles
-  imagePreviewOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imagePreviewContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: '100%',
-  },
-  imagePreviewFull: {
-    width: '90%',
-    height: '90%',
-    maxWidth: screenWidth * 0.95,
-  },
-  imagePreviewCloseBtn: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 20,
-    right: 16,
-    zIndex: 10,
-    padding: 8,
-  },
 });
 
 export default SMSInput;

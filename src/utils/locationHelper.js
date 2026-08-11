@@ -33,6 +33,9 @@ const PENDING_NOTICE_KEY = 'pendingLocationNotice';
 // Ask Android for runtime location permission. iOS uses Info.plist + the
 // native picker triggered by Geolocation.requestAuthorization, which the
 // library handles internally on first getCurrentPosition.
+// Set by requestLocationPermission when Android reports NEVER_ASK_AGAIN.
+let lastPermissionBlocked = false;
+
 export const requestLocationPermission = async () => {
   if (Platform.OS !== 'android') return true;
   try {
@@ -47,12 +50,21 @@ export const requestLocationPermission = async () => {
       result[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
     const coarse =
       result[PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION];
-    return (
+    if (
       fine === PermissionsAndroid.RESULTS.GRANTED ||
       coarse === PermissionsAndroid.RESULTS.GRANTED
-    );
+    ) {
+      return true;
+    }
+    // NEVER_ASK_AGAIN means the system prompt won't appear again, so Settings is
+    // the only route. Recorded for the caller; a plain decline stays `false`.
+    lastPermissionBlocked =
+      fine === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN ||
+      coarse === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN;
+    return false;
   } catch (err) {
     console.warn('[location] permission request failed:', err?.message);
+    lastPermissionBlocked = false;
     return false;
   }
 };
@@ -69,7 +81,14 @@ export const getCurrentPosition = (options = {}) =>
     const granted = await requestLocationPermission();
     console.log('[location] permission granted:', granted);
     if (!granted) {
-      reject(new Error('Location permission denied — open Android Settings → Apps → Chatbots → Permissions → Location → Allow.'));
+      const permErr = new Error(
+        lastPermissionBlocked
+          ? 'Location permission is turned off for Humaeli.'
+          : 'Location permission was not granted.',
+      );
+      // 'blocked' = only Settings can fix it. 'permission' = user just declined.
+      permErr.kind = lastPermissionBlocked ? 'blocked' : 'permission';
+      reject(permErr);
       return;
     }
 
@@ -185,8 +204,9 @@ export const getCurrentPosition = (options = {}) =>
     setTimeout(() => {
       settle(() =>
         reject(
-          new Error(
-            'Could not get a location fix in 20s. Check: (1) Location is ON in Android Settings, (2) the app has "Precise location" enabled in Settings → Apps → Chatbots → Permissions, (3) try going outdoors or near a window.',
+          Object.assign(
+            new Error('Could not find your location. Make sure Location is switched on, then try again — moving near a window or outdoors helps.'),
+            { kind: 'no-fix' },
           ),
         ),
       );
@@ -204,12 +224,17 @@ export const captureAndSendLocation = async (event = 'manual') => {
     );
   } catch (err) {
     if (err?.response?.status === 404) {
-      throw new Error(
-        'Backend route /api/location/update not found. Deploy the location route on the backend first.',
+      // Server-side misconfiguration - don't ask the user to fix a route.
+      throw Object.assign(
+        new Error('Location saving is unavailable right now. Please try again later.'),
+        { kind: 'server' },
       );
     }
     if (err?.code === 'ECONNABORTED') {
-      throw new Error('Backend timed out while saving location. Try again.');
+      throw Object.assign(
+        new Error('Saving your location timed out. Please try again.'),
+        { kind: 'network' },
+      );
     }
     throw err;
   }

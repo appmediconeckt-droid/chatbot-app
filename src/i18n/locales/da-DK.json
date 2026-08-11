@@ -71,7 +71,7 @@
     "passwordMinLength": "Adgangskoden skal være på mindst 6 tegn",
     "passwordsDoNotMatch": "Adgangskoder stemmer ikke overens",
     "sessionExpired": "Session udløb. Log venligst på igen.",
-    "chooseRole": "Vælg, hvordan du vil bruge Mediconect",
+    "chooseRole": "Vælg, hvordan du vil bruge Humaeli",
     "userRole": "Bruger",
     "counselorRole": "rådgiver",
     "userRoleDesc": "Få støtte fra professionelle rådgivere",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Indtast adgangskoden igen",
     "enterCurrentPassword": "Indtast den aktuelle adgangskode",
     "reEnterNewPassword": "Indtast den nye adgangskode igen",
-    "copyright": "© 2025 Mediconnect. Alle rettigheder forbeholdes."
+    "copyright": "© 2025 Humaeli. Alle rettigheder forbeholdes."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Hjælp Support",
-    "centerTitle": "MediConeckt supportcenter",
-    "centerDesc": "Brug dette supportcenter til at springe til den rigtige MediConeckt-funktion, fejlfinde almindelige problemer og forstå, hvornår du skal kontakte akut hjælp uden for appen.",
+    "centerTitle": "Humaeli supportcenter",
+    "centerDesc": "Brug dette supportcenter til at springe til den rigtige Humaeli-funktion, fejlfinde almindelige problemer og forstå, hvornår du skal kontakte akut hjælp uden for appen.",
     "aiWellnessChat": "AI wellness chat",
     "aiWellnessDesc": "Stil spørgsmål om mentalt velvære, brug stemmeinput, få hurtige svar, og fortsæt din seneste AI-chat fra dashboardet.",
     "aiWellnessAction": "Åbn AI-chat",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Privatlivspolitik",
-    "centerTitle": "MediConeckt privatlivscenter",
-    "centerDesc": "Dette privatlivscenter forklarer, hvordan MediConeckt bruger din profil, chat, aftale, tegnebog, opkald, placering og sikkerhedsdata i denne mobilapp.",
+    "centerTitle": "Humaeli privatlivscenter",
+    "centerDesc": "Dette privatlivscenter forklarer, hvordan Humaeli bruger din profil, chat, aftale, tegnebog, opkald, placering og sikkerhedsdata i denne mobilapp.",
     "otpProtected": "OTP beskyttet",
     "otpProtectedDesc": "Ændringer i e-mail og telefon",
     "anonymousCare": "Anonym omsorgsidentitet",

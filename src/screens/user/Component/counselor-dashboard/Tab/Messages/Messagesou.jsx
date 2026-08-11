@@ -26,6 +26,7 @@ import {
   getAnonymousUserDisplay,
 
 } from '../../../../../../utils/anonymousUser'; 
+import GradientFill from '../../../../../../components/common/GradientFill';
 import socketService from '../../../../../../services/socketService';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
@@ -218,6 +219,16 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress }) => {
     name: anonymousUser.name,
     gender: anonymousUser.gender,
 
+    age: otherParty.age || otherParty.ageYears || null,
+    // Session topic, if the API attaches one to the chat.
+    topic:
+      chat.topic ||
+      chat.reason ||
+      chat.lastAppointment?.reason ||
+      otherParty.condition ||
+      otherParty.concern ||
+      null,
+
     avatar: anonymousUser.avatar,
     avatarUrl: anonymousUser.avatarUrl,
 
@@ -297,14 +308,36 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress }) => {
     { id: 'recent', label: t('messages:recent', 'Recent') },
   ];
 
-  // Category badge derived from real chat state (no fabricated data):
-  //   unread messages  → URGENT (needs attention)
-  //   pending request  → FOLLOW UP (awaiting the counsellor)
-  //   otherwise        → NORMAL
+  /**
+   * Badge derived from the chat's real state.
+   *
+   * The previous version labelled any chat with an unread message "URGENT" and
+   * everything else "NORMAL". Neither was true: an unread message is not a
+   * clinical urgency, and in a mental-health app that mislabel invites a
+   * counselor to deprioritise a genuinely serious case just because it has been
+   * read. "NORMAL" also tagged every ordinary row with a badge carrying no
+   * information. `pending` was shown as "FOLLOW UP" when it actually means the
+   * request has not been accepted yet.
+   *
+   * Returns null when there is nothing meaningful to say, so the badge only
+   * appears when it tells the counselor something actionable.
+   */
   const getCategory = (item) => {
-    if (item.unread > 0) return { label: t('messages:urgent', 'URGENT'), color: '#DC2626', bg: '#FEF2F2' };
-    if (item.status === 'pending') return { label: t('messages:followUp', 'FOLLOW UP'), color: '#1D4ED8', bg: '#EFF6FF' };
-    return { label: t('messages:normal', 'NORMAL'), color: '#64748B', bg: '#F1F5F9' };
+    if (item.status === 'pending') {
+      return { label: t('messages:newRequest', 'NEW REQUEST'), color: '#1D4ED8', bg: '#EFF6FF' };
+    }
+    if (item.status === 'rejected' || item.status === 'cancelled' || item.status === 'canceled') {
+      return { label: t('messages:closed', 'CLOSED'), color: '#64748B', bg: '#F1F5F9' };
+    }
+    return null;
+  };
+
+  // "28, F • Anxiety Follow-up" - each part appears only if the API sent it, so
+  // no age or clinical label is ever invented. Falls back to presence.
+  const metaLine = (item) => {
+    const who = [item.age, item.gender].filter(Boolean).join(', ');
+    const tail = item.topic || (item.online ? t('common:online', 'Online') : '');
+    return [who, tail].filter(Boolean).join('  •  ');
   };
 
   const searchMatched = users.filter((u) =>
@@ -343,19 +376,17 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress }) => {
         </View>
 
         <View style={styles.rowContent}>
-          <View style={styles.rowHeader}>
-            <Text style={styles.nameText} numberOfLines={1}>{item.name}</Text>
-            <Text style={[styles.timeText, item.unread > 0 && styles.timeActive]}>{item.time}</Text>
-          </View>
+          <Text style={styles.nameText} numberOfLines={1}>{t(item.name)}</Text>
 
           {/* Category badge + meta line */}
           <View style={styles.metaRow}>
-            <View style={[styles.categoryBadge, { backgroundColor: category.bg }]}>
-              <Text style={[styles.categoryText, { color: category.color }]}>{category.label}</Text>
-            </View>
+            {category ? (
+              <View style={[styles.categoryBadge, { backgroundColor: category.bg }]}>
+                <Text style={[styles.categoryText, { color: category.color }]}>{t(category.label)}</Text>
+              </View>
+            ) : null}
             <Text style={styles.metaText} numberOfLines={1}>
-              {item.gender ? `${item.gender}` : ''}
-              {item.online ? ' • Online' : item.lastSeen ? ' • Away' : ''}
+              {metaLine(item)}
             </Text>
           </View>
 
@@ -367,10 +398,26 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress }) => {
             />
           </View>
         </View>
+
+        {/* Right column: timestamp above the unread count, as in the design. */}
+        <View style={styles.rowAside}>
+          <Text style={[styles.timeText, item.unread > 0 && styles.timeActive]}>{item.time}</Text>
+          {item.unread > 0 ? (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadBadgeText}>
+                {item.unread > 99 ? '99+' : item.unread}
+              </Text>
+            </View>
+          ) : null}
+        </View>
       </TouchableOpacity>
     );
   };
 
+  // Render via `ListHeaderComponent={renderListHeader()}` - passing the function
+  // makes VirtualizedList treat it as a component *type*, and this arrow is new
+  // every render, so the header (search TextInput included) remounted on each
+  // keystroke and lost focus after one character.
   const renderListHeader = () => (
     <>
       {/* Filter chips */}
@@ -384,12 +431,15 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress }) => {
           renderItem={({ item: chip }) => {
             const isActive = activeFilter === chip.id;
             return (
+              // GradientFill is an absolute layer, so both states keep the same
+              // tree and metrics - selecting a chip can't resize it or shift the row.
               <TouchableOpacity
                 style={[styles.chip, isActive && styles.chipActive]}
                 onPress={() => setActiveFilter(chip.id)}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{chip.label}</Text>
+                {isActive ? <GradientFill /> : null}
+                <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{t(chip.label)}</Text>
               </TouchableOpacity>
             );
           }}
@@ -446,7 +496,7 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress }) => {
           data={filteredUsers}
           keyExtractor={(item) => item.id}
           renderItem={renderUserItem}
-          ListHeaderComponent={renderListHeader}
+          ListHeaderComponent={renderListHeader()}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
@@ -561,13 +611,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     height: 34,
     borderRadius: 999,
+    overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  chipActive: { backgroundColor: '#1D4ED8', borderColor: '#1D4ED8' },
+  chipActive: { borderColor: '#003A9B' },
   chipText: { fontSize: 13, fontWeight: '600', color: '#64748B' },
   chipTextActive: { color: '#FFFFFF' },
 
@@ -580,13 +631,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 14,
     backgroundColor: '#FFFFFF',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E6EBF2',
     shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 5,
+    elevation: 1,
   },
   chatRowSelected: { backgroundColor: '#EFF6FF' },
 
@@ -619,13 +672,19 @@ const styles = StyleSheet.create({
 
   // ─── Row content ──────────────────────────────────────────────────────────
   rowContent: { flex: 1, justifyContent: 'center' },
-  rowHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  rowAside: { alignItems: 'flex-end', gap: 7, marginLeft: 8 },
+  unreadBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    backgroundColor: '#1D4ED8',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  nameText: { fontSize: 15, fontWeight: '700', color: '#0F172A', flex: 1, marginRight: 8 },
-  timeText: { fontSize: 11, color: '#94A3B8', minWidth: 56, textAlign: 'right' },
+  unreadBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  nameText: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
+  timeText: { fontSize: 11, color: '#94A3B8', textAlign: 'right' },
   timeActive: { color: '#1D4ED8', fontWeight: '700' },
 
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, marginBottom: 4 },

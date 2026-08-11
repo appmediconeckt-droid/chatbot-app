@@ -6,4 +6,11 @@
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     </style>
 
+    <!-- Launch theme. On pre-Android-12 the layer-list below IS the splash; on
+         Android 12+ the values-v31 override supplies the system splash attrs
+         and hands back to AppTheme once the activity is drawn. -->
+    <style name="AppTheme.Splash" parent="AppTheme">
+        <item name="android:windowBackground">@drawable/splash_screen</item>
+    </style>
+
 </resources>

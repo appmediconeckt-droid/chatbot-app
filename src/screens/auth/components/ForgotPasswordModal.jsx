@@ -10,7 +10,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import axios from 'axios';
+import LinearGradient from 'react-native-linear-gradient';
 import { API_BASE_URL } from '../../../axiosConfig';
+import useLanguageRender from '../../../hooks/useLanguageRender';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /**
  * Reusable Forgot Password popup — mirrors the web chatbot flow exactly:
@@ -29,9 +32,15 @@ import { API_BASE_URL } from '../../../axiosConfig';
 const ForgotPasswordModal = ({
   visible,
   onClose,
-  accentColor = '#6366f1',
+  accentColor = '#006B2C',
   initialEmail = '',
 }) => {
+  const insets = useSafeAreaInsets();
+  const { t } = useLanguageRender();
+  // Theme gradient — counselor blue vs user green (matches signup/onboarding).
+  const gradientColors = /004AC6|003A9B|1490FF|2563EB|1D4ED8/i.test(String(accentColor))
+    ? ['#003A9B', '#1490FF']
+    : ['#006B2C', '#01CE54'];
   const [step, setStep] = useState('email'); // 'email' | 'otp' | 'reset'
   const [email, setEmail] = useState(initialEmail);
   const [otp, setOtp] = useState('');
@@ -219,7 +228,7 @@ const ForgotPasswordModal = ({
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.card}>
+          <View style={[styles.card, { paddingBottom: Math.max(insets.bottom, 36) }]}>
             {/* Close button */}
             <TouchableOpacity style={styles.closeBtn} onPress={handleClose}>
               <Text style={styles.closeText}>×</Text>
@@ -231,17 +240,17 @@ const ForgotPasswordModal = ({
                 <View style={[styles.iconCircle, { backgroundColor: accentColor + '1A' }]}>
                   <Text style={styles.iconEmoji}>✉️</Text>
                 </View>
-                <Text style={styles.title}>Forgot Password</Text>
+                <Text style={styles.title}>{t('Forgot Password')}</Text>
                 <Text style={styles.subtitle}>
                   Enter your registered email to receive a password reset OTP
                 </Text>
 
                 {error ? <Text style={styles.errorBox}>⚠️ {error}</Text> : null}
 
-                <Text style={styles.label}>Email Address *</Text>
+                <Text style={styles.label}>{t('Email Address *')}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter your registered email"
+                  placeholder={t('Enter your registered email')}
                   placeholderTextColor="#94a3b8"
                   value={email}
                   onChangeText={(t) => {
@@ -253,22 +262,25 @@ const ForgotPasswordModal = ({
                   editable={!loading}
                 />
 
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: accentColor }, loading && styles.btnDisabled]}
-                  onPress={handleSendOTP}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>Send Reset OTP</Text>
-                  )}
+                <TouchableOpacity style={{ alignSelf: 'stretch' }} activeOpacity={0.9} onPress={handleSendOTP} disabled={loading}>
+                  <LinearGradient
+                    colors={gradientColors}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={[styles.primaryBtn, loading && styles.btnDisabled]}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.primaryBtnText}>{t('Send Reset OTP')}</Text>
+                    )}
+                  </LinearGradient>
                 </TouchableOpacity>
 
                 <View style={styles.footer}>
-                  <Text style={styles.footerText}>Remember your password? </Text>
+                  <Text style={styles.footerText}>{t('Remember your password?')}</Text>
                   <TouchableOpacity onPress={handleClose}>
-                    <Text style={[styles.footerLink, { color: accentColor }]}>Back to Login</Text>
+                    <Text style={[styles.footerLink, { color: accentColor }]}>{t('Back to Login')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -280,17 +292,17 @@ const ForgotPasswordModal = ({
                 <View style={[styles.iconCircle, { backgroundColor: accentColor + '1A' }]}>
                   <Text style={styles.iconEmoji}>✉️</Text>
                 </View>
-                <Text style={styles.title}>Verify OTP</Text>
-                <Text style={styles.subtitle}>Enter the 6-digit code sent to</Text>
+                <Text style={styles.title}>{t('Verify OTP')}</Text>
+                <Text style={styles.subtitle}>{t('Enter the 6-digit code sent to')}</Text>
                 <Text style={[styles.emailDisplay, { color: accentColor }]}>{email}</Text>
 
                 {error ? <Text style={styles.errorBox}>⚠️ {error}</Text> : null}
                 {success ? <Text style={styles.successBox}>✓ {success}</Text> : null}
 
-                <Text style={styles.label}>OTP Code *</Text>
+                <Text style={styles.label}>{t('OTP Code *')}</Text>
                 <TextInput
                   style={[styles.input, styles.otpInput]}
-                  placeholder="000000"
+                  placeholder={t('000000')}
                   placeholderTextColor="#cbd5e1"
                   value={otp}
                   onChangeText={(t) => {
@@ -302,16 +314,19 @@ const ForgotPasswordModal = ({
                   editable={!loading && !success}
                 />
 
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: accentColor }, (loading || !otp) && styles.btnDisabled]}
-                  onPress={handleVerifyOTP}
-                  disabled={loading || !!success || !otp}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>Verify OTP</Text>
-                  )}
+                <TouchableOpacity style={{ alignSelf: 'stretch' }} activeOpacity={0.9} onPress={handleVerifyOTP} disabled={loading || !!success || !otp}>
+                  <LinearGradient
+                    colors={gradientColors}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={[styles.primaryBtn, (loading || !otp) && styles.btnDisabled]}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.primaryBtnText}>{t('Verify OTP')}</Text>
+                    )}
+                  </LinearGradient>
                 </TouchableOpacity>
 
                 {/* Resend with 60s timer */}
@@ -336,9 +351,9 @@ const ForgotPasswordModal = ({
                 </TouchableOpacity>
 
                 <View style={styles.footer}>
-                  <Text style={styles.footerText}>Wrong email? </Text>
+                  <Text style={styles.footerText}>{t('Wrong email?')}</Text>
                   <TouchableOpacity onPress={() => { setStep('email'); setError(''); }}>
-                    <Text style={[styles.footerLink, { color: accentColor }]}>Go back</Text>
+                    <Text style={[styles.footerLink, { color: accentColor }]}>{t('Go back')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -350,18 +365,18 @@ const ForgotPasswordModal = ({
                 <View style={[styles.iconCircle, { backgroundColor: accentColor + '1A' }]}>
                   <Text style={styles.iconEmoji}>🔒</Text>
                 </View>
-                <Text style={styles.title}>Reset Password</Text>
-                <Text style={styles.subtitle}>Create a new password for your account</Text>
+                <Text style={styles.title}>{t('Reset Password')}</Text>
+                <Text style={styles.subtitle}>{t('Create a new password for your account')}</Text>
                 <Text style={[styles.emailDisplay, { color: accentColor }]}>{email}</Text>
 
                 {error ? <Text style={styles.errorBox}>⚠️ {error}</Text> : null}
                 {success ? <Text style={styles.successBox}>✓ {success}</Text> : null}
 
-                <Text style={styles.label}>New Password *</Text>
+                <Text style={styles.label}>{t('New Password *')}</Text>
                 <View style={styles.passwordWrapper}>
                   <TextInput
                     style={styles.passwordInput}
-                    placeholder="Enter new password"
+                    placeholder={t('Enter new password')}
                     placeholderTextColor="#94a3b8"
                     value={newPassword}
                     onChangeText={(t) => {
@@ -376,11 +391,11 @@ const ForgotPasswordModal = ({
                   </TouchableOpacity>
                 </View>
 
-                <Text style={styles.label}>Confirm Password *</Text>
+                <Text style={styles.label}>{t('Confirm Password *')}</Text>
                 <View style={styles.passwordWrapper}>
                   <TextInput
                     style={styles.passwordInput}
-                    placeholder="Confirm new password"
+                    placeholder={t('Confirm new password')}
                     placeholderTextColor="#94a3b8"
                     value={confirmPassword}
                     onChangeText={(t) => {
@@ -395,22 +410,25 @@ const ForgotPasswordModal = ({
                   </TouchableOpacity>
                 </View>
 
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: accentColor }, (loading || success) && styles.btnDisabled]}
-                  onPress={handleResetPassword}
-                  disabled={loading || !!success}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>Reset Password</Text>
-                  )}
+                <TouchableOpacity style={{ alignSelf: 'stretch' }} activeOpacity={0.9} onPress={handleResetPassword} disabled={loading || !!success}>
+                  <LinearGradient
+                    colors={gradientColors}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={[styles.primaryBtn, (loading || success) && styles.btnDisabled]}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.primaryBtnText}>{t('Reset Password')}</Text>
+                    )}
+                  </LinearGradient>
                 </TouchableOpacity>
 
                 <View style={styles.footer}>
-                  <Text style={styles.footerText}>Remember your password? </Text>
+                  <Text style={styles.footerText}>{t('Remember your password?')}</Text>
                   <TouchableOpacity onPress={handleClose}>
-                    <Text style={[styles.footerLink, { color: accentColor }]}>Back to Login</Text>
+                    <Text style={[styles.footerLink, { color: accentColor }]}>{t('Back to Login')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>

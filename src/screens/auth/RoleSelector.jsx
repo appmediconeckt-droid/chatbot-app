@@ -13,6 +13,7 @@ import {
   BackHandler,
   ActivityIndicator,
   useWindowDimensions,
+  Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
@@ -20,8 +21,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { PATIENT, DOCTOR } from '../../theme/palette';
 import AuthBackground from '../../theme/AuthBackground';
+import logo from '../../image/HumaeliIcon.png';
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 const RoleSelector = () => {
+  const { t } = useLanguageRender();
   const navigation = useNavigation();
   const [selectedRole, setSelectedRole] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -35,11 +39,9 @@ const RoleSelector = () => {
   const R = {
     panelMaxW: isTablet ? 460 : 420,
     panelPadH: isTablet ? 30 : 22,
-    panelPadTop: isShort ? 22 : isTablet ? 38 : 30,
+    panelPadTop: isShort ? 16 : isTablet ? 26 : 22,
     shield: isTablet ? 54 : 44,
     spark: isTablet ? 21 : 17,
-    brand: isTablet ? 30 : 24,
-    tagline: isTablet ? 13 : 11.5,
     portal: isTablet ? 13.5 : 12,
     roleIcon: isTablet ? 50 : 42,
     roleIconGlyph: isTablet ? 26 : 22,
@@ -66,7 +68,6 @@ const RoleSelector = () => {
   const particle1 = useRef(new Animated.Value(0)).current;
   const particle2 = useRef(new Animated.Value(0)).current;
   
-  const logoHeartbeat = useRef(new Animated.Value(1)).current;
   
   useEffect(() => {
     // Entrance: quick and settled in ~450ms. Everything (incl. the bottom
@@ -81,14 +82,6 @@ const RoleSelector = () => {
         Animated.spring(counselorCardSlide, { toValue: 0, tension: 70, friction: 11, useNativeDriver: true }),
       ]),
     ]).start();
-
-    // Heartbeat Logo
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(logoHeartbeat, { toValue: 1.05, duration: 1500, useNativeDriver: true }),
-        Animated.timing(logoHeartbeat, { toValue: 1, duration: 1500, useNativeDriver: true }),
-      ])
-    ).start();
 
     // Floating logo drift
     Animated.loop(
@@ -149,9 +142,12 @@ const RoleSelector = () => {
       setTimeout(() => {
         setIsLoading(false);
         if (normalizedRole === 'user') {
-          navigation.replace('UserSignup', { role: 'user' });
+          // navigate, not replace: replace dropped RoleSelector from the stack,
+          // so hardware back on the login screen had nothing to pop and closed
+          // the app instead of coming back here.
+          navigation.navigate('UserSignup', { role: 'user' });
         } else if (normalizedRole === 'counselor') {
-          navigation.replace('CounselorSignup', { role: 'counselor' });
+          navigation.navigate('CounselorSignup', { role: 'counselor' });
         }
       }, 600);
     } catch (error) {
@@ -188,32 +184,22 @@ const RoleSelector = () => {
               },
             ]}
           >
-            {/* Header — blue shield with a white spark (Figma) */}
-            <Animated.View style={{ transform: [{ translateY: logoFloat }, { scale: logoHeartbeat }] }}>
-              <View style={[styles.logoOuter, { width: R.shield * 1.9, height: R.shield * 1.9 }]}>
-                {/* Soft halo behind the shield for depth */}
-                <View
-                  style={[
-                    styles.logoHalo,
-                    { width: R.shield * 1.9, height: R.shield * 1.9, borderRadius: R.shield * 0.95 },
-                  ]}
-                />
-                <Icon name="shield" size={R.shield} color="#4A6CF7" style={styles.logoShield} />
-                <Icon
-                  name="star-four-points"
-                  size={R.spark}
-                  color="#ffffff"
-                  style={[styles.logoSpark, { top: R.shield * 0.75 }]}
-                />
-              </View>
-            </Animated.View>
+            {/* Header mirrors the Login card: mark, bold title, light subtitle.
+                Uses the tree-only icon so the "Humaeli" wordmark inside the full
+                logo doesn't repeat the title text below it. */}
+            <View style={{ marginBottom: 12, alignItems: 'center' }}>
+              <Image
+                source={logo}
+                style={{ width: 80, height: 80, resizeMode: 'contain' }}
+              />
+            </View>
 
-            <Text style={[styles.brandTitle, { fontSize: R.brand }]}>Mediconekt</Text>
-            <Text style={[styles.tagline, { fontSize: R.tagline }]}>Elevate Your Mind, Heal Your Soul</Text>
+            <Text style={styles.brandTitle}>{t('Humaeli')}</Text>
+            <Text style={styles.tagline}>{t('Empowering People, Inspiring Mental Wellness')}</Text>
 
             <View style={styles.portalRow}>
               <View style={styles.portalRule} />
-              <Text style={[styles.portalLabel, { fontSize: R.portal }]}>Select Portal</Text>
+              <Text style={[styles.portalLabel, { fontSize: R.portal }]}>{t('Select Portal')}</Text>
               <View style={styles.portalRule} />
             </View>
 
@@ -248,8 +234,8 @@ const RoleSelector = () => {
                     <Icon name="account-group" size={R.roleIconGlyph} color="#ffffff" />
                   </LinearGradient>
                   <View style={styles.roleTextWrap}>
-                    <Text style={[styles.roleName, { fontSize: R.roleName }]}>User</Text>
-                    <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>Find trusted counselors</Text>
+                    <Text style={[styles.roleName, { fontSize: R.roleName }]}>{t('User')}</Text>
+                    <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>{t('Find trusted counselors')}</Text>
                   </View>
                   {selectedRole === 'user' && isLoading ? (
                     <ActivityIndicator size="small" color={PATIENT.primary} />
@@ -290,8 +276,8 @@ const RoleSelector = () => {
                     <Icon name="briefcase-variant" size={R.roleIconGlyph} color="#ffffff" />
                   </LinearGradient>
                   <View style={styles.roleTextWrap}>
-                    <Text style={[styles.roleName, { fontSize: R.roleName }]}>Counselor</Text>
-                    <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>Manage your practice</Text>
+                    <Text style={[styles.roleName, { fontSize: R.roleName }]}>{t('Counselor')}</Text>
+                    <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>{t('Manage your practice')}</Text>
                   </View>
                   {selectedRole === 'counselor' && isLoading ? (
                     <ActivityIndicator size="small" color={DOCTOR.primary} />
@@ -307,7 +293,7 @@ const RoleSelector = () => {
             {/* Encrypted badge */}
             <View style={styles.badgeContainer}>
               <Icon name="shield-lock" size={12} color={DOCTOR.primary} />
-              <Text style={styles.badgeText}>END-TO-END ENCRYPTED</Text>
+              <Text style={styles.badgeText}>{t('END-TO-END ENCRYPTED')}</Text>
             </View>
           </Animated.View>
           </ScrollView>
@@ -393,16 +379,19 @@ const styles = StyleSheet.create({
   logoSpark: {
     position: 'absolute',
   },
+  // Both copied from Login's title/subtitle so the two headers read as one
+  // design. Fixed sizes on purpose - the responsive R.brand/R.tagline values
+  // are what made this header look different from Login's.
   brandTitle: {
-    fontWeight: '900',
-    color: '#0F172A',
-    letterSpacing: -0.3,
-    marginTop: 6,
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
   },
   tagline: {
-    color: '#94A3B8',
-    fontWeight: '500',
-    marginTop: 5,
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
   },
   portalRow: {
     flexDirection: 'row',

@@ -71,7 +71,7 @@
     "passwordMinLength": "密码必须至少为 6 个字符",
     "passwordsDoNotMatch": "密码不匹配",
     "sessionExpired": "会话已过期。请重新登录。",
-    "chooseRole": "选择您想要如何使用 Mediconect",
+    "chooseRole": "选择您想要如何使用 Humaeli",
     "userRole": "用户",
     "counselorRole": "辅导员",
     "userRoleDesc": "获得专业顾问的支持",
@@ -264,7 +264,7 @@
     "reEnterPassword": "重新输入密码",
     "enterCurrentPassword": "输入当前密码",
     "reEnterNewPassword": "重新输入新密码",
-    "copyright": "© 2025 Mediconnect。版权所有。"
+    "copyright": "© 2025 Humaeli。版权所有。"
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "帮助支持",
-    "centerTitle": "MediConeckt 支持中心",
-    "centerDesc": "使用此支持中心跳转到正确的 MediConeckt 功能，解决常见问题，并了解何时联系应用程序之外的紧急帮助。",
+    "centerTitle": "Humaeli 支持中心",
+    "centerDesc": "使用此支持中心跳转到正确的 Humaeli 功能，解决常见问题，并了解何时联系应用程序之外的紧急帮助。",
     "aiWellnessChat": "AI健康聊天",
     "aiWellnessDesc": "询问心理健康问题，使用语音输入，获得快速回复，并从仪表板继续最近的 AI 聊天。",
     "aiWellnessAction": "打开AI聊天",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "隐私政策",
-    "centerTitle": "MediConeckt 隐私中心",
-    "centerDesc": "此隐私中心解释了 MediConeckt 如何在此移动应用程序中使用您的个人资料、聊天、约会、钱包、通话、位置和安全数据。",
+    "centerTitle": "Humaeli 隐私中心",
+    "centerDesc": "此隐私中心解释了 Humaeli 如何在此移动应用程序中使用您的个人资料、聊天、约会、钱包、通话、位置和安全数据。",
     "otpProtected": "OTP 保护",
     "otpProtectedDesc": "电子邮件和电话变更",
     "anonymousCare": "匿名护理身份",

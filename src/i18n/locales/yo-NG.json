@@ -71,7 +71,7 @@
     "passwordMinLength": "Ọrọigbaniwọle gbọdọ jẹ o kere ju awọn ohun kikọ 6",
     "passwordsDoNotMatch": "Awọn ọrọ igbaniwọle ko baramu",
     "sessionExpired": "Akoko ti pari. Jọwọ buwolu wọle lẹẹkansi.",
-    "chooseRole": "Yan bi o ṣe fẹ lo Mediconect",
+    "chooseRole": "Yan bi o ṣe fẹ lo Humaeli",
     "userRole": "Olumulo",
     "counselorRole": "Oludamoran",
     "userRoleDesc": "Gba atilẹyin lati ọdọ awọn oludamoran ọjọgbọn",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Tun ọrọ igbaniwọle sii",
     "enterCurrentPassword": "Tẹ ọrọ igbaniwọle lọwọlọwọ sii",
     "reEnterNewPassword": "Tun ọrọigbaniwọle titun tẹ sii",
-    "copyright": "© 2025 Mediconnect. Gbogbo awọn ẹtọ wa ni ipamọ."
+    "copyright": "© 2025 Humaeli. Gbogbo awọn ẹtọ wa ni ipamọ."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Iranlọwọ Support",
-    "centerTitle": "MediConekt ile-iṣẹ atilẹyin",
-    "centerDesc": "Lo ile-iṣẹ atilẹyin yii lati fo si ẹya MediConekt ọtun, yanju awọn ọran ti o wọpọ, ati loye nigbati o kan si iranlọwọ ni kiakia ni ita ohun elo naa.",
+    "centerTitle": "Humaeli ile-iṣẹ atilẹyin",
+    "centerDesc": "Lo ile-iṣẹ atilẹyin yii lati fo si ẹya Humaeli ọtun, yanju awọn ọran ti o wọpọ, ati loye nigbati o kan si iranlọwọ ni kiakia ni ita ohun elo naa.",
     "aiWellnessChat": "Iwiregbe alafia AI",
     "aiWellnessDesc": "Beere awọn ibeere ilera ọpọlọ, lo titẹ ohun, gba awọn idahun ni iyara, ki o tẹsiwaju iwiregbe AI aipẹ rẹ lati dasibodu.",
     "aiWellnessAction": "Ṣii iwiregbe AI",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Asiri Afihan",
-    "centerTitle": "MediConeckt ile-iṣẹ ikọkọ",
-    "centerDesc": "Ile-iṣẹ aṣiri yii n ṣalaye bi MediConeckt ṣe nlo profaili rẹ, iwiregbe, ipinnu lati pade, apamọwọ, ipe, ipo, ati data aabo inu ohun elo alagbeka yii.",
+    "centerTitle": "Humaeli ile-iṣẹ ikọkọ",
+    "centerDesc": "Ile-iṣẹ aṣiri yii n ṣalaye bi Humaeli ṣe nlo profaili rẹ, iwiregbe, ipinnu lati pade, apamọwọ, ipe, ipo, ati data aabo inu ohun elo alagbeka yii.",
     "otpProtected": "OTP ni aabo",
     "otpProtectedDesc": "Imeeli ati foonu ayipada",
     "anonymousCare": "Idanimọ itọju ailorukọ",

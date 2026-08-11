@@ -10,8 +10,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
+import { PATIENT_GRADIENT, GRADIENT_DIRECTION } from '../../../../theme/palette';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import axiosInstance from '../../../../axiosConfig';
+import useLanguageRender from '../../../../hooks/useLanguageRender';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ─── DiceBear URL helpers (ported from iOS utils/avatarProfile) ───────────────
 const DEFAULT_STYLE = 'lorelei';
@@ -245,6 +249,8 @@ const AvatarPicker = ({
   onClose,
   onSelect,
 }) => {
+  const insets = useSafeAreaInsets();
+  const { t } = useLanguageRender();
   // Open straight to the preset picker + customizer, like the web.
   const [activeTab, setActiveTab] = useState('builder');
   const [selectedPresetId, setSelectedPresetId] = useState(null);
@@ -436,7 +442,7 @@ const AvatarPicker = ({
 
   const renderFacePresets = () => (
     <View style={styles.partSection}>
-      <Text style={styles.sectionLabel}>Face</Text>
+      <Text style={styles.sectionLabel}>{t('Face')}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.optionRow}>
         {FACE_PRESETS.map((preset) => {
           const previewDraft = {
@@ -456,7 +462,7 @@ const AvatarPicker = ({
               onPress={() => applyFacePreset(preset)}
             >
               <Image source={{ uri: previewUrl }} style={styles.optionImage} />
-              <Text style={[styles.textOptionLabel, selected && styles.textOptionLabelSelected]}>{preset.label}</Text>
+              <Text style={[styles.textOptionLabel, selected && styles.textOptionLabelSelected]}>{t(preset.label)}</Text>
             </TouchableOpacity>
           );
         })}
@@ -504,9 +510,9 @@ const AvatarPicker = ({
 
   const pickerContent = (
     <View style={[styles.overlay, presentation === 'inline' && styles.inlineOverlay]}>
-      <View style={[styles.sheet, presentation === 'inline' && styles.inlineSheet]}>
+      <View style={[styles.sheet, presentation === 'inline' && styles.inlineSheet, { paddingBottom: Math.max(insets.bottom, 28) }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>Choose Avatar</Text>
+          <Text style={styles.title}>{t('Choose Avatar')}</Text>
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
             <Text style={styles.closeText}>x</Text>
           </TouchableOpacity>
@@ -527,7 +533,7 @@ const AvatarPicker = ({
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.creatorBody}>
           {activeTab === 'photo' && (
             <View style={styles.photoCaptureSection}>
-              <Text style={styles.sectionLabel}>Use your own photo</Text>
+              <Text style={styles.sectionLabel}>{t('Use your own photo')}</Text>
               <Text style={styles.photoHelpText}>
                 Take a clear selfie or choose one from your gallery. The app sends it to your avatar
                 service and uses the returned avatar.
@@ -539,21 +545,21 @@ const AvatarPicker = ({
                   onPress={() => selectPhoto('camera')}
                   disabled={isGeneratingPhotoAvatar}
                 >
-                  <Text style={styles.photoActionButtonText}>Take Photo</Text>
+                  <Text style={styles.photoActionButtonText}>{t('Take Photo')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.photoActionButtonSecondary, isGeneratingPhotoAvatar && styles.photoActionButtonOff]}
                   onPress={() => selectPhoto('library')}
                   disabled={isGeneratingPhotoAvatar}
                 >
-                  <Text style={styles.photoActionButtonSecondaryText}>Choose Photo</Text>
+                  <Text style={styles.photoActionButtonSecondaryText}>{t('Choose Photo')}</Text>
                 </TouchableOpacity>
               </View>
 
               {isGeneratingPhotoAvatar && (
                 <View style={styles.photoStatusBox}>
                   <ActivityIndicator size="small" color="#4A90E2" />
-                  <Text style={styles.photoStatusText}>Creating avatar from your photo...</Text>
+                  <Text style={styles.photoStatusText}>{t('Creating avatar from your photo...')}</Text>
                 </View>
               )}
 
@@ -562,11 +568,11 @@ const AvatarPicker = ({
               {sourcePhoto && (
                 <View style={styles.photoResultRow}>
                   <View style={styles.photoResultCard}>
-                    <Text style={styles.photoResultLabel}>Selected Photo</Text>
+                    <Text style={styles.photoResultLabel}>{t('Selected Photo')}</Text>
                     <Image source={{ uri: sourcePhoto.uri }} style={styles.photoResultImage} />
                   </View>
                   <View style={styles.photoResultCard}>
-                    <Text style={styles.photoResultLabel}>Generated Avatar</Text>
+                    <Text style={styles.photoResultLabel}>{t('Generated Avatar')}</Text>
                     {generatedPhotoAvatar?.url ? (
                       <Image
                         source={{ uri: generatedPhotoAvatar.url }}
@@ -584,7 +590,7 @@ const AvatarPicker = ({
 
               {sourcePhoto && !isGeneratingPhotoAvatar && (
                 <TouchableOpacity style={styles.retryButton} onPress={() => generateAvatarFromPhoto(sourcePhoto)}>
-                  <Text style={styles.retryButtonText}>Generate Again</Text>
+                  <Text style={styles.retryButtonText}>{t('Generate Again')}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -593,7 +599,7 @@ const AvatarPicker = ({
           {activeTab === 'builder' && (
             <>
               <View style={styles.partSection}>
-                <Text style={styles.sectionLabel}>Choose an avatar</Text>
+                <Text style={styles.sectionLabel}>{t('Choose an avatar')}</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.optionRow}>
                   {PRESET_AVATARS.map((preset) => {
                     const selected = selectedPresetId === preset.id;
@@ -605,7 +611,7 @@ const AvatarPicker = ({
                         onPress={() => applyPreset(preset)}
                       >
                         <Image source={{ uri: previewUrl }} style={styles.optionImage} />
-                        <Text style={[styles.textOptionLabel, selected && styles.textOptionLabelSelected]}>{preset.label}</Text>
+                        <Text style={[styles.textOptionLabel, selected && styles.textOptionLabelSelected]}>{t(preset.label)}</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -625,7 +631,7 @@ const AvatarPicker = ({
               {renderPartOptions('Clothes Color', CLOTHES_COLORS, draft.clothesColor, 'clothesColor', 'swatch')}
               {renderPartOptions('Background', BACKGROUND_COLORS, draft.backgroundColor, 'backgroundColor', 'swatch')}
               <TouchableOpacity style={styles.randomButton} onPress={randomizeAvatar}>
-                <Text style={styles.randomButtonText}>Random Avatar</Text>
+                <Text style={styles.randomButtonText}>{t('Random Avatar')}</Text>
               </TouchableOpacity>
             </>
           )}
@@ -633,17 +639,20 @@ const AvatarPicker = ({
 
         <View style={styles.footer}>
           <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
-            <Text style={styles.cancelText}>Cancel</Text>
+            <Text style={styles.cancelText}>{t('Cancel')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[
-              styles.useButton,
+              styles.useButtonWrap,
               ((activeTab === 'photo' && !generatedPhotoAvatar) || isGeneratingPhotoAvatar) && styles.useButtonOff,
             ]}
             onPress={handleUseAvatar}
             disabled={(activeTab === 'photo' && !generatedPhotoAvatar) || isGeneratingPhotoAvatar}
+            activeOpacity={0.85}
           >
-            <Text style={styles.useText}>Use Avatar</Text>
+            <LinearGradient colors={PATIENT_GRADIENT} {...GRADIENT_DIRECTION} style={styles.useButton}>
+              <Text style={styles.useText}>{t('Use Avatar')}</Text>
+            </LinearGradient>
           </TouchableOpacity>
         </View>
       </View>
@@ -719,7 +728,9 @@ const styles = StyleSheet.create({
   footer: { flexDirection: 'row', gap: 12 },
   cancelButton: { flex: 1, alignItems: 'center', paddingVertical: 13, borderRadius: 10, borderWidth: 1, borderColor: '#d1d5db' },
   cancelText: { color: '#4b5563', fontSize: 15, fontWeight: '700' },
-  useButton: { flex: 2, alignItems: 'center', paddingVertical: 13, borderRadius: 10, backgroundColor: '#4A90E2' },
+  // Wrapper owns flex/radius and clips the gradient; inner view is just the fill.
+  useButtonWrap: { flex: 2, borderRadius: 10, overflow: 'hidden' },
+  useButton: { alignItems: 'center', paddingVertical: 13 },
   useButtonOff: { opacity: 0.5 },
   useText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });

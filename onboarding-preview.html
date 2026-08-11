@@ -1,0 +1,276 @@
+<title>Counselor Onboarding — 4 Slides</title>
+<style>
+  :root {
+    --primary: #004AC6;
+    --grad-from: #003A9B;
+    --grad-to: #1490FF;
+    --tint: #E7EEFE;
+    --ink: #0F172A;
+    --muted: #64748B;
+    --card: #FFFFFF;
+    --page: #EEF1F8;
+    --frame: #0B1220;
+    --hair: #E7EBF3;
+  }
+  :root[data-theme="dark"] {
+    --page: #0A0F1A;
+    --frame: #060A12;
+    --ink: #0F172A; /* phone screen stays light — it's an app mock */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --page: #0A0F1A; --frame: #060A12; }
+  }
+  :root[data-theme="light"] { --page: #EEF1F8; --frame: #0B1220; }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 64px; }
+  .pagehead { margin-bottom: 6px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase;
+    font-weight: 800; color: var(--primary); margin: 0 0 8px;
+  }
+  .pagehead h1 {
+    margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.3px;
+    color: color-mix(in srgb, var(--ink) 88%, white);
+  }
+  :root[data-theme="dark"] .pagehead h1 { color: #E8EEFA; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pagehead h1 { color: #E8EEFA; } }
+  .pagehead p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+  :root[data-theme="dark"] .pagehead p, :root[data-theme="dark"] .flow span { color: #8A97AD; }
+
+  .flow {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin: 22px 0 30px; font-size: 12.5px; color: var(--muted); font-weight: 600;
+  }
+  .flow .chip {
+    background: var(--tint); color: var(--primary); padding: 5px 11px;
+    border-radius: 999px; font-weight: 700;
+  }
+  .flow .arrow { opacity: .5; }
+
+  .rail {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 26px;
+  }
+  @media (max-width: 1080px) { .rail { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .rail { grid-template-columns: 1fr; } }
+
+  .col { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .slidelabel { font-size: 12px; font-weight: 700; color: var(--muted); }
+  .slidelabel b { color: var(--primary); }
+
+  /* Phone */
+  .phone {
+    width: 100%; max-width: 260px; aspect-ratio: 9 / 19.2;
+    background: var(--frame); border-radius: 34px; padding: 9px;
+    box-shadow: 0 22px 50px -18px rgba(15,23,42,.5), 0 0 0 1px rgba(255,255,255,.04) inset;
+  }
+  .screen {
+    height: 100%; background: #F5F8FE; border-radius: 26px; overflow: hidden;
+    display: flex; flex-direction: column; position: relative;
+  }
+  .status {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 18px 4px; font-size: 10px; font-weight: 700; color: #0F172A;
+  }
+  .status .dots { display: flex; gap: 3px; align-items: center; }
+  .topbar { display: flex; justify-content: flex-end; padding: 4px 18px 0; }
+  .skip { font-size: 11px; font-weight: 700; color: #0F172A; }
+
+  .body {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; text-align: center; padding: 10px 20px; gap: 12px;
+  }
+  .hero {
+    width: 118px; height: 118px; border-radius: 24px; background: var(--tint);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .hero.plain { background: transparent; }
+  .title {
+    font-size: 16.5px; font-weight: 800; letter-spacing: -0.2px; color: var(--ink);
+    line-height: 1.25; text-wrap: balance;
+  }
+  .desc { font-size: 11.5px; line-height: 1.5; color: var(--muted); max-width: 200px; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; background: var(--tint);
+    color: var(--primary); font-size: 11px; font-weight: 700;
+    padding: 8px 12px; border-radius: 10px;
+  }
+
+  /* slide 2 schedule card */
+  .schedcard {
+    background: #fff; border-radius: 14px; padding: 16px 18px; width: 78%;
+    box-shadow: 0 8px 20px -10px rgba(15,23,42,.25); display: flex;
+    flex-direction: column; align-items: center; gap: 6px;
+  }
+  .schedcard .st { font-size: 12px; font-weight: 700; color: var(--ink); }
+  .schedcard .sw { font-size: 10.5px; color: var(--muted); }
+
+  /* slide 3 earnings */
+  .earn { display: flex; gap: 18px; }
+  .price { display: flex; flex-direction: column; align-items: center; }
+  .price .cur { font-size: 12px; font-weight: 700; color: var(--primary); }
+  .price .val { font-size: 22px; font-weight: 800; color: var(--primary); line-height: 1; }
+  .svcicons { display: flex; gap: 12px; margin-top: 14px; }
+  .svc {
+    width: 38px; height: 38px; border-radius: 50%; background: var(--tint);
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* slide 4 feature list */
+  .flist { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 4px; }
+  .frow {
+    display: flex; align-items: center; gap: 10px; background: #fff;
+    border: 1px solid var(--tint); border-radius: 10px; padding: 9px 12px;
+    font-size: 11px; font-weight: 700; color: var(--primary);
+  }
+
+  /* footer of each screen */
+  .foot { padding: 0 20px 18px; display: flex; flex-direction: column; gap: 10px; }
+  .dots-row { display: flex; justify-content: center; gap: 6px; padding: 10px 0; }
+  .dot { width: 7px; height: 7px; border-radius: 4px; background: #CBD5E1; }
+  .dot.on { width: 20px; background: var(--primary); }
+  .cta {
+    background: linear-gradient(90deg, var(--grad-from), var(--grad-to));
+    color: #fff; text-align: center; font-size: 13px; font-weight: 800;
+    padding: 12px; border-radius: 13px; display: flex; align-items: center;
+    justify-content: center; gap: 8px;
+  }
+  .later { text-align: center; font-size: 11.5px; font-weight: 700; color: var(--primary); }
+  svg { display: block; }
+</style>
+
+<div class="wrap">
+  <div class="pagehead">
+    <p class="eyebrow">Counselor · Blue theme</p>
+    <h1>Onboarding — the 4 slides a new counselor sees</h1>
+    <p>Shown once, right after signup. Existing counselors logging in skip straight to the dashboard.</p>
+  </div>
+
+  <div class="flow">
+    <span class="chip">Counselor Signup</span>
+    <span class="arrow">→</span>
+    <span class="chip">Onboarding (these 4 slides)</span>
+    <span class="arrow">→</span>
+    <span class="chip">Counselor Dashboard</span>
+    <span class="arrow" style="margin-left:14px">·</span>
+    <span>Login → Dashboard (no onboarding)</span>
+  </div>
+
+  <div class="rail">
+
+    <!-- SLIDE 1 -->
+    <div class="col">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>9:41</span><span class="dots">📶 🔋</span></div>
+        <div class="topbar"><span class="skip">Skip</span></div>
+        <div class="body">
+          <div class="hero">
+            <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#004AC6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="13" height="12" rx="2.5"/><path d="M15 10.5 22 7v10l-7-3.5z"/></svg>
+          </div>
+          <div class="title">Grow Your Practice Digitally</div>
+          <div class="desc">Reach more patients through secure online and offline consultations.</div>
+          <span class="pill">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#004AC6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.3 8 10 4.6-1.7 8-5 8-10V5z"/><path d="m9 12 2 2 4-4"/></svg>
+            Secure Sessions
+          </span>
+        </div>
+        <div class="foot">
+          <div class="dots-row"><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+          <div class="cta">Next
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </div>
+        </div>
+      </div></div>
+      <div class="slidelabel"><b>Slide 1</b> · Grow your practice</div>
+    </div>
+
+    <!-- SLIDE 2 -->
+    <div class="col">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>9:41</span><span class="dots">📶 🔋</span></div>
+        <div class="topbar"><span class="skip">Skip</span></div>
+        <div class="body">
+          <div class="schedcard">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#004AC6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>
+            <div class="st">Today's Schedule</div>
+            <div class="sw">Sarah M • 2:00 PM</div>
+          </div>
+          <div class="title">Manage Appointments Effortlessly</div>
+          <div class="desc">Accept bookings, reschedule appointments, and manage your daily calendar in one place.</div>
+        </div>
+        <div class="foot">
+          <div class="dots-row"><span class="dot"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div>
+          <div class="cta">Next
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </div>
+        </div>
+      </div></div>
+      <div class="slidelabel"><b>Slide 2</b> · Manage appointments</div>
+    </div>
+
+    <!-- SLIDE 3 -->
+    <div class="col">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>9:41</span><span class="dots">📶 🔋</span></div>
+        <div class="topbar"><span class="skip">Skip</span></div>
+        <div class="body">
+          <div class="hero plain" style="flex-direction:column;gap:6px;height:auto">
+            <div class="earn">
+              <div class="price"><span class="cur">₹</span><span class="val">1,340</span></div>
+              <div class="price"><span class="cur">₹</span><span class="val">1,840</span></div>
+            </div>
+            <div class="svcicons">
+              <div class="svc"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#004AC6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="13" height="12" rx="2.5"/><path d="M15 10.5 22 7v10l-7-3.5z"/></svg></div>
+              <div class="svc"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#004AC6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.7L3 21l1.8-5.8A8.5 8.5 0 1 1 21 11.5z"/></svg></div>
+              <div class="svc"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#004AC6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3-8.6A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.9.3 1.9.6 2.9.7a2 2 0 0 1 1.7 2z"/></svg></div>
+            </div>
+          </div>
+          <div class="title">Consult. Connect. Earn.</div>
+          <div class="desc">Offer video consultations, in-person visits, and build lasting relationships with patients.</div>
+        </div>
+        <div class="foot">
+          <div class="dots-row"><span class="dot"></span><span class="dot"></span><span class="dot on"></span><span class="dot"></span></div>
+          <div class="cta">Next
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </div>
+        </div>
+      </div></div>
+      <div class="slidelabel"><b>Slide 3</b> · Consult · Connect · Earn</div>
+    </div>
+
+    <!-- SLIDE 4 -->
+    <div class="col">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>9:41</span><span class="dots">📶 🔋</span></div>
+        <div class="topbar"><span class="skip">Skip</span></div>
+        <div class="body" style="justify-content:flex-start;padding-top:26px;gap:10px">
+          <div class="hero">
+            <svg width="66" height="66" viewBox="0 0 24 24" fill="none" stroke="#004AC6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="m8 12 2.6 2.6L16 9"/></svg>
+          </div>
+          <div class="title">You're Ready to Start</div>
+          <div class="desc">Complete your profile and let MediConeckt help manage your practice.</div>
+          <div class="flist">
+            <div class="frow"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#004AC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> Smart Scheduling</div>
+            <div class="frow"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#004AC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m3 7 9 6 9-6"/></svg> Secure Messaging</div>
+            <div class="frow"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#004AC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> Patient Records</div>
+          </div>
+        </div>
+        <div class="foot">
+          <div class="dots-row"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot on"></span></div>
+          <div class="cta">Complete Profile</div>
+          <div class="later">Maybe Later</div>
+        </div>
+      </div></div>
+      <div class="slidelabel"><b>Slide 4</b> · Ready to start</div>
+    </div>
+
+  </div>
+</div>

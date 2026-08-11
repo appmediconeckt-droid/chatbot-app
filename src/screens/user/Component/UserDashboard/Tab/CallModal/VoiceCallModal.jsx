@@ -19,6 +19,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import useRingtone from '../../../../../../hooks/useRingtone';
 import { useScreenshotPreventModal } from '../../../../../../utils/useScreenshotPrevent';
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 
 import {
   StreamVideo,
@@ -27,6 +28,16 @@ import {
   useCallStateHooks,
   CallingState,
 } from '@stream-io/video-react-native-sdk';
+
+// Blends two hex colours; used to spread a gradient across the waveform bars,
+// which are separate Views and so can't share one LinearGradient.
+const mixHex = (from, to, ratio) => {
+  const parse = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [r1, g1, b1] = parse(from);
+  const [r2, g2, b2] = parse(to);
+  const ch = (a, b) => Math.round(a + (b - a) * ratio).toString(16).padStart(2, '0');
+  return `#${ch(r1, r2)}${ch(g1, g2)}${ch(b1, b2)}`;
+};
 
 const resolveCallDisplayName = (callData, isCounselor) => {
   const apiCallData = callData?.apiCallData || {};
@@ -58,6 +69,8 @@ const resolveCallDisplayName = (callData, isCounselor) => {
 // onLocalHangup: user pressed end button (sends call.end() to kill for both sides)
 // onRemoteEnded: remote side already ended, just cleanup locally
 const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePic, isCounselor, isOutgoing }) => {
+  // `t` is the call theme in this file, so the translator is bound as `tr`.
+  const { t: tr } = useLanguageRender();
   const {
     useCallCallingState,
     useMicrophoneState,
@@ -305,6 +318,7 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
               style={[
                 styles.ripple,
                 {
+                  borderColor: t.brand,
                   opacity: r.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0] }),
                   transform: [{ scale: r.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] }) }],
                 },
@@ -312,41 +326,58 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
             />
           ))}
           <Animated.View style={[styles.avatarRing, { transform: [{ scale: avatarPulse }] }]}>
-            <View style={styles.avatarCircle}>
+            <View style={[styles.avatarCircle, { backgroundColor: t.tint }]}>
               {profilePhotoUrl ? (
                 <Image source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
               ) : (
-                <Text style={styles.avatarText}>{displayInitial}</Text>
+                <Text style={[styles.avatarText, { color: t.brand }]}>{displayInitial}</Text>
               )}
             </View>
           </Animated.View>
         </View>
 
-        <Text style={styles.callerName} numberOfLines={1}>{displayName}</Text>
+        <Text style={[styles.callerName, { color: t.brand }]} numberOfLines={1}>{displayName}</Text>
 
         <View style={styles.badgeRow}>
           <View style={styles.badgeAudio}>
-            <Text style={styles.badgeAudioText}>HD AUDIO</Text>
+            <Text style={styles.badgeAudioText}>{tr('HD AUDIO')}</Text>
           </View>
-          <View style={styles.badgeSecure}>
-            <Text style={styles.badgeSecureText}>ENCRYPTED</Text>
+          <View style={[styles.badgeSecure, { backgroundColor: t.tint }]}>
+            <Text style={[styles.badgeSecureText, { color: t.brand }]}>{tr('ENCRYPTED')}</Text>
           </View>
         </View>
 
         <View style={styles.timerRow}>
           {isConnecting ? (
-            <ActivityIndicator size="small" color="#00652C" />
+            <ActivityIndicator size="small" color={t.brand} />
           ) : (
-            <Ionicons name="timer-outline" size={15} color="#00652C" />
+            <Ionicons name="timer-outline" size={15} color={t.brand} />
           )}
-          <Text style={styles.timerText}>
-            {isConnecting ? 'Connecting…' : isConnected ? formatTime(elapsedSeconds) : 'Call Ended'}
+          <Text style={[styles.timerText, { color: t.brand }]}>
+            {isConnecting
+              ? tr('Connecting…')
+              : isConnected
+              ? formatTime(elapsedSeconds)
+              : tr('Call Ended')}
           </Text>
         </View>
 
         <View style={styles.waveRow}>
           {waveAnims.map((a, i) => (
-            <Animated.View key={i} style={[styles.waveBar, { transform: [{ scaleY: a }] }]} />
+            <Animated.View
+              key={i}
+              style={[
+                styles.waveBar,
+                {
+                  backgroundColor: mixHex(
+                    t.waveFrom,
+                    t.waveTo,
+                    waveAnims.length > 1 ? i / (waveAnims.length - 1) : 0,
+                  ),
+                  transform: [{ scaleY: a }],
+                },
+              ]}
+            />
           ))}
         </View>
       </Animated.View>
@@ -363,7 +394,7 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
       >
         <View style={styles.controlPanel}>
           <TouchableOpacity
-            style={[styles.ctrlBtn, isMute && styles.ctrlBtnActive]}
+            style={[styles.ctrlBtn, { backgroundColor: t.tint }, isMute && { backgroundColor: t.brand }]}
             onPress={toggleMute}
             activeOpacity={0.8}
           >
@@ -375,7 +406,7 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.ctrlBtn, isSpeaker && styles.ctrlBtnActive]}
+            style={[styles.ctrlBtn, { backgroundColor: t.tint }, isSpeaker && { backgroundColor: t.brand }]}
             onPress={toggleSpeaker}
             activeOpacity={0.8}
           >
@@ -402,6 +433,7 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) => {
+  const { t: tr } = useLanguageRender();
   useScreenshotPreventModal(isOpen);
   const [client, setClient] = useState(null);
   const [call, setCall] = useState(null);
@@ -420,9 +452,11 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
   const handleCloseRef = useRef(null);
 
   const { stopRinging } = useRingtone();
-  const isCounselorView =
-    callData?.currentUserType === 'counsellor' ||
-    callData?.currentUserType === 'counselor';
+  // Matched loosely on purpose. The counselor dashboard was sending
+  // "counsellour" (a typo), which equalled neither spelling - so this was always
+  // false and the counselor got the USER call screen: green theme, the caller's
+  // photo shown, and the close cross that should not be there.
+  const isCounselorView = /counsell?o?u?r/i.test(String(callData?.currentUserType || ''));
   const displayName = resolveCallDisplayName(callData, isCounselorView);
 
   const cleanup = useCallback(async (endForAll = false) => {
@@ -430,6 +464,8 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
     cleaningUpRef.current = true;
 
     stopRinging();
+    // Release the audio session opened for ringback (outgoing calls start it).
+    try { InCallManager.stop(); } catch (_) {}
     cancelledRef.current = true;
     if (cancelledRef._pollInterval) {
       clearInterval(cancelledRef._pollInterval);
@@ -668,24 +704,39 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
   const t = isCounselorView ? counselorTheme : userTheme;
 
   return (
-    <Modal visible={isOpen} animationType="slide" transparent={false} onRequestClose={handleClose}>
+    <Modal
+      visible={isOpen}
+      animationType="slide"
+      transparent={false}
+      // Explicit, not relying on the app-wide default: without these the modal
+      // window stops above the navigation bar and the dashboard's tab bar stayed
+      // visible in a strip under the call screen.
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={handleClose}
+    >
       <SafeAreaView style={[styles.container, { backgroundColor: '#ffffff' }]}>
         <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
         {(loading || !!error) && (
           <View style={styles.lightHeader}>
-            <Text style={styles.lightHeaderTitle}>Voice Call</Text>
-            <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={22} color="#0f172a" />
-            </TouchableOpacity>
+            <Text style={styles.lightHeaderTitle}>{tr('Voice Call')}</Text>
+            {/* Counselor side: no cross. Android back still cancels a connecting
+                call (onRequestClose), and the error state below has its own
+                Close button, so nothing becomes unreachable. */}
+            {!isCounselorView && (
+              <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
+                <Ionicons name="close" size={22} color="#0f172a" />
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
         <View style={[styles.content, { backgroundColor: '#ffffff' }]}>
           {loading && (
             <View style={styles.centerWrap}>
-              <ActivityIndicator size="large" color="#00652C" />
-              <Text style={[styles.statusText, { color: '#00652C' }]}>Connecting...</Text>
+              <ActivityIndicator size="large" color={t.brand} />
+              <Text style={[styles.statusText, { color: t.brand }]}>Connecting...</Text>
             </View>
           )}
 
@@ -693,8 +744,8 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
             <View style={styles.centerWrap}>
               <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
               <Text style={styles.errorText}>{error}</Text>
-              <TouchableOpacity style={[styles.retryBtn, { backgroundColor: '#00652C' }]} onPress={handleClose}>
-                <Text style={styles.retryBtnText}>Close</Text>
+              <TouchableOpacity style={[styles.retryBtn, { backgroundColor: t.brand }]} onPress={handleClose}>
+                <Text style={styles.retryBtnText}>{tr('Close')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -720,6 +771,11 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
 };
 
 const userTheme = {
+  brand: '#006B2C',
+  // Wallet-card gradient stops - the waveform is drawn across them.
+  waveFrom: '#006B2C',
+  waveTo: '#01CE54',
+  tint: '#E6F6EC',
   bg: '#0d1117',
   header: '#111827',
   headerBorder: '#1e2535',
@@ -731,6 +787,11 @@ const userTheme = {
 };
 
 const counselorTheme = {
+  brand: '#004AC6',
+  // Earnings-card gradient stops.
+  waveFrom: '#003A9B',
+  waveTo: '#1490FF',
+  tint: '#E7EEFE',
   bg: '#0d1117',
   header: '#1E40AF',
   headerBorder: '#1D4ED8',
@@ -889,7 +950,7 @@ const styles = StyleSheet.create({
     width: 4,
     height: 30,
     borderRadius: 3,
-    backgroundColor: '#0E7552',
+    // Colour is per-bar and comes from the active theme - see mixHex below.
   },
 
   bottomArea: {
@@ -921,9 +982,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#E6F6EC',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  ctrlBtnActive: {
-    backgroundColor: '#00652C',
   },
   endBtn: {
     width: 58,

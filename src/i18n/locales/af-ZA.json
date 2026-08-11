@@ -71,7 +71,7 @@
     "passwordMinLength": "Wagwoord moet ten minste 6 karakters wees",
     "passwordsDoNotMatch": "Wagwoorde stem nie ooreen nie",
     "sessionExpired": "Sessie het verval. Meld asseblief weer aan.",
-    "chooseRole": "Kies hoe jy Mediconect wil gebruik",
+    "chooseRole": "Kies hoe jy Humaeli wil gebruik",
     "userRole": "Gebruiker",
     "counselorRole": "Berader",
     "userRoleDesc": "Kry ondersteuning van professionele beraders",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Voer wagwoord weer in",
     "enterCurrentPassword": "Voer huidige wagwoord in",
     "reEnterNewPassword": "Voer nuwe wagwoord weer in",
-    "copyright": "© 2025 Mediconnect. Alle regte voorbehou."
+    "copyright": "© 2025 Humaeli. Alle regte voorbehou."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Help Ondersteuning",
-    "centerTitle": "MediConeckt-ondersteuningsentrum",
-    "centerDesc": "Gebruik hierdie ondersteuningsentrum om na die regte MediConeckt-kenmerk te spring, algemene probleme op te los en te verstaan wanneer om dringende hulp buite die toepassing te kontak.",
+    "centerTitle": "Humaeli-ondersteuningsentrum",
+    "centerDesc": "Gebruik hierdie ondersteuningsentrum om na die regte Humaeli-kenmerk te spring, algemene probleme op te los en te verstaan wanneer om dringende hulp buite die toepassing te kontak.",
     "aiWellnessChat": "KI-welstandgesels",
     "aiWellnessDesc": "Vra vrae oor geestelike welstand, gebruik steminvoer, kry vinnige antwoorde en gaan voort met jou onlangse KI-klets vanaf die kontroleskerm.",
     "aiWellnessAction": "Maak KI-klets oop",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Privaatheidsbeleid",
-    "centerTitle": "MediConeckt privaatheidsentrum",
-    "centerDesc": "Hierdie privaatheidsentrum verduidelik hoe MediConeckt jou profiel, klets, afspraak, beursie, oproep, ligging en sekuriteitsdata binne hierdie mobiele toepassing gebruik.",
+    "centerTitle": "Humaeli privaatheidsentrum",
+    "centerDesc": "Hierdie privaatheidsentrum verduidelik hoe Humaeli jou profiel, klets, afspraak, beursie, oproep, ligging en sekuriteitsdata binne hierdie mobiele toepassing gebruik.",
     "otpProtected": "OTP beskerm",
     "otpProtectedDesc": "E-pos en telefoon veranderinge",
     "anonymousCare": "Anonieme sorg identiteit",

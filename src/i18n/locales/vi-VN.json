@@ -71,7 +71,7 @@
     "passwordMinLength": "Mật khẩu phải có ít nhất 6 ký tự",
     "passwordsDoNotMatch": "Mật khẩu không khớp",
     "sessionExpired": "Phiên đã hết hạn. Vui lòng đăng nhập lại.",
-    "chooseRole": "Chọn cách bạn muốn sử dụng Mediconect",
+    "chooseRole": "Chọn cách bạn muốn sử dụng Humaeli",
     "userRole": "người dùng",
     "counselorRole": "cố vấn",
     "userRoleDesc": "Nhận hỗ trợ từ các cố vấn chuyên nghiệp",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Nhập lại mật khẩu",
     "enterCurrentPassword": "Nhập mật khẩu hiện tại",
     "reEnterNewPassword": "Nhập lại mật khẩu mới",
-    "copyright": "© 2025 Mediconnect. Mọi quyền được bảo lưu."
+    "copyright": "© 2025 Humaeli. Mọi quyền được bảo lưu."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Trợ giúp Hỗ trợ",
-    "centerTitle": "Trung tâm hỗ trợ MediConeckt",
-    "centerDesc": "Sử dụng trung tâm hỗ trợ này để chuyển sang tính năng MediConeckt phù hợp, khắc phục sự cố thường gặp và biết thời điểm cần liên hệ với trợ giúp khẩn cấp bên ngoài ứng dụng.",
+    "centerTitle": "Trung tâm hỗ trợ Humaeli",
+    "centerDesc": "Sử dụng trung tâm hỗ trợ này để chuyển sang tính năng Humaeli phù hợp, khắc phục sự cố thường gặp và biết thời điểm cần liên hệ với trợ giúp khẩn cấp bên ngoài ứng dụng.",
     "aiWellnessChat": "Trò chuyện về sức khỏe AI",
     "aiWellnessDesc": "Đặt các câu hỏi về sức khỏe tâm thần, sử dụng tính năng nhập liệu bằng giọng nói, nhận câu trả lời nhanh và tiếp tục cuộc trò chuyện AI gần đây của bạn từ bảng điều khiển.",
     "aiWellnessAction": "Mở trò chuyện AI",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Chính sách bảo mật",
-    "centerTitle": "Trung tâm bảo mật MediConeckt",
-    "centerDesc": "Trung tâm quyền riêng tư này giải thích cách MediConeckt sử dụng dữ liệu hồ sơ, trò chuyện, cuộc hẹn, ví, cuộc gọi, vị trí và bảo mật của bạn bên trong ứng dụng di động này.",
+    "centerTitle": "Trung tâm bảo mật Humaeli",
+    "centerDesc": "Trung tâm quyền riêng tư này giải thích cách Humaeli sử dụng dữ liệu hồ sơ, trò chuyện, cuộc hẹn, ví, cuộc gọi, vị trí và bảo mật của bạn bên trong ứng dụng di động này.",
     "otpProtected": "OTP được bảo vệ",
     "otpProtectedDesc": "Thay đổi email và điện thoại",
     "anonymousCare": "Danh tính chăm sóc ẩn danh",

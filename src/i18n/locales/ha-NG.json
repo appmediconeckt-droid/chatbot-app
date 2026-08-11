@@ -71,7 +71,7 @@
     "passwordMinLength": "Dole ne kalmar wucewa ta zama aƙalla haruffa 6",
     "passwordsDoNotMatch": "Kalmomin sirri ba su daidaita ba",
     "sessionExpired": "Zaman ya kare. Da fatan za a sake shiga",
-    "chooseRole": "Zaɓi yadda kuke son amfani da Mediconect",
+    "chooseRole": "Zaɓi yadda kuke son amfani da Humaeli",
     "userRole": "Mai amfani",
     "counselorRole": "Mai ba da shawara",
     "userRoleDesc": "Sami tallafi daga kwararrun masu ba da shawara",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Sake shigar da kalmar wucewa",
     "enterCurrentPassword": "Shigar da kalmar wucewa ta yanzu",
     "reEnterNewPassword": "Sake shigar da sabon kalmar sirri",
-    "copyright": "© 2025 Mediconnect. An kiyaye duk haƙƙoƙi."
+    "copyright": "© 2025 Humaeli. An kiyaye duk haƙƙoƙi."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Taimako Taimako",
-    "centerTitle": "Cibiyar tallafi ta MediConekt",
-    "centerDesc": "Yi amfani da wannan cibiyar tallafi don tsalle zuwa fasalin MediConekt na dama, magance matsalolin gama gari, da fahimtar lokacin da za a tuntuɓar taimakon gaggawa a wajen ƙa'idar.",
+    "centerTitle": "Cibiyar tallafi ta Humaeli",
+    "centerDesc": "Yi amfani da wannan cibiyar tallafi don tsalle zuwa fasalin Humaeli na dama, magance matsalolin gama gari, da fahimtar lokacin da za a tuntuɓar taimakon gaggawa a wajen ƙa'idar.",
     "aiWellnessChat": "AI zaman lafiya chat",
     "aiWellnessDesc": "Yi tambayoyin lafiya-tunani, yi amfani da shigar da murya, samun amsa cikin sauri, kuma ci gaba da taɗi na AI kwanan nan daga dashboard.",
     "aiWellnessAction": "Bude AI taɗi",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Manufar Keɓantawa",
-    "centerTitle": "Cibiyar sirri ta MediConeckt",
-    "centerDesc": "Wannan cibiyar keɓancewa tana bayanin yadda MediConeckt ke amfani da bayanan ku, taɗi, alƙawari, walat, kira, wurin aiki, da bayanan tsaro a cikin wannan wayar hannu.",
+    "centerTitle": "Cibiyar sirri ta Humaeli",
+    "centerDesc": "Wannan cibiyar keɓancewa tana bayanin yadda Humaeli ke amfani da bayanan ku, taɗi, alƙawari, walat, kira, wurin aiki, da bayanan tsaro a cikin wannan wayar hannu.",
     "otpProtected": "An kare OTP",
     "otpProtectedDesc": "Canje-canjen imel da waya",
     "anonymousCare": "Imani na kulawa mara izini",

@@ -3,6 +3,14 @@ import {
   View, Text, Modal, TouchableOpacity, Image,
   ScrollView, StyleSheet, Dimensions, FlatList,
 } from "react-native";
+import LinearGradient from "react-native-linear-gradient";
+import useLanguageRender from '../../../../hooks/useLanguageRender';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  PATIENT_GRADIENT,
+  TRANSPARENT_GRADIENT,
+  GRADIENT_DIRECTION,
+} from "../../../../theme/palette";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const ITEM_SIZE = (SCREEN_W - 48 - 16) / 3; // 3 columns with padding
@@ -97,6 +105,8 @@ function getInitialsUrl(initials, color) {
 }
 
 const AvatarGenerator = ({ userName, onSelect, onClose }) => {
+  const insets = useSafeAreaInsets();
+  const { t } = useLanguageRender();
   const [tab, setTab]           = useState("real");
   const [selectedId, setSelectedId] = useState(null);
   const [gender, setGender]     = useState("all");
@@ -124,11 +134,11 @@ const AvatarGenerator = ({ userName, onSelect, onClose }) => {
   return (
     <Modal animationType="slide" transparent visible onRequestClose={onClose}>
       <View style={S.overlay}>
-        <View style={S.sheet}>
+        <View style={[S.sheet, { paddingBottom: Math.max(insets.bottom, 24) }]}>
 
           {/* Header */}
           <View style={S.header}>
-            <Text style={S.headerTitle}>Choose Avatar</Text>
+            <Text style={S.headerTitle}>{t('Choose Avatar')}</Text>
             <TouchableOpacity onPress={onClose} style={S.closeBtn}>
               <Text style={S.closeX}>✕</Text>
             </TouchableOpacity>
@@ -150,18 +160,30 @@ const AvatarGenerator = ({ userName, onSelect, onClose }) => {
               {/* Gender filter */}
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={S.filterRow} contentContainerStyle={{ gap: 6, paddingHorizontal: 16, paddingVertical: 8 }}>
                 {GENDERS.map(g => (
-                  <TouchableOpacity key={g} style={[S.pill, gender === g && S.pillActive]} onPress={() => setGender(g)}>
-                    <Text style={[S.pillText, gender === g && S.pillTextActive]}>
-                      {g === "all" ? "All" : g === "male" ? "Male" : "Female"}
-                    </Text>
+                  <TouchableOpacity key={g} style={S.pillWrap} onPress={() => setGender(g)} activeOpacity={0.85}>
+                    <LinearGradient
+                      colors={gender === g ? PATIENT_GRADIENT : TRANSPARENT_GRADIENT}
+                      {...GRADIENT_DIRECTION}
+                      style={[S.pill, gender === g && S.pillActive]}
+                    >
+                      <Text style={[S.pillText, gender === g && S.pillTextActive]}>
+                        {g === "all" ? "All" : g === "male" ? "Male" : "Female"}
+                      </Text>
+                    </LinearGradient>
                   </TouchableOpacity>
                 ))}
                 <View style={{ width: 12 }} />
                 {AGE_GROUPS.map(a => (
-                  <TouchableOpacity key={a} style={[S.pill, age === a && S.pillActive]} onPress={() => setAge(a)}>
-                    <Text style={[S.pillText, age === a && S.pillTextActive]}>
-                      {a === "all" ? "All Ages" : a}
-                    </Text>
+                  <TouchableOpacity key={a} style={S.pillWrap} onPress={() => setAge(a)} activeOpacity={0.85}>
+                    <LinearGradient
+                      colors={age === a ? PATIENT_GRADIENT : TRANSPARENT_GRADIENT}
+                      {...GRADIENT_DIRECTION}
+                      style={[S.pill, age === a && S.pillActive]}
+                    >
+                      <Text style={[S.pillText, age === a && S.pillTextActive]}>
+                        {a === "all" ? "All Ages" : a}
+                      </Text>
+                    </LinearGradient>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -180,7 +202,7 @@ const AvatarGenerator = ({ userName, onSelect, onClose }) => {
                     activeOpacity={0.8}
                   >
                     <Image source={{ uri: item.url }} style={S.gridImg} />
-                    <Text style={S.gridLabel} numberOfLines={1}>{item.label}</Text>
+                    <Text style={S.gridLabel} numberOfLines={1}>{t(item.label)}</Text>
                     {selectedId === item.id && (
                       <View style={S.checkBadge}><Text style={S.checkText}>✓</Text></View>
                     )}
@@ -191,8 +213,8 @@ const AvatarGenerator = ({ userName, onSelect, onClose }) => {
           ) : (
             <ScrollView contentContainerStyle={S.initialsBody}>
               <Image source={{ uri: getInitialsUrl(initials, color) }} style={S.initialsPreview} />
-              <Text style={S.initialsHint}>Your initials: <Text style={{ fontWeight: "700" }}>{initials}</Text></Text>
-              <Text style={S.colorLabel}>Choose background color:</Text>
+              <Text style={S.initialsHint}>{t('Your initials:')}<Text style={{ fontWeight: "700" }}>{initials}</Text></Text>
+              <Text style={S.colorLabel}>{t('Choose background color:')}</Text>
               <View style={S.colorGrid}>
                 {INITIALS_COLORS.map(c => (
                   <TouchableOpacity
@@ -210,14 +232,14 @@ const AvatarGenerator = ({ userName, onSelect, onClose }) => {
           {/* Footer */}
           <View style={S.footer}>
             <TouchableOpacity style={S.cancelBtn} onPress={onClose}>
-              <Text style={S.cancelText}>Cancel</Text>
+              <Text style={S.cancelText}>{t('Cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[S.applyBtn, (tab === "real" && !selectedId) && S.applyBtnDisabled]}
               onPress={handleApply}
               disabled={tab === "real" && !selectedId}
             >
-              <Text style={S.applyText}>Use This Avatar</Text>
+              <Text style={S.applyText}>{t('Use This Avatar')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -241,7 +263,10 @@ const S = StyleSheet.create({
   tabTextActive: { color: "#4f46e5" },
   filterRow:     { flexGrow: 0 },
   pill:          { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5, borderColor: "#e2e8f0", backgroundColor: "#fff" },
-  pillActive:    { backgroundColor: "#4f46e5", borderColor: "#4f46e5" },
+  // Wrapper clips the gradient to the pill radius; alignSelf stops it stretching
+  // to the row's cross-axis height.
+  pillWrap:      { borderRadius: 20, overflow: "hidden", alignSelf: "flex-start" },
+  pillActive:    { backgroundColor: "transparent", borderColor: "#006B2C" },
   pillText:      { fontSize: 12, color: "#64748b", fontWeight: "600" },
   pillTextActive:{ color: "#fff" },
   grid:          { padding: 12, gap: 8 },

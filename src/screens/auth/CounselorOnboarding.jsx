@@ -1,6 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
+  Image,
   Text,
   ScrollView,
   TouchableOpacity,
@@ -14,102 +15,97 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
-import DOCTOR from '../../theme/palette';
+import { DOCTOR } from '../../theme/palette';
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 const { width } = Dimensions.get('window');
 
-const OnboardingPage1 = () => (
-  <View style={s.page}>
-    <View style={s.illustration}>
-      <Ionicons name="videocam" size={80} color={DOCTOR.primary} />
+// The supplied artwork is taller than a fixed 200px band would allow, so the
+// card takes its shape FROM the image (via the asset's real dimensions) instead
+// of letterboxing it inside tinted bars.
+const OnboardingHero = ({ source }) => {
+  const meta = Image.resolveAssetSource(source);
+  const ratio = meta && meta.height ? meta.width / meta.height : 1.4;
+  return (
+    <View style={[s.illustration, { aspectRatio: ratio }]}>
+      <Image source={source} style={s.illustrationImage} resizeMode="contain" />
     </View>
-    <Text style={s.title}>Grow Your Practice Digitally</Text>
+  );
+};
+
+const OnboardingPage1 = () => {
+  const { t } = useLanguageRender();
+  return (
+  <View style={s.page}>
+    <OnboardingHero source={require('../../public/consleor1.png')} />
+    <Text style={s.title}>{t('Grow Your Practice Digitally')}</Text>
     <Text style={s.description}>
       Reach more patients through secure online and offline consultations.
     </Text>
     <TouchableOpacity style={s.featureBtn}>
       <Ionicons name="shield-checkmark" size={16} color={DOCTOR.primary} />
-      <Text style={s.featureBtnText}>Secure Sessions</Text>
+      <Text style={s.featureBtnText}>{t('Secure Sessions')}</Text>
     </TouchableOpacity>
   </View>
 );
+};
 
-const OnboardingPage2 = () => (
+const OnboardingPage2 = () => {
+  const { t } = useLanguageRender();
+  return (
   <View style={s.page}>
-    <View style={s.scheduleIllustration}>
-      <View style={s.scheduleCard}>
-        <MaterialIcons name="event" size={40} color={DOCTOR.primary} />
-        <Text style={s.scheduleTitle}>Today's Schedule</Text>
-        <Text style={s.scheduleTime}>Sarah M • 2:00 PM</Text>
-      </View>
-    </View>
-    <Text style={s.title}>Manage Appointments Effortlessly</Text>
+    <OnboardingHero source={require('../../public/consleor2.png')} />
+    <Text style={s.title}>{t('Manage Appointments Effortlessly')}</Text>
     <Text style={s.description}>
       Accept bookings, reschedule appointments, and manage your daily calendar in one place.
     </Text>
   </View>
 );
+};
 
-const OnboardingPage3 = () => (
+const OnboardingPage3 = () => {
+  const { t } = useLanguageRender();
+  return (
   <View style={s.page}>
-    <View style={s.earningsIllustration}>
-      <View style={s.earningsDisplay}>
-        <View style={s.priceBox}>
-          <Text style={s.currencySymbol}>₹</Text>
-          <Text style={s.priceValue}>1,340</Text>
-        </View>
-        <View style={s.priceBox}>
-          <Text style={s.currencySymbol}>₹</Text>
-          <Text style={s.priceValue}>1,840</Text>
-        </View>
-      </View>
-      <View style={s.serviceIcons}>
-        <View style={s.serviceIcon}>
-          <Ionicons name="videocam" size={20} color={DOCTOR.primary} />
-        </View>
-        <View style={s.serviceIcon}>
-          <Ionicons name="chatbubbles" size={20} color={DOCTOR.primary} />
-        </View>
-        <View style={s.serviceIcon}>
-          <Ionicons name="call" size={20} color={DOCTOR.primary} />
-        </View>
-      </View>
-    </View>
-    <Text style={s.title}>Consult. Connect. Earn.</Text>
+    <OnboardingHero source={require('../../public/consleor3.png')} />
+    <Text style={s.title}>{t('Consult. Connect. Earn.')}</Text>
     <Text style={s.description}>
       Offer video consultations, in-person visits, and build lasting relationships with patients.
     </Text>
   </View>
 );
+};
 
-const OnboardingPage4 = () => (
+const OnboardingPage4 = () => {
+  const { t } = useLanguageRender();
+  return (
   <View style={s.page}>
-    <View style={s.readyIllustration}>
-      <Ionicons name="checkmark-circle" size={100} color={DOCTOR.primary} />
-    </View>
-    <Text style={s.title}>You're Ready to Start</Text>
+    <OnboardingHero source={require('../../public/consleor4.png')} />
+    <Text style={s.title}>{t("You're Ready to Start")}</Text>
     <Text style={s.description}>
-      Complete your profile and let MediConeckt help manage your practice.
+      Complete your profile and let Humaeli help manage your practice.
     </Text>
 
     <View style={s.featuresList}>
       <TouchableOpacity style={s.featureSmallBtn}>
         <MaterialIcons name="schedule" size={16} color={DOCTOR.primary} />
-        <Text style={s.featureSmallBtnText}>Smart Scheduling</Text>
+        <Text style={s.featureSmallBtnText}>{t('Smart Scheduling')}</Text>
       </TouchableOpacity>
       <TouchableOpacity style={s.featureSmallBtn}>
         <Ionicons name="mail-outline" size={16} color={DOCTOR.primary} />
-        <Text style={s.featureSmallBtnText}>Secure Messaging</Text>
+        <Text style={s.featureSmallBtnText}>{t('Secure Messaging')}</Text>
       </TouchableOpacity>
       <TouchableOpacity style={s.featureSmallBtn}>
         <Ionicons name="folder-outline" size={16} color={DOCTOR.primary} />
-        <Text style={s.featureSmallBtnText}>Patient Records</Text>
+        <Text style={s.featureSmallBtnText}>{t('Patient Records')}</Text>
       </TouchableOpacity>
     </View>
   </View>
 );
+};
 
-const CounselorOnboarding = ({ navigation }) => {
+const CounselorOnboarding = ({ navigation, previewMode = false, onPreviewComplete }) => {
+  const { t } = useLanguageRender();
   const [currentPage, setCurrentPage] = useState(0);
   const scrollViewRef = useRef(null);
 
@@ -120,14 +116,33 @@ const CounselorOnboarding = ({ navigation }) => {
     <OnboardingPage4 key="4" />,
   ];
 
+  const finishOnboarding = () => {
+    if (previewMode && onPreviewComplete) {
+      onPreviewComplete();
+      return;
+    }
+    navigation.replace('CounselorDashboard');
+  };
+
   const goToNextPage = () => {
     if (currentPage < pages.length - 1) {
       setCurrentPage(currentPage + 1);
       scrollViewRef.current?.scrollTo({ x: (currentPage + 1) * width, animated: true });
     } else {
-      navigation.replace('CounselorDashboard');
+      finishOnboarding();
     }
   };
+
+  useEffect(() => {
+    if (!previewMode) return undefined;
+
+    const delay = currentPage < pages.length - 1 ? 1300 : 1600;
+    const timer = setTimeout(() => {
+      goToNextPage();
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [currentPage, previewMode]);
 
   const onScroll = (event) => {
     const pageNumber = Math.round(event.nativeEvent.contentOffset.x / width);
@@ -141,8 +156,8 @@ const CounselorOnboarding = ({ navigation }) => {
       {/* Header */}
       <View style={s.header}>
         <View style={{ width: 24 }} />
-        <TouchableOpacity onPress={() => navigation.replace('CounselorDashboard')}>
-          <Text style={s.skipText}>Skip</Text>
+        <TouchableOpacity onPress={finishOnboarding}>
+          <Text style={s.skipText}>{t('Skip')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -187,11 +202,11 @@ const CounselorOnboarding = ({ navigation }) => {
                 end={{ x: 1, y: 0 }}
                 style={s.nextBtn}
               >
-                <Text style={s.nextBtnText}>Complete Profile</Text>
+                <Text style={s.nextBtnText}>{t('Complete Profile')}</Text>
               </LinearGradient>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => navigation.replace('CounselorDashboard')}>
-              <Text style={s.maybeLaterText}>Maybe Later</Text>
+              <Text style={s.maybeLaterText}>{t('Maybe Later')}</Text>
             </TouchableOpacity>
           </>
         ) : (
@@ -202,7 +217,7 @@ const CounselorOnboarding = ({ navigation }) => {
               end={{ x: 1, y: 0 }}
               style={s.nextBtn}
             >
-              <Text style={s.nextBtnText}>Next</Text>
+              <Text style={s.nextBtnText}>{t('Next')}</Text>
               <Ionicons name="arrow-forward" size={20} color="#ffffff" />
             </LinearGradient>
           </TouchableOpacity>
@@ -220,7 +235,8 @@ const s = StyleSheet.create({
   pagesScroll: { flex: 1 },
   page: { width, paddingHorizontal: 24, paddingVertical: 40, justifyContent: 'center', gap: 20 },
 
-  illustration: { height: 200, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E7EEFE', borderRadius: 20, marginBottom: 20 },
+  illustrationImage: { width: '100%', height: '100%' },
+  illustration: { width: '100%', overflow: 'hidden', justifyContent: 'center', alignItems: 'center', backgroundColor: '#E7EEFE', borderRadius: 20, marginBottom: 20 },
 
   title: { fontSize: 24, fontWeight: '800', color: '#0f172a', textAlign: 'center' },
   description: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 21 },

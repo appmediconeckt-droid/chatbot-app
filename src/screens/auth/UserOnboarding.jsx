@@ -1,76 +1,65 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
+  Image,
   Text,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
   StatusBar,
   Dimensions,
-  FlatList,
-  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import PATIENT from '../../theme/palette';
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 const { width } = Dimensions.get('window');
 
-const OnboardingPage1 = () => (
-  <View style={s.page}>
-    <View style={s.illustration}>
-      <Ionicons name="people" size={120} color={PATIENT.primary} />
+// The supplied artwork is taller than a fixed 200px band would allow, so the
+// card takes its shape FROM the image (via the asset's real dimensions) instead
+// of letterboxing it inside tinted bars.
+const OnboardingHero = ({ source }) => {
+  const meta = Image.resolveAssetSource(source);
+  const ratio = meta && meta.height ? meta.width / meta.height : 1.4;
+  return (
+    <View style={[s.illustration, { aspectRatio: ratio }]}>
+      <Image source={source} style={s.illustrationImage} resizeMode="contain" />
     </View>
-    <Text style={s.title}>Your Safe Space to Talk</Text>
+  );
+};
+
+const OnboardingPage1 = () => {
+  const { t } = useLanguageRender();
+  return (
+  <View style={s.page}>
+    <OnboardingHero source={require('../../public/user1.png')} />
+    <Text style={s.title}>{t('Your Safe Space to Talk')}</Text>
     <Text style={s.description}>
       Connect with trusted counselors in a private, secure environment designed to support your mental well-being.
     </Text>
   </View>
 );
+};
 
-const OnboardingPage2 = () => (
-  <View style={s.page}>
-    <View style={s.counselorCardsContainer}>
-      {[
-        { name: 'Dr. Sarah Jenkins', specialty: 'Anxiety & Stress', rating: '4.9', tags: ['Video', 'Chat'], avatar: '👩‍⚕️' },
-        { name: 'Dr. Michael Chen', specialty: 'Relationships & Family', rating: '4.8', tags: ['In-person'], avatar: '👨‍⚕️' },
-      ].map((counselor, idx) => (
-        <View key={idx} style={s.counselorCard}>
-          <View style={s.cardContent}>
-            <View style={s.counselorHeader}>
-              <View style={s.avatarBox}>
-                <Text style={s.avatarEmoji}>{counselor.avatar}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.counselorName}>{counselor.name}</Text>
-                <Text style={s.counselorSpec}>{counselor.specialty}</Text>
-              </View>
-              <View style={s.ratingBox}>
-                <Ionicons name="star" size={14} color="#F5A623" />
-                <Text style={s.ratingText}>{counselor.rating}</Text>
-              </View>
-            </View>
-            <View style={s.tagsRow}>
-              {counselor.tags.map((tag, i) => (
-                <TouchableOpacity key={i} style={s.tag}>
-                  <Text style={s.tagText}>{tag}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        </View>
-      ))}
+const OnboardingPage2 = () => {
+  const { t } = useLanguageRender();
+  return (
+    <View style={s.page}>
+      <OnboardingHero source={require('../../public/user2.png')} />
+      <Text style={s.title}>{t('Find the Right Counselor')}</Text>
+      <Text style={s.description}>
+        Browse experienced counselors based on specialty, language, availability, consultation type, and reviews.
+      </Text>
     </View>
-    <Text style={s.title}>Find the Right Counselor</Text>
-    <Text style={s.description}>
-      Browse experienced counselors based on specialty, language, availability, consultation type, and reviews.
-    </Text>
-  </View>
 );
+};
 
-const OnboardingPage3 = () => (
+const OnboardingPage3 = () => {
+  const { t } = useLanguageRender();
+  return (
   <View style={s.page}>
     <View style={s.aiIconContainer}>
       <View style={s.aiIcon}>
@@ -78,14 +67,14 @@ const OnboardingPage3 = () => (
       </View>
       <Ionicons name="heart" size={24} color={PATIENT.primary} style={s.heartIcon} />
     </View>
-    <Text style={s.title}>Your AI Wellness Companion</Text>
+    <Text style={s.title}>{t('Your AI Wellness Companion')}</Text>
     <Text style={s.description}>
       Get instant emotional support, wellness tips, and guidance anytime before connecting with a counselor.
     </Text>
 
     <View style={s.aiChatBox}>
       <View style={s.aiBubble}>
-        <Text style={s.aiMessage}>Hello 👋 How are you feeling today?</Text>
+        <Text style={s.aiMessage}>{t('Hello 👋 How are you feeling today?')}</Text>
       </View>
       <View style={s.responseButtons}>
         {['😊 Happy', '😐 Okay', '😟 Stressed'].map((btn, idx) => (
@@ -97,8 +86,11 @@ const OnboardingPage3 = () => (
     </View>
   </View>
 );
+};
 
-const OnboardingPage4 = () => (
+const OnboardingPage4 = () => {
+  const { t } = useLanguageRender();
+  return (
   <View style={s.page}>
     <View style={s.featuresCircle}>
       <View style={s.centerHeart}>
@@ -118,7 +110,7 @@ const OnboardingPage4 = () => (
       </View>
     </View>
 
-    <Text style={s.title}>Book, Chat & Heal</Text>
+    <Text style={s.title}>{t('Book, Chat & Heal')}</Text>
     <Text style={s.description}>
       Schedule appointments, join secure video sessions, chat with counselors, and track your wellness journey—all in one place.
     </Text>
@@ -127,28 +119,30 @@ const OnboardingPage4 = () => (
       <View style={s.featureRow}>
         <TouchableOpacity style={s.featureBtn}>
           <MaterialIcons name="event" size={20} color={PATIENT.primary} />
-          <Text style={s.featureBtnText}>Book Sessions</Text>
+          <Text style={s.featureBtnText}>{t('Book Sessions')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.featureBtn}>
           <Ionicons name="videocam" size={20} color={PATIENT.primary} />
-          <Text style={s.featureBtnText}>Video Calls</Text>
+          <Text style={s.featureBtnText}>{t('Video Calls')}</Text>
         </TouchableOpacity>
       </View>
       <View style={s.featureRow}>
         <TouchableOpacity style={s.featureBtn}>
           <Ionicons name="chatbubble" size={20} color={PATIENT.primary} />
-          <Text style={s.featureBtnText}>Secure Chat</Text>
+          <Text style={s.featureBtnText}>{t('Secure Chat')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.featureBtn}>
           <Ionicons name="shield-checkmark" size={20} color={PATIENT.primary} />
-          <Text style={s.featureBtnText}>End-to-End</Text>
+          <Text style={s.featureBtnText}>{t('End-to-End')}</Text>
         </TouchableOpacity>
       </View>
     </View>
   </View>
 );
+};
 
-const UserOnboarding = ({ navigation }) => {
+const UserOnboarding = ({ navigation, previewMode = false, onPreviewComplete }) => {
+  const { t } = useLanguageRender();
   const [currentPage, setCurrentPage] = useState(0);
   const scrollViewRef = useRef(null);
 
@@ -159,14 +153,33 @@ const UserOnboarding = ({ navigation }) => {
     <OnboardingPage4 key="4" />,
   ];
 
+  const finishOnboarding = () => {
+    if (previewMode && onPreviewComplete) {
+      onPreviewComplete();
+      return;
+    }
+    navigation.replace('UserDashboard');
+  };
+
   const goToNextPage = () => {
     if (currentPage < pages.length - 1) {
       setCurrentPage(currentPage + 1);
       scrollViewRef.current?.scrollTo({ x: (currentPage + 1) * width, animated: true });
     } else {
-      navigation.replace('UserDashboard');
+      finishOnboarding();
     }
   };
+
+  useEffect(() => {
+    if (!previewMode) return undefined;
+
+    const delay = currentPage < pages.length - 1 ? 1300 : 1600;
+    const timer = setTimeout(() => {
+      goToNextPage();
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [currentPage, previewMode]);
 
   const onScroll = (event) => {
     const pageNumber = Math.round(event.nativeEvent.contentOffset.x / width);
@@ -180,8 +193,8 @@ const UserOnboarding = ({ navigation }) => {
       {/* Header */}
       <View style={s.header}>
         <View style={{ width: 24 }} />
-        <TouchableOpacity onPress={() => navigation.replace('UserDashboard')}>
-          <Text style={s.skipText}>Skip</Text>
+        <TouchableOpacity onPress={finishOnboarding}>
+          <Text style={s.skipText}>{t('Skip')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -223,7 +236,7 @@ const UserOnboarding = ({ navigation }) => {
           end={{ x: 1, y: 0 }}
           style={s.nextBtn}
         >
-          <Text style={s.nextBtnText}>{currentPage === pages.length - 1 ? 'Get Started' : 'Next'}</Text>
+          <Text style={s.nextBtnText}>{currentPage === pages.length - 1 ? t('Get Started') : t('Next')}</Text>
           {currentPage < pages.length - 1 && <Ionicons name="arrow-forward" size={20} color="#ffffff" />}
         </LinearGradient>
       </TouchableOpacity>
@@ -237,26 +250,13 @@ const s = StyleSheet.create({
   skipText: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
 
   pagesScroll: { flex: 1 },
-  page: { width, paddingHorizontal: 24, paddingVertical: 40, justifyContent: 'center', gap: 20 },
+  page: { width, paddingHorizontal: 24, paddingTop: 20, paddingBottom: 12, justifyContent: 'center', gap: 18 },
 
-  illustration: { height: 200, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E6F6EC', borderRadius: 20, marginBottom: 20 },
+  illustrationImage: { width: '100%', height: '100%' },
+  illustration: { width: '100%', overflow: 'hidden', justifyContent: 'center', alignItems: 'center', backgroundColor: '#E6F6EC', borderRadius: 24, marginBottom: 8 },
 
-  title: { fontSize: 24, fontWeight: '800', color: '#0f172a', textAlign: 'center' },
-  description: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 21 },
-
-  counselorCardsContainer: { gap: 12, marginBottom: 20 },
-  counselorCard: { backgroundColor: '#ffffff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#E6F6EC' },
-  cardContent: { gap: 10 },
-  counselorHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  avatarBox: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#E6F6EC', alignItems: 'center', justifyContent: 'center' },
-  avatarEmoji: { fontSize: 24 },
-  counselorName: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
-  counselorSpec: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  ratingBox: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#E6F6EC', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  ratingText: { fontSize: 12, fontWeight: '600', color: '#0f172a' },
-  tagsRow: { flexDirection: 'row', gap: 8 },
-  tag: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: PATIENT.backgroundTint, borderRadius: 6, borderWidth: 1, borderColor: PATIENT.primary },
-  tagText: { fontSize: 12, fontWeight: '600', color: PATIENT.primary },
+  title: { fontSize: 24, fontWeight: '800', color: '#0f172a', textAlign: 'center', marginTop: 2 },
+  description: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 21, paddingHorizontal: 8 },
 
   aiIconContainer: { height: 180, justifyContent: 'center', alignItems: 'center', marginBottom: 20, position: 'relative' },
   aiIcon: { width: 140, height: 140, borderRadius: 70, backgroundColor: '#E6F6EC', alignItems: 'center', justifyContent: 'center' },

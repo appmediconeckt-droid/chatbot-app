@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,10 +8,11 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Modal,
   Dimensions,
+  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -22,14 +23,27 @@ import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 import { paletteForRole } from '../../theme/palette';
 import AuthBackground from '../../theme/AuthBackground';
+import logo from '../../image/Humaeli.png';
+import useLanguageRender from '../../hooks/useLanguageRender';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// Vertical inset of the login scroll content.
+const SCROLL_PAD_V = 24;
 
 const Login = ({ navigation, route }) => {
-  const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  const { t } = useLanguageRender();
   // Role decides the whole theme: patient → green, counselor → blue.
   // Layout/animation stay identical; only the palette swaps.
   const C = paletteForRole(route?.params?.role);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  // Space to reserve below the card. Measured, not assumed - see the effect.
+  const [kbPad, setKbPad] = useState(0);
+  const scrollRef = useRef(null);
+  // Window height with the keyboard closed, to detect whether it shrinks.
+  const baseHeightRef = useRef(Dimensions.get('window').height);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -84,6 +98,38 @@ const Login = ({ navigation, route }) => {
 
   useEffect(() => {
     loadRememberedUser();
+  }, []);
+
+  // Whether the Android window actually shrinks for the keyboard depends on
+  // things we can't read from here reliably (targetSdk 36 forces edge-to-edge on
+  // Android 15+, which disables the manifest's adjustResize, but older versions
+  // still resize). Assuming either way is what left the card under the keyboard,
+  // so measure instead: reserve only the part of the keyboard the window did NOT
+  // already give up. That is correct in both cases and never double-counts.
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      const keyboardHeight = e?.endCoordinates?.height || 0;
+      // Read live rather than from state - a closure would capture a stale value.
+      const shrunkBy = Math.max(0, baseHeightRef.current - Dimensions.get('window').height);
+      setKbPad(Math.max(0, keyboardHeight - shrunkBy));
+      setKeyboardOpen(true);
+      // After the relayout, so the scroll offset reflects the new padding.
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      baseHeightRef.current = Dimensions.get('window').height;
+      setKbPad(0);
+      setKeyboardOpen(false);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
   }, []);
 
   // Forgot Password OTP resend countdown timer (matches web — 60s)
@@ -526,24 +572,37 @@ const Login = ({ navigation, route }) => {
     setFpResendTimer(60);
   };
 
+  // Centring the card looks right when the keyboard is closed, but once it opens
+  // the card is taller than what's left of the viewport - and centring overflow
+  // content keeps its bottom (Login / Continue with Google / Create account) out
+  // of reach. Top-align while typing and lift the card so those stay visible.
   const scrollContainerStyle = {
     ...styles.scrollContainer,
-    justifyContent: 'center',
+    justifyContent: keyboardOpen ? 'flex-start' : 'center',
+    // Pushes the card's bottom (Login / Continue with Google / Create account)
+    // clear of the keyboard; scrollToEnd above then brings it into view.
+    paddingBottom: SCROLL_PAD_V + kbPad,
   };
 
   return (
     <AuthBackground role={route?.params?.role}>
-    <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: 'transparent' }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView contentContainerStyle={scrollContainerStyle}>
+    {/* Plain View, not KeyboardAvoidingView: the measured kbPad above is the one
+        and only place keyboard space is reserved. Keeping KAV as well meant two
+        mechanisms compensating for the same keyboard, which is what buried the
+        card's buttons no matter which behavior was set. */}
+    <View style={[styles.container, { backgroundColor: 'transparent' }]}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={scrollContainerStyle}
+        // Without this the first tap while the keyboard is open only dismisses
+        // it, so "Continue with Google" and Login needed two taps.
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.loginCard}>
           {/* Header Section */}
           <View style={styles.headerSection}>
-            <View style={styles.logoContainer}>
-              <Text style={styles.logoText}>Mediconeckt</Text>
-            </View>
+            <Image source={logo} style={styles.logoImage} resizeMode="contain" />
             <Text style={styles.title}>{t('auth:welcomeBack')}</Text>
             <Text style={styles.subtitle}>{t('auth:login')} {t('common:or')} {t('auth:email')}</Text>
           </View>
@@ -708,7 +767,7 @@ const Login = ({ navigation, route }) => {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContainer}>
-              <Text style={styles.modalTitle}>Session Conflict Detected</Text>
+              <Text style={styles.modalTitle}>{t('Session Conflict Detected')}</Text>
               <Text style={styles.modalText}>
                 You are already logged in on another device.
               </Text>
@@ -734,7 +793,7 @@ const Login = ({ navigation, route }) => {
               {/* OTP Section - Only shows after OTP is sent */}
               {otpSent && (
                 <View style={styles.otpSection}>
-                  <Text style={styles.otpLabel}>Enter OTP:</Text>
+                  <Text style={styles.otpLabel}>{t('Enter OTP:')}</Text>
                   <TextInput
                     style={styles.otpInput}
                     value={otp}
@@ -743,7 +802,7 @@ const Login = ({ navigation, route }) => {
                       setOtp(cleaned);
                       setErrorMessage(''); // Clear error when typing
                     }}
-                    placeholder="6-digit code"
+                    placeholder={t('6-digit code')}
                     keyboardType="number-pad"
                     maxLength={6}
                   />
@@ -758,7 +817,7 @@ const Login = ({ navigation, route }) => {
                         <Text style={styles.modalButtonText}> Verifying...</Text>
                       </View>
                     ) : (
-                      <Text style={styles.modalButtonText}>Verify OTP</Text>
+                      <Text style={styles.modalButtonText}>{t('Verify OTP')}</Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -779,7 +838,7 @@ const Login = ({ navigation, route }) => {
               contentContainerStyle={styles.fpModalScroll}
               keyboardShouldPersistTaps="handled"
             >
-              <View style={styles.fpModalContent}>
+              <View style={[styles.fpModalContent, { paddingBottom: Math.max(insets.bottom, 36) }]}>
                 {/* Close Button */}
                 <TouchableOpacity
                   style={styles.fpCloseBtn}
@@ -794,17 +853,17 @@ const Login = ({ navigation, route }) => {
                     <View style={[styles.fpIconWrap, { backgroundColor: C.secondaryTint }]}>
                       <Text style={styles.fpIcon}>✉️</Text>
                     </View>
-                    <Text style={styles.fpTitle}>Forgot Password</Text>
+                    <Text style={styles.fpTitle}>{t('Forgot Password')}</Text>
                     <Text style={styles.fpSubtitle}>
                       Enter your registered email to receive a password reset OTP
                     </Text>
 
                     {fpError ? <Text style={styles.fpError}>⚠️ {fpError}</Text> : null}
 
-                    <Text style={styles.fpLabel}>Email Address *</Text>
+                    <Text style={styles.fpLabel}>{t('Email Address *')}</Text>
                     <TextInput
                       style={styles.fpInput}
-                      placeholder="Enter your registered email"
+                      placeholder={t('Enter your registered email')}
                       placeholderTextColor="#94a3b8"
                       value={fpEmail}
                       onChangeText={(text) => {
@@ -822,14 +881,14 @@ const Login = ({ navigation, route }) => {
                       disabled={fpLoading}
                     >
                       <Text style={styles.fpButtonText}>
-                        {fpLoading ? 'Sending OTP...' : 'Send Reset OTP'}
+                        {fpLoading ? t('Sending OTP...') : t('Send Reset OTP')}
                       </Text>
                     </TouchableOpacity>
 
                     <View style={styles.fpFooter}>
-                      <Text style={styles.fpFooterText}>Remember your password? </Text>
+                      <Text style={styles.fpFooterText}>{t('Remember your password?')}</Text>
                       <TouchableOpacity onPress={closeForgotPasswordModal}>
-                        <Text style={[styles.fpFooterLink, { color: C.primary }]}>Back to Login</Text>
+                        <Text style={[styles.fpFooterLink, { color: C.primary }]}>{t('Back to Login')}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -841,17 +900,17 @@ const Login = ({ navigation, route }) => {
                     <View style={[styles.fpIconWrap, { backgroundColor: C.secondaryTint }]}>
                       <Text style={styles.fpIcon}>✉️</Text>
                     </View>
-                    <Text style={styles.fpTitle}>Verify OTP</Text>
-                    <Text style={styles.fpSubtitle}>Enter the 6-digit code sent to</Text>
+                    <Text style={styles.fpTitle}>{t('Verify OTP')}</Text>
+                    <Text style={styles.fpSubtitle}>{t('Enter the 6-digit code sent to')}</Text>
                     <Text style={[styles.fpEmailDisplay, { color: C.primary }]}>{fpEmail}</Text>
 
                     {fpError ? <Text style={styles.fpError}>⚠️ {fpError}</Text> : null}
                     {fpSuccess ? <Text style={styles.fpSuccess}>✓ {fpSuccess}</Text> : null}
 
-                    <Text style={styles.fpLabel}>OTP Code *</Text>
+                    <Text style={styles.fpLabel}>{t('OTP Code *')}</Text>
                     <TextInput
                       style={[styles.fpInput, styles.fpOtpInput]}
-                      placeholder="000000"
+                      placeholder={t('000000')}
                       placeholderTextColor="#cbd5e1"
                       value={fpOtp}
                       onChangeText={(text) => {
@@ -895,9 +954,9 @@ const Login = ({ navigation, route }) => {
                     </TouchableOpacity>
 
                     <View style={styles.fpFooter}>
-                      <Text style={styles.fpFooterText}>Wrong email? </Text>
+                      <Text style={styles.fpFooterText}>{t('Wrong email?')}</Text>
                       <TouchableOpacity onPress={() => { setFpStep('email'); setFpError(''); }}>
-                        <Text style={[styles.fpFooterLink, { color: C.primary }]}>Go back</Text>
+                        <Text style={[styles.fpFooterLink, { color: C.primary }]}>{t('Go back')}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -909,19 +968,19 @@ const Login = ({ navigation, route }) => {
                     <View style={[styles.fpIconWrap, { backgroundColor: C.secondaryTint }]}>
                       <Text style={styles.fpIcon}>🔒</Text>
                     </View>
-                    <Text style={styles.fpTitle}>Reset Password</Text>
-                    <Text style={styles.fpSubtitle}>Create a new password for your account</Text>
+                    <Text style={styles.fpTitle}>{t('Reset Password')}</Text>
+                    <Text style={styles.fpSubtitle}>{t('Create a new password for your account')}</Text>
                     <Text style={[styles.fpEmailDisplay, { color: C.primary }]}>{fpEmail}</Text>
 
                     {fpError ? <Text style={styles.fpError}>⚠️ {fpError}</Text> : null}
                     {fpSuccess ? <Text style={styles.fpSuccess}>✓ {fpSuccess}</Text> : null}
 
                     {/* New Password */}
-                    <Text style={styles.fpLabel}>New Password *</Text>
+                    <Text style={styles.fpLabel}>{t('New Password *')}</Text>
                     <View style={styles.fpPasswordWrapper}>
                       <TextInput
                         style={styles.fpPasswordInput}
-                        placeholder="Enter new password"
+                        placeholder={t('Enter new password')}
                         placeholderTextColor="#94a3b8"
                         value={fpNewPassword}
                         onChangeText={(text) => {
@@ -940,11 +999,11 @@ const Login = ({ navigation, route }) => {
                     </View>
 
                     {/* Confirm Password */}
-                    <Text style={styles.fpLabel}>Confirm Password *</Text>
+                    <Text style={styles.fpLabel}>{t('Confirm Password *')}</Text>
                     <View style={styles.fpPasswordWrapper}>
                       <TextInput
                         style={styles.fpPasswordInput}
-                        placeholder="Confirm new password"
+                        placeholder={t('Confirm new password')}
                         placeholderTextColor="#94a3b8"
                         value={fpConfirmPassword}
                         onChangeText={(text) => {
@@ -968,14 +1027,14 @@ const Login = ({ navigation, route }) => {
                       disabled={fpLoading || fpSuccess}
                     >
                       <Text style={styles.fpButtonText}>
-                        {fpLoading ? 'Resetting Password...' : 'Reset Password'}
+                        {fpLoading ? t('Resetting Password...') : t('Reset Password')}
                       </Text>
                     </TouchableOpacity>
 
                     <View style={styles.fpFooter}>
-                      <Text style={styles.fpFooterText}>Remember your password? </Text>
+                      <Text style={styles.fpFooterText}>{t('Remember your password?')}</Text>
                       <TouchableOpacity onPress={closeForgotPasswordModal}>
-                        <Text style={[styles.fpFooterLink, { color: C.primary }]}>Back to Login</Text>
+                        <Text style={[styles.fpFooterLink, { color: C.primary }]}>{t('Back to Login')}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -985,7 +1044,7 @@ const Login = ({ navigation, route }) => {
           </View>
         </Modal>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
     </AuthBackground>
   );
 };
@@ -998,6 +1057,9 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
     paddingHorizontal: 20,
+    // Keeps the card off the keyboard edge once the viewport shrinks, and gives
+    // it room to scroll instead of sitting flush against the top/bottom.
+    paddingVertical: SCROLL_PAD_V,
   },
   loginCard: {
     backgroundColor: '#fff',
@@ -1016,19 +1078,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 30,
   },
-  logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
+  logoImage: {
+    // Logo is a 2.92:1 wordmark with transparent padding stripped, so the box
+    // has to match that ratio - a square box would re-add the dead space.
+    width: 200,
+    height: 68,
     marginBottom: 20,
-  },
-  logoText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
   },
   title: {
     fontSize: 28,

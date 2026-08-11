@@ -71,7 +71,7 @@
     "passwordMinLength": "Lösenordet måste bestå av minst 6 tecken",
     "passwordsDoNotMatch": "Lösenord stämmer inte överens",
     "sessionExpired": "Sessionen har löpt ut. Vänligen logga in igen.",
-    "chooseRole": "Välj hur du vill använda Mediconect",
+    "chooseRole": "Välj hur du vill använda Humaeli",
     "userRole": "Användare",
     "counselorRole": "Rådgivare",
     "userRoleDesc": "Få stöd från professionella rådgivare",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Ange lösenordet igen",
     "enterCurrentPassword": "Ange aktuellt lösenord",
     "reEnterNewPassword": "Ange nytt lösenord igen",
-    "copyright": "© 2025 Mediconnect. Alla rättigheter reserverade."
+    "copyright": "© 2025 Humaeli. Alla rättigheter reserverade."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Hjälp Support",
-    "centerTitle": "MediConeckt supportcenter",
-    "centerDesc": "Använd detta supportcenter för att hoppa till rätt MediConeckt-funktion, felsöka vanliga problem och förstå när du ska kontakta akut hjälp utanför appen.",
+    "centerTitle": "Humaeli supportcenter",
+    "centerDesc": "Använd detta supportcenter för att hoppa till rätt Humaeli-funktion, felsöka vanliga problem och förstå när du ska kontakta akut hjälp utanför appen.",
     "aiWellnessChat": "AI wellness chat",
     "aiWellnessDesc": "Ställ frågor om mentalt välmående, använd röstinmatning, få snabba svar och fortsätt din senaste AI-chatt från instrumentpanelen.",
     "aiWellnessAction": "Öppna AI-chatt",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Sekretesspolicy",
-    "centerTitle": "MediConeckt sekretesscenter",
-    "centerDesc": "Detta sekretesscenter förklarar hur MediConeckt använder din profil, chatt, möte, plånbok, samtal, plats och säkerhetsdata i den här mobilappen.",
+    "centerTitle": "Humaeli sekretesscenter",
+    "centerDesc": "Detta sekretesscenter förklarar hur Humaeli använder din profil, chatt, möte, plånbok, samtal, plats och säkerhetsdata i den här mobilappen.",
     "otpProtected": "OTP-skyddad",
     "otpProtectedDesc": "E-post och telefonändringar",
     "anonymousCare": "Anonym vårdidentitet",

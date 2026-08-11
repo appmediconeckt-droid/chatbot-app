@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import useLanguageRender from '../../../../../hooks/useLanguageRender';
 import { useNavigation } from '@react-navigation/native';
 import {
   ActivityIndicator,
@@ -19,11 +20,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import axiosInstance from '../../../../../axiosConfig';
-import PATIENT from '../../../../../theme/palette';
+import PATIENT, {
+  PATIENT_GRADIENT,
+  TRANSPARENT_GRADIENT,
+  GRADIENT_DIRECTION,
+} from '../../../../../theme/palette';
 import PatientGradientButton from '../../../../../components/common/PatientGradientButton';
 
 const UserAccountSettings = ({ onNavigateBack }) => {
-  const { t } = useTranslation();
+  const { t } = useLanguageRender();
   const navigation = useNavigation();
   const [account, setAccount] = useState({ name: '', email: '', phone: '', profilePhoto: '' });
   const [loading, setLoading] = useState(true);
@@ -33,6 +38,11 @@ const UserAccountSettings = ({ onNavigateBack }) => {
   // Add password via OTP
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
+  // The OTP step is confirmed locally: there is no verify-only endpoint, so the
+  // code is only checked for real when the password is saved below. This gates
+  // the password fields so the user does one thing at a time.
+  const [otpVerified, setOtpVerified] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
   const [newPasswordAdd, setNewPasswordAdd] = useState('');
   const [confirmPasswordAdd, setConfirmPasswordAdd] = useState('');
   const [showNewPasswordAdd, setShowNewPasswordAdd] = useState(false);
@@ -53,6 +63,14 @@ const UserAccountSettings = ({ onNavigateBack }) => {
     loadAccount();
     checkAppLock();
   }, []);
+
+  // The PIN is set on the App Lock screen, so coming back from there has to
+  // re-read it. Without this the switch still showed OFF after a PIN had just
+  // been created - it only refreshed if the whole screen remounted.
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', checkAppLock);
+    return unsub;
+  }, [navigation]);
 
   const loadAccount = async () => {
     try {
@@ -96,6 +114,35 @@ const UserAccountSettings = ({ onNavigateBack }) => {
     setAppLockEnabled(!!pin);
   };
 
+  // The switch used to call navigate() whichever way it was dragged, so turning
+  // it OFF did not remove anything - the lock stayed on.
+  const handleToggleAppLock = (next) => {
+    if (next) {
+      // Turning it on means creating a PIN, which happens on the App Lock
+      // screen. The switch stays off until a PIN actually exists - checkAppLock
+      // on focus flips it when we come back.
+      navigation.navigate('AppLockSettings');
+      return;
+    }
+    Alert.alert(
+      t('Remove App Lock'),
+      t('This will delete your PIN and unlock the app. You can set a new PIN any time.'),
+      [
+        { text: t('Cancel'), style: 'cancel' },
+        {
+          text: t('Remove'),
+          style: 'destructive',
+          onPress: async () => {
+            // Clear the biometric flag too - it is useless without a PIN and
+            // would otherwise re-enable itself with the next PIN.
+            await AsyncStorage.multiRemove(['appLockPin', 'appLockBiometricEnabled']);
+            setAppLockEnabled(false);
+          },
+        },
+      ],
+    );
+  };
+
   const handleSendOTP = async () => {
     if (!account.email) {
       Alert.alert('Error', 'Email not found');
@@ -106,6 +153,8 @@ const UserAccountSettings = ({ onNavigateBack }) => {
       const res = await axiosInstance.post('/api/auth/generateOtp', { email: account.email });
       if (res.data?.success) {
         setOtpSent(true);
+        setOtpVerified(false);
+        setOtpCode('');
         Alert.alert('Success', `OTP sent to ${account.email}`);
       } else {
         Alert.alert('Error', res.data?.message || 'Failed to send OTP');
@@ -114,6 +163,45 @@ const UserAccountSettings = ({ onNavigateBack }) => {
       Alert.alert('Error', e.response?.data?.message || 'Failed to send OTP');
     } finally {
       setOtpLoading(false);
+    }
+  };
+
+  // The OTP is only truly checked when the password is submitted, so a bad code
+  // surfaces here. Drop back to the OTP step instead of leaving the user on a
+  // password form that will keep failing.
+  const handleAddPasswordError = (message) => {
+    const msg = message || 'Failed to add password';
+    if (/otp|code|expired|invalid/i.test(msg)) {
+      setOtpVerified(false);
+      setOtpCode('');
+    }
+    Alert.alert('Error', msg);
+  };
+
+  // Checks the code against the server before revealing the password fields, so
+  // a wrong OTP is rejected here rather than after the user has typed a
+  // password. Note: whatever token verifyOtp returns is deliberately IGNORED -
+  // this user is already signed in and the stored session must not change.
+  const handleVerifyOtp = async () => {
+    if (!otpCode || otpCode.length !== 6) {
+      Alert.alert('Error', 'Enter the 6-digit OTP');
+      return;
+    }
+    setOtpVerifying(true);
+    try {
+      const res = await axiosInstance.post('/api/auth/verifyOtp', {
+        email: account.email,
+        otp: otpCode,
+      });
+      if (res.data?.success) {
+        setOtpVerified(true);
+      } else {
+        Alert.alert('Error', res.data?.message || 'That OTP is not correct.');
+      }
+    } catch (e) {
+      Alert.alert('Error', e.response?.data?.message || 'That OTP is not correct.');
+    } finally {
+      setOtpVerifying(false);
     }
   };
 
@@ -146,10 +234,10 @@ const UserAccountSettings = ({ onNavigateBack }) => {
         setConfirmPasswordAdd('');
         setPasswordMode('change');
       } else {
-        Alert.alert('Error', res.data?.message || 'Failed to add password');
+        handleAddPasswordError(res.data?.message);
       }
     } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Failed to add password');
+      handleAddPasswordError(e.response?.data?.message);
     } finally {
       setPwLoading(false);
     }
@@ -194,10 +282,6 @@ const UserAccountSettings = ({ onNavigateBack }) => {
     }
   };
 
-  const handleSaveSecurity = () => {
-    Alert.alert('Success', 'Security settings saved!');
-  };
-
   if (loading) {
     return (
       <View style={s.center}>
@@ -215,47 +299,14 @@ const UserAccountSettings = ({ onNavigateBack }) => {
         <TouchableOpacity onPress={onNavigateBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="chevron-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Security</Text>
+        <Text style={s.headerTitle}>{t('Security')}</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView style={s.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 0 }} scrollIndicatorInsets={{ right: 1 }}>
-        {/* Security Center */}
-        <View style={s.section}>
-          <View style={s.securityHeader}>
-            <Ionicons name="checkmark-circle" size={20} color={PATIENT.primary} />
-            <View style={{ marginLeft: 10, flex: 1 }}>
-              <Text style={s.securityTitle}>Security Center</Text>
-              <Text style={s.securitySub}>Manage your account protection</Text>
-            </View>
-          </View>
-
-          <View style={s.securityStatus}>
-            <View>
-              <Text style={s.protectedLabel}>Protected</Text>
-            </View>
-            <View style={s.scoreCard}>
-              <Text style={s.scoreText}>Score: 87%</Text>
-            </View>
-          </View>
-
-          <View style={s.checksList}>
-            {[
-              'Two-factor auth active',
-              'Strong password set',
-              'Biometrics enabled',
-            ].map((label, idx) => (
-              <View key={idx} style={s.checkItem}>
-                <Ionicons name="checkmark-circle" size={14} color={PATIENT.primary} />
-                <Text style={s.checkLabel}>{label}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-
         {/* Account Info */}
         <View style={s.section}>
-          <Text style={s.sectionTitle}>ACCOUNT INFO</Text>
+          <Text style={s.sectionTitle}>{t('ACCOUNT INFO')}</Text>
 
           <View style={s.accountCard}>
             {!imageError && account.profilePhoto ? (
@@ -273,8 +324,8 @@ const UserAccountSettings = ({ onNavigateBack }) => {
               </View>
             )}
             <View>
-              <Text style={s.accountName}>{account.name}</Text>
-              <Text style={s.accountType}>Personal Account</Text>
+              <Text style={s.accountName}>{t(account.name)}</Text>
+              <Text style={s.accountType}>{t('Personal Account')}</Text>
             </View>
           </View>
 
@@ -286,7 +337,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
             <View key={idx} style={s.infoRow}>
               <Ionicons name={item.icon} size={16} color={PATIENT.primary} />
               <View style={{ marginLeft: 10, flex: 1 }}>
-                <Text style={s.infoLabel}>{item.label}</Text>
+                <Text style={s.infoLabel}>{t(item.label)}</Text>
                 <Text style={s.infoValue}>{item.value}</Text>
               </View>
             </View>
@@ -297,28 +348,38 @@ const UserAccountSettings = ({ onNavigateBack }) => {
         <View style={s.section}>
           <View style={s.passwordHeader}>
             <View>
-              <Text style={s.sectionTitle}>Password Security</Text>
-              <Text style={s.passwordSub}>Update your current password</Text>
+              <Text style={s.sectionTitle}>{t('Password Security')}</Text>
+              <Text style={s.passwordSub}>{t('Update your current password')}</Text>
             </View>
-            <TouchableOpacity>
-              <Text style={s.changeBtn}>Change</Text>
-            </TouchableOpacity>
           </View>
 
           {/* Tabs */}
+          {/* Both tab states render the same tree with the same metrics - only
+              the gradient stops and text colour change - so switching tabs
+              can't resize them. */}
           <View style={s.tabsContainer}>
-            <TouchableOpacity
-              style={[s.tab, passwordMode === 'add' && s.tabActive]}
-              onPress={() => setPasswordMode('add')}
-            >
-              <Text style={[s.tabText, passwordMode === 'add' && s.tabTextActive]}>Add</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.tab, passwordMode === 'change' && s.tabActive]}
-              onPress={() => setPasswordMode('change')}
-            >
-              <Text style={[s.tabText, passwordMode === 'change' && s.tabTextActive]}>Change</Text>
-            </TouchableOpacity>
+            {[
+              { key: 'add', label: 'Add' },
+              { key: 'change', label: 'Change' },
+            ].map(({ key, label }) => {
+              const isActive = passwordMode === key;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  style={s.tabWrap}
+                  onPress={() => setPasswordMode(key)}
+                  activeOpacity={0.85}
+                >
+                  <LinearGradient
+                    colors={isActive ? PATIENT_GRADIENT : TRANSPARENT_GRADIENT}
+                    {...GRADIENT_DIRECTION}
+                    style={s.tab}
+                  >
+                    <Text style={[s.tabText, isActive && s.tabTextActive]}>{label}</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {/* Add Password Mode */}
@@ -327,7 +388,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
               {!otpSent ? (
                 <>
                   <View style={s.inputBox}>
-                    <Text style={s.inputLabel}>Email</Text>
+                    <Text style={s.inputLabel}>{t('Email')}</Text>
                     <View style={s.inputWrapper}>
                       <Ionicons name="mail-outline" size={16} color="#94a3b8" />
                       <Text style={s.emailReadonly}>{account.email}</Text>
@@ -339,16 +400,18 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                         {otpLoading ? (
                           <ActivityIndicator size={12} color="#fff" />
                         ) : (
-                          <Text style={s.otpBtnText}>Send OTP</Text>
+                          <Text style={s.otpBtnText}>{t('Send OTP')}</Text>
                         )}
                       </TouchableOpacity>
                     </View>
                   </View>
                 </>
-              ) : (
+              ) : !otpVerified ? (
+                /* Step 2 - the code on its own, with its own button. The password
+                   fields used to sit here too, so the whole thing arrived at once. */
                 <>
                   <View style={s.inputBox}>
-                    <Text style={s.inputLabel}>OTP Code</Text>
+                    <Text style={s.inputLabel}>{t('OTP Code')}</Text>
                     <View style={s.inputWrapper}>
                       <Ionicons name="key-outline" size={16} color="#94a3b8" />
                       <TextInput
@@ -360,11 +423,41 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                         keyboardType="number-pad"
                         maxLength={6}
                       />
+                      <TouchableOpacity
+                        style={[s.otpBtn, (otpCode.length !== 6 || otpVerifying) && s.btnDisabled]}
+                        onPress={handleVerifyOtp}
+                        disabled={otpCode.length !== 6 || otpVerifying}
+                      >
+                        {otpVerifying ? (
+                          <ActivityIndicator size={12} color="#fff" />
+                        ) : (
+                          <Text style={s.otpBtnText}>{t('Verify')}</Text>
+                        )}
+                      </TouchableOpacity>
                     </View>
                   </View>
 
+                  <TouchableOpacity onPress={handleSendOTP} disabled={otpLoading}>
+                    <Text style={s.otpResend}>
+                      {otpLoading ? t('Sending...') : t('Resend OTP')}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                /* Step 3 - only now the two password boxes. */
+                <>
+                  <View style={s.otpDoneRow}>
+                    <Ionicons name="checkmark-circle" size={16} color={PATIENT.primary} />
+                    <Text style={s.otpDoneText}>
+                      {t('Code entered')} · {otpCode}
+                    </Text>
+                    <TouchableOpacity onPress={() => setOtpVerified(false)}>
+                      <Text style={s.otpDoneChange}>{t('Change')}</Text>
+                    </TouchableOpacity>
+                  </View>
+
                   <View style={s.inputBox}>
-                    <Text style={s.inputLabel}>New Password</Text>
+                    <Text style={s.inputLabel}>{t('New Password')}</Text>
                     <View style={s.inputWrapper}>
                       <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
                       <TextInput
@@ -386,7 +479,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                   </View>
 
                   <View style={s.inputBox}>
-                    <Text style={s.inputLabel}>Confirm Password</Text>
+                    <Text style={s.inputLabel}>{t('Confirm Password')}</Text>
                     <View style={s.inputWrapper}>
                       <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
                       <TextInput
@@ -410,7 +503,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                     ) : (
                       <>
                         <Ionicons name="checkmark-circle" size={16} color="#fff" />
-                        <Text style={s.submitBtnText}>Add Password</Text>
+                        <Text style={s.submitBtnText}>{t('Add Password')}</Text>
                       </>
                     )}
                   </PatientGradientButton>
@@ -420,7 +513,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
           ) : (
             <View style={s.passwordContent}>
               <View style={s.inputBox}>
-                <Text style={s.inputLabel}>Current Password</Text>
+                <Text style={s.inputLabel}>{t('Current Password')}</Text>
                 <View style={s.inputWrapper}>
                   <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
                   <TextInput
@@ -442,7 +535,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
               </View>
 
               <View style={s.inputBox}>
-                <Text style={s.inputLabel}>New Password</Text>
+                <Text style={s.inputLabel}>{t('New Password')}</Text>
                 <View style={s.inputWrapper}>
                   <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
                   <TextInput
@@ -464,7 +557,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
               </View>
 
               <View style={s.inputBox}>
-                <Text style={s.inputLabel}>Confirm Password</Text>
+                <Text style={s.inputLabel}>{t('Confirm Password')}</Text>
                 <View style={s.inputWrapper}>
                   <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
                   <TextInput
@@ -495,7 +588,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                 ) : (
                   <>
                     <Ionicons name="checkmark-circle" size={16} color="#fff" />
-                    <Text style={s.submitBtnText}>Change Password</Text>
+                    <Text style={s.submitBtnText}>{t('Change Password')}</Text>
                   </>
                 )}
               </PatientGradientButton>
@@ -507,23 +600,17 @@ const UserAccountSettings = ({ onNavigateBack }) => {
         <View style={s.section}>
           <View style={s.appLockRow}>
             <View>
-              <Text style={s.appLockTitle}>App Lock</Text>
-              <Text style={s.appLockSub}>Face & PIN protection</Text>
+              <Text style={s.appLockTitle}>{t('App Lock')}</Text>
+              <Text style={s.appLockSub}>{t('Face & PIN protection')}</Text>
             </View>
             <Switch
               value={appLockEnabled}
-              onValueChange={() => navigation.navigate('AppLockSettings')}
+              onValueChange={handleToggleAppLock}
               trackColor={{ false: '#cbd5e1', true: PATIENT.primary }}
               thumbColor="#ffffff"
             />
           </View>
         </View>
-
-        {/* Save Button */}
-        <PatientGradientButton style={s.saveBtn} onPress={handleSaveSecurity} activeOpacity={0.85}>
-          <Ionicons name="shield-checkmark" size={18} color="#ffffff" />
-          <Text style={s.saveBtnText}>Save Security Settings</Text>
-        </PatientGradientButton>
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -541,19 +628,6 @@ const s = StyleSheet.create({
   section: { backgroundColor: '#ffffff', marginHorizontal: 0, marginTop: 0, marginBottom: 0, borderRadius: 0, padding: 14, borderWidth: 0, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   sectionTitle: { fontSize: 10, fontWeight: '800', color: '#94a3b8', letterSpacing: 0.4, marginBottom: 10 },
 
-  securityHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
-  securityTitle: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
-  securitySub: { fontSize: 11, color: '#64748b', marginTop: 2 },
-
-  securityStatus: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f1f5f9', padding: 10, borderRadius: 8, marginBottom: 10 },
-  protectedLabel: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
-  scoreCard: { backgroundColor: PATIENT.primary, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 },
-  scoreText: { fontSize: 10, fontWeight: '700', color: '#ffffff' },
-
-  checksList: { gap: 6 },
-  checkItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  checkLabel: { fontSize: 12, fontWeight: '500', color: '#0f172a' },
-
   accountCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f1f5f9', padding: 10, borderRadius: 8, marginBottom: 10 },
   avatar: { width: 36, height: 36, borderRadius: 18 },
   avatarFallback: { backgroundColor: PATIENT.primary, alignItems: 'center', justifyContent: 'center' },
@@ -570,8 +644,9 @@ const s = StyleSheet.create({
   passwordSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
 
   tabsContainer: { flexDirection: 'row', gap: 8, marginBottom: 12, backgroundColor: '#f1f5f9', padding: 4, borderRadius: 8 },
-  tab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
-  tabActive: { backgroundColor: PATIENT.primary },
+  // Wrapper owns flex + clips the gradient to the tab radius.
+  tabWrap: { flex: 1, borderRadius: 6, overflow: 'hidden' },
+  tab: { paddingVertical: 8, alignItems: 'center' },
   tabText: { fontSize: 11, fontWeight: '700', color: '#64748b' },
   tabTextActive: { color: '#ffffff' },
 
@@ -585,6 +660,19 @@ const s = StyleSheet.create({
 
   otpBtn: { backgroundColor: PATIENT.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, minWidth: 80, alignItems: 'center' },
   otpBtnText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  otpResend: { color: PATIENT.primary, fontSize: 12, fontWeight: '700', marginBottom: 14 },
+  otpDoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#E6F6EC',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 14,
+  },
+  otpDoneText: { flex: 1, color: '#0F172A', fontSize: 12.5, fontWeight: '600' },
+  otpDoneChange: { color: PATIENT.primary, fontSize: 12, fontWeight: '700' },
 
   submitBtn: { borderRadius: 10, paddingVertical: 12, marginTop: 8 },
   submitBtnText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
@@ -594,8 +682,6 @@ const s = StyleSheet.create({
   appLockTitle: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
   appLockSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
 
-  saveBtn: { marginHorizontal: 12, marginTop: 10, marginBottom: 12, borderRadius: 10, paddingVertical: 14, shadowColor: PATIENT.primary, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 3 },
-  saveBtnText: { fontSize: 15, fontWeight: '800', color: '#ffffff' },
 });
 
 export default UserAccountSettings;

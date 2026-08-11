@@ -71,7 +71,7 @@
     "passwordMinLength": "Wachtwoord moet minimaal 6 tekens lang zijn",
     "passwordsDoNotMatch": "Wachtwoorden komen niet overeen",
     "sessionExpired": "Sessie verlopen. Log opnieuw in.",
-    "chooseRole": "Kies hoe u Mediconect wilt gebruiken",
+    "chooseRole": "Kies hoe u Humaeli wilt gebruiken",
     "userRole": "Gebruiker",
     "counselorRole": "Adviseur",
     "userRoleDesc": "Krijg ondersteuning van professionele adviseurs",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Voer het wachtwoord opnieuw in",
     "enterCurrentPassword": "Voer het huidige wachtwoord in",
     "reEnterNewPassword": "Voer het nieuwe wachtwoord opnieuw in",
-    "copyright": "© 2025 Mediconnect. Alle rechten voorbehouden."
+    "copyright": "© 2025 Humaeli. Alle rechten voorbehouden."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Hulp Ondersteuning",
-    "centerTitle": "MediConeckt-ondersteuningscentrum",
-    "centerDesc": "Gebruik dit ondersteuningscentrum om naar de juiste MediConeckt-functie te gaan, veelvoorkomende problemen op te lossen en te begrijpen wanneer u buiten de app contact moet opnemen met dringende hulp.",
+    "centerTitle": "Humaeli-ondersteuningscentrum",
+    "centerDesc": "Gebruik dit ondersteuningscentrum om naar de juiste Humaeli-functie te gaan, veelvoorkomende problemen op te lossen en te begrijpen wanneer u buiten de app contact moet opnemen met dringende hulp.",
     "aiWellnessChat": "AI wellness-chat",
     "aiWellnessDesc": "Stel vragen over mentaal welzijn, gebruik spraakinvoer, ontvang snelle antwoorden en zet uw recente AI-chat voort vanaf het dashboard.",
     "aiWellnessAction": "Open AI-chat",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Privacybeleid",
-    "centerTitle": "MediConeckt-privacycentrum",
-    "centerDesc": "In dit privacycentrum wordt uitgelegd hoe MediConeckt uw profiel-, chat-, afspraak-, portemonnee-, bel-, locatie- en beveiligingsgegevens gebruikt in deze mobiele app.",
+    "centerTitle": "Humaeli-privacycentrum",
+    "centerDesc": "In dit privacycentrum wordt uitgelegd hoe Humaeli uw profiel-, chat-, afspraak-, portemonnee-, bel-, locatie- en beveiligingsgegevens gebruikt in deze mobiele app.",
     "otpProtected": "OTP-beveiligd",
     "otpProtectedDesc": "Wijzigingen in e-mail en telefoon",
     "anonymousCare": "Anonieme zorgidentiteit",

@@ -11,8 +11,10 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import axios from "axios";
 import { API_BASE_URL } from "../../axiosConfig";
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 const ForgotPasswordScreen = () => {
+  const { t } = useLanguageRender();
   const navigation = useNavigation();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -59,14 +61,14 @@ const ForgotPasswordScreen = () => {
           <Text style={styles.backBtn}>← Back</Text>
         </TouchableOpacity>
 
-        <Text style={styles.title}>Forgot Password</Text>
-        <Text style={styles.subtitle}>Enter your email to reset password</Text>
+        <Text style={styles.title}>{t('Forgot Password')}</Text>
+        <Text style={styles.subtitle}>{t('Enter your email to reset password')}</Text>
 
         {error && <Text style={styles.errorText}>{error}</Text>}
 
         <TextInput
           style={styles.input}
-          placeholder="Enter email"
+          placeholder={t('Enter email')}
           value={email}
           onChangeText={setEmail}
           keyboardType="email-address"
@@ -82,7 +84,7 @@ const ForgotPasswordScreen = () => {
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => navigation.navigate("Login")}>
-          <Text style={styles.linkText}>Back to Login</Text>
+          <Text style={styles.linkText}>{t('Back to Login')}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

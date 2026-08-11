@@ -71,7 +71,7 @@
     "passwordMinLength": "A jelszónak legalább 6 karakterből kell állnia",
     "passwordsDoNotMatch": "A jelszavak nem egyeznek",
     "sessionExpired": "A munkamenet lejárt. K��rjük, jelentkezzen be újra.",
-    "chooseRole": "Válassza ki, hogyan szeretné használni a Mediconectet",
+    "chooseRole": "Válassza ki, hogyan szeretné használni a Humaeli",
     "userRole": "Felhasználó",
     "counselorRole": "Tanácsadó",
     "userRoleDesc": "Kérjen segítséget professzionális tanácsadóktól",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Írja be újra a jelszót",
     "enterCurrentPassword": "Adja meg az aktuális jelszót",
     "reEnterNewPassword": "Írja be újra az új jelszót",
-    "copyright": "© 2025 Mediconnect. Minden jog fenntartva."
+    "copyright": "© 2025 Humaeli. Minden jog fenntartva."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Súgó Támogatás",
-    "centerTitle": "MediConeckt támogatási központ",
-    "centerDesc": "Ezzel a támogatási központtal a megfelelő MediConeckt funkcióhoz ugorhat, elháríthatja a gyakori problémákat, és megértheti, mikor kell sürgős segítséget kérni az alkalmazáson kívül.",
+    "centerTitle": "Humaeli támogatási központ",
+    "centerDesc": "Ezzel a támogatási központtal a megfelelő Humaeli funkcióhoz ugorhat, elháríthatja a gyakori problémákat, és megértheti, mikor kell sürgős segítséget kérni az alkalmazáson kívül.",
     "aiWellnessChat": "AI wellness chat",
     "aiWellnessDesc": "Tegyen fel kérdéseket a mentális egészséggel kapcsolatban, használjon hangbevitelt, kapjon gyors válaszokat, és folytassa a legutóbbi mesterséges intelligencia-csevegést az irányítópultról.",
     "aiWellnessAction": "Nyissa meg az AI-csevegést",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Adatvédelmi szabályzat",
-    "centerTitle": "MediConeckt adatvédelmi központ",
-    "centerDesc": "Ez az adatvédelmi központ elmagyarázza, hogyan használja a MediConeckt az Ön profilját, csevegését, találkozóját, pénztárcáját, hívásait, helyadatait és biztonsági adatait ebben a mobilalkalmazásban.",
+    "centerTitle": "Humaeli adatvédelmi központ",
+    "centerDesc": "Ez az adatvédelmi központ elmagyarázza, hogyan használja a Humaeli az Ön profilját, csevegését, találkozóját, pénztárcáját, hívásait, helyadatait és biztonsági adatait ebben a mobilalkalmazásban.",
     "otpProtected": "OTP védett",
     "otpProtectedDesc": "E-mail és telefon változás",
     "anonymousCare": "Névtelen gondoskodó személyazonosság",

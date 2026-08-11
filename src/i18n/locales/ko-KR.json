@@ -71,7 +71,7 @@
     "passwordMinLength": "비밀번호는 6자 이상이어야 합니다.",
     "passwordsDoNotMatch": "비밀번호가 일치하지 않습니다.",
     "sessionExpired": "세션이 만료되었습니다. 다시 로그인해주세요.",
-    "chooseRole": "Mediconect 사용 방법을 선택하세요",
+    "chooseRole": "Humaeli 사용 방법을 선택하세요",
     "userRole": "사용자",
     "counselorRole": "상담사",
     "userRoleDesc": "전문 상담사의 지원을 받으세요",
@@ -445,7 +445,7 @@
   "helpPage": {
     "title": "도움말 지원",
     "centerTitle": "메디코넥트 지원 센터",
-    "centerDesc": "이 지원 센터를 사용하여 올바른 MediConeckt 기능으로 이동하고, 일반적인 문제를 해결하고, 앱 외부에서 긴급 지원에 문의해야 하는 경우를 이해하세요.",
+    "centerDesc": "이 지원 센터를 사용하여 올바른 Humaeli 기능으로 이동하고, 일반적인 문제를 해결하고, 앱 외부에서 긴급 지원에 문의해야 하는 경우를 이해하세요.",
     "aiWellnessChat": "AI 웰니스 채팅",
     "aiWellnessDesc": "정신 건강에 관해 질문하고, 음성 입력을 사용하고, 빠른 응답을 받고, 대시보드에서 최근 AI 채팅을 계속하세요.",
     "aiWellnessAction": "AI 채팅 열기",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "개인 정보 보호 정책",
-    "centerTitle": "MediConeckt 개인 정보 보호 센터",
-    "centerDesc": "이 개인 정보 보호 센터는 MediConeckt가 이 모바일 앱 내에서 귀하의 프로필, 채팅, 약속, 지갑, 통화, 위치 및 보안 데이터를 사용하는 방법을 설명합니다.",
+    "centerTitle": "Humaeli 개인 정보 보호 센터",
+    "centerDesc": "이 개인 정보 보호 센터는 Humaeli가 이 모바일 앱 내에서 귀하의 프로필, 채팅, 약속, 지갑, 통화, 위치 및 보안 데이터를 사용하는 방법을 설명합니다.",
     "otpProtected": "OTP 보호됨",
     "otpProtectedDesc": "이메일 및 전화번호 변경",
     "anonymousCare": "익명 진료 ID",

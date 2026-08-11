@@ -71,7 +71,7 @@
     "passwordMinLength": "Dapat na hindi bababa sa 6 na character ang password",
     "passwordsDoNotMatch": "Hindi tugma ang mga password",
     "sessionExpired": "Nag-expire na ang session. Mangyaring mag-login muli.",
-    "chooseRole": "Piliin kung paano mo gustong gamitin ang Mediconect",
+    "chooseRole": "Piliin kung paano mo gustong gamitin ang Humaeli",
     "userRole": "Gumagamit",
     "counselorRole": "Tagapayo",
     "userRoleDesc": "Kumuha ng suporta mula sa mga propesyonal na tagapayo",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Ipasok muli ang password",
     "enterCurrentPassword": "Ipasok ang kasalukuyang password",
     "reEnterNewPassword": "Ipasok muli ang bagong password",
-    "copyright": "© 2025 Mediconnect. Lahat ng karapatan ay nakalaan."
+    "copyright": "© 2025 Humaeli. Lahat ng karapatan ay nakalaan."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Tulong sa Suporta",
-    "centerTitle": "MediConeckt support center",
-    "centerDesc": "Gamitin ang support center na ito upang lumipat sa tamang feature ng MediConeckt, i-troubleshoot ang mga karaniwang isyu, at maunawaan kung kailan makikipag-ugnayan sa agarang tulong sa labas ng app.",
+    "centerTitle": "Humaeli support center",
+    "centerDesc": "Gamitin ang support center na ito upang lumipat sa tamang feature ng Humaeli, i-troubleshoot ang mga karaniwang isyu, at maunawaan kung kailan makikipag-ugnayan sa agarang tulong sa labas ng app.",
     "aiWellnessChat": "AI wellness chat",
     "aiWellnessDesc": "Magtanong ng mga tanong tungkol sa mental-wellness, gumamit ng voice input, makakuha ng mabilis na mga tugon, at ipagpatuloy ang iyong kamakailang AI chat mula sa dashboard.",
     "aiWellnessAction": "Buksan ang AI chat",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Patakaran sa Privacy",
-    "centerTitle": "MediConeckt privacy center",
-    "centerDesc": "Ipinapaliwanag ng privacy center na ito kung paano ginagamit ng MediConeckt ang iyong profile, chat, appointment, wallet, tawag, lokasyon, at data ng seguridad sa loob ng mobile app na ito.",
+    "centerTitle": "Humaeli privacy center",
+    "centerDesc": "Ipinapaliwanag ng privacy center na ito kung paano ginagamit ng Humaeli ang iyong profile, chat, appointment, wallet, tawag, lokasyon, at data ng seguridad sa loob ng mobile app na ito.",
     "otpProtected": "Protektado ang OTP",
     "otpProtectedDesc": "Mga pagbabago sa email at telepono",
     "anonymousCare": "Anonymous na pagkakakilanlan sa pangangalaga",

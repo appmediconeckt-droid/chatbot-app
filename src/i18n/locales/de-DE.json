@@ -71,7 +71,7 @@
     "passwordMinLength": "Das Passwort muss mindestens 6 Zeichen lang sein",
     "passwordsDoNotMatch": "Passwörter stimmen nicht überein",
     "sessionExpired": "Sitzung abgelaufen. Bitte melden Sie sich erneut an.",
-    "chooseRole": "Wählen Sie, wie Sie Mediconect nutzen möchten",
+    "chooseRole": "Wählen Sie, wie Sie Humaeli nutzen möchten",
     "userRole": "Benutzer",
     "counselorRole": "Berater",
     "userRoleDesc": "Holen Sie sich Unterstützung von professionellen Beratern",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Geben Sie das Passwort erneut ein",
     "enterCurrentPassword": "Geben Sie das aktuelle Passwort ein",
     "reEnterNewPassword": "Geben Sie das neue Passwort erneut ein",
-    "copyright": "© 2025 Mediconnect. Alle Rechte vorbehalten."
+    "copyright": "© 2025 Humaeli. Alle Rechte vorbehalten."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Hilfe-Support",
-    "centerTitle": "MediConeckt-Supportcenter",
-    "centerDesc": "Verwenden Sie dieses Support-Center, um zur richtigen MediConeckt-Funktion zu springen, häufige Probleme zu beheben und zu erfahren, wann Sie außerhalb der App dringend Hilfe benötigen.",
+    "centerTitle": "Humaeli-Supportcenter",
+    "centerDesc": "Verwenden Sie dieses Support-Center, um zur richtigen Humaeli-Funktion zu springen, häufige Probleme zu beheben und zu erfahren, wann Sie außerhalb der App dringend Hilfe benötigen.",
     "aiWellnessChat": "KI-Wellness-Chat",
     "aiWellnessDesc": "Stellen Sie Fragen zum mentalen Wohlbefinden, nutzen Sie die Spracheingabe, erhalten Sie schnelle Antworten und setzen Sie Ihren letzten KI-Chat über das Dashboard fort.",
     "aiWellnessAction": "Öffnen Sie den KI-Chat",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Datenschutzrichtlinie",
-    "centerTitle": "MediConeckt-Datenschutzcenter",
-    "centerDesc": "In diesem Datenschutzcenter wird erläutert, wie MediConeckt Ihre Profil-, Chat-, Termin-, Geldbörsen-, Anruf-, Standort- und Sicherheitsdaten in dieser mobilen App verwendet.",
+    "centerTitle": "Humaeli-Datenschutzcenter",
+    "centerDesc": "In diesem Datenschutzcenter wird erläutert, wie Humaeli Ihre Profil-, Chat-, Termin-, Geldbörsen-, Anruf-, Standort- und Sicherheitsdaten in dieser mobilen App verwendet.",
     "otpProtected": "OTP-geschützt",
     "otpProtectedDesc": "E-Mail- und Telefonänderungen",
     "anonymousCare": "Anonyme Pflegeidentität",

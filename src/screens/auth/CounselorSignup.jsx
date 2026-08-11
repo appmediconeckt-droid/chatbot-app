@@ -29,9 +29,11 @@ import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 
 // Import logo
-import logo from '../../image/Mediconect Logo-3.png';
+import logo from '../../image/HumaeliIcon.png';
+import useLanguageRender from '../../hooks/useLanguageRender';
 
 const CounselorSignup = ({ navigation, route }) => {
+  const { t } = useLanguageRender();
   const { width, height } = useWindowDimensions();
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
@@ -56,6 +58,10 @@ const CounselorSignup = ({ navigation, route }) => {
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
+  // Holds the running entrance animation so a mode switch can stop it cleanly.
+  const entranceAnimRef = useRef(null);
+  // Entrance plays on open only; later mode toggles skip it.
+  const firstEntranceRef = useRef(true);
   const orb1Anim = useRef(new Animated.Value(0)).current;
   const orb2Anim = useRef(new Animated.Value(0)).current;
   const particle1 = useRef(new Animated.Value(0)).current;
@@ -93,18 +99,40 @@ const CounselorSignup = ({ navigation, route }) => {
   const languageOptions = ['Hindi', 'English', 'Gujarati', 'Marathi', 'Tamil', 'Telugu', 'Bengali', 'Punjabi'];
   const genderOptions = ['Male', 'Female', 'Other'];
 
+  // Same fix as UserSignup: the panel and every field take their opacity from
+  // these values, so leaving any at 0 renders a blank page. Resetting them to 0
+  // and starting a new animation over an unstopped one can leave a native-driven
+  // value stuck. Entrance plays once on open; a Login <-> Create Account toggle
+  // just snaps to the visible end state.
   useEffect(() => {
+    entranceAnimRef.current?.stop();
+
+    const showImmediately = () => {
+      fadeAnim.setValue(1);
+      slideAnim.setValue(0);
+      fieldAnims.forEach(anim => anim.setValue(1));
+    };
+
+    if (!firstEntranceRef.current) {
+      showImmediately();
+      return;
+    }
+    firstEntranceRef.current = false;
+
     fadeAnim.setValue(0);
     slideAnim.setValue(30);
     fieldAnims.forEach(anim => anim.setValue(0));
 
-    Animated.parallel([
+    entranceAnimRef.current = Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
       Animated.spring(slideAnim, { toValue: 0, tension: 20, friction: 7, useNativeDriver: true }),
       Animated.stagger(40, fieldAnims.map(anim =>
         Animated.spring(anim, { toValue: 1, tension: 25, friction: 8, useNativeDriver: true })
       ))
-    ]).start();
+    ]);
+    entranceAnimRef.current.start(({ finished }) => {
+      if (!finished) showImmediately();
+    });
   }, [isLogin]);
 
   useEffect(() => {
@@ -186,7 +214,9 @@ const CounselorSignup = ({ navigation, route }) => {
       });
       if (await persistCounselorSession(response.data)) {
         showNotification('Login successful!');
-        setTimeout(() => navigation.replace('CounselorOnboarding'), 1000);
+        // Existing counselor logging in → location gate, then dashboard.
+        // Onboarding is only for brand-new signups (see handleSignup).
+        setTimeout(() => navigation.replace('LocationGate', { destination: 'CounselorDashboard' }), 1000);
       }
     } catch (err) {
       if (err?.response?.status === 409) {
@@ -240,7 +270,7 @@ const CounselorSignup = ({ navigation, route }) => {
 
       if (response.data.success && await persistCounselorSession(response.data)) {
         showNotification('Counselor registered!');
-        setTimeout(() => navigation.replace('CounselorOnboarding'), 1500);
+        setTimeout(() => navigation.replace('LocationGate', { destination: 'CounselorOnboarding' }), 1500);
       }
     } catch (error) {
       showNotification(error.response?.data?.message || 'Signup failed', 'error');
@@ -323,7 +353,8 @@ const CounselorSignup = ({ navigation, route }) => {
       });
       if (await persistCounselorSession(response.data)) {
         setShowDeviceConflict(false);
-        navigation.replace('CounselorOnboarding');
+        // Device-conflict resolution is a login → location gate, then dashboard.
+        navigation.replace('LocationGate', { destination: 'CounselorDashboard' });
       }
     } catch (err) {
       showNotification('Invalid OTP', 'error');
@@ -377,7 +408,7 @@ const CounselorSignup = ({ navigation, route }) => {
           />
           {verifyType && !isLogin && (
             <TouchableOpacity onPress={() => handleSendVerifyOtp(verifyType)} disabled={isVerified} style={[styles.verifyBtn, isVerified && styles.verifiedBtn]}>
-              {isVerified ? <Icon name="check-decagram" size={18} color="#004AC6" /> : <Text style={styles.verifyBtnText}>Verify</Text>}
+              {isVerified ? <Icon name="check-decagram" size={18} color="#004AC6" /> : <Text style={styles.verifyBtnText}>{t('Verify')}</Text>}
             </TouchableOpacity>
           )}
         </View>
@@ -398,13 +429,13 @@ const CounselorSignup = ({ navigation, route }) => {
       <AuthBackground role="counselor" style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : null} style={styles.flex}>
-            <TouchableOpacity style={styles.backBtn} onPress={() => navigation.replace('RoleSelector')}><Icon name="chevron-left" size={28} color="#0F172A" /></TouchableOpacity>
+            <TouchableOpacity style={styles.backBtn} onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.replace('RoleSelector'))}><Icon name="chevron-left" size={28} color="#0F172A" /></TouchableOpacity>
             <ScrollView contentContainerStyle={scrollContainerStyle} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
               <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
                   <View style={styles.logoBadge}><Image source={logo} style={styles.logo} resizeMode="contain" /></View>
-                  <View style={styles.brandContainer}><Text style={styles.brandMain}>Medicone</Text><Text style={[styles.brandAlt, { color: '#004AC6' }]}>ckt</Text></View>
-                  <Text style={styles.tagline}>{isLogin ? 'Welcome back, Counselor' : 'Join our expert team'}</Text>
+                  <View style={styles.brandContainer}><Text style={[styles.brandMain, { color: '#004AC6' }]}>{t('Humaeli')}</Text></View>
+                  <Text style={styles.tagline}>{'Join our expert team'}</Text>
                 </View>
                 {/* {!isLogin && (
                   <Animated.View key="photo-section" style={[styles.photoSection, { opacity: fieldAnims[0] }]}>
@@ -415,28 +446,43 @@ const CounselorSignup = ({ navigation, route }) => {
                         <Icon name="camera-plus-outline" size={30} color="#004AC6" />
                       )}
                     </TouchableOpacity>
-                    <Text style={styles.photoLabel}>Counselor Photo</Text>
+                    <Text style={styles.photoLabel}>{t('Counselor Photo')}</Text>
                   </Animated.View>
                 )} */}
                 <View style={styles.formPanel}>
                   {!isLogin ? (
                     <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderInput(3, 'phoneNumber', 'phone-outline', 'Phone Number', { keyboardType: 'phone-pad' }, 'phone')}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
-                      <Animated.View key="gender-section" style={{ opacity: fieldAnims[5] }}><Text style={styles.sectionLabel}>Gender</Text><View style={styles.genderRow}>{genderOptions.map(g => (<TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}><Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text></TouchableOpacity>))}</View></Animated.View>
+                      <Animated.View key="gender-section" style={{ opacity: fieldAnims[5] }}><Text style={styles.sectionLabel}>{t('Gender')}</Text><View style={styles.genderRow}>{genderOptions.map(g => (<TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}><Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text></TouchableOpacity>))}</View></Animated.View>
                       {renderInput(6, 'qualification', 'school-outline', 'Qualification')}{renderInput(7, 'specialization', 'certificate-outline', 'Specialization')}
                       <View style={styles.row}><View style={{ flex: 1 }}>{renderInput(8, 'experience', 'briefcase-clock-outline', 'Years')}</View><View style={{ flex: 1.5 }}>{renderInput(9, 'location', 'map-marker-radius-outline', 'City')}</View></View>
-                      <Animated.View key="mode-section" style={{ opacity: fieldAnims[10] }}><Text style={styles.sectionLabel}>Consultation Mode</Text><View style={styles.tagRow}>{consultationModes.map(m => (<TouchableOpacity key={m} style={[styles.tag, formData.consultationMode.includes(m) && styles.tagSelected]} onPress={() => toggleListItem('consultationMode', m)}><Text style={[styles.tagText, formData.consultationMode.includes(m) && styles.tagTextSelected]}>{m}</Text></TouchableOpacity>))}</View></Animated.View>
-                      <Animated.View key="lang-section" style={{ opacity: fieldAnims[11] }}><Text style={styles.sectionLabel}>Languages</Text><View style={styles.tagRow}>{languageOptions.map(l => (<TouchableOpacity key={l} style={[styles.tag, formData.languages.includes(l) && styles.tagSelected]} onPress={() => toggleListItem('languages', l)}><Text style={[styles.tagText, formData.languages.includes(l) && styles.tagTextSelected]}>{l}</Text></TouchableOpacity>))}</View></Animated.View>
+                      <Animated.View key="mode-section" style={{ opacity: fieldAnims[10] }}><Text style={styles.sectionLabel}>{t('Consultation Mode')}</Text><View style={styles.tagRow}>{consultationModes.map(m => (<TouchableOpacity key={m} style={[styles.tag, formData.consultationMode.includes(m) && styles.tagSelected]} onPress={() => toggleListItem('consultationMode', m)}><Text style={[styles.tagText, formData.consultationMode.includes(m) && styles.tagTextSelected]}>{m}</Text></TouchableOpacity>))}</View></Animated.View>
+                      <Animated.View key="lang-section" style={{ opacity: fieldAnims[11] }}><Text style={styles.sectionLabel}>{t('Languages')}</Text><View style={styles.tagRow}>{languageOptions.map(l => (<TouchableOpacity key={l} style={[styles.tag, formData.languages.includes(l) && styles.tagSelected]} onPress={() => toggleListItem('languages', l)}><Text style={[styles.tagText, formData.languages.includes(l) && styles.tagTextSelected]}>{l}</Text></TouchableOpacity>))}</View></Animated.View>
                       {renderInput(12, 'aboutMe', 'account-details-outline', 'About Me', { multiline: true })}
                     </>
                   ) : (<>{renderInput(1, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' })}</>)}
                   <Animated.View key="pwd-section" style={{ opacity: fieldAnims[13] }}>
                     <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
-                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} placeholder="Password" placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} /><TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
+                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} placeholder={t('Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} /><TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
                     </View>
                   </Animated.View>
-                  {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#004AC6' }]}>Forgot password?</Text></TouchableOpacity>)}
-                  {!isLogin && (<Animated.View key="cpwd-section" style={{ opacity: fieldAnims[14] }}><View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}><Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={() => setFocusedField('confirmPassword')} onBlur={() => setFocusedField(null)} placeholder="Confirm Password" placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} /><TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity></View></Animated.View>)}
-                  <Animated.View key="btn-section" style={{ opacity: fieldAnims[15], marginTop: 10 }}><TouchableOpacity style={[styles.submitBtn, { backgroundColor: '#004AC6' }]} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>{isLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>{isLogin ? 'Login' : 'Join as Counselor'}</Text>}</TouchableOpacity></Animated.View>
+                  {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#004AC6' }]}>{t('Forgot password?')}</Text></TouchableOpacity>)}
+                  {!isLogin && (<Animated.View key="cpwd-section" style={{ opacity: fieldAnims[14] }}><View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}><Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={() => setFocusedField('confirmPassword')} onBlur={() => setFocusedField(null)} placeholder={t('Confirm Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} /><TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity></View></Animated.View>)}
+                  <Animated.View key="btn-section" style={{ opacity: fieldAnims[15], marginTop: 10 }}>
+                    <TouchableOpacity activeOpacity={0.9} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
+                      <LinearGradient
+                        colors={['#003A9B', '#1490FF']}
+                        start={{ x: 0, y: 0.5 }}
+                        end={{ x: 1, y: 0.5 }}
+                        style={styles.submitBtn}
+                      >
+                        {isLoading ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={styles.submitBtnText}>{isLogin ? 'Login' : 'Create Account'}</Text>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </Animated.View>
                   <Animated.View key="google-section" style={{ opacity: fieldAnims[15], marginTop: 14 }}>
                     <View style={styles.googleDividerRow}>
                       <View style={styles.googleDividerLine} />
@@ -474,19 +520,19 @@ const CounselorSignup = ({ navigation, route }) => {
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name={showOtpModal.type === 'email' ? 'email-fast-outline' : 'cellphone-text'} size={40} color="#004AC6" /></View>
-              <Text style={styles.modalTitle}>Verification Code</Text>
+              <Text style={styles.modalTitle}>{t('Verification Code')}</Text>
               <Text style={styles.modalSub}>Enter code sent to {showOtpModal.value}</Text>
-              <TextInput style={[styles.otpInput, { marginVertical: 15 }]} value={otpCode} onChangeText={setOtpCode} placeholder="000000" placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
+              <TextInput style={[styles.otpInput, { marginVertical: 15 }]} value={otpCode} onChangeText={setOtpCode} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
-              <TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6', marginVertical: 15 }]} onPress={handleVerifyOtp} disabled={isVerifyingOtp}>{isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Verify Counselor</Text>}</TouchableOpacity>
-              <TouchableOpacity onPress={() => setShowOtpModal({ show: false, type: '', value: '' })} style={styles.cancelBtn}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6', marginVertical: 15 }]} onPress={handleVerifyOtp} disabled={isVerifyingOtp}>{isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Counselor')}</Text>}</TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowOtpModal({ show: false, type: '', value: '' })} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity>
             </View>
           </View>
         </Modal>
         {/* Device Conflict */}
         <Modal visible={showDeviceConflict} transparent animationType="fade">
           <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { borderTopWidth: 4, borderColor: '#004AC6' }]}><View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name="devices" size={40} color="#004AC6" /></View><Text style={styles.modalTitle}>Switching Devices</Text><Text style={styles.modalSub}>Counselor account active on another device. Logout there and continue here?</Text>{!deviceOtpSent ? (<TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6' }]} onPress={handleSendDeviceOtp} disabled={isSendingDeviceOtp}>{isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Log out other device</Text>}</TouchableOpacity>) : (<View style={styles.otpWrapper}><TextInput style={styles.otpInput} value={deviceOtp} onChangeText={setDeviceOtp} placeholder="Enter OTP" placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} /><TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6' }]} onPress={handleVerifyDeviceOtp} disabled={isVerifyingDeviceOtp}>{isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>Verify & Takeover</Text>}</TouchableOpacity></View>)}<TouchableOpacity onPress={() => setShowDeviceConflict(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity></View>
+            <View style={[styles.modalContent, { borderTopWidth: 4, borderColor: '#004AC6' }]}><View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name="devices" size={40} color="#004AC6" /></View><Text style={styles.modalTitle}>{t('Switching Devices')}</Text><Text style={styles.modalSub}>{t('Counselor account active on another device. Logout there and continue here?')}</Text>{!deviceOtpSent ? (<TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6' }]} onPress={handleSendDeviceOtp} disabled={isSendingDeviceOtp}>{isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Log out other device')}</Text>}</TouchableOpacity>) : (<View style={styles.otpWrapper}><TextInput style={styles.otpInput} value={deviceOtp} onChangeText={setDeviceOtp} placeholder={t('Enter OTP')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} /><TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6' }]} onPress={handleVerifyDeviceOtp} disabled={isVerifyingDeviceOtp}>{isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify & Takeover')}</Text>}</TouchableOpacity></View>)}<TouchableOpacity onPress={() => setShowDeviceConflict(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity></View>
           </View>
         </Modal>
         {notification.show && (<Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#004AC6' : '#004AC6' }]}><Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color="#fff" /><Text style={styles.notificationText}>{notification.message}</Text></Animated.View>)}

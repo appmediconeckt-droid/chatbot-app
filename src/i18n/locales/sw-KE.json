@@ -71,7 +71,7 @@
     "passwordMinLength": "Nenosiri lazima liwe na angalau vibambo 6",
     "passwordsDoNotMatch": "Manenosiri hayalingani",
     "sessionExpired": "Kipindi kimekwisha. Tafadhali ingia tena.",
-    "chooseRole": "Chagua jinsi unavyotaka kutumia Mediconect",
+    "chooseRole": "Chagua jinsi unavyotaka kutumia Humaeli",
     "userRole": "Mtumiaji",
     "counselorRole": "Mshauri",
     "userRoleDesc": "Pata usaidizi kutoka kwa washauri wa kitaalamu",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Ingiza tena nenosiri",
     "enterCurrentPassword": "Weka nenosiri la sasa",
     "reEnterNewPassword": "Ingiza tena nenosiri mpya",
-    "copyright": "© 2025 Mediconnect. Haki zote zimehifadhiwa."
+    "copyright": "© 2025 Humaeli. Haki zote zimehifadhiwa."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Usaidizi wa Usaidizi",
-    "centerTitle": "Kituo cha usaidizi cha MediConeckt",
-    "centerDesc": "Tumia kituo hiki cha usaidizi ili kurukia kipengele kinachofaa cha MediConeckt, kutatua masuala ya kawaida na kuelewa wakati wa kuwasiliana na usaidizi wa dharura nje ya programu.",
+    "centerTitle": "Kituo cha usaidizi cha Humaeli",
+    "centerDesc": "Tumia kituo hiki cha usaidizi ili kurukia kipengele kinachofaa cha Humaeli, kutatua masuala ya kawaida na kuelewa wakati wa kuwasiliana na usaidizi wa dharura nje ya programu.",
     "aiWellnessChat": "Gumzo la ustawi wa AI",
     "aiWellnessDesc": "Uliza maswali ya afya ya akili, tumia kuweka sauti kwa kutamka, pata majibu ya haraka na uendelee na gumzo lako la hivi majuzi la AI kutoka kwenye dashibodi.",
     "aiWellnessAction": "Fungua gumzo la AI",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Sera ya Faragha",
-    "centerTitle": "Kituo cha faragha cha MediConeckt",
-    "centerDesc": "Kituo hiki cha faragha kinafafanua jinsi MediConeckt hutumia wasifu wako, gumzo, miadi, pochi, simu, mahali na data ya usalama ndani ya programu hii ya simu.",
+    "centerTitle": "Kituo cha faragha cha Humaeli",
+    "centerDesc": "Kituo hiki cha faragha kinafafanua jinsi Humaeli hutumia wasifu wako, gumzo, miadi, pochi, simu, mahali na data ya usalama ndani ya programu hii ya simu.",
     "otpProtected": "OTP inalindwa",
     "otpProtectedDesc": "Barua pepe na mabadiliko ya simu",
     "anonymousCare": "Utambulisho wa utunzaji usiojulikana",

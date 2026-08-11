@@ -28,6 +28,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import LinearGradient from "react-native-linear-gradient";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import PATIENT from "../../../../../../theme/palette";
+import ZoomableImageViewer from "../../../../../../components/common/ZoomableImageViewer";
 
 // Patient green theme (from Figma).
 const BRAND_GRADIENT = [PATIENT.gradientFrom, PATIENT.gradientTo];
@@ -43,6 +44,9 @@ import VoiceCallModal from "../CallModal/VoiceCallModal";
 import useRingtone from "../../../../../../hooks/useRingtone";
 import useScreenshotPrevent from "../../../../../../utils/useScreenshotPrevent";
 import TranslatedMessageBubble from "../../../../../../components/TranslatedMessageBubble";
+import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import ChatSkeleton from "../../../../../../components/common/ChatSkeleton";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   fetchChatCallEntries,
   mergeTimelineForInverted,
@@ -62,6 +66,7 @@ const IncomingCallModal = ({
   onAcceptCall,
   onRejectCall,
 }) => {
+  const { t } = useLanguageRender();
   const { width: winWidth } = useWindowDimensions();
   const [isAccepting, setIsAccepting] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
@@ -137,7 +142,7 @@ const IncomingCallModal = ({
                 )}
               </View>
               <Text style={styles.incomingCallerName}>{displayName}</Text>
-              <Text style={styles.incomingCallType}>
+              <Text style={styles.launchCallType}>
                 {callType === "video" ? "📹 Video Call" : "📞 Voice Call"}
               </Text>
               {requestedTime ? (
@@ -157,7 +162,7 @@ const IncomingCallModal = ({
                 {isRejecting ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={styles.incomingCallBtnText}>Decline</Text>
+                  <Text style={styles.incomingCallBtnText}>{t('Decline')}</Text>
                 )}
               </TouchableOpacity>
 
@@ -169,7 +174,7 @@ const IncomingCallModal = ({
                 {isAccepting ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={styles.incomingCallBtnText}>Accept</Text>
+                  <Text style={styles.incomingCallBtnText}>{t('Accept')}</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -203,6 +208,8 @@ const ConfirmModal = ({ visible, title, message, onConfirm, onCancel, confirmTex
 };
 
 const ChatBox = () => {
+  const insets = useSafeAreaInsets();
+  const { t } = useLanguageRender();
   useScreenshotPrevent();
   const navigation = useNavigation();
   const route = useRoute();
@@ -211,7 +218,14 @@ const ChatBox = () => {
   // <375px → 85%, phones → 80%, tablets (≥768) → 70%.
   const bubbleMaxWidth = windowWidth >= 768 ? '70%' : windowWidth < 375 ? '85%' : '80%';
   const { id: counselorId } = route.params || {};
-  const { chatId, chatMongoId, counselor: initialCounselor, user: initialUser } = route.params || {};
+  const {
+    chatId,
+    chatMongoId,
+    counselor: initialCounselor,
+    user: initialUser,
+    callType: launchCallType,
+    callData: launchCallData,
+  } = route.params || {};
 
   // State for current chat
   const [currentChat, setCurrentChat] = useState(null);
@@ -233,6 +247,43 @@ const ChatBox = () => {
       phoneNumber: "+91 98765 43215",
     };
   });
+
+  // Launched from the appointment tab: the call already exists server-side, so
+  // just open the matching modal. Guarded by a ref so a re-render can't reopen a
+  // call the user has already hung up.
+  const launchedCallRef = useRef(false);
+  useEffect(() => {
+    if (launchedCallRef.current) return;
+    if (!launchCallType || !launchCallData) return;
+    launchedCallRef.current = true;
+
+    const receiver = launchCallData?.receiver;
+    const photo =
+      getProfilePhotoUrl(receiver) ||
+      getProfilePhotoUrl(currentCounselor) ||
+      null;
+
+    setSelectedCall({
+      id: launchCallData?.id || launchCallData?._id,
+      callId: launchCallData?.callId || launchCallData?.id || launchCallData?._id,
+      roomId: launchCallData?.roomId,
+      name: receiver?.name || currentCounselor?.name || "Counselor",
+      type: launchCallType,
+      callType: launchCallType,
+      profilePic: photo,
+      phoneNumber: currentCounselor?.phoneNumber,
+      status: launchCallData?.status || "ringing",
+      date: "Today",
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      apiCallData: launchCallData,
+      initiator: launchCallData?.initiator,
+      receiver,
+      currentUserType: "user",
+    });
+
+    if (launchCallType === "video") setIsVideoModalOpen(true);
+    else setIsVoiceModalOpen(true);
+  }, [launchCallType, launchCallData, currentCounselor]);
 
   // Call modal states
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
@@ -268,6 +319,11 @@ const ChatBox = () => {
   const [remoteIsTyping, setRemoteIsTyping] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  // Messages and call history are two separate requests. The spinner used to
+  // clear the moment the MESSAGES landed, so the thread rendered and the call
+  // bubbles dropped in seconds later and shoved everything around. Hold the
+  // first render until both have settled.
+  const [timelineReady, setTimelineReady] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState(null);
   const [counselorAvatarFailed, setCounselorAvatarFailed] = useState(false);
   const [chatStatus, setChatStatus] = useState(null);
@@ -277,6 +333,8 @@ const ChatBox = () => {
   // Track selected message for action menu
   const [selectedMessageId, setSelectedMessageId] = useState(null);
   const [failedImageUrls, setFailedImageUrls] = useState(new Set());
+  // Photo opened full-screen for pinch-zoom; null when the viewer is closed.
+  const [zoomImageUrl, setZoomImageUrl] = useState(null);
 
   const flatListRef = useRef(null);
   const messageInputRef = useRef(null);
@@ -697,14 +755,28 @@ const ChatBox = () => {
   }, [getAuthToken, getChatIdForAPI, loadMessagesFromLocalStorage, deletedMessageIds]);
 
   // Load the call history for THIS conversation
-  const loadCallHistory = useCallback(async () => {
+  // `overrides` exists because initializeChat calls setCurrentChat/
+  // setCurrentCounselor and then needed the ids immediately — but those state
+  // updates have not landed yet, so resolveCounselorId() still returned the old
+  // (null) value and this bailed out at the guard below. Opened from My
+  // Appointments, where no counselorId route param is passed, that meant the
+  // call bubbles never loaded with the messages and only appeared once
+  // something else refreshed them.
+  const loadCallHistory = useCallback(async (overrides = {}) => {
     try {
       const token = await getAuthToken();
-      const myId = resolveCurrentUserId() || (await AsyncStorage.getItem("userId"));
-      const peerId = resolveCounselorId();
+      const myId =
+        overrides.myId || resolveCurrentUserId() || (await AsyncStorage.getItem("userId"));
+      const peerId = overrides.peerId || resolveCounselorId();
       if (!myId || !peerId) return;
       const entries = await fetchChatCallEntries({ currentUserId: myId, peerId, token });
       setCallHistory(entries);
+      // Cached alongside the messages so the next open can paint the whole
+      // timeline at once instead of adding call bubbles a second later.
+      AsyncStorage.setItem(
+        `callHistory_${getChatIdForAPI()}`,
+        JSON.stringify(entries),
+      ).catch(() => {});
     } catch (_) {
       console.warn("Could not load call history:", _);
     }
@@ -1204,7 +1276,14 @@ const ChatBox = () => {
     setSelectedCall(null);
     setCallError(null);
     loadCallHistory();
-  }, [loadCallHistory]);
+
+    // Opened purely to host a call started elsewhere (My Appointments): go back
+    // there instead of leaving the user sitting in a chat they didn't open.
+    if (launchedCallRef.current) {
+      launchedCallRef.current = false;
+      if (navigation.canGoBack()) navigation.goBack();
+    }
+  }, [loadCallHistory, navigation]);
 
   // Initialize chat and fetch messages
   useEffect(() => {
@@ -1219,7 +1298,18 @@ const ChatBox = () => {
           if (chat.messages && chat.messages.length > 0) {
             initialLoadDoneRef.current = false;
             shouldAutoScrollRef.current = true;
+            // Restore BOTH halves of the timeline before painting. Restoring
+            // only the messages is what made the thread appear first and the
+            // call bubbles drop in afterwards.
+            try {
+              const cachedCalls = await AsyncStorage.getItem(
+                // Same precedence as getChatIdForAPI(), which writes the key.
+                `callHistory_${chatId || chat.chatId || ''}`,
+              );
+              if (cachedCalls) setCallHistory(JSON.parse(cachedCalls) || []);
+            } catch (_) { /* cache is best-effort */ }
             setMessages(chat.messages);
+            setTimelineReady(true);
           }
           
           if (chat.unread) {
@@ -1243,21 +1333,33 @@ const ChatBox = () => {
         }
 
         const silentFetch = messagesCountRef.current > 0 || (chat && chat.messages && chat.messages.length > 0);
-        // Load messages + call history in parallel so they appear together (not call history lagging).
+        // Resolve the peer id from what we just read, NOT from state — the
+        // setState calls above have not been applied yet at this point.
+        const peerId =
+          chat?.counselor?._id || chat?.counselor?.id || chat?.counselorId ||
+          initialCounselor?._id || initialCounselor?.id || counselorId || null;
+        // Load messages + call history in parallel so they appear together.
         await Promise.all([
           fetchMessagesFromAPI(silentFetch),
-          loadCallHistory(),
+          loadCallHistory(peerId ? { peerId: String(peerId) } : {}),
         ]);
+        setTimelineReady(true);
         
         setTimeout(() => {
           if (messageInputRef.current) messageInputRef.current.focus();
         }, 500);
       } catch (error) {
         console.error("Error loading chat:", error);
+        // Never leave the thread stuck behind the spinner because one of the
+        // two requests failed.
+        setTimelineReady(true);
       }
     };
 
     initializeChat();
+    // Safety net: if either request hangs, show whatever we have rather than
+    // spinning forever.
+    const readyGuard = setTimeout(() => setTimelineReady(true), 6000);
     // NOTE: deliberately NOT depending on fetchMessagesFromAPI / loadCallHistory.
     // Those callbacks change identity whenever currentChat changes, and this
     // effect calls setCurrentChat() — so including them created an infinite
@@ -1265,6 +1367,7 @@ const ChatBox = () => {
     // the whole thread constantly (messages "reloaded" on every send, and a
     // just-deleted message kept reappearing/flickering until the server delete
     // finished). The web ChatBox depends only on these four values too.
+    return () => clearTimeout(readyGuard);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [counselorId, chatId, initialCounselor, initialUser]);
 
@@ -1509,7 +1612,7 @@ const ChatBox = () => {
         <Modal transparent visible={isSelected} animationType="fade" onRequestClose={() => setSelectedMessageId(null)}>
           <TouchableOpacity style={styles.actionMenuOverlay} activeOpacity={1} onPress={() => setSelectedMessageId(null)}>
             <View style={styles.actionMenuBox}>
-              <Text style={styles.actionMenuTitle}>{item.type === 'video' ? 'Video Call' : 'Voice Call'}</Text>
+              <Text style={styles.actionMenuTitle}>{item.type === 'video' ? t('Video Call') : t('Voice Call')}</Text>
               <View style={styles.actionMenuDivider} />
               <TouchableOpacity
                 style={styles.actionMenuItem}
@@ -1519,7 +1622,7 @@ const ChatBox = () => {
                 }}
               >
                 <Ionicons name="trash-outline" size={20} color="#dc2626" />
-                <Text style={[styles.actionMenuItemText, { color: '#dc2626', fontWeight: '600' }]}>Delete Call</Text>
+                <Text style={[styles.actionMenuItemText, { color: '#dc2626', fontWeight: '600' }]}>{t('Delete Call')}</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -1535,7 +1638,7 @@ const ChatBox = () => {
       return (
         <View style={styles.daySeparatorRow}>
           <View style={styles.daySeparatorLine} />
-          <Text style={styles.daySeparatorLabel}>{item.label}</Text>
+          <Text style={styles.daySeparatorLabel}>{t(item.label)}</Text>
           <View style={styles.daySeparatorLine} />
         </View>
       );
@@ -1547,10 +1650,23 @@ const ChatBox = () => {
     const canDelete = !item.isTemporary && item.status !== "sending" && item.status !== "error";
 
     // Check if this is an image-only message (image with no text)
-    const hasText = !!item.text;
     const hasAttachment = item.attachmentName || item.attachmentUrl || item.attachment;
     const url = hasAttachment ? getAttachmentUrl(item) : '';
     const isImage = hasAttachment ? isImageAttachment(item) : false;
+
+    // The API keeps an attachment's URL/filename in `content`, which the message
+    // mapper assigns to `text` - so a picture arrived with its own URL (or
+    // "screenshot.png") printed above it. Suppressed only when the text really
+    // duplicates the attachment, so a genuine caption sent with an image stays.
+    const rawText = String(item.text || '').trim();
+    const textDuplicatesAttachment =
+      !!hasAttachment &&
+      !!rawText &&
+      (rawText === url.trim() ||
+        rawText === String(item.attachmentName || '').trim() ||
+        rawText === url.split('/').pop());
+    const hasText = !!rawText && !textDuplicatesAttachment;
+
     const isImageOnly = hasAttachment && !hasText && isImage && url && !failedImageUrls.has(url);
 
     const handleDeleteMessage = async () => {
@@ -1575,7 +1691,7 @@ const ChatBox = () => {
     // wrappers so both look identical apart from the background.
     const inner = (
       <>
-        {!!item.text && (
+        {hasText && (
           <TranslatedMessageBubble
             text={item.text}
             isUser={isUser}
@@ -1592,7 +1708,7 @@ const ChatBox = () => {
             return (
               <TouchableOpacity
                 activeOpacity={0.9}
-                onPress={() => openAttachment(url)}
+                onPress={() => setZoomImageUrl(url)}
                 style={{ borderRadius: 12, overflow: 'hidden', backgroundColor: '#f0f0f0' }}
               >
                 <Image
@@ -1631,8 +1747,10 @@ const ChatBox = () => {
         {isUser && item.status === "sent" && (
           <Ionicons
             name={item.isRead ? "checkmark-done" : "checkmark"}
-            size={14}
-            color={item.isRead ? "#0E7552" : "#94a3b8"}
+            size={15}
+            // #94a3b8 on the light chat background was 2.3:1 - below the 3:1
+            // minimum for icons, hence "visible on my phone, not on others".
+            color={item.isRead ? "#00652C" : "#64748B"}
           />
         )}
         {isUser && item.status === "error" && <Text style={styles.metaError}>⚠️ Failed</Text>}
@@ -1755,7 +1873,7 @@ const ChatBox = () => {
                   </Text>
                   <View style={styles.profileStatusRow}>
                     {remoteIsTyping ? (
-                      <Text style={styles.typingText}>Typing...</Text>
+                      <Text style={styles.typingText}>{t('Typing...')}</Text>
                     ) : (
                       <>
                         <View style={[styles.statusDot, counselorOnline ? styles.statusDotOnline : styles.statusDotOffline]} />
@@ -1786,11 +1904,11 @@ const ChatBox = () => {
               <View style={styles.optionsMenu}>
                 <TouchableOpacity style={styles.optionItem} onPress={() => { fetchMessagesFromAPI(); setShowOptions(false); }}>
                   <Ionicons name="refresh" size={18} color="#526071" />
-                  <Text style={styles.optionText}>Refresh Messages</Text>
+                  <Text style={styles.optionText}>{t('Refresh Messages')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.optionItem, styles.optionItemLast]} onPress={() => { setShowOptions(false); deleteWholeChat(); }}>
                   <Ionicons name="trash-outline" size={18} color="#dc2626" />
-                  <Text style={[styles.optionText, styles.optionTextDanger]}>Delete Chat</Text>
+                  <Text style={[styles.optionText, styles.optionTextDanger]}>{t('Delete Chat')}</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
@@ -1808,11 +1926,8 @@ const ChatBox = () => {
             </View>
           )}
 
-          {isLoadingMessages && messages.length === 0 ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#6366f1" />
-              <Text style={styles.loadingText}>Loading messages...</Text>
-            </View>
+          {!timelineReady ? (
+            <ChatSkeleton role="user" />
           ) : (
             <FlatList
               ref={flatListRef}
@@ -1859,9 +1974,9 @@ const ChatBox = () => {
           {/* Emoji Picker Modal */}
           <Modal transparent visible={showEmojiPicker} animationType="slide" onRequestClose={() => setShowEmojiPicker(false)}>
             <TouchableOpacity style={styles.emojiOverlay} activeOpacity={1} onPress={() => setShowEmojiPicker(false)}>
-              <View style={styles.emojiPicker}>
+              <View style={[styles.emojiPicker, { paddingBottom: Math.max(insets.bottom, 12) }]}>
                 <View style={styles.emojiHeader}>
-                  <Text style={styles.emojiTitle}>Emojis</Text>
+                  <Text style={styles.emojiTitle}>{t('Emojis')}</Text>
                   <TouchableOpacity onPress={() => setShowEmojiPicker(false)}>
                     <Ionicons name="close" size={24} color="#74777c" />
                   </TouchableOpacity>
@@ -1916,7 +2031,7 @@ const ChatBox = () => {
                   style={styles.textInput}
                   value={newMessage}
                   onChangeText={handleInputChange}
-                  placeholder="Type a message..."
+                  placeholder={t('Type a message...')}
                   placeholderTextColor="#9CA3AF"
                   multiline
                   blurOnSubmit={false}
@@ -1958,6 +2073,12 @@ const ChatBox = () => {
         callData={selectedCall}
         currentUser={currentUser}
         onEndCall={handleEndCall}
+      />
+
+      <ZoomableImageViewer
+        visible={!!zoomImageUrl}
+        uri={zoomImageUrl}
+        onClose={() => setZoomImageUrl(null)}
       />
     </SafeAreaView>
   );
@@ -2703,8 +2824,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingBottom: Platform.OS === "ios" ? 34 : 20,
-    maxHeight: 220,
-  },
+    maxHeight: 220, },
   emojiHeader: {
     flexDirection: "row",
     justifyContent: "space-between",

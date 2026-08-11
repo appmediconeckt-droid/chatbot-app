@@ -71,7 +71,7 @@
     "passwordMinLength": "Heslo musí mít alespoň 6 znaků",
     "passwordsDoNotMatch": "Hesla se neshodují",
     "sessionExpired": "Platnost relace vypršela. Přihlaste se prosím znovu.",
-    "chooseRole": "Vyberte, jak chcete Mediconect používat",
+    "chooseRole": "Vyberte, jak chcete Humaeli používat",
     "userRole": "Uživatel",
     "counselorRole": "poradce",
     "userRoleDesc": "Získejte podporu od profesionálních poradců",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Znovu zadejte heslo",
     "enterCurrentPassword": "Zadejte aktuální heslo",
     "reEnterNewPassword": "Znovu zadejte nové heslo",
-    "copyright": "© 2025 Mediconnect. Všechna práva vyhrazena."
+    "copyright": "© 2025 Humaeli. Všechna práva vyhrazena."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Pomoc Podpora",
-    "centerTitle": "Centrum podpory MediConeckt",
-    "centerDesc": "Pomocí tohoto centra podpory můžete přejít na správnou funkci MediConeckt, řešit běžné problémy a porozumět tomu, kdy kontaktovat naléhavou pomoc mimo aplikaci.",
+    "centerTitle": "Centrum podpory Humaeli",
+    "centerDesc": "Pomocí tohoto centra podpory můžete přejít na správnou funkci Humaeli, řešit běžné problémy a porozumět tomu, kdy kontaktovat naléhavou pomoc mimo aplikaci.",
     "aiWellnessChat": "AI wellness chat",
     "aiWellnessDesc": "Pokládejte otázky týkající se duševní pohody, používejte hlasový vstup, získejte rychlé odpovědi a pokračujte ve svém nedávném chatu s umělou inteligencí z řídicího panelu.",
     "aiWellnessAction": "Otevřete chat AI",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Zásady ochrany osobních údajů",
-    "centerTitle": "Centrum ochrany osobních údajů MediConeckt",
-    "centerDesc": "Toto centrum ochrany osobních údajů vysvětluje, jak MediConeckt používá váš profil, chat, schůzku, peněženku, hovor, polohu a bezpečnostní údaje v této mobilní aplikaci.",
+    "centerTitle": "Centrum ochrany osobních údajů Humaeli",
+    "centerDesc": "Toto centrum ochrany osobních údajů vysvětluje, jak Humaeli používá váš profil, chat, schůzku, peněženku, hovor, polohu a bezpečnostní údaje v této mobilní aplikaci.",
     "otpProtected": "OTP chráněno",
     "otpProtectedDesc": "Změny emailu a telefonu",
     "anonymousCare": "Identita anonymní péče",

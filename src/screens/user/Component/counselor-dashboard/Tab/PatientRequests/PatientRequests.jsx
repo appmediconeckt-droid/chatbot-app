@@ -17,7 +17,7 @@ import {
 const { width: screenWidth } = Dimensions.get('window');
 
 const PatientRequests = () => {
-  const { t } = useTranslation();
+  const { t } = useLanguageRender();
   const navigation = useNavigation();
   // Sample patient requests data
   const [patients, setPatients] = useState([
@@ -200,20 +200,20 @@ const PatientRequests = () => {
     >
       {/* Header Section */}
       <View style={styles.header}>
-        <Text style={styles.title}>Patient Requests Dashboard</Text>
+        <Text style={styles.title}>{t('Patient Requests Dashboard')}</Text>
         
         {/* Stats Section */}
         <View style={styles.statsContainer}>
           <View style={[styles.statBox, styles.statPending]}>
-            <Text style={styles.statLabel}>Pending</Text>
+            <Text style={styles.statLabel}>{t('Pending')}</Text>
             <Text style={styles.statValue}>{pendingCount}</Text>
           </View>
           <View style={[styles.statBox, styles.statAccepted]}>
-            <Text style={styles.statLabel}>Accepted</Text>
+            <Text style={styles.statLabel}>{t('Accepted')}</Text>
             <Text style={styles.statValue}>{acceptedCount}</Text>
           </View>
           <View style={[styles.statBox, styles.statCancelled]}>
-            <Text style={styles.statLabel}>Cancelled</Text>
+            <Text style={styles.statLabel}>{t('Cancelled')}</Text>
             <Text style={styles.statValue}>{cancelledCount}</Text>
           </View>
         </View>
@@ -221,31 +221,31 @@ const PatientRequests = () => {
 
       {/* Filter Section */}
       <View style={styles.filterSection}>
-        <Text style={styles.filterLabel}>Filter by status:</Text>
+        <Text style={styles.filterLabel}>{t('Filter by status:')}</Text>
         <View style={styles.filterSelectWrapper}>
           <TouchableOpacity 
             style={[styles.filterOption, filter === 'all' && styles.filterOptionActive]}
             onPress={() => setFilter('all')}
           >
-            <Text style={[styles.filterOptionText, filter === 'all' && styles.filterOptionTextActive]}>All</Text>
+            <Text style={[styles.filterOptionText, filter === 'all' && styles.filterOptionTextActive]}>{t('All')}</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.filterOption, filter === 'pending' && styles.filterOptionActive]}
             onPress={() => setFilter('pending')}
           >
-            <Text style={[styles.filterOptionText, filter === 'pending' && styles.filterOptionTextActive]}>Pending</Text>
+            <Text style={[styles.filterOptionText, filter === 'pending' && styles.filterOptionTextActive]}>{t('Pending')}</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.filterOption, filter === 'accepted' && styles.filterOptionActive]}
             onPress={() => setFilter('accepted')}
           >
-            <Text style={[styles.filterOptionText, filter === 'accepted' && styles.filterOptionTextActive]}>Accepted</Text>
+            <Text style={[styles.filterOptionText, filter === 'accepted' && styles.filterOptionTextActive]}>{t('Accepted')}</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.filterOption, filter === 'cancelled' && styles.filterOptionActive]}
             onPress={() => setFilter('cancelled')}
           >
-            <Text style={[styles.filterOptionText, filter === 'cancelled' && styles.filterOptionTextActive]}>Cancelled</Text>
+            <Text style={[styles.filterOptionText, filter === 'cancelled' && styles.filterOptionTextActive]}>{t('Cancelled')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -261,7 +261,7 @@ const PatientRequests = () => {
               {/* Patient Header */}
               <View style={styles.patientHeader}>
                 <View style={styles.patientIdSection}>
-                  <Text style={styles.patientIdLabel}>Patient Code:</Text>
+                  <Text style={styles.patientIdLabel}>{t('Patient Code:')}</Text>
                   <View style={styles.patientIdValueWrapper}>
                     <Text style={styles.patientIdValue}>{patient.id}</Text>
                   </View>
@@ -281,22 +281,22 @@ const PatientRequests = () => {
                 
                 <View style={styles.infoGrid}>
                   <View style={styles.infoItem}>
-                    <Text style={styles.infoLabel}>Age/Gender:</Text>
+                    <Text style={styles.infoLabel}>{t('Age/Gender:')}</Text>
                     <Text style={styles.infoValue}>{patient.age} yrs, {patient.gender}</Text>
                   </View>
                   
                   <View style={styles.infoItem}>
-                    <Text style={styles.infoLabel}>Issue:</Text>
+                    <Text style={styles.infoLabel}>{t('Issue:')}</Text>
                     <Text style={styles.infoValue}>{patient.issue}</Text>
                   </View>
                   
                   <View style={styles.infoItem}>
-                    <Text style={styles.infoLabel}>Requested:</Text>
+                    <Text style={styles.infoLabel}>{t('Requested:')}</Text>
                     <Text style={styles.infoValue}>{patient.requestedDate}</Text>
                   </View>
                   
                   <View style={styles.infoItem}>
-                    <Text style={styles.infoLabel}>Contact:</Text>
+                    <Text style={styles.infoLabel}>{t('Contact:')}</Text>
                     <Text style={styles.infoValue}>{patient.contact}</Text>
                   </View>
                 </View>
@@ -339,7 +339,7 @@ const PatientRequests = () => {
                     <View style={[styles.actionIconBtn, styles.videoBtnBg]}>
                       <Ionicons name="videocam" size={24} color="white" />
                     </View>
-                    <Text style={styles.actionButtonText}>Video</Text>
+                    <Text style={styles.actionButtonText}>{t('Video')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.actionButtonWithText}
@@ -350,7 +350,7 @@ const PatientRequests = () => {
                     <View style={[styles.actionIconBtn, styles.voiceBtnBg]}>
                       <Ionicons name="call" size={24} color="white" />
                     </View>
-                    <Text style={styles.actionButtonText}>Voice</Text>
+                    <Text style={styles.actionButtonText}>{t('Voice')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.actionButtonWithText}
@@ -361,7 +361,7 @@ const PatientRequests = () => {
                     <View style={[styles.actionIconBtn, styles.chatBtnBg]}>
                       <Ionicons name="chatbubble-ellipses" size={24} color="white" />
                     </View>
-                    <Text style={styles.actionButtonText}>Chat</Text>
+                    <Text style={styles.actionButtonText}>{t('Chat')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -369,7 +369,7 @@ const PatientRequests = () => {
           ))
         ) : (
           <View style={styles.noPatients}>
-            <Text style={styles.noPatientsText}>No patients found with the selected filter.</Text>
+            <Text style={styles.noPatientsText}>{t('No patients found with the selected filter.')}</Text>
           </View>
         )}
       </View>

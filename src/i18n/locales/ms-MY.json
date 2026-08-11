@@ -71,7 +71,7 @@
     "passwordMinLength": "Kata laluan mestilah sekurang-kurangnya 6 aksara",
     "passwordsDoNotMatch": "Kata laluan tidak sepadan",
     "sessionExpired": "Sesi tamat tempoh. Sila log masuk semula.",
-    "chooseRole": "Pilih cara anda mahu menggunakan Mediconect",
+    "chooseRole": "Pilih cara anda mahu menggunakan Humaeli",
     "userRole": "pengguna",
     "counselorRole": "Kaunselor",
     "userRoleDesc": "Dapatkan sokongan daripada kaunselor profesional",
@@ -264,7 +264,7 @@
     "reEnterPassword": "Masukkan semula kata laluan",
     "enterCurrentPassword": "Masukkan kata laluan semasa",
     "reEnterNewPassword": "Masukkan semula kata laluan baharu",
-    "copyright": "© 2025 Mediconnect. Semua hak terpelihara."
+    "copyright": "© 2025 Humaeli. Semua hak terpelihara."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "Bantuan Sokongan",
-    "centerTitle": "Pusat sokongan MediConeckt",
-    "centerDesc": "Gunakan pusat sokongan ini untuk beralih ke ciri MediConeckt yang betul, menyelesaikan masalah biasa dan memahami masa untuk menghubungi bantuan segera di luar apl.",
+    "centerTitle": "Pusat sokongan Humaeli",
+    "centerDesc": "Gunakan pusat sokongan ini untuk beralih ke ciri Humaeli yang betul, menyelesaikan masalah biasa dan memahami masa untuk menghubungi bantuan segera di luar apl.",
     "aiWellnessChat": "Sembang kesihatan AI",
     "aiWellnessDesc": "Tanya soalan kesihatan mental, gunakan input suara, dapatkan balasan pantas dan teruskan sembang AI terbaru anda dari papan pemuka.",
     "aiWellnessAction": "Buka sembang AI",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "Dasar Privasi",
-    "centerTitle": "Pusat privasi MediConeckt",
-    "centerDesc": "Pusat privasi ini menerangkan cara MediConeckt menggunakan profil, sembang, janji temu, dompet, panggilan, lokasi dan data keselamatan anda di dalam apl mudah alih ini.",
+    "centerTitle": "Pusat privasi Humaeli",
+    "centerDesc": "Pusat privasi ini menerangkan cara Humaeli menggunakan profil, sembang, janji temu, dompet, panggilan, lokasi dan data keselamatan anda di dalam apl mudah alih ini.",
     "otpProtected": "OTP dilindungi",
     "otpProtectedDesc": "Perubahan e-mel dan telefon",
     "anonymousCare": "Identiti penjagaan tanpa nama",

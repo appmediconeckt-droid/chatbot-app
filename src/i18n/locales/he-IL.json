@@ -71,7 +71,7 @@
     "passwordMinLength": "הסיסמה חייבת להיות לפחות 6 תווים",
     "passwordsDoNotMatch": "הסיסמאות אינן תואמות",
     "sessionExpired": "פג תוקף ההפעלה. אנא התחבר שוב.",
-    "chooseRole": "בחר כיצד ברצונך להשתמש ב- Mediconect",
+    "chooseRole": "בחר כיצד ברצונך להשתמש ב- Humaeli",
     "userRole": "משתמש",
     "counselorRole": "יועץ",
     "userRoleDesc": "קבל תמיכה מיועצים מקצועיים",
@@ -264,7 +264,7 @@
     "reEnterPassword": "הזן מחדש את הסיסמה",
     "enterCurrentPassword": "הזן את הסיסמה הנוכחית",
     "reEnterNewPassword": "הזן מחדש סיסמה חדשה",
-    "copyright": "© 2025 Mediconnect. כֹּל הַזְכוּיוֹת שְׁמוּרוֹת."
+    "copyright": "© 2025 Humaeli. כֹּל הַזְכוּיוֹת שְׁמוּרוֹת."
   },
   "lock": {
     "welcomeBack": "Welcome Back",
@@ -444,8 +444,8 @@
   },
   "helpPage": {
     "title": "עזרה תמיכה",
-    "centerTitle": "מרכז תמיכה של MediConeckt",
-    "centerDesc": "השתמש במרכז תמיכה זה כדי לקפוץ לתכונה הימנית של MediConeckt, לפתור בעיות נפוצות ולהבין מתי לפנות לעזרה דחופה מחוץ לאפליקציה.",
+    "centerTitle": "מרכז תמיכה של Humaeli",
+    "centerDesc": "השתמש במרכז תמיכה זה כדי לקפוץ לתכונה הימנית של Humaeli, לפתור בעיות נפוצות ולהבין מתי לפנות לעזרה דחופה מחוץ לאפליקציה.",
     "aiWellnessChat": "צ'אט בריאות בינה מלאכותית",
     "aiWellnessDesc": "שאל שאלות לגבי בריאות נפשית, השתמש בקלט קולי, קבל תשובות מהירות והמשיך בצ'אט ה-AI האחרון שלך מלוח המחוונים.",
     "aiWellnessAction": "פתח צ'אט בינה מלאכותית",
@@ -482,8 +482,8 @@
   },
   "privacyPage": {
     "title": "מדיניות פרטיות",
-    "centerTitle": "מרכז הפרטיות של MediConeckt",
-    "centerDesc": "מרכז פרטיות זה מסביר כיצד MediConeckt משתמשת בפרופיל, בצ'אט, בפגישה, בארנק, בשיחה, במיקום ובנתוני האבטחה שלך בתוך אפליקציה זו לנייד.",
+    "centerTitle": "מרכז הפרטיות של Humaeli",
+    "centerDesc": "מרכז פרטיות זה מסביר כיצד Humaeli משתמשת בפרופיל, בצ'אט, בפגישה, בארנק, בשיחה, במיקום ובנתוני האבטחה שלך בתוך אפליקציה זו לנייד.",
     "otpProtected": "מוגן OTP",
     "otpProtectedDesc": "שינויים באימייל ובטלפון",
     "anonymousCare": "זהות טיפול אנונימי",

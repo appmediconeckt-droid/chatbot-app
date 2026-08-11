@@ -15,8 +15,12 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import DateTimePicker from '@react-native-community/datetimepicker';
 import PATIENT from '../../../../../../theme/palette';
 import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
+import useLanguageRender from '../../../../../hooks/useLanguageRender';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const BookAppointmentModal = ({ visible, onClose, onConfirm, counselorName = 'Dr. Counselor' }) => {
+  const insets = useSafeAreaInsets();
+  const { t } = useLanguageRender();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -77,10 +81,10 @@ const BookAppointmentModal = ({ visible, onClose, onConfirm, counselorName = 'Dr
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={s.overlay}>
-        <View style={s.container}>
+        <View style={[s.container, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           {/* Header */}
           <View style={s.header}>
-            <Text style={s.title}>Book Appointment with</Text>
+            <Text style={s.title}>{t('Book Appointment with')}</Text>
             <Text style={s.counselorName}>{counselorName}</Text>
             <TouchableOpacity
               style={s.closeButton}
@@ -94,7 +98,7 @@ const BookAppointmentModal = ({ visible, onClose, onConfirm, counselorName = 'Dr
           <ScrollView style={s.content} showsVerticalScrollIndicator={false}>
             {/* Appointment Date & Time Section */}
             <View style={s.section}>
-              <Text style={s.sectionTitle}>Appointment Date & Time</Text>
+              <Text style={s.sectionTitle}>{t('Appointment Date & Time')}</Text>
 
               {/* Date Picker */}
               <TouchableOpacity
@@ -106,7 +110,7 @@ const BookAppointmentModal = ({ visible, onClose, onConfirm, counselorName = 'Dr
                   <MaterialCommunityIcons name="calendar" size={18} color={PATIENT.primary} />
                 </View>
                 <View style={s.dateTimeContent}>
-                  <Text style={s.dateTimeLabel}>Date</Text>
+                  <Text style={s.dateTimeLabel}>{t('Date')}</Text>
                   <Text style={s.dateTimeValue}>{formatDate(selectedDate)}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
@@ -132,7 +136,7 @@ const BookAppointmentModal = ({ visible, onClose, onConfirm, counselorName = 'Dr
                   <MaterialCommunityIcons name="clock-outline" size={18} color={PATIENT.primary} />
                 </View>
                 <View style={s.dateTimeContent}>
-                  <Text style={s.dateTimeLabel}>Time</Text>
+                  <Text style={s.dateTimeLabel}>{t('Time')}</Text>
                   <Text style={s.dateTimeValue}>{formatTime(selectedTime)}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
@@ -150,10 +154,10 @@ const BookAppointmentModal = ({ visible, onClose, onConfirm, counselorName = 'Dr
 
             {/* Clinical Notes Section */}
             <View style={s.section}>
-              <Text style={s.sectionTitle}>Clinical Notes / Reason</Text>
+              <Text style={s.sectionTitle}>{t('Clinical Notes / Reason')}</Text>
               <TextInput
                 style={s.notesInput}
-                placeholder="Share what you want to discuss in this session"
+                placeholder={t('Share what you want to discuss in this session')}
                 placeholderTextColor="#cbd5e1"
                 multiline
                 numberOfLines={4}
@@ -165,7 +169,7 @@ const BookAppointmentModal = ({ visible, onClose, onConfirm, counselorName = 'Dr
 
             {/* Confirmation Message */}
             <View style={s.confirmSection}>
-              <Text style={s.confirmTitle}>Send to the counselor for confirmation</Text>
+              <Text style={s.confirmTitle}>{t('Send to the counselor for confirmation')}</Text>
               <Text style={s.confirmSubtitle}>
                 Your appointment request will be sent to {counselorName} for confirmation.
               </Text>
@@ -181,14 +185,14 @@ const BookAppointmentModal = ({ visible, onClose, onConfirm, counselorName = 'Dr
               onPress={handleCancel}
               activeOpacity={0.8}
             >
-              <Text style={s.cancelButtonText}>Cancel</Text>
+              <Text style={s.cancelButtonText}>{t('Cancel')}</Text>
             </TouchableOpacity>
             <PatientGradientButton
               style={[s.button, s.confirmButton]}
               onPress={handleConfirm}
               activeOpacity={0.8}
             >
-              <Text style={s.confirmButtonText}>Confirm</Text>
+              <Text style={s.confirmButtonText}>{t('Confirm')}</Text>
             </PatientGradientButton>
           </View>
         </View>
