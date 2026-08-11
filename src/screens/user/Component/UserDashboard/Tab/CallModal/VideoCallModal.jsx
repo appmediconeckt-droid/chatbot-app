@@ -10,7 +10,7 @@ import {
   Platform,
   Image,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import InCallManager from 'react-native-incall-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -60,6 +60,17 @@ const resolveCallDisplayName = (callData, isCounselor) => {
 
   return preferred || preferredAnonymous || 'Participant';
 };
+
+// Keep the label inside the draggable self-view so it always moves with the
+// camera preview and cannot be clipped independently from it.
+const SelfParticipantView = ({ style, ...props }) => (
+  <View style={[style, styles.pipCard]}>
+    <ParticipantView {...props} style={StyleSheet.absoluteFillObject} />
+    <View style={styles.pipNameBadge} pointerEvents="none">
+      <Text style={styles.pipNameText} numberOfLines={1}>You</Text>
+    </View>
+  </View>
+);
 
 // ─── Custom bottom control bar (Figma: dark translucent rounded sheet) ────────
 const VideoControls = ({ onHangupCallHandler }) => {
@@ -132,6 +143,7 @@ const VideoControls = ({ onHangupCallHandler }) => {
 // onLocalHangup: user pressed end button (sends call.end() to kill for both sides)
 // onRemoteEnded: remote side already ended, just cleanup locally
 const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, participantName, participantPhoto }) => {
+  const insets = useSafeAreaInsets();
   const { useCallCallingState, useRemoteParticipants, useLocalParticipant } = useCallStateHooks();
   const callingState = useCallCallingState();
   const remoteParticipants = useRemoteParticipants();
@@ -267,6 +279,11 @@ const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, partici
           participant={localParticipant}
           alignment="top-right"
           objectFit="cover"
+          ParticipantView={SelfParticipantView}
+          draggableContainerStyle={[
+            styles.pipStage,
+            { top: insets.top + 12, bottom: insets.bottom + 104 },
+          ]}
           participantViewStyle={styles.pipFloat}
           ParticipantNetworkQualityIndicator={null}
           ParticipantReaction={null}
@@ -275,7 +292,10 @@ const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, partici
 
       {/* Name + timer overlay (top-left) — only once connected */}
       {!!participantName && remote && (
-        <View style={styles.participantNameBadge} pointerEvents="none">
+        <View
+          style={[styles.participantNameBadge, { top: insets.top + 12 }]}
+          pointerEvents="none"
+        >
           <Text style={styles.participantNameText} numberOfLines={1}>{participantName}</Text>
           <Text style={styles.participantTimerText}>{timerText}</Text>
         </View>
@@ -652,21 +672,49 @@ const styles = StyleSheet.create({
   waitingInitial: { color: '#fff', fontSize: 44, fontWeight: '800' },
   waitingName: { color: '#fff', fontSize: 22, fontWeight: '700', marginBottom: 6 },
   waitingStatus: { color: 'rgba(255,255,255,0.65)', fontSize: 14, fontWeight: '500' },
-  // Local self-view PiP — rounded, white border, dark placeholder (Figma).
-  // width/height here override the SDK's default (23% of screen) to make it bigger.
+  // Local self-view PiP. Width/height override the SDK's default (23% of screen).
+  // The SDK starts its draggable view at top: 0. This inset keeps the mini
+  // video clear of the top edge/notch on both user and counselor call screens.
+  pipStage: {
+    ...StyleSheet.absoluteFillObject,
+  },
   pipFloat: {
     width: 118,
     height: 162,
-    borderRadius: 16,
+    borderRadius: 18,
+    marginHorizontal: 14,
+  },
+  pipCard: {
     overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.9)',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
     backgroundColor: '#15151A',
+    elevation: 0,
+    shadowOpacity: 0,
+  },
+  pipNameBadge: {
+    position: 'absolute',
+    left: 8,
+    right: 8,
+    bottom: 8,
+    alignItems: 'flex-start',
+  },
+  pipNameText: {
+    maxWidth: '100%',
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    overflow: 'hidden',
   },
   // Name + timer overlay — top-left, plain white text over the video (Figma)
   participantNameBadge: {
     position: 'absolute',
-    top: 14,
     left: 18,
     zIndex: 5,
     maxWidth: '55%',

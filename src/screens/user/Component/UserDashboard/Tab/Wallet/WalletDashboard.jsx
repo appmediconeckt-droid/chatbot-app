@@ -32,64 +32,6 @@ const SUPPORT_EMAIL = 'support@humaeli.com';
 import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
 
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000];
-// No 'wallet' entry: paying from the wallet to top up the same wallet is
-// circular, and Razorpay would reject it anyway.
-const PAYMENT_METHODS = [
-  { id: 'upi', labelKey: 'wallet:upi', icon: 'payments' },
-  { id: 'card', labelKey: 'wallet:card', icon: 'credit-card' },
-  { id: 'bank', labelKey: 'wallet:netbanking', icon: 'account-balance' },
-];
-
-// App method id -> the Razorpay method name.
-const RAZORPAY_METHOD = { upi: 'upi', card: 'card', bank: 'netbanking' };
-const RAZORPAY_BLOCK_NAME = {
-  upi: 'UPI',
-  card: 'Card',
-  netbanking: 'Net Banking',
-};
-
-// Puts the method chosen in-app at the TOP of checkout, already expanded.
-//
-// Two earlier attempts at this failed:
-//   - the `method` flags (everything off but one) dead-ended with "No
-//     appropriate payment method found" when the single enabled method had
-//     nothing usable on the device;
-//   - `prefill.method`, which Razorpay quietly ignores in the Android
-//     checkout, so it fell back to its default order - net banking first.
-// display.blocks is the mechanism that actually controls what is shown and in
-// what order. show_default_blocks is FALSE: the method was already picked on
-// the Add Funds screen, so checkout shows that one block and nothing else -
-// pick UPI and you get the UPI screen, not a second menu. To change method the
-// user backs out and taps a different tile.
-//
-// UPI is listed as TWO instruments, not one instrument with two flows:
-// Razorpay expects a single flow per instrument, and an instrument it can't
-// parse is dropped silently - which empties the block and produces exactly the
-// "No appropriate payment method found" dead end. 'intent' is the installed-app
-// list (GPay / PhonePe / Paytm), 'collect' is the "enter your UPI ID" field, so
-// a device with no UPI app installed can still pay.
-const checkoutDisplayConfig = (methodId) => {
-  const method = RAZORPAY_METHOD[methodId];
-  if (!method) return null;
-  return {
-    display: {
-      blocks: {
-        chosen: {
-          name: RAZORPAY_BLOCK_NAME[method],
-          instruments:
-            method === 'upi'
-              ? [
-                  { method: 'upi', flows: ['intent'] },
-                  { method: 'upi', flows: ['collect'] },
-                ]
-              : [{ method }],
-        },
-      },
-      sequence: ['block.chosen'],
-      preferences: { show_default_blocks: false },
-    },
-  };
-};
 
 // Razorpay's theme takes one flat colour, but the wallet card is a gradient
 // (#006B2C -> #01CE54). Its midpoint reads as the same brand green on the
@@ -134,7 +76,6 @@ const WalletDashboard = ({ userData = {} }) => {
   const { t } = useLanguageRender();
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('upi');
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [spendingSummary, setSpendingSummary] = useState({ total: 0, breakdown: [] });
@@ -189,7 +130,6 @@ const WalletDashboard = ({ userData = {} }) => {
       console.log('[wallet] creating order, amount=', numericAmount);
       const { data: orderData } = await axiosInstance.post('/api/wallet/create-order', {
         amount: numericAmount,
-        paymentMethod,
       });
       console.log('[wallet] order response:', JSON.stringify(orderData));
 
@@ -243,10 +183,6 @@ const WalletDashboard = ({ userData = {} }) => {
         name: 'Humaeli',
         description: `Add ₹${numericAmount} to your wallet`,
         ...(Object.keys(prefill).length ? { prefill } : {}),
-        // The method was already chosen in-app - show it first, expanded.
-        ...(checkoutDisplayConfig(paymentMethod)
-          ? { config: checkoutDisplayConfig(paymentMethod) }
-          : {}),
         theme: { color: CHECKOUT_THEME },
       };
       console.log('[wallet] opening Razorpay with options:', JSON.stringify(options));
@@ -263,23 +199,7 @@ const WalletDashboard = ({ userData = {} }) => {
       }, 120000);
 
       try {
-        let data;
-        try {
-          data = await RazorpayCheckout.open(options);
-        } catch (err) {
-          // "No appropriate payment method found" means the one block we asked
-          // for resolved to nothing usable on this key or this device (e.g. UPI
-          // not activated on the Razorpay account). Showing only the chosen
-          // method is the point, but a dead end is worse than a menu - reopen
-          // once with Razorpay's full list so the payment can still go through.
-          const noMethod = /no\s+appropriate\s+payment\s+method/i.test(
-            String(err?.description || err?.message || ''),
-          );
-          if (!noMethod || !options.config) throw err;
-          console.warn('[wallet] chosen method unavailable, reopening unrestricted');
-          const { config: unavailable, ...allMethods } = options;
-          data = await RazorpayCheckout.open(allMethods);
-        }
+        const data = await RazorpayCheckout.open(options);
         settled = true;
         clearTimeout(watchdog);
         console.log('[wallet] payment success:', JSON.stringify(data));
@@ -496,21 +416,11 @@ const WalletDashboard = ({ userData = {} }) => {
         })}
       </View>
 
-      <Text style={styles.inputLabel}>{t('wallet:paymentMethod')}</Text>
-      <View style={styles.methodGrid}>
-        {PAYMENT_METHODS.map((method) => {
-          const isActive = paymentMethod === method.id;
-          return (
-            <TouchableOpacity
-              key={method.id}
-              style={[styles.methodItem, isActive && styles.methodItemActive]}
-              onPress={() => setPaymentMethod(method.id)}
-            >
-              <MaterialIcons name={method.icon} size={18} color={isActive ? PATIENT.primary : PATIENT.textSecondary} />
-              <Text style={[styles.methodText, isActive && styles.methodTextActive]}>{t(method.labelKey)}</Text>
-            </TouchableOpacity>
-          );
-        })}
+      <View style={styles.razorpayNote}>
+        <MaterialIcons name="verified-user" size={18} color={PATIENT.primary} />
+        <Text style={styles.razorpayNoteText}>
+          {t('wallet:chooseInRazorpay', 'Choose UPI, card or net banking securely in Razorpay')}
+        </Text>
       </View>
 
       <PatientGradientButton
@@ -1043,41 +953,24 @@ const styles = StyleSheet.create({
   quickBtnTextActive: {
     color: PATIENT.primary,
   },
-  inputLabel: {
-    color: PATIENT.text,
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 10,
-  },
-  methodGrid: {
+  razorpayNote: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    alignItems: 'center',
+    gap: 9,
+    borderRadius: 12,
+    backgroundColor: '#EAF8EF',
+    borderWidth: 1,
+    borderColor: '#CDEBD8',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
     marginBottom: 16,
   },
-  methodItem: {
-    minWidth: '23%',
+  razorpayNoteText: {
     flex: 1,
-    alignItems: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: PATIENT.chipBorder,
-    paddingVertical: 12,
-    paddingHorizontal: 6,
-    backgroundColor: PATIENT.surface,
-  },
-  methodItemActive: {
-    borderColor: PATIENT.primary,
-    backgroundColor: '#E6F6EC',
-  },
-  methodText: {
-    fontSize: 11,
-    color: PATIENT.textSecondary,
-    fontWeight: '700',
-    marginTop: 6,
-  },
-  methodTextActive: {
-    color: PATIENT.primary,
+    color: '#315C42',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
   },
   payBtn: {
     borderRadius: 12,

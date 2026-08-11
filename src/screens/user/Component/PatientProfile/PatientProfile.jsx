@@ -13,7 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   StatusBar,
   Linking
 } from "react-native";
@@ -38,16 +38,17 @@ import { toImageUri } from '../../../../utils/imageUri';
 import useLanguageRender from '../../../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width, height } = Dimensions.get("window");
-
 const PatientProfile = ({ onProfileUpdate }) => {
   const insets = useSafeAreaInsets();
+  const { height: viewportHeight, width: viewportWidth } = useWindowDimensions();
+  const responsiveContentWidth = Math.max(0, Math.min(viewportWidth - 32, 900));
   const navigation = useNavigation();
   const { t } = useLanguageRender();
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [profileImage, setProfileImage] = useState(null);
   const [profileImageFile, setProfileImageFile] = useState(null);
+  const [removeProfileImage, setRemoveProfileImage] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showAvatarGen, setShowAvatarGen] = useState(false);
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
@@ -343,6 +344,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
     initializeEditForm(patientData);
     setProfileImage(null);
     setProfileImageFile(null);
+    setRemoveProfileImage(false);
     setIsEditing(true);
   };
 
@@ -377,6 +379,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
             }
             setProfileImage(file.uri);
             setProfileImageFile(file);
+            setRemoveProfileImage(false);
           }
         }
       }
@@ -386,6 +389,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
   const handleRemoveImage = () => {
     setProfileImage(null);
     setProfileImageFile(null);
+    setRemoveProfileImage(true);
     showNotificationMessage("Profile picture will be removed on save", "success");
   };
 
@@ -421,6 +425,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       // Inside the edit form, defer to the form's Save button.
       setProfileImage(avatarUrl);
       setProfileImageFile(null);
+      setRemoveProfileImage(false);
       return;
     }
     const formData = new FormData();
@@ -706,10 +711,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
         profileImage.startsWith("http")
       ) {
         formData.append("avatarUrl", profileImage);
-      } else if (
-        profileImage === null &&
-        patientData.personalInfo.profilePhoto
-      ) {
+      } else if (removeProfileImage && patientData.personalInfo.profilePhoto) {
         formData.append("removeProfilePhoto", "true");
       }
 
@@ -722,6 +724,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
         setIsEditing(false);
         setProfileImage(null);
         setProfileImageFile(null);
+        setRemoveProfileImage(false);
       } else {
         showNotificationMessage(
           response.data.message || "Failed to update profile",
@@ -744,6 +747,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
     initializeEditForm(patientData);
     setProfileImage(null);
     setProfileImageFile(null);
+    setRemoveProfileImage(false);
   };
 
   const handleEditFormChange = (field, value) => {
@@ -795,7 +799,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
   };
 
   const renderProfileHeader = () => (
-    <View style={[styles.card, styles.profileHeroCard]}>
+    <View style={[styles.card, styles.profileHeroCard, { width: responsiveContentWidth }]}>
       <Text style={styles.heroKicker}>{t('profile:patientProfile')}</Text>
 
       <View style={styles.avatarWrapper}>
@@ -1086,7 +1090,10 @@ const PatientProfile = ({ onProfileUpdate }) => {
       onRequestClose={handleCancelEdit}
     >
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <View style={[styles.modalContainer, {
+          height: viewportHeight * 0.9,
+          paddingBottom: Math.max(insets.bottom, 12),
+        }]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{t('settings:editProfile')}</Text>
             <TouchableOpacity onPress={handleCancelEdit} style={styles.closeModal}>
@@ -1101,7 +1108,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                 <Text style={styles.sectionTitle}>{t('profile:profilePicture')}</Text>
                 <View style={styles.profilePictureEdit}>
                   <View style={styles.avatarPreview}>
-                    {profileImage || patientData.personalInfo.profilePhoto ? (
+                    {!removeProfileImage && (profileImage || patientData.personalInfo.profilePhoto) ? (
                       <Image
                         source={{ uri: toImageUri(profileImage) || toImageUri(patientData.personalInfo.profilePhoto) }}
                         style={styles.avatarPreviewImage}
@@ -1131,7 +1138,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                         <Text style={styles.generateAvatarBtnText}>✨ {t('profile:createAvatar')}</Text>
                       </LinearGradient>
                     </TouchableOpacity>
-                    {(profileImage || patientData.personalInfo.profilePhoto) && (
+                    {!removeProfileImage && (profileImage || patientData.personalInfo.profilePhoto) && (
                       <TouchableOpacity style={styles.removeBtn} onPress={handleRemoveImage}>
                         <Text style={styles.removeBtnText}>🗑️ {t('common:delete')}</Text>
                       </TouchableOpacity>
@@ -1584,7 +1591,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       >
         {renderNotification()}
         {renderProfileHeader()}
-        <View style={styles.locationCard}>
+        <View style={[styles.locationCard, { width: responsiveContentWidth }]}>
           <View style={styles.locationCardLeft}>
             <Ionicons name="location-outline" size={20} color="#00652C" />
             <Text style={styles.locationCardLabel}>{t('profile:shareLocation')}</Text>
@@ -1609,7 +1616,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
             </LinearGradient>
           </TouchableOpacity>
         </View>
-        <View style={styles.content}>
+        <View style={[styles.content, { width: responsiveContentWidth }]}>
           {renderPersonalInfo()}
           {renderAddress()}
           {renderEmergencyContact()}
@@ -1796,8 +1803,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 12,
     borderRadius: 12,
-    marginHorizontal: 16,
     marginBottom: 12,
+    alignSelf: "center",
   },
   locationCardLeft: {
     flexDirection: "row",
@@ -1943,7 +1950,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   profileHeroCard: {
-    marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 16,
     alignItems: "center",
@@ -1952,6 +1958,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 14,
     elevation: 3,
+    alignSelf: 'center',
   },
   avatarWrapper: {
     position: "relative",
@@ -2160,8 +2167,8 @@ const styles = StyleSheet.create({
     backgroundColor: PATIENT.border,
   },
   content: {
-    paddingHorizontal: 16,
     gap: 16,
+    alignSelf: 'center',
   },
   card: {
     backgroundColor: "white",
@@ -2355,7 +2362,10 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-    height: height * 0.9, },
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
+  },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",

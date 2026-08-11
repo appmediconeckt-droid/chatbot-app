@@ -12,7 +12,6 @@ import {
   ActivityIndicator,
   SafeAreaView,
   StatusBar,
-  Dimensions,
   Alert,
   Platform,
   useWindowDimensions,
@@ -39,8 +38,6 @@ const WALLET_GRADIENT = ['#006B2C', '#01CE54'];
 const TRANSPARENT_GRADIENT = ['transparent', 'transparent'];
 const GRADIENT_START = { x: 0, y: 0.5 };
 const GRADIENT_END = { x: 1, y: 0.5 };
-
-const { width, height } = Dimensions.get('window');
 
 const CounselorListSkeleton = () => {
   const anim = useRef(new Animated.Value(0)).current;
@@ -638,13 +635,10 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         },
       );
 
-      addNotification(
-        'success',
-        'Appointment Booked',
-        `Your appointment request was sent to ${selectedCounselorForRequest?.name || 'the counselor'}.`,
+      Alert.alert(
+        t('appointment:bookedSuccessfully', 'Booked Successfully'),
+        t('appointment:appointmentRequestSent', 'Appointment request sent. The counselor has been notified.'),
       );
-
-      Alert.alert(t('appointment:bookedSuccessfully'), t('appointment:appointmentRequestSent'));
       setShowBookingModal(false);
       setBookingNotes('');
     } catch (error) {
@@ -1894,6 +1888,9 @@ const styles = {
     paddingHorizontal: 0,
     paddingBottom: 24,
     flexGrow: 1,
+    width: '100%',
+    maxWidth: 900,
+    alignSelf: 'center',
   },
   row: {
     justifyContent: 'space-between',
@@ -1996,7 +1993,7 @@ const styles = {
     paddingVertical: 2,
   },
   counselorCard: {
-    width: (width - 48) / 2,
+    width: '100%',
     backgroundColor: '#ffffff',
     borderRadius: 16,
     padding: 16,
@@ -2230,8 +2227,8 @@ const styles = {
   modalContent: {
     backgroundColor: '#ffffff',
     borderRadius: 20,
-    width: width * 0.9,
-    maxHeight: height * 0.8,
+    width: '92%',
+    maxWidth: 520,
     overflow: 'hidden',
   },
   modalHeader: {

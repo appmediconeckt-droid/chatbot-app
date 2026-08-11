@@ -22,7 +22,7 @@ import {
   useWindowDimensions,
   Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import ZoomableImageViewer from '../../../../../../components/common/ZoomableImageViewer';
@@ -199,10 +199,16 @@ const IncomingCallModal = ({
 // ─── Main Component ────────────────────────────────────────────────────────
 const SMSInput = ({ navigation, route }) => {
   const { t } = useLanguageRender();
+  const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   useScreenshotPrevent();
   const location = route.params || {};
   const [message, setMessage] = useState("");
+  const messageInputRef = useRef(null);
+  const keyboardVisibleRef = useRef(false);
+  const sendFocusGuardRef = useRef(false);
+  const focusRestoreTimersRef = useRef([]);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const messagesContainerRef = useRef(null);
   const chatSocketRef = useRef(null);
   const fallbackChatIdRef = useRef(null);
@@ -255,9 +261,8 @@ const SMSInput = ({ navigation, route }) => {
   // Track deleted message IDs persistently so they stay deleted across navigation/refresh
   const [deletedMessageIds, setDeletedMessageIds] = useState(new Set());
   const getDeletedMessagesStorageKey = useCallback(() => `deletedMessages_${getChatIdForAPI()}`, [chatId, USER_ID, counselorId, selectedUser]);
-  // Keyboard spacing is handled entirely by KeyboardAvoidingView (behavior
-  // "padding", enabled on BOTH platforms) — same as the user-side ChatBox. The
-  // old manual pad hack never worked under Android edge-to-edge, so it's gone.
+  // iOS uses padding; Android uses height to remain visible even where an OEM
+  // ignores adjustResize, without retaining stale keyboard padding.
 
   // Counselor data
   const [currentCounselor, setCurrentCounselor] = useState(null);
@@ -759,6 +764,9 @@ const SMSInput = ({ navigation, route }) => {
   };
   const handleSendMessage = async () => {
     if ((message.trim() === "" && !pendingAttachment) || !selectedUser || isSending) return;
+    const keepComposerFocused = Boolean(
+      keyboardVisibleRef.current || messageInputRef.current?.isFocused?.(),
+    );
     const messageText = message.trim();
     const attachmentToSend = pendingAttachment;
     const tempMessage = {
@@ -780,6 +788,9 @@ const SMSInput = ({ navigation, route }) => {
     setPendingAttachment(null);
     setIsSending(true);
     setError(null);
+    // Sending must not blur or disable the composer. Keep the keyboard and
+    // caret active while the network request completes.
+    if (keepComposerFocused) preserveComposerFocusForSend();
     try {
       const sentMsg = await sendMessageToAPI({ messageContent: messageText, file: attachmentToSend });
       setMessages(prev => {
@@ -810,6 +821,7 @@ const SMSInput = ({ navigation, route }) => {
       setTimeout(() => setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id)), 3000);
     } finally {
       setIsSending(false);
+      finishComposerFocusForSend();
     }
   };
 
@@ -1204,6 +1216,32 @@ const SMSInput = ({ navigation, route }) => {
   const scrollToBottom = useCallback((animated = true) => {
     messagesContainerRef.current?.scrollToOffset({ offset: 0, animated });
   }, []);
+  const preserveComposerFocusForSend = useCallback(() => {
+    sendFocusGuardRef.current = true;
+    focusRestoreTimersRef.current.forEach(clearTimeout);
+    focusRestoreTimersRef.current = [0, 60, 160, 320].map((delay) =>
+      setTimeout(() => {
+        if (sendFocusGuardRef.current) messageInputRef.current?.focus();
+      }, delay),
+    );
+  }, []);
+  const finishComposerFocusForSend = useCallback(() => {
+    focusRestoreTimersRef.current.forEach(clearTimeout);
+    focusRestoreTimersRef.current = [0, 80, 180].map((delay) =>
+      setTimeout(() => {
+        if (sendFocusGuardRef.current) messageInputRef.current?.focus();
+      }, delay),
+    );
+    focusRestoreTimersRef.current.push(
+      setTimeout(() => {
+        sendFocusGuardRef.current = false;
+      }, 260),
+    );
+  }, []);
+  useEffect(() => () => {
+    focusRestoreTimersRef.current.forEach(clearTimeout);
+    focusRestoreTimersRef.current = [];
+  }, []);
   const handleContentSizeChange = useCallback(() => {
     if (shouldAutoScrollRef.current) scrollToBottom(initialLoadDoneRef.current);
     initialLoadDoneRef.current = true;
@@ -1220,9 +1258,17 @@ const SMSInput = ({ navigation, route }) => {
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const showSub = Keyboard.addListener(showEvt, () => {
+      keyboardVisibleRef.current = true;
+      setIsKeyboardVisible(true);
       if (shouldAutoScrollRef.current) scrollToBottom(true);
     });
     const hideSub = Keyboard.addListener(hideEvt, () => {
+      if (sendFocusGuardRef.current) {
+        requestAnimationFrame(() => messageInputRef.current?.focus());
+        return;
+      }
+      keyboardVisibleRef.current = false;
+      setIsKeyboardVisible(false);
       if (shouldAutoScrollRef.current) scrollToBottom(true);
     });
 
@@ -1459,6 +1505,8 @@ const SMSInput = ({ navigation, route }) => {
       <KeyboardAvoidingView
         style={styles.keyboardAvoid}
         behavior="padding"
+        contentContainerStyle={styles.keyboardAvoidContent}
+        enabled={Platform.OS === 'ios' || isKeyboardVisible}
         keyboardVerticalOffset={0}
       >
           <View style={styles.chatBoxMain}>
@@ -1485,7 +1533,10 @@ const SMSInput = ({ navigation, route }) => {
                     {remoteIsTyping ? (
                       <Text style={styles.typingText}>{t('Typing...')}</Text>
                     ) : (
-                      <Text style={styles.statusText}>
+                      <Text style={[
+                        styles.statusText,
+                        resolveOnlineStatus(selectedUser) && styles.statusTextOnline,
+                      ]}>
                         {resolveOnlineStatus(selectedUser) ? "Online" : "Offline"}
                       </Text>
                     )}
@@ -1547,7 +1598,8 @@ const SMSInput = ({ navigation, route }) => {
               onContentSizeChange={handleContentSizeChange}
               onScroll={handleScroll}
               scrollEventThrottle={16}
-              keyboardShouldPersistTaps="handled"
+              keyboardShouldPersistTaps="always"
+              keyboardDismissMode="none"
               inverted
               ListHeaderComponent={remoteIsTyping ? (
                 <View style={styles.typingContainer}>
@@ -1566,7 +1618,14 @@ const SMSInput = ({ navigation, route }) => {
           )}
 
           {/* Input */}
-          <View style={styles.inputArea}>
+          <View style={[
+            styles.inputArea,
+            {
+              paddingBottom: isKeyboardVisible
+                ? 8
+                : Math.max(insets.bottom, 12) + 4,
+            },
+          ]}>
             <View style={styles.inputAreaInner}>
               {pendingAttachment && (
                 <View style={styles.attachmentPreview}>
@@ -1575,35 +1634,47 @@ const SMSInput = ({ navigation, route }) => {
                   <TouchableOpacity onPress={() => setPendingAttachment(null)}><Ionicons name="close-circle" size={18} color="#9CA3AF" /></TouchableOpacity>
                 </View>
               )}
-              <View style={[styles.inputGroup, isSending && styles.inputGroupDisabled]}>
+              <View style={styles.inputGroup}>
                 <TouchableOpacity style={styles.attachBtn} onPress={handlePickAttachment} disabled={isSending}>
                   <Ionicons name="add" size={22} color="#2563EB" />
                 </TouchableOpacity>
                 <View style={styles.inputWrapper}>
                   <TextInput
+                    ref={messageInputRef}
                     style={styles.textInput}
-                    placeholder={isSending ? "Sending..." : "Type a message..."}
+                    placeholder="Type a message..."
                     placeholderTextColor="#8492a5"
                     value={message}
                     onChangeText={setMessage}
-                    editable={!isSending}
                     multiline
+                    blurOnSubmit={false}
+                    showSoftInputOnFocus
+                    onBlur={() => {
+                      if (sendFocusGuardRef.current) {
+                        requestAnimationFrame(() => messageInputRef.current?.focus());
+                      }
+                    }}
                   />
                 </View>
                 <TouchableOpacity
                   activeOpacity={0.85}
+                  onPressIn={() => {
+                    if ((message.trim() || pendingAttachment) && !isSending) {
+                      preserveComposerFocusForSend();
+                    } else {
+                      messageInputRef.current?.focus();
+                    }
+                  }}
                   onPress={handleSendMessage}
-                  disabled={(!message.trim() && !pendingAttachment) || isSending}
                 >
-                  {(message.trim() !== "" || pendingAttachment) && !isSending ? (
-                    <LinearGradient colors={SENT_GRADIENT} start={SENT_GRADIENT_START} end={SENT_GRADIENT_END} style={[styles.sendBtn, styles.sendBtnActive]}>
-                      <Ionicons name="send" size={20} color="#FFFFFF" />
-                    </LinearGradient>
-                  ) : (
-                    <View style={[styles.sendBtn, styles.sendBtnDisabled]}>
-                      <Ionicons name="send" size={20} color="#FFFFFF" />
-                    </View>
-                  )}
+                  <LinearGradient
+                    colors={(message.trim() || pendingAttachment) && !isSending ? SENT_GRADIENT : ['#A8B9D6', '#A8B9D6']}
+                    start={SENT_GRADIENT_START}
+                    end={SENT_GRADIENT_END}
+                    style={[styles.sendBtn, (message.trim() || pendingAttachment) && !isSending ? styles.sendBtnActive : styles.sendBtnDisabled]}
+                  >
+                    <Ionicons name="send" size={20} color="#FFFFFF" />
+                  </LinearGradient>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1626,6 +1697,7 @@ const SMSInput = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
   keyboardAvoid: { flex: 1 },
+  keyboardAvoidContent: { flex: 1 },
   chatBoxMain: { flex: 1, backgroundColor: '#EFF6FF' },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8FAFC' },
   emptyState: { alignItems: 'center', padding: 32, backgroundColor: '#FFFFFF', borderRadius: 20, margin: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 12, elevation: 2 },
@@ -1643,7 +1715,8 @@ const styles = StyleSheet.create({
   userDetails: { flex: 1, minWidth: 0 },
   userName: { fontSize: 16, fontWeight: '800', color: '#0F172A', marginBottom: 1 },
   profileStatus: { fontSize: 11 },
-  statusText: { color: '#2563EB', fontWeight: '600' },
+  statusText: { color: '#6B7280', fontWeight: '600' },
+  statusTextOnline: { color: '#22C55E' },
   typingText: { color: '#BFDBFE', fontWeight: '600' },
   callButtons: { flexDirection: 'row', gap: 4 },
   actionBtn: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center' },
@@ -1825,7 +1898,7 @@ const styles = StyleSheet.create({
   attachmentBubbleText: { fontSize: 12, fontWeight: '600', flex: 1 },
   userAttachmentBubbleText: { color: '#FFFFFF' },
   counselorAttachmentBubbleText: { color: '#374151' },
-  inputArea: { width: '100%', paddingHorizontal: 12, paddingVertical: 10, paddingBottom: Platform.OS === 'ios' ? 20 : 12, borderTopWidth: 1, borderTopColor: '#E2E8F0', backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 8 },
+  inputArea: { width: '100%', paddingHorizontal: 12, paddingTop: 10, paddingBottom: 8, borderTopWidth: 1, borderTopColor: '#E2E8F0', backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 8 },
   inputAreaInner: { width: '100%', maxWidth: 760, alignSelf: 'center' },
   attachmentPreview: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10, gap: 8 },
   attachmentPreviewText: { flex: 1, color: '#111827', fontSize: 12, fontWeight: '500' },

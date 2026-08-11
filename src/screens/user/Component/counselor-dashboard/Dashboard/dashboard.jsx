@@ -36,7 +36,6 @@ import LinearGradient from "react-native-linear-gradient";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import { BlurView } from "@react-native-community/blur";
 
 // Custom Hooks
 import useVibration from "../../../../../hooks/useVibration";
@@ -165,7 +164,16 @@ const IncomingCallModal = ({
     setIsRejecting(false);
   };
 
-  const profilePhoto = callData?.from?.profilePhoto || callerImage;
+  const callerDisplay = getAnonymousUserDisplay(callData?.from || callData || {});
+  const profilePhoto =
+    toImageUri(callData?.from?.profilePhoto) ||
+    toImageUri(callData?.from?.image) ||
+    toImageUri(callData?.from?.avatar) ||
+    toImageUri(callData?.initiator?.profilePhoto) ||
+    toImageUri(callData?.initiator?.image) ||
+    toImageUri(callData?.image) ||
+    toImageUri(callerDisplay.avatarUrl) ||
+    toImageUri(callerImage);
   const isVideo = callType === "video";
 
   // Wave ring interpolations (expand out + fade)
@@ -196,108 +204,65 @@ const IncomingCallModal = ({
   });
 
   return (
-    <Modal statusBarTranslucent navigationBarTranslucent transparent visible={isOpen} animationType="fade" onRequestClose={onClose}>
-      {/* Dimmed blurred backdrop */}
-      <View style={styles.callBackdrop}>
-        <BlurView
-          style={StyleSheet.absoluteFill}
-          blurType="dark"
-          blurAmount={18}
-          reducedTransparencyFallbackColor="#000"
-        />
-        <View style={styles.callBackdropTint} />
+    <Modal statusBarTranslucent navigationBarTranslucent transparent={false} visible={isOpen} animationType="fade" onRequestClose={onClose}>
+      <View style={styles.incomingCallScreen}>
+        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-        <Animated.View
-          style={[
-            styles.incCard,
-            { transform: [{ scale: scaleAnim }, { translateY: floatY }] },
-          ]}
-        >
-          {/* Header - a live dot plus what kind of call this is. Name and photo
-              used to sit above the avatar, which read upside-down next to any
-              real call screen; the caller's face now comes first. */}
-          <View style={styles.incHeaderRow}>
-            <Animated.View style={[styles.incLiveDot, { opacity: liveDotOpacity }]} />
-            <Text style={styles.incLabel}>
-              {isVideo
-                ? t('call:incomingVideoCall', 'INCOMING VIDEO CALL')
-                : t('call:incomingVoiceCall', 'INCOMING VOICE CALL')}
-            </Text>
-          </View>
-
-          {/* Avatar with expanding wave rings */}
-          <View style={styles.incAvatarWrap}>
-            <Animated.View style={[styles.incWaveRing, ringStyle(ring1)]} />
-            <Animated.View style={[styles.incWaveRing, ringStyle(ring2)]} />
-            <Animated.View style={[styles.incWaveRing, ringStyle(ring3)]} />
-
-            <Animated.View style={[styles.incAvatarInner, { transform: [{ scale: pulseAnim }] }]}>
-              {profilePhoto ? (
-                <Image source={{ uri: profilePhoto }} style={styles.incAvatarImg} />
-              ) : (
-                <LinearGradient colors={avatarGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.incAvatarImg}>
-                  <Text style={styles.incAvatarInitial}>{displayInitial}</Text>
-                </LinearGradient>
-              )}
-            </Animated.View>
-          </View>
-
-          {/* Caller name (same as chat interface) */}
-          <Text style={styles.incName} numberOfLines={1}>{getDisplayName()}</Text>
-
-          {/* Location - rendered only when the backend actually sent one, so an
-              empty row never pushes the buttons around. */}
+        <Animated.View style={[styles.incomingCallHead, { transform: [{ translateY: floatY }] }]}>
+          <Text style={styles.incomingCallKicker}>
+            {isVideo
+              ? t('call:incomingVideoCall', 'INCOMING VIDEO CALL')
+              : t('call:incomingVoiceCall', 'INCOMING VOICE CALL')}
+          </Text>
+          <Text style={styles.incomingCallName} numberOfLines={1}>{getDisplayName()}</Text>
           {!!subtitle && (
-            <View style={styles.incSubRow}>
-              <Ionicons name="location-outline" size={14} color="#94A3B8" />
-              <Text style={styles.incSubText} numberOfLines={1}>{subtitle}</Text>
+            <View style={styles.incomingCallLocationRow}>
+              <Ionicons name="location-outline" size={13} color="#94A3B8" />
+              <Text style={styles.incomingCallLocation} numberOfLines={1}>{subtitle}</Text>
             </View>
           )}
-
-          {/* Encrypted badge */}
-          <View style={styles.incEncrypted}>
-            <Ionicons name="shield-checkmark" size={13} color={DOCTOR.primary} />
-            <Text style={styles.incEncryptedText}>{t('call:encrypted', 'ENCRYPTED')}</Text>
-          </View>
-
-          {/* Actions */}
-          <View style={styles.incActions}>
-            {/* Decline */}
-            <View style={styles.incActionCol}>
-              <TouchableOpacity
-                onPress={handleReject}
-                activeOpacity={0.85}
-                disabled={isRejecting}
-                style={[styles.incFab, styles.incFabReject]}
-              >
-                {isRejecting ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <MaterialIcons name="call-end" size={26} color="#fff" />
-                )}
-              </TouchableOpacity>
-              <Text style={styles.incActionLabel}>{t('call:reject', 'Decline')}</Text>
-            </View>
-
-            {/* Accept */}
-            <View style={styles.incActionCol}>
-              <TouchableOpacity
-                onPress={handleAccept}
-                activeOpacity={0.9}
-                disabled={isAccepting}
-                style={[styles.incFab, styles.incFabAccept]}
-              >
-                <GradientFill />
-                {isAccepting ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <MaterialIcons name={isVideo ? "videocam" : "call"} size={26} color="#fff" />
-                )}
-              </TouchableOpacity>
-              <Text style={styles.incActionLabel}>{t('call:accept', 'Accept')}</Text>
-            </View>
-          </View>
         </Animated.View>
+
+        <View style={styles.incomingCallAvatarZone}>
+          <Animated.View style={[styles.incomingCallRing, ringStyle(ring1)]} />
+          <Animated.View style={[styles.incomingCallRing, ringStyle(ring2)]} />
+          <Animated.View style={[styles.incomingCallRing, ringStyle(ring3)]} />
+          <Animated.View style={[styles.incomingCallAvatarOuter, { transform: [{ scale: pulseAnim }] }]}>
+            <View style={styles.incomingCallAvatar}>
+              {profilePhoto ? (
+                <Image source={{ uri: profilePhoto }} style={styles.incomingCallAvatarImage} resizeMode="cover" />
+              ) : (
+                <LinearGradient colors={avatarGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.incomingCallAvatarFallback}>
+                  <Text style={styles.incomingCallInitial}>{displayInitial}</Text>
+                </LinearGradient>
+              )}
+            </View>
+          </Animated.View>
+          <View style={styles.incomingEncryptedBadge}>
+            <Ionicons name="lock-closed" size={11} color={DOCTOR.primary} />
+            <Text style={styles.incomingEncryptedText}>{t('call:encrypted', 'ENCRYPTED')}</Text>
+          </View>
+        </View>
+
+        <View style={styles.incomingCallActions}>
+          <View style={styles.incomingCallActionCol}>
+            <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+              <TouchableOpacity onPress={handleReject} onPressIn={pressIn} onPressOut={pressOut} activeOpacity={0.85} disabled={isRejecting} style={[styles.incomingCallFab, styles.incomingCallDecline]}>
+                {isRejecting ? <ActivityIndicator color="#fff" size="small" /> : <MaterialIcons name="call-end" size={27} color="#fff" />}
+              </TouchableOpacity>
+            </Animated.View>
+            <Text style={styles.incomingCallActionLabel}>{isRejecting ? t('common:loading') : t('call:reject', 'Decline')}</Text>
+          </View>
+
+          <View style={styles.incomingCallActionCol}>
+            <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+              <TouchableOpacity onPress={handleAccept} onPressIn={pressIn} onPressOut={pressOut} activeOpacity={0.9} disabled={isAccepting} style={[styles.incomingCallFab, styles.incomingCallAccept]}>
+                {isAccepting ? <ActivityIndicator color="#fff" size="small" /> : <MaterialIcons name={isVideo ? "videocam" : "call"} size={27} color="#fff" />}
+              </TouchableOpacity>
+            </Animated.View>
+            <Text style={styles.incomingCallActionLabel}>{isAccepting ? t('call:connecting') : t('call:accept', 'Accept')}</Text>
+          </View>
+        </View>
       </View>
     </Modal>
   );
@@ -1641,7 +1606,13 @@ export default function CounselorDashboard() {
           callId: waitingCall.callId || waitingCall.id || waitingCall._id,
           roomId: waitingCall.roomId,
           name: displayName,  // Now uses anonymous name as priority
-          image: fromData.profilePhoto || fromData.image || null,
+          image:
+            fromData.profilePhoto ||
+            fromData.image ||
+            fromData.avatarUrl ||
+            fromData.avatar ||
+            getAnonymousUserDisplay(fromData).avatarUrl ||
+            null,
           callType: waitingCall.callType || "video",
           from: fromData,
           initiator: waitingCall.initiator,
@@ -2029,7 +2000,6 @@ export default function CounselorDashboard() {
     // { id: "patients", icon: "users", label: "Patients", badge: 0 },
     { id: "earnings", icon: "money-bill-wave", label: t('counselor:earnings'), badge: 0 },
     { id: "settings", icon: "sliders", label: t('settings:settings'), badge: 0 },
-    { id: "profile", icon: "chart-pie", label: t('counselor:profile'), badge: 0 },
   ];
 
   const handleTabChange = (tabId, fromMenu = false) => {
@@ -2694,6 +2664,7 @@ export default function CounselorDashboard() {
             counselorData={counselorData}
             notifCount={pendingRequests.length}
             onBellPress={() => setShowNotifications(true)}
+            onCompleteProfile={() => handleTabChange('profile')}
           />
         );
       case "profile":
@@ -2713,6 +2684,7 @@ export default function CounselorDashboard() {
             counselorData={counselorData}
             notifCount={pendingRequests.length}
             onBellPress={() => setShowNotifications(true)}
+            onCompleteProfile={() => handleTabChange('profile')}
           />
         );
     }
@@ -3122,7 +3094,7 @@ export default function CounselorDashboard() {
               },
             ]}
           >
-            {navItems.slice(0, 5).map((item) => {
+            {navItems.map((item) => {
               const shortLabel = item.label;
               // Figma-matched icons per tab (MaterialCommunityIcons):
               //   Chats → chat bubble, Appointments → calendar,
@@ -3211,7 +3183,7 @@ export default function CounselorDashboard() {
           ]}
         >
           {/* Profile incomplete banner */}
-          {counselorData && !counselorData.profileCompleted && (
+          {activeTab !== 'messages' && counselorData && !counselorData.profileCompleted && (
             <TouchableOpacity
               style={profileBanner.wrap}
               onPress={() => handleTabChange('profile')}
@@ -5690,6 +5662,141 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#ffffff",
+  },
+  // Full-screen incoming call experience; mirrors the patient-side screen.
+  incomingCallScreen: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: Platform.OS === "ios" ? 74 : 62,
+    paddingBottom: Platform.OS === "ios" ? 58 : 42,
+    paddingHorizontal: 24,
+  },
+  incomingCallHead: {
+    width: "100%",
+    maxWidth: 680,
+    alignItems: "center",
+  },
+  incomingCallKicker: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.6,
+    color: "#94A3B8",
+    textTransform: "uppercase",
+  },
+  incomingCallName: {
+    maxWidth: "100%",
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginTop: 12,
+    textAlign: "center",
+  },
+  incomingCallLocationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 8,
+    maxWidth: "90%",
+  },
+  incomingCallLocation: {
+    flexShrink: 1,
+    fontSize: 13.5,
+    color: "#94A3B8",
+    fontWeight: "500",
+  },
+  incomingCallAvatarZone: {
+    width: 240,
+    height: 240,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  incomingCallRing: {
+    position: "absolute",
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 1.5,
+    borderColor: "#CBD5E1",
+  },
+  incomingCallAvatarOuter: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 1.5,
+    borderColor: "#E2E8F0",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  incomingCallAvatar: {
+    width: 118,
+    height: 118,
+    borderRadius: 59,
+    overflow: "hidden",
+    backgroundColor: "#E2E8F0",
+  },
+  incomingCallAvatarImage: { width: "100%", height: "100%" },
+  incomingCallAvatarFallback: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  incomingCallInitial: { color: "#FFFFFF", fontSize: 44, fontWeight: "700" },
+  incomingEncryptedBadge: {
+    position: "absolute",
+    bottom: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#E7EEFE",
+    borderWidth: 1,
+    borderColor: "#D8E3FC",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  incomingEncryptedText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: DOCTOR.primary,
+    letterSpacing: 0.6,
+  },
+  incomingCallActions: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 56,
+  },
+  incomingCallActionCol: { alignItems: "center", gap: 10 },
+  incomingCallFab: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  incomingCallDecline: {
+    backgroundColor: "#EF4444",
+    shadowColor: "#EF4444",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.32,
+    shadowRadius: 10,
+    elevation: 7,
+  },
+  incomingCallAccept: {
+    backgroundColor: DOCTOR.primary,
+    shadowColor: DOCTOR.primary,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.32,
+    shadowRadius: 10,
+    elevation: 7,
+  },
+  incomingCallActionLabel: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#64748B",
   },
   // ─── Glass incoming-call popup (rich animations) ──────────────────────────
   callBackdrop: {

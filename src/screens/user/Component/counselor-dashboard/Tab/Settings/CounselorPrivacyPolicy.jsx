@@ -61,6 +61,19 @@ const SECTIONS = [
       'Send important account and session updates',
     ],
   },
+   {
+    id: 'use',
+    icon: 'data-retention-outline',
+    title: 'Data Retention and Deletion',
+    color: '#78d7a1',
+    bg: '#c5b7b7',
+    points: [
+      'Kept only as long as needed for the purposes stated in this policy.',
+      'Longer retention possible if required or permitted by law.',
+      'Depends on factors like info type, user relationship, legal rules, security, and payment/dispute history.',
+      'Retention periods vary based on these specific conditions.',
+    ],
+  },
   {
     id: 'professional',
     icon: 'briefcase-outline',

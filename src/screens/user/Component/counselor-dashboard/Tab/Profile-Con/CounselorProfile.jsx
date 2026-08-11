@@ -186,8 +186,12 @@ const CounselorProfile = () => {
     try {
       setLoading(true);
       setError('');
-      const counsellorId = await AsyncStorage.getItem('counsellorId');
-      const token = await AsyncStorage.getItem('token');
+      const counsellorId =
+        (await AsyncStorage.getItem('counsellorId')) ||
+        (await AsyncStorage.getItem('counselorId'));
+      const token =
+        (await AsyncStorage.getItem('accessToken')) ||
+        (await AsyncStorage.getItem('token'));
 
       if (!counsellorId) {
         setError('Counselor ID not found. Please login again.');
@@ -271,8 +275,17 @@ const CounselorProfile = () => {
 
   const uploadProfilePhoto = async (photoUri, photoType, photoName) => {
     try {
-      const counsellorId = await AsyncStorage.getItem('counsellorId');
-      const accessToken = await AsyncStorage.getItem('accessToken');
+      const counsellorId =
+        (await AsyncStorage.getItem('counsellorId')) ||
+        (await AsyncStorage.getItem('counselorId')) ||
+        counselor?._id;
+      const accessToken =
+        (await AsyncStorage.getItem('accessToken')) ||
+        (await AsyncStorage.getItem('token'));
+
+      if (!counsellorId || !accessToken) {
+        throw new Error('Your session is incomplete. Please sign in again.');
+      }
 
       console.log('Starting photo upload:', {
         photoUri,
@@ -322,21 +335,37 @@ const CounselorProfile = () => {
   };
 
   const updateCounselorProfile = async (formData) => {
-    try {
-      const counsellorId = await AsyncStorage.getItem('counsellorId');
-      const accessToken = await AsyncStorage.getItem('accessToken');
+    const counsellorId =
+      (await AsyncStorage.getItem('counsellorId')) ||
+      (await AsyncStorage.getItem('counselorId')) ||
+      counselor?._id;
+    const accessToken =
+      (await AsyncStorage.getItem('accessToken')) ||
+      (await AsyncStorage.getItem('token'));
 
-      const response = await axios.patch(
-        `${API_BASE_URL}/api/auth/update/${counsellorId}`,
-        formData,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-          timeout: 30000,
-        }
-      );
-      return response;
+    if (!counsellorId || !accessToken) {
+      throw new Error('Your session is incomplete. Please sign in again.');
+    }
+
+    try {
+      // React Native Axios can surface a generic "Network Error" for PATCH
+      // multipart bodies before the request reaches the server. Native fetch
+      // handles FormData consistently; do not set Content-Type manually because
+      // it must add the multipart boundary itself.
+      const result = await fetch(`${API_BASE_URL}/api/auth/update/${counsellorId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: formData,
+      });
+      const data = await result.json().catch(() => ({}));
+
+      if (!result.ok) {
+        const requestError = new Error(data.message || `Profile update failed (${result.status})`);
+        requestError.response = { status: result.status, data };
+        throw requestError;
+      }
+
+      return { data };
     } catch (error) {
       console.error('Update profile error:', error);
       throw error;

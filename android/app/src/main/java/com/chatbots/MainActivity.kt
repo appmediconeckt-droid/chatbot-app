@@ -11,6 +11,10 @@ class MainActivity : ReactActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    // Keep the React root sized to the visible area while the IME is open.
+    // Setting this at runtime makes behavior consistent on OEM Android builds
+    // that do not reliably preserve the manifest's adjustResize setting.
+    window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     if (!BuildConfig.DEBUG) {
       window.setFlags(
         WindowManager.LayoutParams.FLAG_SECURE,

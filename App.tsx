@@ -4,11 +4,20 @@
  *
  * @format
  */
-
+import {
+  requestNotificationPermission,
+  getFCMToken,
+  foregroundNotificationListener,
+  tokenRefreshListener,
+} from './src/services/firebaseNotificationService';
+import {
+  getMessaging,
+  getToken,
+} from '@react-native-firebase/messaging';
 import { NewAppScreen } from '@react-native/new-app-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, Modal, StatusBar, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Modal, Platform, StatusBar, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
 import {
   SafeAreaProvider,
   initialWindowMetrics,
@@ -51,6 +60,7 @@ import AppLockScreen, { PIN_STORAGE_KEY } from './src/screens/auth/AppLockScreen
 import PinSetupScreen from './src/screens/auth/PinSetupScreen';
 import './src/i18n';
 import { LanguageProvider } from './src/contexts/LanguageContext';
+import axiosInstance from './src/axiosConfig';
 // Define your navigation param list
 // import { LogBox } from 'react-native';
 // LogBox.ignoreAllLogs(true);
@@ -84,8 +94,58 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+const checkFCMToken = async () => {
+  try {
+    const messaging = getMessaging();
+    const token = await getToken(messaging);
+
+    if (token) {
+      console.log('FCM TOKEN:', token);
+      console.log('TOKEN INFO:', {
+        length: token.length,
+        start: token.slice(0, 12),
+        end: token.slice(-12),
+      });
+    } else {
+      console.log('FCM token nahi mila');
+    }
+  } catch (error) {
+    console.log('FCM TOKEN ERROR:', error);
+  }
+};
+
 // Lock as soon as the user leaves the app and opens it again.
 const LOCK_TIMEOUT_MS = 0;
+
+// Register this installation against the currently signed-in account. The
+// shared axios client includes authentication and token-refresh handling.
+const saveTokenToBackend = async (userId: string, fcmToken: string) => {
+  try {
+    const response = await axiosInstance.put('/notifications/token', {
+      userId,
+      fcmToken,
+      platform: Platform.OS,
+    });
+    console.log('FCM token saved to backend:', response.data);
+    return true;
+  } catch (error: any) {
+    console.log(
+      'FCM token save error:',
+      error?.response?.data || error?.message || error,
+    );
+    return false;
+  }
+};
+
+const syncFCMTokenToBackend = async (knownToken?: string) => {
+  const userId = await AsyncStorage.getItem('userId');
+  if (!userId) return false;
+
+  const fcmToken = knownToken || await getFCMToken();
+  if (!fcmToken) return false;
+
+  return saveTokenToBackend(userId, fcmToken);
+};
 
 // ─── Popups must reach the bottom of the screen ──────────────────────────────
 // An Android Modal window stops above the navigation bar by default. This app
@@ -96,8 +156,9 @@ const LOCK_TIMEOUT_MS = 0;
 // Set as defaults so all ~59 modals get it. Modal is a class component, so
 // defaultProps is still honoured in React 19 (only function components lost it).
 // Merged, not replaced: Modal already ships `visible` and `hardwareAccelerated`.
-Modal.defaultProps = {
-  ...(Modal.defaultProps || {}),
+const ModalWithDefaults = Modal as typeof Modal & { defaultProps?: Record<string, unknown> };
+ModalWithDefaults.defaultProps = {
+  ...(ModalWithDefaults.defaultProps || {}),
   statusBarTranslucent: true,
   navigationBarTranslucent: true,
 };
@@ -127,6 +188,49 @@ function App() {
   // reset to Login when the backend kills this device's session.
   const routeNameRef = useRef<string | undefined>(undefined);
   const backgroundedAt = useRef<number | null>(null);
+
+  useEffect(() => {
+    checkFCMToken();
+  }, []);
+
+  useEffect(() => {
+    let unsubscribeForeground: (() => void) | undefined;
+    let unsubscribeTokenRefresh: (() => void) | undefined;
+
+    const setupFirebaseNotifications = async () => {
+      const permissionGranted = await requestNotificationPermission();
+
+      if (!permissionGranted) {
+        console.log('Notification display permission not granted; FCM token will still be generated');
+      }
+
+      const token = await getFCMToken();
+
+      if (token) {
+        console.log('Device FCM Token:', token);
+        await syncFCMTokenToBackend(token);
+      }
+
+      unsubscribeForeground = foregroundNotificationListener();
+
+      unsubscribeTokenRefresh = tokenRefreshListener(async (newToken: string) => {
+        console.log('Updated FCM Token:', newToken);
+        await syncFCMTokenToBackend(newToken);
+      });
+    };
+
+    setupFirebaseNotifications();
+
+    return () => {
+      if (unsubscribeForeground) {
+        unsubscribeForeground();
+      }
+
+      if (unsubscribeTokenRefresh) {
+        unsubscribeTokenRefresh();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const normalizeRole = (role: string | null) => {
@@ -203,6 +307,7 @@ function App() {
     bootstrapSessionRoute();
   }, []);
 
+
   // Re-lock when app returns from background after LOCK_TIMEOUT_MS
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (nextState) => {
@@ -232,16 +337,12 @@ function App() {
           <View style={styles.bootGlowBottom} />
           <View style={styles.bootCard}>
             <View style={styles.bootLogoWrap}>
-              {/* Tree-only mark: the full logo is a 2.92:1 wordmark and would
-                  render as a sliver inside this square well. */}
               <Image
-                source={require('./src/image/HumaeliIcon.png')}
+                source={require('./src/image/Humaeli-original-backup.png')}
                 style={styles.bootLogoImage}
-                resizeMode="contain"
+                resizeMode="cover"
               />
             </View>
-            <Text style={styles.bootTitle}>Humaeli</Text>
-            <Text style={styles.bootSubtitle}>Empowering People, Inspiring Mental Wellness</Text>
             <View style={styles.bootLoaderRow}>
               <ActivityIndicator size="small" color="#2563eb" />
               <Text style={styles.bootLoaderText}>Preparing dashboard</Text>
@@ -267,6 +368,10 @@ function App() {
             const previousRouteName = routeNameRef.current;
             const currentRouteName = navigationRef.current?.getCurrentRoute()?.name;
 
+            // Firebase can initialize before login creates userId. Sync again
+            // after navigation so a newly authenticated account is registered.
+            void syncFCMTokenToBackend();
+
             if (previousRouteName && currentRouteName && previousRouteName !== currentRouteName) {
               safeVibrate(20);
             }
@@ -288,8 +393,8 @@ function App() {
           >
             {/* <Stack.Screen name="Landing" component={Landing} /> */}
             <Stack.Screen name="RoleSelector" component={RoleSelector} />
-            <Stack.Screen name="UserOnboarding" component={UserOnboarding} options={{ headerShown: false }} />
-            <Stack.Screen name="CounselorOnboarding" component={CounselorOnboarding} options={{ headerShown: false }} />
+            <Stack.Screen name="UserOnboarding" component={UserOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />
+            <Stack.Screen name="CounselorOnboarding" component={CounselorOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />
             <Stack.Screen name="UserSignup" component={UserSignup} />
             <Stack.Screen name="Login" component={Login} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
@@ -386,19 +491,17 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   bootLogoWrap: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    backgroundColor: '#ffffff',
+    width: '100%',
+    maxWidth: 240,
+    height: 150,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    marginBottom: 4,
+    overflow: 'hidden',
   },
   bootLogoImage: {
-    width: 62,
-    height: 62,
+    width: '100%',
+    height: '100%',
   },
   bootTitle: {
     color: '#0f172a',
@@ -413,7 +516,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   bootLoaderRow: {
-    marginTop: 16,
+    marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -429,4 +532,3 @@ const styles = StyleSheet.create({
 });
 
 export default App;
-
