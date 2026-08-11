@@ -51,6 +51,7 @@ import AppLockScreen, { PIN_STORAGE_KEY } from './src/screens/auth/AppLockScreen
 import PinSetupScreen from './src/screens/auth/PinSetupScreen';
 import './src/i18n';
 import { LanguageProvider } from './src/contexts/LanguageContext';
+import { initializePushNotifications } from './src/services/pushNotificationService';
 // Define your navigation param list
 // import { LogBox } from 'react-native';
 // LogBox.ignoreAllLogs(true);
@@ -127,6 +128,8 @@ function App() {
   // reset to Login when the backend kills this device's session.
   const routeNameRef = useRef<string | undefined>(undefined);
   const backgroundedAt = useRef<number | null>(null);
+
+  useEffect(() => initializePushNotifications(), []);
 
   useEffect(() => {
     const normalizeRole = (role: string | null) => {
