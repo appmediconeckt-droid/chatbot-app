@@ -9,9 +9,9 @@ import { forceSignOut } from './utils/authSession';
 const API_ENDPOINTS = {
   // Must match the SAME backend the web frontend uses (chatbot/.env.local)
   // so OTP / email / forgot-password behave identically to web.
+   DEV_TUNNEL: 'https://s5jl7g4z-5001.inc1.devtunnels.ms',
   RAILWAY: 'https://chatbot-backend-production-ea76.up.railway.app',
-  DEV_TUNNEL: 'https://s5jl7g4z-5001.inc1.devtunnels.ms',
-  
+ 
   LOCAL_5001: 'http://localhost:5001',
   LOCAL_5000: 'http://localhost:5000',
   LOCAL_3000: 'http://localhost:3000',
@@ -27,19 +27,15 @@ const API_ENDPOINTS = {
 // USB debugging on a real phone: `adb reverse tcp:5001 tcp:5001` maps the
 // phone's localhost:5001 to the PC's backend over the cable — no internet or
 // dev tunnel needed on the device. Switch to DEV_TUNNEL only for wireless/release.
-export const API_BASE_URL = API_ENDPOINTS.DEV_TUNNEL;
-export const AI_REALTIME_BASE_URL = API_ENDPOINTS.DEV_TUNNEL.replace(/\/+$/, '');
-
+export const API_BASE_URL = API_ENDPOINTS.RAILWAY;
+export const AI_REALTIME_BASE_URL = API_ENDPOINTS.RAILWAY.replace(/\/+$/, '');
 // Create axios instance with default config
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
-    // Dev tunnels serve an HTML anti-phishing interstitial to requests that look
-    // like browser navigations, instead of forwarding to the backend. That HTML
-    // reaches the app as a "Network Error". This header tells the relay to skip
-    // the interstitial and forward straight through. Harmless on non-tunnel hosts.
+   
     'X-Tunnel-Skip-AntiPhishing-Page': 'true',
   },
   withCredentials: true, // Important for cookies/sessions

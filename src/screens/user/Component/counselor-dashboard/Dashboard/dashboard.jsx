@@ -2182,13 +2182,15 @@ export default function CounselorDashboard() {
                 {appointments.length} {t('counselor:totalAppointments', 'total appointment(s)')}
               </Text>
             </View>
-            <TouchableOpacity
-              style={aptStyles.heroRefreshBtn}
-              onPress={() => fetchAppointments()}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="refresh" size={18} color="#ffffff" />
-            </TouchableOpacity>
+            <View style={aptStyles.heroDateCard} accessible accessibilityLabel={now.toDateString()}>
+              <Text style={aptStyles.heroDateMonth}>
+                {now.toLocaleDateString([], { month: 'short' }).toUpperCase()}
+              </Text>
+              <Text style={aptStyles.heroDateDay}>{now.getDate()}</Text>
+              <Text style={aptStyles.heroDateWeekday}>
+                {now.toLocaleDateString([], { weekday: 'short' })}
+              </Text>
+            </View>
           </View>
 
           {/* Stats inner card */}
@@ -3749,6 +3751,7 @@ const aptStyles = StyleSheet.create({
   heroTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 16,
   },
   heroGreeting: {
     fontSize: 13,
@@ -3762,16 +3765,20 @@ const aptStyles = StyleSheet.create({
     letterSpacing: 0.5,
     marginTop: 2,
   },
-  heroRefreshBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+  heroDateCard: {
+    width: 66,
+    minHeight: 76,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.16)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
+    borderColor: 'rgba(255,255,255,0.28)',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 7,
   },
+  heroDateMonth: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: 'rgba(255,255,255,0.82)' },
+  heroDateDay: { fontSize: 25, lineHeight: 29, fontWeight: '900', color: '#FFFFFF' },
+  heroDateWeekday: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.82)' },
   heroSubtitle: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.92)',

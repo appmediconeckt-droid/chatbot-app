@@ -22,7 +22,7 @@ import {
   useWindowDimensions,
   Pressable,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import ZoomableImageViewer from '../../../../../../components/common/ZoomableImageViewer';
@@ -199,7 +199,6 @@ const IncomingCallModal = ({
 // ─── Main Component ────────────────────────────────────────────────────────
 const SMSInput = ({ navigation, route }) => {
   const { t } = useLanguageRender();
-  const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   useScreenshotPrevent();
   const location = route.params || {};
@@ -208,10 +207,10 @@ const SMSInput = ({ navigation, route }) => {
   const keyboardVisibleRef = useRef(false);
   const sendFocusGuardRef = useRef(false);
   const focusRestoreTimersRef = useRef([]);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const messagesContainerRef = useRef(null);
   const chatSocketRef = useRef(null);
   const fallbackChatIdRef = useRef(null);
+
   const initialLoadDoneRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
   // Block poll for 5 seconds after a delete so server can confirm.
@@ -1259,17 +1258,17 @@ const SMSInput = ({ navigation, route }) => {
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const showSub = Keyboard.addListener(showEvt, () => {
       keyboardVisibleRef.current = true;
-      setIsKeyboardVisible(true);
-      if (shouldAutoScrollRef.current) scrollToBottom(true);
+      if (shouldAutoScrollRef.current) {
+        requestAnimationFrame(() => scrollToBottom(true));
+        setTimeout(() => scrollToBottom(true), 120);
+      }
     });
     const hideSub = Keyboard.addListener(hideEvt, () => {
+      keyboardVisibleRef.current = false;
       if (sendFocusGuardRef.current) {
         requestAnimationFrame(() => messageInputRef.current?.focus());
         return;
       }
-      keyboardVisibleRef.current = false;
-      setIsKeyboardVisible(false);
-      if (shouldAutoScrollRef.current) scrollToBottom(true);
     });
 
     return () => { showSub.remove(); hideSub.remove(); };
@@ -1282,14 +1281,10 @@ const SMSInput = ({ navigation, route }) => {
       case "sending": return <Text style={styles.messageStatusSending}>⌛</Text>;
       case "sent": return (
         <View style={styles.messageStatusIconWrap}>
-          {/* Contrast against the blue bubble: the old delivered tick was
-              rgba(255,255,255,0.55) = 2.6:1, under the 3:1 minimum for icons, so
-              it was legible on some screens and invisible on others. Read is now
-              solid white (5.6:1), delivered 0.85 white (4.5:1). */}
           <Ionicons
             name={msg.isRead ? "checkmark-done" : "checkmark"}
             size={15}
-            color={msg.isRead ? "#FFFFFF" : "rgba(255,255,255,0.85)"}
+            color={msg.isRead ? "#1687D9" : "#64748B"}
           />
         </View>
       );
@@ -1500,13 +1495,13 @@ const SMSInput = ({ navigation, route }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
       <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardAvoid}
-        behavior="padding"
         contentContainerStyle={styles.keyboardAvoidContent}
-        enabled={Platform.OS === 'ios' || isKeyboardVisible}
+        enabled={Platform.OS === 'ios'}
         keyboardVerticalOffset={0}
       >
           <View style={styles.chatBoxMain}>
@@ -1621,9 +1616,12 @@ const SMSInput = ({ navigation, route }) => {
           <View style={[
             styles.inputArea,
             {
-              paddingBottom: isKeyboardVisible
-                ? 8
-                : Math.max(insets.bottom, 12) + 4,
+              // Permanently paint and pad through the bottom system inset so
+              // closing the keyboard cannot reveal an empty strip below the
+              // composer. Constant geometry also prevents a delayed jump.
+              // The enclosing SafeAreaView supplies the navigation-bar inset.
+              // A fixed inner padding avoids the late keyboard-event jump.
+              paddingBottom: 8,
             },
           ]}>
             <View style={styles.inputAreaInner}>

@@ -185,7 +185,15 @@ const ChatPopup = ({
   }, []);
   // Keep the popup clear of the status bar / notch.
   const insets = useSafeAreaInsets();
-  const availHeight = Math.max(0, overlayHeight - insets.top);
+  // Translucent Android modals can report a zero top inset even though the
+  // status bar is still visible. Fall back to the native status-bar height and
+  // reserve it in the overlay itself so the popup can never cover system icons.
+  const topSafeInset = Math.max(
+    insets.top,
+    Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0,
+  );
+  const popupTopGap = topSafeInset + 8;
+  const availHeight = Math.max(0, overlayHeight - popupTopGap);
   // Compensate only for the keyboard area that overlaps this Modal. If Android
   // already resized the window this is zero; edge-to-edge phones get the full
   // required lift without losing the bottom safe area when the keyboard closes.
@@ -197,7 +205,7 @@ const ChatPopup = ({
   // Otherwise its fixed 630dp height plus the keyboard inset pushes the header
   // off the top of smaller phones even though the input is technically visible.
   const popupAvailableHeight = Math.max(
-    280,
+    0,
     availHeight - keyboardOverlap - 12,
   );
 
@@ -707,7 +715,6 @@ const ChatPopup = ({
     animationType="slide"
     transparent={true}
     visible={true}
-    statusBarTranslucent
     onRequestClose={() => {
       // Close the reset confirmation first if it's showing, so back unwinds one
       // layer at a time rather than dismissing the whole assistant.
@@ -721,6 +728,7 @@ const ChatPopup = ({
     <KeyboardAvoidingView
       style={[
         styles.chatPopupOverlay,
+        { paddingTop: popupTopGap },
         Platform.OS === 'android' && { paddingBottom: keyboardOverlap },
       ]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}

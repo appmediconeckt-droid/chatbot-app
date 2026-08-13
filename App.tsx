@@ -4,20 +4,10 @@
  *
  * @format
  */
-import {
-  requestNotificationPermission,
-  getFCMToken,
-  foregroundNotificationListener,
-  tokenRefreshListener,
-} from './src/services/firebaseNotificationService';
-import {
-  getMessaging,
-  getToken,
-} from '@react-native-firebase/messaging';
 import { NewAppScreen } from '@react-native/new-app-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, Modal, Platform, StatusBar, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Modal, StatusBar, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
 import {
   SafeAreaProvider,
   initialWindowMetrics,
@@ -60,7 +50,6 @@ import AppLockScreen, { PIN_STORAGE_KEY } from './src/screens/auth/AppLockScreen
 import PinSetupScreen from './src/screens/auth/PinSetupScreen';
 import './src/i18n';
 import { LanguageProvider } from './src/contexts/LanguageContext';
-import axiosInstance from './src/axiosConfig';
 // Define your navigation param list
 // import { LogBox } from 'react-native';
 // LogBox.ignoreAllLogs(true);
@@ -94,58 +83,8 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-const checkFCMToken = async () => {
-  try {
-    const messaging = getMessaging();
-    const token = await getToken(messaging);
-
-    if (token) {
-      console.log('FCM TOKEN:', token);
-      console.log('TOKEN INFO:', {
-        length: token.length,
-        start: token.slice(0, 12),
-        end: token.slice(-12),
-      });
-    } else {
-      console.log('FCM token nahi mila');
-    }
-  } catch (error) {
-    console.log('FCM TOKEN ERROR:', error);
-  }
-};
-
 // Lock as soon as the user leaves the app and opens it again.
 const LOCK_TIMEOUT_MS = 0;
-
-// Register this installation against the currently signed-in account. The
-// shared axios client includes authentication and token-refresh handling.
-const saveTokenToBackend = async (userId: string, fcmToken: string) => {
-  try {
-    const response = await axiosInstance.put('/notifications/token', {
-      userId,
-      fcmToken,
-      platform: Platform.OS,
-    });
-    console.log('FCM token saved to backend:', response.data);
-    return true;
-  } catch (error: any) {
-    console.log(
-      'FCM token save error:',
-      error?.response?.data || error?.message || error,
-    );
-    return false;
-  }
-};
-
-const syncFCMTokenToBackend = async (knownToken?: string) => {
-  const userId = await AsyncStorage.getItem('userId');
-  if (!userId) return false;
-
-  const fcmToken = knownToken || await getFCMToken();
-  if (!fcmToken) return false;
-
-  return saveTokenToBackend(userId, fcmToken);
-};
 
 // ─── Popups must reach the bottom of the screen ──────────────────────────────
 // An Android Modal window stops above the navigation bar by default. This app
@@ -188,49 +127,6 @@ function App() {
   // reset to Login when the backend kills this device's session.
   const routeNameRef = useRef<string | undefined>(undefined);
   const backgroundedAt = useRef<number | null>(null);
-
-  useEffect(() => {
-    checkFCMToken();
-  }, []);
-
-  useEffect(() => {
-    let unsubscribeForeground: (() => void) | undefined;
-    let unsubscribeTokenRefresh: (() => void) | undefined;
-
-    const setupFirebaseNotifications = async () => {
-      const permissionGranted = await requestNotificationPermission();
-
-      if (!permissionGranted) {
-        console.log('Notification display permission not granted; FCM token will still be generated');
-      }
-
-      const token = await getFCMToken();
-
-      if (token) {
-        console.log('Device FCM Token:', token);
-        await syncFCMTokenToBackend(token);
-      }
-
-      unsubscribeForeground = foregroundNotificationListener();
-
-      unsubscribeTokenRefresh = tokenRefreshListener(async (newToken: string) => {
-        console.log('Updated FCM Token:', newToken);
-        await syncFCMTokenToBackend(newToken);
-      });
-    };
-
-    setupFirebaseNotifications();
-
-    return () => {
-      if (unsubscribeForeground) {
-        unsubscribeForeground();
-      }
-
-      if (unsubscribeTokenRefresh) {
-        unsubscribeTokenRefresh();
-      }
-    };
-  }, []);
 
   useEffect(() => {
     const normalizeRole = (role: string | null) => {
@@ -367,10 +263,6 @@ function App() {
           onStateChange={() => {
             const previousRouteName = routeNameRef.current;
             const currentRouteName = navigationRef.current?.getCurrentRoute()?.name;
-
-            // Firebase can initialize before login creates userId. Sync again
-            // after navigation so a newly authenticated account is registered.
-            void syncFCMTokenToBackend();
 
             if (previousRouteName && currentRouteName && previousRouteName !== currentRouteName) {
               safeVibrate(20);
