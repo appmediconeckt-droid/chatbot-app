@@ -84,6 +84,9 @@ describe('useRingtone', () => {
 
     expect(InCallManager.stopRingback).toHaveBeenCalled();
     expect(InCallManager.setKeepScreenOn).toHaveBeenCalledWith(true);
-    expect(InCallManager.startRingback).toHaveBeenCalledWith('_BUNDLE_');
+    expect(InCallManager.start).toHaveBeenCalledWith({
+      media: 'audio',
+      ringback: '_BUNDLE_',
+    });
   });
 });

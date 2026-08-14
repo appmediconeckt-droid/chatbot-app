@@ -15,7 +15,8 @@ import {
   StyleSheet,
   useWindowDimensions,
   StatusBar,
-  Linking
+  Linking,
+  Alert,
 } from "react-native";
 import * as ImagePicker from "react-native-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";

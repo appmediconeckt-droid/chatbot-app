@@ -613,6 +613,8 @@ import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
 const UserSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
   const { width, height } = useWindowDimensions();
+  const isTablet = width >= 600;
+  const isCompact = width < 360 || height < 700;
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
   const { scrollRef, keyboardOpen, keyboardInset, scrollFocusedInputIntoView } = useKeyboardAwareScroll();
@@ -984,8 +986,26 @@ const UserSignup = ({ navigation, route }) => {
   const scrollContainerStyle = {
     ...styles.scrollContent,
     justifyContent: isLogin && !keyboardOpen ? 'center' : 'flex-start',
-    paddingBottom: 60 + keyboardInset,
+    paddingHorizontal: isCompact ? 14 : 20,
+    paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 78 : 96),
+    paddingBottom: (isCompact ? 44 : 60) + keyboardInset,
   };
+  const panelStyle = [
+    styles.panel,
+    {
+      maxWidth: isTablet ? 460 : 420,
+      paddingHorizontal: isCompact ? 18 : 24,
+      paddingVertical: isCompact ? 22 : 28,
+      borderRadius: isCompact ? 28 : 40,
+    },
+  ];
+  const logoStyle = [
+    styles.logo,
+    {
+      width: isCompact ? 64 : 80,
+      height: isCompact ? 64 : 80,
+    },
+  ];
 
   return (
     <View style={styles.container}>
@@ -1005,9 +1025,9 @@ const UserSignup = ({ navigation, route }) => {
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             >
-              <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+              <Animated.View style={[panelStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
-                  <Image source={logo} style={styles.logo} resizeMode="contain" />
+                  <Image source={logo} style={logoStyle} resizeMode="contain" />
                   <View style={styles.brandContainer}><Text style={[styles.brandMain, { color: '#00652C' }]}>{t('Humaeli')}</Text></View>
                   <Text style={styles.tagline}>{'Begin your journey'}</Text>
                 </View>

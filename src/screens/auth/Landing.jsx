@@ -426,9 +426,9 @@ const Landing = ({ navigation }) => {
                   <View><Text style={styles.chatPreviewName}>Humaeli Assistant</Text><Text style={styles.chatPreviewStatus}>Online • Hindi/English Support</Text></View>
                 </View>
                 <View style={styles.chatPreviewMessages}>
-                  <View style={[styles.chatMessage, styles.chatMessageAI]}><Text>Namaste! I'm here to listen. How are you feeling today?</Text></View>
-                  <View style={[styles.chatMessage, styles.chatMessageUser]}><Text style={{ color: '#2e86ab' }}>I've been feeling really anxious about my job interview.</Text></View>
-                  <View style={[styles.chatMessage, styles.chatMessageAI]}><Text>I understand interview anxiety. Would you like to try some breathing exercises?</Text></View>
+                  <View style={[styles.chatMessage, styles.chatPreviewMessageAI]}><Text>Namaste! I'm here to listen. How are you feeling today?</Text></View>
+                  <View style={[styles.chatMessage, styles.chatPreviewMessageUser]}><Text style={{ color: '#2e86ab' }}>I've been feeling really anxious about my job interview.</Text></View>
+                  <View style={[styles.chatMessage, styles.chatPreviewMessageAI]}><Text>I understand interview anxiety. Would you like to try some breathing exercises?</Text></View>
                 </View>
               </View>
             </View>
@@ -904,8 +904,8 @@ const styles = StyleSheet.create({
   chatPreviewStatus: { fontSize: 12, color: 'rgba(255,255,255,0.8)' },
   chatPreviewMessages: { padding: 16, backgroundColor: '#f8f9fa', gap: 12 },
   chatMessage: { padding: 12, borderRadius: 16, maxWidth: '85%' },
-  chatMessageAI: { backgroundColor: '#FFF', alignSelf: 'flex-start', borderLeftWidth: 4, borderLeftColor: '#2e86ab' },
-  chatMessageUser: { backgroundColor: '#2e86ab', alignSelf: 'flex-end' },
+  chatPreviewMessageAI: { backgroundColor: '#FFF', alignSelf: 'flex-start', borderLeftWidth: 4, borderLeftColor: '#2e86ab' },
+  chatPreviewMessageUser: { backgroundColor: '#2e86ab', alignSelf: 'flex-end' },
   
   // Sections
   section: { paddingVertical: 70, backgroundColor: '#FFF' },
