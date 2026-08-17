@@ -16,8 +16,7 @@ import {
   Animated,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-import { API_BASE_URL } from '../../axiosConfig';
+import axiosInstance from '../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import AuthBackground from '../../theme/AuthBackground';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -31,7 +30,7 @@ import socketService from '../../services/socketService';
 import logo from '../../image/HumaeliBlue.png';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
-import { isOtpVerificationSuccessful } from './authUtils';
+import { getApiErrorMessage, isOtpRequestSuccessful, isOtpVerificationSuccessful } from './authUtils';
 
 const CounselorSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
@@ -81,7 +80,7 @@ const CounselorSignup = ({ navigation, route }) => {
 
   // Verification states
   const [emailVerified, setEmailVerified] = useState(false);
-  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [emailVerificationToken, setEmailVerificationToken] = useState('');
   const [showOtpModal, setShowOtpModal] = useState({ show: false, type: '', value: '' });
   const [otpCode, setOtpCode] = useState('');
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
@@ -186,7 +185,6 @@ const CounselorSignup = ({ navigation, route }) => {
 
     if (!formData.phoneNumber) newErrors.phoneNumber = "Phone is required";
     else if (!/^\d{10}$/.test(formData.phoneNumber)) newErrors.phoneNumber = "Must be 10 digits";
-    else if (!phoneVerified) newErrors.phoneNumber = "Please verify your phone first";
 
     if (!formData.age) newErrors.age = "Age is required";
     else if (formData.age < 18 || formData.age > 100) newErrors.age = "Must be 18-100";
@@ -209,7 +207,7 @@ const CounselorSignup = ({ navigation, route }) => {
   const handleLogin = async () => {
     try {
       setIsLoading(true);
-      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
+      const response = await axiosInstance.post('/api/auth/login', {
         email: formData.email,
         password: formData.password,
         role: 'counsellor',
@@ -240,62 +238,80 @@ const CounselorSignup = ({ navigation, route }) => {
     try {
       setIsLoading(true);
       
-      // Use FormData for file upload support
-      const data = new FormData();
-      data.append('fullName', formData.fullName.trim());
-      data.append('email', formData.email.trim());
-      data.append('phoneNumber', formData.phoneNumber.trim());
-      data.append('age', formData.age);
-      data.append('gender', formData.gender.toLowerCase());
-      data.append('qualification', formData.qualification.trim());
-      data.append('specialization', formData.specialization.trim());
-      data.append('experience', formData.experience);
-      data.append('location', formData.location.trim());
-      data.append('aboutMe', formData.aboutMe.trim());
-      data.append('password', formData.password);
-      data.append('role', "counselor");
-      
-      formData.consultationMode.forEach(mode => data.append('consultationMode[]', mode.toLowerCase()));
-      formData.languages.forEach(lang => data.append('languages[]', lang));
+      // There is no file in the current signup form, so send JSON. Manually
+      // setting multipart/form-data without a boundary can make Express see an
+      // empty body and report every required field as missing.
+      const data = {
+        fullName: formData.fullName.trim(),
+        email: formData.email.trim().toLowerCase(),
+        phoneNumber: formData.phoneNumber.trim(),
+        age: Number(formData.age),
+        gender: formData.gender.toLowerCase(),
+        qualification: formData.qualification.trim(),
+        specialization: formData.specialization.trim(),
+        experience: formData.experience,
+        location: formData.location.trim(),
+        aboutMe: formData.aboutMe.trim(),
+        password: formData.password,
+        role: 'counselor',
+        isEmailVerified: true,
+        emailVerificationToken,
+        consultationMode: formData.consultationMode.map(mode => mode.toLowerCase()),
+        languages: formData.languages,
+      };
 
-      // if (formData.profilePhoto) {
-      //   data.append('profilePhoto', {
-      //     uri: formData.profilePhoto.uri,
-      //     type: formData.profilePhoto.type || 'image/jpeg',
-      //     name: formData.profilePhoto.fileName || 'profile.jpg',
-      //   });
-      // }
+      const response = await axiosInstance.post('/api/auth/complete-registration', data);
 
-      const response = await axios.post(`${API_BASE_URL}/api/auth/complete-registration`, data, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      if (response.data?.success) {
+        const hasSession = await persistCounselorSession(response.data);
+        showNotification(response.data.message || 'Counselor registered!');
 
-      if (response.data.success && await persistCounselorSession(response.data)) {
-        showNotification('Counselor registered!');
-        setTimeout(() => navigation.replace('LocationGate', { destination: 'CounselorOnboarding' }), 1500);
+        if (hasSession) {
+          setTimeout(() => navigation.replace('LocationGate', { destination: 'CounselorOnboarding' }), 1500);
+        } else if (response.data?.requiresLogin) {
+          setFormData(prev => ({
+            ...prev,
+            password: '',
+            confirmPassword: '',
+          }));
+          setEmailVerified(false);
+          setEmailVerificationToken('');
+          setTimeout(() => setIsLogin(true), 1200);
+        }
+      } else {
+        showNotification(response.data?.message || 'Signup failed', 'error');
       }
     } catch (error) {
-      showNotification(error.response?.data?.message || 'Signup failed', 'error');
+      showNotification(
+        error.response?.data?.error || error.response?.data?.message || 'Signup failed',
+        'error',
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
 
-  const handleSendVerifyOtp = async (type) => {
-    const value = type === 'email' ? formData.email : formData.phoneNumber;
+  const handleSendVerifyOtp = async () => {
+    const type = 'email';
+    const value = formData.email.trim().toLowerCase();
     if (!value) return showNotification(`Enter ${type} first`, 'error');
+    if (type === 'email' && !/^\S+@\S+\.\S+$/.test(value)) {
+      return showNotification('Please enter a valid email address', 'error');
+    }
     try {
       setIsLoading(true);
-      const endpoint = type === 'email' ? 'send-email-otp' : 'send-phone-otp';
-      const payload = type === 'email' ? { email: value } : { phoneNumber: value, email: formData.email };
-      const response = await axios.post(`${API_BASE_URL}/api/auth/${endpoint}`, payload);
-      if (response.data.success) {
+      const endpoint = 'send-email-otp';
+      const payload = { email: value };
+      const response = await axiosInstance.post(`/api/auth/${endpoint}`, payload);
+      if (isOtpRequestSuccessful(response)) {
         setShowOtpModal({ show: true, type, value });
-        showNotification(`OTP sent to ${type}`);
+        showNotification(response.data?.message || `OTP sent to ${type}`);
+      } else {
+        showNotification(response.data?.message || 'Failed to send OTP', 'error');
       }
     } catch (err) {
-      showNotification(err.response?.data?.message || 'Failed to send OTP', 'error');
+      showNotification(getApiErrorMessage(err, 'Failed to send OTP'), 'error');
     } finally {
       setIsLoading(false);
     }
@@ -307,16 +323,22 @@ const CounselorSignup = ({ navigation, route }) => {
     try {
       setIsVerifyingOtp(true);
       setOtpError('');
-      const type = showOtpModal.type;
-      const endpoint = type === 'email' ? 'verify-email-otp' : 'verify-phone-otp';
-      const payload = type === 'email'
-        ? { email: formData.email.trim(), otp: normalizedOtp }
-        : { phoneNumber: formData.phoneNumber.trim(), otp: normalizedOtp, email: formData.email.trim() };
+      const type = 'email';
+      const endpoint = 'verify-email-otp';
+      const payload = { email: formData.email.trim().toLowerCase(), otp: normalizedOtp };
 
-      const response = await axios.post(`${API_BASE_URL}/api/auth/${endpoint}`, payload);
+      const response = await axiosInstance.post(`/api/auth/${endpoint}`, payload);
       if (isOtpVerificationSuccessful(response)) {
-        if (type === 'email') setEmailVerified(true);
-        else setPhoneVerified(true);
+        const verificationToken =
+          response.data?.emailVerificationToken ||
+          response.data?.data?.emailVerificationToken ||
+          response.data?.result?.emailVerificationToken;
+        if (!verificationToken) {
+          setOtpError('Email was verified, but the server did not return a registration token. Please request a new code.');
+          return;
+        }
+        setEmailVerified(true);
+        setEmailVerificationToken(verificationToken);
         setShowOtpModal({ show: false, type: '', value: '' });
         setOtpCode('');
         showNotification(`${type} verified!`);
@@ -324,7 +346,7 @@ const CounselorSignup = ({ navigation, route }) => {
         setOtpError(response.data?.message || 'Failed');
       }
     } catch (err) {
-      setOtpError(err.response?.data?.message || 'Failed');
+      setOtpError(getApiErrorMessage(err, 'Verification failed'));
     } finally {
       setIsVerifyingOtp(false);
     }
@@ -338,7 +360,7 @@ const CounselorSignup = ({ navigation, route }) => {
   const handleSendDeviceOtp = async () => {
     try {
       setIsSendingDeviceOtp(true);
-      await axios.post(`${API_BASE_URL}/api/auth/logout-other-devices`, { email: formData.email, role: 'counsellor' });
+      await axiosInstance.post('/api/auth/logout-other-devices', { email: formData.email, role: 'counsellor' });
       setDeviceOtpSent(true);
       showNotification('OTP sent to email');
     } catch (err) {
@@ -351,7 +373,7 @@ const CounselorSignup = ({ navigation, route }) => {
   const handleVerifyDeviceOtp = async () => {
     try {
       setIsVerifyingDeviceOtp(true);
-      const response = await axios.post(`${API_BASE_URL}/api/auth/verify-login-otp`, {
+      const response = await axiosInstance.post('/api/auth/verify-login-otp', {
         email: formData.email,
         otp: deviceOtp,
         logoutOthers: true,
@@ -376,8 +398,10 @@ const CounselorSignup = ({ navigation, route }) => {
 
   const handleChange = useCallback((name, value) => {
     setFormData(prev => ({ ...prev, [name]: value }));
-    if (name === 'email') setEmailVerified(false);
-    if (name === 'phoneNumber') setPhoneVerified(false);
+    if (name === 'email') {
+      setEmailVerified(false);
+      setEmailVerificationToken('');
+    }
   }, []);
 
   const toggleListItem = useCallback((name, value) => {
@@ -391,7 +415,7 @@ const CounselorSignup = ({ navigation, route }) => {
 
   const renderInput = (index, name, icon, placeholder, options = {}, verifyType = null) => {
     const isFocused = focusedField === name;
-    const isVerified = (verifyType === 'email' && emailVerified) || (verifyType === 'phone' && phoneVerified);
+    const isVerified = verifyType === 'email' && emailVerified;
     const isMultiline = options.multiline;
 
     return (
@@ -416,7 +440,7 @@ const CounselorSignup = ({ navigation, route }) => {
             {...options}
           />
           {verifyType && !isLogin && (
-            <TouchableOpacity onPress={() => handleSendVerifyOtp(verifyType)} disabled={isVerified} style={[styles.verifyBtn, isVerified && styles.verifiedBtn]}>
+            <TouchableOpacity onPress={handleSendVerifyOtp} disabled={isVerified} style={[styles.verifyBtn, isVerified && styles.verifiedBtn]}>
               {isVerified ? <Icon name="check-decagram" size={18} color="#004AC6" /> : <Text style={styles.verifyBtnText}>{t('Verify')}</Text>}
             </TouchableOpacity>
           )}
@@ -467,7 +491,7 @@ const CounselorSignup = ({ navigation, route }) => {
                 )} */}
                 <View style={styles.formPanel}>
                   {!isLogin ? (
-                    <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderInput(3, 'phoneNumber', 'phone-outline', 'Phone Number', { keyboardType: 'phone-pad' }, 'phone')}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
+                    <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderInput(3, 'phoneNumber', 'phone-outline', 'Phone Number', { keyboardType: 'phone-pad', maxLength: 10 })}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
                       <Animated.View key="gender-section" style={{ opacity: fieldAnims[5] }}><Text style={styles.sectionLabel}>{t('Gender')}</Text><View style={styles.genderRow}>{genderOptions.map(g => (<TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}><Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text></TouchableOpacity>))}</View></Animated.View>
                       {renderInput(6, 'qualification', 'school-outline', 'Qualification')}{renderInput(7, 'specialization', 'certificate-outline', 'Specialization')}
                       <View style={styles.row}><View style={{ flex: 1 }}>{renderInput(8, 'experience', 'briefcase-clock-outline', 'Years')}</View><View style={{ flex: 1.5 }}>{renderInput(9, 'location', 'map-marker-radius-outline', 'City')}</View></View>
@@ -535,7 +559,7 @@ const CounselorSignup = ({ navigation, route }) => {
         <Modal visible={showOtpModal.show} transparent animationType="slide">
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name={showOtpModal.type === 'email' ? 'email-fast-outline' : 'cellphone-text'} size={40} color="#004AC6" /></View>
+              <View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name="email-fast-outline" size={40} color="#004AC6" /></View>
               <Text style={styles.modalTitle}>{t('Verification Code')}</Text>
               <Text style={styles.modalSub}>Enter code sent to {showOtpModal.value}</Text>
               <TextInput style={[styles.otpInput, { marginVertical: 15 }]} value={otpCode} onChangeText={setOtpCode} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />

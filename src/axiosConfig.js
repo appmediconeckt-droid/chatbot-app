@@ -17,8 +17,8 @@ const API_ENDPOINTS = {
   LOCAL_3000: 'http://localhost:3000',
 };
 
-export const API_BASE_URL = API_ENDPOINTS.RAILWAY;
-export const AI_REALTIME_BASE_URL = API_ENDPOINTS.RAILWAY.replace(/\/+$/, '');
+export const API_BASE_URL = API_ENDPOINTS.DEV_TUNNEL;
+export const AI_REALTIME_BASE_URL = API_ENDPOINTS.DEV_TUNNEL.replace(/\/+$/, '');
 // Create axios instance with default config
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -72,6 +72,9 @@ const NO_REFRESH_PATHS = [
   '/api/auth/refresh-token',
   '/api/auth/google',
   '/api/auth/verify-login-otp',
+  '/api/auth/send-email-otp',
+  '/api/auth/verify-email-otp',
+  '/api/auth/complete-registration',
   // OTP + password routes: a 401 here means "wrong OTP / wrong password", not a
   // dead session. Without them the interceptor would treat a mistyped OTP as an
   // expired session and sign the user out mid-flow.

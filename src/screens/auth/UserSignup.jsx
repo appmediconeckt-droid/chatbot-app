@@ -595,8 +595,7 @@ import {
   Animated,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-import { API_BASE_URL } from '../../axiosConfig';
+import axiosInstance from '../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import AuthBackground from '../../theme/AuthBackground';
@@ -609,7 +608,7 @@ import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
-import { isOtpVerificationSuccessful } from './authUtils';
+import { getApiErrorMessage, isOtpRequestSuccessful, isOtpVerificationSuccessful } from './authUtils';
 
 const UserSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
@@ -654,7 +653,7 @@ const UserSignup = ({ navigation, route }) => {
 
   // Verification states
   const [emailVerified, setEmailVerified] = useState(false);
-  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [emailVerificationToken, setEmailVerificationToken] = useState('');
   const [showOtpModal, setShowOtpModal] = useState({ show: false, type: '', value: '' });
   const [otpCode, setOtpCode] = useState('');
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
@@ -770,7 +769,6 @@ const UserSignup = ({ navigation, route }) => {
 
     if (!formData.phoneNumber) newErrors.phoneNumber = "Phone number is required";
     else if (!/^\d{10}$/.test(formData.phoneNumber)) newErrors.phoneNumber = "Phone number must be 10 digits";
-    else if (!phoneVerified) newErrors.phoneNumber = "Please verify your phone first";
 
     if (!formData.age) newErrors.age = "Age is required";
     else if (formData.age < 13 || formData.age > 120) newErrors.age = "Age must be between 13 and 120";
@@ -788,7 +786,7 @@ const UserSignup = ({ navigation, route }) => {
   const handleLogin = async () => {
     try {
       setIsLoading(true);
-      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
+      const response = await axiosInstance.post('/api/auth/login', {
         email: formData.email,
         password: formData.password,
         role: 'user',
@@ -820,47 +818,72 @@ const UserSignup = ({ navigation, route }) => {
     try {
       setIsLoading(true);
       const signupData = {
-        fullName: formData.fullName,
-        email: formData.email,
-        anonymous: formData.anonymous,
-        phoneNum: formData.phoneNumber,
+        fullName: formData.fullName.trim(),
+        email: formData.email.trim().toLowerCase(),
+        anonymous: formData.anonymous.trim(),
+        phoneNumber: formData.phoneNumber.trim(),
         password: formData.password,
         confirmPassword: formData.confirmPassword,
         age: parseInt(formData.age),
-        gender: formData.gender,
+        gender: formData.gender.trim().toLowerCase(),
         role: "user",
         isEmailVerified: true,
-        isPhoneVerified: true,
+        emailVerificationToken,
       };
-      const response = await axios.post(`${API_BASE_URL}/api/auth/complete-registration`, signupData);
-      if (response.data.success && await persistUserSession(response.data)) {
-        showNotification('Account created successfully!');
-        setTimeout(() => navigation.replace('LocationGate', { destination: 'UserOnboarding' }), 1500);
+      const response = await axiosInstance.post('/api/auth/complete-registration', signupData);
+      if (response.data?.success) {
+        const hasSession = await persistUserSession(response.data);
+        showNotification(response.data.message || 'Account created successfully!');
+
+        if (hasSession) {
+          setTimeout(() => navigation.replace('LocationGate', { destination: 'UserOnboarding' }), 1500);
+        } else if (response.data?.requiresLogin) {
+          setFormData(prev => ({
+            ...prev,
+            password: '',
+            confirmPassword: '',
+          }));
+          setEmailVerified(false);
+          setEmailVerificationToken('');
+          setTimeout(() => setIsLogin(true), 1200);
+        }
+      } else {
+        showNotification(response.data?.message || 'Registration failed', 'error');
       }
     } catch (error) {
-      showNotification(error.response?.data?.message || 'Registration failed', 'error');
+      showNotification(
+        error.response?.data?.error || error.response?.data?.message || 'Registration failed',
+        'error',
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSendVerifyOtp = async (type) => {
-    const value = type === 'email' ? formData.email : formData.phoneNumber;
+  const handleSendVerifyOtp = async () => {
+    const type = 'email';
+    const value = formData.email.trim().toLowerCase();
     if (!value) {
       showNotification(`Please enter ${type} first`, 'error');
       return;
     }
+    if (type === 'email' && !/^\S+@\S+\.\S+$/.test(value)) {
+      showNotification('Please enter a valid email address', 'error');
+      return;
+    }
     try {
       setIsLoading(true);
-      const endpoint = type === 'email' ? 'send-email-otp' : 'send-phone-otp';
-      const payload = type === 'email' ? { email: value } : { phoneNumber: `+${value}`, email: formData.email };
-      const response = await axios.post(`${API_BASE_URL}/api/auth/${endpoint}`, payload);
-      if (response.data.success) {
+      const endpoint = 'send-email-otp';
+      const payload = { email: value };
+      const response = await axiosInstance.post(`/api/auth/${endpoint}`, payload);
+      if (isOtpRequestSuccessful(response)) {
         setShowOtpModal({ show: true, type, value });
-        showNotification(`OTP sent to ${type}`);
+        showNotification(response.data?.message || `OTP sent to ${type}`);
+      } else {
+        showNotification(response.data?.message || 'Failed to send OTP', 'error');
       }
     } catch (err) {
-      showNotification(err.response?.data?.message || 'Failed to send OTP', 'error');
+      showNotification(getApiErrorMessage(err, 'Failed to send OTP'), 'error');
     } finally {
       setIsLoading(false);
     }
@@ -875,16 +898,22 @@ const UserSignup = ({ navigation, route }) => {
     try {
       setIsVerifyingOtp(true);
       setOtpError('');
-      const type = showOtpModal.type;
-      const endpoint = type === 'email' ? 'verify-email-otp' : 'verify-phone-otp';
-      const payload = type === 'email' 
-        ? { email: formData.email.trim(), otp: normalizedOtp } 
-        : { phoneNumber: `+${formData.phoneNumber.trim()}`, otp: normalizedOtp, email: formData.email.trim() };
+      const type = 'email';
+      const endpoint = 'verify-email-otp';
+      const payload = { email: formData.email.trim().toLowerCase(), otp: normalizedOtp };
       
-      const response = await axios.post(`${API_BASE_URL}/api/auth/${endpoint}`, payload);
+      const response = await axiosInstance.post(`/api/auth/${endpoint}`, payload);
       if (isOtpVerificationSuccessful(response)) {
-        if (type === 'email') setEmailVerified(true);
-        else setPhoneVerified(true);
+        const verificationToken =
+          response.data?.emailVerificationToken ||
+          response.data?.data?.emailVerificationToken ||
+          response.data?.result?.emailVerificationToken;
+        if (!verificationToken) {
+          setOtpError('Email was verified, but the server did not return a registration token. Please request a new code.');
+          return;
+        }
+        setEmailVerified(true);
+        setEmailVerificationToken(verificationToken);
         setShowOtpModal({ show: false, type: '', value: '' });
         setOtpCode('');
         showNotification(`${type} verified successfully!`);
@@ -892,7 +921,7 @@ const UserSignup = ({ navigation, route }) => {
         setOtpError(response.data?.message || 'Verification failed');
       }
     } catch (err) {
-      setOtpError(err.response?.data?.message || 'Verification failed');
+      setOtpError(getApiErrorMessage(err, 'Verification failed'));
     } finally {
       setIsVerifyingOtp(false);
     }
@@ -906,7 +935,7 @@ const UserSignup = ({ navigation, route }) => {
   const handleSendDeviceOtp = async () => {
     try {
       setIsSendingDeviceOtp(true);
-      await axios.post(`${API_BASE_URL}/api/auth/logout-other-devices`, { email: formData.email, role: 'user' });
+      await axiosInstance.post('/api/auth/logout-other-devices', { email: formData.email, role: 'user' });
       setDeviceOtpSent(true);
       showNotification('OTP sent to your email');
     } catch (err) {
@@ -919,7 +948,7 @@ const UserSignup = ({ navigation, route }) => {
   const handleVerifyDeviceOtp = async () => {
     try {
       setIsVerifyingDeviceOtp(true);
-      const response = await axios.post(`${API_BASE_URL}/api/auth/verify-login-otp`, {
+      const response = await axiosInstance.post('/api/auth/verify-login-otp', {
         email: formData.email,
         otp: deviceOtp,
         logoutOthers: true,
@@ -944,13 +973,15 @@ const UserSignup = ({ navigation, route }) => {
 
   const handleChange = useCallback((name, value) => {
     setFormData(prev => ({ ...prev, [name]: value }));
-    if (name === 'email') setEmailVerified(false);
-    if (name === 'phoneNumber') setPhoneVerified(false);
+    if (name === 'email') {
+      setEmailVerified(false);
+      setEmailVerificationToken('');
+    }
   }, []);
 
   const renderInput = (index, name, icon, placeholder, options = {}, verifyType = null) => {
     const isFocused = focusedField === name;
-    const isVerified = (verifyType === 'email' && emailVerified) || (verifyType === 'phone' && phoneVerified);
+    const isVerified = verifyType === 'email' && emailVerified;
     
     return (
       <Animated.View key={`input-${name}`} style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
@@ -971,7 +1002,7 @@ const UserSignup = ({ navigation, route }) => {
           />
           {verifyType && !isLogin && (
             <TouchableOpacity 
-              onPress={() => handleSendVerifyOtp(verifyType)} 
+              onPress={handleSendVerifyOtp}
               disabled={isVerified}
               style={[styles.verifyBtn, isVerified && styles.verifiedBtn]}
             >
@@ -1043,7 +1074,7 @@ const UserSignup = ({ navigation, route }) => {
                   )}
                   {renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}
                   {!isLogin && (
-                    <>{renderInput(3, 'phoneNumber', 'phone-outline', 'Phone Number', { keyboardType: 'phone-pad', maxLength: 10 }, 'phone')}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
+                    <>{renderInput(3, 'phoneNumber', 'phone-outline', 'Phone Number', { keyboardType: 'phone-pad', maxLength: 10 })}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
                       <Animated.View style={[styles.genderRow, { opacity: fieldAnims[5] }]}>
                         {genderOptions.map(g => (
                           <TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}>
@@ -1129,8 +1160,8 @@ const UserSignup = ({ navigation, route }) => {
         <Modal visible={showOtpModal.show} transparent animationType="slide">
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <View style={[styles.modalIcon, { backgroundColor: '#f5f7ff' }]}><Icon name={showOtpModal.type === 'email' ? 'email-fast-outline' : 'cellphone-text'} size={40} color="#00652C" /></View>
-              <Text style={styles.modalTitle}>Verify Your {showOtpModal.type === 'email' ? 'Email' : 'Phone'}</Text>
+              <View style={[styles.modalIcon, { backgroundColor: '#f5f7ff' }]}><Icon name="email-fast-outline" size={40} color="#00652C" /></View>
+              <Text style={styles.modalTitle}>Verify Your Email</Text>
               <Text style={styles.modalSub}>Enter the code sent to {showOtpModal.value}</Text>
               <TextInput style={styles.otpInput} value={otpCode} onChangeText={setOtpCode} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}

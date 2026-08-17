@@ -61,9 +61,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
     type: "",
   });
 
-  // ─── Profile-change OTP state (email + phone) ─────────────────────────
-  // Mirrors web's per-field OTP gating: backend won't accept an email/phone
-  // change unless the user has verified an OTP for the *exact* new value.
+  // Email changes remain OTP-gated. Phone changes use format validation only.
   const blankChange = {
     sending: false,
     sent: false,
@@ -74,7 +72,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
     error: "",
   };
   const [emailChange, setEmailChange] = useState(blankChange);
-  const [phoneChange, setPhoneChange] = useState(blankChange);
   const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
 
   const [patientData, setPatientData] = useState({
@@ -464,33 +461,21 @@ const PatientProfile = ({ onProfileUpdate }) => {
   const isEmailDirty = () =>
     String(editFormData?.email || "").trim().toLowerCase() !==
     String(patientData?.personalInfo?.email || "").trim().toLowerCase();
-  const isPhoneDirty = () =>
-    String(editFormData?.phone || "").replace(/\D/g, "") !==
-    String(patientData?.personalInfo?.phone || "").replace(/\D/g, "");
 
   const emailReady =
     !isEmailDirty() ||
     (emailChange.verified &&
       emailChange.verifiedValue ===
         String(editFormData?.email || "").trim().toLowerCase());
-  const phoneReady =
-    !isPhoneDirty() ||
-    (phoneChange.verified &&
-      phoneChange.verifiedValue ===
-        String(editFormData?.phone || "").replace(/\D/g, ""));
-
-  const sendChangeOtp = async (field) => {
-    const setState = field === "email" ? setEmailChange : setPhoneChange;
-    const newValue =
-      field === "email"
-        ? String(editFormData.email || "").trim().toLowerCase()
-        : String(editFormData.phone || "").replace(/\D/g, "");
+  const sendChangeOtp = async () => {
+    const setState = setEmailChange;
+    const newValue = String(editFormData.email || "").trim().toLowerCase();
     setState((s) => ({ ...s, sending: true, error: "" }));
     try {
       const headers = await authHeaders();
       const res = await axios.post(
         `${API_BASE_URL}/api/auth/profile-change/send-otp`,
-        { field, newValue },
+        { field: "email", newValue },
         { headers, timeout: 15000 },
       );
       if (res.data?.success) {
@@ -518,13 +503,10 @@ const PatientProfile = ({ onProfileUpdate }) => {
     }
   };
 
-  const verifyChangeOtp = async (field) => {
-    const setState = field === "email" ? setEmailChange : setPhoneChange;
-    const state = field === "email" ? emailChange : phoneChange;
-    const newValue =
-      field === "email"
-        ? String(editFormData.email || "").trim().toLowerCase()
-        : String(editFormData.phone || "").replace(/\D/g, "");
+  const verifyChangeOtp = async () => {
+    const setState = setEmailChange;
+    const state = emailChange;
+    const newValue = String(editFormData.email || "").trim().toLowerCase();
     if (!state.otp || state.otp.length < 4) {
       setState((s) => ({ ...s, error: "Enter the OTP first" }));
       return;
@@ -534,7 +516,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       const headers = await authHeaders();
       const res = await axios.post(
         `${API_BASE_URL}/api/auth/profile-change/verify-otp`,
-        { field, newValue, otp: state.otp },
+        { field: "email", newValue, otp: state.otp },
         { headers },
       );
       if (res.data?.success) {
@@ -548,7 +530,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
           error: "",
         });
         showNotificationMessage(
-          `${field === "email" ? "Email" : "Phone"} verified`,
+          "Email verified",
           "success",
         );
       } else {
@@ -573,22 +555,10 @@ const PatientProfile = ({ onProfileUpdate }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editFormData?.email]);
 
-  useEffect(() => {
-    if (
-      phoneChange.verified &&
-      phoneChange.verifiedValue !==
-        String(editFormData?.phone || "").replace(/\D/g, "")
-    ) {
-      setPhoneChange(blankChange);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editFormData?.phone]);
-
   // Reset when exiting edit mode.
   useEffect(() => {
     if (!isEditing) {
       setEmailChange(blankChange);
-      setPhoneChange(blankChange);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditing]);
@@ -650,8 +620,9 @@ const PatientProfile = ({ onProfileUpdate }) => {
       showNotificationMessage("Verify your new email via OTP first", "error");
       return;
     }
-    if (!phoneReady) {
-      showNotificationMessage("Verify your new phone via OTP first", "error");
+    const normalizedPhone = String(editFormData.phone || "").replace(/\D/g, "");
+    if (!/^\d{10}$/.test(normalizedPhone)) {
+      showNotificationMessage("Enter a valid 10-digit phone number", "error");
       return;
     }
     try {
@@ -661,7 +632,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       formData.append("fullName", editFormData.name);
       formData.append("anonymous", editFormData.anonymous || "");
       formData.append("email", editFormData.email);
-      formData.append("phoneNumber", editFormData.phone);
+      formData.append("phoneNumber", normalizedPhone);
       formData.append("age", editFormData.age.toString());
       formData.append("gender", editFormData.gender);
       formData.append("bloodGroup", editFormData.bloodGroup);
@@ -1323,72 +1294,17 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>{t('auth:phone')} *</Text>
-                  <View style={styles.verifyRow}>
-                    <TextInput
-                      style={[styles.input, styles.verifyInput]}
-                      value={editFormData.phone}
-                      onChangeText={(text) => handleEditFormChange("phone", text)}
-                      keyboardType="phone-pad"
-                    />
-                    {isPhoneDirty() && !phoneChange.verified && (
-                      <TouchableOpacity
-                        style={[
-                          styles.verifyBtn,
-                          phoneChange.sending && styles.verifyBtnDisabled,
-                        ]}
-                        onPress={() => sendChangeOtp("phone")}
-                        disabled={phoneChange.sending}
-                      >
-                        <Text style={styles.verifyBtnText}>
-                          {phoneChange.sending
-                            ? t('profile:sendingOtp')
-                            : phoneChange.sent
-                            ? t('profile:resend')
-                            : t('profile:verify')}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                    {phoneChange.verified && (
-                      <View style={styles.verifiedBadge}>
-                        <Ionicons name="checkmark-circle" size={18} color={PATIENT.primary} />
-                        <Text style={styles.verifiedText}>{t('Verified')}</Text>
-                      </View>
-                    )}
-                  </View>
-                  {phoneChange.sent && !phoneChange.verified && (
-                    <View style={styles.otpRow}>
-                      <TextInput
-                        style={[styles.input, styles.otpInput]}
-                        value={phoneChange.otp}
-                        onChangeText={(t) =>
-                          setPhoneChange((s) => ({
-                            ...s,
-                            otp: t.replace(/\D/g, "").slice(0, 6),
-                          }))
-                        }
-                        keyboardType="number-pad"
-                        maxLength={6}
-                        placeholder={t('6-digit OTP')}
-                        placeholderTextColor="#94a3b8"
-                      />
-                      <TouchableOpacity
-                        style={[
-                          styles.verifyBtn,
-                          styles.confirmBtn,
-                          phoneChange.verifying && styles.verifyBtnDisabled,
-                        ]}
-                        onPress={() => verifyChangeOtp("phone")}
-                        disabled={phoneChange.verifying}
-                      >
-                        <Text style={styles.verifyBtnText}>
-                          {phoneChange.verifying ? t('profile:verifying') : t('common:confirm')}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                  {!!phoneChange.error && (
-                    <Text style={styles.fieldErrorText}>{phoneChange.error}</Text>
-                  )}
+                  <TextInput
+                    style={styles.input}
+                    value={editFormData.phone}
+                    onChangeText={(text) =>
+                      handleEditFormChange("phone", text.replace(/\D/g, "").slice(0, 10))
+                    }
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                    placeholder="10-digit phone number"
+                    placeholderTextColor="#94a3b8"
+                  />
                 </View>
               </View>
 

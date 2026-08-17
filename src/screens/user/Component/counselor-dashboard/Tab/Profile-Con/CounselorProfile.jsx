@@ -600,6 +600,11 @@ const CounselorProfile = () => {
   };
 
   const handleSave = async () => {
+    const normalizedPhone = String(editedData.phoneNumber || '').replace(/\D/g, '');
+    if (!/^\d{10}$/.test(normalizedPhone)) {
+      setError('Enter a valid 10-digit phone number');
+      return;
+    }
     try {
       setLoading(true);
       setError('');
@@ -613,7 +618,7 @@ const CounselorProfile = () => {
       const formData = new FormData();
       formData.append('fullName', editedData.fullName);
       formData.append('email', editedData.email);
-      formData.append('phoneNumber', editedData.phoneNumber);
+      formData.append('phoneNumber', normalizedPhone);
       formData.append('qualification', editedData.qualification || editedData.education);
       formData.append('experience', editedData.experience.toString());
       formData.append('location', editedData.location);
@@ -995,7 +1000,7 @@ const CounselorProfile = () => {
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>{t('auth:phone')}</Text>
                 {isEditing ? (
-                  <TextInput style={styles.input} value={editedData.phoneNumber || ''} onChangeText={(v) => handleInputChange('phoneNumber', v)} placeholder="Your phone" placeholderTextColor="#9CA3AF" keyboardType="phone-pad" />
+                  <TextInput style={styles.input} value={editedData.phoneNumber || ''} onChangeText={(v) => handleInputChange('phoneNumber', v.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit phone number" placeholderTextColor="#9CA3AF" keyboardType="phone-pad" maxLength={10} />
                 ) : (
                   <Text style={styles.detailValue}>{counselor.phoneNumber || t('profile:notSpecified')}</Text>
                 )}
