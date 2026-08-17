@@ -9,9 +9,9 @@ import { forceSignOut } from './utils/authSession';
 const API_ENDPOINTS = {
   // Must match the SAME backend the web frontend uses (chatbot/.env.local)
   // so OTP / email / forgot-password behave identically to web.
-   DEV_TUNNEL: 'https://s5jl7g4z-5001.inc1.devtunnels.ms',
+  
+  DEV_TUNNEL: 'https://s5jl7g4z-5001.inc1.devtunnels.ms',
   RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
- 
   LOCAL_5001: 'http://localhost:5001',
   LOCAL_5000: 'http://localhost:5000',
   LOCAL_3000: 'http://localhost:3000',

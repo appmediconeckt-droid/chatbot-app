@@ -117,10 +117,8 @@ withFontCap(TextInput);
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
   const [bootRoute, setBootRoute] = useState<keyof RootStackParamList>('RoleSelector');
-  const [bootDestination, setBootDestination] = useState<'UserDashboard' | 'CounselorDashboard'>('UserDashboard');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
-  const [pinExists, setPinExists] = useState(false);
   // Shared module-level ref (see src/navigationRef) so the axios interceptor can
   // reset to Login when the backend kills this device's session.
   const routeNameRef = useRef<string | undefined>(undefined);
@@ -153,7 +151,6 @@ function App() {
 
         // Show lock screen if the user has set up a PIN
         if (storedPin) {
-          setPinExists(true);
           setIsLocked(true);
         }
 
@@ -213,7 +210,6 @@ function App() {
         if (elapsed >= LOCK_TIMEOUT_MS) {
           const storedPin = await AsyncStorage.getItem(PIN_STORAGE_KEY);
           if (storedPin) {
-            setPinExists(true);
             setIsLocked(true);
           }
         }
@@ -295,7 +291,7 @@ function App() {
             <Stack.Screen
               name="LocationGate"
               component={LocationGate}
-              initialParams={{ destination: bootDestination }}
+              initialParams={{ destination: 'UserDashboard' }}
             />
             <Stack.Screen name="UserDashboard" component={UserDashboard} />
              <Stack.Screen name='ChatBox' component={ChatBox} />

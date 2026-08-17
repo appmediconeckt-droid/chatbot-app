@@ -20,18 +20,13 @@ export const TranslatedText = ({
   const [translatedText, setTranslatedText] = useState('');
   const [isTranslating, setIsTranslating] = useState(false);
 
-  // If it's an i18n key, use t() function
-  if (i18nKey) {
-    const displayText = t(i18nKey);
-    return (
-      <Text style={style} numberOfLines={numberOfLines} onLayout={onLayout} {...props}>
-        {displayText}
-      </Text>
-    );
-  }
-
   // For dynamic text, translate via API
   useEffect(() => {
+    if (i18nKey) {
+      setTranslatedText(t(i18nKey));
+      return;
+    }
+
     const translate = async () => {
       if (!children || typeof children !== 'string') {
         setTranslatedText(children);
@@ -61,11 +56,11 @@ export const TranslatedText = ({
     };
 
     translate();
-  }, [children, i18n.language]);
+  }, [children, i18n.language, i18nKey, t]);
 
   return (
     <Text style={style} numberOfLines={numberOfLines} onLayout={onLayout} {...props}>
-      {translatedText || children}
+      {translatedText || (i18nKey ? t(i18nKey) : children)}
     </Text>
   );
 };

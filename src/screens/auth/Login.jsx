@@ -12,6 +12,7 @@ import {
   Platform,
   Modal,
   Dimensions,
+  useWindowDimensions,
   Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -72,9 +73,9 @@ const Login = ({ navigation, route }) => {
   const [fpShowConfirmPassword, setFpShowConfirmPassword] = useState(false);
   const [fpResendTimer, setFpResendTimer] = useState(60);
 
-  // Tablet detection
-  const { width } = Dimensions.get('window');
-  const isTablet = width >= 600;
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isTablet = windowWidth >= 600;
+  const isCompact = windowWidth < 360 || windowHeight < 700;
 
   const normalizeRole = (role) => {
     const value = String(role || '').trim().toLowerCase();
@@ -582,7 +583,24 @@ const Login = ({ navigation, route }) => {
     // Pushes the card's bottom (Login / Continue with Google / Create account)
     // clear of the keyboard; scrollToEnd above then brings it into view.
     paddingBottom: SCROLL_PAD_V + kbPad,
+    paddingHorizontal: isCompact ? 14 : 20,
   };
+  const loginCardStyle = [
+    styles.loginCard,
+    {
+      maxWidth: isTablet ? 460 : 420,
+      padding: isCompact ? 18 : 25,
+      borderRadius: isCompact ? 16 : 20,
+    },
+  ];
+  const logoStyle = [
+    styles.logoImage,
+    {
+      width: isCompact ? 160 : 200,
+      height: isCompact ? 54 : 68,
+      marginBottom: isCompact ? 14 : 20,
+    },
+  ];
 
   return (
     <AuthBackground role={route?.params?.role}>
@@ -599,10 +617,10 @@ const Login = ({ navigation, route }) => {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.loginCard}>
+        <View style={loginCardStyle}>
           {/* Header Section */}
           <View style={styles.headerSection}>
-            <Image source={logo} style={styles.logoImage} resizeMode="contain" />
+            <Image source={logo} style={logoStyle} resizeMode="contain" />
             <Text style={styles.title}>{t('auth:welcomeBack')}</Text>
             <Text style={styles.subtitle}>{t('auth:login')} {t('common:or')} {t('auth:email')}</Text>
           </View>
@@ -1065,6 +1083,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 20,
     padding: 25,
+    width: '100%',
+    alignSelf: 'center',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,

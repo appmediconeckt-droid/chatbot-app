@@ -17,6 +17,7 @@ import { API_BASE_URL } from "../../axiosConfig";
 import useLanguageRender from '../../hooks/useLanguageRender';
 
 export default function ForgotPasswordOTPScreen() {
+  const { t } = useLanguageRender();
   const navigation = useNavigation();
   const route = useRoute();
   const email = route.params?.email || "";

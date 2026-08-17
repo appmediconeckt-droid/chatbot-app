@@ -10,7 +10,7 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
-  Dimensions,
+  useWindowDimensions,
   Platform,
   Animated,
   Easing,
@@ -58,8 +58,6 @@ import CounselorGradientButton from '../../../../../components/common/CounselorG
 import { loadUserLanguage } from '../../../../../i18n';
 import { DOCTOR, DOCTOR_GRADIENT } from "../../../../../theme/palette";
 import { toImageUri } from "../../../../../utils/imageUri";
-
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 // â”€â”€â”€ Incoming Call Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const IncomingCallModal = ({
@@ -801,6 +799,7 @@ const AppointmentSkeletonCard = () => {
 // â”€â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function CounselorDashboard() {
   const { t } = useLanguageRender();
+  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const MOBILE_HEADER_BAR_HEIGHT = 68;
   const topInset = Platform.OS === "ios" ? insets.top : 0;
@@ -813,7 +812,7 @@ export default function CounselorDashboard() {
   // True when the menu is on screen only because a back press re-opened it, so
   // the tab behind it is the one already backed out of.
   const menuViaBackRef = useRef(false);
-  const [isMobile, setIsMobile] = useState(SCREEN_WIDTH <= 768);
+  const [isMobile, setIsMobile] = useState(windowWidth <= 768);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [pendingRequests, setPendingRequests] = useState([]);
@@ -961,13 +960,9 @@ export default function CounselorDashboard() {
     return embeddedMatch ? embeddedMatch[0] : null;
   };
 
-  // Check mobile screen
   useEffect(() => {
-    const subscription = Dimensions.addEventListener("change", ({ window }) => {
-      setIsMobile(window.width <= 768);
-    });
-    return () => subscription?.remove();
-  }, []);
+    setIsMobile(windowWidth <= 768);
+  }, [windowWidth]);
 
   // â”€â”€ Fetch Appointments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const aptSocketRef = useRef(null);
@@ -2479,187 +2474,8 @@ export default function CounselorDashboard() {
         return renderSessionsTab();
       case "patients":
         return <PatientRequests />;
-      case "earnings": {
+      case "earnings":
         return <CounselorWallet embedded onClose={() => handleDashboardBack()} />;
-        /*
-         * Legacy hard-coded earnings preview retained temporarily below for
-         * merge compatibility. The live CounselorWallet screen above now owns
-         * earnings, payout history and withdrawal requests.
-         */
-        const shimmerOpacity = earningsShimmerAnim.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0.35, 0.75],
-        });
-        if (earningsLoading) {
-          return (
-            <ScrollView
-              style={styles.earningsScroll}
-              contentContainerStyle={styles.earningsScrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={styles.earningsSection}>
-                <View style={styles.earningsSectionHeader}>
-                  <View style={styles.earningsSectionHeaderText}>
-                    <Animated.View style={[styles.earnSkTitle, { opacity: shimmerOpacity }]} />
-                    <Animated.View style={[styles.earnSkSubtitle, { opacity: shimmerOpacity }]} />
-                  </View>
-                  <Animated.View style={[styles.earnSkPill, { opacity: shimmerOpacity }]} />
-                </View>
-                <Animated.View style={[styles.earnSkHero, { opacity: shimmerOpacity }]} />
-                <View style={styles.earningsMiniGrid}>
-                  <Animated.View style={[styles.earnSkMini, { opacity: shimmerOpacity }]} />
-                  <Animated.View style={[styles.earnSkMini, { opacity: shimmerOpacity }]} />
-                </View>
-                <View style={styles.earningsCardRow}>
-                  <Animated.View style={[styles.earnSkCard, { opacity: shimmerOpacity }]} />
-                  <Animated.View style={[styles.earnSkCard, { opacity: shimmerOpacity }]} />
-                </View>
-                <Animated.View style={[styles.earnSkList, { opacity: shimmerOpacity }]} />
-              </View>
-            </ScrollView>
-          );
-        }
-        return (
-          <ScrollView
-            style={styles.earningsScroll}
-            contentContainerStyle={styles.earningsScrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={styles.earningsSection}>
-              <LinearGradient
-                colors={['#003A9B', '#1490FF']}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={styles.earningsHeroCard}
-              >
-                <View style={styles.earningsHeroTopRow}>
-                  <View style={styles.earningsHeroTitleRow}>
-                    <View style={styles.earningsHeroIconWrap}>
-                      <Icon name="wallet" size={16} color="#ffffff" />
-                    </View>
-                    <Text style={styles.earningsHeroLabel}>Total Earning</Text>
-                  </View>
-                  <View style={styles.earningsHeroTrendPill}>
-                    <Icon name="arrow-trend-up" size={11} color="#22c55e" />
-                    <Text style={styles.earningsHeroTrendText}>+12.5%</Text>
-                  </View>
-                </View>
-
-                <Text style={styles.earningsHeroAmount}>₹24,500</Text>
-                <Text style={styles.earningsHeroCaption}>
-                  Across 45 completed sessions this month
-                </Text>
-
-                {/* Inner pending / withdrawable card */}
-                <View style={styles.earningsHeroInner}>
-                  <View style={styles.earningsHeroMetaItem}>
-                    <Text style={styles.earningsHeroMetaLabel}>Pending</Text>
-                    <Text style={styles.earningsHeroMetaValue}>₹8,750</Text>
-                  </View>
-                  <View style={styles.earningsHeroInnerDivider} />
-                  <View style={styles.earningsHeroMetaItem}>
-                    <Text style={styles.earningsHeroMetaLabel}>Withdrawable</Text>
-                    <Text style={styles.earningsHeroMetaValue}>₹15,750</Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.earningsWithdrawBtn}
-                  activeOpacity={0.85}
-                  onPress={() =>
-                    Alert.alert(
-                      "Withdraw",
-                      "₹15,750 will be transferred to your linked bank account within 2-3 business days."
-                    )
-                  }
-                >
-                  <Icon name="arrow-up-right-from-square" size={13} color="#2563EB" />
-                  <Text style={styles.earningsWithdrawBtnText}>Withdraw Funds</Text>
-                </TouchableOpacity>
-              </LinearGradient>
-
-              <View style={styles.earningsMiniGrid}>
-                <View style={styles.earningsMiniCard}>
-                  <View style={[styles.earningsMiniIcon, { backgroundColor: '#dbeafe' }]}>
-                    <Icon name="circle-check" size={14} color="#2563eb" />
-                  </View>
-                  <Text style={styles.earningsMiniLabel}>Last 30 Days</Text>
-                  <Text style={styles.earningsMiniValue}>₹24,500</Text>
-                </View>
-                <View style={styles.earningsMiniCard}>
-                  <View style={[styles.earningsMiniIcon, { backgroundColor: '#dbeafe' }]}>
-                    <Icon name="circle-check" size={14} color="#2563eb" />
-                  </View>
-                  <Text style={styles.earningsMiniLabel}>Last 30 Days</Text>
-                  <Text style={styles.earningsMiniValue}>₹24,500</Text>
-                </View>
-              </View>
-
-              <View style={styles.earningsCardRow}>
-                <View style={[styles.earningsCard, styles.earningsCardPending]}>
-                  <Text style={styles.earningsCardTitle}>Pending Payout</Text>
-                  <Text style={styles.earningsAmount}>{'\u20B9'}8,750</Text>
-                  <Text style={[styles.earningsBadge, styles.earningsBadgeWarning]}>
-                    Awaiting processing
-                  </Text>
-                </View>
-                <View style={styles.earningsCard}>
-                  <Text style={styles.earningsCardTitle}>This Month</Text>
-                  <Text style={styles.earningsAmount}>{'\u20B9'}24,500</Text>
-                  <Text style={styles.earningsBadge}>45 sessions completed</Text>
-                </View>
-              </View>
-
-              <View style={styles.earningsBreakdownCard}>
-                <View style={styles.earningsBreakdownHeader}>
-                  <Text style={styles.earningsBreakdownTitle}>Recent Transactions</Text>
-                  <TouchableOpacity activeOpacity={0.7}>
-                    <Text style={styles.earningsBreakdownLink}>View all</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {[
-                  { name: "Riya Sharma", type: "Video session", amount: "+\u20B91,200", date: "Today, 10:24 AM", color: "#16a34a", icon: "video" },
-                  { name: "Arjun Mehta", type: "Voice session", amount: "+\u20B9800", date: "Yesterday, 6:10 PM", color: "#2563eb", icon: "phone" },
-                  { name: "Neha Verma", type: "Chat session", amount: "+\u20B9450", date: "12 May, 4:42 PM", color: "#9333ea", icon: "message" },
-                  { name: "Withdrawal", type: "To HDFC \u2022\u2022\u2022\u2022 4421", amount: "-\u20B95,000", date: "10 May, 2:15 PM", color: "#ef4444", icon: "building-columns" },
-                ].map((tx, i, arr) => (
-                  <View
-                    key={i}
-                    style={[
-                      styles.earningsTxnRow,
-                      i < arr.length - 1 && styles.earningsTxnRowDivider,
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.earningsTxnIcon,
-                        { backgroundColor: `${tx.color}1A` },
-                      ]}
-                    >
-                      <Icon name={tx.icon} size={14} color={tx.color} />
-                    </View>
-                    <View style={styles.earningsTxnBody}>
-                      <Text style={styles.earningsTxnName}>{t(tx.name)}</Text>
-                      <Text style={styles.earningsTxnMeta}>
-                        {tx.type} {'\u2022'} {tx.date}
-                      </Text>
-                    </View>
-                    <Text
-                      style={[
-                        styles.earningsTxnAmount,
-                        { color: tx.amount.startsWith("-") ? "#ef4444" : "#16a34a" },
-                      ]}
-                    >
-                      {tx.amount}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          </ScrollView>
-        );
-      }
       case "messages":
         return (
           <Messagesou
@@ -5416,8 +5232,8 @@ const styles = StyleSheet.create({
   requestModal: {
     position: "absolute",
     top: Platform.OS === "ios" ? 100 : 80,
+    left: 16,
     right: 16,
-    width: SCREEN_WIDTH - 32,
     maxWidth: 380,
     backgroundColor: "#ffffff",
     borderRadius: 20,
@@ -5588,13 +5404,6 @@ const styles = StyleSheet.create({
     width: "100%",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-  },
-  mobileTitle: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
-    gap: 6,
   },
   mobileHeaderLogo: {
     width: 24,

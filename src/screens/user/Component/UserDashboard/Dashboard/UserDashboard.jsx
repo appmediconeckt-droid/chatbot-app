@@ -16,7 +16,7 @@ import {
   Keyboard,
   Platform,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   Animated,
   Easing,
   StatusBar,
@@ -64,8 +64,6 @@ import PrivacyPolicy from "../Tab/PrivacyPolicy/PrivacyPolicy";
 import NotificationScreen from "../Tab/Notifications/NotificationScreen";
 import UserAccountSettings from "../Tab/UserAccountSettings";
 import { toImageUri } from "../../../../../utils/imageUri";
-
-const { width, height } = Dimensions.get("window");
 
 // Time for a Modal to finish dismissing. RN can only transition one Modal at a
 // time, so opening the next one any sooner gets silently dropped.
@@ -125,6 +123,7 @@ const ChatPopup = ({
   userPhoto,
 }) => {
   const { t } = useLanguageRender();
+  const { width, height } = useWindowDimensions();
   const [speakingId, setSpeakingId] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [aiAttachment, setAiAttachment] = useState(null);
@@ -1070,7 +1069,6 @@ const ChatPopup = ({
           animationType="fade"
           transparent={true}
           visible={aiVoiceOpen}
-          statusBarTranslucent
           onRequestClose={() => cleanupAiVoiceCall({ closeModal: true })}
         >
           <View style={styles.aiVoiceOverlay}>
@@ -1537,6 +1535,7 @@ const sheetStyles = StyleSheet.create({
 
 const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) => {
   const { t } = useLanguageRender();
+  const { width: screenWidth } = useWindowDimensions();
   const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(true);
   const [activeTab, setActiveTab] = useState("Upcoming");
@@ -1576,9 +1575,8 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   }, [showDetailsModal, selectedApt]);
 
   // Tablet detection for responsive modal
-  const screenWidth = Dimensions.get('window').width;
   const isTablet = screenWidth >= 600;
-  const modalWidth = isTablet ? screenWidth * 0.7 : width * 0.88;
+  const modalWidth = isTablet ? screenWidth * 0.7 : screenWidth * 0.88;
   const modalMaxWidth = isTablet ? 700 : 420;
 
   const fetchAppointments = useCallback(async () => {
@@ -1922,7 +1920,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
         transparent={true}
         visible={showDetailsModal}
         animationType="slide"
-        statusBarTranslucent
         onRequestClose={() => setShowDetailsModal(false)}
       >
         <View style={sheetStyles.overlay}>
@@ -2173,6 +2170,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 };
 
 export default function UserDashboard() {
+  const { width: windowWidth } = useWindowDimensions();
   const [avatarFailed, setAvatarFailed] = useState(false);
   // The bottom tab bar had a fixed paddingBottom (6 on Android), so on a phone
   // with gesture navigation its labels were clipped by the gesture bar.
@@ -2189,7 +2187,7 @@ export default function UserDashboard() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(windowWidth <= 768);
   const [isLoading, setIsLoading] = useState(false);
   const [aiSessionId, setAiSessionId] = useState(null);
   const [showMoreModal, setShowMoreModal] = useState(false);
@@ -2264,7 +2262,6 @@ export default function UserDashboard() {
   };
 
   useEffect(() => {
-    checkMobile();
     fetchUserData();
     Animated.timing(headerAnim, {
       toValue: 1,
@@ -2272,6 +2269,10 @@ export default function UserDashboard() {
       useNativeDriver: true,
     }).start();
   }, []);
+
+  useEffect(() => {
+    setIsMobile(windowWidth <= 768);
+  }, [windowWidth]);
 
   // Reload user's language whenever this dashboard gains focus
   useEffect(() => {
@@ -2556,10 +2557,6 @@ export default function UserDashboard() {
       clearInterval(intervalId);
     };
   }, [showCallModal, callerInfo.callId]);
-
-  const checkMobile = () => {
-    setIsMobile(width <= 768);
-  };
 
   const fetchUserData = async () => {
     try {
@@ -3496,7 +3493,6 @@ export default function UserDashboard() {
         visible={showMoreModal}
         animationType="fade"
         onRequestClose={handleSidebarBack}
-        statusBarTranslucent={true}
       >
         <View style={styles.sidebarRoot} pointerEvents="auto">
           <SafeAreaView
@@ -3646,7 +3642,6 @@ export default function UserDashboard() {
         transparent={true}
         visible={showLogoutConfirm}
         animationType="fade"
-        statusBarTranslucent
         onRequestClose={() => !loggingOut && setShowLogoutConfirm(false)}
       >
         {/* Backdrop tap and Android back both dismiss, matching the rest of the
@@ -4707,9 +4702,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     borderRadius: 24,
     overflow: "hidden",
-    width: width * 0.88,
+    width: "88%",
     maxWidth: 420,
-    maxHeight: height * 0.8,
+    maxHeight: "80%",
   },
   detailsModalHeader: {
     flexDirection: "row",
@@ -5957,7 +5952,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#1a1a2e",
     borderRadius: 32,
     padding: 40,
-    width: width * 0.85,
+    width: "85%",
     maxWidth: 400,
   },
   voiceCallContent: {
@@ -6008,8 +6003,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-    width: width,
-    height: height * 0.75,
+    width: "100%",
+    height: "75%",
     position: 'absolute',
     bottom: 0,
     overflow: "hidden",
@@ -6131,7 +6126,7 @@ const styles = StyleSheet.create({
   confirmModal: {
     backgroundColor: "#ffffff",
     borderRadius: 24,
-    width: width * 0.85,
+    width: "85%",
     maxWidth: 400,
     overflow: "hidden",
     shadowColor: "#000",
