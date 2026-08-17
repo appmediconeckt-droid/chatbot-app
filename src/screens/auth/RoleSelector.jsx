@@ -142,12 +142,15 @@ const RoleSelector = () => {
       setTimeout(() => {
         setIsLoading(false);
         if (normalizedRole === 'user') {
-          // navigate, not replace: replace dropped RoleSelector from the stack,
-          // so hardware back on the login screen had nothing to pop and closed
-          // the app instead of coming back here.
-          navigation.navigate('UserSignup', { role: 'user' });
+          navigation.navigate('UserOnboarding', {
+            destination: 'UserSignup',
+            destinationParams: { role: 'user' },
+          });
         } else if (normalizedRole === 'counselor') {
-          navigation.navigate('CounselorSignup', { role: 'counselor' });
+          navigation.navigate('CounselorOnboarding', {
+            destination: 'CounselorSignup',
+            destinationParams: { role: 'counselor' },
+          });
         }
       }, 600);
     } catch (error) {

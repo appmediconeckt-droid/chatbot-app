@@ -104,7 +104,7 @@ const OnboardingPage4 = () => {
 );
 };
 
-const CounselorOnboarding = ({ navigation, previewMode = false, onPreviewComplete }) => {
+const CounselorOnboarding = ({ navigation, route, previewMode = false, onPreviewComplete }) => {
   const { t } = useLanguageRender();
   const [currentPage, setCurrentPage] = useState(0);
   const scrollViewRef = useRef(null);
@@ -121,7 +121,10 @@ const CounselorOnboarding = ({ navigation, previewMode = false, onPreviewComplet
       onPreviewComplete();
       return;
     }
-    navigation.replace('CounselorDashboard');
+    navigation.replace(
+      route?.params?.destination || 'CounselorDashboard',
+      route?.params?.destinationParams,
+    );
   };
 
   const goToNextPage = () => {
@@ -202,10 +205,10 @@ const CounselorOnboarding = ({ navigation, previewMode = false, onPreviewComplet
                 end={{ x: 1, y: 0 }}
                 style={s.nextBtn}
               >
-                <Text style={s.nextBtnText}>{t('Complete Profile')}</Text>
+                <Text style={s.nextBtnText}>{route?.params?.destination ? t('Get Started') : t('Complete Profile')}</Text>
               </LinearGradient>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => navigation.replace('CounselorDashboard')}>
+            <TouchableOpacity onPress={finishOnboarding}>
               <Text style={s.maybeLaterText}>{t('Maybe Later')}</Text>
             </TouchableOpacity>
           </>

@@ -141,7 +141,7 @@ const OnboardingPage4 = () => {
 );
 };
 
-const UserOnboarding = ({ navigation, previewMode = false, onPreviewComplete }) => {
+const UserOnboarding = ({ navigation, route, previewMode = false, onPreviewComplete }) => {
   const { t } = useLanguageRender();
   const [currentPage, setCurrentPage] = useState(0);
   const scrollViewRef = useRef(null);
@@ -158,7 +158,10 @@ const UserOnboarding = ({ navigation, previewMode = false, onPreviewComplete }) 
       onPreviewComplete();
       return;
     }
-    navigation.replace('UserDashboard');
+    navigation.replace(
+      route?.params?.destination || 'UserDashboard',
+      route?.params?.destinationParams,
+    );
   };
 
   const goToNextPage = () => {

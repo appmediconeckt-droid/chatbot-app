@@ -656,6 +656,8 @@ const UserSignup = ({ navigation, route }) => {
   const [emailVerificationToken, setEmailVerificationToken] = useState('');
   const [showOtpModal, setShowOtpModal] = useState({ show: false, type: '', value: '' });
   const [otpCode, setOtpCode] = useState('');
+  const [isSendingVerification, setIsSendingVerification] = useState(false);
+  const sendingVerificationRef = useRef(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [otpError, setOtpError] = useState('');
 
@@ -836,7 +838,7 @@ const UserSignup = ({ navigation, route }) => {
         showNotification(response.data.message || 'Account created successfully!');
 
         if (hasSession) {
-          setTimeout(() => navigation.replace('LocationGate', { destination: 'UserOnboarding' }), 1500);
+          setTimeout(() => navigation.replace('LocationGate', { destination: 'UserDashboard' }), 1500);
         } else if (response.data?.requiresLogin) {
           setFormData(prev => ({
             ...prev,
@@ -861,6 +863,7 @@ const UserSignup = ({ navigation, route }) => {
   };
 
   const handleSendVerifyOtp = async () => {
+    if (sendingVerificationRef.current) return;
     const type = 'email';
     const value = formData.email.trim().toLowerCase();
     if (!value) {
@@ -871,8 +874,10 @@ const UserSignup = ({ navigation, route }) => {
       showNotification('Please enter a valid email address', 'error');
       return;
     }
+    sendingVerificationRef.current = true;
     try {
-      setIsLoading(true);
+      setIsSendingVerification(true);
+      setOtpError('');
       const endpoint = 'send-email-otp';
       const payload = { email: value };
       const response = await axiosInstance.post(`/api/auth/${endpoint}`, payload);
@@ -885,7 +890,8 @@ const UserSignup = ({ navigation, route }) => {
     } catch (err) {
       showNotification(getApiErrorMessage(err, 'Failed to send OTP'), 'error');
     } finally {
-      setIsLoading(false);
+      sendingVerificationRef.current = false;
+      setIsSendingVerification(false);
     }
   };
 
@@ -1003,11 +1009,13 @@ const UserSignup = ({ navigation, route }) => {
           {verifyType && !isLogin && (
             <TouchableOpacity 
               onPress={handleSendVerifyOtp}
-              disabled={isVerified}
-              style={[styles.verifyBtn, isVerified && styles.verifiedBtn]}
+              disabled={isVerified || isSendingVerification}
+              style={[styles.verifyBtn, (isVerified || isSendingVerification) && styles.verifiedBtn]}
             >
               {isVerified ? (
                 <Icon name="check-decagram" size={18} color="#10b981" />
+              ) : isSendingVerification ? (
+                <ActivityIndicator size="small" color="#00652C" />
               ) : (
                 <Text style={styles.verifyBtnText}>{t('Verify')}</Text>
               )}
@@ -1163,7 +1171,7 @@ const UserSignup = ({ navigation, route }) => {
               <View style={[styles.modalIcon, { backgroundColor: '#f5f7ff' }]}><Icon name="email-fast-outline" size={40} color="#00652C" /></View>
               <Text style={styles.modalTitle}>Verify Your Email</Text>
               <Text style={styles.modalSub}>Enter the code sent to {showOtpModal.value}</Text>
-              <TextInput style={styles.otpInput} value={otpCode} onChangeText={setOtpCode} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
+              <TextInput style={styles.otpInput} value={otpCode} onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="number-pad" maxLength={6} autoFocus />
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
               <TouchableOpacity style={styles.modalActionBtn} onPress={handleVerifyOtp} disabled={isVerifyingOtp}>
                 {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Now')}</Text>}
@@ -1251,7 +1259,7 @@ const styles = StyleSheet.create({
   inputWrapperFocused: { borderColor: '#00652C', backgroundColor: '#ffffff' },
   inputIcon: { marginRight: 12 },
   textInput: { flex: 1, color: '#1e293b', fontSize: 14, fontWeight: '600' },
-  verifyBtn: { backgroundColor: '#00652C', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
+  verifyBtn: { minWidth: 68, minHeight: 34, backgroundColor: '#00652C', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   verifiedBtn: { backgroundColor: 'transparent' },
   verifyBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   errorText: { color: '#ef4444', fontSize: 11, marginTop: 4, marginLeft: 16, fontWeight: '600' },
@@ -1269,18 +1277,18 @@ const styles = StyleSheet.create({
   switchLink: { fontSize: 14, fontWeight: '800', color: '#00652C' },
   notification: { position: 'absolute', top: 50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 10, zIndex: 1000 },
   notificationText: { color: '#fff', fontSize: 14, fontWeight: '700', marginLeft: 8 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  modalContent: { backgroundColor: '#fff', borderRadius: 30, padding: 24, width: '100%', alignItems: 'center' },
-  modalIcon: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
-  modalTitle: { fontSize: 20, fontWeight: '900', color: '#1e293b', marginBottom: 12, textAlign: 'center' },
-  modalSub: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 20, marginBottom: 24 },
-  modalActionBtn: { width: '100%', height: 56, borderRadius: 18, backgroundColor: '#00652C', justifyContent: 'center', alignItems: 'center', shadowColor: '#00652C', shadowOpacity: 0.2, shadowRadius: 10, elevation: 5 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.64)', justifyContent: 'center', alignItems: 'center', padding: 22 },
+  modalContent: { backgroundColor: '#fff', borderRadius: 26, padding: 28, width: '100%', maxWidth: 390, alignItems: 'center', borderWidth: 1, borderColor: '#DDF4E6', shadowColor: '#052E16', shadowOpacity: 0.18, shadowRadius: 24, elevation: 14 },
+  modalIcon: { width: 68, height: 68, borderRadius: 34, justifyContent: 'center', alignItems: 'center', marginBottom: 18 },
+  modalTitle: { fontSize: 22, fontWeight: '900', color: '#0F172A', marginBottom: 8, textAlign: 'center' },
+  modalSub: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 21, marginBottom: 22 },
+  modalActionBtn: { width: '100%', height: 54, borderRadius: 16, backgroundColor: '#00652C', justifyContent: 'center', alignItems: 'center', shadowColor: '#00652C', shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
   modalActionText: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  modalErrorText: { color: '#ef4444', fontSize: 12, fontWeight: '700', marginBottom: 12 },
-  cancelBtn: { marginTop: 16 },
-  cancelText: { fontSize: 14, fontWeight: '700', color: '#94a3b8' },
+  modalErrorText: { width: '100%', color: '#B91C1C', backgroundColor: '#FEF2F2', fontSize: 12, fontWeight: '700', textAlign: 'center', padding: 10, borderRadius: 10, marginTop: -6, marginBottom: 14 },
+  cancelBtn: { width: '100%', height: 44, marginTop: 10, justifyContent: 'center', alignItems: 'center' },
+  cancelText: { fontSize: 14, fontWeight: '700', color: '#64748B' },
   otpWrapper: { width: '100%', gap: 16 },
-  otpInput: { width: '100%', height: 54, borderRadius: 18, backgroundColor: '#f8fafc', borderWidth: 1.5, borderColor: '#f1f5f9', textAlign: 'center', fontSize: 18, fontWeight: '800', color: '#1e293b' },
+  otpInput: { width: '100%', height: 56, borderRadius: 16, backgroundColor: '#F8FAFC', borderWidth: 1.5, borderColor: '#B7DFC7', textAlign: 'center', fontSize: 22, letterSpacing: 8, fontWeight: '800', color: '#0F172A', marginBottom: 16 },
 });
 
 export default UserSignup;

@@ -56,8 +56,8 @@ export type RootStackParamList = {
   Landing: undefined;
   UserSignup: { role?: 'user' | 'counselor' } | undefined;
   RoleSelector: undefined;
-  UserOnboarding: undefined;
-  CounselorOnboarding: undefined;
+  UserOnboarding: { destination?: 'UserSignup'; destinationParams?: { role?: 'user' } } | undefined;
+  CounselorOnboarding: { destination?: 'CounselorSignup'; destinationParams?: { role?: 'counselor' } } | undefined;
   Login: { role?: 'user' | 'counselor' } | undefined;
   CounselorSignup: { role?: 'user' | 'counselor' } | undefined;
   OTPVerification: undefined;
