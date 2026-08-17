@@ -609,6 +609,7 @@ import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
+import { isOtpVerificationSuccessful } from './authUtils';
 
 const UserSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
@@ -866,25 +867,29 @@ const UserSignup = ({ navigation, route }) => {
   };
 
   const handleVerifyOtp = async () => {
-    if (otpCode.length !== 6) {
+    const normalizedOtp = otpCode.trim();
+    if (normalizedOtp.length !== 6) {
       setOtpError('Enter 6 digit code');
       return;
     }
     try {
       setIsVerifyingOtp(true);
+      setOtpError('');
       const type = showOtpModal.type;
       const endpoint = type === 'email' ? 'verify-email-otp' : 'verify-phone-otp';
       const payload = type === 'email' 
-        ? { email: formData.email, otp: otpCode } 
-        : { phoneNumber: `+${formData.phoneNumber}`, otp: otpCode, email: formData.email };
+        ? { email: formData.email.trim(), otp: normalizedOtp } 
+        : { phoneNumber: `+${formData.phoneNumber.trim()}`, otp: normalizedOtp, email: formData.email.trim() };
       
       const response = await axios.post(`${API_BASE_URL}/api/auth/${endpoint}`, payload);
-      if (response.data.success) {
+      if (isOtpVerificationSuccessful(response)) {
         if (type === 'email') setEmailVerified(true);
         else setPhoneVerified(true);
         setShowOtpModal({ show: false, type: '', value: '' });
         setOtpCode('');
         showNotification(`${type} verified successfully!`);
+      } else {
+        setOtpError(response.data?.message || 'Verification failed');
       }
     } catch (err) {
       setOtpError(err.response?.data?.message || 'Verification failed');
