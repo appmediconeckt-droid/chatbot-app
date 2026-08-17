@@ -10,23 +10,13 @@ const API_ENDPOINTS = {
   // Must match the SAME backend the web frontend uses (chatbot/.env.local)
   // so OTP / email / forgot-password behave identically to web.
    DEV_TUNNEL: 'https://s5jl7g4z-5001.inc1.devtunnels.ms',
-  RAILWAY: 'https://chatbot-backend-production-ea76.up.railway.app',
+  RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
  
   LOCAL_5001: 'http://localhost:5001',
   LOCAL_5000: 'http://localhost:5000',
   LOCAL_3000: 'http://localhost:3000',
 };
 
-// Base URL for API - Change here to switch between environments
-// NOTE: On a real phone / Android emulator, 'localhost' points to the device,
-// NOT your PC. Use DEV_TUNNEL so the app can reach your backend.
-// Options: 'RAILWAY' (cloud, always-on, all features), 'RENDER' (cloud, cold-starts),
-//          'DEV_TUNNEL' (local PC tunnel), 'LOCAL_5001' (iOS sim / web only)
-// NOTE: 'localhost' only works on iOS simulator or web. On a REAL PHONE or
-// Android emulator, localhost = the device itself, not your PC — use DEV_TUNNEL.
-// USB debugging on a real phone: `adb reverse tcp:5001 tcp:5001` maps the
-// phone's localhost:5001 to the PC's backend over the cable — no internet or
-// dev tunnel needed on the device. Switch to DEV_TUNNEL only for wireless/release.
 export const API_BASE_URL = API_ENDPOINTS.RAILWAY;
 export const AI_REALTIME_BASE_URL = API_ENDPOINTS.RAILWAY.replace(/\/+$/, '');
 // Create axios instance with default config
