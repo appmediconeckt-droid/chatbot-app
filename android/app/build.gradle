@@ -48,6 +48,8 @@ android {
         // Google Play update version
         versionCode 5
         versionName "1.0.4"
+
+        manifestPlaceholders = [usesCleartextTraffic: "false"]
     }
 
     signingConfigs {
@@ -73,10 +75,12 @@ android {
 
         debug {
             signingConfig signingConfigs.debug
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
 
         release {
             signingConfig signingConfigs.release
+            manifestPlaceholders = [usesCleartextTraffic: "false"]
 
             minifyEnabled enableProguardInReleaseBuilds
 

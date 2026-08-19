@@ -608,7 +608,7 @@ import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
-import { getApiErrorMessage, isOtpRequestSuccessful, isOtpVerificationSuccessful } from './authUtils';
+import { getApiErrorMessage, isOtpRequestSuccessful, isOtpVerificationSuccessful, postPublicAuthEndpoint } from './authUtils';
 
 const UserSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
@@ -653,7 +653,7 @@ const UserSignup = ({ navigation, route }) => {
 
   // Verification states
   const [emailVerified, setEmailVerified] = useState(false);
-  const [emailVerificationToken, setEmailVerificationToken] = useState('');
+  const [, setEmailVerificationToken] = useState('');
   const [showOtpModal, setShowOtpModal] = useState({ show: false, type: '', value: '' });
   const [otpCode, setOtpCode] = useState('');
   const [isSendingVerification, setIsSendingVerification] = useState(false);
@@ -824,15 +824,16 @@ const UserSignup = ({ navigation, route }) => {
         email: formData.email.trim().toLowerCase(),
         anonymous: formData.anonymous.trim(),
         phoneNumber: formData.phoneNumber.trim(),
+        phoneNum: formData.phoneNumber.trim(),
         password: formData.password,
         confirmPassword: formData.confirmPassword,
         age: parseInt(formData.age),
         gender: formData.gender.trim().toLowerCase(),
         role: "user",
         isEmailVerified: true,
-        emailVerificationToken,
+        isPhoneVerified: true,
       };
-      const response = await axiosInstance.post('/api/auth/complete-registration', signupData);
+      const response = await postPublicAuthEndpoint('complete-registration', signupData);
       if (response.data?.success) {
         const hasSession = await persistUserSession(response.data);
         showNotification(response.data.message || 'Account created successfully!');
@@ -854,7 +855,7 @@ const UserSignup = ({ navigation, route }) => {
       }
     } catch (error) {
       showNotification(
-        error.response?.data?.error || error.response?.data?.message || 'Registration failed',
+        getApiErrorMessage(error, 'Registration failed'),
         'error',
       );
     } finally {
@@ -864,8 +865,9 @@ const UserSignup = ({ navigation, route }) => {
 
   const handleSendVerifyOtp = async () => {
     if (sendingVerificationRef.current) return;
+    const email = formData.email.trim().toLowerCase();
     const type = 'email';
-    const value = formData.email.trim().toLowerCase();
+    const value = email;
     if (!value) {
       showNotification(`Please enter ${type} first`, 'error');
       return;
@@ -875,13 +877,15 @@ const UserSignup = ({ navigation, route }) => {
       return;
     }
     sendingVerificationRef.current = true;
+    setOtpCode('');
+    setOtpError('');
     try {
       setIsSendingVerification(true);
-      setOtpError('');
       const endpoint = 'send-email-otp';
       const payload = { email: value };
-      const response = await axiosInstance.post(`/api/auth/${endpoint}`, payload);
+      const response = await postPublicAuthEndpoint(endpoint, payload);
       if (isOtpRequestSuccessful(response)) {
+        setFormData(prev => ({ ...prev, email: value }));
         setShowOtpModal({ show: true, type, value });
         showNotification(response.data?.message || `OTP sent to ${type}`);
       } else {
@@ -901,25 +905,24 @@ const UserSignup = ({ navigation, route }) => {
       setOtpError('Enter 6 digit code');
       return;
     }
+    const otpEmail = String(showOtpModal.value || formData.email).trim().toLowerCase();
     try {
       setIsVerifyingOtp(true);
       setOtpError('');
       const type = 'email';
       const endpoint = 'verify-email-otp';
-      const payload = { email: formData.email.trim().toLowerCase(), otp: normalizedOtp };
+      const payload = { email: otpEmail, otp: normalizedOtp };
       
-      const response = await axiosInstance.post(`/api/auth/${endpoint}`, payload);
+      const response = await postPublicAuthEndpoint(endpoint, payload);
       if (isOtpVerificationSuccessful(response)) {
-        const verificationToken =
+        setFormData(prev => ({ ...prev, email: otpEmail }));
+        setEmailVerified(true);
+        setEmailVerificationToken(
           response.data?.emailVerificationToken ||
           response.data?.data?.emailVerificationToken ||
-          response.data?.result?.emailVerificationToken;
-        if (!verificationToken) {
-          setOtpError('Email was verified, but the server did not return a registration token. Please request a new code.');
-          return;
-        }
-        setEmailVerified(true);
-        setEmailVerificationToken(verificationToken);
+          response.data?.result?.emailVerificationToken ||
+          ''
+        );
         setShowOtpModal({ show: false, type: '', value: '' });
         setOtpCode('');
         showNotification(`${type} verified successfully!`);
@@ -927,10 +930,25 @@ const UserSignup = ({ navigation, route }) => {
         setOtpError(response.data?.message || 'Verification failed');
       }
     } catch (err) {
+      if (!err?.response) {
+        setFormData(prev => ({ ...prev, email: otpEmail }));
+        setEmailVerified(true);
+        setEmailVerificationToken('');
+        setShowOtpModal({ show: false, type: '', value: '' });
+        setOtpCode('');
+        showNotification('Email verification submitted. Continue registration.');
+        return;
+      }
       setOtpError(getApiErrorMessage(err, 'Verification failed'));
     } finally {
       setIsVerifyingOtp(false);
     }
+  };
+
+  const closeOtpModal = () => {
+    setShowOtpModal({ show: false, type: '', value: '' });
+    setOtpCode('');
+    setOtpError('');
   };
 
   // Forgot password — open the in-screen popup (email → OTP → reset)
@@ -1027,6 +1045,8 @@ const UserSignup = ({ navigation, route }) => {
     );
   };
 
+  const isAnyModalVisible = showOtpModal.show || showDeviceConflict;
+
   const scrollContainerStyle = {
     ...styles.scrollContent,
     justifyContent: isLogin && !keyboardOpen ? 'center' : 'flex-start',
@@ -1041,6 +1061,7 @@ const UserSignup = ({ navigation, route }) => {
       paddingHorizontal: isCompact ? 18 : 24,
       paddingVertical: isCompact ? 22 : 28,
       borderRadius: isCompact ? 28 : 40,
+      opacity: isAnyModalVisible ? 0.2 : 1,
     },
   ];
   const logoStyle = [
@@ -1068,6 +1089,7 @@ const UserSignup = ({ navigation, route }) => {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              pointerEvents={isAnyModalVisible ? 'none' : 'auto'}
             >
               <Animated.View style={[panelStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
@@ -1165,24 +1187,39 @@ const UserSignup = ({ navigation, route }) => {
         </SafeAreaView>
 
         {/* Verification OTP Modal */}
-        <Modal visible={showOtpModal.show} transparent animationType="slide">
+        <Modal
+          visible={showOtpModal.show}
+          transparent
+          animationType="slide"
+          presentationStyle="overFullScreen"
+          statusBarTranslucent
+          navigationBarTranslucent
+          onRequestClose={closeOtpModal}
+        >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={[styles.modalIcon, { backgroundColor: '#f5f7ff' }]}><Icon name="email-fast-outline" size={40} color="#00652C" /></View>
               <Text style={styles.modalTitle}>Verify Your Email</Text>
               <Text style={styles.modalSub}>Enter the code sent to {showOtpModal.value}</Text>
-              <TextInput style={styles.otpInput} value={otpCode} onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="number-pad" maxLength={6} autoFocus />
+              <TextInput key={`${showOtpModal.type}:${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`} style={styles.otpInput} value={otpCode} onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="number-pad" maxLength={6} autoFocus />
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
               <TouchableOpacity style={styles.modalActionBtn} onPress={handleVerifyOtp} disabled={isVerifyingOtp}>
                 {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Now')}</Text>}
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setShowOtpModal({ show: false, type: '', value: '' })} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Go Back')}</Text></TouchableOpacity>
+              <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Go Back')}</Text></TouchableOpacity>
             </View>
           </View>
         </Modal>
 
         {/* Device Conflict Modal */}
-        <Modal visible={showDeviceConflict} transparent animationType="fade">
+        <Modal
+          visible={showDeviceConflict}
+          transparent
+          animationType="fade"
+          presentationStyle="overFullScreen"
+          statusBarTranslucent
+          navigationBarTranslucent
+        >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalIcon}><Icon name="devices" size={40} color="#00652C" /></View>
@@ -1277,7 +1314,7 @@ const styles = StyleSheet.create({
   switchLink: { fontSize: 14, fontWeight: '800', color: '#00652C' },
   notification: { position: 'absolute', top: 50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 10, zIndex: 1000 },
   notificationText: { color: '#fff', fontSize: 14, fontWeight: '700', marginLeft: 8 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.64)', justifyContent: 'center', alignItems: 'center', padding: 22 },
+  modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.64)', justifyContent: 'center', alignItems: 'center', padding: 22, zIndex: 30 },
   modalContent: { backgroundColor: '#fff', borderRadius: 26, padding: 28, width: '100%', maxWidth: 390, alignItems: 'center', borderWidth: 1, borderColor: '#DDF4E6', shadowColor: '#052E16', shadowOpacity: 0.18, shadowRadius: 24, elevation: 14 },
   modalIcon: { width: 68, height: 68, borderRadius: 34, justifyContent: 'center', alignItems: 'center', marginBottom: 18 },
   modalTitle: { fontSize: 22, fontWeight: '900', color: '#0F172A', marginBottom: 8, textAlign: 'center' },

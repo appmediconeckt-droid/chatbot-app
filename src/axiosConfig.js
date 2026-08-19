@@ -10,23 +10,52 @@ const API_ENDPOINTS = {
   // Must match the SAME backend the web frontend uses (chatbot/.env.local)
   // so OTP / email / forgot-password behave identically to web.
   
-  DEV_TUNNEL: 'https://s5jl7g4z-5001.inc1.devtunnels.ms',
+  DEV_TUNNEL: 'https://m429gbrg-5001.inc1.devtunnels.ms',
   RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
+  LOCAL_ADB_5002: 'http://127.0.0.1:5002',
   LOCAL_5001: 'http://localhost:5001',
   LOCAL_5000: 'http://localhost:5000',
   LOCAL_3000: 'http://localhost:3000',
 };
 
-export const API_BASE_URL = API_ENDPOINTS.DEV_TUNNEL;
-export const AI_REALTIME_BASE_URL = API_ENDPOINTS.DEV_TUNNEL.replace(/\/+$/, '');
+export const API_BASE_URL = API_ENDPOINTS.RAILWAY;
+export const AI_REALTIME_BASE_URL = API_ENDPOINTS.RAILWAY.replace(/\/+$/, '');
+export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
+  ? { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' }
+  : {};
+
+Object.assign(axios.defaults.headers.common, TUNNEL_HEADERS);
+
+// Public auth endpoints should not carry a stale mobile session token. Web can
+// often get away with this, but React Native/XHR can surface a closed/rejected
+// request as a generic "Network Error" with no response body.
+const PUBLIC_AUTH_PATHS = [
+  '/api/auth/login',
+  '/api/auth/logout',
+  '/api/auth/refresh-token',
+  '/api/auth/google',
+  '/api/auth/verify-login-otp',
+  '/api/auth/send-email-otp',
+  '/api/auth/verify-email-otp',
+  '/api/auth/complete-registration',
+  '/api/auth/generateOtp',
+  '/api/auth/verifyOtp',
+  '/api/auth/resendOtp',
+  '/api/auth/set-password-by-otp',
+  '/api/auth/setPassword',
+  '/api/auth/changePassword',
+  '/api/auth/send-forgot-password-otp',
+  '/api/auth/verify-forgot-password-otp',
+  '/api/auth/reset-password',
+];
+
 // Create axios instance with default config
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
-   
-    'X-Tunnel-Skip-AntiPhishing-Page': 'true',
+    ...TUNNEL_HEADERS,
   },
   withCredentials: true, // Important for cookies/sessions
 });
@@ -35,11 +64,17 @@ const axiosInstance = axios.create({
 axiosInstance.interceptors.request.use(
   async (config) => {
     try {
-      const token =
-        (await AsyncStorage.getItem('accessToken')) ||
-        (await AsyncStorage.getItem('token'));
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+      const url = config?.url || '';
+      const isPublicAuthRoute = PUBLIC_AUTH_PATHS.some((path) => url.includes(path));
+      if (isPublicAuthRoute) {
+        delete config.headers.Authorization;
+      } else {
+        const token =
+          (await AsyncStorage.getItem('accessToken')) ||
+          (await AsyncStorage.getItem('token'));
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
       }
     } catch (error) {
       console.log('Error getting token:', error);
@@ -67,24 +102,10 @@ const processQueue = (error, token = null) => {
 // "session expired" — refreshing for these would loop or surface confusing
 // errors during logout flows.
 const NO_REFRESH_PATHS = [
-  '/api/auth/login',
-  '/api/auth/logout',
-  '/api/auth/refresh-token',
-  '/api/auth/google',
-  '/api/auth/verify-login-otp',
-  '/api/auth/send-email-otp',
-  '/api/auth/verify-email-otp',
-  '/api/auth/complete-registration',
+  ...PUBLIC_AUTH_PATHS,
   // OTP + password routes: a 401 here means "wrong OTP / wrong password", not a
   // dead session. Without them the interceptor would treat a mistyped OTP as an
   // expired session and sign the user out mid-flow.
-  '/api/auth/generateOtp',
-  '/api/auth/verifyOtp',
-  '/api/auth/set-password-by-otp',
-  '/api/auth/setPassword',
-  '/api/auth/changePassword',
-  '/api/auth/send-forgot-password-otp',
-  '/api/auth/verify-forgot-password-otp',
 ];
 
 axiosInstance.interceptors.response.use(
@@ -158,7 +179,7 @@ axiosInstance.interceptors.response.use(
           { refreshToken },
           {
             withCredentials: true,
-            headers: { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' },
+            headers: TUNNEL_HEADERS,
           }
         );
 

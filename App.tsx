@@ -275,6 +275,7 @@ function App() {
               gestureEnabled: true,
               fullScreenGestureEnabled: true,
               animation: 'slide_from_right',
+              contentStyle: { backgroundColor: '#f8fafc' },
             }}
           >
             {/* <Stack.Screen name="Landing" component={Landing} /> */}

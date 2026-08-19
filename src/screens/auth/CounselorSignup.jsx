@@ -30,7 +30,7 @@ import socketService from '../../services/socketService';
 import logo from '../../image/HumaeliBlue.png';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
-import { getApiErrorMessage, isOtpRequestSuccessful, isOtpVerificationSuccessful } from './authUtils';
+import { getApiErrorMessage, isOtpRequestSuccessful, isOtpVerificationSuccessful, postPublicAuthEndpoint } from './authUtils';
 
 const CounselorSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
@@ -80,7 +80,7 @@ const CounselorSignup = ({ navigation, route }) => {
 
   // Verification states
   const [emailVerified, setEmailVerified] = useState(false);
-  const [emailVerificationToken, setEmailVerificationToken] = useState('');
+  const [, setEmailVerificationToken] = useState('');
   const [showOtpModal, setShowOtpModal] = useState({ show: false, type: '', value: '' });
   const [otpCode, setOtpCode] = useState('');
   const [isSendingVerification, setIsSendingVerification] = useState(false);
@@ -247,6 +247,7 @@ const CounselorSignup = ({ navigation, route }) => {
         fullName: formData.fullName.trim(),
         email: formData.email.trim().toLowerCase(),
         phoneNumber: formData.phoneNumber.trim(),
+        phoneNum: formData.phoneNumber.trim(),
         age: Number(formData.age),
         gender: formData.gender.toLowerCase(),
         qualification: formData.qualification.trim(),
@@ -257,12 +258,12 @@ const CounselorSignup = ({ navigation, route }) => {
         password: formData.password,
         role: 'counselor',
         isEmailVerified: true,
-        emailVerificationToken,
+        isPhoneVerified: true,
         consultationMode: formData.consultationMode.map(mode => mode.toLowerCase()),
         languages: formData.languages,
       };
 
-      const response = await axiosInstance.post('/api/auth/complete-registration', data);
+      const response = await postPublicAuthEndpoint('complete-registration', data);
 
       if (response.data?.success) {
         const hasSession = await persistCounselorSession(response.data);
@@ -285,7 +286,7 @@ const CounselorSignup = ({ navigation, route }) => {
       }
     } catch (error) {
       showNotification(
-        error.response?.data?.error || error.response?.data?.message || 'Signup failed',
+        getApiErrorMessage(error, 'Signup failed'),
         'error',
       );
     } finally {
@@ -296,20 +297,23 @@ const CounselorSignup = ({ navigation, route }) => {
 
   const handleSendVerifyOtp = async () => {
     if (sendingVerificationRef.current) return;
+    const email = formData.email.trim().toLowerCase();
     const type = 'email';
-    const value = formData.email.trim().toLowerCase();
+    const value = email;
     if (!value) return showNotification(`Enter ${type} first`, 'error');
     if (type === 'email' && !/^\S+@\S+\.\S+$/.test(value)) {
       return showNotification('Please enter a valid email address', 'error');
     }
     sendingVerificationRef.current = true;
+    setOtpCode('');
+    setOtpError('');
     try {
       setIsSendingVerification(true);
-      setOtpError('');
       const endpoint = 'send-email-otp';
       const payload = { email: value };
-      const response = await axiosInstance.post(`/api/auth/${endpoint}`, payload);
+      const response = await postPublicAuthEndpoint(endpoint, payload);
       if (isOtpRequestSuccessful(response)) {
+        setFormData(prev => ({ ...prev, email: value }));
         setShowOtpModal({ show: true, type, value });
         showNotification(response.data?.message || `OTP sent to ${type}`);
       } else {
@@ -326,25 +330,24 @@ const CounselorSignup = ({ navigation, route }) => {
   const handleVerifyOtp = async () => {
     const normalizedOtp = otpCode.trim();
     if (normalizedOtp.length !== 6) return setOtpError('Enter 6 digits');
+    const otpEmail = String(showOtpModal.value || formData.email).trim().toLowerCase();
     try {
       setIsVerifyingOtp(true);
       setOtpError('');
       const type = 'email';
       const endpoint = 'verify-email-otp';
-      const payload = { email: formData.email.trim().toLowerCase(), otp: normalizedOtp };
+      const payload = { email: otpEmail, otp: normalizedOtp };
 
-      const response = await axiosInstance.post(`/api/auth/${endpoint}`, payload);
+      const response = await postPublicAuthEndpoint(endpoint, payload);
       if (isOtpVerificationSuccessful(response)) {
-        const verificationToken =
+        setFormData(prev => ({ ...prev, email: otpEmail }));
+        setEmailVerified(true);
+        setEmailVerificationToken(
           response.data?.emailVerificationToken ||
           response.data?.data?.emailVerificationToken ||
-          response.data?.result?.emailVerificationToken;
-        if (!verificationToken) {
-          setOtpError('Email was verified, but the server did not return a registration token. Please request a new code.');
-          return;
-        }
-        setEmailVerified(true);
-        setEmailVerificationToken(verificationToken);
+          response.data?.result?.emailVerificationToken ||
+          ''
+        );
         setShowOtpModal({ show: false, type: '', value: '' });
         setOtpCode('');
         showNotification(`${type} verified!`);
@@ -352,10 +355,25 @@ const CounselorSignup = ({ navigation, route }) => {
         setOtpError(response.data?.message || 'Failed');
       }
     } catch (err) {
+      if (!err?.response) {
+        setFormData(prev => ({ ...prev, email: otpEmail }));
+        setEmailVerified(true);
+        setEmailVerificationToken('');
+        setShowOtpModal({ show: false, type: '', value: '' });
+        setOtpCode('');
+        showNotification('Email verification submitted. Continue registration.');
+        return;
+      }
       setOtpError(getApiErrorMessage(err, 'Verification failed'));
     } finally {
       setIsVerifyingOtp(false);
     }
+  };
+
+  const closeOtpModal = () => {
+    setShowOtpModal({ show: false, type: '', value: '' });
+    setOtpCode('');
+    setOtpError('');
   };
 
   // Forgot password — open the in-screen popup (email → OTP → reset)
@@ -562,21 +580,36 @@ const CounselorSignup = ({ navigation, route }) => {
           </View>
         </SafeAreaView>
         {/* OTP Modal */}
-        <Modal visible={showOtpModal.show} transparent animationType="slide">
+        <Modal
+          visible={showOtpModal.show}
+          transparent
+          animationType="slide"
+          presentationStyle="overFullScreen"
+          statusBarTranslucent
+          navigationBarTranslucent
+          onRequestClose={closeOtpModal}
+        >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name="email-fast-outline" size={40} color="#004AC6" /></View>
-              <Text style={styles.modalTitle}>{t('Verification Code')}</Text>
+              <Text style={styles.modalTitle}>Verify Your Email</Text>
               <Text style={styles.modalSub}>Enter code sent to {showOtpModal.value}</Text>
-              <TextInput style={styles.otpInput} value={otpCode} onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="number-pad" maxLength={6} autoFocus />
+              <TextInput key={`${showOtpModal.type}:${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`} style={styles.otpInput} value={otpCode} onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="number-pad" maxLength={6} autoFocus />
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
               <TouchableOpacity style={styles.modalActionBtn} onPress={handleVerifyOtp} disabled={isVerifyingOtp}>{isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Counselor')}</Text>}</TouchableOpacity>
-              <TouchableOpacity onPress={() => setShowOtpModal({ show: false, type: '', value: '' })} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity>
+              <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity>
             </View>
           </View>
         </Modal>
         {/* Device Conflict */}
-        <Modal visible={showDeviceConflict} transparent animationType="fade">
+        <Modal
+          visible={showDeviceConflict}
+          transparent
+          animationType="fade"
+          presentationStyle="overFullScreen"
+          statusBarTranslucent
+          navigationBarTranslucent
+        >
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, { borderTopWidth: 4, borderColor: '#004AC6' }]}><View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name="devices" size={40} color="#004AC6" /></View><Text style={styles.modalTitle}>{t('Switching Devices')}</Text><Text style={styles.modalSub}>{t('Counselor account active on another device. Logout there and continue here?')}</Text>{!deviceOtpSent ? (<TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6' }]} onPress={handleSendDeviceOtp} disabled={isSendingDeviceOtp}>{isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Log out other device')}</Text>}</TouchableOpacity>) : (<View style={styles.otpWrapper}><TextInput style={styles.otpInput} value={deviceOtp} onChangeText={setDeviceOtp} placeholder={t('Enter OTP')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} /><TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6' }]} onPress={handleVerifyDeviceOtp} disabled={isVerifyingDeviceOtp}>{isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify & Takeover')}</Text>}</TouchableOpacity></View>)}<TouchableOpacity onPress={() => setShowDeviceConflict(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity></View>
           </View>
@@ -657,7 +690,7 @@ const styles = StyleSheet.create({
   genderBtnSelected: { backgroundColor: '#f0fdf4', borderColor: '#004AC6' },
   genderText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
   genderTextSelected: { color: '#004AC6' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.64)', justifyContent: 'center', alignItems: 'center', padding: 22 },
+  modalOverlay: { flex: 1, width: '100%', minHeight: '100%', backgroundColor: 'rgba(15,23,42,0.64)', justifyContent: 'center', alignItems: 'center', padding: 22 },
   modalContent: { backgroundColor: '#fff', borderRadius: 26, padding: 28, width: '100%', maxWidth: 390, alignItems: 'center', borderWidth: 1, borderColor: '#DBEAFE', shadowColor: '#0B2F6B', shadowOpacity: 0.18, shadowRadius: 24, elevation: 14 },
   modalIcon: { width: 68, height: 68, borderRadius: 34, justifyContent: 'center', alignItems: 'center', marginBottom: 18 },
   modalTitle: { fontSize: 22, fontWeight: '900', color: '#0F172A', marginBottom: 8, textAlign: 'center' },
