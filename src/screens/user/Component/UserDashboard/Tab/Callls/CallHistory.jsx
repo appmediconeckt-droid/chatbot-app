@@ -9,6 +9,7 @@ import {
   StatusBar,
   ActivityIndicator,
   Image,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -98,6 +99,8 @@ const getProfilePhotoUrl = (call) => {
 };
 
 const CallHistory = () => {
+  const { width: viewportWidth } = useWindowDimensions();
+  const isCompactPhone = viewportWidth < 380;
   const { t } = useLanguageRender();
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -495,14 +498,14 @@ const CallHistory = () => {
         {/* Center: Info column + Time */}
         <View style={styles.callInfoSection}>
           <Text style={styles.callName} numberOfLines={1}>
-            {call.name && call.name.length > 8 ? `${call.name.slice(0, 8)}…` : call.name}
+            {call.name}
           </Text>
           <Text style={styles.callSpecialization} numberOfLines={1}>{spec}</Text>
           <Text style={styles.callTimeSmall}>{call.time}</Text>
         </View>
 
         {/* Duration in middle */}
-        {call.duration && (
+        {call.duration && !isCompactPhone && (
           <View style={styles.callDurationBox}>
             <Text style={styles.callDurationText}>{call.duration}</Text>
           </View>
@@ -513,7 +516,9 @@ const CallHistory = () => {
           {isMissed ? (
             <View style={styles.missedCallBadge}>
               <Ionicons name="call" size={16} color="#ef4444" />
-              <Text style={styles.missedCallText}>{t('Missed Call')}</Text>
+              <Text style={styles.missedCallText} numberOfLines={1}>
+                {isCompactPhone ? t('Missed') : t('Missed Call')}
+              </Text>
             </View>
           ) : call.type === "video" ? (
             <Ionicons name="videocam" size={22} color="#00652C" />
@@ -558,17 +563,20 @@ const CallHistory = () => {
   ];
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    // UserDashboard already owns the top safe area and renders its header
+    // immediately above this tab. Applying `top` here again created the large
+    // blank strip between that header and the search box.
+    <SafeAreaView style={styles.container} edges={[]}>
       <StatusBar barStyle="dark-content" backgroundColor="#F9F9FF" />
 
       <View style={styles.headerContainer}>
         
 
-        <View style={styles.searchSection}>
-          <View style={styles.callSearch}>
-            <Ionicons name="search" size={18} color="#74777c" />
+        <View style={[styles.searchSection, isCompactPhone && styles.searchSectionCompact]}>
+          <View style={[styles.callSearch, isCompactPhone && styles.callSearchCompact]}>
+            <Ionicons name="search" size={isCompactPhone ? 17 : 18} color="#74777c" />
             <TextInput
-              style={styles.callSearchInput}
+              style={[styles.callSearchInput, isCompactPhone && styles.callSearchInputCompact]}
               placeholder={t('Search contacts...')}
               placeholderTextColor="#8696a0"
               value={searchTerm}
@@ -673,7 +681,6 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 3,
     paddingBottom: 4,
-    marginTop:-35
   },
   callHeader: {
     flexDirection: "row",
@@ -709,6 +716,13 @@ const styles = StyleSheet.create({
   searchSection: {
     paddingHorizontal: 16,
     paddingVertical: 8,
+    width: '100%',
+    maxWidth: 900,
+    alignSelf: 'center',
+  },
+  searchSectionCompact: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   callSearch: {
     flexDirection: "row",
@@ -718,12 +732,24 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     height: 46,
     gap: 10,
+    width: '100%',
+    minWidth: 0,
+  },
+  callSearchCompact: {
+    height: 44,
+    paddingHorizontal: 12,
+    gap: 8,
   },
   callSearchInput: {
     flex: 1,
+    minWidth: 0,
+    paddingVertical: 0,
     fontSize: 15,
     color: "#1e293b",
     fontWeight: "500",
+  },
+  callSearchInputCompact: {
+    fontSize: 14,
   },
   callClearBtn: {
     padding: 4,
@@ -733,6 +759,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 8,
+    width: '100%',
+    maxWidth: 900,
+    alignSelf: 'center',
   },
   // Chips share the row equally instead of sizing to their text - with the full
   // "Outgoing" label, auto-width chips overflow a 360dp screen.
@@ -783,6 +812,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 40,
     paddingTop: 10,
+    width: '100%',
+    maxWidth: 900,
+    alignSelf: 'center',
   },
   callDateHeader: {
     paddingVertical: 14,
@@ -815,7 +847,7 @@ const styles = StyleSheet.create({
     borderColor: "#fee2e2",
   },
   callAvatarWrapper: {
-    marginRight: 12,
+    flexShrink: 0,
   },
   callAvatarPlaceholder: {
     width: 54,
@@ -835,6 +867,7 @@ const styles = StyleSheet.create({
   },
   callInfoSection: {
     flex: 1,
+    minWidth: 0,
   },
   callName: {
     fontSize: 15,
@@ -863,8 +896,9 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   callRightIcon: {
-    marginLeft: 8,
+    marginLeft: 2,
     alignItems: "flex-end",
+    flexShrink: 1,
   },
   missedCallBadge: {
     flexDirection: "row",

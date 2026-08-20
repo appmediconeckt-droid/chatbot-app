@@ -142,6 +142,9 @@ const ChatPopup = ({
     if (!text && !aiAttachment) return;
     sendMessage(text, aiAttachment || null);
     setAiAttachment(null);
+    requestAnimationFrame(() => inputRef.current?.focus());
+    setTimeout(() => inputRef.current?.focus(), 80);
+    setTimeout(() => inputRef.current?.focus(), 220);
   }, [newMessage, aiAttachment, sendMessage]);
 
   useEffect(() => {
@@ -170,28 +173,33 @@ const ChatPopup = ({
       isMounted = false;
     };
   }, [selectedLang]);
-  // Keyboard height reported by the event (0 when hidden).
-  const [keyboardShownHeight, setKeyboardShownHeight] = useState(0);
-  // Measured popup-overlay height (via onLayout) + the largest we've seen
-  // (= the keyboard-hidden height). The difference tells us how much Android
-  // already shrank the window for the keyboard, so we don't double-lift.
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  // The KeyboardAvoidingView reports the actual space available to the popup.
+  // This avoids device-specific keyboard/status/navigation-bar calculations.
   const [overlayHeight, setOverlayHeight] = useState(height);
-  const fullOverlayHeightRef = useRef(height);
   const handleOverlayLayout = useCallback((e) => {
     const h = e?.nativeEvent?.layout?.height || 0;
     if (!h) return;
     setOverlayHeight(h);
-    if (h > fullOverlayHeightRef.current) fullOverlayHeightRef.current = h;
   }, []);
-  const overlayShrink = Math.max(0, fullOverlayHeightRef.current - overlayHeight);
-  // How much the keyboard still overlaps the popup after any OS resize: ~0 on
-  // devices that resize (no gap), = keyboard height when it floats over the app.
-  const keyboardHeight = keyboardShownHeight > 0
-    ? Math.max(0, keyboardShownHeight - overlayShrink)
-    : 0;
   // Keep the popup clear of the status bar / notch.
   const insets = useSafeAreaInsets();
   const availHeight = Math.max(0, overlayHeight - insets.top);
+  // Compensate only for the keyboard area that overlaps this Modal. If Android
+  // already resized the window this is zero; edge-to-edge phones get the full
+  // required lift without losing the bottom safe area when the keyboard closes.
+  const nativeKeyboardResize = Math.max(0, height - overlayHeight);
+  const keyboardOverlap = keyboardVisible
+    ? Math.max(0, keyboardHeight - nativeKeyboardResize)
+    : 0;
+  // The popup itself must also fit in the space left above the keyboard.
+  // Otherwise its fixed 630dp height plus the keyboard inset pushes the header
+  // off the top of smaller phones even though the input is technically visible.
+  const popupAvailableHeight = Math.max(
+    280,
+    availHeight - keyboardOverlap - 12,
+  );
 
   // Detect tablet: width >= 600 is typically tablet range
   const isTablet = width >= 600;
@@ -324,9 +332,13 @@ const ChatPopup = ({
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const show = Keyboard.addListener(showEvt, (e) => {
-      setKeyboardShownHeight(e?.endCoordinates?.height || 0);
+      setKeyboardVisible(true);
+      setKeyboardHeight(e?.endCoordinates?.height || 0);
     });
-    const hide = Keyboard.addListener(hideEvt, () => setKeyboardShownHeight(0));
+    const hide = Keyboard.addListener(hideEvt, () => {
+      setKeyboardVisible(false);
+      setKeyboardHeight(0);
+    });
     return () => { show.remove(); hide.remove(); };
   }, []);
 
@@ -335,7 +347,7 @@ const ChatPopup = ({
   useEffect(() => {
     const id = setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 60);
     return () => clearTimeout(id);
-  }, [messages, isLoading, keyboardShownHeight]);
+  }, [messages, isLoading, keyboardVisible, keyboardOverlap]);
 
   // Pulse animation while recording
   useEffect(() => {
@@ -486,10 +498,12 @@ const ChatPopup = ({
 
   const configureAiVoiceTurnDetection = (dataChannel) => {
     if (!dataChannel || dataChannel.readyState !== "open") return;
+    const voiceLanguage = VOICE_LANGUAGES.find((language) => language.code === selectedLang)?.label || selectedLang || 'English (India)';
     dataChannel.send(JSON.stringify({
       type: "session.update",
       session: {
         type: "realtime",
+        instructions: `Always respond in ${voiceLanguage}.`,
         audio: {
           input: {
             transcription: { model: "gpt-4o-mini-transcribe" },
@@ -529,8 +543,9 @@ const ChatPopup = ({
         setAiVoiceStatus("listening");
         break;
       case "error":
-        setAiVoiceError("I couldn't connect just now. Please try again.");
-        setAiVoiceStatus("error");
+        setAiVoiceError(event?.error?.message || "I couldn't connect just now. Please try again.");
+        cleanupAiVoiceCall({ nextStatus: "error" });
+        setAiVoiceOpen(true);
         break;
       default:
         break;
@@ -627,7 +642,8 @@ const ChatPopup = ({
       };
       dataChannel.onerror = () => {
         setAiVoiceError("I couldn't connect just now. Please try again.");
-        setAiVoiceStatus("error");
+        cleanupAiVoiceCall({ nextStatus: "error" });
+        setAiVoiceOpen(true);
       };
 
       const micStream = await mediaDevices.getUserMedia({ audio: true, video: false });
@@ -702,15 +718,21 @@ const ChatPopup = ({
       onClose?.();
     }}
   >
-    <View style={styles.chatPopupOverlay} onLayout={handleOverlayLayout}>
+    <KeyboardAvoidingView
+      style={[
+        styles.chatPopupOverlay,
+        Platform.OS === 'android' && { paddingBottom: keyboardOverlap },
+      ]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      enabled={Platform.OS === 'ios'}
+      keyboardVerticalOffset={0}
+      onLayout={handleOverlayLayout}
+    >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.chatPopupBackdrop} />
       </TouchableWithoutFeedback>
       <View style={[styles.chatPopup, {
-        height: keyboardShownHeight > 0
-          ? Math.max(availHeight - keyboardHeight - 12, 320)
-          : Math.min(popupBaseHeight, Math.max(availHeight - 12, 320)),
-        marginBottom: keyboardHeight,
+        height: Math.min(popupBaseHeight, popupAvailableHeight),
       }]}>
         <LinearGradient
           colors={AI_GRADIENT}
@@ -930,7 +952,16 @@ const ChatPopup = ({
             </TouchableOpacity>
           </View>
         )}
-        <View style={styles.chatPopupFooter}>
+        <View
+          style={[
+            styles.chatPopupFooter,
+            {
+              paddingBottom: keyboardVisible
+                ? 12
+                : Math.max(insets.bottom, 12) + 8,
+            },
+          ]}
+        >
           {/* + button → attach photo */}
           <TouchableOpacity style={styles.plusBtn} activeOpacity={0.75} onPress={pickAiAttachment}>
             <MaterialIcons name="add" size={22} color="#64748b" />
@@ -949,6 +980,7 @@ const ChatPopup = ({
               onSubmitEditing={handleAiSend}
               returnKeyType="send"
               multiline
+              blurOnSubmit={false}
               // Grows with the text, then scrolls - so a long question stays
               // readable instead of running off the end of one line.
               maxLength={2000}
@@ -973,6 +1005,7 @@ const ChatPopup = ({
           {(newMessage.trim() || aiAttachment) ? (
             <TouchableOpacity
               style={styles.sendBtn}
+              onPressIn={() => inputRef.current?.focus()}
               onPress={handleAiSend}
               disabled={isLoading}
               activeOpacity={0.85}
@@ -1082,7 +1115,13 @@ const ChatPopup = ({
                   <Text style={styles.aiVoiceErrorText}>{aiVoiceError}</Text>
                   <TouchableOpacity
                     style={styles.aiVoiceRetryBtn}
-                    onPress={() => { setAiVoiceError(null); startAiVoiceCall(); }}
+                    onPress={() => {
+                      // A failed data channel can leave the peer connection alive.
+                      // Close it first so retry always creates a completely fresh call.
+                      cleanupAiVoiceCall({ nextStatus: "idle" });
+                      setAiVoiceOpen(true);
+                      setTimeout(() => startAiVoiceCall(), 0);
+                    }}
                     activeOpacity={0.85}
                   >
                     <MaterialIcons name="refresh" size={16} color="#ffffff" />
@@ -1131,7 +1170,7 @@ const ChatPopup = ({
           </View>
         </Modal>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   </Modal>
   );
 };
@@ -2374,16 +2413,21 @@ export default function UserDashboard() {
   // restarts and replies in that language. No need to use the in-chat picker.
   const syncedAppLangRef = useRef(i18n.language);
   useEffect(() => {
-    const appLang = i18n.language;
-    if (!appLang || appLang === syncedAppLangRef.current) return;
-    syncedAppLangRef.current = appLang;
-    setSelectedLang(appLang);
-    // If an AI conversation is already open/active, restart it in the new
-    // language; otherwise it will start in the new language when next opened.
-    if (chatOpen || chatMessages.length > 0) {
-      handleLangChange(appLang);
-    }
-  }, [i18n.language, chatOpen, chatMessages.length, handleLangChange]);
+    const syncAiLanguage = (appLang) => {
+      if (!appLang || appLang === syncedAppLangRef.current) return;
+      syncedAppLangRef.current = appLang;
+      setSelectedLang(appLang);
+      // If an AI conversation is already open/active, restart it in the new
+      // language; otherwise it will start in the new language when next opened.
+      if (chatOpen || chatMessages.length > 0) {
+        void handleLangChange(appLang);
+      }
+    };
+
+    i18n.on('languageChanged', syncAiLanguage);
+    syncAiLanguage(i18n.language);
+    return () => i18n.off('languageChanged', syncAiLanguage);
+  }, [i18n, chatOpen, chatMessages.length, handleLangChange]);
 
   // Track call IDs already handled so the same call never rings twice
   const handledCallIdsRef = useRef(new Set());
@@ -3447,7 +3491,10 @@ export default function UserDashboard() {
         statusBarTranslucent={true}
       >
         <View style={styles.sidebarRoot} pointerEvents="auto">
-          <View style={styles.sidebar}>
+          <SafeAreaView
+            style={styles.sidebar}
+            edges={['top', 'bottom', 'left']}
+          >
             {/* User card — green gradient */}
             <LinearGradient
               colors={['#006B2C', '#01CE54']}
@@ -3546,7 +3593,7 @@ export default function UserDashboard() {
               <Text style={styles.sbLogoutText}>{t('settings:logoutAccount')}</Text>
               <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />
             </TouchableOpacity>
-          </View>
+          </SafeAreaView>
 
           <TouchableOpacity
             style={styles.sidebarBackdrop}
@@ -3905,9 +3952,8 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 24,
     borderWidth: 1,
     borderColor: '#E6E7EC',
-    paddingTop: Platform.OS === 'ios' ? 54 : 38,
-    paddingBottom: 24,
     paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   sidebarBackdrop: {
     flex: 1,
@@ -4903,6 +4949,8 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   chatPopup: {
+    width: '100%',
+    maxHeight: '100%',
     backgroundColor: "#ffffff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,

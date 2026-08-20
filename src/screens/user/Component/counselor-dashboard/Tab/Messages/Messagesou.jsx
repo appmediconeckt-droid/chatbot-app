@@ -103,7 +103,7 @@ const avatarStyles = StyleSheet.create({
 });
 
 // ─── Main Component ──────────────────────────────────────────────────────────
-const SMSList = ({ counselorData, notifCount = 0, onBellPress }) => {
+const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile }) => {
   const { t } = useLanguageRender();
 
   // Time-aware greeting for the header.
@@ -115,6 +115,17 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress }) => {
   })();
   const counselorName = counselorData?.name || counselorData?.fullName || 'Counselor';
   const counselorPhoto = counselorData?.profilePhoto || null;
+  const profileTasks = [
+    { label: 'Profile photo', complete: !!counselorPhoto },
+    { label: 'Specialization', complete: !!counselorData?.specialization || counselorData?.specializations?.length > 0 },
+    { label: 'Qualification', complete: !!counselorData?.education },
+    { label: 'Experience', complete: Number(counselorData?.experience) > 0 },
+    { label: 'Location', complete: !!counselorData?.location },
+    { label: 'Languages', complete: counselorData?.languages?.length > 0 },
+  ];
+  const completedProfileTasks = profileTasks.filter((task) => task.complete).length;
+  const profilePercent = Math.round((completedProfileTasks / profileTasks.length) * 100);
+  const profileIncomplete = counselorData?.profileCompleted !== true;
   const counselorInitial = counselorName.charAt(0).toUpperCase();
   // Header shows at most 8 characters of the name (no ellipsis dots).
   const shortName = counselorName.slice(0, 8);
@@ -448,6 +459,79 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress }) => {
     </>
   );
 
+  const renderEmptyState = () => {
+    if (users.length > 0) {
+      return (
+        <View style={styles.emptyStateCard}>
+          <View style={styles.emptyIconCircle}>
+            <Ionicons name="search-outline" size={28} color="#64748B" />
+          </View>
+          <Text style={styles.emptyTitle}>{t('messages:noChatsFound', 'No matching conversations')}</Text>
+          <Text style={styles.emptyDescription}>Try changing your search or filter.</Text>
+        </View>
+      );
+    }
+
+    if (profileIncomplete) {
+      return (
+        <View style={styles.onboardingCard}>
+          <View style={styles.onboardingIcon}>
+            <Ionicons name="person-add-outline" size={30} color="#2563EB" />
+          </View>
+          <Text style={styles.onboardingEyebrow}>WELCOME TO HUMAELI</Text>
+          <Text style={styles.onboardingTitle}>Complete your professional profile</Text>
+          <Text style={styles.onboardingDescription}>
+            Complete your profile to appear in the counselor directory and start receiving consultation requests.
+          </Text>
+
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressLabel}>Profile completion</Text>
+            <Text style={styles.progressValue}>{profilePercent}%</Text>
+          </View>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${profilePercent}%` }]} />
+          </View>
+
+          <View style={styles.profileChecklist}>
+            {profileTasks.map((task) => (
+              <View key={task.label} style={styles.checklistRow}>
+                <Ionicons
+                  name={task.complete ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={19}
+                  color={task.complete ? '#16A34A' : '#94A3B8'}
+                />
+                <Text style={[styles.checklistText, task.complete && styles.checklistTextDone]}>
+                  {task.label}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          <CounselorGradientButton onPress={onCompleteProfile} style={styles.completeProfileBtn}>
+            <Text style={styles.completeProfileText}>Complete Profile</Text>
+            <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
+          </CounselorGradientButton>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.emptyStateCard}>
+        <View style={styles.emptyIconCircle}>
+          <Ionicons name="chatbubbles-outline" size={30} color="#2563EB" />
+        </View>
+        <Text style={styles.emptyTitle}>No conversations yet</Text>
+        <Text style={styles.emptyDescription}>
+          Your profile is live. New patient conversations and consultation requests will appear here.
+        </Text>
+        <TouchableOpacity style={styles.refreshEmptyBtn} onPress={fetchChats} activeOpacity={0.8}>
+          <Ionicons name="refresh" size={17} color="#2563EB" />
+          <Text style={styles.refreshEmptyText}>Refresh</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
@@ -499,11 +583,7 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress }) => {
           ListHeaderComponent={renderListHeader()}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>{t('messages:noChatsFound')}</Text>
-            </View>
-          }
+          ListEmptyComponent={renderEmptyState()}
         />
       )}
     </View>
@@ -717,6 +797,33 @@ const styles = StyleSheet.create({
   // ─── Empty / Error ────────────────────────────────────────────────────────
   empty: { flex: 1, alignItems: 'center', marginTop: 100, gap: 12 },
   emptyText: { fontSize: 15, color: '#94A3B8', fontWeight: '500' },
+  onboardingCard: {
+    alignSelf: 'center', width: '92%', maxWidth: 560, marginTop: 24, marginBottom: 120,
+    backgroundColor: '#FFFFFF', borderRadius: 24, padding: 22, alignItems: 'center',
+    borderWidth: 1, borderColor: '#DBEAFE', shadowColor: '#1D4ED8',
+    shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.08, shadowRadius: 20, elevation: 4,
+  },
+  onboardingIcon: { width: 58, height: 58, borderRadius: 18, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  onboardingEyebrow: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.4, color: '#2563EB' },
+  onboardingTitle: { fontSize: 21, fontWeight: '800', color: '#0F172A', textAlign: 'center', marginTop: 7 },
+  onboardingDescription: { fontSize: 13.5, lineHeight: 20, color: '#64748B', textAlign: 'center', marginTop: 9 },
+  progressHeader: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, marginBottom: 8 },
+  progressLabel: { fontSize: 12.5, fontWeight: '700', color: '#334155' },
+  progressValue: { fontSize: 12.5, fontWeight: '800', color: '#2563EB' },
+  progressTrack: { width: '100%', height: 8, borderRadius: 4, backgroundColor: '#E2E8F0', overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 4, backgroundColor: '#2563EB' },
+  profileChecklist: { width: '100%', marginTop: 18, gap: 10 },
+  checklistRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  checklistText: { fontSize: 13, color: '#475569', fontWeight: '600' },
+  checklistTextDone: { color: '#16A34A' },
+  completeProfileBtn: { width: '100%', minHeight: 48, marginTop: 22, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  completeProfileText: { color: '#FFFFFF', fontSize: 14.5, fontWeight: '800' },
+  emptyStateCard: { alignSelf: 'center', width: '92%', maxWidth: 520, marginTop: 70, padding: 24, alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 22, borderWidth: 1, borderColor: '#E2E8F0' },
+  emptyIconCircle: { width: 60, height: 60, borderRadius: 20, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  emptyTitle: { fontSize: 19, fontWeight: '800', color: '#0F172A', textAlign: 'center' },
+  emptyDescription: { fontSize: 13.5, lineHeight: 20, color: '#64748B', textAlign: 'center', marginTop: 8 },
+  refreshEmptyBtn: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 18, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: '#EFF6FF' },
+  refreshEmptyText: { color: '#2563EB', fontSize: 13.5, fontWeight: '700' },
   retryBtn: {
     paddingHorizontal: 24,
     paddingVertical: 10,

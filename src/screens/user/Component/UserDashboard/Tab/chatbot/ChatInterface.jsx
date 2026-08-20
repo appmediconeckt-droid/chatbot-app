@@ -17,6 +17,7 @@ import {
   Platform,
   RefreshControl,
   Vibration,
+  useWindowDimensions,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
@@ -98,6 +99,8 @@ const resolveOnlineStatus = (person) => {
 const ChatInterface = ({ setActiveTab }) => {
   const navigation = useNavigation();
   const { t } = useLanguageRender();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const compactEmptyState = windowHeight < 700 || windowWidth < 360;
 
   const [counselors, setCounselors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -617,7 +620,7 @@ const ChatInterface = ({ setActiveTab }) => {
   const renderEmptyState = () => {
     if (initialLoading || loading) return null;
     return (
-      <View style={styles.emptyContainer}>
+      <View style={[styles.emptyContainer, compactEmptyState && styles.emptyContainerCompact]}>
         {searchTerm ? (
           <>
             <Ionicons name="search-outline" size={64} color="#cbd5e1" />
@@ -631,18 +634,58 @@ const ChatInterface = ({ setActiveTab }) => {
           </>
         ) : (
           <>
-            <Ionicons name="chatbubbles-outline" size={64} color="#cbd5e1" />
-            <Text style={styles.emptyTitle}>{t('messages:noActiveChats', 'No active chats yet')}</Text>
+            <View style={[styles.emptyIconWrap, compactEmptyState && styles.emptyIconWrapCompact]}>
+              <LinearGradient
+                colors={['#DDF8E7', '#F0FFF5']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.emptyIconGradient}
+              >
+                <Ionicons
+                  name="chatbubbles-outline"
+                  size={compactEmptyState ? 30 : 36}
+                  color={PATIENT.primary}
+                />
+              </LinearGradient>
+              <View style={styles.emptyIconSparkle}>
+                <Ionicons name="sparkles" size={12} color="#ffffff" />
+              </View>
+            </View>
+            <Text style={styles.emptyEyebrow}>{t('messages:welcomeSafeSpace', 'YOUR SAFE SPACE')}</Text>
+            <Text style={styles.emptyTitle}>{t('messages:newUserChatTitle', 'Find someone who understands')}</Text>
             <Text style={styles.emptyText}>
-              {t('messages:startConversationCounselor', 'Start a conversation with a counselor')}
+              {t('messages:newUserChatSubtitle', 'Explore counselor profiles and choose who feels right for you.')}
             </Text>
+
+            <View style={styles.emptyBenefits}>
+              <View style={styles.emptyBenefit}>
+                <Ionicons name="lock-closed-outline" size={15} color={PATIENT.primary} />
+                <Text style={styles.emptyBenefitText}>{t('messages:private', 'Private')}</Text>
+              </View>
+              <View style={styles.emptyBenefitDivider} />
+              <View style={styles.emptyBenefit}>
+                <Ionicons name="shield-checkmark-outline" size={16} color={PATIENT.primary} />
+                <Text style={styles.emptyBenefitText}>{t('messages:trusted', 'Trusted')}</Text>
+              </View>
+              <View style={styles.emptyBenefitDivider} />
+              <View style={styles.emptyBenefit}>
+                <Ionicons name="heart-outline" size={16} color={PATIENT.primary} />
+                <Text style={styles.emptyBenefitText}>{t('messages:yourChoice', 'Your choice')}</Text>
+              </View>
+            </View>
+
             <PatientGradientButton
-              style={[styles.startButton, { overflow: 'hidden' }]}
-              contentStyle={{ paddingHorizontal: 20, paddingVertical: 12 }}
+              style={styles.startButton}
+              contentStyle={styles.startButtonContent}
               onPress={handleStartNewChat}
             >
-              <Text style={styles.startButtonText}>{t('messages:startNewChat', 'Start a new chat')}</Text>
+              <Ionicons name="people-outline" size={17} color="#ffffff" />
+              <Text style={styles.startButtonText}>{t('messages:findCounselor', 'Find a counselor')}</Text>
+              <Ionicons name="arrow-forward" size={16} color="#ffffff" />
             </PatientGradientButton>
+            <Text style={styles.emptyReassurance}>
+              {t('messages:browseFirst', 'Review profiles before you decide')}
+            </Text>
           </>
         )}
       </View>
@@ -724,6 +767,7 @@ const ChatInterface = ({ setActiveTab }) => {
         renderErrorState()
       ) : (
         <FlatList
+          style={styles.chatList}
           data={filteredCounselors}
           keyExtractor={(item) => (item.chatId ? String(item.chatId) : item.id?.toString())}
           renderItem={renderChatItem}
@@ -897,11 +941,17 @@ const styles = {
   list: {
     paddingBottom: 24,
   },
-  listEmpty: {
+  chatList: {
     flex: 1,
+  },
+  listEmpty: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 32,
+    width: '100%',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 84,
   },
   chatItem: {
     flexDirection: 'row',
@@ -1051,23 +1101,113 @@ const styles = {
     color: '#64748b',
   },
   emptyContainer: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 32,
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 380,
+    paddingHorizontal: 22,
+    paddingTop: 26,
+    paddingBottom: 22,
+    backgroundColor: PATIENT.surface,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: PATIENT.border,
+    shadowColor: '#0F5132',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 3,
+  },
+  emptyContainerCompact: {
+    paddingTop: 18,
+    paddingBottom: 16,
+  },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F8EE',
+    marginBottom: 15,
+    position: 'relative',
+  },
+  emptyIconWrapCompact: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    marginBottom: 10,
+  },
+  emptyIconGradient: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyIconSparkle: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 25,
+    height: 25,
+    borderRadius: 13,
+    backgroundColor: PATIENT.primary,
+    borderWidth: 3,
+    borderColor: PATIENT.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyEyebrow: {
+    color: PATIENT.primary,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.4,
   },
   emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#1e293b',
-    marginTop: 16,
-    marginBottom: 8,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginTop: 7,
+    marginBottom: 7,
   },
   emptyText: {
     fontSize: 14,
     color: '#64748b',
     textAlign: 'center',
-    marginBottom: 24,
+    lineHeight: 20,
+    maxWidth: 290,
+    marginBottom: 16,
+  },
+  emptyBenefits: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    backgroundColor: '#F2FBF5',
+    marginBottom: 18,
+  },
+  emptyBenefit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 5,
+  },
+  emptyBenefitText: {
+    color: '#3F6650',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  emptyBenefitDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: '#CDEBD7',
   },
   clearButton: {
     paddingHorizontal: 20,
@@ -1081,14 +1221,30 @@ const styles = {
     fontWeight: '500',
   },
   startButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
+    alignSelf: 'center',
+    borderRadius: 24,
+    shadowColor: PATIENT.primary,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 9,
+    elevation: 4,
+  },
+  startButtonContent: {
+    minHeight: 44,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
   },
   startButtonText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#ffffff',
+  },
+  emptyReassurance: {
+    color: PATIENT.textMuted,
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 11,
+    textAlign: 'center',
   },
   errorContainer: {
     flex: 1,

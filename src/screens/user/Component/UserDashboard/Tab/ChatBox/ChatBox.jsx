@@ -13,7 +13,6 @@ import {
   Keyboard,
   Platform,
   StatusBar,
-  Dimensions,
   StyleSheet,
   Linking,
   useWindowDimensions,
@@ -52,8 +51,6 @@ import {
   mergeTimelineForInverted,
   describeCall,
 } from "../../../../../../utils/chatCallHistory";
-
-const { width: screenWidth } = Dimensions.get("window");
 
 // Professional Incoming Call Modal Component with Serenity design
 const IncomingCallModal = ({
@@ -338,6 +335,10 @@ const ChatBox = () => {
 
   const flatListRef = useRef(null);
   const messageInputRef = useRef(null);
+  const keyboardVisibleRef = useRef(false);
+  const sendFocusGuardRef = useRef(false);
+  const focusRestoreTimersRef = useRef([]);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const chatSocketRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fallbackChatIdRef = useRef(chatId || null);
@@ -493,6 +494,35 @@ const ChatBox = () => {
     flatListRef.current?.scrollToOffset({ offset: 0, animated });
   }, []);
 
+  const preserveComposerFocusForSend = useCallback(() => {
+    sendFocusGuardRef.current = true;
+    focusRestoreTimersRef.current.forEach(clearTimeout);
+    focusRestoreTimersRef.current = [0, 60, 160, 320].map((delay) =>
+      setTimeout(() => {
+        if (sendFocusGuardRef.current) messageInputRef.current?.focus();
+      }, delay),
+    );
+  }, []);
+
+  const finishComposerFocusForSend = useCallback(() => {
+    focusRestoreTimersRef.current.forEach(clearTimeout);
+    focusRestoreTimersRef.current = [0, 80, 180].map((delay) =>
+      setTimeout(() => {
+        if (sendFocusGuardRef.current) messageInputRef.current?.focus();
+      }, delay),
+    );
+    focusRestoreTimersRef.current.push(
+      setTimeout(() => {
+        sendFocusGuardRef.current = false;
+      }, 260),
+    );
+  }, []);
+
+  useEffect(() => () => {
+    focusRestoreTimersRef.current.forEach(clearTimeout);
+    focusRestoreTimersRef.current = [];
+  }, []);
+
   useEffect(() => {
     // iOS fires keyboardWillShow (pre-animation); Android ONLY fires
     // keyboardDidShow. Listening to willShow on Android meant the pad was never
@@ -501,10 +531,18 @@ const ChatBox = () => {
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
     const showSub = Keyboard.addListener(showEvt, () => {
+      keyboardVisibleRef.current = true;
+      setIsKeyboardVisible(true);
       // Keep the newest message visible when the keyboard opens (WhatsApp-style).
       if (shouldAutoScrollRef.current) scrollToBottom(true);
     });
     const hideSub = Keyboard.addListener(hideEvt, () => {
+      if (sendFocusGuardRef.current) {
+        requestAnimationFrame(() => messageInputRef.current?.focus());
+        return;
+      }
+      keyboardVisibleRef.current = false;
+      setIsKeyboardVisible(false);
       if (shouldAutoScrollRef.current) scrollToBottom(true);
     });
 
@@ -877,6 +915,9 @@ const ChatBox = () => {
   const handleSendMessage = useCallback(async () => {
     if ((newMessage.trim() === "" && !pendingAttachment) || isSending || isSendingRef.current) return;
 
+    const keepComposerFocused = Boolean(
+      keyboardVisibleRef.current || messageInputRef.current?.isFocused?.(),
+    );
     const messageText = newMessage.trim();
     const attachmentToSend = pendingAttachment;
     const tempUserMessage = {
@@ -903,6 +944,9 @@ const ChatBox = () => {
     setNewMessage("");
     setPendingAttachment(null);
     setShowEmojiPicker(false);
+    // Keep the composer active after Send so several messages can be typed in
+    // one continuous keyboard session (native chat-app behavior).
+    if (keepComposerFocused) preserveComposerFocusForSend();
 
     try {
       const sentMsg = await sendMessageToAPI({ messageContent: messageText, file: attachmentToSend });
@@ -943,8 +987,9 @@ const ChatBox = () => {
     } finally {
       isSendingRef.current = false;
       setIsSending(false);
+      finishComposerFocusForSend();
     }
-  }, [newMessage, pendingAttachment, isSending, sendMessageToAPI]);
+  }, [newMessage, pendingAttachment, isSending, sendMessageToAPI, preserveComposerFocusForSend, finishComposerFocusForSend]);
 
   // Delete any persisted message, matching the web chat behavior.
   const deleteMessage = useCallback(async (messageId) => {
@@ -1345,9 +1390,6 @@ const ChatBox = () => {
         ]);
         setTimelineReady(true);
         
-        setTimeout(() => {
-          if (messageInputRef.current) messageInputRef.current.focus();
-        }, 500);
       } catch (error) {
         console.error("Error loading chat:", error);
         // Never leave the thread stuck behind the spinner because one of the
@@ -1831,12 +1873,13 @@ const ChatBox = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
-      {/* KeyboardAvoidingView measures this view's real frame vs the keyboard
-          frame, so it self-corrects whether or not the OS resized the window
-          (adjustResize is ignored under Android 15 edge-to-edge). Enabled on
-          BOTH platforms — the old manual padding never worked there. */}
+      {/* Native adjustResize is preferred. Some OEMs still overlay the IME, so
+          Android padding is enabled only while the keyboard is visibly open.
+          Disabling it on hide guarantees that no stale bottom gap can remain. */}
       <KeyboardAvoidingView
         behavior="padding"
+        contentContainerStyle={styles.keyboardAvoidContent}
+        enabled={Platform.OS === 'ios' || isKeyboardVisible}
         keyboardVerticalOffset={0}
         style={styles.keyboardAvoid}
       >
@@ -1877,7 +1920,12 @@ const ChatBox = () => {
                     ) : (
                       <>
                         <View style={[styles.statusDot, counselorOnline ? styles.statusDotOnline : styles.statusDotOffline]} />
-                        <Text style={styles.statusText}>{counselorOnline ? "Online" : "Offline"}</Text>
+                        <Text style={[
+                          styles.statusText,
+                          counselorOnline && styles.statusTextOnline,
+                        ]}>
+                          {counselorOnline ? "Online" : "Offline"}
+                        </Text>
                       </>
                     )}
                   </View>
@@ -1938,7 +1986,8 @@ const ChatBox = () => {
               onContentSizeChange={handleMessagesContentSizeChange}
               onScroll={handleMessagesScroll}
               scrollEventThrottle={16}
-              keyboardShouldPersistTaps="handled"
+              keyboardShouldPersistTaps="always"
+              keyboardDismissMode="none"
               inverted
               ListHeaderComponent={
                 remoteIsTyping ? (
@@ -2008,7 +2057,14 @@ const ChatBox = () => {
           />
 
           {/* Input Area */}
-          <View style={styles.inputArea}>
+          <View style={[
+            styles.inputArea,
+            {
+              paddingBottom: isKeyboardVisible
+                ? 8
+                : Math.max(insets.bottom, 12) + 4,
+            },
+          ]}>
             <View style={styles.inputAreaInner}>
             {pendingAttachment && (
               <View style={styles.attachmentPreview}>
@@ -2021,7 +2077,7 @@ const ChatBox = () => {
                 </TouchableOpacity>
               </View>
             )}
-            <View style={[styles.inputGroup, isSending && styles.inputGroupDisabled]}>
+            <View style={styles.inputGroup}>
               <TouchableOpacity style={styles.attachBtn} onPress={handlePickAttachment} disabled={isSending}>
                 <Ionicons name="attach" size={22} color={PATIENT.textSecondary} />
               </TouchableOpacity>
@@ -2035,23 +2091,31 @@ const ChatBox = () => {
                   placeholderTextColor="#9CA3AF"
                   multiline
                   blurOnSubmit={false}
+                  showSoftInputOnFocus
                   enablesReturnKeyAutomatically
+                  onBlur={() => {
+                    if (sendFocusGuardRef.current) {
+                      requestAnimationFrame(() => messageInputRef.current?.focus());
+                    }
+                  }}
                 />
               </View>
               <TouchableOpacity
+                onPressIn={() => {
+                  if ((newMessage.trim() || pendingAttachment) && !isSending) {
+                    preserveComposerFocusForSend();
+                  } else {
+                    messageInputRef.current?.focus();
+                  }
+                }}
                 onPress={handleSendMessage}
                 activeOpacity={0.8}
-                disabled={isSending}
                 style={[
                   styles.sendBtn,
                   { backgroundColor: (newMessage.trim() === "" && !pendingAttachment) ? "#A7D3B7" : PATIENT.primary },
                 ]}
               >
-                {isSending ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-                ) : (
-                  <Ionicons name="send" size={19} color="#ffffff" />
-                )}
+                <Ionicons name="send" size={19} color="#ffffff" />
               </TouchableOpacity>
             </View>
             </View>
@@ -2091,6 +2155,9 @@ const styles = StyleSheet.create({
     backgroundColor: PATIENT.backgroundTint,
   },
   keyboardAvoid: {
+    flex: 1,
+  },
+  keyboardAvoidContent: {
     flex: 1,
   },
   chatBoxMain: {
@@ -2207,8 +2274,11 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 12,
-    color: PATIENT.online,
+    color: "#6B7280",
     fontWeight: "500",
+  },
+  statusTextOnline: {
+    color: PATIENT.online,
   },
   typingText: {
     fontSize: 12,
@@ -2723,7 +2793,7 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 16,
+    paddingBottom: 8,
     borderTopWidth: 1,
     borderTopColor: "#e2e8f0",
     backgroundColor: "#ffffff",

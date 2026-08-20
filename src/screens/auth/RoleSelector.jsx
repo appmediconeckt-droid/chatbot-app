@@ -187,7 +187,7 @@ const RoleSelector = () => {
             {/* Header mirrors the Login card: mark, bold title, light subtitle.
                 Uses the tree-only icon so the "Humaeli" wordmark inside the full
                 logo doesn't repeat the title text below it. */}
-            <View style={{ marginBottom: 12, alignItems: 'center' }}>
+            <View style={{ marginBottom: -6, alignItems: 'center' }}>
               <Image
                 source={logo}
                 style={{ width: 80, height: 80, resizeMode: 'contain' }}

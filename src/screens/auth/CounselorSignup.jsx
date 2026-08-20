@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  KeyboardAvoidingView,
   Platform,
   Modal,
   ActivityIndicator,
@@ -29,14 +28,16 @@ import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 
 // Import logo
-import logo from '../../image/HumaeliIcon.png';
+import logo from '../../image/HumaeliBlue.png';
 import useLanguageRender from '../../hooks/useLanguageRender';
+import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
 
 const CounselorSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
   const { width, height } = useWindowDimensions();
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
+  const { scrollRef, keyboardOpen, keyboardInset, scrollFocusedInputIntoView } = useKeyboardAwareScroll();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -400,7 +401,10 @@ const CounselorSignup = ({ navigation, route }) => {
             style={[styles.textInput, isMultiline && { height: 'auto', minHeight: 50, textAlignVertical: 'top' }]}
             value={formData[name]}
             onChangeText={(text) => handleChange(name, text)}
-            onFocus={() => setFocusedField(name)}
+            onFocus={(event) => {
+              setFocusedField(name);
+              scrollFocusedInputIntoView(event);
+            }}
             onBlur={() => setFocusedField(null)}
             placeholder={placeholder}
             placeholderTextColor="#94a3b8"
@@ -419,7 +423,8 @@ const CounselorSignup = ({ navigation, route }) => {
 
   const scrollContainerStyle = {
     ...styles.scrollContent,
-    justifyContent: isLogin ? 'center' : 'flex-start',
+    justifyContent: isLogin && !keyboardOpen ? 'center' : 'flex-start',
+    paddingBottom: 60 + keyboardInset,
   };
 
   return (
@@ -428,12 +433,18 @@ const CounselorSignup = ({ navigation, route }) => {
       {/* Blue mesh backdrop (doctor palette) — scales to phone/tablet */}
       <AuthBackground role="counselor" style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : null} style={styles.flex}>
+          <View style={styles.flex}>
             <TouchableOpacity style={styles.backBtn} onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.replace('RoleSelector'))}><Icon name="chevron-left" size={28} color="#0F172A" /></TouchableOpacity>
-            <ScrollView contentContainerStyle={scrollContainerStyle} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
+            <ScrollView
+              ref={scrollRef}
+              contentContainerStyle={scrollContainerStyle}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            >
               <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
-                  <View style={styles.logoBadge}><Image source={logo} style={styles.logo} resizeMode="contain" /></View>
+                  <Image source={logo} style={styles.logo} resizeMode="contain" />
                   <View style={styles.brandContainer}><Text style={[styles.brandMain, { color: '#004AC6' }]}>{t('Humaeli')}</Text></View>
                   <Text style={styles.tagline}>{'Join our expert team'}</Text>
                 </View>
@@ -462,11 +473,11 @@ const CounselorSignup = ({ navigation, route }) => {
                   ) : (<>{renderInput(1, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' })}</>)}
                   <Animated.View key="pwd-section" style={{ opacity: fieldAnims[13] }}>
                     <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
-                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)} placeholder={t('Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} /><TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
+                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} /><TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
                     </View>
                   </Animated.View>
                   {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#004AC6' }]}>{t('Forgot password?')}</Text></TouchableOpacity>)}
-                  {!isLogin && (<Animated.View key="cpwd-section" style={{ opacity: fieldAnims[14] }}><View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}><Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={() => setFocusedField('confirmPassword')} onBlur={() => setFocusedField(null)} placeholder={t('Confirm Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} /><TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity></View></Animated.View>)}
+                  {!isLogin && (<Animated.View key="cpwd-section" style={{ opacity: fieldAnims[14] }}><View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}><Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={(event) => { setFocusedField('confirmPassword'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Confirm Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} /><TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity></View></Animated.View>)}
                   <Animated.View key="btn-section" style={{ opacity: fieldAnims[15], marginTop: 10 }}>
                     <TouchableOpacity activeOpacity={0.9} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
                       <LinearGradient
@@ -513,7 +524,7 @@ const CounselorSignup = ({ navigation, route }) => {
                 </View>
               </Animated.View>
             </ScrollView>
-          </KeyboardAvoidingView>
+          </View>
         </SafeAreaView>
         {/* OTP Modal */}
         <Modal visible={showOtpModal.show} transparent animationType="slide">
@@ -561,9 +572,8 @@ const styles = StyleSheet.create({
   backBtn: { position: 'absolute', top: 30, left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
   panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, padding: 24, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
   header: { alignItems: 'center', marginBottom: 20 },
-  logoBadge: { padding: 8, backgroundColor: '#fff', borderRadius: 20, shadowColor: '#004AC6', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
-  logo: { width: 55, height: 55 },
-  brandContainer: { flexDirection: 'row', marginTop: 12 },
+  logo: { width: 80, height: 80 },
+  brandContainer: { flexDirection: 'row', marginTop: 4 },
   brandMain: { fontSize: 26, fontWeight: '900', color: '#1e293b' },
   brandAlt: { fontSize: 26, fontWeight: '400' },
   tagline: { fontSize: 13, color: '#64748b', fontWeight: '600', marginTop: 4 },
