@@ -9,13 +9,18 @@ import {
   Platform,
   ScrollView,
   TextInput,
+  SafeAreaView,
+  StatusBar,
 } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../../axiosConfig';
 import OtpCodeInput from './components/OtpCodeInput';
 import { setAccessToken, setUserEmail, updateVerificationStatus } from './authUtils';
 import useLanguageRender from '../../hooks/useLanguageRender';
+import AuthBackground from '../../theme/AuthBackground';
+import { GRADIENT_DIRECTION, gradientForRole, paletteForRole } from '../../theme/palette';
 
 const OTPVerification = ({ navigation, route }) => {
   const { t } = useLanguageRender();
@@ -29,8 +34,14 @@ const OTPVerification = ({ navigation, route }) => {
   const [success, setSuccess] = useState('');
   const [authRole, setAuthRole] = useState('user');
 
-  const normalizeRole = (role) =>
-    String(role || 'user').toLowerCase().replace('counsellor', 'counselor');
+  const normalizeRole = (role) => {
+    const value = String(role || '').trim().toLowerCase();
+    if (!value) return '';
+    return value.replace('counsellor', 'counselor');
+  };
+
+  const C = paletteForRole(authRole);
+  const activeGradient = gradientForRole(authRole);
 
   useEffect(() => {
     const resolveRole = async () => {
@@ -197,134 +208,154 @@ const OTPVerification = ({ navigation, route }) => {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollContainer}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.card}>
-          <Text style={styles.title}>
-            {step === 'email' ? 'Login with Email' : 'Verify OTP'}
-          </Text>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      <AuthBackground role={authRole} style={styles.background}>
+        <SafeAreaView style={styles.safeArea}>
+          <KeyboardAvoidingView
+            style={styles.flex}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <ScrollView
+              contentContainerStyle={styles.scrollContainer}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            >
+              <View style={styles.card}>
+                <Text style={[styles.title, { color: C.text }]}>
+                  {step === 'email' ? 'Login with Email' : 'Verify OTP'}
+                </Text>
 
-          {step === 'email' ? (
-            <View>
-              <TextInput
-                style={styles.input}
-                placeholder={t('Enter email')}
-                placeholderTextColor="#999"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!isLoading}
-              />
+                {step === 'email' ? (
+                  <View>
+                    <TextInput
+                      style={[styles.input, { borderColor: C.border }]}
+                      placeholder={t('Enter email')}
+                      placeholderTextColor="#94a3b8"
+                      value={email}
+                      onChangeText={setEmail}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      editable={!isLoading}
+                    />
 
-              {error ? <Text style={styles.errorText}>{error}</Text> : null}
-              {success ? <Text style={styles.successText}>{success}</Text> : null}
+                    {error ? <Text style={styles.errorText}>{error}</Text> : null}
+                    {success ? <Text style={styles.successText}>{success}</Text> : null}
 
-              <TouchableOpacity
-                style={[styles.button, isLoading && styles.buttonDisabled]}
-                onPress={handleSendCode}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <ActivityIndicator color="#fff" />
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={handleSendCode}
+                      disabled={isLoading}
+                    >
+                      <LinearGradient
+                        colors={isLoading ? ['#cbd5e1', '#cbd5e1'] : activeGradient}
+                        {...GRADIENT_DIRECTION}
+                        style={styles.button}
+                      >
+                        {isLoading ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={styles.buttonText}>{t('Send OTP')}</Text>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
                 ) : (
-                  <Text style={styles.buttonText}>{t('Send OTP')}</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View>
-              <OtpCodeInput
-                value={otp}
-                onChangeText={setOtp}
-                autoFocus={true}
-                containerStyle={styles.otpContainer}
-                boxStyle={styles.otpDigitBox}
-                focusedBoxStyle={styles.otpDigitBoxFocused}
-                textStyle={styles.otpDigitText}
-              />
+                  <View>
+                    <OtpCodeInput
+                      value={otp}
+                      onChangeText={setOtp}
+                      autoFocus={true}
+                      containerStyle={styles.otpContainer}
+                      boxStyle={styles.otpDigitBox}
+                      focusedBoxStyle={[styles.otpDigitBoxFocused, { borderColor: C.primary }]}
+                      textStyle={styles.otpDigitText}
+                    />
 
-              {error ? <Text style={styles.errorText}>{error}</Text> : null}
-              {success ? <Text style={styles.successText}>{success}</Text> : null}
+                    {error ? <Text style={styles.errorText}>{error}</Text> : null}
+                    {success ? <Text style={styles.successText}>{success}</Text> : null}
 
-              <View style={styles.timerContainer}>
-                {canResend ? (
-                  <TouchableOpacity onPress={handleResendOtp} disabled={isLoading}>
-                    <Text style={styles.resendText}>{t('Resend OTP')}</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <Text style={styles.timerText}>Resend in {formatTime(timer)}</Text>
+                    <View style={styles.timerContainer}>
+                      {canResend ? (
+                        <TouchableOpacity onPress={handleResendOtp} disabled={isLoading}>
+                          <Text style={[styles.resendText, { color: C.primary }]}>{t('Resend OTP')}</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={styles.timerText}>Resend in {formatTime(timer)}</Text>
+                      )}
+                    </View>
+
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={handleVerifyOtp}
+                      disabled={otp.length !== 6 || isLoading}
+                    >
+                      <LinearGradient
+                        colors={(otp.length !== 6 || isLoading) ? ['#cbd5e1', '#cbd5e1'] : activeGradient}
+                        {...GRADIENT_DIRECTION}
+                        style={styles.button}
+                      >
+                        {isLoading ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={styles.buttonText}>{t('Verify OTP')}</Text>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.button,
-                  (otp.length !== 6 || isLoading) && styles.buttonDisabled
-                ]}
-                onPress={handleVerifyOtp}
-                disabled={otp.length !== 6 || isLoading}
-              >
-                {isLoading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.buttonText}>{t('Verify OTP')}</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </AuthBackground>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f0f2f5',
   },
+  background: { flex: 1, overflow: 'hidden' },
+  safeArea: { flex: 1 },
+  flex: { flex: 1 },
   scrollContainer: {
     flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 48,
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 30,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderRadius: 28,
+    padding: 28,
     width: '100%',
     maxWidth: 400,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    elevation: 12,
   },
   title: {
-    fontSize: 28,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 26,
+    fontWeight: '900',
     textAlign: 'center',
-    marginBottom: 30,
+    marginBottom: 26,
   },
   input: {
     width: '100%',
     padding: 15,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#e2e8f0',
     borderRadius: 12,
-    backgroundColor: '#fff',
+    backgroundColor: '#f8fafc',
     marginBottom: 15,
+    color: '#0f172a',
+    fontWeight: '600',
   },
   otpContainer: {
     width: '100%',
@@ -335,20 +366,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   otpDigitBoxFocused: {
-    borderColor: '#4facfe',
+    borderWidth: 2,
   },
   otpDigitText: {
     color: '#333',
   },
   button: {
-    backgroundColor: '#4facfe',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 10,
-  },
-  buttonDisabled: {
-    backgroundColor: '#ccc',
   },
   buttonText: {
     color: '#fff',
@@ -377,7 +404,6 @@ const styles = StyleSheet.create({
   },
   resendText: {
     fontSize: 14,
-    color: '#4facfe',
     fontWeight: '600',
   },
 });

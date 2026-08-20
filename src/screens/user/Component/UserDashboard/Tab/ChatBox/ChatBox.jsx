@@ -210,7 +210,7 @@ const ChatBox = () => {
   useScreenshotPrevent();
   const navigation = useNavigation();
   const route = useRoute();
-  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth } = useWindowDimensions();
   // Responsive bubble width, mirroring the web CSS breakpoints:
   // <375px → 85%, phones → 80%, tablets (≥768) → 70%.
   const bubbleMaxWidth = windowWidth >= 768 ? '70%' : windowWidth < 375 ? '85%' : '80%';
@@ -338,7 +338,6 @@ const ChatBox = () => {
   const keyboardVisibleRef = useRef(false);
   const sendFocusGuardRef = useRef(false);
   const focusRestoreTimersRef = useRef([]);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const chatSocketRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fallbackChatIdRef = useRef(chatId || null);
@@ -532,27 +531,24 @@ const ChatBox = () => {
 
     const showSub = Keyboard.addListener(showEvt, () => {
       keyboardVisibleRef.current = true;
-      setIsKeyboardVisible(true);
-      // Keep the newest message visible when the keyboard opens (WhatsApp-style).
-      if (shouldAutoScrollRef.current) scrollToBottom(true);
+      if (shouldAutoScrollRef.current) {
+        requestAnimationFrame(() => scrollToBottom(true));
+        setTimeout(() => scrollToBottom(true), 120);
+      }
     });
     const hideSub = Keyboard.addListener(hideEvt, () => {
+      keyboardVisibleRef.current = false;
       if (sendFocusGuardRef.current) {
         requestAnimationFrame(() => messageInputRef.current?.focus());
         return;
       }
-      keyboardVisibleRef.current = false;
-      setIsKeyboardVisible(false);
-      if (shouldAutoScrollRef.current) scrollToBottom(true);
     });
 
     return () => { showSub.remove(); hideSub.remove(); };
   }, [scrollToBottom]);
 
-  // Spacing above the keyboard is handled by KeyboardAvoidingView (it compares
-  // this view's frame against the keyboard frame, so it works both when the OS
-  // resizes the window and when the keyboard floats over it). The keyboard
-  // listener above is kept only to auto-scroll to the newest message.
+  // The listener drives the same measured overlap used by the AI Assistant and
+  // also keeps the newest message visible.
 
   // Call entries the user has deleted (hidden) from this thread. Persisted
   // locally because there is no server API to delete a call record.
@@ -1792,7 +1788,7 @@ const ChatBox = () => {
             size={15}
             // #94a3b8 on the light chat background was 2.3:1 - below the 3:1
             // minimum for icons, hence "visible on my phone, not on others".
-            color={item.isRead ? "#00652C" : "#64748B"}
+            color={item.isRead ? "#1687D9" : "#64748B"}
           />
         )}
         {isUser && item.status === "error" && <Text style={styles.metaError}>⚠️ Failed</Text>}
@@ -1871,17 +1867,14 @@ const ChatBox = () => {
   }, [counselorProfilePhoto]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
-      {/* Native adjustResize is preferred. Some OEMs still overlay the IME, so
-          Android padding is enabled only while the keyboard is visibly open.
-          Disabling it on hide guarantees that no stale bottom gap can remain. */}
       <KeyboardAvoidingView
-        behavior="padding"
-        contentContainerStyle={styles.keyboardAvoidContent}
-        enabled={Platform.OS === 'ios' || isKeyboardVisible}
-        keyboardVerticalOffset={0}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardAvoid}
+        contentContainerStyle={styles.keyboardAvoidContent}
+        enabled={Platform.OS === 'ios'}
+        keyboardVerticalOffset={0}
       >
         <View style={styles.chatBoxMain}>
           {/* Header */}
@@ -1979,6 +1972,7 @@ const ChatBox = () => {
           ) : (
             <FlatList
               ref={flatListRef}
+              style={styles.messagesArea}
               data={messagesForList}
               keyExtractor={(item, index) => item.id?.toString() || index.toString()}
               renderItem={renderMessage}
@@ -2060,9 +2054,17 @@ const ChatBox = () => {
           <View style={[
             styles.inputArea,
             {
-              paddingBottom: isKeyboardVisible
-                ? 8
-                : Math.max(insets.bottom, 12) + 4,
+              // Android adjustResize already accounts for the IME/navigation
+              // area during its native animation. Tying this padding to
+              // keyboardDidShow made the composer visibly settle a moment
+              // after the keyboard was open. Keep Android geometry constant.
+              // Keep the bottom system/navigation area inside the white
+              // composer at all times. A constant safe-area value avoids the
+              // uncovered strip on close without a keyboard-state jump.
+              // SafeAreaView already owns the bottom system inset. Keeping
+              // this constant prevents keyboardDidShow/Hide from triggering a
+              // second composer layout after the native IME animation.
+              paddingBottom: 8,
             },
           ]}>
             <View style={styles.inputAreaInner}>
@@ -2399,6 +2401,14 @@ const styles = StyleSheet.create({
     color: "#74777c",
   },
   // Messages List
+  // A fixed flex viewport makes the composer a bottom-anchored sibling. Without
+  // this, FlatList can briefly retain its pre-keyboard measured height and only
+  // release space after its content/layout pass, making the input appear late.
+  messagesArea: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: "#ffffff",
+  },
   messagesList: {
     width: '100%',
     maxWidth: 760,

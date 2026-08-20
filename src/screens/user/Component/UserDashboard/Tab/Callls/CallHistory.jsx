@@ -111,6 +111,7 @@ const CallHistory = () => {
   const [callsData, setCallsData] = useState([]);
   const [isLoadingCalls, setIsLoadingCalls] = useState(false);
   const [callError, setCallError] = useState('');
+  const [startingCallKey, setStartingCallKey] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
   const [currentUserType, setCurrentUserType] = useState('user');
 
@@ -267,8 +268,18 @@ const CallHistory = () => {
               call.user?.profilePhoto ||
               null,
             missed,
-            counterPartyId: call.withId,
-            counterPartyType: normalizeRole(call.withType),
+            counterPartyId:
+              call.withId ||
+              call.receiverId ||
+              call.counsellorId ||
+              call.counselorId ||
+              call.withUser?._id ||
+              call.withUser?.id ||
+              call.participant?._id ||
+              call.participant?.id,
+            counterPartyType: normalizeRole(
+              call.withType || call.receiverType || call.participantType || 'counsellor',
+            ),
             role: call.role,
             timestamp,
             apiCallData: call,
@@ -304,6 +315,7 @@ const CallHistory = () => {
       const resolvedCallMode = normalizeCallType(callMode);
       const receiverId = String(callEntry?.counterPartyId || '').trim();
       const receiverType = normalizeRole(callEntry?.counterPartyType || '');
+      const callKey = `${callEntry?.id || receiverId}_${resolvedCallMode}`;
 
       if (!currentUserId) {
         setCallError('Unable to start call. User not found.');
@@ -317,6 +329,7 @@ const CallHistory = () => {
 
       try {
         setCallError('');
+        setStartingCallKey(callKey);
         const token =
           (await AsyncStorage.getItem('token')) ||
           (await AsyncStorage.getItem('accessToken'));
@@ -337,17 +350,19 @@ const CallHistory = () => {
           },
         );
 
-        if (!response.data?.success) {
-          throw new Error(response.data?.error || 'Failed to start call.');
+        if (response.data?.success === false) {
+          throw new Error(
+            response.data?.error || response.data?.message || 'Failed to start call.',
+          );
         }
 
-        const callData = response.data.callData || {};
+        const callData = response.data?.callData || response.data?.call || response.data || {};
         const receiverData = callData.receiver || {};
 
         setSelectedCall({
           id: callData.id || response.data.callId,
-          callId: response.data.callId,
-          roomId: response.data.roomId,
+          callId: response.data?.callId || callData.callId || callData.id,
+          roomId: response.data?.roomId || callData.roomId,
           name:
             receiverData.displayName ||
             receiverData.fullName ||
@@ -382,6 +397,8 @@ const CallHistory = () => {
           error?.message ||
           'Unable to start call. Please try again.',
         );
+      } finally {
+        setStartingCallKey('');
       }
     },
     [currentUserId, currentUserType],
@@ -511,20 +528,37 @@ const CallHistory = () => {
           </View>
         )}
 
-        {/* Right: Status indicator */}
+        {/* Both history actions are real buttons: redial by voice or video. */}
         <View style={styles.callRightIcon}>
-          {isMissed ? (
-            <View style={styles.missedCallBadge}>
-              <Ionicons name="call" size={16} color="#ef4444" />
-              <Text style={styles.missedCallText} numberOfLines={1}>
-                {isCompactPhone ? t('Missed') : t('Missed Call')}
-              </Text>
-            </View>
-          ) : call.type === "video" ? (
-            <Ionicons name="videocam" size={22} color="#00652C" />
-          ) : (
-            <Ionicons name="call" size={22} color="#00652C" />
-          )}
+          {isMissed && !isCompactPhone ? (
+            <Text style={styles.missedCallText} numberOfLines={1}>{t('Missed')}</Text>
+          ) : null}
+          <TouchableOpacity
+            style={styles.historyCallAction}
+            onPress={() => startCallFromHistory('voice', call)}
+            disabled={Boolean(startingCallKey)}
+            accessibilityRole="button"
+            accessibilityLabel={`${t('Voice Call')} ${call.name}`}
+          >
+            {startingCallKey === `${call.id}_voice` ? (
+              <ActivityIndicator size="small" color="#00652C" />
+            ) : (
+              <Ionicons name="call" size={20} color="#00652C" />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.historyCallAction}
+            onPress={() => startCallFromHistory('video', call)}
+            disabled={Boolean(startingCallKey)}
+            accessibilityRole="button"
+            accessibilityLabel={`${t('Video Call')} ${call.name}`}
+          >
+            {startingCallKey === `${call.id}_video` ? (
+              <ActivityIndicator size="small" color="#00652C" />
+            ) : (
+              <Ionicons name="videocam" size={21} color="#00652C" />
+            )}
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -897,8 +931,20 @@ const styles = StyleSheet.create({
   },
   callRightIcon: {
     marginLeft: 2,
-    alignItems: "flex-end",
-    flexShrink: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    flexShrink: 0,
+  },
+  historyCallAction: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EAF8EF",
+    borderWidth: 1,
+    borderColor: "#CDEED9",
   },
   missedCallBadge: {
     flexDirection: "row",

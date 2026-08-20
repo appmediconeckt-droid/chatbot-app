@@ -4,14 +4,12 @@
  *
  * @format
  */
-import { NewAppScreen } from '@react-native/new-app-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, Modal, Platform, StatusBar, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Modal, StatusBar, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
 import {
   SafeAreaProvider,
   initialWindowMetrics,
-  useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { navigationRef } from './src/navigationRef';
@@ -50,7 +48,6 @@ import AppLockScreen, { PIN_STORAGE_KEY } from './src/screens/auth/AppLockScreen
 import PinSetupScreen from './src/screens/auth/PinSetupScreen';
 import './src/i18n';
 import { LanguageProvider } from './src/contexts/LanguageContext';
-import axiosInstance from './src/axiosConfig';
 // Define your navigation param list
 // import { LogBox } from 'react-native';
 // LogBox.ignoreAllLogs(true);
@@ -59,8 +56,8 @@ export type RootStackParamList = {
   Landing: undefined;
   UserSignup: { role?: 'user' | 'counselor' } | undefined;
   RoleSelector: undefined;
-  UserOnboarding: undefined;
-  CounselorOnboarding: undefined;
+  UserOnboarding: { destination?: 'UserSignup'; destinationParams?: { role?: 'user' } } | undefined;
+  CounselorOnboarding: { destination?: 'CounselorSignup'; destinationParams?: { role?: 'counselor' } } | undefined;
   Login: { role?: 'user' | 'counselor' } | undefined;
   CounselorSignup: { role?: 'user' | 'counselor' } | undefined;
   OTPVerification: undefined;
@@ -86,7 +83,6 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 // Lock as soon as the user leaves the app and opens it again.
 const LOCK_TIMEOUT_MS = 0;
-
 
 // ─── Popups must reach the bottom of the screen ──────────────────────────────
 // An Android Modal window stops above the navigation bar by default. This app
@@ -121,19 +117,12 @@ withFontCap(TextInput);
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
   const [bootRoute, setBootRoute] = useState<keyof RootStackParamList>('RoleSelector');
-  const [bootDestination, setBootDestination] = useState<'UserDashboard' | 'CounselorDashboard'>('UserDashboard');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
-  const [pinExists, setPinExists] = useState(false);
   // Shared module-level ref (see src/navigationRef) so the axios interceptor can
   // reset to Login when the backend kills this device's session.
   const routeNameRef = useRef<string | undefined>(undefined);
   const backgroundedAt = useRef<number | null>(null);
-
-  useEffect(() => {
-    // No Firebase token bootstrap is required for this app build.
-  }, []);
-
 
   useEffect(() => {
     const normalizeRole = (role: string | null) => {
@@ -144,13 +133,14 @@ function App() {
 
     const bootstrapSessionRoute = async () => {
       try {
-        const [accessToken, token, storedUserRole, userDataRaw, counsellorId, counselorId] = await Promise.all([
+        const [accessToken, token, storedUserRole, userDataRaw, counsellorId, counselorId, storedPin] = await Promise.all([
           AsyncStorage.getItem('accessToken'),
           AsyncStorage.getItem('token'),
           AsyncStorage.getItem('userRole'),
           AsyncStorage.getItem('userData'),
           AsyncStorage.getItem('counsellorId'),
           AsyncStorage.getItem('counselorId'),
+          AsyncStorage.getItem(PIN_STORAGE_KEY),
         ]);
 
         const hasToken = Boolean(accessToken || token);
@@ -160,9 +150,7 @@ function App() {
         }
 
         // Show lock screen if the user has set up a PIN
-        const storedPin = await AsyncStorage.getItem(PIN_STORAGE_KEY);
         if (storedPin) {
-          setPinExists(true);
           setIsLocked(true);
         }
 
@@ -222,7 +210,6 @@ function App() {
         if (elapsed >= LOCK_TIMEOUT_MS) {
           const storedPin = await AsyncStorage.getItem(PIN_STORAGE_KEY);
           if (storedPin) {
-            setPinExists(true);
             setIsLocked(true);
           }
         }
@@ -288,6 +275,7 @@ function App() {
               gestureEnabled: true,
               fullScreenGestureEnabled: true,
               animation: 'slide_from_right',
+              contentStyle: { backgroundColor: '#f8fafc' },
             }}
           >
             {/* <Stack.Screen name="Landing" component={Landing} /> */}
@@ -304,7 +292,7 @@ function App() {
             <Stack.Screen
               name="LocationGate"
               component={LocationGate}
-              initialParams={{ destination: bootDestination }}
+              initialParams={{ destination: 'UserDashboard' }}
             />
             <Stack.Screen name="UserDashboard" component={UserDashboard} />
              <Stack.Screen name='ChatBox' component={ChatBox} />
@@ -333,19 +321,6 @@ function App() {
         </CallProvider>
       </LanguageProvider>
     </SafeAreaProvider>
-  );
-}
-
-function AppContent() {
-  const safeAreaInsets = useSafeAreaInsets();
-
-  return (
-    <View style={styles.container}>
-      <NewAppScreen
-        templateFileName="App.tsx"
-        safeAreaInsets={safeAreaInsets}
-      />
-    </View>
   );
 }
 
@@ -424,9 +399,6 @@ const styles = StyleSheet.create({
     color: '#334155',
     fontSize: 13,
     fontWeight: '600',
-  },
-  container: {
-    flex: 1,
   },
 });
 

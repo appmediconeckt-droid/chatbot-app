@@ -4,6 +4,10 @@
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+        <!-- The activity owns IME resizing; React chat screens must never be
+             laid out underneath the keyboard. -->
+        <item name="android:windowSoftInputMode">adjustResize</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 
     <!-- Launch theme. On pre-Android-12 the layer-list below IS the splash; on
