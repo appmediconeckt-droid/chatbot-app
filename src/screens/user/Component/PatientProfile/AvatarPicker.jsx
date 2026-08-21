@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Modal,
   ScrollView,
@@ -12,8 +11,6 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { PATIENT_GRADIENT, GRADIENT_DIRECTION } from '../../../../theme/palette';
-import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
-import axiosInstance from '../../../../axiosConfig';
 import useLanguageRender from '../../../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -208,42 +205,10 @@ const buildDiceBearOptions = (draft) => {
 const buildDraftSeed = (userId, draft) => `${userId || 'user'}-${draft.gender}-${draft.hair}-${draft.skinColor}`;
 const buildDraftUrl = (draft, seed) => buildAvatarUrl(seed, DICEBEAR_STYLE, draft.backgroundColor, buildDiceBearOptions(draft));
 
-const toDataUrl = (photo) => {
-  if (photo.base64.startsWith('data:')) return photo.base64;
-  return `data:${photo.type || 'image/jpeg'};base64,${photo.base64}`;
-};
-
-const getNestedValue = (source, paths) => {
-  for (const path of paths) {
-    const value = path.reduce((current, key) => (current == null ? current : current[key]), source);
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  return '';
-};
-
-const getAvatarUrlFromGenerationResponse = (payload) =>
-  getNestedValue(payload, [
-    ['avatarUrl'], ['url'], ['imageUrl'],
-    ['data', 'avatarUrl'], ['data', 'url'], ['data', 'imageUrl'],
-    ['result', 'avatarUrl'], ['result', 'url'], ['result', 'imageUrl'],
-    ['image'], ['data', 'image'], ['result', 'image'],
-  ]);
-
-const buildGeneratedPhotoProfile = (avatarUrl, photo) => ({
-  url: avatarUrl,
-  seed: `photo-avatar-${Date.now()}`,
-  style: 'openai-photo-avatar',
-  backgroundColor: '',
-  source: 'generated',
-  label: 'Photo Avatar',
-  options: { inputSource: photo.source, inputFileName: photo.fileName },
-});
-
 const AvatarPicker = ({
   visible,
   currentAvatarUrl,
   userId,
-  userAge,
   userGender,
   presentation = 'modal',
   onClose,
@@ -252,12 +217,7 @@ const AvatarPicker = ({
   const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   // Open straight to the preset picker + customizer, like the web.
-  const [activeTab, setActiveTab] = useState('builder');
   const [selectedPresetId, setSelectedPresetId] = useState(null);
-  const [sourcePhoto, setSourcePhoto] = useState(null);
-  const [generatedPhotoAvatar, setGeneratedPhotoAvatar] = useState(null);
-  const [isGeneratingPhotoAvatar, setIsGeneratingPhotoAvatar] = useState(false);
-  const [photoAvatarError, setPhotoAvatarError] = useState('');
   const [draft, setDraft] = useState(DEFAULT_DRAFT);
   const [imageLoading, setImageLoading] = useState({});
   const [imageErrors, setImageErrors] = useState({});
@@ -268,7 +228,6 @@ const AvatarPicker = ({
 
   useEffect(() => {
     if (visible) {
-      setPhotoAvatarError('');
       const nextGender = getAvatarGenderFromValue(userGender);
       if (nextGender) {
         setDraft((previous) => ({ ...previous, ...getDraftGenderDefaults(nextGender) }));
@@ -329,90 +288,7 @@ const AvatarPicker = ({
     });
   };
 
-  const buildPhotoFromAsset = (asset, source) => {
-    if (!asset.uri || !asset.base64) return null;
-    return {
-      uri: asset.uri,
-      base64: asset.base64,
-      type: asset.type || 'image/jpeg',
-      fileName: asset.fileName || asset.uri.split('/').pop() || `avatar-photo-${Date.now()}.jpg`,
-      source,
-    };
-  };
-
-  const generateAvatarFromPhoto = async (photo) => {
-    setIsGeneratingPhotoAvatar(true);
-    setPhotoAvatarError('');
-    setGeneratedPhotoAvatar(null);
-    try {
-      const response = await axiosInstance.post(
-        '/api/avatar/analyze-and-generate',
-        {
-          photoBase64: toDataUrl(photo),
-          userId: userId || '',
-          age: userAge || '',
-          gender: userGender || '',
-          fileName: photo.fileName,
-          contentType: photo.type,
-          source: photo.source,
-        },
-        { timeout: 90000 },
-      );
-
-      const payload = response.data || {};
-      const avatarUrl = getAvatarUrlFromGenerationResponse(payload);
-      if (!avatarUrl) {
-        throw new Error(payload.message || 'Avatar service did not return an avatar image.');
-      }
-
-      const nextAvatar = buildGeneratedPhotoProfile(avatarUrl, photo);
-      setGeneratedPhotoAvatar(nextAvatar);
-      setImageErrors((previous) => ({ ...previous, [avatarUrl]: false }));
-    } catch (err) {
-      const message =
-        err.response?.data?.message || err.message || 'Unable to convert this photo into an avatar.';
-      setPhotoAvatarError(message);
-      Alert.alert('Avatar error', message);
-    } finally {
-      setIsGeneratingPhotoAvatar(false);
-    }
-  };
-
-  const selectPhoto = async (source) => {
-    setPhotoAvatarError('');
-    try {
-      const picker = source === 'camera' ? launchCamera : launchImageLibrary;
-      const result = await picker({
-        mediaType: 'photo',
-        cameraType: 'front',
-        includeBase64: true,
-        quality: 0.6,
-        maxWidth: 768,
-        maxHeight: 768,
-        selectionLimit: 1,
-      });
-
-      if (result.didCancel) return;
-      if (result.errorCode) throw new Error(result.errorMessage || result.errorCode);
-
-      const nextPhoto = buildPhotoFromAsset(result.assets?.[0] || {}, source);
-      if (!nextPhoto) throw new Error('Please choose a valid photo and try again.');
-
-      setSourcePhoto(nextPhoto);
-      await generateAvatarFromPhoto(nextPhoto);
-    } catch (err) {
-      const message = err.message || 'Unable to open photo picker.';
-      setPhotoAvatarError(message);
-      Alert.alert('Photo error', message);
-    }
-  };
-
   const handleUseAvatar = () => {
-    if (activeTab === 'photo' && generatedPhotoAvatar) {
-      onSelect(generatedPhotoAvatar.url);
-      onClose();
-      return;
-    }
     const profile = createAvatarProfile(selectedSeed, DICEBEAR_STYLE, draft.backgroundColor, buildDiceBearOptions(draft));
     onSelect(profile.url);
     onClose();
@@ -520,121 +396,45 @@ const AvatarPicker = ({
 
         <View style={styles.previewRow}>
           {renderPreviewImage(currentAvatarUrl || '', 'Current')}
-          {activeTab === 'photo'
-            ? renderPreviewImage(
-                generatedPhotoAvatar?.url || sourcePhoto?.uri || '',
-                generatedPhotoAvatar ? 'Avatar' : 'Photo',
-                'AV',
-                generatedPhotoAvatar?.url || sourcePhoto?.uri || 'photo',
-              )
-            : renderPreviewImage(builderPreviewUrl, 'Preview')}
+          {renderPreviewImage(builderPreviewUrl, 'Preview')}
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.creatorBody}>
-          {activeTab === 'photo' && (
-            <View style={styles.photoCaptureSection}>
-              <Text style={styles.sectionLabel}>{t('Use your own photo')}</Text>
-              <Text style={styles.photoHelpText}>
-                Take a clear selfie or choose one from your gallery. The app sends it to your avatar
-                service and uses the returned avatar.
-              </Text>
-
-              <View style={styles.photoActionRow}>
-                <TouchableOpacity
-                  style={[styles.photoActionButton, isGeneratingPhotoAvatar && styles.photoActionButtonOff]}
-                  onPress={() => selectPhoto('camera')}
-                  disabled={isGeneratingPhotoAvatar}
-                >
-                  <Text style={styles.photoActionButtonText}>{t('Take Photo')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.photoActionButtonSecondary, isGeneratingPhotoAvatar && styles.photoActionButtonOff]}
-                  onPress={() => selectPhoto('library')}
-                  disabled={isGeneratingPhotoAvatar}
-                >
-                  <Text style={styles.photoActionButtonSecondaryText}>{t('Choose Photo')}</Text>
-                </TouchableOpacity>
-              </View>
-
-              {isGeneratingPhotoAvatar && (
-                <View style={styles.photoStatusBox}>
-                  <ActivityIndicator size="small" color="#4A90E2" />
-                  <Text style={styles.photoStatusText}>{t('Creating avatar from your photo...')}</Text>
-                </View>
-              )}
-
-              {photoAvatarError ? <Text style={styles.photoErrorText}>{photoAvatarError}</Text> : null}
-
-              {sourcePhoto && (
-                <View style={styles.photoResultRow}>
-                  <View style={styles.photoResultCard}>
-                    <Text style={styles.photoResultLabel}>{t('Selected Photo')}</Text>
-                    <Image source={{ uri: sourcePhoto.uri }} style={styles.photoResultImage} />
-                  </View>
-                  <View style={styles.photoResultCard}>
-                    <Text style={styles.photoResultLabel}>{t('Generated Avatar')}</Text>
-                    {generatedPhotoAvatar?.url ? (
-                      <Image
-                        source={{ uri: generatedPhotoAvatar.url }}
-                        style={styles.photoResultImage}
-                        onError={() => markImageError(generatedPhotoAvatar.url)}
-                      />
-                    ) : (
-                      <View style={styles.photoResultEmpty}>
-                        <Text style={styles.photoResultEmptyText}>AV</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              )}
-
-              {sourcePhoto && !isGeneratingPhotoAvatar && (
-                <TouchableOpacity style={styles.retryButton} onPress={() => generateAvatarFromPhoto(sourcePhoto)}>
-                  <Text style={styles.retryButtonText}>{t('Generate Again')}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-
-          {activeTab === 'builder' && (
-            <>
-              <View style={styles.partSection}>
-                <Text style={styles.sectionLabel}>{t('Choose an avatar')}</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.optionRow}>
-                  {PRESET_AVATARS.map((preset) => {
-                    const selected = selectedPresetId === preset.id;
-                    const previewUrl = buildDraftUrl(preset.draft, `preset-${preset.id}`);
-                    return (
-                      <TouchableOpacity
-                        key={preset.id}
-                        style={[styles.textOption, styles.avatarOption, selected && styles.textOptionSelected]}
-                        onPress={() => applyPreset(preset)}
-                      >
-                        <Image source={{ uri: previewUrl }} style={styles.optionImage} />
-                        <Text style={[styles.textOptionLabel, selected && styles.textOptionLabelSelected]}>{t(preset.label)}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-              {renderPartOptions('Gender', [{ label: 'Male', value: 'male' }, { label: 'Female', value: 'female' }], draft.gender, 'gender', 'avatar')}
-              {renderFacePresets()}
-              {renderPartOptions('Skin', SKIN_COLORS, draft.skinColor, 'skinColor', 'swatch')}
-              {renderPartOptions('Hair', hairOptions, draft.hair, 'hair', 'avatar')}
-              {renderPartOptions('Hair Color', HAIR_COLORS, draft.hairColor, 'hairColor', 'swatch')}
-              {renderPartOptions('Eyes', EYE_OPTIONS, draft.eyes, 'eyes')}
-              {renderPartOptions('Eyebrows', EYEBROW_OPTIONS, draft.eyebrows, 'eyebrows')}
-              {renderPartOptions('Mouth', MOUTH_OPTIONS, draft.mouth, 'mouth')}
-              {draft.gender === 'male' && renderPartOptions('Beard', BEARD_OPTIONS, draft.beard, 'beard')}
-              {renderPartOptions('Accessories', ACCESSORY_OPTIONS, draft.accessory, 'accessory')}
-              {renderPartOptions('Clothes', CLOTHES_OPTIONS, draft.clothes, 'clothes')}
-              {renderPartOptions('Clothes Color', CLOTHES_COLORS, draft.clothesColor, 'clothesColor', 'swatch')}
-              {renderPartOptions('Background', BACKGROUND_COLORS, draft.backgroundColor, 'backgroundColor', 'swatch')}
-              <TouchableOpacity style={styles.randomButton} onPress={randomizeAvatar}>
-                <Text style={styles.randomButtonText}>{t('Random Avatar')}</Text>
-              </TouchableOpacity>
-            </>
-          )}
+          <View style={styles.partSection}>
+            <Text style={styles.sectionLabel}>{t('Choose an avatar')}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.optionRow}>
+              {PRESET_AVATARS.map((preset) => {
+                const selected = selectedPresetId === preset.id;
+                const previewUrl = buildDraftUrl(preset.draft, `preset-${preset.id}`);
+                return (
+                  <TouchableOpacity
+                    key={preset.id}
+                    style={[styles.textOption, styles.avatarOption, selected && styles.textOptionSelected]}
+                    onPress={() => applyPreset(preset)}
+                  >
+                    <Image source={{ uri: previewUrl }} style={styles.optionImage} />
+                    <Text style={[styles.textOptionLabel, selected && styles.textOptionLabelSelected]}>{t(preset.label)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+          {renderPartOptions('Gender', [{ label: 'Male', value: 'male' }, { label: 'Female', value: 'female' }], draft.gender, 'gender', 'avatar')}
+          {renderFacePresets()}
+          {renderPartOptions('Skin', SKIN_COLORS, draft.skinColor, 'skinColor', 'swatch')}
+          {renderPartOptions('Hair', hairOptions, draft.hair, 'hair', 'avatar')}
+          {renderPartOptions('Hair Color', HAIR_COLORS, draft.hairColor, 'hairColor', 'swatch')}
+          {renderPartOptions('Eyes', EYE_OPTIONS, draft.eyes, 'eyes')}
+          {renderPartOptions('Eyebrows', EYEBROW_OPTIONS, draft.eyebrows, 'eyebrows')}
+          {renderPartOptions('Mouth', MOUTH_OPTIONS, draft.mouth, 'mouth')}
+          {draft.gender === 'male' && renderPartOptions('Beard', BEARD_OPTIONS, draft.beard, 'beard')}
+          {renderPartOptions('Accessories', ACCESSORY_OPTIONS, draft.accessory, 'accessory')}
+          {renderPartOptions('Clothes', CLOTHES_OPTIONS, draft.clothes, 'clothes')}
+          {renderPartOptions('Clothes Color', CLOTHES_COLORS, draft.clothesColor, 'clothesColor', 'swatch')}
+          {renderPartOptions('Background', BACKGROUND_COLORS, draft.backgroundColor, 'backgroundColor', 'swatch')}
+          <TouchableOpacity style={styles.randomButton} onPress={randomizeAvatar}>
+            <Text style={styles.randomButtonText}>{t('Random Avatar')}</Text>
+          </TouchableOpacity>
         </ScrollView>
 
         <View style={styles.footer}>
@@ -642,12 +442,8 @@ const AvatarPicker = ({
             <Text style={styles.cancelText}>{t('Cancel')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[
-              styles.useButtonWrap,
-              ((activeTab === 'photo' && !generatedPhotoAvatar) || isGeneratingPhotoAvatar) && styles.useButtonOff,
-            ]}
+            style={styles.useButtonWrap}
             onPress={handleUseAvatar}
-            disabled={(activeTab === 'photo' && !generatedPhotoAvatar) || isGeneratingPhotoAvatar}
             activeOpacity={0.85}
           >
             <LinearGradient colors={PATIENT_GRADIENT} {...GRADIENT_DIRECTION} style={styles.useButton}>

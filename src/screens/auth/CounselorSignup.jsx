@@ -25,12 +25,23 @@ import GoogleAuthButton from './components/GoogleAuthButton';
 import ForgotPasswordModal from './components/ForgotPasswordModal';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
+import CountryPhoneInput from '../../components/common/CountryPhoneInput';
+import {
+  isValidLocalPhoneNumber,
+  normalizeLocalPhoneNumber,
+} from '../../utils/countryCodes';
 
 // Import logo
 import logo from '../../image/HumaeliBlue.png';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
-import { getApiErrorMessage, isOtpRequestSuccessful, isOtpVerificationSuccessful, postPublicAuthEndpoint } from './authUtils';
+import {
+  getApiErrorMessage,
+  isOtpRequestSuccessful,
+  isOtpVerificationSuccessful,
+  postPublicAuthEndpoint,
+  postPublicAuthEndpointWithOtpRetry,
+} from './authUtils';
 
 const CounselorSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
@@ -43,6 +54,7 @@ const CounselorSignup = ({ navigation, route }) => {
     password: '',
     fullName: '',
     phoneNumber: '',
+    phoneCountryCode: '+91',
     age: '',
     gender: '',
     qualification: '',
@@ -86,6 +98,7 @@ const CounselorSignup = ({ navigation, route }) => {
   const [isSendingVerification, setIsSendingVerification] = useState(false);
   const sendingVerificationRef = useRef(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const verifyingOtpRef = useRef(false);
   const [otpError, setOtpError] = useState('');
 
   // Device Conflict States
@@ -186,7 +199,7 @@ const CounselorSignup = ({ navigation, route }) => {
     else if (!emailVerified) newErrors.email = "Please verify your email first";
 
     if (!formData.phoneNumber) newErrors.phoneNumber = "Phone is required";
-    else if (!/^\d{10}$/.test(formData.phoneNumber)) newErrors.phoneNumber = "Must be 10 digits";
+    else if (!isValidLocalPhoneNumber(formData.phoneNumber)) newErrors.phoneNumber = "Phone number must be 10 digits";
 
     if (!formData.age) newErrors.age = "Age is required";
     else if (formData.age < 18 || formData.age > 100) newErrors.age = "Must be 18-100";
@@ -243,11 +256,13 @@ const CounselorSignup = ({ navigation, route }) => {
       // There is no file in the current signup form, so send JSON. Manually
       // setting multipart/form-data without a boundary can make Express see an
       // empty body and report every required field as missing.
+      const phoneNumber = normalizeLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode);
       const data = {
         fullName: formData.fullName.trim(),
         email: formData.email.trim().toLowerCase(),
-        phoneNumber: formData.phoneNumber.trim(),
-        phoneNum: formData.phoneNumber.trim(),
+        phoneNumber,
+        phoneNum: phoneNumber,
+        phoneCountryCode: formData.phoneCountryCode,
         age: Number(formData.age),
         gender: formData.gender.toLowerCase(),
         qualification: formData.qualification.trim(),
@@ -328,17 +343,19 @@ const CounselorSignup = ({ navigation, route }) => {
   };
 
   const handleVerifyOtp = async () => {
+    if (verifyingOtpRef.current) return;
     const normalizedOtp = otpCode.trim();
     if (normalizedOtp.length !== 6) return setOtpError('Enter 6 digits');
     const otpEmail = String(showOtpModal.value || formData.email).trim().toLowerCase();
     try {
+      verifyingOtpRef.current = true;
       setIsVerifyingOtp(true);
       setOtpError('');
       const type = 'email';
       const endpoint = 'verify-email-otp';
       const payload = { email: otpEmail, otp: normalizedOtp };
 
-      const response = await postPublicAuthEndpoint(endpoint, payload);
+      const response = await postPublicAuthEndpointWithOtpRetry(endpoint, payload);
       if (isOtpVerificationSuccessful(response)) {
         setFormData(prev => ({ ...prev, email: otpEmail }));
         setEmailVerified(true);
@@ -366,6 +383,7 @@ const CounselorSignup = ({ navigation, route }) => {
       }
       setOtpError(getApiErrorMessage(err, 'Verification failed'));
     } finally {
+      verifyingOtpRef.current = false;
       setIsVerifyingOtp(false);
     }
   };
@@ -474,6 +492,30 @@ const CounselorSignup = ({ navigation, route }) => {
     );
   };
 
+  const renderPhoneInput = (index) => {
+    const name = 'phoneNumber';
+    const isFocused = focusedField === name;
+
+    return (
+      <Animated.View key="counselor-input-phoneNumber" style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
+        <CountryPhoneInput
+          value={formData.phoneNumber}
+          countryCode={formData.phoneCountryCode}
+          onChangePhoneNumber={(text) => handleChange(name, normalizeLocalPhoneNumber(text, formData.phoneCountryCode))}
+          onChangeCountryCode={(code) => handleChange('phoneCountryCode', code)}
+          focused={isFocused}
+          accentColor="#004AC6"
+          onFocus={(event) => {
+            setFocusedField(name);
+            scrollFocusedInputIntoView(event);
+          }}
+          onBlur={() => setFocusedField(null)}
+        />
+        {errors[name] && <Text style={styles.errorText}>{errors[name]}</Text>}
+      </Animated.View>
+    );
+  };
+
   const scrollContainerStyle = {
     ...styles.scrollContent,
     justifyContent: isLogin && !keyboardOpen ? 'center' : 'flex-start',
@@ -515,7 +557,7 @@ const CounselorSignup = ({ navigation, route }) => {
                 )} */}
                 <View style={styles.formPanel}>
                   {!isLogin ? (
-                    <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderInput(3, 'phoneNumber', 'phone-outline', 'Phone Number', { keyboardType: 'phone-pad', maxLength: 10 })}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
+                    <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderPhoneInput(3)}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
                       <Animated.View key="gender-section" style={{ opacity: fieldAnims[5] }}><Text style={styles.sectionLabel}>{t('Gender')}</Text><View style={styles.genderRow}>{genderOptions.map(g => (<TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}><Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text></TouchableOpacity>))}</View></Animated.View>
                       {renderInput(6, 'qualification', 'school-outline', 'Qualification')}{renderInput(7, 'specialization', 'certificate-outline', 'Specialization')}
                       <View style={styles.row}><View style={{ flex: 1 }}>{renderInput(8, 'experience', 'briefcase-clock-outline', 'Years')}</View><View style={{ flex: 1.5 }}>{renderInput(9, 'location', 'map-marker-radius-outline', 'City')}</View></View>

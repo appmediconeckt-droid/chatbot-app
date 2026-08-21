@@ -598,6 +598,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import AuthBackground from '../../theme/AuthBackground';
 
 // Import logo
@@ -608,7 +609,24 @@ import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
-import { getApiErrorMessage, isOtpRequestSuccessful, isOtpVerificationSuccessful, postPublicAuthEndpoint } from './authUtils';
+import CountryPhoneInput from '../../components/common/CountryPhoneInput';
+import {
+  isValidLocalPhoneNumber,
+  normalizeLocalPhoneNumber,
+} from '../../utils/countryCodes';
+import {
+  calculateAgeFromDateOfBirth,
+  formatDateOfBirthDisplay,
+  getDatePickerValue,
+  toDateOnlyString,
+} from '../../utils/dateOfBirth';
+import {
+  getApiErrorMessage,
+  isOtpRequestSuccessful,
+  isOtpVerificationSuccessful,
+  postPublicAuthEndpoint,
+  postPublicAuthEndpointWithOtpRetry,
+} from './authUtils';
 
 const UserSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
@@ -624,7 +642,9 @@ const UserSignup = ({ navigation, route }) => {
     fullName: '',
     anonymous: '',
     phoneNumber: '',
+    phoneCountryCode: '+91',
     age: '',
+    dateOfBirth: '',
     gender: '',
     confirmPassword: '',
   });
@@ -650,6 +670,7 @@ const UserSignup = ({ navigation, route }) => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [notification, setNotification] = useState({ show: false, message: '', type: '' });
+  const [showDateOfBirthPicker, setShowDateOfBirthPicker] = useState(false);
 
   // Verification states
   const [emailVerified, setEmailVerified] = useState(false);
@@ -659,6 +680,7 @@ const UserSignup = ({ navigation, route }) => {
   const [isSendingVerification, setIsSendingVerification] = useState(false);
   const sendingVerificationRef = useRef(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const verifyingOtpRef = useRef(false);
   const [otpError, setOtpError] = useState('');
 
   // Device Conflict States
@@ -770,10 +792,11 @@ const UserSignup = ({ navigation, route }) => {
     else if (!emailVerified) newErrors.email = "Please verify your email first";
 
     if (!formData.phoneNumber) newErrors.phoneNumber = "Phone number is required";
-    else if (!/^\d{10}$/.test(formData.phoneNumber)) newErrors.phoneNumber = "Phone number must be 10 digits";
+    else if (!isValidLocalPhoneNumber(formData.phoneNumber)) newErrors.phoneNumber = "Phone number must be 10 digits";
 
-    if (!formData.age) newErrors.age = "Age is required";
-    else if (formData.age < 13 || formData.age > 120) newErrors.age = "Age must be between 13 and 120";
+    const calculatedAge = calculateAgeFromDateOfBirth(formData.dateOfBirth);
+    if (!formData.dateOfBirth || calculatedAge === null) newErrors.dateOfBirth = "Date of birth is required";
+    else if (calculatedAge < 13 || calculatedAge > 120) newErrors.dateOfBirth = "Age must be between 13 and 120";
 
     if (!formData.gender) newErrors.gender = "Gender is required";
     if (!formData.password) newErrors.password = "Password is required";
@@ -819,15 +842,18 @@ const UserSignup = ({ navigation, route }) => {
     }
     try {
       setIsLoading(true);
+      const phoneNumber = normalizeLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode);
       const signupData = {
         fullName: formData.fullName.trim(),
         email: formData.email.trim().toLowerCase(),
         anonymous: formData.anonymous.trim(),
-        phoneNumber: formData.phoneNumber.trim(),
-        phoneNum: formData.phoneNumber.trim(),
+        phoneNumber,
+        phoneNum: phoneNumber,
+        phoneCountryCode: formData.phoneCountryCode,
         password: formData.password,
         confirmPassword: formData.confirmPassword,
-        age: parseInt(formData.age),
+        dateOfBirth: toDateOnlyString(formData.dateOfBirth),
+        age: calculateAgeFromDateOfBirth(formData.dateOfBirth),
         gender: formData.gender.trim().toLowerCase(),
         role: "user",
         isEmailVerified: true,
@@ -900,6 +926,7 @@ const UserSignup = ({ navigation, route }) => {
   };
 
   const handleVerifyOtp = async () => {
+    if (verifyingOtpRef.current) return;
     const normalizedOtp = otpCode.trim();
     if (normalizedOtp.length !== 6) {
       setOtpError('Enter 6 digit code');
@@ -907,13 +934,14 @@ const UserSignup = ({ navigation, route }) => {
     }
     const otpEmail = String(showOtpModal.value || formData.email).trim().toLowerCase();
     try {
+      verifyingOtpRef.current = true;
       setIsVerifyingOtp(true);
       setOtpError('');
       const type = 'email';
       const endpoint = 'verify-email-otp';
       const payload = { email: otpEmail, otp: normalizedOtp };
       
-      const response = await postPublicAuthEndpoint(endpoint, payload);
+      const response = await postPublicAuthEndpointWithOtpRetry(endpoint, payload);
       if (isOtpVerificationSuccessful(response)) {
         setFormData(prev => ({ ...prev, email: otpEmail }));
         setEmailVerified(true);
@@ -941,6 +969,7 @@ const UserSignup = ({ navigation, route }) => {
       }
       setOtpError(getApiErrorMessage(err, 'Verification failed'));
     } finally {
+      verifyingOtpRef.current = false;
       setIsVerifyingOtp(false);
     }
   };
@@ -1003,6 +1032,25 @@ const UserSignup = ({ navigation, route }) => {
     }
   }, []);
 
+  const handleDateOfBirthChange = (_event, selectedDate) => {
+    if (Platform.OS === 'android') setShowDateOfBirthPicker(false);
+    if (!selectedDate) return;
+
+    const dateOfBirth = toDateOnlyString(selectedDate);
+    const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
+    setFormData(prev => ({
+      ...prev,
+      dateOfBirth,
+      age: calculatedAge !== null ? String(calculatedAge) : '',
+    }));
+    setErrors(prev => {
+      const next = { ...prev };
+      delete next.dateOfBirth;
+      delete next.age;
+      return next;
+    });
+  };
+
   const renderInput = (index, name, icon, placeholder, options = {}, verifyType = null) => {
     const isFocused = focusedField === name;
     const isVerified = verifyType === 'email' && emailVerified;
@@ -1044,6 +1092,61 @@ const UserSignup = ({ navigation, route }) => {
       </Animated.View>
     );
   };
+
+  const renderPhoneInput = (index) => {
+    const name = 'phoneNumber';
+    const isFocused = focusedField === name;
+
+    return (
+      <Animated.View key="input-phoneNumber" style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
+        <CountryPhoneInput
+          value={formData.phoneNumber}
+          countryCode={formData.phoneCountryCode}
+          onChangePhoneNumber={(text) => handleChange(name, normalizeLocalPhoneNumber(text, formData.phoneCountryCode))}
+          onChangeCountryCode={(code) => handleChange('phoneCountryCode', code)}
+          focused={isFocused}
+          accentColor="#00652C"
+          onFocus={(event) => {
+            setFocusedField(name);
+            scrollFocusedInputIntoView(event);
+          }}
+          onBlur={() => setFocusedField(null)}
+        />
+        {errors[name] && <Text style={styles.errorText}>{errors[name]}</Text>}
+      </Animated.View>
+    );
+  };
+
+  const renderDateOfBirthInput = (index) => (
+    <Animated.View key="input-dateOfBirth" style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
+      <TouchableOpacity
+        style={styles.inputWrapper}
+        onPress={() => setShowDateOfBirthPicker(true)}
+        activeOpacity={0.85}
+      >
+        <Icon name="calendar-month-outline" size={20} color="#64748b" style={styles.inputIcon} />
+        <Text
+          style={[
+            styles.datePickerText,
+            !formData.dateOfBirth && styles.datePickerPlaceholder,
+          ]}
+        >
+          {formatDateOfBirthDisplay(formData.dateOfBirth, t('Date of Birth'))}
+        </Text>
+        <Icon name="chevron-down" size={20} color="#94a3b8" />
+      </TouchableOpacity>
+      {showDateOfBirthPicker && (
+        <DateTimePicker
+          value={getDatePickerValue(formData.dateOfBirth)}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          maximumDate={new Date()}
+          onChange={handleDateOfBirthChange}
+        />
+      )}
+      {errors.dateOfBirth && <Text style={styles.errorText}>{errors.dateOfBirth}</Text>}
+    </Animated.View>
+  );
 
   const isAnyModalVisible = showOtpModal.show || showDeviceConflict;
 
@@ -1104,8 +1207,8 @@ const UserSignup = ({ navigation, route }) => {
                   )}
                   {renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}
                   {!isLogin && (
-                    <>{renderInput(3, 'phoneNumber', 'phone-outline', 'Phone Number', { keyboardType: 'phone-pad', maxLength: 10 })}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
-                      <Animated.View style={[styles.genderRow, { opacity: fieldAnims[5] }]}>
+                    <>{renderPhoneInput(3)}{renderDateOfBirthInput(4)}{renderInput(5, 'age', 'calendar-account-outline', 'Age', { editable: false })}
+                      <Animated.View style={[styles.genderRow, { opacity: fieldAnims[6] }]}>
                         {genderOptions.map(g => (
                           <TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}>
                             <Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text>
@@ -1114,7 +1217,7 @@ const UserSignup = ({ navigation, route }) => {
                       </Animated.View>
                     </>
                   )}
-                  <Animated.View key="pwd-row" style={{ opacity: fieldAnims[6] }}>
+                  <Animated.View key="pwd-row" style={{ opacity: fieldAnims[7] }}>
                     <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
                       <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
                       <TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} />
@@ -1296,6 +1399,8 @@ const styles = StyleSheet.create({
   inputWrapperFocused: { borderColor: '#00652C', backgroundColor: '#ffffff' },
   inputIcon: { marginRight: 12 },
   textInput: { flex: 1, color: '#1e293b', fontSize: 14, fontWeight: '600' },
+  datePickerText: { flex: 1, color: '#1e293b', fontSize: 14, fontWeight: '600' },
+  datePickerPlaceholder: { color: '#94a3b8' },
   verifyBtn: { minWidth: 68, minHeight: 34, backgroundColor: '#00652C', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   verifiedBtn: { backgroundColor: 'transparent' },
   verifyBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },

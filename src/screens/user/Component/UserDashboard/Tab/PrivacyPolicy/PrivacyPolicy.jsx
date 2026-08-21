@@ -169,7 +169,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
   const QUICK_ACTIONS = [
     { icon: 'person-outline', title: 'Manage Profile', sub: 'Update details', onPress: () => openTab('profile') },
     { icon: 'shield-checkmark-outline', title: 'Security Settings', sub: 'Passwords & OTP', onPress: () => openTab('settings') },
-    { icon: 'trash-outline', title: 'Delete Account', sub: 'Remove data', danger: true, onPress: () => openTab('settings') },
+    // { icon: 'trash-outline', title: 'Delete Account', sub: 'Remove data', danger: true, onPress: () => openTab('settings') },
   ];
 
   return (

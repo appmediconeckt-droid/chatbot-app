@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import useLanguageRender from '../../../../../hooks/useLanguageRender';
 import { useNavigation } from '@react-navigation/native';
 import {
@@ -16,7 +15,6 @@ import {
   Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import axiosInstance from '../../../../../axiosConfig';
@@ -26,6 +24,16 @@ import PATIENT, {
   GRADIENT_DIRECTION,
 } from '../../../../../theme/palette';
 import PatientGradientButton from '../../../../../components/common/PatientGradientButton';
+
+const isGeneratedUserAvatarUrl = (raw) => {
+  const url = typeof raw === 'string' ? raw : raw?.url || raw?.secure_url || '';
+  const value = String(url || '').trim();
+  if (!value) return false;
+  return (
+    value.startsWith('data:image/') ||
+    /^https:\/\/api\.dicebear\.com\//i.test(value)
+  );
+};
 
 const UserAccountSettings = ({ onNavigateBack }) => {
   const { t } = useLanguageRender();
@@ -38,9 +46,8 @@ const UserAccountSettings = ({ onNavigateBack }) => {
   // Add password via OTP
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
-  // The OTP step is confirmed locally: there is no verify-only endpoint, so the
-  // code is only checked for real when the password is saved below. This gates
-  // the password fields so the user does one thing at a time.
+  // Verified with a password-specific endpoint so the login OTP endpoint does
+  // not consume the code before the password save request can use it.
   const [otpVerified, setOtpVerified] = useState(false);
   const [otpVerifying, setOtpVerifying] = useState(false);
   const [newPasswordAdd, setNewPasswordAdd] = useState('');
@@ -89,7 +96,8 @@ const UserAccountSettings = ({ onNavigateBack }) => {
       if (res.data?.success && res.data.user) {
         const u = res.data.user;
         const userName = u.fullName || u.name || 'Rohan';
-        const photoUri = typeof u.profilePhoto === 'string' ? u.profilePhoto?.trim() : null;
+        const rawPhoto = u.profilePhoto?.url || u.profilePhoto?.secure_url || u.profilePhoto;
+        const photoUri = isGeneratedUserAvatarUrl(rawPhoto) ? String(rawPhoto).trim() : null;
 
         setAccount({
           name: userName,
@@ -166,9 +174,8 @@ const UserAccountSettings = ({ onNavigateBack }) => {
     }
   };
 
-  // The OTP is only truly checked when the password is submitted, so a bad code
-  // surfaces here. Drop back to the OTP step instead of leaving the user on a
-  // password form that will keep failing.
+  // Drop back to the OTP step when the code expires between verification and
+  // saving the password.
   const handleAddPasswordError = (message) => {
     const msg = message || 'Failed to add password';
     if (/otp|code|expired|invalid/i.test(msg)) {
@@ -178,10 +185,9 @@ const UserAccountSettings = ({ onNavigateBack }) => {
     Alert.alert('Error', msg);
   };
 
-  // Checks the code against the server before revealing the password fields, so
-  // a wrong OTP is rejected here rather than after the user has typed a
-  // password. Note: whatever token verifyOtp returns is deliberately IGNORED -
-  // this user is already signed in and the stored session must not change.
+  // Checks the code before revealing the password fields. New backends validate
+  // with a non-consuming endpoint; older deployed backends may not have that
+  // route yet, so final password save remains the source of truth for OTP.
   const handleVerifyOtp = async () => {
     if (!otpCode || otpCode.length !== 6) {
       Alert.alert('Error', 'Enter the 6-digit OTP');
@@ -189,7 +195,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
     }
     setOtpVerifying(true);
     try {
-      const res = await axiosInstance.post('/api/auth/verifyOtp', {
+      const res = await axiosInstance.post('/api/auth/verify-password-otp', {
         email: account.email,
         otp: otpCode,
       });
@@ -199,6 +205,10 @@ const UserAccountSettings = ({ onNavigateBack }) => {
         Alert.alert('Error', res.data?.message || 'That OTP is not correct.');
       }
     } catch (e) {
+      if (e.response?.status === 404) {
+        setOtpVerified(true);
+        return;
+      }
       Alert.alert('Error', e.response?.data?.message || 'That OTP is not correct.');
     } finally {
       setOtpVerifying(false);
@@ -294,17 +304,20 @@ const UserAccountSettings = ({ onNavigateBack }) => {
     <View style={s.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-      {/* Header */}
       <View style={s.header}>
         <TouchableOpacity onPress={onNavigateBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="chevron-back" size={24} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>{t('Security')}</Text>
-        <View style={{ width: 24 }} />
+        <Text style={s.headerTitle}>{t('settings:settings', 'Settings')}</Text>
+        <View style={s.headerSpacer} />
       </View>
 
-      <ScrollView style={s.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 0 }} scrollIndicatorInsets={{ right: 1 }}>
-        {/* Account Info */}
+      <ScrollView
+        style={s.scroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={s.scrollContent}
+        scrollIndicatorInsets={{ right: 1 }}
+      >
         <View style={s.section}>
           <Text style={s.sectionTitle}>{t('ACCOUNT INFO')}</Text>
 
@@ -334,9 +347,15 @@ const UserAccountSettings = ({ onNavigateBack }) => {
             { icon: 'phone-portrait-outline', label: 'Phone', value: account.phone },
             { icon: 'log-in-outline', label: 'Login via', value: 'Email & Password' },
           ].map((item, idx) => (
-            <View key={idx} style={s.infoRow}>
+            <View
+              key={idx}
+              style={[
+                s.infoRow,
+                idx === 2 && s.infoRowLast,
+              ]}
+            >
               <Ionicons name={item.icon} size={16} color={PATIENT.primary} />
-              <View style={{ marginLeft: 10, flex: 1 }}>
+              <View style={s.infoTextWrap}>
                 <Text style={s.infoLabel}>{t(item.label)}</Text>
                 <Text style={s.infoValue}>{item.value}</Text>
               </View>
@@ -344,7 +363,6 @@ const UserAccountSettings = ({ onNavigateBack }) => {
           ))}
         </View>
 
-        {/* Password Security */}
         <View style={s.section}>
           <View style={s.passwordHeader}>
             <View>
@@ -353,10 +371,6 @@ const UserAccountSettings = ({ onNavigateBack }) => {
             </View>
           </View>
 
-          {/* Tabs */}
-          {/* Both tab states render the same tree with the same metrics - only
-              the gradient stops and text colour change - so switching tabs
-              can't resize them. */}
           <View style={s.tabsContainer}>
             {[
               { key: 'add', label: 'Add' },
@@ -375,7 +389,13 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                     {...GRADIENT_DIRECTION}
                     style={s.tab}
                   >
-                    <Text style={[s.tabText, isActive && s.tabTextActive]}>{label}</Text>
+                    <Text
+                      style={[s.tabText, isActive && s.tabTextActive]}
+                      numberOfLines={1}
+                      maxFontSizeMultiplier={1}
+                    >
+                      {label}
+                    </Text>
                   </LinearGradient>
                 </TouchableOpacity>
               );
@@ -596,7 +616,6 @@ const UserAccountSettings = ({ onNavigateBack }) => {
           )}
         </View>
 
-        {/* App Lock */}
         <View style={s.section}>
           <View style={s.appLockRow}>
             <View>
@@ -612,55 +631,80 @@ const UserAccountSettings = ({ onNavigateBack }) => {
           </View>
         </View>
 
-        <View style={{ height: 40 }} />
+        <View style={s.bottomSpace} />
       </ScrollView>
     </View>
   );
 };
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc', paddingTop: 0, paddingBottom: 40 },
+  container: { flex: 1, backgroundColor: '#F9F9FF', paddingTop: 0, paddingBottom: 40 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#ffffff', borderBottomWidth: 2, borderBottomColor: '#0066cc' },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
+  header: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  headerTitle: { fontSize: 18, lineHeight: 22, fontWeight: '800', color: '#0f172a', includeFontPadding: false },
+  headerSpacer: { width: 24 },
   scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 96 },
 
-  section: { backgroundColor: '#ffffff', marginHorizontal: 0, marginTop: 0, marginBottom: 0, borderRadius: 0, padding: 14, borderWidth: 0, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  sectionTitle: { fontSize: 10, fontWeight: '800', color: '#94a3b8', letterSpacing: 0.4, marginBottom: 10 },
+  section: {
+    backgroundColor: '#ffffff',
+    marginBottom: 14,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E8ECF3',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  sectionTitle: { fontSize: 13, lineHeight: 16, fontWeight: '800', color: '#94a3b8', letterSpacing: 0.4, marginBottom: 10, includeFontPadding: false },
 
-  accountCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f1f5f9', padding: 10, borderRadius: 8, marginBottom: 10 },
+  accountCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#F3F7F6', padding: 12, borderRadius: 12, marginBottom: 10 },
   avatar: { width: 36, height: 36, borderRadius: 18 },
   avatarFallback: { backgroundColor: PATIENT.primary, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 16, fontWeight: '700', color: '#ffffff' },
   accountName: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
-  accountType: { fontSize: 11, color: '#64748b', marginTop: 1 },
+  accountType: { fontSize: 13, lineHeight: 16, color: '#64748b', marginTop: 1, includeFontPadding: false },
 
-  infoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  infoLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8' },
-  infoValue: { fontSize: 12, fontWeight: '600', color: '#0f172a', marginTop: 3 },
+  infoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eef2f7' },
+  infoRowLast: { borderBottomWidth: 0, paddingBottom: 0 },
+  infoTextWrap: { marginLeft: 10, flex: 1 },
+  infoLabel: { fontSize: 13, lineHeight: 16, fontWeight: '600', color: '#94a3b8', includeFontPadding: false },
+  infoValue: { fontSize: 13, lineHeight: 16, fontWeight: '600', color: '#0f172a', marginTop: 3, includeFontPadding: false },
 
   passwordHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
-  changeBtn: { fontSize: 12, fontWeight: '700', color: PATIENT.primary },
-  passwordSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
+  changeBtn: { fontSize: 13, lineHeight: 16, fontWeight: '700', color: PATIENT.primary, includeFontPadding: false },
+  passwordSub: { fontSize: 13, lineHeight: 16, color: '#64748b', marginTop: 2, includeFontPadding: false },
 
-  tabsContainer: { flexDirection: 'row', gap: 8, marginBottom: 12, backgroundColor: '#f1f5f9', padding: 4, borderRadius: 8 },
+  tabsContainer: { flexDirection: 'row', gap: 8, marginBottom: 12, backgroundColor: '#f1f5f9', padding: 4, borderRadius: 12 },
   // Wrapper owns flex + clips the gradient to the tab radius.
-  tabWrap: { flex: 1, borderRadius: 6, overflow: 'hidden' },
-  tab: { paddingVertical: 8, alignItems: 'center' },
-  tabText: { fontSize: 11, fontWeight: '700', color: '#64748b' },
+  tabWrap: { flex: 1, minWidth: 0, borderRadius: 9, overflow: 'hidden' },
+  tab: { height: 40, paddingHorizontal: 8, alignItems: 'center', justifyContent: 'center' },
+  tabText: { fontSize: 13, lineHeight: 16, fontWeight: '700', color: '#64748b', textAlign: 'center', includeFontPadding: false },
   tabTextActive: { color: '#ffffff' },
 
   passwordContent: { gap: 10 },
 
   inputBox: { marginBottom: 2 },
-  inputLabel: { fontSize: 11, fontWeight: '700', color: '#334155', marginBottom: 6 },
+  inputLabel: { fontSize: 13, lineHeight: 16, fontWeight: '700', color: '#334155', marginBottom: 6, includeFontPadding: false },
   inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 8, paddingHorizontal: 11, borderWidth: 1, borderColor: '#dbe3ef', minHeight: 42, gap: 8 },
-  input: { flex: 1, color: '#0f172a', fontSize: 13, fontWeight: '500', paddingVertical: 10 },
-  emailReadonly: { flex: 1, color: '#64748b', fontSize: 13, fontWeight: '500' },
+  input: { flex: 1, color: '#0f172a', fontSize: 13, lineHeight: 16, fontWeight: '500', paddingVertical: 10, includeFontPadding: false },
+  emailReadonly: { flex: 1, color: '#64748b', fontSize: 13, lineHeight: 16, fontWeight: '500', includeFontPadding: false },
 
   otpBtn: { backgroundColor: PATIENT.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, minWidth: 80, alignItems: 'center' },
-  otpBtnText: { color: '#fff', fontSize: 11, fontWeight: '700' },
-  otpResend: { color: PATIENT.primary, fontSize: 12, fontWeight: '700', marginBottom: 14 },
+  otpBtnText: { color: '#fff', fontSize: 13, lineHeight: 16, fontWeight: '700', includeFontPadding: false },
+  otpResend: { color: PATIENT.primary, fontSize: 13, lineHeight: 16, fontWeight: '700', marginBottom: 14, includeFontPadding: false },
   otpDoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -671,16 +715,17 @@ const s = StyleSheet.create({
     paddingVertical: 10,
     marginBottom: 14,
   },
-  otpDoneText: { flex: 1, color: '#0F172A', fontSize: 12.5, fontWeight: '600' },
-  otpDoneChange: { color: PATIENT.primary, fontSize: 12, fontWeight: '700' },
+  otpDoneText: { flex: 1, color: '#0F172A', fontSize: 13, lineHeight: 16, fontWeight: '600', includeFontPadding: false },
+  otpDoneChange: { color: PATIENT.primary, fontSize: 13, lineHeight: 16, fontWeight: '700', includeFontPadding: false },
 
   submitBtn: { borderRadius: 10, paddingVertical: 12, marginTop: 8 },
-  submitBtnText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
+  submitBtnText: { fontSize: 13, lineHeight: 16, fontWeight: '800', color: '#ffffff', includeFontPadding: false },
   btnDisabled: { opacity: 0.5 },
 
   appLockRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  appLockTitle: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
-  appLockSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
+  appLockTitle: { fontSize: 13, lineHeight: 16, fontWeight: '700', color: '#0f172a', includeFontPadding: false },
+  appLockSub: { fontSize: 13, lineHeight: 16, color: '#64748b', marginTop: 2, includeFontPadding: false },
+  bottomSpace: { height: 24 },
 
 });
 

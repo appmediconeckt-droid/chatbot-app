@@ -801,9 +801,10 @@ const styles = StyleSheet.create({
   // "Outgoing" label, auto-width chips overflow a 360dp screen.
   callFilterBtnWrap: {
     flex: 1,
+    minWidth: 0,
   },
   callFilterBtn: {
-    paddingVertical: 8,
+    height: 36,
     paddingHorizontal: 6,
     borderRadius: 10,
     backgroundColor: "#f1f5f9",
@@ -817,9 +818,12 @@ const styles = StyleSheet.create({
     borderColor: "#006B2C",
   },
   callFilterBtnText: {
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 16,
     fontWeight: "600",
     color: "#64748b",
+    textAlign: "center",
+    includeFontPadding: false,
   },
   callFilterBtnTextActive: {
     color: "#ffffff",

@@ -15,7 +15,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { navigationRef } from './src/navigationRef';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import UserSignup from './src/screens/auth/UserSignup';
-// import Landing from "./src/screens/auth/Landing";
+import Landing from "./src/screens/auth/Landing";
 import Login from "./src/screens/auth/Login"
 import CounselorSignup from './src/screens/auth/CounselorSignup';
 import RoleSelector from "./src/screens/auth/RoleSelector";
@@ -116,7 +116,7 @@ withFontCap(TextInput);
 
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
-  const [bootRoute, setBootRoute] = useState<keyof RootStackParamList>('RoleSelector');
+  const [bootRoute, setBootRoute] = useState<keyof RootStackParamList>('Landing');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
   // Shared module-level ref (see src/navigationRef) so the axios interceptor can
@@ -145,7 +145,7 @@ function App() {
 
         const hasToken = Boolean(accessToken || token);
         if (!hasToken) {
-          setBootRoute('RoleSelector');
+          setBootRoute('Landing');
           return;
         }
 
@@ -185,11 +185,11 @@ function App() {
           // setIsLocked). This stops the location page re-appearing every boot.
           setBootRoute(destination);
         } else {
-          setBootRoute('RoleSelector');
+          setBootRoute('Landing');
         }
       } catch (error) {
-        console.warn('Session bootstrap failed, opening RoleSelector', error);
-        setBootRoute('RoleSelector');
+        console.warn('Session bootstrap failed, opening Landing', error);
+        setBootRoute('Landing');
       } finally {
         setIsBootstrapping(false);
       }
@@ -278,7 +278,7 @@ function App() {
               contentStyle: { backgroundColor: '#f8fafc' },
             }}
           >
-            {/* <Stack.Screen name="Landing" component={Landing} /> */}
+            <Stack.Screen name="Landing" component={Landing} />
             <Stack.Screen name="RoleSelector" component={RoleSelector} />
             <Stack.Screen name="UserOnboarding" component={UserOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />
             <Stack.Screen name="CounselorOnboarding" component={CounselorOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />

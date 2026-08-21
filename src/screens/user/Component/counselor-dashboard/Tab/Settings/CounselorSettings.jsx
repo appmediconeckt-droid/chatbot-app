@@ -224,10 +224,9 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     } finally { setPwLoading(false); }
   };
 
-  // Checks the code against the server before the password fields appear, so a
-  // wrong OTP is caught here instead of after a password has been typed. The
-  // token verifyOtp returns is deliberately IGNORED - this counselor is already
-  // signed in and the stored session must not change.
+  // Checks the code before the password fields appear. New backends validate
+  // with a non-consuming endpoint; older deployed backends may not have that
+  // route yet, so final password save remains the source of truth for OTP.
   const handleVerifyOtp = async () => {
     setPwNotice({ type: '', msg: '' });
     if (!pwForm.otp || pwForm.otp.length !== 6) {
@@ -236,7 +235,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     }
     setOtpVerifying(true);
     try {
-      const res = await axios.post(`${API_BASE_URL}/api/auth/verifyOtp`, {
+      const res = await axios.post(`${API_BASE_URL}/api/auth/verify-password-otp`, {
         email: counselor?.email?.trim().toLowerCase(),
         otp: pwForm.otp,
       });
@@ -246,6 +245,10 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         setPwNotice({ type: 'error', msg: res.data?.message || 'That OTP is not correct.' });
       }
     } catch (err) {
+      if (err.response?.status === 404) {
+        setOtpVerified(true);
+        return;
+      }
       setPwNotice({
         type: 'error',
         msg: err.response?.data?.message || 'That OTP is not correct.',
@@ -255,8 +258,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     }
   };
 
-  // A bad code only surfaces on save, so step back to the OTP rather than leave
-  // the counselor on a password form that will keep failing.
+  // If the code expires between verify and save, step back to the OTP step.
   const pwFailed = (message, fallback) => {
     const msg = message || fallback;
     if (/otp|code|expired|invalid/i.test(msg)) {

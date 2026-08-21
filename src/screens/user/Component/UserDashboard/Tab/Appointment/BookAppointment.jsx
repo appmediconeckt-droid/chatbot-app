@@ -1474,8 +1474,11 @@ const styles = {
   // Weight stays fixed across states - bumping it on select widened the pill.
   chipText: {
     fontSize: 13,
+    lineHeight: 16,
     fontWeight: '600',
     color: PATIENT.textSecondary,
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   chipTextActive: {
     color: '#ffffff',
