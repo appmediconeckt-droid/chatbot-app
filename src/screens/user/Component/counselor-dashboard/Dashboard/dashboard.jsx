@@ -19,6 +19,7 @@ import {
   StyleSheet,
   StatusBar,
   BackHandler,
+  Dimensions,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
@@ -799,10 +800,25 @@ const AppointmentSkeletonCard = () => {
 // â”€â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function CounselorDashboard() {
   const { t } = useLanguageRender();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const MOBILE_HEADER_BAR_HEIGHT = 68;
   const topInset = Platform.OS === "ios" ? insets.top : 0;
+  const androidStatusInset = Platform.OS === 'android'
+    ? Math.max(insets.top, StatusBar.currentHeight || 0)
+    : 0;
+  const androidVisibleBottomInset = Platform.OS === 'android'
+    ? Math.max(0, Dimensions.get('screen').height - windowHeight - androidStatusInset)
+    : 0;
+  const androidNavInsetFallback = Platform.OS === 'android'
+    ? (androidVisibleBottomInset <= 80 ? androidVisibleBottomInset : 0)
+    : 0;
+  const androidStableBottomInset = Platform.OS === 'android'
+    ? (insets.bottom <= 80 ? insets.bottom : 0)
+    : insets.bottom;
+  const dashboardBottomInset = Math.max(androidStableBottomInset, androidNavInsetFallback, 0);
+  const mobileBottomNavHeight = (Platform.OS === 'ios' ? 84 : 66) + dashboardBottomInset;
+  const mobileBottomNavPaddingBottom = (Platform.OS === 'ios' ? 24 : 8) + dashboardBottomInset;
   const isFocused = useIsFocused();
   const [activeTab, setActiveTab] = useState("messages");
   // Visited tabs, most recent last. Drives back navigation between tabs.
@@ -2907,8 +2923,8 @@ export default function CounselorDashboard() {
             style={[
               styles.mobileBottomNav,
               {
-                height: (Platform.OS === 'ios' ? 84 : 66) + insets.bottom,
-                paddingBottom: (Platform.OS === 'ios' ? 24 : 8) + insets.bottom,
+                height: mobileBottomNavHeight,
+                paddingBottom: mobileBottomNavPaddingBottom,
               },
             ]}
           >
@@ -2997,6 +3013,7 @@ export default function CounselorDashboard() {
             isMobile && styles.mainContentMobile,
             // Clear the fixed greeting header on every tab.
             isMobile && { marginTop: topInset + MOBILE_HEADER_BAR_HEIGHT },
+            isMobile && { marginBottom: mobileBottomNavHeight },
             { flexDirection: 'column' },
           ]}
         >

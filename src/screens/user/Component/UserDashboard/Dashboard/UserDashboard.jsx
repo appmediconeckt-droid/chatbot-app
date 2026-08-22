@@ -17,6 +17,7 @@ import {
   Platform,
   StyleSheet,
   useWindowDimensions,
+  Dimensions,
   Animated,
   Easing,
   StatusBar,
@@ -160,6 +161,7 @@ const ChatPopup = ({
   }, [selectedLang]);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [keyboardScreenY, setKeyboardScreenY] = useState(null);
   // The KeyboardAvoidingView reports the actual space available to the popup.
   // This avoids device-specific keyboard/status/navigation-bar calculations.
   const [overlayHeight, setOverlayHeight] = useState(height);
@@ -179,19 +181,29 @@ const ChatPopup = ({
   );
   const popupTopGap = topSafeInset + 8;
   const availHeight = Math.max(0, overlayHeight - popupTopGap);
-  // Compensate only for the keyboard area that overlaps this Modal. If Android
-  // already resized the window this is zero; edge-to-edge phones get the full
-  // required lift without losing the bottom safe area when the keyboard closes.
+  // Compensate only for the keyboard area that overlaps this Modal. Android
+  // models differ: some resize the Modal window, others keep it full height and
+  // float the keyboard over it. screenY is the reliable "keyboard starts here"
+  // line, so it avoids both under-lifting and double-lifting.
   const nativeKeyboardResize = Math.max(0, height - overlayHeight);
-  const keyboardOverlap = keyboardVisible
-    ? Math.max(0, keyboardHeight - nativeKeyboardResize)
+  const hasKeyboardTop = Number.isFinite(keyboardScreenY) && keyboardScreenY > 0;
+  const keyboardOverlapFromTop = hasKeyboardTop
+    ? Math.max(0, overlayHeight - keyboardScreenY)
     : 0;
+  const keyboardOverlap = keyboardVisible
+    ? (hasKeyboardTop ? keyboardOverlapFromTop : Math.max(0, keyboardHeight - nativeKeyboardResize))
+    : 0;
+  const screenHeight = Dimensions.get('screen').height;
+  const androidBottomInsetFallback = Platform.OS === 'android' && !keyboardVisible
+    ? Math.max(0, Math.min(80, screenHeight - height - topSafeInset))
+    : 0;
+  const bottomSafeInset = Math.max(insets.bottom, androidBottomInsetFallback, 12);
   // The popup itself must also fit in the space left above the keyboard.
   // Otherwise its fixed 630dp height plus the keyboard inset pushes the header
   // off the top of smaller phones even though the input is technically visible.
   const popupAvailableHeight = Math.max(
     0,
-    availHeight - keyboardOverlap - 12,
+    availHeight - keyboardOverlap - (!keyboardVisible ? bottomSafeInset : 0) - 12,
   );
 
   // Detect tablet: width >= 600 is typically tablet range
@@ -214,10 +226,12 @@ const ChatPopup = ({
     const show = Keyboard.addListener(showEvt, (e) => {
       setKeyboardVisible(true);
       setKeyboardHeight(e?.endCoordinates?.height || 0);
+      setKeyboardScreenY(e?.endCoordinates?.screenY ?? null);
     });
     const hide = Keyboard.addListener(hideEvt, () => {
       setKeyboardVisible(false);
       setKeyboardHeight(0);
+      setKeyboardScreenY(null);
     });
     return () => { show.remove(); hide.remove(); };
   }, []);
@@ -266,7 +280,7 @@ const ChatPopup = ({
   }, [selectedLang, speakingId, stopSpeaking]);
 
   return (
-  <Modal statusBarTranslucent navigationBarTranslucent
+  <Modal statusBarTranslucent
     animationType="slide"
     transparent={true}
     visible={true}
@@ -493,7 +507,7 @@ const ChatPopup = ({
             {
               paddingBottom: keyboardVisible
                 ? 12
-                : Math.max(insets.bottom, 12) + 8,
+                : bottomSafeInset + 8,
             },
           ]}
         >
@@ -874,15 +888,14 @@ const sheetStyles = StyleSheet.create({
   // bar on devices with a taller one and left a gap on devices with none.
   backdrop: { height: 30 },
   sheet: { flex: 1, backgroundColor: '#ffffff', borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#0f172a', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
-  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1', alignSelf: 'center', marginTop: 12, marginBottom: 18 },
-  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1', alignSelf: 'center', marginTop: 10, marginBottom: 14 },
+  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   title: { fontSize: 19, fontWeight: '800', color: '#0f172a' },
   subtitle: { fontSize: 13.5, fontWeight: '500', color: '#64748b', marginTop: 4 },
   closeBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  // paddingBottom is overridden at render with the measured footer height.
-  scroll: { paddingHorizontal: 18, paddingTop: 12, gap: 12, flexGrow: 1, justifyContent: 'flex-start' },
-  docCard: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 12 },
-  docAvatar: { width: 48, height: 48, borderRadius: 10, backgroundColor: '#e2e8f0' },
+  scroll: { paddingHorizontal: 18, paddingTop: 10, gap: 10, flexGrow: 1, justifyContent: 'flex-end' },
+  docCard: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 10 },
+  docAvatar: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#e2e8f0' },
   docNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 1 },
   docName: { fontSize: 14, fontWeight: '700', color: '#0f172a', flex: 1 },
   docSpec: { fontSize: 12, fontWeight: '500', color: '#64748b', marginBottom: 4 },
@@ -890,43 +903,35 @@ const sheetStyles = StyleSheet.create({
   docMetaText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
   // flexShrink 0: the name column beside it is flex:1, so without this a long
   // counselor name or a longer translated status squashed the pill.
-  confirmPill: { flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PATIENT.primary, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  confirmPill: { flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PATIENT.primary, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   confirmDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ffffff' },
   confirmText: { fontSize: 12, fontWeight: '700', color: '#ffffff' },
-  countBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#E6F6EC' },
-  countIcon: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  countBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: '#E6F6EC' },
+  countIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   countLabel: { fontSize: 11, fontWeight: '500', color: '#64748b' },
   countValue: { fontSize: 17, fontWeight: '800', color: PATIENT.primary, marginTop: 1 },
   countDay: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
   countTime: { fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 1 },
-  pastBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ecfdf5', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#a7f3d0' },
-  pastIcon: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  pastBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ecfdf5', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: '#a7f3d0' },
+  pastIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   pastLabel: { fontSize: 11, fontWeight: '500', color: '#059669' },
   pastValue: { fontSize: 15, fontWeight: '800', color: '#10b981', marginTop: 1 },
   pastDay: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
   pastTime: { fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 1 },
   gridRow: { flexDirection: 'row', gap: 10 },
-  gridCell: { flex: 1, alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 10, padding: 10 },
-  gridIcon: { width: 40, height: 40, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  gridCell: { flex: 1, alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 10, padding: 8 },
+  gridIcon: { width: 36, height: 36, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginBottom: 5 },
   gridLabel: { fontSize: 10.5, fontWeight: '700', color: '#94a3b8', letterSpacing: 0.5, marginBottom: 3 },
   gridValue: { fontSize: 13, fontWeight: '700', color: '#0f172a', textAlign: 'center' },
-  timelineCard: { backgroundColor: '#f8fafc', borderRadius: 12, padding: 12 },
-  tlItem: { flexDirection: 'row', gap: 10, marginBottom: 10 },
-  tlDotCol: { alignItems: 'center', width: 22 },
-  tlDot: { width: 9, height: 9, borderRadius: 4.5 },
-  tlLine: { width: 2, flex: 1, backgroundColor: '#e2e8f0', marginTop: 6, marginBottom: 6 },
-  tlDate: { fontSize: 11.5, fontWeight: '600', color: '#64748b', marginBottom: 1 },
-  tlStatus: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 },
-  footerPast: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 },
+  inlineFooter: { paddingTop: 4 },
   // Wrapper clips the gradient to the rounded corners.
   closePastBtnWrap: { borderRadius: 12, overflow: 'hidden' },
   closePastBtn: { paddingVertical: 12, alignItems: 'center' },
   closePastText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
-  joinBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 14, marginBottom: 12 },
+  joinBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 12, marginBottom: 10 },
   joinText: { fontSize: 15, fontWeight: '800', color: '#ffffff' },
   secRow: { flexDirection: 'row', gap: 12 },
-  secBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, paddingVertical: 12, borderWidth: 1.5, borderColor: '#E6F6EC' },
+  secBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, paddingVertical: 10, borderWidth: 1.5, borderColor: '#E6F6EC' },
   secText: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
 });
 
@@ -945,9 +950,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   // and nothing was compensating for the device's bottom inset. On a phone with
   // gesture navigation the footer's Chat / Call row ran under the system bar.
   const sheetInsets = useSafeAreaInsets();
-  // Footer is absolutely positioned, so the scroll needs to reserve its height.
-  // It was a hardcoded 130 that barely fitted and never accounted for the inset.
-  const [footerHeight, setFooterHeight] = useState(130);
 
   // Live countdown to the session start while the details sheet is open.
   useEffect(() => {
@@ -1112,17 +1114,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     return selectedApt?.duration || "45";
   };
   const talkDuration = getTalkDuration();
-  const relDay = (d) => {
-    if (!d) return "";
-    const dd = new Date(d);
-    const today = new Date();
-    const yst = new Date();
-    yst.setDate(today.getDate() - 1);
-    const time = dd.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    if (dd.toDateString() === today.toDateString()) return `Today, ${time}`;
-    if (dd.toDateString() === yst.toDateString()) return "Yesterday";
-    return dd.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  };
 
   return (
     <View style={styles.appointmentsRoot}>
@@ -1215,7 +1206,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     <Text style={styles.appointmentDoctorName} numberOfLines={1}>
                       Dr. {apt?.counselor?.fullName || "Counselor"}
                     </Text>
-                    <Ionicons name="checkmark-circle" size={14} color={PATIENT.primary} />
                   </View>
                   <Text style={styles.appointmentSpecialization} numberOfLines={1}>
                     {apt?.counselor?.specialization || t('Mental Wellness Specialist')}
@@ -1346,7 +1336,10 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={[sheetStyles.scroll, { paddingBottom: footerHeight + 16 }]}
+              contentContainerStyle={[
+                sheetStyles.scroll,
+                { paddingBottom: Math.max(sheetInsets.bottom, 12) + 12 },
+              ]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               bounces={false}
@@ -1359,7 +1352,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     <Text style={sheetStyles.docName} numberOfLines={1}>
                       {counselorDisplayName(selectedApt)}
                     </Text>
-                    <Ionicons name="checkmark-circle" size={15} color={PATIENT.primary} />
                   </View>
                   <Text style={sheetStyles.docSpec} numberOfLines={1}>
                     {selectedApt?.counselor?.specialization || "Mental Wellness Specialist"}
@@ -1453,112 +1445,74 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 </View>
               </View>
 
-              {/* Activity timeline */}
-              <View style={sheetStyles.timelineCard}>
-                <View style={sheetStyles.tlItem}>
-                  <View style={sheetStyles.tlDotCol}>
-                    <View style={[sheetStyles.tlDot, { backgroundColor: "#CBD5E1" }]} />
-                    <View style={sheetStyles.tlLine} />
-                  </View>
-                  <View style={{ flex: 1, paddingBottom: 14 }}>
-                    <Text style={sheetStyles.tlDate}>{relDay(selectedApt?.createdAt) || "Recently"}</Text>
-                    <Text style={sheetStyles.tlStatus}>{t('Booked')}</Text>
+              {!isPast ? (
+                <View style={sheetStyles.inlineFooter}>
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    onPress={() => {
+                      const apt = selectedApt;
+                      setShowDetailsModal(false);
+                      setTimeout(() => onVideoCall && onVideoCall(apt), MODAL_DISMISS_MS);
+                    }}
+                  >
+                    <LinearGradient
+                      colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={sheetStyles.joinBtn}
+                    >
+                      <Ionicons name="videocam" size={20} color="#ffffff" />
+                      <Text style={sheetStyles.joinText}>{t('Join Video Session')}</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  <View style={sheetStyles.secRow}>
+                    <TouchableOpacity
+                      style={sheetStyles.secBtn}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        const apt = selectedApt;
+                        setShowDetailsModal(false);
+                        setTimeout(() => onChat && onChat(apt), MODAL_DISMISS_MS);
+                      }}
+                    >
+                      <Ionicons name="chatbubble-ellipses" size={17} color="#F59E0B" />
+                      <Text style={sheetStyles.secText}>{t('Chat')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={sheetStyles.secBtn}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        const apt = selectedApt;
+                        setShowDetailsModal(false);
+                        setTimeout(() => onVoiceCall && onVoiceCall(apt), MODAL_DISMISS_MS);
+                      }}
+                    >
+                      <Ionicons name="call" size={17} color={PATIENT.primary} />
+                      <Text style={sheetStyles.secText}>{t('Call')}</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
-                <View style={sheetStyles.tlItem}>
-                  <View style={sheetStyles.tlDotCol}>
-                    <View style={[sheetStyles.tlDot, { backgroundColor: PATIENT.primary }]} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={sheetStyles.tlDate}>{relDay(selectedApt?.updatedAt) || relDay(selectedApt?.createdAt) || "Today"}</Text>
-                    <Text style={sheetStyles.tlStatus}>{statusCap}</Text>
-                  </View>
+              ) : (
+                <View style={sheetStyles.inlineFooter}>
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() => setShowDetailsModal(false)}
+                    style={sheetStyles.closePastBtnWrap}
+                  >
+                    <LinearGradient
+                      colors={['#006B2C', '#01CE54']}
+                      start={{ x: 0, y: 0.5 }}
+                      end={{ x: 1, y: 0.5 }}
+                      style={sheetStyles.closePastBtn}
+                    >
+                      <Text style={sheetStyles.closePastText}>{t('Close')}</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
                 </View>
-              </View>
+              )}
+
             </ScrollView>
-
-            {/* Fixed footer actions - only for upcoming */}
-            {!isPast && (
-              <View
-                style={[
-                  sheetStyles.footer,
-                  { paddingBottom: Math.max(sheetInsets.bottom, 12) + 8 },
-                ]}
-                onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
-              >
-                <TouchableOpacity
-                  activeOpacity={0.9}
-                  onPress={() => {
-                    const apt = selectedApt;
-                    setShowDetailsModal(false);
-                    setTimeout(() => onVideoCall && onVideoCall(apt), MODAL_DISMISS_MS);
-                  }}
-                >
-                  <LinearGradient
-                    colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={sheetStyles.joinBtn}
-                  >
-                    <Ionicons name="videocam" size={20} color="#ffffff" />
-                    <Text style={sheetStyles.joinText}>{t('Join Video Session')}</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-
-                <View style={sheetStyles.secRow}>
-                  <TouchableOpacity
-                    style={sheetStyles.secBtn}
-                    activeOpacity={0.85}
-                    onPress={() => {
-                      const apt = selectedApt;
-                      setShowDetailsModal(false);
-                      setTimeout(() => onChat && onChat(apt), MODAL_DISMISS_MS);
-                    }}
-                  >
-                    <Ionicons name="chatbubble-ellipses" size={17} color="#F59E0B" />
-                    <Text style={sheetStyles.secText}>{t('Chat')}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={sheetStyles.secBtn}
-                    activeOpacity={0.85}
-                    onPress={() => {
-                      const apt = selectedApt;
-                      setShowDetailsModal(false);
-                      setTimeout(() => onVoiceCall && onVoiceCall(apt), MODAL_DISMISS_MS);
-                    }}
-                  >
-                    <Ionicons name="call" size={17} color={PATIENT.primary} />
-                    <Text style={sheetStyles.secText}>{t('Call')}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            {/* Footer for past appointments - just close button */}
-            {isPast && (
-              <View
-                style={[
-                  sheetStyles.footerPast,
-                  { paddingBottom: Math.max(sheetInsets.bottom, 12) + 8 },
-                ]}
-                onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
-              >
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() => setShowDetailsModal(false)}
-                  style={sheetStyles.closePastBtnWrap}
-                >
-                  <LinearGradient
-                    colors={['#006B2C', '#01CE54']}
-                    start={{ x: 0, y: 0.5 }}
-                    end={{ x: 1, y: 0.5 }}
-                    style={sheetStyles.closePastBtn}
-                  >
-                    <Text style={sheetStyles.closePastText}>{t('Close')}</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            )}
           </View>
         </View>
       </Modal>
@@ -1567,11 +1521,27 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 };
 
 export default function UserDashboard() {
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [avatarFailed, setAvatarFailed] = useState(false);
   // The bottom tab bar had a fixed paddingBottom (6 on Android), so on a phone
   // with gesture navigation its labels were clipped by the gesture bar.
   const navInsets = useSafeAreaInsets();
+  const androidStatusInset = Platform.OS === 'android'
+    ? Math.max(navInsets.top, StatusBar.currentHeight || 0)
+    : 0;
+  const androidVisibleBottomInset = Platform.OS === 'android'
+    ? Math.max(0, Dimensions.get('screen').height - windowHeight - androidStatusInset)
+    : 0;
+  const androidNavInsetFallback = Platform.OS === 'android'
+    ? (androidVisibleBottomInset <= 80 ? androidVisibleBottomInset : 0)
+    : 0;
+  const androidStableBottomInset = Platform.OS === 'android'
+    ? (navInsets.bottom <= 80 ? navInsets.bottom : 0)
+    : navInsets.bottom;
+  const dashboardBottomInset = Math.max(androidStableBottomInset, androidNavInsetFallback, 0);
+  const bottomNavHeight = (Platform.OS === 'ios' ? 84 : 68) + dashboardBottomInset;
+  const bottomNavPaddingBottom = (Platform.OS === 'ios' ? 20 : 6) + dashboardBottomInset;
+  const aiButtonBottom = (Platform.OS === "ios" ? 42 : 28) + dashboardBottomInset;
   const { i18n } = useTranslation();
   const { t } = useLanguageRender();
   const navigation = useNavigation();
@@ -2432,7 +2402,7 @@ export default function UserDashboard() {
   const allMenuItems = [
     { id: "Chat", icon: "chat", label: t('dashboard:chat'), type: "material" },
     { id: "Counselor", icon: "psychology", label: t('dashboard:counselor'), type: "material" },
-    { id: "Appointment", icon: "event-available", label: t('dashboard:myAppointment'), type: "material" },
+    { id: "Appointment", icon: "event-available", label: t('dashboard:appointment', 'Appointment'), type: "material" },
     { id: "Wallet", icon: "account-balance-wallet", label: t('dashboard:wallet'), type: "material" },
     { id: "Video", icon: "history", label: t('dashboard:callHistory'), type: "material" },
   ];
@@ -2552,6 +2522,14 @@ export default function UserDashboard() {
       label: t('dashboard:callHistory'),
       isActive: !sidebarSection && active === 'Video',
       onPress: () => openTabFromSidebar('Video', handleMenuItemClick),
+    },
+    {
+      id: 'language',
+      type: 'language',
+      icon: 'globe-outline',
+      iconActive: 'globe',
+      label: t('settings:language', 'Language'),
+      isActive: false,
     },
     {
       id: 'settings',
@@ -2731,7 +2709,7 @@ export default function UserDashboard() {
       </View>
 
       {/* MAIN CONTENT */}
-      <View style={styles.contentContainer}>
+      <View style={[styles.contentContainer, { marginBottom: bottomNavHeight }]}>
         {renderContent()}
       </View>
 
@@ -2763,8 +2741,8 @@ export default function UserDashboard() {
         style={[
           styles.bottomNav,
           {
-            height: (Platform.OS === 'ios' ? 84 : 68) + navInsets.bottom,
-            paddingBottom: (Platform.OS === 'ios' ? 20 : 6) + navInsets.bottom,
+            height: bottomNavHeight,
+            paddingBottom: bottomNavPaddingBottom,
           },
         ]}
       >
@@ -2797,7 +2775,7 @@ export default function UserDashboard() {
         <View style={styles.navCenterSpacer} />
 
         {[
-          { id: 'Appointment', icon: 'calendar-outline', iconActive: 'calendar', label: t('dashboard:myAppointment') },
+          { id: 'Appointment', icon: 'calendar-outline', iconActive: 'calendar', label: t('dashboard:appointment', 'Appointment') },
           { id: 'Wallet', icon: 'wallet-outline', iconActive: 'wallet', label: t('dashboard:wallet') },
         ].map((tab) => (
           <TouchableOpacity
@@ -2824,7 +2802,12 @@ export default function UserDashboard() {
 
       {/* AI FLOATING BUTTON — centred above the bottom nav */}
       <TouchableOpacity
-        style={styles.aiButton}
+        style={[
+          styles.aiButton,
+          {
+            bottom: aiButtonBottom,
+          },
+        ]}
         onPress={() => setChatOpen(true)}
         activeOpacity={0.85}
         hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
@@ -2890,51 +2873,60 @@ export default function UserDashboard() {
                   <Text style={styles.sbUserRole} numberOfLines={1}>{t('auth:userRole', 'Patient')}</Text>
                 </View>
               </TouchableOpacity>
-
-              <View style={styles.sbGlobeWrap}>
-                <LanguageSelector
-                  iconName="globe-outline"
-                  iconColor="#ffffff"
-                  iconSize={20}
-                  userId={userId}
-                  role="user"
-                  brand={PATIENT.primary}
-                />
-              </View>
             </LinearGradient>
 
             {/* Menu */}
             <View style={styles.sbMenu}>
               {/* Pressable, not TouchableOpacity: opacity alone gave no visible
                   feedback, so Help and Privacy looked dead when tapped. */}
-              {sidebarItems.map((item) => (
-                <Pressable
-                  key={item.id}
-                  style={({ pressed }) => [
-                    styles.sbItem,
-                    item.isActive && styles.sbItemActive,
-                    pressed && styles.sbItemPressed,
-                  ]}
-                  onPress={item.onPress}
-                  android_ripple={{ color: '#D7F0E1', borderless: false }}
-                >
-                  <View style={[styles.sbIconChip, item.isActive && styles.sbIconChipActive]}>
+              {sidebarItems.map((item) => {
+                if (item.type === 'language') {
+                  return (
+                    <LanguageSelector
+                      key={item.id}
+                      brand={PATIENT.primary}
+                      userId={userId}
+                      role="user"
+                      triggerStyle={styles.sbItem}
+                    >
+                      <View style={styles.sbIconChip}>
+                        <Ionicons name={item.icon} size={19} color={PATIENT.primary} />
+                      </View>
+                      <Text style={styles.sbItemText}>{item.label}</Text>
+                      <Ionicons name="chevron-forward" size={17} color="#CBD5E1" />
+                    </LanguageSelector>
+                  );
+                }
+
+                return (
+                  <Pressable
+                    key={item.id}
+                    style={({ pressed }) => [
+                      styles.sbItem,
+                      item.isActive && styles.sbItemActive,
+                      pressed && styles.sbItemPressed,
+                    ]}
+                    onPress={item.onPress}
+                    android_ripple={{ color: '#D7F0E1', borderless: false }}
+                  >
+                    <View style={[styles.sbIconChip, item.isActive && styles.sbIconChipActive]}>
+                      <Ionicons
+                        name={item.isActive ? item.iconActive : item.icon}
+                        size={19}
+                        color={item.isActive ? '#ffffff' : PATIENT.primary}
+                      />
+                    </View>
+                    <Text style={[styles.sbItemText, item.isActive && styles.sbItemTextActive]}>
+                      {item.label}
+                    </Text>
                     <Ionicons
-                      name={item.isActive ? item.iconActive : item.icon}
-                      size={19}
-                      color={item.isActive ? '#ffffff' : PATIENT.primary}
+                      name="chevron-forward"
+                      size={17}
+                      color={item.isActive ? PATIENT.primary : '#CBD5E1'}
                     />
-                  </View>
-                  <Text style={[styles.sbItemText, item.isActive && styles.sbItemTextActive]}>
-                    {item.label}
-                  </Text>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={17}
-                    color={item.isActive ? PATIENT.primary : '#CBD5E1'}
-                  />
-                </Pressable>
-              ))}
+                  </Pressable>
+                );
+              })}
             </View>
 
             {/* Logout */}
@@ -3359,14 +3351,6 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     color: 'rgba(255,255,255,0.75)',
     marginTop: 1,
-  },
-  sbGlobeWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   sbMenu: {
     marginTop: 22,

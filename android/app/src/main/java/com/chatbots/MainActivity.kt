@@ -11,13 +11,15 @@ import com.facebook.react.defaults.DefaultReactActivityDelegate
 class MainActivity : ReactActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
-    // Android 15+ enforces edge-to-edge for apps targeting recent SDKs. If the
-    // content remains edge-to-edge, adjustResize can report the IME without
-    // resizing the React content area, leaving chat composers behind the
-    // keyboard. Opt the activity content back into fitted system windows and
-    // let the platform resize it in sync with the native IME animation.
+    // Keep the React root fixed while the keyboard is open. Screens that need
+    // an input to rise above the keyboard handle it locally with
+    // KeyboardAvoidingView; resizing the whole activity makes absolute bottom
+    // tabs jump above the IME.
     WindowCompat.setDecorFitsSystemWindows(window, true)
-    window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+    window.setSoftInputMode(
+      WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
+        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+    )
     super.onCreate(savedInstanceState)
     if (!BuildConfig.DEBUG) {
       window.setFlags(

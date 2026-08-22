@@ -236,7 +236,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
             age: ageFromDateOfBirth ?? userData.age ?? null,
             gender: userData.gender || "",
             dateOfBirth,
-            bloodGroup: userData.bloodGroup || "",
+            bloodGroup: normalizeBloodGroup(userData.bloodGroup),
             email: userData.email || "",
             phone: userData.phoneNumber || "",
             phoneCountryCode: userData.phoneCountryCode || "+91",
@@ -819,7 +819,9 @@ const PatientProfile = ({ onProfileUpdate }) => {
       <View style={styles.statsRow}>
         <View style={styles.statItem}>
           <Text style={styles.statLabel}>{t('profile:blood')}</Text>
-          <Text style={styles.statValue}>{patientData.personalInfo.bloodGroup || "O+"}</Text>
+          <Text style={styles.statValue}>
+            {normalizeBloodGroup(patientData.personalInfo.bloodGroup) || "--"}
+          </Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
@@ -884,7 +886,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
         <View style={styles.infoItem}>
           <Text style={styles.infoLabel}>{t('profile:bloodGroup')}</Text>
           <Text style={styles.infoValue}>
-            {patientData.personalInfo.bloodGroup || t('profile:notSpecified')}
+            {normalizeBloodGroup(patientData.personalInfo.bloodGroup) || t('profile:notSpecified')}
           </Text>
         </View>
         <View style={styles.infoItem}>
@@ -975,80 +977,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
     </View>
   );
 
-  const renderMedicalInfo = () => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={styles.cardTitleRow}>
-          <Ionicons name="fitness" size={20} color="#00652C" />
-          <Text style={styles.cardTitle}>{t('profile:medicalHistory')}</Text>
-        </View>
-      </View>
-      <View style={styles.medicalGrid}>
-        <View style={styles.vitalCard}>
-          <Text style={styles.vitalTitle}>{t('profile:vitalStats')}</Text>
-          <View style={styles.vitalRows}>
-            <View style={styles.vitalRow}>
-              <Text style={styles.vitalLabel}>{t('profile:height')}</Text>
-              <Text style={styles.vitalValue}>
-                {patientData.medicalInfo?.height || "--"} cm
-              </Text>
-            </View>
-            <View style={styles.vitalRow}>
-              <Text style={styles.vitalLabel}>{t('profile:weight')}</Text>
-              <Text style={styles.vitalValue}>
-                {patientData.medicalInfo?.weight || "--"} kg
-              </Text>
-            </View>
-          </View>
-        </View>
-        <View style={styles.conditionsList}>
-          {patientData.medicalInfo?.allergies?.length > 0 && (
-            <View>
-              <Text style={styles.conditionsTitle}>{t('profile:allergies')}</Text>
-              <View style={styles.tagsContainer}>
-                {patientData.medicalInfo.allergies.map((a, i) => (
-                  <View key={i} style={styles.tag}>
-                    <Text style={styles.tagText}>{a}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-          {patientData.medicalInfo?.chronicConditions?.length > 0 && (
-            <View>
-              <Text style={styles.conditionsTitle}>{t('profile:chronicConditions')}</Text>
-              <View style={styles.tagsContainer}>
-                {patientData.medicalInfo.chronicConditions.map((c, i) => (
-                  <View key={i} style={styles.tag}>
-                    <Text style={styles.tagText}>{c}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-          {patientData.medicalInfo?.currentMedications?.length > 0 && (
-            <View>
-              <Text style={styles.conditionsTitle}>{t('profile:currentMedications')}</Text>
-              <View style={styles.tagsContainer}>
-                {patientData.medicalInfo.currentMedications.map((m, i) => (
-                  <View key={i} style={styles.tag}>
-                    <Text style={styles.tagText}>{m}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-          {!patientData.medicalInfo?.allergies?.length &&
-            !patientData.medicalInfo?.chronicConditions?.length &&
-            !patientData.medicalInfo?.currentMedications?.length && (
-              <Text style={styles.noData}>{t('profile:noMedicalInfo')}</Text>
-            )}
-        </View>
-      </View>
-    </View>
-  );
-
-
   const renderEditModal = () => (
     <Modal
       visible={isEditing}
@@ -1117,14 +1045,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
                       style={styles.input}
                       value={editFormData.name}
                       onChangeText={(text) => handleEditFormChange("name", text)}
-                    />
-                  </View>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:patientId')}</Text>
-                    <TextInput
-                      style={[styles.input, styles.readonly]}
-                      value={patientData.personalInfo.id}
-                      editable={false}
                     />
                   </View>
                 </View>
@@ -1408,61 +1328,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
                 </View>
               </View>
 
-              {/* Medical */}
-              <View style={styles.formSection}>
-                <Text style={styles.sectionTitle}>{t('profile:medicalInformation')}</Text>
-                <View style={styles.formRow}>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:heightCm')}</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editFormData.height}
-                      onChangeText={(text) => handleEditFormChange("height", text)}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:weightKg')}</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editFormData.weight}
-                      onChangeText={(text) => handleEditFormChange("weight", text)}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                </View>
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>{t('profile:allergiesLabel')}</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={editFormData.allergies}
-                    onChangeText={(text) => handleEditFormChange("allergies", text)}
-                    placeholder={t('e.g., Penicillin, Dust')}
-                    placeholderTextColor="#94a3b8"
-                  />
-                </View>
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>{t('profile:chronicConditions')}</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={editFormData.chronicConditions}
-                    onChangeText={(text) => handleEditFormChange("chronicConditions", text)}
-                    placeholder={t('e.g., Diabetes, Hypertension')}
-                    placeholderTextColor="#94a3b8"
-                  />
-                </View>
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>{t('profile:currentMedications')}</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={editFormData.currentMedications}
-                    onChangeText={(text) => handleEditFormChange("currentMedications", text)}
-                    placeholder={t('e.g., Metformin 500mg')}
-                    placeholderTextColor="#94a3b8"
-                  />
-                </View>
-              </View>
-
             </View>
           </ScrollView>
 
@@ -1547,7 +1412,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
           {renderPersonalInfo()}
           {renderAddress()}
           {renderEmergencyContact()}
-          {renderMedicalInfo()}
         </View>
       </ScrollView>
       {renderEditModal()}
@@ -1564,6 +1428,28 @@ const PatientProfile = ({ onProfileUpdate }) => {
             <View style={styles.dropdownContent}>
               <Text style={styles.dropdownTitle}>{t('Select Blood Group')}</Text>
               <ScrollView showsVerticalScrollIndicator={false} style={styles.dropdownList}>
+                <TouchableOpacity
+                  style={[
+                    styles.dropdownItem,
+                    !normalizeBloodGroup(editFormData.bloodGroup) && styles.dropdownItemSelected,
+                  ]}
+                  onPress={() => {
+                    handleEditFormChange("bloodGroup", "");
+                    setShowBloodGroupDropdown(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.dropdownItemText,
+                      !normalizeBloodGroup(editFormData.bloodGroup) && styles.dropdownItemTextSelected,
+                    ]}
+                  >
+                    {t('profile:notSpecified')}
+                  </Text>
+                  {!normalizeBloodGroup(editFormData.bloodGroup) && (
+                    <Ionicons name="checkmark" size={20} color="#2c50cd" />
+                  )}
+                </TouchableOpacity>
                 {bloodGroups.map((bg) => (
                   <TouchableOpacity
                     key={bg}

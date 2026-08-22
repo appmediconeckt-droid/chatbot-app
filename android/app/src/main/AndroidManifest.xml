@@ -43,7 +43,7 @@
         android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
         android:screenOrientation="portrait"
         android:launchMode="singleTask"
-        android:windowSoftInputMode="stateAlwaysHidden|adjustResize"
+        android:windowSoftInputMode="stateAlwaysHidden|adjustNothing"
         android:theme="@style/AppTheme.Splash"
         android:exported="true">
         <intent-filter>

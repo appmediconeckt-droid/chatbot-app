@@ -47,8 +47,6 @@ import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import ChatSkeleton from "../../../../../../components/common/ChatSkeleton";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  fetchChatCallEntries,
-  mergeTimelineForInverted,
   describeCall,
 } from "../../../../../../utils/chatCallHistory";
 
@@ -310,6 +308,7 @@ const ChatBox = () => {
   }, [showIncomingModal, startIncomingRing, stopIncomingRing]);
 
   const [newMessage, setNewMessage] = useState("");
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const [showOptions, setShowOptions] = useState(false);
   const [confirmState, setConfirmState] = useState({ visible: false, title: '', message: '', onConfirm: null, onCancel: null, destructive: false });
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -523,14 +522,17 @@ const ChatBox = () => {
   }, []);
 
   useEffect(() => {
-    // iOS fires keyboardWillShow (pre-animation); Android ONLY fires
-    // keyboardDidShow. Listening to willShow on Android meant the pad was never
-    // applied and the keyboard covered the input — so pick the right event.
+    // Android uses adjustNothing for the activity, so lift the composer by the
+    // measured keyboard height instead of relying on a full-window resize.
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
-    const showSub = Keyboard.addListener(showEvt, () => {
+    const showSub = Keyboard.addListener(showEvt, (event) => {
       keyboardVisibleRef.current = true;
+      if (Platform.OS === 'android') {
+        const keyboardHeight = event?.endCoordinates?.height || 0;
+        setKeyboardInset(Math.max(0, keyboardHeight - insets.bottom));
+      }
       if (shouldAutoScrollRef.current) {
         requestAnimationFrame(() => scrollToBottom(true));
         setTimeout(() => scrollToBottom(true), 120);
@@ -538,6 +540,7 @@ const ChatBox = () => {
     });
     const hideSub = Keyboard.addListener(hideEvt, () => {
       keyboardVisibleRef.current = false;
+      if (Platform.OS === 'android') setKeyboardInset(0);
       if (sendFocusGuardRef.current) {
         requestAnimationFrame(() => messageInputRef.current?.focus());
         return;
@@ -545,7 +548,7 @@ const ChatBox = () => {
     });
 
     return () => { showSub.remove(); hideSub.remove(); };
-  }, [scrollToBottom]);
+  }, [insets.bottom, scrollToBottom]);
 
   // The listener drives the same measured overlap used by the AI Assistant and
   // also keeps the newest message visible.
@@ -560,12 +563,17 @@ const ChatBox = () => {
   }, [messages.length]);
 
   const messagesForList = useMemo(() => {
-    if (!messages?.length && !callHistory?.length) return [];
-    const merged = mergeTimelineForInverted(messages, callHistory);
-    if (!hiddenCallIds.length) return merged;
-    const hidden = new Set(hiddenCallIds.map(String));
-    return merged.filter((item) => !(item.isCall && hidden.has(String(item.id))));
-  }, [messages, callHistory, hiddenCallIds]);
+    const now = Date.now();
+    const getSortableTime = (item) => {
+      const raw = item?.fullTime || item?.createdAt || item?.timestamp;
+      const time = raw ? new Date(raw).getTime() : NaN;
+      return Number.isNaN(time) ? now : time;
+    };
+    return [...(messages || [])]
+      .filter((item) => !item?.isCall)
+      .sort((a, b) => getSortableTime(a) - getSortableTime(b))
+      .reverse();
+  }, [messages]);
 
   // Scroll handling — identical model to the counselor screen (SMSInput).
   // While the user scrolls, remember whether they are near the newest message
@@ -788,33 +796,9 @@ const ChatBox = () => {
     }
   }, [getAuthToken, getChatIdForAPI, loadMessagesFromLocalStorage, deletedMessageIds]);
 
-  // Load the call history for THIS conversation
-  // `overrides` exists because initializeChat calls setCurrentChat/
-  // setCurrentCounselor and then needed the ids immediately — but those state
-  // updates have not landed yet, so resolveCounselorId() still returned the old
-  // (null) value and this bailed out at the guard below. Opened from My
-  // Appointments, where no counselorId route param is passed, that meant the
-  // call bubbles never loaded with the messages and only appeared once
-  // something else refreshed them.
   const loadCallHistory = useCallback(async (overrides = {}) => {
-    try {
-      const token = await getAuthToken();
-      const myId =
-        overrides.myId || resolveCurrentUserId() || (await AsyncStorage.getItem("userId"));
-      const peerId = overrides.peerId || resolveCounselorId();
-      if (!myId || !peerId) return;
-      const entries = await fetchChatCallEntries({ currentUserId: myId, peerId, token });
-      setCallHistory(entries);
-      // Cached alongside the messages so the next open can paint the whole
-      // timeline at once instead of adding call bubbles a second later.
-      AsyncStorage.setItem(
-        `callHistory_${getChatIdForAPI()}`,
-        JSON.stringify(entries),
-      ).catch(() => {});
-    } catch (_) {
-      console.warn("Could not load call history:", _);
-    }
-  }, [getAuthToken, resolveCurrentUserId, resolveCounselorId]);
+    setCallHistory([]);
+  }, []);
 
   const hiddenCallsStorageKey = useCallback(() => `hiddenCallEntries_${getChatIdForAPI()}`, [getChatIdForAPI]);
 
@@ -1339,16 +1323,6 @@ const ChatBox = () => {
           if (chat.messages && chat.messages.length > 0) {
             initialLoadDoneRef.current = false;
             shouldAutoScrollRef.current = true;
-            // Restore BOTH halves of the timeline before painting. Restoring
-            // only the messages is what made the thread appear first and the
-            // call bubbles drop in afterwards.
-            try {
-              const cachedCalls = await AsyncStorage.getItem(
-                // Same precedence as getChatIdForAPI(), which writes the key.
-                `callHistory_${chatId || chat.chatId || ''}`,
-              );
-              if (cachedCalls) setCallHistory(JSON.parse(cachedCalls) || []);
-            } catch (_) { /* cache is best-effort */ }
             setMessages(chat.messages);
             setTimelineReady(true);
           }
@@ -1374,16 +1348,7 @@ const ChatBox = () => {
         }
 
         const silentFetch = messagesCountRef.current > 0 || (chat && chat.messages && chat.messages.length > 0);
-        // Resolve the peer id from what we just read, NOT from state — the
-        // setState calls above have not been applied yet at this point.
-        const peerId =
-          chat?.counselor?._id || chat?.counselor?.id || chat?.counselorId ||
-          initialCounselor?._id || initialCounselor?.id || counselorId || null;
-        // Load messages + call history in parallel so they appear together.
-        await Promise.all([
-          fetchMessagesFromAPI(silentFetch),
-          loadCallHistory(peerId ? { peerId: String(peerId) } : {}),
-        ]);
+        await fetchMessagesFromAPI(silentFetch);
         setTimelineReady(true);
         
       } catch (error) {
@@ -1817,27 +1782,11 @@ const ChatBox = () => {
             </View>
           )}
 
-          {/* Below-bubble row: counselor avatar (incoming) + time + ticks */}
-          {isUser ? (
-            metaRow
-          ) : (
-            <View style={styles.incomingMetaRow}>
-              <View style={styles.msgAvatar}>
-                {counselorProfilePhoto && !counselorAvatarFailed ? (
-                  <Image source={{ uri: counselorProfilePhoto }} style={styles.msgAvatarImg} />
-                ) : (
-                  <View style={styles.msgAvatarFallback}>
-                    <Text style={styles.msgAvatarText}>{getInitials(counselorName)}</Text>
-                  </View>
-                )}
-              </View>
-              {metaRow}
-            </View>
-          )}
+          {metaRow}
         </View>
       </TouchableOpacity>
     );
-  }, [renderCallItem, deleteMessage, openAttachment, deletingMessageId, bubbleMaxWidth, counselorProfilePhoto, counselorAvatarFailed, counselorName]);
+  }, [renderCallItem, deleteMessage, openAttachment, deletingMessageId, bubbleMaxWidth, failedImageUrls]);
 
   const renderChatStatusBanner = () => {
     if (!chatStatus || chatStatus === "accepted") return null;
@@ -2054,17 +2003,10 @@ const ChatBox = () => {
           <View style={[
             styles.inputArea,
             {
-              // Android adjustResize already accounts for the IME/navigation
-              // area during its native animation. Tying this padding to
-              // keyboardDidShow made the composer visibly settle a moment
-              // after the keyboard was open. Keep Android geometry constant.
-              // Keep the bottom system/navigation area inside the white
-              // composer at all times. A constant safe-area value avoids the
-              // uncovered strip on close without a keyboard-state jump.
-              // SafeAreaView already owns the bottom system inset. Keeping
-              // this constant prevents keyboardDidShow/Hide from triggering a
-              // second composer layout after the native IME animation.
+              // SafeAreaView owns the bottom system inset. Android gets a
+              // measured keyboard margin so the composer stays above the IME.
               paddingBottom: 8,
+              marginBottom: Platform.OS === 'android' ? keyboardInset : 0,
             },
           ]}>
             <View style={styles.inputAreaInner}>

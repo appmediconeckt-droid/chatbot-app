@@ -698,7 +698,6 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
           <View style={styles.cardInfo}>
             <View style={styles.cardNameRow}>
               <Text style={styles.cardName} numberOfLines={1}>{t(item.name)}</Text>
-              <Ionicons name="checkmark-circle" size={15} color={PATIENT.primary} />
             </View>
             <Text style={styles.cardSpec} numberOfLines={1}>{item.specialization}</Text>
             <View style={styles.cardMetaRow}>
@@ -1126,7 +1125,6 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                       <Text style={styles.reqName} numberOfLines={1}>
                         {selectedCounselorForRequest.name}
                       </Text>
-                      <Ionicons name="checkmark-circle" size={14} color={PATIENT.primary} />
                     </View>
                     <Text style={styles.reqSpec} numberOfLines={1}>
                       {selectedCounselorForRequest.specialization}
