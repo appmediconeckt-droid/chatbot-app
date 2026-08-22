@@ -57,7 +57,7 @@ const axiosInstance = axios.create({
     'Content-Type': 'application/json',
     ...TUNNEL_HEADERS,
   },
-  withCredentials: true, // Important for cookies/sessions
+  withCredentials: true, 
 });
 
 // Request interceptor to add token to headers
