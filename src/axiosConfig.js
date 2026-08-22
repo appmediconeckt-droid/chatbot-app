@@ -7,9 +7,6 @@ import { forceSignOut } from './utils/authSession';
 // NOTE: no trailing slash — callers append `/api/...`, so a trailing slash here
 // would produce a double slash (`...ms//api/...`) and break routing.
 const API_ENDPOINTS = {
-  // Must match the SAME backend the web frontend uses (chatbot/.env.local)
-  // so OTP / email / forgot-password behave identically to web.
-  
   DEV_TUNNEL: 'https://m429gbrg-5002.inc1.devtunnels.ms',
   RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
   LOCAL_ADB_5002: 'http://127.0.0.1:5002',
