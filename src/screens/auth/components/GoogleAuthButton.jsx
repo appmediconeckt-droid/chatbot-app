@@ -52,6 +52,34 @@ const normalizeRole = (role) => {
 const mapRoleForBackend = (role) =>
   role === 'counselor' ? 'counsellor' : role;
 
+const isGeneratedUserAvatarUrl = (raw) => {
+  const url =
+    typeof raw === 'string'
+      ? raw
+      : raw?.url || raw?.secure_url || '';
+  const value = String(url || '').trim();
+  if (!value) return false;
+  return (
+    value.startsWith('data:image/') ||
+    /^https:\/\/api\.dicebear\.com\//i.test(value)
+  );
+};
+
+const sanitizeUserPhotoForRole = (user, roleName) => {
+  if (!user || roleName !== 'user') return user;
+  const profilePhoto = isGeneratedUserAvatarUrl(user.profilePhoto)
+    ? user.profilePhoto
+    : '';
+  return {
+    ...user,
+    profilePhoto,
+    profilePic: undefined,
+    photo: undefined,
+    picture: undefined,
+    image: undefined,
+  };
+};
+
 const GoogleAuthButton = ({
   role,
   mode = 'signin', // 'signin' | 'signup'
@@ -134,7 +162,7 @@ const GoogleAuthButton = ({
     await AsyncStorage.setItem('userRole', userRole);
     await AsyncStorage.setItem('isAuthenticated', 'true');
 
-    const user = data.user || data;
+    const user = sanitizeUserPhotoForRole(data.user || data, userRole);
     if (user) {
       await AsyncStorage.setItem('userData', JSON.stringify(user));
       if (user.email) await AsyncStorage.setItem('userEmail', user.email);

@@ -562,7 +562,11 @@ const WalletDashboard = ({ userData = {} }) => {
               {...GRADIENT_DIRECTION}
               style={styles.tabBtn}
             >
-              <TranslatedMessageBubble text={t('wallet:addMoney')} style={[styles.tabBtnText, activeTab === 'add-money' && styles.tabBtnTextActive]} />
+              <TranslatedMessageBubble
+                text={t('wallet:addMoney')}
+                style={[styles.tabBtnText, activeTab === 'add-money' && styles.tabBtnTextActive]}
+                numberOfLines={1}
+              />
             </LinearGradient>
           </TouchableOpacity>
           <TouchableOpacity
@@ -575,7 +579,13 @@ const WalletDashboard = ({ userData = {} }) => {
               {...GRADIENT_DIRECTION}
               style={styles.tabBtn}
             >
-              <Text style={[styles.tabBtnText, activeTab === 'transactions' && styles.tabBtnTextActive]}>{t('wallet:transactionHistory')}</Text>
+              <Text
+                style={[styles.tabBtnText, activeTab === 'transactions' && styles.tabBtnTextActive]}
+                numberOfLines={1}
+                maxFontSizeMultiplier={1}
+              >
+                {t('wallet:transactionHistory')}
+              </Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -878,7 +888,7 @@ const styles = StyleSheet.create({
   tabs: {
     flexDirection: 'row',
     backgroundColor: '#fff',
-    borderRadius: 99,
+    borderRadius: 12,
     padding: 4,
     marginBottom: 16,
     borderWidth: 1,
@@ -887,17 +897,23 @@ const styles = StyleSheet.create({
   // Wrapper owns flex + clips the gradient to the pill radius.
   tabBtnWrap: {
     flex: 1,
-    borderRadius: 99,
+    minWidth: 0,
+    borderRadius: 9,
     overflow: 'hidden',
   },
   tabBtn: {
+    height: 40,
     alignItems: 'center',
-    paddingVertical: 10,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
   },
   tabBtnText: {
     color: '#64748b',
     fontWeight: '700',
     fontSize: 13,
+    lineHeight: 16,
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   tabBtnTextActive: {
     color: '#fff',

@@ -32,7 +32,7 @@ const modeContent = {
   setByOtp: {
     icon: 'mark-email-read',
     title: 'Set Password',
-    subtitle: 'Enter the verified email and create a new password.',
+    subtitle: 'Enter your email, OTP, and create a new password.',
     button: 'Set Password',
     passwordLabel: 'Password',
   },
@@ -42,6 +42,7 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
   const { t } = useLanguageRender();
   const copy = modeContent[mode] || modeContent.change;
   const [email, setEmail] = useState('');
+  const [otp, setOtp] = useState('');
   const [oldPassword, setOldPassword] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -69,6 +70,10 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
     }
     if (mode === 'setByOtp' && !/^\S+@\S+\.\S+$/.test(cleanEmail)) {
       Alert.alert('Validation', 'Please enter a valid email address');
+      return false;
+    }
+    if (mode === 'setByOtp' && otp.length !== 6) {
+      Alert.alert('Validation', 'Please enter the 6-digit OTP');
       return false;
     }
     if (mode === 'change' && !oldPassword) {
@@ -101,6 +106,7 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
     try {
       await onSubmit?.({
         email: email.trim().toLowerCase(),
+        otp,
         oldPassword,
         password,
       });
@@ -161,21 +167,39 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
 
         <View style={styles.card}>
           {mode === 'setByOtp' && (
-            <View style={styles.field}>
-              <Text style={styles.label}>{t('Email')}</Text>
-              <View style={styles.inputShell}>
-                <Icon name="alternate-email" size={20} color="#64748b" />
-                <TextInput
-                  value={email}
-                  onChangeText={setEmail}
-                  style={styles.input}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  placeholder={t('user@example.com')}
-                  placeholderTextColor="#94a3b8"
-                />
+            <>
+              <View style={styles.field}>
+                <Text style={styles.label}>{t('Email')}</Text>
+                <View style={styles.inputShell}>
+                  <Icon name="alternate-email" size={20} color="#64748b" />
+                  <TextInput
+                    value={email}
+                    onChangeText={setEmail}
+                    style={styles.input}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    placeholder={t('user@example.com')}
+                    placeholderTextColor="#94a3b8"
+                  />
+                </View>
               </View>
-            </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>{t('OTP Code')}</Text>
+                <View style={styles.inputShell}>
+                  <Icon name="pin" size={20} color="#64748b" />
+                  <TextInput
+                    value={otp}
+                    onChangeText={(value) => setOtp(value.replace(/\D/g, '').slice(0, 6))}
+                    style={styles.input}
+                    keyboardType="number-pad"
+                    autoCapitalize="none"
+                    maxLength={6}
+                    placeholder={t('Enter 6-digit OTP')}
+                    placeholderTextColor="#94a3b8"
+                  />
+                </View>
+              </View>
+            </>
           )}
 
           {mode === 'change' &&

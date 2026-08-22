@@ -96,6 +96,19 @@ export const getApiErrorMessage = (error, fallback) => {
   return fallback;
 };
 
+export const isMissingOtpError = (errorOrResponse) => {
+  const data = errorOrResponse?.response?.data || errorOrResponse?.data || {};
+  const message = String(
+    (typeof data === 'string' ? data : data?.message || data?.msg || data?.error) ||
+      errorOrResponse?.message ||
+      ''
+  ).toLowerCase();
+
+  return message.includes('no otp found') || message.includes('request a new otp');
+};
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const makeHttpError = (response, fallback = 'Request failed') => {
   const data = response?.data;
   const error = new Error(
@@ -143,6 +156,33 @@ export const postPublicAuthEndpoint = async (endpoint, payload, options = {}) =>
     });
     throw error;
   }
+};
+
+export const postPublicAuthEndpointWithOtpRetry = async (
+  endpoint,
+  payload,
+  options = {},
+) => {
+  const attempts = options.attempts || 4;
+  const retryDelayMs = options.retryDelayMs || 450;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await postPublicAuthEndpoint(endpoint, payload, options);
+    } catch (error) {
+      lastError = error;
+      const shouldRetry =
+        endpoint === 'verify-email-otp' &&
+        attempt < attempts &&
+        isMissingOtpError(error);
+
+      if (!shouldRetry) throw error;
+      await wait(retryDelayMs);
+    }
+  }
+
+  throw lastError;
 };
 
 export const getCounsellorId = async () => {

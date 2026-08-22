@@ -22,7 +22,10 @@ jest.mock('axios', () => {
 });
 
 const axios = require('axios');
-const { postPublicAuthEndpoint } = require('../src/screens/auth/authUtils');
+const {
+  postPublicAuthEndpoint,
+  postPublicAuthEndpointWithOtpRetry,
+} = require('../src/screens/auth/authUtils');
 
 describe('postPublicAuthEndpoint', () => {
   beforeEach(() => {
@@ -48,6 +51,7 @@ describe('postPublicAuthEndpoint', () => {
     );
   });
 
+<<<<<<< HEAD
   it('does not repeat an OTP POST after a network failure', async () => {
     const networkError = new Error('Network Error');
     networkError.code = 'ERR_NETWORK';
@@ -60,5 +64,26 @@ describe('postPublicAuthEndpoint', () => {
     });
 
     expect(axios.post).toHaveBeenCalledTimes(1);
+=======
+  it('retries verify-email-otp when the live backend briefly reports no OTP store', async () => {
+    axios.post
+      .mockResolvedValueOnce({
+        status: 400,
+        data: { success: false, message: 'No OTP found. Please request a new OTP.' },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        data: { success: true, message: 'Email verified successfully' },
+      });
+
+    const response = await postPublicAuthEndpointWithOtpRetry(
+      'verify-email-otp',
+      { email: 'user@example.com', otp: '123456' },
+      { retryDelayMs: 1 }
+    );
+
+    expect(response.data.success).toBe(true);
+    expect(axios.post).toHaveBeenCalledTimes(2);
+>>>>>>> b3fce7d1132e69c969e7635c631705bab3f7da0c
   });
 });

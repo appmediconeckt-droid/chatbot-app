@@ -28,6 +28,12 @@ import { useNavigation } from '@react-navigation/native';
 import safeVibrate from '../../../../../../utils/safeVibrate';
 import { formatLocation, parseLocation } from '../../../../../../utils/locationFormatter';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
+import CountryPhoneInput from '../../../../../../components/common/CountryPhoneInput';
+import {
+  isValidLocalPhoneNumber,
+  normalizeLocalPhoneNumber,
+  splitInternationalPhoneNumber,
+} from '../../../../../../utils/countryCodes';
 
 const { width } = Dimensions.get('window');
 
@@ -74,6 +80,7 @@ const CounselorProfile = () => {
     education: '',
     email: '',
     phoneNumber: '',
+    phoneCountryCode: '+91',
     location: '',
     languages: [],
     profilePhoto: null,
@@ -215,6 +222,10 @@ const CounselorProfile = () => {
           }
         }
 
+        const phone = splitInternationalPhoneNumber(
+          userData.phoneNumber || userData.phone || '',
+          userData.phoneCountryCode || '+91',
+        );
         const formattedData = {
           _id: userData._id,
           uniqueCode: userData.uniqueCode || `CNS-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
@@ -223,7 +234,8 @@ const CounselorProfile = () => {
           experience: userData.experience || 0,
           education: userData.education || '',
           email: userData.email || '',
-          phoneNumber: userData.phoneNumber || userData.phone || '',
+          phoneNumber: phone.phoneNumber,
+          phoneCountryCode: phone.countryCode,
           location: userData.location || '',
           languages: Array.isArray(userData.languages) ? userData.languages : [],
           profilePhoto: null,
@@ -600,9 +612,12 @@ const CounselorProfile = () => {
   };
 
   const handleSave = async () => {
-    const normalizedPhone = String(editedData.phoneNumber || '').replace(/\D/g, '');
-    if (!/^\d{10}$/.test(normalizedPhone)) {
-      setError('Enter a valid 10-digit phone number');
+    const normalizedPhone = normalizeLocalPhoneNumber(
+      editedData.phoneNumber || '',
+      editedData.phoneCountryCode,
+    );
+    if (!isValidLocalPhoneNumber(normalizedPhone)) {
+      setError('Phone number must be 10 digits');
       return;
     }
     try {
@@ -619,6 +634,7 @@ const CounselorProfile = () => {
       formData.append('fullName', editedData.fullName);
       formData.append('email', editedData.email);
       formData.append('phoneNumber', normalizedPhone);
+      formData.append('phoneCountryCode', editedData.phoneCountryCode || '+91');
       formData.append('qualification', editedData.qualification || editedData.education);
       formData.append('experience', editedData.experience.toString());
       formData.append('location', editedData.location);
@@ -1000,9 +1016,20 @@ const CounselorProfile = () => {
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>{t('auth:phone')}</Text>
                 {isEditing ? (
-                  <TextInput style={styles.input} value={editedData.phoneNumber || ''} onChangeText={(v) => handleInputChange('phoneNumber', v.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit phone number" placeholderTextColor="#9CA3AF" keyboardType="phone-pad" maxLength={10} />
+                  <CountryPhoneInput
+                    value={editedData.phoneNumber || ''}
+                    countryCode={editedData.phoneCountryCode || '+91'}
+                    onChangePhoneNumber={(v) => handleInputChange('phoneNumber', normalizeLocalPhoneNumber(v, editedData.phoneCountryCode))}
+                    onChangeCountryCode={(code) => handleInputChange('phoneCountryCode', code)}
+                    placeholder="Phone number"
+                    placeholderTextColor="#9CA3AF"
+                    accentColor="#004AC6"
+                    containerStyle={styles.phoneInputWrapper}
+                  />
                 ) : (
-                  <Text style={styles.detailValue}>{counselor.phoneNumber || t('profile:notSpecified')}</Text>
+                  <Text style={styles.detailValue}>
+                    {counselor.phoneNumber || t('profile:notSpecified')}
+                  </Text>
                 )}
               </View>
             </View>
@@ -1916,6 +1943,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     backgroundColor: '#FFFFFF',
     color: '#1F2937',
+  },
+  phoneInputWrapper: {
+    height: 50,
+    borderRadius: 10,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
   },
   textArea: {
     minHeight: 100,

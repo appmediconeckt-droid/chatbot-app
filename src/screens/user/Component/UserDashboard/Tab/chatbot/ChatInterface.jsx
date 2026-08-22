@@ -922,8 +922,11 @@ const styles = {
   // and shifted every chip after it.
   chipText: {
     fontSize: 13,
+    lineHeight: 16,
     fontWeight: '600',
     color: PATIENT.textSecondary,
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   chipTextActive: {
     color: '#ffffff',

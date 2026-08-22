@@ -20,7 +20,6 @@ import {
   Animated,
   Easing,
   StatusBar,
-  PermissionsAndroid,
   Pressable,
   BackHandler,
 } from "react-native";
@@ -28,13 +27,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, useIsFocused } from "@react-navigation/native";
 import axios from "axios";
-import axiosInstance, { API_BASE_URL, AI_REALTIME_BASE_URL } from "../../../../../axiosConfig";
-import {
-  RTCPeerConnection,
-  RTCSessionDescription,
-  mediaDevices,
-} from "@stream-io/react-native-webrtc";
-import InCallManager from "react-native-incall-manager";
+import axiosInstance, { API_BASE_URL } from "../../../../../axiosConfig";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { launchImageLibrary } from "react-native-image-picker";
 import socketService from "../../../../../services/socketService";
@@ -69,41 +62,38 @@ import { toImageUri } from "../../../../../utils/imageUri";
 // time, so opening the next one any sooner gets silently dropped.
 const MODAL_DISMISS_MS = 320;
 
-// The AI surfaces used to run on their own green pair (#2A8A51 / #0E7552),
-// which read as a different brand from the wallet card. One constant now, so
-// header, avatars and the voice orb can't drift apart again.
+// The AI surface uses the same green pair as the wallet card, so the assistant
+// reads as part of the patient-side brand.
 const AI_GRADIENT = ['#006B2C', '#01CE54'];
 
-// The assistant's name. Product name stays 'Humaelio'; the descriptor after it
-// changes with the surface (chat vs voice) so it reads as one assistant in two
-// modes rather than two products.
+// The assistant's name. Product name stays 'Humaelio' and the descriptor keeps
+// the popup clearly text-chat focused.
 const AI_NAME = 'Humaelio';
 const AI_CHAT_TITLE_SUFFIX = 'AI Assistant';
-const AI_VOICE_TITLE_SUFFIX = 'Voice Assistant';
 
 const AI_WELCOME_MESSAGE = "Hello, I'm Humaelio AI. How are you feeling today?";
-const AI_WELCOME_QUICK_REPLIES = ["😢 Low", "😐 Okay", "🙂 Good", "✨ Great"];
-const AI_QUICK_REPLY_KEYS = {
-  '😢 Low': 'aiQuickReplyLow',
-  '😐 Okay': 'aiQuickReplyOkay',
-  '🙂 Good': 'aiQuickReplyGood',
-  '✨ Great': 'aiQuickReplyGreat',
+
+const isGeneratedUserAvatarUrl = (raw) => {
+  const url = typeof raw === "string" ? raw : raw?.url || raw?.secure_url || "";
+  const value = String(url || "").trim();
+  if (!value) return false;
+  return (
+    value.startsWith("data:image/") ||
+    /^https:\/\/api\.dicebear\.com\//i.test(value)
+  );
+};
+
+const getGeneratedUserAvatarUri = (...values) => {
+  for (const value of values) {
+    if (isGeneratedUserAvatarUrl(value)) {
+      const uri = toImageUri(value);
+      if (uri) return uri;
+    }
+  }
+  return "";
 };
 
 // Improved ChatPopup Component
-const VOICE_LANGUAGES = [
-  { label: 'English (India)', code: 'en-IN' },
-  { label: 'English (US)', code: 'en-US' },
-  { label: 'Hindi', code: 'hi-IN' },
-  { label: 'Tamil', code: 'ta-IN' },
-  { label: 'Telugu', code: 'te-IN' },
-  { label: 'Kannada', code: 'kn-IN' },
-  { label: 'Malayalam', code: 'ml-IN' },
-  { label: 'Bengali', code: 'bn-IN' },
-  { label: 'Gujarati', code: 'gu-IN' },
-  { label: 'Marathi', code: 'mr-IN' },
-];
-
 const ChatPopup = ({
   messages,
   newMessage,
@@ -116,16 +106,12 @@ const ChatPopup = ({
   onCancelReset,
   onConfirmReset,
   onCounselorPress,
-  sendQuickReply,
   selectedLang,
-  setSelectedLang,
-  onLangChange,
   userPhoto,
 }) => {
   const { t } = useLanguageRender();
   const { width, height } = useWindowDimensions();
   const [speakingId, setSpeakingId] = useState(null);
-  const [isRecording, setIsRecording] = useState(false);
   const [aiAttachment, setAiAttachment] = useState(null);
   const [aiInputPlaceholder, setAiInputPlaceholder] = useState('Type your question');
 
@@ -211,121 +197,8 @@ const ChatPopup = ({
   // Detect tablet: width >= 600 is typically tablet range
   const isTablet = width >= 600;
   const popupBaseHeight = isTablet ? 750 : 630;
-  const [showLangPicker, setShowLangPicker] = useState(false);
-  const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
-  const [aiVoiceStatus, setAiVoiceStatus] = useState("idle");
-  const [aiVoiceTime, setAiVoiceTime] = useState(0);
-  const [aiVoiceMuted, setAiVoiceMuted] = useState(false);
-  const [aiVoiceSpeakerOn, setAiVoiceSpeakerOn] = useState(true);
-  const [aiVoiceError, setAiVoiceError] = useState(null);
-  const [aiVoiceTranscript, setAiVoiceTranscript] = useState([]);
   const inputRef = useRef(null);
   const scrollViewRef = useRef(null);
-  const sendMessageRef = useRef(sendMessage);
-  const setNewMessageRef = useRef(setNewMessage);
-  const aiVoicePcRef = useRef(null);
-  const aiVoiceMicStreamRef = useRef(null);
-  const aiVoiceDataChannelRef = useRef(null);
-  const aiVoiceTimerRef = useRef(null);
-  const micPulse = useRef(new Animated.Value(1)).current;
-  // AI voice orb + waveform animations
-  const orbPulse = useRef(new Animated.Value(0)).current;
-  const WAVE_COUNT = 13;
-  const waveAnims = useRef(
-    Array.from({ length: WAVE_COUNT }, () => new Animated.Value(0.25))
-  ).current;
-
-  // Drive the orb glow + waveform whenever the voice modal is live (not errored).
-  useEffect(() => {
-    const active = aiVoiceOpen && !aiVoiceError && aiVoiceStatus !== "error";
-    if (!active) {
-      orbPulse.stopAnimation();
-      orbPulse.setValue(0);
-      waveAnims.forEach((a) => { a.stopAnimation(); a.setValue(0.25); });
-      return;
-    }
-
-    const orbLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(orbPulse, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(orbPulse, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    );
-    orbLoop.start();
-
-    // Speaking = lively/tall bars, listening/other = calmer.
-    const lively = aiVoiceStatus === "speaking" || aiVoiceStatus === "listening";
-    const barLoops = waveAnims.map((a, i) => {
-      const peak = lively ? (0.5 + Math.random() * 0.5) : (0.3 + Math.random() * 0.25);
-      const dur = lively ? (300 + Math.random() * 260) : (600 + Math.random() * 300);
-      return Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 45),
-          Animated.timing(a, { toValue: peak, duration: dur, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.timing(a, { toValue: 0.22, duration: dur, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        ])
-      );
-    });
-    barLoops.forEach((l) => l.start());
-
-    return () => {
-      orbLoop.stop();
-      barLoops.forEach((l) => l.stop());
-    };
-  }, [aiVoiceOpen, aiVoiceStatus, aiVoiceError, orbPulse, waveAnims]);
-
-  const stopAiVoiceTimer = useCallback(() => {
-    if (aiVoiceTimerRef.current) {
-      clearInterval(aiVoiceTimerRef.current);
-      aiVoiceTimerRef.current = null;
-    }
-  }, []);
-
-  const startAiVoiceTimer = useCallback(() => {
-    stopAiVoiceTimer();
-    setAiVoiceTime(0);
-    aiVoiceTimerRef.current = setInterval(() => {
-      setAiVoiceTime((prev) => prev + 1);
-    }, 1000);
-  }, [stopAiVoiceTimer]);
-
-  const cleanupAiVoiceCall = useCallback((options = {}) => {
-    const { closeModal = false, nextStatus = "idle" } = options;
-
-    stopAiVoiceTimer();
-
-    try { aiVoiceDataChannelRef.current?.close?.(); } catch (_) {}
-    aiVoiceDataChannelRef.current = null;
-
-    try { aiVoicePcRef.current?.close?.(); } catch (_) {}
-    aiVoicePcRef.current = null;
-
-    try {
-      aiVoiceMicStreamRef.current?.getTracks?.().forEach((track) => track.stop?.());
-    } catch (_) {}
-    aiVoiceMicStreamRef.current = null;
-
-    try { InCallManager.setSpeakerphoneOn?.(false); } catch (_) {}
-    try { InCallManager.setForceSpeakerphoneOn?.(false); } catch (_) {}
-    try { InCallManager.stop(); } catch (_) {}
-
-    setAiVoiceMuted(false);
-    setAiVoiceSpeakerOn(true);
-    setAiVoiceStatus(nextStatus);
-    if (closeModal) {
-      setAiVoiceOpen(false);
-      setAiVoiceError(null);
-      setAiVoiceTranscript([]);
-      setAiVoiceTime(0);
-    }
-  }, [stopAiVoiceTimer]);
-
-  useEffect(() => {
-    return () => cleanupAiVoiceCall({ closeModal: true });
-  }, [cleanupAiVoiceCall]);
-
-  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
-  useEffect(() => { setNewMessageRef.current = setNewMessage; }, [setNewMessage]);
 
   // Track how much the keyboard OVERLAPS the app window (not the full keyboard
   // height) so the popup sits right above the keyboard on every device. On
@@ -356,358 +229,41 @@ const ChatPopup = ({
     return () => clearTimeout(id);
   }, [messages, isLoading, keyboardVisible, keyboardOverlap]);
 
-  // Pulse animation while recording
-  useEffect(() => {
-    if (isRecording) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(micPulse, { toValue: 1.3, duration: 600, useNativeDriver: true }),
-          Animated.timing(micPulse, { toValue: 1, duration: 600, useNativeDriver: true }),
-        ])
-      ).start();
-    } else {
-      micPulse.stopAnimation();
-      micPulse.setValue(1);
-    }
-  }, [isRecording]);
-
-  // Wire up STT listeners from native SpeechModule
   useEffect(() => {
     const Speech = require('../../../../../utils/SpeechBridge');
-
-    const unsubResult = Speech.onSttResult((transcript) => {
-      if (transcript) setNewMessageRef.current(transcript);
-      setIsRecording(false);
-    });
-    const unsubStart = Speech.onSttStart(() => setIsRecording(true));
-    const unsubEnd = Speech.onSttEnd(() => setIsRecording(false));
-    const unsubError = Speech.onSttError((code) => {
-      if (code !== 'no-match' && code !== 'timeout') {
-        console.warn('[STT] error:', code);
-      }
-      setIsRecording(false);
-    });
     const unsubTts = Speech.onTtsDone(() => setSpeakingId(null));
-
     Speech.initTts();
 
     return () => {
-      unsubResult(); unsubStart(); unsubEnd(); unsubError(); unsubTts();
-      Speech.destroyRecognizer();
-      Speech.stopSpeaking();
+      unsubTts();
+      Speech.stopSpeaking().catch(() => {});
     };
   }, []);
 
-  // Normalize the app language to a speech-recognition locale. Most app codes are
-  // already valid BCP-47 tags (en-US, hi-IN, fr-FR). Bare codes get a region and
-  // anything empty falls back to English (India).
-  const sttLocale = (code) => {
-    const c = String(code || '').replace('_', '-').trim();
-    if (!c) return 'en-IN';
-    if (c.includes('-')) return c;
-    const REGION = { en: 'en-IN', hi: 'hi-IN', ta: 'ta-IN', te: 'te-IN', kn: 'kn-IN', ml: 'ml-IN', bn: 'bn-IN', gu: 'gu-IN', mr: 'mr-IN', pa: 'pa-IN', ur: 'ur-IN' };
-    return REGION[c] || c;
-  };
-
-  const toggleRecording = async () => {
-    const Speech = require('../../../../../utils/SpeechBridge');
-
-    if (isRecording) {
-      try { await Speech.stopListening(); } catch (_) {}
-      setIsRecording(false);
-      return;
-    }
-
-    if (Platform.OS === 'android') {
-      try {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-          {
-            title: 'Microphone Permission',
-            message: 'This app needs microphone access for voice input.',
-            buttonPositive: 'Allow',
-          }
-        );
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          Alert.alert('Permission needed', 'Allow microphone access for voice input.');
-          return;
-        }
-      } catch (err) {
-        console.warn('[STT] permission error:', err);
-        return;
-      }
-    }
-
-    try {
-      await Speech.destroyRecognizer();
-      // Show the recording state immediately (the native "stt-start" event only
-      // fires once the user actually begins speaking, which feels unresponsive).
-      setIsRecording(true);
-      await Speech.startListening(sttLocale(selectedLang));
-    } catch (e) {
-      console.warn('[STT] start error:', e?.message ?? e);
-      setIsRecording(false);
-      Alert.alert('Voice Error', e?.message?.includes('available')
-        ? t('Speech recognition is not available on this device.') : t('Could not start voice input. Please try again.'));
-    }
-  };
-
-  const stopSpeaking = () => {
+  const stopSpeaking = useCallback(() => {
     const Speech = require('../../../../../utils/SpeechBridge');
     Speech.stopSpeaking().catch(() => {});
     setSpeakingId(null);
-  };
+  }, []);
 
-  const speakMessage = async (messageId, text) => {
-    if (speakingId === messageId) { stopSpeaking(); return; }
+  const speakMessage = useCallback(async (messageId, text) => {
+    const cleanText = String(text || '').trim();
+    if (!cleanText) return;
+    if (speakingId === messageId) {
+      stopSpeaking();
+      return;
+    }
+
     stopSpeaking();
     const Speech = require('../../../../../utils/SpeechBridge');
     setSpeakingId(messageId);
     try {
-      await Speech.speakText(text, selectedLang);
+      await Speech.speakText(cleanText, selectedLang);
     } catch (err) {
       console.warn('[TTS] error:', err?.message ?? err);
       setSpeakingId(null);
     }
-  };
-
-  const setAiVoiceSpeakerRoute = (enabled) => {
-    try { InCallManager.setSpeakerphoneOn?.(enabled); } catch (_) {}
-    try { InCallManager.setForceSpeakerphoneOn?.(enabled); } catch (_) {}
-  };
-
-  const formatAiVoiceTime = (seconds) => {
-    const mins = Math.floor(seconds / 60).toString().padStart(2, "0");
-    const secs = (seconds % 60).toString().padStart(2, "0");
-    return `${mins}:${secs}`;
-  };
-
-  const getAiVoiceStatusText = () => {
-    if (aiVoiceError) return "Not connected";
-    switch (aiVoiceStatus) {
-      case "connecting": return "Connecting…";
-      case "listening": return "Listening…";
-      case "thinking": return "Thinking…";
-      case "speaking": return "Speaking…";
-      case "error": return "Not connected";
-      default: return "Ready to talk";
-    }
-  };
-
-  const appendAiVoiceTranscript = (speaker, text) => {
-    const cleanText = String(text || "").trim();
-    if (!cleanText) return;
-    setAiVoiceTranscript((prev) => [
-      ...prev.slice(-5),
-      { id: `${Date.now()}_${Math.random()}`, speaker, text: cleanText },
-    ]);
-  };
-
-  const configureAiVoiceTurnDetection = (dataChannel) => {
-    if (!dataChannel || dataChannel.readyState !== "open") return;
-    const voiceLanguage = VOICE_LANGUAGES.find((language) => language.code === selectedLang)?.label || selectedLang || 'English (India)';
-    dataChannel.send(JSON.stringify({
-      type: "session.update",
-      session: {
-        type: "realtime",
-        instructions: `Always respond in ${voiceLanguage}.`,
-        audio: {
-          input: {
-            transcription: { model: "gpt-4o-mini-transcribe" },
-            turn_detection: {
-              type: "server_vad",
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 500,
-              create_response: true,
-              interrupt_response: true,
-            },
-          },
-        },
-      },
-    }));
-  };
-
-  const handleAiVoiceRealtimeEvent = (event) => {
-    switch (event?.type) {
-      case "input_audio_buffer.speech_started":
-        setAiVoiceStatus("listening");
-        break;
-      case "input_audio_buffer.speech_stopped":
-        setAiVoiceStatus("thinking");
-        break;
-      case "response.audio.delta":
-      case "response.audio_transcript.delta":
-        setAiVoiceStatus("speaking");
-        break;
-      case "conversation.item.input_audio_transcription.completed":
-        appendAiVoiceTranscript("You", event.transcript);
-        break;
-      case "response.audio_transcript.done":
-        appendAiVoiceTranscript("AI", event.transcript);
-        break;
-      case "response.done":
-        setAiVoiceStatus("listening");
-        break;
-      case "error":
-        setAiVoiceError(event?.error?.message || "I couldn't connect just now. Please try again.");
-        cleanupAiVoiceCall({ nextStatus: "error" });
-        setAiVoiceOpen(true);
-        break;
-      default:
-        break;
-    }
-  };
-
-  const waitForIceGathering = (pc) => new Promise((resolve) => {
-    if (!pc || pc.iceGatheringState === "complete") {
-      resolve();
-      return;
-    }
-
-    const timeout = setTimeout(resolve, 1600);
-    pc.onicegatheringstatechange = () => {
-      if (pc.iceGatheringState === "complete") {
-        clearTimeout(timeout);
-        resolve();
-      }
-    };
-  });
-
-  const requestAiVoiceMicPermission = async () => {
-    if (Platform.OS !== "android") return true;
-    const granted = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-      {
-        title: "Microphone Permission",
-        message: "This app needs microphone access for AI voice calls.",
-        buttonPositive: "Allow",
-      }
-    );
-    return granted === PermissionsAndroid.RESULTS.GRANTED;
-  };
-
-  const startAiVoiceCall = async () => {
-    if (aiVoicePcRef.current || aiVoiceStatus === "connecting") return;
-
-    const Speech = require('../../../../../utils/SpeechBridge');
-    try { await Speech.stopListening(); } catch (_) {}
-    try { await Speech.stopSpeaking(); } catch (_) {}
-    setIsRecording(false);
-    setSpeakingId(null);
-
-    setAiVoiceOpen(true);
-    setAiVoiceStatus("connecting");
-    setAiVoiceError(null);
-    setAiVoiceTranscript([]);
-    setAiVoiceTime(0);
-
-    try {
-      const hasPermission = await requestAiVoiceMicPermission();
-      if (!hasPermission) {
-        throw new Error("Please allow microphone access to start the AI voice call.");
-      }
-
-      try { InCallManager.start({ media: "audio" }); } catch (_) {}
-      setAiVoiceSpeakerRoute(true);
-
-      const pc = new RTCPeerConnection();
-      aiVoicePcRef.current = pc;
-
-      pc.onconnectionstatechange = () => {
-        const state = pc.connectionState;
-        if (state === "connected") {
-          setAiVoiceStatus("listening");
-          startAiVoiceTimer();
-        }
-        if (state === "failed" || state === "disconnected" || state === "closed") {
-          if (aiVoicePcRef.current) {
-            setAiVoiceError("The voice connection dropped. Please try again.");
-            cleanupAiVoiceCall({ nextStatus: "error" });
-            setAiVoiceOpen(true);
-          }
-        }
-      };
-
-      pc.ontrack = () => {
-        setAiVoiceStatus((prev) => (prev === "connecting" ? "listening" : prev));
-      };
-
-      const dataChannel = pc.createDataChannel("oai-events");
-      aiVoiceDataChannelRef.current = dataChannel;
-      dataChannel.onopen = () => {
-        configureAiVoiceTurnDetection(dataChannel);
-        setAiVoiceStatus("listening");
-        startAiVoiceTimer();
-      };
-      dataChannel.onmessage = (messageEvent) => {
-        try {
-          handleAiVoiceRealtimeEvent(JSON.parse(messageEvent.data));
-        } catch (parseError) {
-          console.warn("[AI Voice] event parse error:", parseError);
-        }
-      };
-      dataChannel.onerror = () => {
-        setAiVoiceError("I couldn't connect just now. Please try again.");
-        cleanupAiVoiceCall({ nextStatus: "error" });
-        setAiVoiceOpen(true);
-      };
-
-      const micStream = await mediaDevices.getUserMedia({ audio: true, video: false });
-      aiVoiceMicStreamRef.current = micStream;
-      micStream.getTracks().forEach((track) => pc.addTrack(track, micStream));
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await waitForIceGathering(pc);
-
-      const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
-      const sdp = pc.localDescription?.sdp || offer.sdp || "";
-      const response = await fetch(`${AI_REALTIME_BASE_URL}/api/ai/realtime/session`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/sdp",
-          "X-Tunnel-Skip-AntiPhishing-Page": "true",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: sdp,
-      });
-
-      const answerSdp = await response.text();
-      if (!response.ok) {
-        const isHtmlError = /<!doctype html|<html|cannot post/i.test(answerSdp);
-        throw new Error(
-          isHtmlError
-            ? `AI voice route is not available on ${AI_REALTIME_BASE_URL}. Please start/deploy the latest backend.`
-            : answerSdp || "Could not start AI voice call."
-        );
-      }
-
-      await pc.setRemoteDescription(new RTCSessionDescription({
-        type: "answer",
-        sdp: answerSdp,
-      }));
-    } catch (error) {
-      console.error("[AI Voice] start error:", error);
-      setAiVoiceError("I couldn't start voice chat. Please try again.");
-      cleanupAiVoiceCall({ nextStatus: "error" });
-      setAiVoiceOpen(true);
-    }
-  };
-
-  const toggleAiVoiceMute = () => {
-    const nextMuted = !aiVoiceMuted;
-    aiVoiceMicStreamRef.current?.getAudioTracks?.().forEach((track) => {
-      track.enabled = !nextMuted;
-    });
-    setAiVoiceMuted(nextMuted);
-  };
-
-  const toggleAiVoiceSpeaker = () => {
-    const nextSpeaker = !aiVoiceSpeakerOn;
-    setAiVoiceSpeakerRoute(nextSpeaker);
-    setAiVoiceSpeakerOn(nextSpeaker);
-  };
+  }, [selectedLang, speakingId, stopSpeaking]);
 
   return (
   <Modal statusBarTranslucent navigationBarTranslucent
@@ -779,18 +335,6 @@ const ChatPopup = ({
                 <MaterialIcons name="refresh" size={20} color="white" />
               </TouchableOpacity>
             )}
-            <TouchableOpacity
-              onPress={startAiVoiceCall}
-              style={[styles.chatIconBtn, aiVoiceStatus === "connecting" && styles.chatIconBtnDisabled]}
-              disabled={aiVoiceStatus === "connecting"}
-              accessibilityLabel="Start AI voice call"
-            >
-              {aiVoiceStatus === "connecting" ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : (
-                <MaterialIcons name="call" size={20} color="white" />
-              )}
-            </TouchableOpacity>
             <TouchableOpacity
               onPress={onClose}
               style={styles.chatIconBtn}
@@ -881,39 +425,23 @@ const ChatPopup = ({
                         </Text>
                       )
                     )}
-                    {isAiMsg && Array.isArray(message.quickReplies) && message.quickReplies.length > 0 && (
-                      <View style={styles.quickRepliesWrap}>
-                        {message.quickReplies.map((reply) => (
-                          <TouchableOpacity
-                            key={reply}
-                            style={[
-                              styles.quickReplyBtn,
-                              isLoading && styles.quickReplyBtnDisabled,
-                            ]}
-                            activeOpacity={0.8}
-                            disabled={isLoading}
-                            onPress={() => sendQuickReply?.(reply)}
-                          >
-                            <Text style={styles.quickReplyText}>
-                              {t(`dashboard:${AI_QUICK_REPLY_KEYS[reply] || ''}`, reply)}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
                   </View>
-                  {isAiMsg && (
+                  {isAiMsg && !!message.text && (
                     <TouchableOpacity
-                      style={styles.speakBtn}
+                      style={[
+                        styles.speakBtn,
+                        isSpeaking && styles.speakBtnActive,
+                      ]}
                       onPress={() => speakMessage(message.id, message.text)}
-                      activeOpacity={0.7}
+                      activeOpacity={0.75}
+                      accessibilityLabel={isSpeaking ? 'Stop AI response audio' : 'Listen to AI response'}
                     >
                       <MaterialIcons
                         name={isSpeaking ? "stop-circle" : "volume-up"}
                         size={14}
                         color={isSpeaking ? "#ef4444" : "#006B2C"}
                       />
-                      <Text style={[styles.speakBtnText, isSpeaking && { color: '#ef4444' }]}>
+                      <Text style={[styles.speakBtnText, isSpeaking && styles.speakBtnTextActive]}>
                         {isSpeaking ? "Stop" : "Listen"}
                       </Text>
                     </TouchableOpacity>
@@ -974,7 +502,7 @@ const ChatPopup = ({
             <MaterialIcons name="add" size={22} color="#64748b" />
           </TouchableOpacity>
 
-          {/* Input pill: leading icon + text + mic */}
+          {/* Input pill: leading icon + text */}
           <View style={styles.chatInputPill}>
             <MaterialIcons name="auto-awesome" size={17} color="#006B2C" style={styles.chatInputLead} />
             <TextInput
@@ -993,41 +521,20 @@ const ChatPopup = ({
               maxLength={2000}
               textAlignVertical="center"
             />
-            <TouchableOpacity
-              style={styles.inlineMicBtn}
-              onPress={toggleRecording}
-              activeOpacity={0.7}
-            >
-              <Animated.View style={{ transform: [{ scale: micPulse }] }}>
-                <MaterialIcons
-                  name={isRecording ? "mic" : "mic-none"}
-                  size={20}
-                  color={isRecording ? "#ef4444" : "#94a3b8"}
-                />
-              </Animated.View>
-            </TouchableOpacity>
           </View>
 
-          {/* Green action button: send when typing/attached, else voice */}
-          {(newMessage.trim() || aiAttachment) ? (
-            <TouchableOpacity
-              style={styles.sendBtn}
-              onPressIn={() => inputRef.current?.focus()}
-              onPress={handleAiSend}
-              disabled={isLoading}
-              activeOpacity={0.85}
-            >
-              <MaterialIcons name="send" size={19} color="white" />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={styles.sendBtn}
-              onPress={startAiVoiceCall}
-              activeOpacity={0.85}
-            >
-              <MaterialIcons name="graphic-eq" size={20} color="white" />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={[
+              styles.sendBtn,
+              (!newMessage.trim() && !aiAttachment) && styles.sendBtnDisabled,
+            ]}
+            onPressIn={() => inputRef.current?.focus()}
+            onPress={handleAiSend}
+            disabled={isLoading || (!newMessage.trim() && !aiAttachment)}
+            activeOpacity={0.85}
+          >
+            <MaterialIcons name="send" size={19} color="white" />
+          </TouchableOpacity>
         </View>
         {showResetConfirm && (
           <View style={styles.resetConfirmOverlay}>
@@ -1065,116 +572,6 @@ const ChatPopup = ({
             </View>
           </View>
         )}
-        <Modal statusBarTranslucent navigationBarTranslucent
-          animationType="fade"
-          transparent={true}
-          visible={aiVoiceOpen}
-          onRequestClose={() => cleanupAiVoiceCall({ closeModal: true })}
-        >
-          <View style={styles.aiVoiceOverlay}>
-            <View style={styles.aiVoiceCard}>
-              <View style={styles.aiVoiceOrbWrap}>
-                <Animated.View
-                  style={[
-                    styles.aiVoiceOrbGlowOuter,
-                    {
-                      opacity: orbPulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.9] }),
-                      transform: [{ scale: orbPulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.25] }) }],
-                    },
-                  ]}
-                />
-                <Animated.View
-                  style={[
-                    styles.aiVoiceOrbGlowInner,
-                    {
-                      opacity: orbPulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }),
-                      transform: [{ scale: orbPulse.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1.12] }) }],
-                    },
-                  ]}
-                />
-                <LinearGradient
-                  colors={AI_GRADIENT}
-                  start={{ x: 0, y: 0.5 }}
-                  end={{ x: 1, y: 0.5 }}
-                  style={styles.aiVoiceAvatar}
-                >
-                  <MaterialIcons name="mic" size={40} color="#ffffff" />
-                </LinearGradient>
-              </View>
-
-              <View style={styles.aiVoiceWave}>
-                {waveAnims.map((a, i) => (
-                  <Animated.View
-                    key={i}
-                    style={[styles.aiVoiceWaveBar, { transform: [{ scaleY: a }] }]}
-                  />
-                ))}
-              </View>
-
-              <Text style={styles.aiVoiceTitle}>
-                {AI_NAME} - <AutoTranslatedText style={styles.aiVoiceTitle}>{AI_VOICE_TITLE_SUFFIX}</AutoTranslatedText>
-              </Text>
-              <Text style={styles.aiVoiceStatusText}>{getAiVoiceStatusText()}</Text>
-              <Text style={styles.aiVoiceTimer}>{formatAiVoiceTime(aiVoiceTime)}</Text>
-              {aiVoiceError ? (
-                <View style={styles.aiVoiceErrorBox}>
-                  <Text style={styles.aiVoiceErrorText}>{aiVoiceError}</Text>
-                  <TouchableOpacity
-                    style={styles.aiVoiceRetryBtn}
-                    onPress={() => {
-                      // A failed data channel can leave the peer connection alive.
-                      // Close it first so retry always creates a completely fresh call.
-                      cleanupAiVoiceCall({ nextStatus: "idle" });
-                      setAiVoiceOpen(true);
-                      setTimeout(() => startAiVoiceCall(), 0);
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <MaterialIcons name="refresh" size={16} color="#ffffff" />
-                    <Text style={styles.aiVoiceRetryText}>{t('dashboard:aiTryAgain')}</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                  <Text style={styles.aiVoiceHint}>{t('dashboard:aiVoiceHint')}</Text>
-              )}
-
-              {aiVoiceTranscript.length > 0 && (
-                <View style={styles.aiVoiceTranscriptBox}>
-                  {aiVoiceTranscript.map((item) => (
-                    <Text key={item.id} style={styles.aiVoiceTranscriptText} numberOfLines={2}>
-                      <Text style={styles.aiVoiceTranscriptSpeaker}>{item.speaker}: </Text>
-                      {item.text}
-                    </Text>
-                  ))}
-                </View>
-              )}
-
-              <View style={styles.aiVoiceControls}>
-                <TouchableOpacity
-                  style={[styles.aiVoiceControlBtn, aiVoiceMuted && styles.aiVoiceControlBtnActive]}
-                  onPress={toggleAiVoiceMute}
-                  activeOpacity={0.8}
-                >
-                  <MaterialIcons name={aiVoiceMuted ? "mic-off" : "mic"} size={24} color={aiVoiceMuted ? "#ffffff" : "#334155"} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.aiVoiceControlBtn, aiVoiceSpeakerOn && styles.aiVoiceControlBtnActiveBlue]}
-                  onPress={toggleAiVoiceSpeaker}
-                  activeOpacity={0.8}
-                >
-                  <MaterialIcons name={aiVoiceSpeakerOn ? "volume-up" : "hearing"} size={24} color={aiVoiceSpeakerOn ? "#ffffff" : "#334155"} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.aiVoiceControlBtn, styles.aiVoiceEndBtn]}
-                  onPress={() => cleanupAiVoiceCall({ closeModal: true })}
-                  activeOpacity={0.85}
-                >
-                  <MaterialIcons name="call-end" size={26} color="#ffffff" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
       </View>
     </KeyboardAvoidingView>
   </Modal>
@@ -2248,10 +1645,9 @@ export default function UserDashboard() {
   });
 
   const [chatMessages, setChatMessages] = useState([]);
-  // AI/voice language — seeded from the app (dashboard) language so the AI speaks
-  // the same language by default. The in-chat picker can still override it.
+  // AI chat language — seeded from the app language so replies match the
+  // dashboard language by default.
   const [selectedLang, setSelectedLang] = useState(i18n.language || 'en-IN');
-  const [photoUploading, setPhotoUploading] = useState(false);
   const [showAvatarChooser, setShowAvatarChooser] = useState(false);
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
 
@@ -2348,7 +1744,6 @@ export default function UserDashboard() {
             text: AI_WELCOME_MESSAGE,
             system: 'welcome',
             sender: "ai",
-            quickReplies: response.data.data?.quickReplies || AI_WELCOME_QUICK_REPLIES,
           },
         ]);
       } else {
@@ -2362,7 +1757,6 @@ export default function UserDashboard() {
           text: AI_WELCOME_MESSAGE,
             system: 'welcome',
           sender: "ai",
-          quickReplies: AI_WELCOME_QUICK_REPLIES,
         },
       ]);
     } finally {
@@ -2581,12 +1975,7 @@ export default function UserDashboard() {
           // (which also falls back to its own local state) showed one. Each is
           // run through toImageUri, so any string / {url} / {secure_url} /
           // {publicId} shape resolves.
-          profilePhoto:
-            toImageUri(user.profilePhoto) ||
-            toImageUri(user.profilePic) ||
-            toImageUri(user.avatar) ||
-            toImageUri(user.photo) ||
-            "",
+          profilePhoto: getGeneratedUserAvatarUri(user.profilePhoto, user.profilePic, user.avatar, user.photo),
         });
       }
     } catch (error) {
@@ -2705,10 +2094,9 @@ export default function UserDashboard() {
     }
   };
 
-  // Upload a profile photo (file) or generated avatar (url) from the header.
+  // Save a generated avatar from the header/profile drawer.
   const uploadHeaderPhoto = async (formData, optimisticUri) => {
     try {
-      setPhotoUploading(true);
       const token =
         (await AsyncStorage.getItem("accessToken")) ||
         (await AsyncStorage.getItem("token"));
@@ -2729,25 +2117,7 @@ export default function UserDashboard() {
       }
     } catch (e) {
       console.error("Header photo upload failed:", e);
-    } finally {
-      setPhotoUploading(false);
     }
-  };
-
-  // Pick an image from the library and upload it.
-  const handleHeaderUploadPhoto = () => {
-    setShowAvatarChooser(false);
-    launchImageLibrary({ mediaType: "photo", quality: 0.8 }, async (res) => {
-      if (res.didCancel || res.errorCode || !res.assets?.[0]) return;
-      const asset = res.assets[0];
-      const formData = new FormData();
-      formData.append("profilePhoto", {
-        uri: asset.uri,
-        type: asset.type || "image/jpeg",
-        name: asset.fileName || "photo.jpg",
-      });
-      await uploadHeaderPhoto(formData, asset.uri);
-    });
   };
 
   // Generated avatar selected → save it.
@@ -2781,12 +2151,7 @@ export default function UserDashboard() {
       sender: "user",
       image: imageUri || null,
     };
-    setChatMessages((prev) => [
-      ...prev.map((msg) =>
-        msg.sender === "ai" && msg.quickReplies ? { ...msg, quickReplies: null } : msg
-      ),
-      userMessage,
-    ]);
+    setChatMessages((prev) => [...prev, userMessage]);
     setNewMessage("");
     setIsLoading(true);
 
@@ -2826,7 +2191,6 @@ export default function UserDashboard() {
           id: Date.now() + 1,
           text: aiResponse,
           sender: "ai",
-          quickReplies: responsePayload.quickReplies || response.data?.quickReplies || null,
         };
         setChatMessages((prev) => [...prev, aiMessage]);
       } else {
@@ -2847,10 +2211,6 @@ export default function UserDashboard() {
         setUnreadCount((prev) => prev + 1);
       }
     }
-  };
-
-  const sendQuickReply = async (replyText) => {
-    await sendMessage(replyText);
   };
 
   const handleMenuItemClick = (id) => {
@@ -2875,8 +2235,7 @@ export default function UserDashboard() {
     if (!isFocused) return undefined;
 
     const onBackPress = () => {
-      // Topmost first, roughly in z-order. The AI voice sheet lives inside
-      // ChatPopup and closes itself via its own onRequestClose.
+      // Topmost first, roughly in z-order.
       if (chatOpen) { setChatOpen(false); return true; }
       if (showLogoutConfirm) { setShowLogoutConfirm(false); return true; }
       if (showAvatarBuilder) { setShowAvatarBuilder(false); return true; }
@@ -3393,10 +2752,7 @@ export default function UserDashboard() {
           onCancelReset={cancelResetChat}
           onConfirmReset={confirmResetChat}
           onCounselorPress={handleAIContactClick}
-          sendQuickReply={sendQuickReply}
           selectedLang={selectedLang}
-          setSelectedLang={setSelectedLang}
-          onLangChange={handleLangChange}
           userPhoto={userData.profilePhoto}
         />
       )}
@@ -3429,7 +2785,8 @@ export default function UserDashboard() {
             />
             <Text
               style={[styles.navLabel, active === tab.id && styles.navLabelActive]}
-              numberOfLines={1}
+              numberOfLines={2}
+              maxFontSizeMultiplier={1}
             >
               {tab.label}
             </Text>
@@ -3456,7 +2813,8 @@ export default function UserDashboard() {
             />
             <Text
               style={[styles.navLabel, active === tab.id && styles.navLabelActive]}
-              numberOfLines={1}
+              numberOfLines={2}
+              maxFontSizeMultiplier={1}
             >
               {tab.label}
             </Text>
@@ -3761,7 +3119,7 @@ export default function UserDashboard() {
         >
           <View style={styles.avatarChooserSheet}>
             <View style={styles.avatarChooserHandle} />
-            <Text style={styles.avatarChooserTitle}>{t('profile:changePhoto', 'Change Profile Photo')}</Text>
+            <Text style={styles.avatarChooserTitle}>{t('profile:createAvatar', 'Change Avatar')}</Text>
 
             <TouchableOpacity
               style={styles.avatarChooserOption}
@@ -3774,21 +3132,6 @@ export default function UserDashboard() {
               <View style={styles.avatarChooserTextWrap}>
                 <Text style={styles.avatarChooserOptionTitle}>{t('profile:createAvatar', 'Create Avatar')}</Text>
                 <Text style={styles.avatarChooserOptionSub}>{t('profile:createAvatarSub', 'Build a custom cartoon avatar')}</Text>
-              </View>
-              <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.avatarChooserOption}
-              onPress={handleHeaderUploadPhoto}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.avatarChooserIcon, { backgroundColor: '#E6F6EC' }]}>
-                <MaterialIcons name="image" size={22} color="#2563eb" />
-              </View>
-              <View style={styles.avatarChooserTextWrap}>
-                <Text style={styles.avatarChooserOptionTitle}>{t('profile:uploadPhoto', 'Upload Photo')}</Text>
-                <Text style={styles.avatarChooserOptionSub}>{t('profile:uploadPhotoSub', 'Choose from your gallery')}</Text>
               </View>
               <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
             </TouchableOpacity>
@@ -4433,8 +3776,9 @@ const styles = StyleSheet.create({
   aptTabBtn: {
     flex: 1,
     borderRadius: 9,
-    paddingVertical: 10,
+    height: 40,
     alignItems: "center",
+    justifyContent: "center",
     overflow: "hidden",
   },
   aptTabBtnActive: {
@@ -4442,8 +3786,9 @@ const styles = StyleSheet.create({
   },
   aptTabText: {
     color: PATIENT.textSecondary,
-    fontSize: 13.5,
+    fontSize: 13,
     fontWeight: "600",
+    textAlign: "center",
   },
   aptTabTextActive: {
     color: "#ffffff",
@@ -4920,22 +4265,31 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: PATIENT.border,
     paddingBottom: Platform.OS === "ios" ? 20 : 6,
+    paddingHorizontal: 4,
     zIndex: 998,
   },
   navItem: {
     flex: 1,
+    minWidth: 0,
+    height: 54,
     justifyContent: "center",
     alignItems: "center",
-    gap: 3,
+    gap: 4,
+    paddingHorizontal: 2,
   },
   navCenterSpacer: {
-    width: 72,
+    width: 64,
+    flexShrink: 0,
   },
   navLabel: {
-    fontSize: 10.5,
-    fontWeight: "500",
+    width: "100%",
+    minHeight: 24,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "600",
     color: PATIENT.textMuted,
     textAlign: "center",
+    includeFontPadding: false,
   },
   navLabelActive: {
     color: PATIENT.primary,
@@ -4972,7 +4326,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   // flex:1 lets this column give way to the action icons; without it the title
-  // kept its intrinsic width and overlapped the reset/call/close buttons.
+  // kept its intrinsic width and overlapped the reset/close buttons.
   chatHeaderInfo: {
     flex: 1,
     flexDirection: "row",
@@ -5065,9 +4419,8 @@ const styles = StyleSheet.create({
   chatMessageWrapperAi: {
     alignSelf: "flex-start",
   },
-  // Column holding the bubble (+ Listen button). flexShrink lets it size to the
-  // bubble's content instead of stretching to fill the row. alignItems keeps the
-  // Listen button aligned under the bubble on the correct side.
+  // Column holding the bubble. flexShrink lets it size to the bubble's content
+  // instead of stretching to fill the row.
   chatBubbleColumn: {
     flexShrink: 1,
     alignItems: "flex-start",
@@ -5130,29 +4483,28 @@ const styles = StyleSheet.create({
   chatBubbleTextUser: {
     color: "#ffffff",
   },
-  quickRepliesWrap: {
+  speakBtn: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 12,
-  },
-  quickReplyBtn: {
-    minWidth: 92,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 18,
-    backgroundColor: "#E6F6EC",
-    borderWidth: 1,
-    borderColor: "#A7E3BE",
     alignItems: "center",
+    gap: 4,
+    marginTop: 5,
+    marginLeft: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "#E6F6EC",
+    alignSelf: "flex-start",
   },
-  quickReplyBtnDisabled: {
-    opacity: 0.5,
+  speakBtnActive: {
+    backgroundColor: "#FEE2E2",
   },
-  quickReplyText: {
-    color: "#4f46e5",
-    fontSize: 13,
+  speakBtnText: {
+    fontSize: 11,
     fontWeight: "700",
+    color: "#006B2C",
+  },
+  speakBtnTextActive: {
+    color: "#ef4444",
   },
   resetConfirmOverlay: {
     position: "absolute",
@@ -5245,70 +4597,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  langBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: "#E6F6EC",
-    borderWidth: 1,
-    borderColor: "#c7c7f5",
-    minWidth: 52,
-  },
-  langBtnText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#006B2C",
-  },
-  langPickerOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  langPickerCard: {
-    width: "82%",
-    backgroundColor: "#ffffff",
-    borderRadius: 18,
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  langPickerTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#1e293b",
-    textAlign: "center",
-    marginBottom: 10,
-    paddingHorizontal: 12,
-  },
-  langPickerItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 10,
-    marginHorizontal: 4,
-  },
-  langPickerItemActive: {
-    backgroundColor: "#E6F6EC",
-  },
-  langPickerItemText: {
-    fontSize: 14,
-    color: "#334155",
-    fontWeight: "500",
-  },
-  langPickerItemTextActive: {
-    color: "#006B2C",
-    fontWeight: "700",
-  },
   plusBtn: {
     width: 38,
     height: 38,
@@ -5340,13 +4628,6 @@ const styles = StyleSheet.create({
     // ~4 lines before it starts scrolling internally.
     maxHeight: 96,
   },
-  inlineMicBtn: {
-    width: 30,
-    height: 30,
-    justifyContent: "center",
-    alignItems: "center",
-    marginLeft: 4,
-  },
   sendBtn: {
     width: 44,
     height: 44,
@@ -5362,203 +4643,6 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: {
     opacity: 0.5,
-  },
-  speakBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 4,
-    marginLeft: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: "#E6F6EC",
-    alignSelf: "flex-start",
-  },
-  speakBtnText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#006B2C",
-  },
-  aiVoiceOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.66)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 22,
-  },
-  aiVoiceCard: {
-    width: "100%",
-    maxWidth: 360,
-    borderRadius: 24,
-    backgroundColor: "#ffffff",
-    padding: 22,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.26,
-    shadowRadius: 28,
-    elevation: 18,
-  },
-  aiVoiceOrbWrap: {
-    width: 168,
-    height: 168,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  aiVoiceOrbGlowOuter: {
-    position: "absolute",
-    width: 168,
-    height: 168,
-    borderRadius: 84,
-    backgroundColor: "rgba(0, 107, 44,0.14)",
-  },
-  aiVoiceOrbGlowInner: {
-    position: "absolute",
-    width: 128,
-    height: 128,
-    borderRadius: 64,
-    backgroundColor: "rgba(0, 107, 44,0.22)",
-  },
-  aiVoiceAvatar: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#006B2C",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.45,
-    shadowRadius: 16,
-    elevation: 10,
-  },
-  aiVoiceWave: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    height: 46,
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  aiVoiceWaveBar: {
-    width: 4,
-    height: 46,
-    borderRadius: 3,
-    backgroundColor: "#006B2C",
-  },
-  aiVoiceTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#111827",
-    textAlign: "center",
-  },
-  aiVoiceStatusText: {
-    marginTop: 6,
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#006B2C",
-  },
-  aiVoiceTimer: {
-    marginTop: 8,
-    fontSize: 30,
-    fontWeight: "800",
-    color: "#0f172a",
-  },
-  aiVoiceHint: {
-    marginTop: 10,
-    fontSize: 13,
-    lineHeight: 19,
-    color: "#64748b",
-    textAlign: "center",
-  },
-  aiVoiceError: {
-    marginTop: 10,
-    fontSize: 13,
-    lineHeight: 19,
-    color: "#dc2626",
-    textAlign: "center",
-    fontWeight: "600",
-  },
-  aiVoiceErrorBox: {
-    marginTop: 14,
-    alignItems: "center",
-    backgroundColor: "#F9F9FF",
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    width: "100%",
-  },
-  aiVoiceErrorText: {
-    fontSize: 13.5,
-    lineHeight: 20,
-    color: "#475569",
-    textAlign: "center",
-    fontWeight: "500",
-    marginBottom: 12,
-  },
-  aiVoiceRetryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    backgroundColor: "#006B2C",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 999,
-  },
-  aiVoiceRetryText: {
-    color: "#ffffff",
-    fontSize: 13.5,
-    fontWeight: "700",
-  },
-  aiVoiceTranscriptBox: {
-    width: "100%",
-    marginTop: 16,
-    padding: 12,
-    borderRadius: 16,
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  aiVoiceTranscriptText: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: "#334155",
-    marginBottom: 5,
-  },
-  aiVoiceTranscriptSpeaker: {
-    fontWeight: "800",
-    color: "#4f46e5",
-  },
-  aiVoiceControls: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 14,
-    marginTop: 22,
-  },
-  aiVoiceControlBtn: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "#f1f5f9",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  aiVoiceControlBtnActive: {
-    backgroundColor: "#ef4444",
-    borderColor: "#ef4444",
-  },
-  aiVoiceControlBtnActiveBlue: {
-    backgroundColor: "#006B2C",
-    borderColor: "#006B2C",
-  },
-  aiVoiceEndBtn: {
-    backgroundColor: "#dc2626",
-    borderColor: "#dc2626",
   },
 
   loadingDots: {

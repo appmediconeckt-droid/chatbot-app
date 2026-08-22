@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import {
   View,
   Text,
@@ -18,16 +17,14 @@ import {
   Linking,
   Alert,
 } from "react-native";
-import * as ImagePicker from "react-native-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useNavigation } from "@react-navigation/native";
 import { API_BASE_URL } from "../../../../axiosConfig";
 import { captureAndSendLocation } from "../../../../utils/locationHelper";
-import { formatLocation } from "../../../../utils/locationFormatter";
-import AvatarGenerator from "./AvatarGenerator";
 import AvatarPicker from "./AvatarPicker";
 import PATIENT, {
   PATIENT_GRADIENT,
@@ -38,6 +35,18 @@ import LinearGradient from "react-native-linear-gradient";
 import { toImageUri } from '../../../../utils/imageUri';
 import useLanguageRender from '../../../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
+import {
+  isValidLocalPhoneNumber,
+  normalizeLocalPhoneNumber,
+  splitInternationalPhoneNumber,
+} from '../../../../utils/countryCodes';
+import {
+  calculateAgeFromDateOfBirth,
+  formatDateOfBirthDisplay,
+  getDatePickerValue,
+  toDateOnlyString,
+} from '../../../../utils/dateOfBirth';
 
 const PatientProfile = ({ onProfileUpdate }) => {
   const insets = useSafeAreaInsets();
@@ -48,13 +57,11 @@ const PatientProfile = ({ onProfileUpdate }) => {
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [profileImage, setProfileImage] = useState(null);
-  const [profileImageFile, setProfileImageFile] = useState(null);
-  const [removeProfileImage, setRemoveProfileImage] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
-  const [showAvatarGen, setShowAvatarGen] = useState(false);
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
   const [showAvatarChooser, setShowAvatarChooser] = useState(false);
   const [showBloodGroupDropdown, setShowBloodGroupDropdown] = useState(false);
+  const [showDateOfBirthPicker, setShowDateOfBirthPicker] = useState(false);
   const [showNotification, setShowNotification] = useState({
     show: false,
     message: "",
@@ -147,6 +154,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
     bloodGroup: "",
     email: "",
     phone: "",
+    phoneCountryCode: "+91",
     address: {
       line1: "",
       line2: "",
@@ -155,7 +163,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       pincode: "",
       country: "India",
     },
-    emergencyContact: { name: "", relation: "", phone: "" },
+    emergencyContact: { name: "", relation: "", phone: "", phoneCountryCode: "+91" },
     height: "",
     weight: "",
     allergies: "",
@@ -167,17 +175,24 @@ const PatientProfile = ({ onProfileUpdate }) => {
     fetchPatientProfile();
   }, []);
 
+  const isGeneratedUserAvatarUrl = (raw) => {
+    const url =
+      typeof raw === "string"
+        ? raw
+        : raw?.url || raw?.secure_url || "";
+    const value = String(url || "").trim();
+    if (!value) return false;
+    return (
+      value.startsWith("data:image/") ||
+      /^https:\/\/api\.dicebear\.com\//i.test(value)
+    );
+  };
+
   const getProfilePhotoUrl = (userData) => {
-    if (userData.profilePhoto) {
-      if (
-        typeof userData.profilePhoto === "object" &&
-        userData.profilePhoto.url
-      ) {
-        return userData.profilePhoto.url;
-      }
-      if (typeof userData.profilePhoto === "string") {
-        return userData.profilePhoto;
-      }
+    if (isGeneratedUserAvatarUrl(userData.profilePhoto)) {
+      return typeof userData.profilePhoto === "string"
+        ? userData.profilePhoto
+        : userData.profilePhoto.url || userData.profilePhoto.secure_url || "";
     }
     return "";
   };
@@ -208,19 +223,23 @@ const PatientProfile = ({ onProfileUpdate }) => {
         const userData = response.data.user;
         const profilePhotoUrl = getProfilePhotoUrl(userData);
 
+        const dateOfBirth = userData.dateOfBirth
+          ? userData.dateOfBirth.split("T")[0]
+          : "";
+        const ageFromDateOfBirth = calculateAgeFromDateOfBirth(dateOfBirth);
+
         const formattedData = {
           personalInfo: {
             id: userData._id,
             name: userData.fullName || "",
             anonymous: userData.anonymous || "",
-            age: userData.age || null,
+            age: ageFromDateOfBirth ?? userData.age ?? null,
             gender: userData.gender || "",
-            dateOfBirth: userData.dateOfBirth
-              ? userData.dateOfBirth.split("T")[0]
-              : "",
+            dateOfBirth,
             bloodGroup: userData.bloodGroup || "",
             email: userData.email || "",
             phone: userData.phoneNumber || "",
+            phoneCountryCode: userData.phoneCountryCode || "+91",
             profilePhoto: profilePhotoUrl,
             address: userData.address || {
               line1: "",
@@ -302,15 +321,26 @@ const PatientProfile = ({ onProfileUpdate }) => {
   };
 
   const initializeEditForm = (data) => {
+    const primaryPhone = splitInternationalPhoneNumber(
+      data.personalInfo.phone || "",
+      data.personalInfo.phoneCountryCode || "+91",
+    );
+    const emergencyPhone = splitInternationalPhoneNumber(
+      data.personalInfo.emergencyContact?.phone || "",
+    );
     setEditFormData({
       name: data.personalInfo.name || "",
       anonymous: data.personalInfo.anonymous || "",
-      age: data.personalInfo.age?.toString() || "",
+      age:
+        calculateAgeFromDateOfBirth(data.personalInfo.dateOfBirth)?.toString() ||
+        data.personalInfo.age?.toString() ||
+        "",
       gender: normalizeGender(data.personalInfo.gender),
       dateOfBirth: data.personalInfo.dateOfBirth || "",
       bloodGroup: normalizeBloodGroup(data.personalInfo.bloodGroup),
       email: data.personalInfo.email || "",
-      phone: data.personalInfo.phone || "",
+      phone: primaryPhone.phoneNumber,
+      phoneCountryCode: primaryPhone.countryCode,
       address: {
         line1: data.personalInfo.address?.line1 || "",
         line2: data.personalInfo.address?.line2 || "",
@@ -322,7 +352,8 @@ const PatientProfile = ({ onProfileUpdate }) => {
       emergencyContact: {
         name: data.personalInfo.emergencyContact?.name || "",
         relation: data.personalInfo.emergencyContact?.relation || "",
-        phone: data.personalInfo.emergencyContact?.phone || "",
+        phone: emergencyPhone.phoneNumber,
+        phoneCountryCode: emergencyPhone.countryCode,
       },
       height: data.medicalInfo.height?.toString() || "",
       weight: data.medicalInfo.weight?.toString() || "",
@@ -341,8 +372,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
   const openEditModal = () => {
     initializeEditForm(patientData);
     setProfileImage(null);
-    setProfileImageFile(null);
-    setRemoveProfileImage(false);
     setIsEditing(true);
   };
 
@@ -353,45 +382,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
     }, 3000);
   };
 
-  const handleImageUpload = () => {
-    ImagePicker.launchImageLibrary(
-      {
-        mediaType: "photo",
-        includeBase64: false,
-        maxHeight: 500,
-        maxWidth: 500,
-        quality: 0.8,
-      },
-      (response) => {
-        if (response.assets && response.assets[0]) {
-          const file = {
-            uri: response.assets[0].uri,
-            type: response.assets[0].type,
-            name: response.assets[0].fileName || "profile.jpg",
-          };
-
-          if (file.uri) {
-            if (response.assets[0].fileSize > 5 * 1024 * 1024) {
-              showNotificationMessage("File size should be less than 5MB", "error");
-              return;
-            }
-            setProfileImage(file.uri);
-            setProfileImageFile(file);
-            setRemoveProfileImage(false);
-          }
-        }
-      }
-    );
-  };
-
-  const handleRemoveImage = () => {
-    setProfileImage(null);
-    setProfileImageFile(null);
-    setRemoveProfileImage(true);
-    showNotificationMessage("Profile picture will be removed on save", "success");
-  };
-
-  // Upload either a picked photo file or a generated avatar URL immediately.
+  // Upload a generated avatar URL immediately.
   const uploadProfilePhoto = async (formData, successMsg) => {
     try {
       setPhotoUploading(true);
@@ -422,32 +413,11 @@ const PatientProfile = ({ onProfileUpdate }) => {
     if (isEditing) {
       // Inside the edit form, defer to the form's Save button.
       setProfileImage(avatarUrl);
-      setProfileImageFile(null);
-      setRemoveProfileImage(false);
       return;
     }
     const formData = new FormData();
     formData.append("avatarUrl", avatarUrl);
     await uploadProfilePhoto(formData, "Avatar updated!");
-  };
-
-  // Pick an image from the library and upload it immediately.
-  const handleUploadPhoto = () => {
-    setShowAvatarChooser(false);
-    ImagePicker.launchImageLibrary(
-      { mediaType: "photo", quality: 0.8 },
-      async (res) => {
-        if (res.didCancel || res.errorCode || !res.assets?.[0]) return;
-        const asset = res.assets[0];
-        const formData = new FormData();
-        formData.append("profilePhoto", {
-          uri: asset.uri,
-          type: asset.type || "image/jpeg",
-          name: asset.fileName || "photo.jpg",
-        });
-        await uploadProfilePhoto(formData, "Profile photo updated!");
-      }
-    );
   };
 
   // ─── Profile-change OTP helpers ────────────────────────────────────────
@@ -620,9 +590,29 @@ const PatientProfile = ({ onProfileUpdate }) => {
       showNotificationMessage("Verify your new email via OTP first", "error");
       return;
     }
-    const normalizedPhone = String(editFormData.phone || "").replace(/\D/g, "");
-    if (!/^\d{10}$/.test(normalizedPhone)) {
-      showNotificationMessage("Enter a valid 10-digit phone number", "error");
+    const dateOfBirth = toDateOnlyString(editFormData.dateOfBirth);
+    const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
+    if (!dateOfBirth || calculatedAge === null) {
+      showNotificationMessage("Select a valid date of birth", "error");
+      return;
+    }
+    const normalizedPhone = normalizeLocalPhoneNumber(
+      editFormData.phone || "",
+      editFormData.phoneCountryCode,
+    );
+    if (!isValidLocalPhoneNumber(normalizedPhone)) {
+      showNotificationMessage("Phone number must be 10 digits", "error");
+      return;
+    }
+    const emergencyPhone = normalizeLocalPhoneNumber(
+      editFormData.emergencyContact.phone || "",
+      editFormData.emergencyContact.phoneCountryCode,
+    );
+    if (
+      emergencyPhone &&
+      !isValidLocalPhoneNumber(emergencyPhone)
+    ) {
+      showNotificationMessage("Emergency contact phone must be 10 digits", "error");
       return;
     }
     try {
@@ -633,12 +623,11 @@ const PatientProfile = ({ onProfileUpdate }) => {
       formData.append("anonymous", editFormData.anonymous || "");
       formData.append("email", editFormData.email);
       formData.append("phoneNumber", normalizedPhone);
-      formData.append("age", editFormData.age.toString());
+      formData.append("phoneCountryCode", editFormData.phoneCountryCode);
+      formData.append("age", calculatedAge.toString());
       formData.append("gender", editFormData.gender);
       formData.append("bloodGroup", editFormData.bloodGroup);
-      if (editFormData.dateOfBirth?.trim()) {
-        formData.append("dateOfBirth", editFormData.dateOfBirth);
-      }
+      formData.append("dateOfBirth", dateOfBirth);
 
       const addressObj = {
         ...editFormData.address,
@@ -647,7 +636,10 @@ const PatientProfile = ({ onProfileUpdate }) => {
       formData.append("address", JSON.stringify(addressObj));
       formData.append(
         "emergencyContact",
-        JSON.stringify(editFormData.emergencyContact)
+        JSON.stringify({
+          ...editFormData.emergencyContact,
+          phone: emergencyPhone,
+        })
       );
 
       const medicalObj = {
@@ -675,16 +667,12 @@ const PatientProfile = ({ onProfileUpdate }) => {
       formData.append("medicalInfo", JSON.stringify(medicalObj));
 
 
-      if (profileImageFile) {
-        formData.append("profilePhoto", profileImageFile);
-      } else if (
+      if (
         profileImage &&
         typeof profileImage === "string" &&
         profileImage.startsWith("http")
       ) {
         formData.append("avatarUrl", profileImage);
-      } else if (removeProfileImage && patientData.personalInfo.profilePhoto) {
-        formData.append("removeProfilePhoto", "true");
       }
 
       const response = await updatePatientProfile(formData);
@@ -695,8 +683,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
         if (onProfileUpdate) onProfileUpdate();
         setIsEditing(false);
         setProfileImage(null);
-        setProfileImageFile(null);
-        setRemoveProfileImage(false);
       } else {
         showNotificationMessage(
           response.data.message || "Failed to update profile",
@@ -718,8 +704,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
     setIsEditing(false);
     initializeEditForm(patientData);
     setProfileImage(null);
-    setProfileImageFile(null);
-    setRemoveProfileImage(false);
   };
 
   const handleEditFormChange = (field, value) => {
@@ -729,18 +713,29 @@ const PatientProfile = ({ onProfileUpdate }) => {
         ...prev,
         [parent]: { ...prev[parent], [child]: value },
       }));
+    } else if (field === "dateOfBirth") {
+      const dateOfBirth = toDateOnlyString(value);
+      const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
+      setEditFormData((prev) => ({
+        ...prev,
+        dateOfBirth,
+        age: calculatedAge !== null ? calculatedAge.toString() : "",
+      }));
     } else {
       setEditFormData((prev) => ({ ...prev, [field]: value }));
     }
   };
 
+  const handleDateOfBirthChange = (_event, selectedDate) => {
+    if (Platform.OS === "android") {
+      setShowDateOfBirthPicker(false);
+    }
+    if (!selectedDate) return;
+    handleEditFormChange("dateOfBirth", toDateOnlyString(selectedDate));
+  };
+
   const formatDate = (dateString) => {
-    if (!dateString) return t('profile:notSpecified');
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
+    return formatDateOfBirthDisplay(dateString, t('profile:notSpecified'));
   };
 
   const getInitials = (name) => {
@@ -1075,12 +1070,12 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
           <ScrollView showsVerticalScrollIndicator={false}>
             <View style={styles.modalBody}>
-              {/* Profile Picture */}
+              {/* Avatar */}
               <View style={styles.formSection}>
-                <Text style={styles.sectionTitle}>{t('profile:profilePicture')}</Text>
+                <Text style={styles.sectionTitle}>{t('profile:createAvatar', 'Avatar')}</Text>
                 <View style={styles.profilePictureEdit}>
                   <View style={styles.avatarPreview}>
-                    {!removeProfileImage && (profileImage || patientData.personalInfo.profilePhoto) ? (
+                    {profileImage || patientData.personalInfo.profilePhoto ? (
                       <Image
                         source={{ uri: toImageUri(profileImage) || toImageUri(patientData.personalInfo.profilePhoto) }}
                         style={styles.avatarPreviewImage}
@@ -1094,9 +1089,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     )}
                   </View>
                   <View style={styles.uploadActions}>
-                    <TouchableOpacity style={styles.uploadBtn} onPress={handleImageUpload}>
-                      <Text style={styles.uploadBtnText}>📷 {t('profile:changePhoto')}</Text>
-                    </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.generateAvatarBtnWrap}
                       onPress={() => setShowAvatarBuilder(true)}
@@ -1110,13 +1102,8 @@ const PatientProfile = ({ onProfileUpdate }) => {
                         <Text style={styles.generateAvatarBtnText}>✨ {t('profile:createAvatar')}</Text>
                       </LinearGradient>
                     </TouchableOpacity>
-                    {!removeProfileImage && (profileImage || patientData.personalInfo.profilePhoto) && (
-                      <TouchableOpacity style={styles.removeBtn} onPress={handleRemoveImage}>
-                        <Text style={styles.removeBtnText}>🗑️ {t('common:delete')}</Text>
-                      </TouchableOpacity>
-                    )}
                   </View>
-                  <Text style={styles.uploadHint}>{t('JPG, PNG, GIF (max 5MB) · or generate an avatar')}</Text>
+                  <Text style={styles.uploadHint}>{t('profile:createAvatarSub', 'Build a custom cartoon avatar')}</Text>
                 </View>
               </View>
 
@@ -1156,21 +1143,43 @@ const PatientProfile = ({ onProfileUpdate }) => {
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
                     <Text style={styles.formLabel}>{t('profile:dateOfBirth')} *</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editFormData.dateOfBirth}
-                      onChangeText={(text) => handleEditFormChange("dateOfBirth", text)}
-                      placeholder={t('YYYY-MM-DD')}
-                      placeholderTextColor="#94a3b8"
-                    />
+                    <TouchableOpacity
+                      style={styles.datePickerButton}
+                      onPress={() => setShowDateOfBirthPicker(true)}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons name="calendar-outline" size={20} color="#00652C" />
+                      <Text
+                        style={[
+                          styles.datePickerText,
+                          !editFormData.dateOfBirth && styles.datePickerPlaceholder,
+                        ]}
+                      >
+                        {formatDateOfBirthDisplay(
+                          editFormData.dateOfBirth,
+                          t('Select date of birth'),
+                        )}
+                      </Text>
+                      <Ionicons name="chevron-down" size={18} color="#94a3b8" />
+                    </TouchableOpacity>
+                    {showDateOfBirthPicker && (
+                      <DateTimePicker
+                        value={getDatePickerValue(editFormData.dateOfBirth)}
+                        mode="date"
+                        display={Platform.OS === "ios" ? "spinner" : "default"}
+                        maximumDate={new Date()}
+                        onChange={handleDateOfBirthChange}
+                      />
+                    )}
                   </View>
                   <View style={styles.formGroup}>
                     <Text style={styles.formLabel}>{t('profile:age')}</Text>
                     <TextInput
-                      style={styles.input}
+                      style={[styles.input, styles.readonly]}
                       value={editFormData.age}
-                      onChangeText={(text) => handleEditFormChange("age", text)}
-                      keyboardType="numeric"
+                      editable={false}
+                      placeholder={t('Age will be calculated')}
+                      placeholderTextColor="#94a3b8"
                     />
                   </View>
                 </View>
@@ -1294,16 +1303,14 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>{t('auth:phone')} *</Text>
-                  <TextInput
-                    style={styles.input}
+                  <CountryPhoneInput
                     value={editFormData.phone}
-                    onChangeText={(text) =>
-                      handleEditFormChange("phone", text.replace(/\D/g, "").slice(0, 10))
-                    }
-                    keyboardType="phone-pad"
-                    maxLength={10}
-                    placeholder="10-digit phone number"
-                    placeholderTextColor="#94a3b8"
+                    countryCode={editFormData.phoneCountryCode}
+                    onChangePhoneNumber={(text) => handleEditFormChange("phone", normalizeLocalPhoneNumber(text, editFormData.phoneCountryCode))}
+                    onChangeCountryCode={(code) => handleEditFormChange("phoneCountryCode", code)}
+                    placeholder="Phone number"
+                    accentColor={PATIENT.primary}
+                    containerStyle={styles.phoneInputWrapper}
                   />
                 </View>
               </View>
@@ -1389,11 +1396,14 @@ const PatientProfile = ({ onProfileUpdate }) => {
                 </View>
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>{t('auth:phone')}</Text>
-                  <TextInput
-                    style={styles.input}
+                  <CountryPhoneInput
                     value={editFormData.emergencyContact.phone}
-                    onChangeText={(text) => handleEditFormChange("emergencyContact.phone", text)}
-                    keyboardType="phone-pad"
+                    countryCode={editFormData.emergencyContact.phoneCountryCode}
+                    onChangePhoneNumber={(text) => handleEditFormChange("emergencyContact.phone", normalizeLocalPhoneNumber(text, editFormData.emergencyContact.phoneCountryCode))}
+                    onChangeCountryCode={(code) => handleEditFormChange("emergencyContact.phoneCountryCode", code)}
+                    placeholder="Phone number"
+                    accentColor={PATIENT.primary}
+                    containerStyle={styles.phoneInputWrapper}
                   />
                 </View>
               </View>
@@ -1588,7 +1598,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
       <AvatarPicker
         visible={showAvatarBuilder}
         userId={patientData?.personalInfo?.id}
-        userAge={patientData?.personalInfo?.age}
         userGender={patientData?.personalInfo?.gender}
         currentAvatarUrl={patientData?.personalInfo?.profilePhoto}
         onSelect={handleAvatarSelect}
@@ -1609,7 +1618,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
         >
           <View style={[styles.chooserSheet, { paddingBottom: Math.max(insets.bottom, 28) }]}>
             <View style={styles.chooserHandle} />
-            <Text style={styles.chooserTitle}>{t('profile:changePhoto', 'Change Profile Photo')}</Text>
+            <Text style={styles.chooserTitle}>{t('profile:createAvatar', 'Change Avatar')}</Text>
 
             <TouchableOpacity
               style={styles.chooserOption}
@@ -1622,21 +1631,6 @@ const PatientProfile = ({ onProfileUpdate }) => {
               <View style={styles.chooserTextWrap}>
                 <Text style={styles.chooserOptionTitle}>{t('profile:createAvatar', 'Create Avatar')}</Text>
                 <Text style={styles.chooserOptionSub}>{t('profile:createAvatarSub', 'Build a custom cartoon avatar')}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.chooserOption}
-              onPress={handleUploadPhoto}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.chooserIcon, { backgroundColor: '#E6F6EC' }]}>
-                <Ionicons name="image-outline" size={22} color="#00652C" />
-              </View>
-              <View style={styles.chooserTextWrap}>
-                <Text style={styles.chooserOptionTitle}>{t('profile:uploadPhoto', 'Upload Photo')}</Text>
-                <Text style={styles.chooserOptionSub}>{t('profile:uploadPhotoSub', 'Choose from your gallery')}</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
             </TouchableOpacity>
@@ -2349,6 +2343,36 @@ const styles = StyleSheet.create({
     padding: 14,
     fontSize: 15,
     color: "#1e293b",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  readonly: {
+    color: "#64748b",
+    backgroundColor: "#f1f5f9",
+  },
+  datePickerButton: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  datePickerText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1e293b",
+  },
+  datePickerPlaceholder: {
+    color: "#94a3b8",
+  },
+  phoneInputWrapper: {
+    height: 52,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
