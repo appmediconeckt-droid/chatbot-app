@@ -674,7 +674,7 @@ const UserSignup = ({ navigation, route }) => {
 
   // Verification states
   const [emailVerified, setEmailVerified] = useState(false);
-  const [, setEmailVerificationToken] = useState('');
+  const [emailVerificationToken, setEmailVerificationToken] = useState('');
   const [showOtpModal, setShowOtpModal] = useState({ show: false, type: '', value: '' });
   const [otpCode, setOtpCode] = useState('');
   const [isSendingVerification, setIsSendingVerification] = useState(false);
@@ -858,6 +858,7 @@ const UserSignup = ({ navigation, route }) => {
         role: "user",
         isEmailVerified: true,
         isPhoneVerified: true,
+        emailVerificationToken,
       };
       const response = await postPublicAuthEndpoint('complete-registration', signupData);
       if (response.data?.success) {
@@ -958,15 +959,6 @@ const UserSignup = ({ navigation, route }) => {
         setOtpError(response.data?.message || 'Verification failed');
       }
     } catch (err) {
-      if (!err?.response) {
-        setFormData(prev => ({ ...prev, email: otpEmail }));
-        setEmailVerified(true);
-        setEmailVerificationToken('');
-        setShowOtpModal({ show: false, type: '', value: '' });
-        setOtpCode('');
-        showNotification('Email verification submitted. Continue registration.');
-        return;
-      }
       setOtpError(getApiErrorMessage(err, 'Verification failed'));
     } finally {
       verifyingOtpRef.current = false;
