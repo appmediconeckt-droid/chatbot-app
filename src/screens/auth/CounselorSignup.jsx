@@ -48,6 +48,8 @@ const OTP_RESEND_SECONDS = 60;
 const CounselorSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
   const { width, height } = useWindowDimensions();
+  const isTablet = width >= 600;
+  const isCompact = width < 360 || height < 700;
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
   const { scrollRef, keyboardOpen, keyboardInset, scrollFocusedInputIntoView } = useKeyboardAwareScroll();
@@ -516,17 +518,19 @@ const CounselorSignup = ({ navigation, route }) => {
     const isFocused = focusedField === name;
     const isVerified = verifyType === 'email' && emailVerified;
     const isMultiline = options.multiline;
+    const isMetricField = name === 'age' || name === 'weight';
 
     return (
       <Animated.View key={`counselor-input-${name}`} style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
         <View style={[
           styles.inputWrapper,
+          isMetricField && styles.metricInputWrapper,
           isFocused && styles.inputWrapperFocused,
           isMultiline && { height: 'auto', minHeight: 70, alignItems: 'flex-start', paddingTop: 10 }
         ]}>
           <Icon name={icon} size={20} color={isFocused ? '#004AC6' : '#64748b'} style={[styles.inputIcon, isMultiline && { marginTop: 4 }]} />
           <TextInput
-            style={[styles.textInput, isMultiline && { height: 'auto', minHeight: 50, textAlignVertical: 'top' }]}
+            style={[styles.textInput, isMetricField && styles.metricTextInput, isMultiline && { height: 'auto', minHeight: 50, textAlignVertical: 'top' }]}
             value={formData[name]}
             onChangeText={(text) => handleChange(name, text)}
             onFocus={(event) => {
@@ -562,6 +566,8 @@ const CounselorSignup = ({ navigation, route }) => {
           onChangeCountryCode={(code) => handleChange('phoneCountryCode', code)}
           focused={isFocused}
           accentColor="#004AC6"
+          containerStyle={styles.phoneInputWrapper}
+          inputStyle={styles.phoneTextInput}
           onFocus={(event) => {
             setFocusedField(name);
             scrollFocusedInputIntoView(event);
@@ -576,8 +582,40 @@ const CounselorSignup = ({ navigation, route }) => {
   const scrollContainerStyle = {
     ...styles.scrollContent,
     justifyContent: isLogin && !keyboardOpen ? 'center' : 'flex-start',
-    paddingBottom: 60 + keyboardInset,
+    paddingHorizontal: isCompact ? 12 : 16,
+    paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 62 : 76),
+    paddingBottom: isLogin ? (isCompact ? 44 : 60) + keyboardInset : (isCompact ? 14 : 20),
   };
+  const signupPanelHeight = Math.min(
+    isTablet ? 760 : 720,
+    Math.max(360, height - (isCompact ? 78 : 96))
+  );
+  const signupPanelPaddingY = isCompact ? 18 : 22;
+  const signupLogoSize = isCompact ? 64 : 80;
+  const signupHeaderHeight = signupLogoSize + (isCompact ? 68 : 74);
+  const signupFormHeight = Math.max(
+    260,
+    signupPanelHeight - (signupPanelPaddingY * 2) - signupHeaderHeight
+  );
+  const panelStyle = [
+    styles.panel,
+    {
+      maxWidth: isTablet ? 480 : 440,
+      height: isLogin ? undefined : signupPanelHeight,
+      paddingHorizontal: isCompact ? 16 : 22,
+      paddingVertical: signupPanelPaddingY,
+      borderRadius: isCompact ? 28 : 40,
+    },
+  ];
+  const formScrollStyle = [
+    styles.formScroll,
+    !isLogin && styles.signupFormScroll,
+    !isLogin && { height: signupFormHeight },
+  ];
+  const formContentStyle = [
+    styles.formPanel,
+    !isLogin && styles.signupFormPanel,
+  ];
 
   return (
     <View style={styles.container}>
@@ -588,13 +626,14 @@ const CounselorSignup = ({ navigation, route }) => {
           <View style={styles.flex}>
             <TouchableOpacity style={styles.backBtn} onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.replace('RoleSelector'))}><Icon name="chevron-left" size={28} color="#0F172A" /></TouchableOpacity>
             <ScrollView
-              ref={scrollRef}
+              ref={isLogin ? scrollRef : null}
               contentContainerStyle={scrollContainerStyle}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              scrollEnabled={isLogin}
             >
-              <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+              <Animated.View style={[panelStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
                   <Image source={logo} style={styles.logo} resizeMode="contain" />
                   <View style={styles.brandContainer}><Text style={[styles.brandMain, { color: '#004AC6' }]}>{t('Humaeli')}</Text></View>
@@ -612,7 +651,15 @@ const CounselorSignup = ({ navigation, route }) => {
                     <Text style={styles.photoLabel}>{t('Counselor Photo')}</Text>
                   </Animated.View>
                 )} */}
-                <View style={styles.formPanel}>
+                <ScrollView
+                  ref={!isLogin ? scrollRef : null}
+                  style={formScrollStyle}
+                  contentContainerStyle={formContentStyle}
+                  showsVerticalScrollIndicator={!isLogin}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                  scrollEnabled={!isLogin}
+                >
                   {!isLogin ? (
                     <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderPhoneInput(3)}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
                       <Animated.View key="gender-section" style={{ opacity: fieldAnims[5] }}><Text style={styles.sectionLabel}>{t('Gender')}</Text><View style={styles.genderRow}>{genderOptions.map(g => (<TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}><Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text></TouchableOpacity>))}</View></Animated.View>
@@ -673,7 +720,7 @@ const CounselorSignup = ({ navigation, route }) => {
                     />
                   </Animated.View>
                   <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[16] }]}><Text style={styles.switchText}>{isLogin ? "New counselor?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#004AC6' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
-                </View>
+                </ScrollView>
               </Animated.View>
             </ScrollView>
           </View>
@@ -760,14 +807,14 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   flex: { flex: 1 },
   gradient: { flex: 1, overflow: 'hidden' },
-  lavaOrb: { position: 'absolute', width: 300, height: 300, borderRadius: 150, opacity: 0.35 },
+  lavaOrb: { position: 'absolute', width: 400, height: 400, borderRadius: 150, opacity: 0.35 },
   orb1: { top: -100, left: -50, backgroundColor: '#004AC6' },
   orb2: { bottom: -50, right: -100, backgroundColor: '#004AC6' },
   safeArea: { flex: 1 },
   scrollContent: { padding: 24, paddingTop: 100, paddingBottom: 60, flexGrow: 1 },
   backBtn: { position: 'absolute', top: 30, left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
-  panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, padding: 24, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
-  header: { alignItems: 'center', marginBottom: 20 },
+  panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, padding: 28, width: '100%', maxWidth: 440, alignSelf: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
+  header: { alignItems: 'center', marginBottom: 14 },
   logo: { width: 80, height: 80 },
   brandContainer: { flexDirection: 'row', marginTop: 4 },
   brandMain: { fontSize: 26, fontWeight: '900', color: '#1e293b' },
@@ -777,12 +824,19 @@ const styles = StyleSheet.create({
   photoCircle: { width: 90, height: 90, borderRadius: 45, backgroundColor: '#f0fdf4', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#004AC6', overflow: 'hidden' },
   photo: { width: '100%', height: '100%' },
   photoLabel: { fontSize: 12, fontWeight: '700', color: '#004AC6', marginTop: 8 },
-  formPanel: { gap: 12 },
+  formScroll: { width: '100%' },
+  signupFormScroll: { flexShrink: 0 },
+  formPanel: { gap: 10 },
+  signupFormPanel: { paddingBottom: 18 },
   inputField: { width: '100%' },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 18, paddingHorizontal: 12, height: 52, borderWidth: 1.5, borderColor: '#f1f5f9' },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 18, paddingHorizontal: 16, height: 58, borderWidth: 1.5, borderColor: '#f1f5f9' },
+  metricInputWrapper: { height: 66, borderRadius: 20, paddingHorizontal: 20 },
+  phoneInputWrapper: { height: 58, paddingHorizontal: 16 },
   inputWrapperFocused: { borderColor: '#004AC6', backgroundColor: '#ffffff' },
   inputIcon: { marginRight: 8 },
-  textInput: { flex: 1, color: '#1e293b', fontSize: 14, fontWeight: '600' },
+  textInput: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
+  metricTextInput: { fontSize: 18, fontWeight: '800' },
+  phoneTextInput: { fontSize: 15 },
   verifyBtn: { minWidth: 68, minHeight: 34, backgroundColor: '#004AC6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   verifiedBtn: { backgroundColor: 'transparent' },
   verifyBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
@@ -808,7 +862,7 @@ const styles = StyleSheet.create({
   },
   forgotLink: { alignSelf: 'flex-end', marginTop: -8, marginBottom: 8 },
   forgotText: { fontSize: 12, fontWeight: '700' },
-  submitBtn: { height: 56, borderRadius: 20, justifyContent: 'center', alignItems: 'center', shadowColor: '#004AC6', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
+  submitBtn: { height: 60, borderRadius: 20, justifyContent: 'center', alignItems: 'center', shadowColor: '#004AC6', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
   submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   switchRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 10 },
   switchText: { fontSize: 14, color: '#64748b', fontWeight: '500' },

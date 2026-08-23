@@ -588,8 +588,8 @@ const Login = ({ navigation, route }) => {
   const loginCardStyle = [
     styles.loginCard,
     {
-      maxWidth: isTablet ? 460 : 420,
-      padding: isCompact ? 18 : 25,
+      maxWidth: isTablet ? 480 : 440,
+      padding: isCompact ? 20 : 28,
       borderRadius: isCompact ? 16 : 20,
     },
   ];
@@ -1131,6 +1131,7 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 56,
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 10,
@@ -1189,8 +1190,10 @@ const styles = StyleSheet.create({
   loginButton: {
     backgroundColor: '#007AFF',
     padding: 15,
+    minHeight: 56,
     borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 20,
   },
   loginButtonDisabled: {

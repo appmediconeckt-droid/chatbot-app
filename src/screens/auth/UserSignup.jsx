@@ -1103,13 +1103,14 @@ const UserSignup = ({ navigation, route }) => {
   const renderInput = (index, name, icon, placeholder, options = {}, verifyType = null) => {
     const isFocused = focusedField === name;
     const isVerified = verifyType === 'email' && emailVerified;
-    
+    const isMetricField = name === 'age' || name === 'weight';
+
     return (
       <Animated.View key={`input-${name}`} style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
-        <View style={[styles.inputWrapper, isFocused && styles.inputWrapperFocused]}>
+        <View style={[styles.inputWrapper, isMetricField && styles.metricInputWrapper, isFocused && styles.inputWrapperFocused]}>
           <Icon name={icon} size={20} color={isFocused ? '#00652C' : '#64748b'} style={styles.inputIcon} />
           <TextInput
-            style={styles.textInput}
+            style={[styles.textInput, isMetricField && styles.metricTextInput]}
             value={formData[name]}
             onChangeText={(text) => handleChange(name, text)}
             onFocus={(event) => {
@@ -1155,6 +1156,8 @@ const UserSignup = ({ navigation, route }) => {
           onChangeCountryCode={(code) => handleChange('phoneCountryCode', code)}
           focused={isFocused}
           accentColor="#00652C"
+          containerStyle={styles.phoneInputWrapper}
+          inputStyle={styles.phoneTextInput}
           onFocus={(event) => {
             setFocusedField(name);
             scrollFocusedInputIntoView(event);
@@ -1198,20 +1201,32 @@ const UserSignup = ({ navigation, route }) => {
   );
 
   const isAnyModalVisible = showOtpModal.show || showDeviceConflict;
+  const signupPanelHeight = Math.min(
+    isTablet ? 760 : 720,
+    Math.max(360, height - (isCompact ? 78 : 96))
+  );
+  const signupPanelPaddingY = isCompact ? 18 : 22;
+  const signupLogoSize = isCompact ? 64 : 80;
+  const signupHeaderHeight = signupLogoSize + (isCompact ? 70 : 76);
+  const signupFormHeight = Math.max(
+    260,
+    signupPanelHeight - (signupPanelPaddingY * 2) - signupHeaderHeight
+  );
 
   const scrollContainerStyle = {
     ...styles.scrollContent,
     justifyContent: isLogin && !keyboardOpen ? 'center' : 'flex-start',
-    paddingHorizontal: isCompact ? 14 : 20,
-    paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 78 : 96),
-    paddingBottom: (isCompact ? 44 : 60) + keyboardInset,
+    paddingHorizontal: isCompact ? 12 : 16,
+    paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 62 : 76),
+    paddingBottom: isLogin ? (isCompact ? 44 : 60) + keyboardInset : (isCompact ? 14 : 20),
   };
   const panelStyle = [
     styles.panel,
     {
-      maxWidth: isTablet ? 460 : 420,
-      paddingHorizontal: isCompact ? 18 : 24,
-      paddingVertical: isCompact ? 22 : 28,
+      maxWidth: isTablet ? 480 : 440,
+      height: isLogin ? undefined : signupPanelHeight,
+      paddingHorizontal: isCompact ? 16 : 22,
+      paddingVertical: signupPanelPaddingY,
       borderRadius: isCompact ? 28 : 40,
       opacity: isAnyModalVisible ? 0.2 : 1,
     },
@@ -1222,6 +1237,15 @@ const UserSignup = ({ navigation, route }) => {
       width: isCompact ? 64 : 80,
       height: isCompact ? 64 : 80,
     },
+  ];
+  const formScrollStyle = [
+    styles.formScroll,
+    !isLogin && styles.signupFormScroll,
+    !isLogin && { height: signupFormHeight },
+  ];
+  const formContentStyle = [
+    styles.formPanel,
+    !isLogin && styles.signupFormPanel,
   ];
 
   return (
@@ -1236,11 +1260,12 @@ const UserSignup = ({ navigation, route }) => {
             </TouchableOpacity>
 
             <ScrollView
-              ref={scrollRef}
+              ref={isLogin ? scrollRef : null}
               contentContainerStyle={scrollContainerStyle}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              scrollEnabled={isLogin}
               pointerEvents={isAnyModalVisible ? 'none' : 'auto'}
             >
               <Animated.View style={[panelStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -1250,7 +1275,15 @@ const UserSignup = ({ navigation, route }) => {
                   <Text style={styles.tagline}>{'Begin your journey'}</Text>
                 </View>
 
-                <View style={styles.formPanel}>
+                <ScrollView
+                  ref={!isLogin ? scrollRef : null}
+                  style={formScrollStyle}
+                  contentContainerStyle={formContentStyle}
+                  showsVerticalScrollIndicator={!isLogin}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                  scrollEnabled={!isLogin}
+                >
                   {!isLogin && (
                     <>{renderInput(0, 'fullName', 'account-outline', 'Full Name')}{renderInput(1, 'anonymous', 'incognito-circle', 'Anonymous Name')}</>
                   )}
@@ -1332,7 +1365,7 @@ const UserSignup = ({ navigation, route }) => {
                     <Text style={styles.switchText}>{isLogin ? "New here?" : "Already joined?"}</Text>
                     <TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={styles.switchLink}>{isLogin ? " Create Account" : " Login"}</Text></TouchableOpacity>
                   </Animated.View>
-                </View>
+                </ScrollView>
               </Animated.View>
             </ScrollView>
           </View>
@@ -1463,19 +1496,26 @@ const styles = StyleSheet.create({
   scrollContent: { paddingHorizontal: 20, paddingTop: 100, paddingBottom: 60, flexGrow: 1 },
   backBtn: { position: 'absolute', top: 30, left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
   panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, paddingHorizontal: 24, paddingVertical: 28, width: '100%', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
-  header: { alignItems: 'center', marginBottom: 24 },
+  header: { alignItems: 'center', marginBottom: 16 },
   logo: { width: 80, height: 80 },
   brandContainer: { flexDirection: 'row', marginTop: 4 },
   brandMain: { fontSize: 26, fontWeight: '900', color: '#1e293b' },
   brandAlt: { fontSize: 26, fontWeight: '400', color: '#00652C' },
   tagline: { fontSize: 13, color: '#64748b', fontWeight: '600', marginTop: 4 },
-  formPanel: { gap: 14 },
+  formScroll: { width: '100%' },
+  signupFormScroll: { flexShrink: 0 },
+  formPanel: { gap: 12 },
+  signupFormPanel: { paddingBottom: 18 },
   inputField: { width: '100%' },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 18, paddingHorizontal: 16, height: 54, borderWidth: 1.5, borderColor: '#f1f5f9' },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 18, paddingHorizontal: 18, height: 58, borderWidth: 1.5, borderColor: '#f1f5f9' },
+  metricInputWrapper: { height: 66, borderRadius: 20, paddingHorizontal: 20 },
+  phoneInputWrapper: { height: 58, paddingHorizontal: 18 },
   inputWrapperFocused: { borderColor: '#00652C', backgroundColor: '#ffffff' },
   inputIcon: { marginRight: 12 },
-  textInput: { flex: 1, color: '#1e293b', fontSize: 14, fontWeight: '600' },
-  datePickerText: { flex: 1, color: '#1e293b', fontSize: 14, fontWeight: '600' },
+  textInput: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
+  metricTextInput: { fontSize: 18, fontWeight: '800' },
+  phoneTextInput: { fontSize: 15 },
+  datePickerText: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
   datePickerPlaceholder: { color: '#94a3b8' },
   verifyBtn: { minWidth: 68, minHeight: 34, backgroundColor: '#00652C', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   verifiedBtn: { backgroundColor: 'transparent' },
@@ -1488,7 +1528,7 @@ const styles = StyleSheet.create({
   genderTextSelected: { color: '#00652C' },
   forgotLink: { alignSelf: 'flex-end', marginTop: -8, marginBottom: 8 },
   forgotText: { color: '#00652C', fontSize: 12, fontWeight: '700' },
-  submitBtn: { height: 56, borderRadius: 20, backgroundColor: '#00652C', justifyContent: 'center', alignItems: 'center', shadowColor: '#00652C', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
+  submitBtn: { height: 60, borderRadius: 20, backgroundColor: '#00652C', justifyContent: 'center', alignItems: 'center', shadowColor: '#00652C', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
   submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   switchRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 10 },
   switchText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
