@@ -694,6 +694,9 @@ const UserSignup = ({ navigation, route }) => {
   const [deviceOtpSent, setDeviceOtpSent] = useState(false);
   const [isSendingDeviceOtp, setIsSendingDeviceOtp] = useState(false);
   const [isVerifyingDeviceOtp, setIsVerifyingDeviceOtp] = useState(false);
+  const [deviceOtpResendTimer, setDeviceOtpResendTimer] = useState(0);
+  const [isResendingDeviceOtp, setIsResendingDeviceOtp] = useState(false);
+  const resendingDeviceOtpRef = useRef(false);
 
   // Forgot Password popup
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -776,6 +779,16 @@ const UserSignup = ({ navigation, route }) => {
     return () => clearInterval(interval);
   }, [showOtpModal.show, otpResendTimer]);
 
+  useEffect(() => {
+    if (!showDeviceConflict || !deviceOtpSent || deviceOtpResendTimer <= 0) return undefined;
+
+    const interval = setInterval(() => {
+      setDeviceOtpResendTimer(prev => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [showDeviceConflict, deviceOtpSent, deviceOtpResendTimer]);
+
   const formatOtpTimer = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -846,6 +859,11 @@ const UserSignup = ({ navigation, route }) => {
       }
     } catch (err) {
       if (err?.response?.status === 409) {
+        setDeviceOtp('');
+        setDeviceOtpSent(false);
+        setDeviceOtpResendTimer(0);
+        setIsResendingDeviceOtp(false);
+        resendingDeviceOtpRef.current = false;
         setShowDeviceConflict(true);
         showNotification('Session active on another device', 'info');
       } else {
@@ -1037,8 +1055,10 @@ const UserSignup = ({ navigation, route }) => {
   const handleSendDeviceOtp = async () => {
     try {
       setIsSendingDeviceOtp(true);
+      setDeviceOtp('');
       await axiosInstance.post('/api/auth/logout-other-devices', { email: formData.email, role: 'user' });
       setDeviceOtpSent(true);
+      setDeviceOtpResendTimer(OTP_RESEND_SECONDS);
       showNotification('OTP sent to your email');
     } catch (err) {
       showNotification('Failed to send OTP', 'error');
@@ -1047,17 +1067,40 @@ const UserSignup = ({ navigation, route }) => {
     }
   };
 
+  const handleResendDeviceOtp = async () => {
+    if (resendingDeviceOtpRef.current || deviceOtpResendTimer > 0) return;
+
+    try {
+      resendingDeviceOtpRef.current = true;
+      setIsResendingDeviceOtp(true);
+      setDeviceOtp('');
+      await axiosInstance.post('/api/auth/logout-other-devices', { email: formData.email, role: 'user' });
+      setDeviceOtpResendTimer(OTP_RESEND_SECONDS);
+      showNotification('OTP resent to your email');
+    } catch (err) {
+      showNotification('Failed to resend OTP', 'error');
+    } finally {
+      resendingDeviceOtpRef.current = false;
+      setIsResendingDeviceOtp(false);
+    }
+  };
+
   const handleVerifyDeviceOtp = async () => {
+    if (deviceOtp.trim().length !== 6) {
+      showNotification('Enter 6 digit OTP', 'error');
+      return;
+    }
+
     try {
       setIsVerifyingDeviceOtp(true);
       const response = await axiosInstance.post('/api/auth/verify-login-otp', {
         email: formData.email,
-        otp: deviceOtp,
+        otp: deviceOtp.trim(),
         logoutOthers: true,
         role: 'user'
       });
       if (await persistUserSession(response.data)) {
-        setShowDeviceConflict(false);
+        closeDeviceConflictModal();
         // Still a login, just via the device-conflict OTP - not a new account.
         navigation.replace('LocationGate', { destination: 'UserDashboard' });
       }
@@ -1068,9 +1111,19 @@ const UserSignup = ({ navigation, route }) => {
     }
   };
 
-  const showNotification = (message, type = 'success') => {
+  const closeDeviceConflictModal = () => {
+    setShowDeviceConflict(false);
+    setDeviceOtp('');
+    setDeviceOtpSent(false);
+    setDeviceOtpResendTimer(0);
+    setIsResendingDeviceOtp(false);
+    resendingDeviceOtpRef.current = false;
+  };
+
+  const showNotification = (message, type = 'success', duration) => {
+    const displayDuration = duration ?? (type === 'error' ? 8000 : 3000);
     setNotification({ show: true, message, type });
-    setTimeout(() => setNotification({ show: false, message: '', type: '' }), 3000);
+    setTimeout(() => setNotification({ show: false, message: '', type: '' }), displayDuration);
   };
 
   const handleChange = useCallback((name, value) => {
@@ -1356,8 +1409,9 @@ const UserSignup = ({ navigation, route }) => {
                         }, 600);
                       }}
                       onError={(msg) => {
+                        showNotification(msg || 'Google sign-in failed', 'error');
                         setOtpError(msg);
-                        setTimeout(() => setOtpError(''), 4000);
+                        setTimeout(() => setOtpError(''), 8000);
                       }}
                     />
                   </Animated.View>
@@ -1438,18 +1492,58 @@ const UserSignup = ({ navigation, route }) => {
               <Text style={styles.modalTitle}>{t('Active Session Detected')}</Text>
               <Text style={styles.modalSub}>You are logged in on another device. Would you like to log out from all other devices and log in here?</Text>
               {!deviceOtpSent ? (
-                <TouchableOpacity style={styles.modalActionBtn} onPress={handleSendDeviceOtp} disabled={isSendingDeviceOtp}>
+                <TouchableOpacity
+                  style={[styles.modalActionBtn, isSendingDeviceOtp && styles.modalActionBtnDisabled]}
+                  onPress={handleSendDeviceOtp}
+                  disabled={isSendingDeviceOtp}
+                >
                   {isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Log out other devices')}</Text>}
                 </TouchableOpacity>
               ) : (
                 <View style={styles.otpWrapper}>
-                  <TextInput style={styles.otpInput} value={deviceOtp} onChangeText={setDeviceOtp} placeholder={t('Enter OTP')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} />
-                  <TouchableOpacity style={styles.modalActionBtn} onPress={handleVerifyDeviceOtp} disabled={isVerifyingDeviceOtp}>
+                  <TextInput
+                    style={styles.otpInput}
+                    value={deviceOtp}
+                    onChangeText={(value) => setDeviceOtp(value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder={t('Enter OTP')}
+                    placeholderTextColor="#94a3b8"
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    autoFocus
+                  />
+                  <View style={styles.otpResendRow}>
+                    {deviceOtpResendTimer > 0 ? (
+                      <Text style={styles.otpTimerText}>
+                        {t('Resend OTP in')} {formatOtpTimer(deviceOtpResendTimer)}
+                      </Text>
+                    ) : (
+                      <Text style={styles.otpTimerText}>{t("Didn't receive code?")}</Text>
+                    )}
+                    <TouchableOpacity
+                      onPress={handleResendDeviceOtp}
+                      disabled={deviceOtpResendTimer > 0 || isResendingDeviceOtp}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text
+                        style={[
+                          styles.otpResendText,
+                          (deviceOtpResendTimer > 0 || isResendingDeviceOtp) && styles.otpResendTextDisabled,
+                        ]}
+                      >
+                        {isResendingDeviceOtp ? t('Sending...') : t('Resend OTP')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.modalActionBtn, isVerifyingDeviceOtp && styles.modalActionBtnDisabled]}
+                    onPress={handleVerifyDeviceOtp}
+                    disabled={isVerifyingDeviceOtp}
+                  >
                     {isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify & Login')}</Text>}
                   </TouchableOpacity>
                 </View>
               )}
-              <TouchableOpacity onPress={() => setShowDeviceConflict(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity>
+              <TouchableOpacity onPress={closeDeviceConflictModal} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity>
             </View>
           </View>
         </Modal>

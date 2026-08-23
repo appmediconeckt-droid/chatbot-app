@@ -65,7 +65,11 @@ export type RootStackParamList = {
   UserDashboard: undefined;
   ChatBox: undefined;
   CounselorTable: undefined;
-  CounselorDashboard: undefined;
+  CounselorDashboard: {
+    initialTab?: 'profile';
+    profileStartEditing?: boolean;
+    profileIntentAt?: number;
+  } | undefined;
   SMSInput: undefined;
   ChangePassword: undefined;
   SetPassword: undefined;

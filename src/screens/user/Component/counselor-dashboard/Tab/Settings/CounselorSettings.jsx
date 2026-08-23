@@ -325,17 +325,18 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     try {
       setLoading(true);
       const counsellorId = await AsyncStorage.getItem('counsellorId');
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem('accessToken') || await AsyncStorage.getItem('token');
       if (!counsellorId) {
         setLoading(false);
         return;
       }
       const res = await axios.get(
-        `${API_BASE_URL}/api/auth/counsellors/${counsellorId}`,
+        `${API_BASE_URL}/api/auth/me`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (res.data?.success && res.data.counsellor) {
-        setCounselor(res.data.counsellor);
+      const counselorData = res.data?.user || res.data?.counsellor;
+      if (res.data?.success && counselorData) {
+        setCounselor(counselorData);
       }
     } catch (err) {
       console.error('Settings: failed to load counselor', err);
