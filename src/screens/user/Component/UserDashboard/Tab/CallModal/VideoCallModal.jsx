@@ -139,6 +139,56 @@ const VideoControls = ({ onHangupCallHandler }) => {
   );
 };
 
+const VideoConnectingPreview = ({ onHangup, participantName, participantPhoto, isCounselor, isOutgoing }) => {
+  const initial = String(participantName || 'U').trim().charAt(0).toUpperCase() || 'U';
+
+  return (
+    <View style={styles.callRoot}>
+      <View style={styles.waitingWrap}>
+        <View style={styles.waitingAvatar}>
+          {!isCounselor && participantPhoto ? (
+            <Image source={{ uri: participantPhoto }} style={styles.waitingAvatarImg} />
+          ) : (
+            <Text style={styles.waitingInitial}>{initial}</Text>
+          )}
+        </View>
+        <Text style={styles.waitingName} numberOfLines={1}>{participantName}</Text>
+        <View style={styles.videoConnectingRow}>
+          <ActivityIndicator size="small" color="#ffffff" />
+          <Text style={styles.waitingStatus}>{isOutgoing ? 'Calling...' : 'Connecting...'}</Text>
+        </View>
+      </View>
+
+      <View style={styles.controlsWrap}>
+        <View style={styles.controlsBar}>
+          <View style={styles.controlsRow}>
+            <TouchableOpacity style={[styles.vcBtn, styles.vcBtnDisabled]} disabled>
+              <Ionicons name="mic" size={21} color="#ffffff" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.vcBtn, styles.vcBtnDisabled]} disabled>
+              <Ionicons name="videocam" size={21} color="#ffffff" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.vcBtn, styles.vcBtnDisabled]} disabled>
+              <Ionicons name="camera-reverse" size={21} color="#ffffff" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.vcBtn, styles.vcBtnDisabled]} disabled>
+              <Ionicons name="volume-high" size={21} color="#ffffff" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.vcEndBtn} onPress={onHangup} activeOpacity={0.85}>
+              <Ionicons
+                name="call"
+                size={23}
+                color="#ffffff"
+                style={{ transform: [{ rotate: '135deg' }] }}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+};
+
 // ─── Inner call UI ────────────────────────────────────────────────────────────
 // onLocalHangup: user pressed end button (sends call.end() to kill for both sides)
 // onRemoteEnded: remote side already ended, just cleanup locally
@@ -580,7 +630,7 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
   return (
     <Modal
       visible={isOpen}
-      animationType="slide"
+      animationType="fade"
       transparent={false}
       statusBarTranslucent
       navigationBarTranslucent
@@ -594,10 +644,13 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
 
         <View style={styles.content}>
           {loading && (
-            <View style={styles.centerWrap}>
-              <ActivityIndicator size="large" color="#ffffff" />
-              <Text style={[styles.statusText, { color: '#ffffff' }]}>{t('Connecting...')}</Text>
-            </View>
+            <VideoConnectingPreview
+              onHangup={() => handleClose(true)}
+              participantName={displayName}
+              participantPhoto={participantPhoto}
+              isOutgoing={callData?.isIncoming !== true}
+              isCounselor={isCounselorView}
+            />
           )}
 
           {!!error && !loading && (
@@ -672,6 +725,11 @@ const styles = StyleSheet.create({
   waitingInitial: { color: '#fff', fontSize: 44, fontWeight: '800' },
   waitingName: { color: '#fff', fontSize: 22, fontWeight: '700', marginBottom: 6 },
   waitingStatus: { color: 'rgba(255,255,255,0.65)', fontSize: 14, fontWeight: '500' },
+  videoConnectingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   // Local self-view PiP. Width/height override the SDK's default (23% of screen).
   // The SDK starts its draggable view at top: 0. This inset keeps the mini
   // video clear of the top edge/notch on both user and counselor call screens.
@@ -768,6 +826,9 @@ const styles = StyleSheet.create({
   },
   vcBtnActive: {
     backgroundColor: 'rgba(31, 41, 55, 0.96)',
+  },
+  vcBtnDisabled: {
+    opacity: 0.55,
   },
   vcEndBtn: {
     width: 50,

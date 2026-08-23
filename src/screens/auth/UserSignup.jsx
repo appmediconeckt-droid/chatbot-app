@@ -628,6 +628,8 @@ import {
   postPublicAuthEndpointWithOtpRetry,
 } from './authUtils';
 
+const OTP_RESEND_SECONDS = 60;
+
 const UserSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
   const { width, height } = useWindowDimensions();
@@ -674,7 +676,7 @@ const UserSignup = ({ navigation, route }) => {
 
   // Verification states
   const [emailVerified, setEmailVerified] = useState(false);
-  const [, setEmailVerificationToken] = useState('');
+  const [emailVerificationToken, setEmailVerificationToken] = useState('');
   const [showOtpModal, setShowOtpModal] = useState({ show: false, type: '', value: '' });
   const [otpCode, setOtpCode] = useState('');
   const [isSendingVerification, setIsSendingVerification] = useState(false);
@@ -682,6 +684,9 @@ const UserSignup = ({ navigation, route }) => {
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const verifyingOtpRef = useRef(false);
   const [otpError, setOtpError] = useState('');
+  const [otpResendTimer, setOtpResendTimer] = useState(0);
+  const [isResendingOtp, setIsResendingOtp] = useState(false);
+  const resendingOtpRef = useRef(false);
 
   // Device Conflict States
   const [showDeviceConflict, setShowDeviceConflict] = useState(false);
@@ -760,6 +765,22 @@ const UserSignup = ({ navigation, route }) => {
     createOrbLoop(particle1, 200).start();
     createOrbLoop(particle2, -150).start();
   }, []);
+
+  useEffect(() => {
+    if (!showOtpModal.show || otpResendTimer <= 0) return undefined;
+
+    const interval = setInterval(() => {
+      setOtpResendTimer(prev => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [showOtpModal.show, otpResendTimer]);
+
+  const formatOtpTimer = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
 
   const persistUserSession = async (data) => {
     const token = data?.token || data?.accessToken || data?.data?.token;
@@ -858,6 +879,7 @@ const UserSignup = ({ navigation, route }) => {
         role: "user",
         isEmailVerified: true,
         isPhoneVerified: true,
+        emailVerificationToken,
       };
       const response = await postPublicAuthEndpoint('complete-registration', signupData);
       if (response.data?.success) {
@@ -913,6 +935,7 @@ const UserSignup = ({ navigation, route }) => {
       if (isOtpRequestSuccessful(response)) {
         setFormData(prev => ({ ...prev, email: value }));
         setShowOtpModal({ show: true, type, value });
+        setOtpResendTimer(OTP_RESEND_SECONDS);
         showNotification(response.data?.message || `OTP sent to ${type}`);
       } else {
         showNotification(response.data?.message || 'Failed to send OTP', 'error');
@@ -922,6 +945,38 @@ const UserSignup = ({ navigation, route }) => {
     } finally {
       sendingVerificationRef.current = false;
       setIsSendingVerification(false);
+    }
+  };
+
+  const handleResendVerifyOtp = async () => {
+    if (resendingOtpRef.current || otpResendTimer > 0) return;
+
+    const email = String(showOtpModal.value || formData.email).trim().toLowerCase();
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+      setOtpError('Enter valid email');
+      return;
+    }
+
+    try {
+      resendingOtpRef.current = true;
+      setIsResendingOtp(true);
+      setOtpError('');
+      setOtpCode('');
+
+      const response = await postPublicAuthEndpoint('send-email-otp', { email });
+      if (isOtpRequestSuccessful(response)) {
+        setFormData(prev => ({ ...prev, email }));
+        setShowOtpModal({ show: true, type: 'email', value: email });
+        setOtpResendTimer(OTP_RESEND_SECONDS);
+        showNotification(response.data?.message || 'OTP resent successfully');
+      } else {
+        setOtpError(response.data?.message || 'Failed to resend OTP');
+      }
+    } catch (err) {
+      setOtpError(getApiErrorMessage(err, 'Failed to resend OTP'));
+    } finally {
+      resendingOtpRef.current = false;
+      setIsResendingOtp(false);
     }
   };
 
@@ -958,15 +1013,6 @@ const UserSignup = ({ navigation, route }) => {
         setOtpError(response.data?.message || 'Verification failed');
       }
     } catch (err) {
-      if (!err?.response) {
-        setFormData(prev => ({ ...prev, email: otpEmail }));
-        setEmailVerified(true);
-        setEmailVerificationToken('');
-        setShowOtpModal({ show: false, type: '', value: '' });
-        setOtpCode('');
-        showNotification('Email verification submitted. Continue registration.');
-        return;
-      }
       setOtpError(getApiErrorMessage(err, 'Verification failed'));
     } finally {
       verifyingOtpRef.current = false;
@@ -978,6 +1024,9 @@ const UserSignup = ({ navigation, route }) => {
     setShowOtpModal({ show: false, type: '', value: '' });
     setOtpCode('');
     setOtpError('');
+    setOtpResendTimer(0);
+    setIsResendingOtp(false);
+    resendingOtpRef.current = false;
   };
 
   // Forgot password — open the in-screen popup (email → OTP → reset)
@@ -1305,8 +1354,35 @@ const UserSignup = ({ navigation, route }) => {
               <Text style={styles.modalTitle}>Verify Your Email</Text>
               <Text style={styles.modalSub}>Enter the code sent to {showOtpModal.value}</Text>
               <TextInput key={`${showOtpModal.type}:${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`} style={styles.otpInput} value={otpCode} onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="number-pad" maxLength={6} autoFocus />
+              <View style={styles.otpResendRow}>
+                {otpResendTimer > 0 ? (
+                  <Text style={styles.otpTimerText}>
+                    {t('Resend OTP in')} {formatOtpTimer(otpResendTimer)}
+                  </Text>
+                ) : (
+                  <Text style={styles.otpTimerText}>{t("Didn't receive code?")}</Text>
+                )}
+                <TouchableOpacity
+                  onPress={handleResendVerifyOtp}
+                  disabled={otpResendTimer > 0 || isResendingOtp}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text
+                    style={[
+                      styles.otpResendText,
+                      (otpResendTimer > 0 || isResendingOtp) && styles.otpResendTextDisabled,
+                    ]}
+                  >
+                    {isResendingOtp ? t('Sending...') : t('Resend')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
-              <TouchableOpacity style={styles.modalActionBtn} onPress={handleVerifyOtp} disabled={isVerifyingOtp}>
+              <TouchableOpacity
+                style={[styles.modalActionBtn, (isVerifyingOtp || otpCode.length !== 6) && styles.modalActionBtnDisabled]}
+                onPress={handleVerifyOtp}
+                disabled={isVerifyingOtp || otpCode.length !== 6}
+              >
                 {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Now')}</Text>}
               </TouchableOpacity>
               <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Go Back')}</Text></TouchableOpacity>
@@ -1425,12 +1501,17 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 22, fontWeight: '900', color: '#0F172A', marginBottom: 8, textAlign: 'center' },
   modalSub: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 21, marginBottom: 22 },
   modalActionBtn: { width: '100%', height: 54, borderRadius: 16, backgroundColor: '#00652C', justifyContent: 'center', alignItems: 'center', shadowColor: '#00652C', shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
+  modalActionBtnDisabled: { backgroundColor: '#94A3B8', shadowOpacity: 0, elevation: 0 },
   modalActionText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   modalErrorText: { width: '100%', color: '#B91C1C', backgroundColor: '#FEF2F2', fontSize: 12, fontWeight: '700', textAlign: 'center', padding: 10, borderRadius: 10, marginTop: -6, marginBottom: 14 },
   cancelBtn: { width: '100%', height: 44, marginTop: 10, justifyContent: 'center', alignItems: 'center' },
   cancelText: { fontSize: 14, fontWeight: '700', color: '#64748B' },
   otpWrapper: { width: '100%', gap: 16 },
   otpInput: { width: '100%', height: 56, borderRadius: 16, backgroundColor: '#F8FAFC', borderWidth: 1.5, borderColor: '#B7DFC7', textAlign: 'center', fontSize: 22, letterSpacing: 8, fontWeight: '800', color: '#0F172A', marginBottom: 16 },
+  otpResendRow: { width: '100%', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: -6, marginBottom: 16, flexWrap: 'wrap' },
+  otpTimerText: { color: '#64748B', fontSize: 13, fontWeight: '700', textAlign: 'center' },
+  otpResendText: { color: '#00652C', fontSize: 13, fontWeight: '900' },
+  otpResendTextDisabled: { color: '#94A3B8' },
 });
 
 export default UserSignup;

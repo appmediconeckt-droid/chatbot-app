@@ -39,24 +39,13 @@ export const isOtpVerificationSuccessful = (response) => {
   if (data?.success === false || data?.verified === false) return false;
 
   const candidates = [data, data?.data, data?.result];
-  if (
-    candidates.some(
-      (item) =>
-        item?.success === true ||
-        item?.verified === true ||
-        item?.isVerified === true ||
-        item?.emailVerified === true
-    )
-  ) {
-    return true;
-  }
-
-  const message = String(data?.message || data?.msg || data?.status || '').toLowerCase();
-  if (!message) return false;
-
-  const hasSuccessMessage = /verified|success|valid/.test(message);
-  const hasFailureMessage = /invalid|failed|failure|error|wrong|expired/.test(message);
-  return hasSuccessMessage && !hasFailureMessage;
+  return candidates.some(
+    (item) =>
+      item?.success === true ||
+      item?.verified === true ||
+      item?.isVerified === true ||
+      item?.emailVerified === true
+  );
 };
 
 export const isOtpRequestSuccessful = (response) => {

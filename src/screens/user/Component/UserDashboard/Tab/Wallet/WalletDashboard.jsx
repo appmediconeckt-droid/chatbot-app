@@ -4,18 +4,16 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  Linking,
   TextInput,
   TouchableOpacity,
   Alert,
   ActivityIndicator,
   StatusBar,
-  Platform,
   Animated,
   NativeModules,
   TurboModuleRegistry,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
@@ -28,7 +26,6 @@ import PATIENT, {
   GRADIENT_DIRECTION,
 } from '../../../../../../theme/palette';
 
-const SUPPORT_EMAIL = 'support@humaeli.com';
 import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
 
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000];
@@ -61,13 +58,11 @@ const WalletSkeleton = () => {
         <Animated.View style={[walletSkel.statBox, { opacity }]} />
         <Animated.View style={[walletSkel.statBox, { opacity }]} />
       </View>
-      <Animated.View style={[walletSkel.summaryCard, { opacity }]} />
       <View style={walletSkel.tabs}>
         <Animated.View style={[walletSkel.tabPill, { opacity }]} />
         <Animated.View style={[walletSkel.tabPill, { opacity }]} />
       </View>
       <Animated.View style={[walletSkel.bigCard, { opacity }]} />
-      <Animated.View style={[walletSkel.supportCard, { opacity }]} />
     </View>
   );
 };
@@ -78,7 +73,6 @@ const WalletDashboard = ({ userData = {} }) => {
   const [amount, setAmount] = useState('');
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
-  const [spendingSummary, setSpendingSummary] = useState({ total: 0, breakdown: [] });
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [activeTab, setActiveTab] = useState('add-money');
@@ -86,10 +80,8 @@ const WalletDashboard = ({ userData = {} }) => {
   // Y offset of the tab strip inside the scroll content, captured on layout.
   const tabsYRef = useRef(0);
 
-  // The tab strip and its panels sit below the balance card, stats and spending
-  // summary. The card's "Add Funds" / "View History" buttons only called
-  // setActiveTab, which switched a panel that was off-screen - so nothing
-  // appeared to happen. Scroll the section into view as well.
+  // The card's "Add Funds" / "View History" buttons also scroll the selected
+  // tab into view, so the action feels immediate from the top wallet card.
   const goToTab = (tab) => {
     setActiveTab(tab);
     scrollRef.current?.scrollTo({
@@ -108,7 +100,6 @@ const WalletDashboard = ({ userData = {} }) => {
       const response = await axiosInstance.get('/api/wallet/data');
       setBalance(Number(response?.data?.balance || 0));
       setTransactions(Array.isArray(response?.data?.transactions) ? response.data.transactions : []);
-      setSpendingSummary(response?.data?.spendingSummary || { total: 0, breakdown: [] });
     } catch (error) {
       console.error('Error fetching wallet data:', error);
       Alert.alert('Wallet', t('wallet:walletFailedToLoad'));
@@ -310,7 +301,7 @@ const WalletDashboard = ({ userData = {} }) => {
           <MaterialIcons name="verified" size={13} color="#ffffff" />
           <Text style={styles.premiumBadgeText}>{t('wallet:premiumHealth', 'PREMIUM HEALTH')}</Text>
         </View>
-        <MaterialIcons name="wifi" size={20} color="rgba(255,255,255,0.85)" />
+        {/* <MaterialIcons name="wifi" size={20} color="rgba(255,255,255,0.85)" /> */}
       </View>
 
       <TranslatedMessageBubble text={t('wallet:availableBalance')} style={styles.balanceLabel} />
@@ -346,39 +337,6 @@ const WalletDashboard = ({ userData = {} }) => {
       <View style={styles.statCard}>
         <Text style={styles.statLabel}>{t('wallet:completed')}</Text>
         <Text style={[styles.statValue, { color: PATIENT.text }]}>{stats.completed}</Text>
-      </View>
-    </View>
-  );
-
-  const renderSpendingSummary = () => (
-    <View style={styles.cardSection}>
-      <Text style={styles.sectionTitle}>{t('wallet:spendingSummary')}</Text>
-      {spendingSummary.breakdown?.length ? (
-        spendingSummary.breakdown.map((item, index) => (
-          <View key={`${item.label}-${index}`} style={styles.progressItem}>
-            <View style={styles.progressHeader}>
-              <Text style={styles.progressLabel}>{t(item.label)}</Text>
-              <Text style={styles.progressValue}>{formatCurrency(item.amount)}</Text>
-            </View>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${Math.min(Math.max(Number(item.percentage || 0), 0), 100)}%`,
-                    backgroundColor: index % 2 === 0 ? PATIENT.primary : PATIENT.gradientFrom,
-                  },
-                ]}
-              />
-            </View>
-          </View>
-        ))
-      ) : (
-        <Text style={styles.emptyHint}>{t('wallet:noSpendingRecorded')}</Text>
-      )}
-      <View style={styles.summaryFooter}>
-        <Text style={styles.summaryFooterLabel}>{t('wallet:totalSpentThisMonth')}</Text>
-        <Text style={styles.summaryFooterValue}>{formatCurrency(spendingSummary.total)}</Text>
       </View>
     </View>
   );
@@ -489,28 +447,6 @@ const WalletDashboard = ({ userData = {} }) => {
     </View>
   );
 
-  const openPaymentSupport = () => {
-    const subject = encodeURIComponent('Payment help - Humaeli wallet');
-    Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}`).catch(() => {
-      Alert.alert(t('wallet:support'), `Please email us at ${SUPPORT_EMAIL}`);
-    });
-  };
-
-  const renderSupport = () => (
-    <View style={styles.supportCard}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.supportLabel}>{t('wallet:needPaymentHelp')}</Text>
-        <Text style={styles.supportText}>{t('wallet:supportTeamAvailable')}</Text>
-      </View>
-      {/* Had no onPress at all - tapping it did nothing. */}
-      <TouchableOpacity style={styles.supportActionWrap} onPress={openPaymentSupport} activeOpacity={0.85}>
-        <LinearGradient colors={PATIENT_GRADIENT} {...GRADIENT_DIRECTION} style={styles.supportAction}>
-          <Text style={styles.supportActionText}>{t('wallet:support')}</Text>
-        </LinearGradient>
-      </TouchableOpacity>
-    </View>
-  );
-
   if (fetching) {
     return (
       <View style={styles.safeArea}>
@@ -543,7 +479,6 @@ const WalletDashboard = ({ userData = {} }) => {
 
         {renderBalanceCard()}
         {renderStats()}
-        {renderSpendingSummary()}
 
         {/* Both tabs render the same tree with the same metrics - only the
             gradient stops and text colour change - so switching can't resize
@@ -591,7 +526,6 @@ const WalletDashboard = ({ userData = {} }) => {
         </View>
 
         {activeTab === 'add-money' ? renderAddMoney() : renderTransactions()}
-        {renderSupport()}
       </ScrollView>
     </View>
   );
@@ -834,52 +768,6 @@ const styles = StyleSheet.create({
     color: PATIENT.textSecondary,
     marginBottom: 14,
   },
-  progressItem: {
-    marginBottom: 14,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  progressLabel: {
-    color: '#334155',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  progressValue: {
-    color: '#0f172a',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  progressTrack: {
-    height: 7,
-    borderRadius: 8,
-    backgroundColor: '#e2e8f0',
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 8,
-  },
-  summaryFooter: {
-    marginTop: 2,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-  },
-  summaryFooterLabel: {
-    color: '#64748b',
-    fontSize: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  summaryFooterValue: {
-    marginTop: 4,
-    color: '#0f172a',
-    fontWeight: '800',
-    fontSize: 18,
-  },
   emptyHint: {
     marginTop: 6,
     color: '#94a3b8',
@@ -1065,43 +953,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#94a3b8',
   },
-  supportCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#CDEBD8',
-    backgroundColor: '#E6F6EC',
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 8,
-  },
-  supportLabel: {
-    color: PATIENT.primary,
-    fontSize: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 0.7,
-    fontWeight: '800',
-  },
-  supportText: {
-    marginTop: 2,
-    color: PATIENT.text,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  supportActionWrap: {
-    borderRadius: 10,
-    overflow: 'hidden',
-  },
-  supportAction: {
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-  },
-  supportActionText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 12,
-  },
 });
 
 const walletSkel = StyleSheet.create({
@@ -1142,13 +993,6 @@ const walletSkel = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: '#dbe2ea',
   },
-  summaryCard: {
-    width: '100%',
-    height: 130,
-    borderRadius: 18,
-    backgroundColor: '#dbe2ea',
-    marginBottom: 16,
-  },
   tabs: {
     width: '100%',
     flexDirection: 'row',
@@ -1167,13 +1011,6 @@ const walletSkel = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: '#dbe2ea',
     marginBottom: 16,
-  },
-  supportCard: {
-    width: '100%',
-    height: 80,
-    borderRadius: 16,
-    backgroundColor: '#dbe2ea',
-    marginBottom: 24,
   },
 });
 

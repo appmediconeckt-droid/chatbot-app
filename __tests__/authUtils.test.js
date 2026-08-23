@@ -23,6 +23,7 @@ jest.mock('axios', () => {
 
 const axios = require('axios');
 const {
+  isOtpVerificationSuccessful,
   postPublicAuthEndpoint,
   postPublicAuthEndpointWithOtpRetry,
 } = require('../src/screens/auth/authUtils');
@@ -69,5 +70,32 @@ describe('postPublicAuthEndpoint', () => {
 
     expect(response.data.success).toBe(true);
     expect(axios.post).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('isOtpVerificationSuccessful', () => {
+  it('requires an explicit success flag from the server', () => {
+    expect(
+      isOtpVerificationSuccessful({
+        status: 200,
+        data: { message: 'Email verified successfully' },
+      })
+    ).toBe(false);
+
+    expect(
+      isOtpVerificationSuccessful({
+        status: 200,
+        data: { success: true, message: 'Email verified successfully' },
+      })
+    ).toBe(true);
+  });
+
+  it('rejects failed OTP responses even if the message contains success words', () => {
+    expect(
+      isOtpVerificationSuccessful({
+        status: 400,
+        data: { success: false, message: 'Invalid OTP' },
+      })
+    ).toBe(false);
   });
 });
