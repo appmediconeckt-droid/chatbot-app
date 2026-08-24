@@ -3,15 +3,15 @@ import { useTranslation } from 'react-i18next';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   View,
-  Text,
   TouchableOpacity,
   Modal,
   FlatList,
   StyleSheet,
   Animated,
   Dimensions,
-  TextInput,
 } from 'react-native';
+import TextInput from '../TranslatedTextInput';
+import Text from '../TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import i18n, { LANGUAGES, saveUserLanguage, LANG_STORAGE_KEY } from '../../i18n';
 import { useLanguageContext } from '../../contexts/LanguageContext';

@@ -5,19 +5,22 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import GradientFill from '../../../../../../components/common/GradientFill';
 import { DOCTOR } from '../../../../../../theme/palette';
+import {
+  SUPPORT_EMAIL,
+  SUPPORT_PHONE_DISPLAY,
+  SUPPORT_PHONE_TEL,
+} from '../../../../../../config';
 
-const SUPPORT_EMAIL = 'support@humaeli.com';
-const SUPPORT_PHONE = '+1 (800) 555-0199';
 // India's unified emergency number (police / ambulance / fire).
 const EMERGENCY_PHONE = '112';
 // Government of India's 24x7 mental-health helpline.
@@ -57,9 +60,9 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
     });
   };
 
-  const dial = (number) => {
+  const dial = (number, fallbackDisplay = number) => {
     Linking.openURL(`tel:${number}`).catch(() => {
-      Alert.alert(t('Call support'), `${t('Please call us at')} ${number}`);
+      Alert.alert(t('Call support'), `${t('Please call us at')} ${fallbackDisplay}`);
     });
   };
 
@@ -93,7 +96,7 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
       icon: 'phone-outline',
       label: t('Call support'),
       sub: t('Mon-Fri, 9am - 5pm IST'),
-      onPress: () => dial(SUPPORT_PHONE),
+      onPress: () => dial(SUPPORT_PHONE_TEL, SUPPORT_PHONE_DISPLAY),
     },
   ];
 
@@ -265,10 +268,14 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
             </View>
           </TouchableOpacity>
           <View style={s.divider} />
-          <TouchableOpacity style={s.row} onPress={() => dial(SUPPORT_PHONE)} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={s.row}
+            onPress={() => dial(SUPPORT_PHONE_TEL, SUPPORT_PHONE_DISPLAY)}
+            activeOpacity={0.7}
+          >
             <MaterialCommunityIcons name="phone-outline" size={20} color={DOCTOR.primary} />
             <View style={{ flex: 1 }}>
-              <Text style={s.rowValue}>{SUPPORT_PHONE}</Text>
+              <Text style={s.rowValue}>{SUPPORT_PHONE_DISPLAY}</Text>
               <Text style={s.rowSub}>{t('Mon-Fri, 9am - 5pm IST')}</Text>
             </View>
           </TouchableOpacity>

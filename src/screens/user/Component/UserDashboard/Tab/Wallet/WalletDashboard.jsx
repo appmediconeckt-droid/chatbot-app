@@ -1,10 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
-  TextInput,
   TouchableOpacity,
   Alert,
   ActivityIndicator,
@@ -13,6 +11,8 @@ import {
   NativeModules,
   TurboModuleRegistry,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';

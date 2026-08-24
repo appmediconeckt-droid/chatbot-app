@@ -4,11 +4,11 @@ import {
   Modal,
   Platform,
   StyleSheet,
-  Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import TextInput from '../TranslatedTextInput';
+import Text from '../TranslatedText';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {
   COUNTRY_CODES,

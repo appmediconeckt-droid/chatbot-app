@@ -3,8 +3,6 @@ import { useLanguageRender } from '../../../../../hooks/useLanguageRender';
 import {
   Image,
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   Modal,
@@ -19,8 +17,9 @@ import {
   StyleSheet,
   StatusBar,
   BackHandler,
-  Dimensions,
 } from "react-native";
+import TextInput from '../../../../../components/TranslatedTextInput';
+import Text from '../../../../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useIsFocused, useNavigation, useRoute } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -796,25 +795,17 @@ const AppointmentSkeletonCard = () => {
 // â”€â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function CounselorDashboard() {
   const { t } = useLanguageRender();
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const MOBILE_HEADER_BAR_HEIGHT = 68;
+  const MOBILE_HEADER_BAR_HEIGHT = 60;
+  const MOBILE_BOTTOM_NAV_BAR_HEIGHT = 66;
   const topInset = Platform.OS === "ios" ? insets.top : 0;
-  const androidStatusInset = Platform.OS === 'android'
-    ? Math.max(insets.top, StatusBar.currentHeight || 0)
-    : 0;
-  const androidVisibleBottomInset = Platform.OS === 'android'
-    ? Math.max(0, Dimensions.get('screen').height - windowHeight - androidStatusInset)
-    : 0;
-  const androidNavInsetFallback = Platform.OS === 'android'
-    ? (androidVisibleBottomInset <= 80 ? androidVisibleBottomInset : 0)
-    : 0;
-  const androidStableBottomInset = Platform.OS === 'android'
-    ? (insets.bottom <= 80 ? insets.bottom : 0)
-    : insets.bottom;
-  const dashboardBottomInset = Math.max(androidStableBottomInset, androidNavInsetFallback, 0);
-  const mobileBottomNavHeight = (Platform.OS === 'ios' ? 84 : 66) + dashboardBottomInset;
-  const mobileBottomNavPaddingBottom = (Platform.OS === 'ios' ? 24 : 8) + dashboardBottomInset;
+  const mobileHeaderHeight = topInset + MOBILE_HEADER_BAR_HEIGHT;
+  const dashboardBottomInset = Platform.OS === "ios" ? insets.bottom : 0;
+  const mobileBottomNavHeight = MOBILE_BOTTOM_NAV_BAR_HEIGHT + dashboardBottomInset;
+  const mobileBottomNavPaddingBottom = Platform.OS === "ios"
+    ? Math.max(insets.bottom, 12)
+    : 8;
   const isFocused = useIsFocused();
   const route = useRoute();
   const [activeTab, setActiveTab] = useState("messages");
@@ -2011,7 +2002,7 @@ export default function CounselorDashboard() {
     {
       id: "appointments",
       icon: "calendar-alt",
-      label: t('counselor:appointment'),
+      label: t('counselor:appointments', 'Appointments'),
       badge: appointments.filter((a) => a.status === "pending").length,
     },
     { id: "sessions", icon: "video", label: t('counselor:sessions'), badge: 0 },
@@ -2109,7 +2100,6 @@ export default function CounselorDashboard() {
         .split(/\s+/)[0] || 'Counselor';
     return `${g}, Dr. ${firstNameOnly}`;
   })();
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -2549,7 +2539,7 @@ export default function CounselorDashboard() {
   };
 
   return (
-    <SafeAreaView style={styles.screen} edges={["top"]}>
+    <SafeAreaView style={styles.screen} edges={isMobile ? [] : ["top"]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <View style={styles.container}>
         {/* Session detail modal (View Details) */}
@@ -2798,7 +2788,7 @@ export default function CounselorDashboard() {
 
         {/* Mobile Menu Overlay */}
         {isMobile && showMobileMenu && (
-          <View style={[styles.mobileMenuOverlay, { top: topInset + MOBILE_HEADER_BAR_HEIGHT }]}>
+          <View style={[styles.mobileMenuOverlay, { top: mobileHeaderHeight }]}>
             <View style={styles.mobileMenu}>
 
               {/* Profile */}
@@ -3036,7 +3026,7 @@ export default function CounselorDashboard() {
             styles.mainContent,
             isMobile && styles.mainContentMobile,
             // Clear the fixed greeting header on every tab.
-            isMobile && { marginTop: topInset + MOBILE_HEADER_BAR_HEIGHT },
+            isMobile && { marginTop: mobileHeaderHeight },
             isMobile && { marginBottom: mobileBottomNavHeight },
             { flexDirection: 'column' },
           ]}

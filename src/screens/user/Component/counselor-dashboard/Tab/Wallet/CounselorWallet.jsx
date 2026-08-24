@@ -1,10 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
-  TextInput,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -14,6 +12,8 @@ import {
   Animated,
   Modal,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from 'react-native-vector-icons/Feather';
 import DateTimePicker from '@react-native-community/datetimepicker';

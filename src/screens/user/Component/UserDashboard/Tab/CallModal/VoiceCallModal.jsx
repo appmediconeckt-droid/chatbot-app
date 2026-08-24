@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
-  Text,
   Image,
   TouchableOpacity,
   Modal,
@@ -11,6 +10,7 @@ import {
   Animated,
   Easing,
 } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import InCallManager from 'react-native-incall-manager';

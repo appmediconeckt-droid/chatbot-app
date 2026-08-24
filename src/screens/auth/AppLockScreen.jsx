@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   View,
-  Text,
   TouchableOpacity,
   StyleSheet,
   Animated,
@@ -15,7 +14,9 @@ import {
   ScrollView,
   Linking,
   BackHandler,
+  ActivityIndicator,
 } from 'react-native';
+import Text from '../../components/TranslatedText';
 
 // India's national mental-health helpline (Tele-MANAS). Change to your own
 // support line or a local crisis number as needed.
@@ -34,6 +35,12 @@ const { width, height } = Dimensions.get('window');
 const PIN_LENGTH = 4;
 export const PIN_STORAGE_KEY = 'appLockPin';
 export const BIOMETRIC_LOCK_STORAGE_KEY = 'appLockBiometricEnabled';
+
+const getBiometryLabel = (type) => {
+  if (type === 'FaceID') return 'Face ID';
+  if (type === 'TouchID') return 'Touch ID';
+  return 'Fingerprint';
+};
 
 // ─── Keypad layout ────────────────────────────────────────────────────────────
 const KEYPAD = [
@@ -143,8 +150,12 @@ const AppLockScreen = ({
   // Role → palette: counselor = blue, everyone else = green.
   const [C, setC] = useState(PATIENT);
   const [role, setRole] = useState('user');
-  // Unlock mode opens on the Face-ID landing view; the keypad is revealed via
-  // "Use PIN instead". Setup/confirm always show the keypad.
+  const [biometricUnlockEnabled, setBiometricUnlockEnabled] = useState(false);
+  const [biometricLabel, setBiometricLabel] = useState('Fingerprint');
+  // In unlock mode the first render waits for the saved biometric setting. That
+  // prevents the PIN keypad from flashing before fingerprint availability is
+  // known.
+  const [authChoiceReady, setAuthChoiceReady] = useState(mode !== 'unlock');
   const [showKeypad, setShowKeypad] = useState(mode !== 'unlock');
   const [showEmergency, setShowEmergency] = useState(false);
   const [emergency, setEmergency] = useState(null);
@@ -212,17 +223,47 @@ const AppLockScreen = ({
     ]).start();
   }, []);
 
-  // ── Auto-prompt biometrics on mount (unlock mode) ───────────────────────────
+  // ── Load biometric preference (unlock mode) ─────────────────────────────────
   useEffect(() => {
-    if (mode !== 'unlock') return;
-    const timer = setTimeout(async () => {
-      const { available } = await isBiometricAvailable();
-      if (available) {
-        const { success } = await authenticateWithBiometrics('Unlock Humaeli');
-        if (success) triggerSuccess();
+    let active = true;
+
+    if (mode !== 'unlock') {
+      setBiometricUnlockEnabled(false);
+      setAuthChoiceReady(true);
+      setShowKeypad(true);
+      return () => {
+        active = false;
+      };
+    }
+
+    setAuthChoiceReady(false);
+    setShowKeypad(false);
+
+    (async () => {
+      try {
+        const [savedSetting, availability] = await Promise.all([
+          AsyncStorage.getItem(BIOMETRIC_LOCK_STORAGE_KEY),
+          isBiometricAvailable(),
+        ]);
+
+        if (!active) return;
+
+        const enabled = savedSetting === 'true' && availability?.available === true;
+        setBiometricUnlockEnabled(enabled);
+        setBiometricLabel(getBiometryLabel(availability?.biometryType));
+        setShowKeypad(!enabled);
+      } catch {
+        if (!active) return;
+        setBiometricUnlockEnabled(false);
+        setShowKeypad(true);
+      } finally {
+        if (active) setAuthChoiceReady(true);
       }
-    }, 350); // slight delay so the screen finishes sliding in
-    return () => clearTimeout(timer);
+    })();
+
+    return () => {
+      active = false;
+    };
   }, [mode]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -269,6 +310,27 @@ const AppLockScreen = ({
       setTimeout(() => onSuccess?.(), 380);
     });
   }, [checkScale, checkFade, onSuccess]);
+
+  // ── Auto-prompt biometrics only when the saved toggle is ON ─────────────────
+  useEffect(() => {
+    if (mode !== 'unlock' || !authChoiceReady || !biometricUnlockEnabled) return;
+    const timer = setTimeout(async () => {
+      const setting = await AsyncStorage.getItem(BIOMETRIC_LOCK_STORAGE_KEY);
+      if (setting !== 'true') {
+        setBiometricUnlockEnabled(false);
+        setAuthChoiceReady(true);
+        setShowKeypad(true);
+        return;
+      }
+
+      const { available } = await isBiometricAvailable();
+      if (!available) return;
+
+      const { success } = await authenticateWithBiometrics('Unlock Humaeli');
+      if (success) triggerSuccess();
+    }, 350); // slight delay so the screen finishes sliding in
+    return () => clearTimeout(timer);
+  }, [mode, authChoiceReady, biometricUnlockEnabled, triggerSuccess]);
 
   // ── PIN completion ──────────────────────────────────────────────────────────
   const handleComplete = useCallback(async (fullPin) => {
@@ -333,6 +395,23 @@ const AppLockScreen = ({
   }, [pin, isSuccess, dotScales, errorFade]);
 
   const handleBiometric = useCallback(async () => {
+    if (mode === 'unlock' && !biometricUnlockEnabled) {
+      setShowKeypad(true);
+      triggerError(t('lock:enterPin', 'Enter your PIN'));
+      return;
+    }
+
+    if (mode === 'unlock') {
+      const setting = await AsyncStorage.getItem(BIOMETRIC_LOCK_STORAGE_KEY);
+      if (setting !== 'true') {
+        setBiometricUnlockEnabled(false);
+        setAuthChoiceReady(true);
+        setShowKeypad(true);
+        triggerError(t('lock:enterPin', 'Enter your PIN'));
+        return;
+      }
+    }
+
     const { available, biometryType } = await isBiometricAvailable();
     if (!available) {
       Alert.alert(
@@ -342,10 +421,10 @@ const AppLockScreen = ({
       );
       return;
     }
-    const label = biometryType === 'FaceID' ? 'Face ID' : biometryType === 'TouchID' ? 'Touch ID' : 'Fingerprint';
+    const label = getBiometryLabel(biometryType);
     const { success } = await authenticateWithBiometrics(`Use ${label} to unlock Humaeli`);
     if (success) triggerSuccess();
-  }, [triggerSuccess]);
+  }, [mode, biometricUnlockEnabled, triggerError, triggerSuccess, t]);
 
   // ── Labels ──────────────────────────────────────────────────────────────────
   const TITLES = {
@@ -365,12 +444,12 @@ const AppLockScreen = ({
     if (isSuccess) return;
     if (pin.length === PIN_LENGTH) {
       handleComplete(pin);
-    } else if (mode === 'unlock') {
+    } else if (mode === 'unlock' && biometricUnlockEnabled) {
       handleBiometric();
     } else {
       triggerError(t('lock:enterPin', 'Enter your PIN'));
     }
-  }, [isSuccess, pin, mode, handleComplete, handleBiometric, triggerError, t]);
+  }, [isSuccess, pin, mode, biometricUnlockEnabled, handleComplete, handleBiometric, triggerError, t]);
 
   const dial = (num) => Linking.openURL(`tel:${num}`).catch(() => {});
 
@@ -413,7 +492,23 @@ const AppLockScreen = ({
           </View>
           <Text style={s.secureLabel}>{t('SECURE ACCESS REQUIRED')}</Text>
 
-          {mode === 'unlock' && !showKeypad ? (
+          {mode === 'unlock' && !authChoiceReady ? (
+            /* ═══ Auth-choice loading view: no PIN keypad flash ═══ */
+            <>
+              <View style={[s.faceRing, { borderColor: C.border }]}>
+                <View style={[s.faceInner, { backgroundColor: C.secondaryTint }]}>
+                  <ActivityIndicator size="small" color={C.primary} />
+                </View>
+              </View>
+
+              <Text style={s.title}>{t('lock:welcomeBack', 'Unlock Humaeli')}</Text>
+              <Text style={s.subtitle}>{t('Checking secure unlock...')}</Text>
+
+              <TouchableOpacity onPress={emergencyContact} activeOpacity={0.7} style={s.emergencyBtn}>
+                <Text style={[s.emergencyText, { color: C.primary }]}>{t('EMERGENCY CONTACT')}</Text>
+              </TouchableOpacity>
+            </>
+          ) : mode === 'unlock' && biometricUnlockEnabled && !showKeypad ? (
             /* ═══ Face-ID landing view ═══ */
             <>
               <View style={[s.faceRing, { borderColor: C.border }]}>
@@ -423,7 +518,7 @@ const AppLockScreen = ({
               </View>
 
               <Text style={s.title}>{t('lock:welcomeBack', 'Unlock Humaeli')}</Text>
-              <Text style={s.subtitle}>{t('Face ID or passcode')}</Text>
+              <Text style={s.subtitle}>{t(`${biometricLabel} or passcode`)}</Text>
 
               <TouchableOpacity activeOpacity={0.88} onPress={handleBiometric} style={s.primaryBtnWrap}>
                 <LinearGradient
@@ -476,7 +571,7 @@ const AppLockScreen = ({
                   </View>
                 ))}
                 <View style={s.padRow}>
-                  {mode === 'unlock' ? (
+                  {mode === 'unlock' && biometricUnlockEnabled ? (
                     <Key iconName="finger-print-outline" onPress={handleBiometric} disabled={isSuccess} accent={C.primary} />
                   ) : (
                     <View style={keyS.ghost} />
@@ -503,9 +598,9 @@ const AppLockScreen = ({
                 </LinearGradient>
               </TouchableOpacity>
 
-              {mode === 'unlock' ? (
+              {mode === 'unlock' && biometricUnlockEnabled ? (
                 <TouchableOpacity style={s.textLink} activeOpacity={0.7} onPress={() => setShowKeypad(false)}>
-                  <Text style={s.textLinkLabel}>{t('Use Face ID instead')}</Text>
+                  <Text style={s.textLinkLabel}>{t(`Use ${biometricLabel} instead`)}</Text>
                 </TouchableOpacity>
               ) : onCancel && !(forced && mode === 'setup') ? (
                 <TouchableOpacity style={s.textLink} activeOpacity={0.7} onPress={onCancel}>

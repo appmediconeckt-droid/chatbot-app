@@ -2,12 +2,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  Text,
   TouchableOpacity,
   FlatList,
   Image,
   Modal,
-  TextInput,
   ScrollView,
   ActivityIndicator,
   SafeAreaView,
@@ -17,6 +15,8 @@ import {
   useWindowDimensions,
   Animated,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';

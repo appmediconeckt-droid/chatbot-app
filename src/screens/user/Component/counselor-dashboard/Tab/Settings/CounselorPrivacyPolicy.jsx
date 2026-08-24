@@ -6,23 +6,26 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   TouchableOpacity,
   UIManager,
   View,
 } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { DOCTOR } from '../../../../../../theme/palette';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import {
+  SUPPORT_EMAIL,
+  SUPPORT_PHONE_DISPLAY,
+  SUPPORT_PHONE_TEL,
+} from '../../../../../../config';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const SUPPORT_EMAIL = 'support@humaeli.com';
-const SUPPORT_PHONE = '14416';
 const LAST_UPDATED = '24 June 2026';
 
 // ─── Feature grid (2×2) ────────────────────────────────────────────────────────
@@ -61,12 +64,12 @@ const SECTIONS = [
       'Send important account and session updates',
     ],
   },
-   {
-    id: 'use',
-    icon: 'data-retention-outline',
+  {
+    id: 'retention',
+    icon: 'hourglass-outline',
     title: 'Data Retention and Deletion',
-    color: '#78d7a1',
-    bg: '#c5b7b7',
+    color: '#10B981',
+    bg: '#DFF7EC',
     points: [
       'Kept only as long as needed for the purposes stated in this policy.',
       'Longer retention possible if required or permitted by law.',
@@ -134,7 +137,7 @@ const CounselorPrivacyPolicy = ({ onClose }) => {
     setExpanded((cur) => (cur === id ? null : id));
   };
 
-  const dial = () => Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {});
+  const dial = () => Linking.openURL(`tel:${SUPPORT_PHONE_TEL}`).catch(() => {});
   const email = () => {
     const subject = encodeURIComponent('Privacy question - Humaeli Counselor');
     Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}`).catch(() => {});
@@ -245,7 +248,9 @@ const CounselorPrivacyPolicy = ({ onClose }) => {
           <View style={s.assistRow}>
             <TouchableOpacity style={s.ghostBtn} activeOpacity={0.85} onPress={dial}>
               <Ionicons name="call-outline" size={16} color={C.primary} />
-              <Text style={[s.ghostBtnText, { color: C.primary }]}>{t('Call')}</Text>
+              <Text style={[s.ghostBtnText, { color: C.primary }]}>
+                {t('Call')} {SUPPORT_PHONE_DISPLAY}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

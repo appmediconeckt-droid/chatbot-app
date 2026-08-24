@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import {
   View,
-  Text,
   Modal,
   Image,
   Animated,
@@ -11,6 +10,7 @@ import {
   TouchableOpacity,
   StatusBar,
 } from 'react-native';
+import Text from '../TranslatedText';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import useLanguageRender from '../../hooks/useLanguageRender';
 

@@ -2,8 +2,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   FlatList,
   ScrollView,
@@ -19,6 +17,8 @@ import {
   Vibration,
   useWindowDimensions,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';

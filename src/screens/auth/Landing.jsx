@@ -3,11 +3,11 @@ import {
   Animated,
   StatusBar,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
   useWindowDimensions,
 } from 'react-native';
+import Text from '../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import HumaeliHeroVideo from '../../components/common/HumaeliHeroVideo';

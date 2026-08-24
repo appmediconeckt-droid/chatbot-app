@@ -4,9 +4,7 @@ import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
-  Text,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
@@ -22,6 +20,8 @@ import {
   useWindowDimensions,
   Pressable,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';

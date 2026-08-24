@@ -5,10 +5,10 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import { PATIENT_GRADIENT, GRADIENT_DIRECTION } from '../../../../theme/palette';
 import useLanguageRender from '../../../../hooks/useLanguageRender';

@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -15,6 +13,8 @@ import {
   useWindowDimensions,
   Animated,
 } from 'react-native';
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
@@ -96,7 +96,7 @@ const CounselorSignup = ({ navigation, route }) => {
 
   // Verification states
   const [emailVerified, setEmailVerified] = useState(false);
-  const [, setEmailVerificationToken] = useState('');
+  const [emailVerificationToken, setEmailVerificationToken] = useState('');
   const [showOtpModal, setShowOtpModal] = useState({ show: false, type: '', value: '' });
   const [otpCode, setOtpCode] = useState('');
   const [isSendingVerification, setIsSendingVerification] = useState(false);
@@ -315,6 +315,7 @@ const CounselorSignup = ({ navigation, route }) => {
         role: 'counselor',
         isEmailVerified: true,
         isPhoneVerified: true,
+        emailVerificationToken,
         consultationMode: formData.consultationMode.map(mode => mode.toLowerCase()),
         languages: formData.languages,
       };
@@ -446,15 +447,6 @@ const CounselorSignup = ({ navigation, route }) => {
         setOtpError(response.data?.message || 'Failed');
       }
     } catch (err) {
-      if (!err?.response) {
-        setFormData(prev => ({ ...prev, email: otpEmail }));
-        setEmailVerified(true);
-        setEmailVerificationToken('');
-        setShowOtpModal({ show: false, type: '', value: '' });
-        setOtpCode('');
-        showNotification('Email verification submitted. Continue registration.');
-        return;
-      }
       setOtpError(getApiErrorMessage(err, 'Verification failed'));
     } finally {
       verifyingOtpRef.current = false;

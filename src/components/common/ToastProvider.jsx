@@ -12,9 +12,9 @@ import {
   Easing,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import Text from '../TranslatedText';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const ToastContext = createContext(null);

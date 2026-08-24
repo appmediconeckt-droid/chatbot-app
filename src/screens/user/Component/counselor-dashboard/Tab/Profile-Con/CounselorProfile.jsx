@@ -3,8 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   View,
-  Text,
-  TextInput,
   ScrollView,
   TouchableOpacity,
   Image,
@@ -16,6 +14,8 @@ import {
   Dimensions,
   Animated,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import axios from 'axios';
@@ -80,7 +80,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   const { t: tLanguage } = useTranslation();
   const { t } = useLanguageRender();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [activeTab, setActiveTab] = useState('professional');
 
@@ -169,6 +169,11 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   const emailReady =
     !isEmailDirty() ||
     (emailChange.verified && emailChange.verifiedValue === normalizedEditedEmail);
+
+  const showErrorPopup = (message, title = 'Error') => {
+    setError(message);
+    Alert.alert(title, message);
+  };
 
   useEffect(() => {
     if (!isEditing) {
@@ -781,7 +786,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
 
     if (dateOfBirth && calculatedAge === null) {
-      setError('Select a valid date of birth');
+      showErrorPopup('Select a valid date of birth', 'Invalid Date of Birth');
       return;
     }
 
@@ -790,7 +795,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       editedData.phoneCountryCode,
     );
     if (!isValidLocalPhoneNumber(normalizedPhone)) {
-      setError('Phone number must be 10 digits');
+      showErrorPopup('Phone number must be 10 digits', 'Invalid Phone Number');
       return;
     }
 
@@ -798,8 +803,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       const msg = emailChange.sent
         ? 'Please enter and confirm the OTP sent to your new email before saving.'
         : 'Please verify your new email before saving.';
-      setError(msg);
-      Alert.alert('Email Verification Required', msg);
+      showErrorPopup(msg, 'Email Verification Required');
       return;
     }
 
@@ -903,14 +907,14 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
 
       const response = await updateCounselorProfile(formData);
       if (response.data.success) {
-        setSuccessMessage('Profile updated successfully!');
+        const successMsg = response.data?.message || 'Profile updated successfully!';
+        Alert.alert('Success', successMsg);
         setEmailChange(createBlankEmailChange());
         await fetchCounselorProfile();
         await onProfileSaved?.();
         setIsEditing(false);
-        setTimeout(() => setSuccessMessage(''), 3000);
       } else {
-        setError(response.data.message || 'Failed to update profile');
+        showErrorPopup(response.data.message || 'Failed to update profile');
       }
     } catch (err) {
       console.error('Error updating profile:', err);
@@ -932,8 +936,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         errorMsg = err.response?.data?.message || err.message || 'Failed to update profile';
       }
 
-      setError(errorMsg);
-      Alert.alert('Error', errorMsg);
+      showErrorPopup(errorMsg);
       setTimeout(() => setError(''), 5000);
     } finally {
       setLoading(false);
@@ -1006,10 +1009,10 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         <View style={styles.fullWidth}>
         
         {/* Notification Banner - Full Width */}
-        {(successMessage || error) && (
-          <View style={[styles.banner, successMessage ? styles.successBanner : styles.errorBanner]}>
-            <Icon name={successMessage ? 'check-circle' : 'error-outline'} size={20} color="#fff" />
-            <Text style={styles.bannerText}>{successMessage || error}</Text>
+        {successMessage && (
+          <View style={[styles.banner, styles.successBanner]}>
+            <Icon name="check-circle" size={20} color="#fff" />
+            <Text style={styles.bannerText}>{successMessage}</Text>
           </View>
         )}
 
@@ -1750,9 +1753,6 @@ const styles = StyleSheet.create({
   },
   successBanner: {
     backgroundColor: '#2563EB',
-  },
-  errorBanner: {
-    backgroundColor: '#ef4444',
   },
   bannerText: {
     color: '#fff',

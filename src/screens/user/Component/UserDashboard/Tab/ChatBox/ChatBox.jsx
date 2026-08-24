@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   FlatList,
   Image,
@@ -17,6 +15,8 @@ import {
   Linking,
   useWindowDimensions,
 } from "react-native";
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import socketService from '../../../../../../services/socketService';
 import axios from "axios";
 import { API_BASE_URL } from "../../../../../../axiosConfig";

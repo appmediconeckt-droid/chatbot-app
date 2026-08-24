@@ -1,16 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
-  Text,
   Image,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
   StatusBar,
-  TextInput,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';

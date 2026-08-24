@@ -5,18 +5,21 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import PATIENT from '../../../../../../theme/palette';
+import {
+  SUPPORT_EMAIL,
+  SUPPORT_PHONE_DISPLAY,
+  SUPPORT_PHONE_TEL,
+} from '../../../../../../config';
 
-const SUPPORT_EMAIL = 'support@humaeli.com';
-const SUPPORT_PHONE = '+1 (800) 555-0199';
 // India's unified emergency number (police / ambulance / fire). Was '911',
 // which simply does not connect from an Indian network.
 const EMERGENCY_PHONE = '112';
@@ -98,8 +101,8 @@ const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
         Alert.alert('Email Support', `Please email us at ${SUPPORT_EMAIL}`);
       });
     } else if (action === 'phone') {
-      Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {
-        Alert.alert('Call Support', `Please call us at ${SUPPORT_PHONE}`);
+      Linking.openURL(`tel:${SUPPORT_PHONE_TEL}`).catch(() => {
+        Alert.alert('Call Support', `Please call us at ${SUPPORT_PHONE_DISPLAY}`);
       });
     } else if (action === 'chat') {
       // Open the real chat tab rather than a dead confirmation dialog.
@@ -267,7 +270,7 @@ const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
               <MaterialCommunityIcons name="phone-outline" size={20} color={PATIENT.primary} />
             </View>
             <View style={s.contactInfo}>
-              <Text style={s.contactValue}>{SUPPORT_PHONE}</Text>
+              <Text style={s.contactValue}>{SUPPORT_PHONE_DISPLAY}</Text>
               <Text style={s.contactSub}>Mon–Fri, 9am – 5pm IST</Text>
             </View>
           </TouchableOpacity>
