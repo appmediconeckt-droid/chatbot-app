@@ -3,8 +3,6 @@ import { useTranslation } from 'react-i18next';
 import useLanguageRender from '../../../../../hooks/useLanguageRender';
 import {
   View,
-  Text,
-  TextInput,
   ScrollView,
   TouchableOpacity,
   Image,
@@ -24,6 +22,8 @@ import {
   Pressable,
   BackHandler,
 } from "react-native";
+import TextInput from '../../../../../components/TranslatedTextInput';
+import Text from '../../../../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, useIsFocused } from "@react-navigation/native";

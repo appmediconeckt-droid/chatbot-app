@@ -1,21 +1,23 @@
 // import React, { useState, useEffect, useRef, useCallback } from 'react';
 // import {
-//   View,
-//   Text,
-//   TextInput,
-//   TouchableOpacity,
-//   StyleSheet,
-//   ScrollView,
-//   KeyboardAvoidingView,
-//   Platform,
-//   Modal,
-//   ActivityIndicator,
-//   SafeAreaView,
-//   StatusBar,
-//   Image,
-//   useWindowDimensions,
-//   Animated,
+  //   View,
+  //   Text,
+  //   TextInput,
+  //   TouchableOpacity,
+  //   StyleSheet,
+  //   ScrollView,
+  //   KeyboardAvoidingView,
+  //   Platform,
+  //   Modal,
+  //   ActivityIndicator,
+  //   SafeAreaView,
+  //   StatusBar,
+  //   Image,
+  //   useWindowDimensions,
+  //   Animated,
+//,
 // } from 'react-native';
+// import Text from '../../components/TranslatedText';
 // import AsyncStorage from '@react-native-async-storage/async-storage';
 // import axios from 'axios';
 // import { API_BASE_URL } from '../../axiosConfig';
@@ -580,8 +582,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -594,6 +594,8 @@ import {
   useWindowDimensions,
   Animated,
 } from 'react-native';
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';

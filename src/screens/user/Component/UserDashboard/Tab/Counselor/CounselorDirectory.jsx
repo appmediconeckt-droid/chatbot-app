@@ -2,8 +2,6 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   View,
-  Text,
-  TextInput,
   FlatList,
   TouchableOpacity,
   Image,
@@ -18,6 +16,8 @@ import {
   Alert,
   KeyboardAvoidingView,
 } from "react-native";
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import useLanguageRender from "../../../../../../hooks/useLanguageRender";
 import TranslatedMessageBubble from "../../../../../../components/TranslatedMessageBubble";
 import AsyncStorage from "@react-native-async-storage/async-storage";

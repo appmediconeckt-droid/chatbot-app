@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  Text,
   TouchableOpacity,
   StyleSheet,
   Animated,
@@ -11,6 +10,7 @@ import {
   StatusBar,
   ScrollView,
 } from 'react-native';
+import Text from '../../components/TranslatedText';
 import { PermissionsAndroid } from 'react-native';
 import { captureAndSendLocation } from '../../utils/locationHelper';
 import useLanguageRender from '../../hooks/useLanguageRender';

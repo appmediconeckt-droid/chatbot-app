@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Modal,
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import TextInput from '../../../components/TranslatedTextInput';
+import Text from '../../../components/TranslatedText';
 import axios from 'axios';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';

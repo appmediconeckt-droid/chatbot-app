@@ -1,14 +1,14 @@
 import React, { useState } from "react";
 import {
   View,
-  Text,
   Modal,
-  TextInput,
   TouchableOpacity,
   Image,
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
+import TextInput from './TranslatedTextInput';
+import Text from './TranslatedText';
 import LinearGradient from "react-native-linear-gradient";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import StarRating from "./StarRating";

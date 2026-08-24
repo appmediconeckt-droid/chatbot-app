@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
   View,
-  Text,
-  TextInput,
   ScrollView,
   TouchableOpacity,
   TouchableWithoutFeedback,
@@ -17,6 +15,8 @@ import {
   Linking,
   Alert,
 } from "react-native";
+import TextInput from '../../../../components/TranslatedTextInput';
+import Text from '../../../../components/TranslatedText';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Ionicons from "react-native-vector-icons/Ionicons";

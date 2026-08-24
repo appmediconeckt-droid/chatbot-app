@@ -4,7 +4,6 @@ import TranslatedMessageBubble from '../../../../../../components/TranslatedMess
 import { useNavigation } from '@react-navigation/native';
 import {
   View,
-  Text,
   Image,
   ScrollView,
   TouchableOpacity,
@@ -16,9 +15,10 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
-  TextInput,
   ActivityIndicator,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Feather from 'react-native-vector-icons/Feather';

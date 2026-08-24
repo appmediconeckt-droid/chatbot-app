@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   TouchableOpacity,
-  TextInput,
   StyleSheet,
   StatusBar,
   Switch,
   Image,
 } from 'react-native';
+import TextInput from '../../../../components/TranslatedTextInput';
+import Text from '../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';

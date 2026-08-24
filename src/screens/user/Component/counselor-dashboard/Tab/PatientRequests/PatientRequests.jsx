@@ -6,13 +6,13 @@ import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
   Alert,
   Dimensions,
 } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 
 const { width: screenWidth } = Dimensions.get('window');
 
