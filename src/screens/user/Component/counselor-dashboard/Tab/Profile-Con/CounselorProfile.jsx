@@ -55,6 +55,17 @@ const VERIFICATION_DOCUMENT_OPTIONS = [
 ];
 const ALLOWED_DOCUMENT_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/jpg', 'image/png'];
 
+const createBlankEmailChange = () => ({
+  sending: false,
+  sent: false,
+  verifying: false,
+  verified: false,
+  sentValue: null,
+  verifiedValue: null,
+  otp: '',
+  error: '',
+});
+
 const normalizeGender = (value) => {
   if (!value) return '';
   const v = String(value).trim().toLowerCase();
@@ -141,6 +152,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
 
   const [documents, setDocuments] = useState([]);
   const [selectedDocumentType, setSelectedDocumentType] = useState(null);
+  const [emailChange, setEmailChange] = useState(createBlankEmailChange);
 
   useEffect(() => {
     fetchCounselorProfile();
@@ -150,6 +162,34 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   useEffect(() => {
     if (startEditing) setIsEditing(true);
   }, [startEditing]);
+
+  const normalizedEditedEmail = String(editedData?.email || '').trim().toLowerCase();
+  const normalizedCurrentEmail = String(counselor?.email || '').trim().toLowerCase();
+  const isEmailDirty = () => normalizedEditedEmail !== normalizedCurrentEmail;
+  const emailReady =
+    !isEmailDirty() ||
+    (emailChange.verified && emailChange.verifiedValue === normalizedEditedEmail);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setEmailChange(createBlankEmailChange());
+      return;
+    }
+
+    if (
+      (emailChange.sent && emailChange.sentValue !== normalizedEditedEmail) ||
+      (emailChange.verified && emailChange.verifiedValue !== normalizedEditedEmail)
+    ) {
+      setEmailChange(createBlankEmailChange());
+    }
+  }, [
+    emailChange.sent,
+    emailChange.sentValue,
+    emailChange.verified,
+    emailChange.verifiedValue,
+    isEditing,
+    normalizedEditedEmail,
+  ]);
 
   const fetchStatsData = async () => {
     try {
@@ -391,6 +431,102 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     } catch (error) {
       console.error('Update profile error:', error);
       throw error;
+    }
+  };
+
+  const getAuthHeaders = async () => {
+    const accessToken =
+      (await AsyncStorage.getItem('accessToken')) ||
+      (await AsyncStorage.getItem('token'));
+    return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+  };
+
+  const sendEmailChangeOtp = async () => {
+    const newValue = normalizedEditedEmail;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newValue)) {
+      const msg = 'Please enter a valid email address';
+      setEmailChange(prev => ({ ...prev, error: msg }));
+      setError(msg);
+      return;
+    }
+
+    setEmailChange(prev => ({ ...prev, sending: true, error: '' }));
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      const headers = await getAuthHeaders();
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/profile-change/send-otp`,
+        { field: 'email', newValue },
+        { headers, timeout: 15000 },
+      );
+
+      if (!response.data?.success) {
+        throw new Error(response.data?.message || 'Failed to send verification OTP');
+      }
+
+      setEmailChange({
+        sending: false,
+        sent: true,
+        verifying: false,
+        verified: false,
+        sentValue: newValue,
+        verifiedValue: null,
+        otp: '',
+        error: '',
+      });
+      setSuccessMessage(response.data?.message || `OTP sent to ${newValue}`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to send verification OTP';
+      setEmailChange(prev => ({ ...prev, sending: false, error: msg }));
+      setError(msg);
+      Alert.alert('Verification Error', msg);
+    }
+  };
+
+  const verifyEmailChangeOtp = async () => {
+    const newValue = normalizedEditedEmail;
+    const otp = String(emailChange.otp || '').trim();
+    if (otp.length < 4) {
+      const msg = 'Please enter the OTP first';
+      setEmailChange(prev => ({ ...prev, error: msg }));
+      return;
+    }
+
+    setEmailChange(prev => ({ ...prev, verifying: true, error: '' }));
+    setError('');
+
+    try {
+      const headers = await getAuthHeaders();
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/profile-change/verify-otp`,
+        { field: 'email', newValue, otp },
+        { headers },
+      );
+
+      if (!response.data?.success) {
+        throw new Error(response.data?.message || 'Email verification failed');
+      }
+
+      setEmailChange({
+        sending: false,
+        sent: false,
+        verifying: false,
+        verified: true,
+        sentValue: null,
+        verifiedValue: newValue,
+        otp: '',
+        error: '',
+      });
+      setSuccessMessage('Email verified. Tap Save to update your profile.');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Email verification failed';
+      setEmailChange(prev => ({ ...prev, verifying: false, error: msg }));
+      setError(msg);
+      Alert.alert('Verification Error', msg);
     }
   };
 
@@ -657,6 +793,16 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       setError('Phone number must be 10 digits');
       return;
     }
+
+    if (!emailReady) {
+      const msg = emailChange.sent
+        ? 'Please enter and confirm the OTP sent to your new email before saving.'
+        : 'Please verify your new email before saving.';
+      setError(msg);
+      Alert.alert('Email Verification Required', msg);
+      return;
+    }
+
     try {
       setLoading(true);
       setError('');
@@ -758,6 +904,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       const response = await updateCounselorProfile(formData);
       if (response.data.success) {
         setSuccessMessage('Profile updated successfully!');
+        setEmailChange(createBlankEmailChange());
         await fetchCounselorProfile();
         await onProfileSaved?.();
         setIsEditing(false);
@@ -800,6 +947,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     setNewConsultationMode('');
     setShowDateOfBirthPicker(false);
     setNewCertification({ name: '', issueDate: '', expiryDate: '', issuedBy: '', document: null, documentName: '' });
+    setEmailChange(createBlankEmailChange());
     setIsEditing(false);
     setError('');
     setSuccessMessage('');
@@ -1071,7 +1219,81 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>{t('auth:email')}</Text>
                 {isEditing ? (
-                  <TextInput style={styles.input} value={editedData.email || ''} onChangeText={(v) => handleInputChange('email', v)} placeholder="Your email" placeholderTextColor="#9CA3AF" keyboardType="email-address" autoCapitalize="none" />
+                  <>
+                    <View style={styles.verifyRow}>
+                      <TextInput
+                        style={[styles.input, styles.verifyInput]}
+                        value={editedData.email || ''}
+                        onChangeText={(v) => handleInputChange('email', v)}
+                        placeholder="Your email"
+                        placeholderTextColor="#9CA3AF"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                      {isEmailDirty() && !emailChange.verified && (
+                        <TouchableOpacity
+                          onPress={sendEmailChangeOtp}
+                          style={[
+                            styles.verifyBtn,
+                            emailChange.sending && styles.verifyBtnDisabled,
+                          ]}
+                          disabled={emailChange.sending}
+                          activeOpacity={0.85}
+                        >
+                          {emailChange.sending ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <Text style={styles.verifyBtnText}>
+                              {emailChange.sent ? t('profile:resend', 'Resend') : t('profile:verify', 'Verify')}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      )}
+                      {emailChange.verified && (
+                        <View style={styles.verifiedBadge}>
+                          <Icon name="check-circle" size={18} color="#2563EB" />
+                          <Text style={styles.verifiedText}>{t('Verified')}</Text>
+                        </View>
+                      )}
+                    </View>
+                    {emailChange.sent && !emailChange.verified && (
+                      <View style={styles.otpRow}>
+                        <TextInput
+                          style={[styles.input, styles.otpInput]}
+                          value={emailChange.otp}
+                          onChangeText={(value) =>
+                            setEmailChange(prev => ({
+                              ...prev,
+                              otp: value.replace(/\D/g, '').slice(0, 6),
+                            }))
+                          }
+                          keyboardType="number-pad"
+                          maxLength={6}
+                          placeholder={t('6-digit OTP')}
+                          placeholderTextColor="#94A3B8"
+                        />
+                        <TouchableOpacity
+                          onPress={verifyEmailChangeOtp}
+                          style={[
+                            styles.verifyBtn,
+                            styles.confirmBtn,
+                            (emailChange.verifying || emailChange.otp.length < 4) && styles.verifyBtnDisabled,
+                          ]}
+                          disabled={emailChange.verifying || emailChange.otp.length < 4}
+                          activeOpacity={0.85}
+                        >
+                          {emailChange.verifying ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <Text style={styles.verifyBtnText}>{t('common:confirm')}</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                    {!!emailChange.error && (
+                      <Text style={styles.fieldErrorText}>{emailChange.error}</Text>
+                    )}
+                  </>
                 ) : (
                   <Text style={styles.detailValue}>{counselor.email || t('profile:notSpecified')}</Text>
                 )}
@@ -1459,7 +1681,15 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
           <TouchableOpacity onPress={handleCancel} style={styles.bottomCancelBtn} activeOpacity={0.85}>
             <Text style={styles.bottomCancelText}>{t('common:cancel')}</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleSave} style={styles.bottomSaveBtn} disabled={loading} activeOpacity={0.9}>
+          <TouchableOpacity
+            onPress={handleSave}
+            style={[
+              styles.bottomSaveBtn,
+              (loading || !emailReady) && styles.bottomSaveBtnDisabled,
+            ]}
+            disabled={loading || !emailReady}
+            activeOpacity={0.9}
+          >
             {loading ? (
               <ActivityIndicator size="small" color="#ffffff" />
             ) : (
@@ -1612,6 +1842,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.24,
     shadowRadius: 6,
     elevation: 4,
+  },
+  bottomSaveBtnDisabled: {
+    backgroundColor: '#94A3B8',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   bottomSaveText: {
     color: '#FFFFFF',
@@ -2109,6 +2344,69 @@ const styles = StyleSheet.create({
   },
   flexInput: {
     flex: 1,
+  },
+  verifyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  verifyInput: {
+    flex: 1,
+  },
+  verifyBtn: {
+    minHeight: 44,
+    minWidth: 86,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verifyBtnDisabled: {
+    backgroundColor: '#94A3B8',
+  },
+  confirmBtn: {
+    backgroundColor: '#1D4ED8',
+  },
+  verifyBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  verifiedBadge: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  verifiedText: {
+    color: '#2563EB',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  otpRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  otpInput: {
+    flex: 1,
+    textAlign: 'center',
+    letterSpacing: 4,
+    fontWeight: '800',
+  },
+  fieldErrorText: {
+    color: '#DC2626',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+    lineHeight: 16,
   },
 
   // Chips

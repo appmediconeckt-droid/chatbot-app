@@ -237,10 +237,6 @@ const IncomingCallModal = ({
               )}
             </View>
           </Animated.View>
-          <View style={styles.incomingEncryptedBadge}>
-            <Ionicons name="lock-closed" size={11} color={DOCTOR.primary} />
-            <Text style={styles.incomingEncryptedText}>{t('call:encrypted', 'ENCRYPTED')}</Text>
-          </View>
         </View>
 
         <View style={styles.incomingCallActions}>
@@ -4743,7 +4739,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   bottomNavItemActive: {
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "transparent",
   },
   bottomNavLabel: {
     fontSize: 10,
@@ -5541,25 +5537,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   incomingCallInitial: { color: "#FFFFFF", fontSize: 44, fontWeight: "700" },
-  incomingEncryptedBadge: {
-    position: "absolute",
-    bottom: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "#E7EEFE",
-    borderWidth: 1,
-    borderColor: "#D8E3FC",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  incomingEncryptedText: {
-    fontSize: 9.5,
-    fontWeight: "800",
-    color: DOCTOR.primary,
-    letterSpacing: 0.6,
-  },
   incomingCallActions: {
     flexDirection: "row",
     justifyContent: "center",

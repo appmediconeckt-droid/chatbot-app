@@ -18,7 +18,6 @@ import {
   Platform,
   TextInput,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -33,9 +32,10 @@ import CounselorPrivacyPolicy from './CounselorPrivacyPolicy';
 import CounselorWallet from '../Wallet/CounselorWallet';
 import LanguageSelector from '../../../../../../components/common/LanguageSelector';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import useKeyboardAwareScroll from '../../../../../../hooks/useKeyboardAwareScroll';
 
 const TERMS_URL = 'https://humaeli.com/terms-of-use/';
-const { width } = Dimensions.get('window');
+const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const isTablet = width >= 600;
 
 const useShimmer = () => {
@@ -78,10 +78,10 @@ const SettingsSkeleton = () => {
       {/* Search bar */}
       <Animated.View style={[skel.searchBar, { opacity }]} />
 
-      {/* Sections — mirror the live page: Account(3), Security(3), Privacy(2), Support(2) */}
-      <SkSection rows={3} />
-      <SkSection rows={3} />
+      {/* Sections — mirror the live page: Account(2), Security(3), Privacy(1), Support(2) */}
       <SkSection rows={2} />
+      <SkSection rows={3} />
+      <SkSection rows={1} />
       <SkSection rows={2} />
 
       {/* App version card */}
@@ -98,9 +98,6 @@ const SettingsSkeleton = () => {
     </View>
   );
 };
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
 const formatName = (full) => {
   if (!full) return '';
   const trimmed = String(full).trim();
@@ -125,6 +122,11 @@ const FEEDBACK_CATEGORIES = [
 
 const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }) => {
   const insets = useSafeAreaInsets();
+  const {
+    scrollRef: pwScrollRef,
+    keyboardInset: pwKeyboardInset,
+    scrollFocusedInputIntoView,
+  } = useKeyboardAwareScroll();
   const navigation = useNavigation();
   const { t } = useLanguageRender();
   const [counselor, setCounselor] = useState(null);
@@ -347,7 +349,6 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
 
   const handleNav = (id) => {
     if (id === 'profile') return onNavigate?.('profile');
-    if (id === 'payout') return setShowWallet(true);
     if (id === 'change_password') return openPwModal('change');
     if (id === 'add_password') return openPwModal('set');
     // App Lock manage screen: view status, set/change/remove the PIN, and the
@@ -358,15 +359,6 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     if (id === 'help') return setShowHelp(true);
     if (id === 'privacy') return setShowPrivacy(true);
     if (id === 'terms') return Linking.openURL(TERMS_URL);
-    if (id === 'delete_account')
-      return Alert.alert(
-        'Delete Account',
-        'This will permanently delete your account and all data. This action cannot be undone.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: () => {} },
-        ]
-      );
     if (id === 'feedback') {
       setFeedbackNotice({ type: '', msg: '' });
       return setFeedbackModal(true);
@@ -389,10 +381,6 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     counselor?.phoneNumber ||
     counselor?.phone ||
     'Personal & professional details';
-  const payoutSubtitle = counselor?.payoutAccount?.maskedNumber
-    ? `${counselor.payoutAccount.bankName || 'Bank'} •••• ${counselor.payoutAccount.maskedNumber}`
-    : 'Add a bank account for payouts';
-  const payoutBadge = counselor?.payoutAccount?.verified ? 'Verified' : null;
   const SECTIONS = [
     {
       title: t('settings:account'),
@@ -403,14 +391,6 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           iconBg: '#EFF6FF',
           iconColor: '#2563EB',
           label: t('counselor:profile'),
-          type: 'nav',
-        },
-        {
-          id: 'payout',
-          icon: 'credit-card',
-          iconBg: '#EFF6FF',
-          iconColor: '#2563EB',
-          label: t('settings:payoutAccount'),
           type: 'nav',
         },
         {
@@ -465,15 +445,6 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           label: t('settings:privacyPolicy'),
           type: 'nav',
         },
-        {
-          id: 'delete_account',
-          icon: 'trash-2',
-          iconBg: '#FEF2F2',
-          iconColor: '#EF4444',
-          label: t('settings:deleteAccount', 'Delete Account'),
-          danger: true,
-          type: 'nav',
-        },
       ],
     },
     {
@@ -507,6 +478,11 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         items: s.items.filter((it) => String(it.label).toLowerCase().includes(sq)),
       })).filter((s) => s.items.length > 0)
     : SECTIONS;
+  const passwordSheetMaxHeight = pwKeyboardInset
+    ? Math.max(260, SCREEN_HEIGHT - pwKeyboardInset - insets.top - 16)
+    : isTablet ? '80%' : '90%';
+  const passwordSheetBottomGap = Platform.OS === 'android' ? pwKeyboardInset : 0;
+  const passwordBodyBottomPadding = Math.max(insets.bottom + 20, pwKeyboardInset ? 44 : 20);
 
   return (
     <>
@@ -787,7 +763,16 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     {/* Password Modal */}
     <Modal statusBarTranslucent navigationBarTranslucent visible={pwModal} animationType="slide" transparent onRequestClose={() => setPwModal(false)}>
       <KeyboardAvoidingView style={pwStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={[pwStyles.sheet, { maxHeight: isTablet ? '80%' : '90%' }]}>
+        <View
+          style={[
+            pwStyles.sheet,
+            {
+              maxHeight: passwordSheetMaxHeight,
+              marginBottom: passwordSheetBottomGap,
+              paddingBottom: pwKeyboardInset ? 0 : Math.max(insets.bottom, 12),
+            },
+          ]}
+        >
           {/* Sheet header */}
           <View style={pwStyles.sheetHeader}>
             <View>
@@ -804,9 +789,15 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           </View>
 
           <ScrollView
+            ref={pwScrollRef}
             bounces={false}
-            contentContainerStyle={[pwStyles.body, isTablet && { padding: 36, gap: 18 }]}
+            contentContainerStyle={[
+              pwStyles.body,
+              { paddingBottom: passwordBodyBottomPadding },
+              isTablet && { padding: 36, gap: 18, paddingBottom: passwordBodyBottomPadding },
+            ]}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
             showsVerticalScrollIndicator={false}
           >
             {/* Notice */}
@@ -844,6 +835,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                         style={pwStyles.input}
                         value={pwForm.otp}
                         onChangeText={(v) => setPw('otp', v)}
+                        onFocus={scrollFocusedInputIntoView}
                         keyboardType="number-pad"
                         maxLength={6}
                         placeholder="6-digit OTP"
@@ -887,7 +879,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:newPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.password} onChangeText={(v) => setPw('password', v)} secureTextEntry={!showNew} placeholder="Minimum 6 characters" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TextInput style={pwStyles.input} value={pwForm.password} onChangeText={(v) => setPw('password', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showNew} placeholder="Minimum 6 characters" placeholderTextColor="#94a3b8" autoCapitalize="none" />
                     <TouchableOpacity onPress={() => setShowNew((x) => !x)}><Feather name={showNew ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
                   </View>
                 </View>
@@ -895,7 +887,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:confirmPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.confirmPassword} onChangeText={(v) => setPw('confirmPassword', v)} secureTextEntry={!showConfirm} placeholder="Re-enter password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TextInput style={pwStyles.input} value={pwForm.confirmPassword} onChangeText={(v) => setPw('confirmPassword', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showConfirm} placeholder="Re-enter password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
                     <TouchableOpacity onPress={() => setShowConfirm((x) => !x)}><Feather name={showConfirm ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
                   </View>
                 </View>
@@ -914,7 +906,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:oldPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.oldPassword} onChangeText={(v) => setPw('oldPassword', v)} secureTextEntry={!showOld} placeholder="Enter current password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TextInput style={pwStyles.input} value={pwForm.oldPassword} onChangeText={(v) => setPw('oldPassword', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showOld} placeholder="Enter current password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
                     <TouchableOpacity onPress={() => setShowOld((x) => !x)}><Feather name={showOld ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
                   </View>
                 </View>
@@ -923,7 +915,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:newPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.newPassword} onChangeText={(v) => setPw('newPassword', v)} secureTextEntry={!showNew} placeholder="Minimum 6 characters" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TextInput style={pwStyles.input} value={pwForm.newPassword} onChangeText={(v) => setPw('newPassword', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showNew} placeholder="Minimum 6 characters" placeholderTextColor="#94a3b8" autoCapitalize="none" />
                     <TouchableOpacity onPress={() => setShowNew((x) => !x)}><Feather name={showNew ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
                   </View>
                 </View>
@@ -932,7 +924,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:confirmPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.confirmNewPassword} onChangeText={(v) => setPw('confirmNewPassword', v)} secureTextEntry={!showConfirm} placeholder="Re-enter new password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TextInput style={pwStyles.input} value={pwForm.confirmNewPassword} onChangeText={(v) => setPw('confirmNewPassword', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showConfirm} placeholder="Re-enter new password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
                     <TouchableOpacity onPress={() => setShowConfirm((x) => !x)}><Feather name={showConfirm ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
                   </View>
                 </View>
