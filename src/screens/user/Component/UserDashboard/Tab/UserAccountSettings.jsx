@@ -638,7 +638,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
 };
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9F9FF', paddingTop: 0, paddingBottom: 40 },
+  container: { flex: 1, backgroundColor: '#F9F9FF', paddingTop: 0 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
     height: 56,
