@@ -114,6 +114,9 @@ const CounselorSignup = ({ navigation, route }) => {
   const [deviceOtpSent, setDeviceOtpSent] = useState(false);
   const [isSendingDeviceOtp, setIsSendingDeviceOtp] = useState(false);
   const [isVerifyingDeviceOtp, setIsVerifyingDeviceOtp] = useState(false);
+  const [deviceOtpResendTimer, setDeviceOtpResendTimer] = useState(0);
+  const [isResendingDeviceOtp, setIsResendingDeviceOtp] = useState(false);
+  const resendingDeviceOtpRef = useRef(false);
 
   // Forgot Password popup
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -182,6 +185,16 @@ const CounselorSignup = ({ navigation, route }) => {
 
     return () => clearInterval(interval);
   }, [showOtpModal.show, otpResendTimer]);
+
+  useEffect(() => {
+    if (!showDeviceConflict || !deviceOtpSent || deviceOtpResendTimer <= 0) return undefined;
+
+    const interval = setInterval(() => {
+      setDeviceOtpResendTimer(prev => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [showDeviceConflict, deviceOtpSent, deviceOtpResendTimer]);
 
   const formatOtpTimer = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -258,6 +271,11 @@ const CounselorSignup = ({ navigation, route }) => {
       }
     } catch (err) {
       if (err?.response?.status === 409) {
+        setDeviceOtp('');
+        setDeviceOtpSent(false);
+        setDeviceOtpResendTimer(0);
+        setIsResendingDeviceOtp(false);
+        resendingDeviceOtpRef.current = false;
         setShowDeviceConflict(true);
         showNotification('Active session elsewhere', 'info');
       } else {
@@ -461,8 +479,10 @@ const CounselorSignup = ({ navigation, route }) => {
   const handleSendDeviceOtp = async () => {
     try {
       setIsSendingDeviceOtp(true);
+      setDeviceOtp('');
       await axiosInstance.post('/api/auth/logout-other-devices', { email: formData.email, role: 'counsellor' });
       setDeviceOtpSent(true);
+      setDeviceOtpResendTimer(OTP_RESEND_SECONDS);
       showNotification('OTP sent to email');
     } catch (err) {
       showNotification('Failed', 'error');
@@ -471,17 +491,40 @@ const CounselorSignup = ({ navigation, route }) => {
     }
   };
 
+  const handleResendDeviceOtp = async () => {
+    if (resendingDeviceOtpRef.current || deviceOtpResendTimer > 0) return;
+
+    try {
+      resendingDeviceOtpRef.current = true;
+      setIsResendingDeviceOtp(true);
+      setDeviceOtp('');
+      await axiosInstance.post('/api/auth/logout-other-devices', { email: formData.email, role: 'counsellor' });
+      setDeviceOtpResendTimer(OTP_RESEND_SECONDS);
+      showNotification('OTP resent to email');
+    } catch (err) {
+      showNotification('Failed to resend OTP', 'error');
+    } finally {
+      resendingDeviceOtpRef.current = false;
+      setIsResendingDeviceOtp(false);
+    }
+  };
+
   const handleVerifyDeviceOtp = async () => {
+    if (deviceOtp.trim().length !== 6) {
+      showNotification('Enter 6 digit OTP', 'error');
+      return;
+    }
+
     try {
       setIsVerifyingDeviceOtp(true);
       const response = await axiosInstance.post('/api/auth/verify-login-otp', {
         email: formData.email,
-        otp: deviceOtp,
+        otp: deviceOtp.trim(),
         logoutOthers: true,
         role: 'counsellor'
       });
       if (await persistCounselorSession(response.data)) {
-        setShowDeviceConflict(false);
+        closeDeviceConflictModal();
         // Device-conflict resolution is a login → location gate, then dashboard.
         navigation.replace('LocationGate', { destination: 'CounselorDashboard' });
       }
@@ -492,9 +535,19 @@ const CounselorSignup = ({ navigation, route }) => {
     }
   };
 
-  const showNotification = (message, type = 'success') => {
+  const closeDeviceConflictModal = () => {
+    setShowDeviceConflict(false);
+    setDeviceOtp('');
+    setDeviceOtpSent(false);
+    setDeviceOtpResendTimer(0);
+    setIsResendingDeviceOtp(false);
+    resendingDeviceOtpRef.current = false;
+  };
+
+  const showNotification = (message, type = 'success', duration) => {
+    const displayDuration = duration ?? (type === 'error' ? 8000 : 3000);
     setNotification({ show: true, message, type });
-    setTimeout(() => setNotification({ show: false, message: '', type: '' }), 3000);
+    setTimeout(() => setNotification({ show: false, message: '', type: '' }), displayDuration);
   };
 
   const handleChange = useCallback((name, value) => {
@@ -713,9 +766,8 @@ const CounselorSignup = ({ navigation, route }) => {
                         }, 600);
                       }}
                       onError={(msg) => {
-                        // CounselorSignup doesn't have a generic error toast,
-                        // so surface via Alert.
                         console.warn('[Google sign-in]', msg);
+                        showNotification(msg || 'Google sign-in failed', 'error');
                       }}
                     />
                   </Animated.View>
@@ -786,7 +838,68 @@ const CounselorSignup = ({ navigation, route }) => {
           navigationBarTranslucent
         >
           <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { borderTopWidth: 4, borderColor: '#004AC6' }]}><View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name="devices" size={40} color="#004AC6" /></View><Text style={styles.modalTitle}>{t('Switching Devices')}</Text><Text style={styles.modalSub}>{t('Counselor account active on another device. Logout there and continue here?')}</Text>{!deviceOtpSent ? (<TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6' }]} onPress={handleSendDeviceOtp} disabled={isSendingDeviceOtp}>{isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Log out other device')}</Text>}</TouchableOpacity>) : (<View style={styles.otpWrapper}><TextInput style={styles.otpInput} value={deviceOtp} onChangeText={setDeviceOtp} placeholder={t('Enter OTP')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} /><TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6' }]} onPress={handleVerifyDeviceOtp} disabled={isVerifyingDeviceOtp}>{isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify & Takeover')}</Text>}</TouchableOpacity></View>)}<TouchableOpacity onPress={() => setShowDeviceConflict(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity></View>
+            <View style={[styles.modalContent, { borderTopWidth: 4, borderColor: '#004AC6' }]}>
+              <View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}>
+                <Icon name="devices" size={40} color="#004AC6" />
+              </View>
+              <Text style={styles.modalTitle}>{t('Switching Devices')}</Text>
+              <Text style={styles.modalSub}>{t('Counselor account active on another device. Logout there and continue here?')}</Text>
+              {!deviceOtpSent ? (
+                <TouchableOpacity
+                  style={[styles.modalActionBtn, isSendingDeviceOtp && styles.modalActionBtnDisabled]}
+                  onPress={handleSendDeviceOtp}
+                  disabled={isSendingDeviceOtp}
+                >
+                  {isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Log out other device')}</Text>}
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.otpWrapper}>
+                  <TextInput
+                    style={styles.otpInput}
+                    value={deviceOtp}
+                    onChangeText={(value) => setDeviceOtp(value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder={t('Enter OTP')}
+                    placeholderTextColor="#94a3b8"
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    autoFocus
+                  />
+                  <View style={styles.otpResendRow}>
+                    {deviceOtpResendTimer > 0 ? (
+                      <Text style={styles.otpTimerText}>
+                        {t('Resend OTP in')} {formatOtpTimer(deviceOtpResendTimer)}
+                      </Text>
+                    ) : (
+                      <Text style={styles.otpTimerText}>{t("Didn't receive code?")}</Text>
+                    )}
+                    <TouchableOpacity
+                      onPress={handleResendDeviceOtp}
+                      disabled={deviceOtpResendTimer > 0 || isResendingDeviceOtp}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text
+                        style={[
+                          styles.otpResendText,
+                          (deviceOtpResendTimer > 0 || isResendingDeviceOtp) && styles.otpResendTextDisabled,
+                        ]}
+                      >
+                        {isResendingDeviceOtp ? t('Sending...') : t('Resend OTP')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.modalActionBtn, isVerifyingDeviceOtp && styles.modalActionBtnDisabled]}
+                    onPress={handleVerifyDeviceOtp}
+                    disabled={isVerifyingDeviceOtp}
+                  >
+                    {isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify & Takeover')}</Text>}
+                  </TouchableOpacity>
+                </View>
+              )}
+              <TouchableOpacity onPress={closeDeviceConflictModal} style={styles.cancelBtn}>
+                <Text style={styles.cancelText}>{t('Cancel')}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </Modal>
         {notification.show && (<Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#004AC6' : '#004AC6' }]}><Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color="#fff" /><Text style={styles.notificationText}>{notification.message}</Text></Animated.View>)}

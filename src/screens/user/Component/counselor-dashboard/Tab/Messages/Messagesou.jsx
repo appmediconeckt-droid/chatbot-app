@@ -137,6 +137,19 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
   const navigation = useNavigation();
   const socketRef = useRef(null);
 
+  const handleCompleteProfilePress = useCallback(() => {
+    if (typeof onCompleteProfile === 'function') {
+      onCompleteProfile();
+      return;
+    }
+
+    navigation.navigate('CounselorDashboard', {
+      initialTab: 'profile',
+      profileStartEditing: true,
+      profileIntentAt: Date.now(),
+    });
+  }, [navigation, onCompleteProfile]);
+
   const handleSessionExpired = useCallback(() => {
     AsyncStorage.multiRemove(['token', 'accessToken', 'userData']);
     navigation.replace('RoleSelector', {
@@ -507,7 +520,7 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
             ))}
           </View>
 
-          <CounselorGradientButton onPress={onCompleteProfile} style={styles.completeProfileBtn}>
+          <CounselorGradientButton onPress={handleCompleteProfilePress} style={styles.completeProfileBtn}>
             <Text style={styles.completeProfileText}>Complete Profile</Text>
             <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
           </CounselorGradientButton>

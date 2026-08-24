@@ -22,7 +22,7 @@ import {
   Dimensions,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useIsFocused, useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation, useRoute } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios, { API_BASE_URL } from "../../../../../axiosConfig";
 import { getAuthToken, getCounsellorId } from "../../../../auth/authUtils";
@@ -820,7 +820,9 @@ export default function CounselorDashboard() {
   const mobileBottomNavHeight = (Platform.OS === 'ios' ? 84 : 66) + dashboardBottomInset;
   const mobileBottomNavPaddingBottom = (Platform.OS === 'ios' ? 24 : 8) + dashboardBottomInset;
   const isFocused = useIsFocused();
+  const route = useRoute();
   const [activeTab, setActiveTab] = useState("messages");
+  const [profileEntryMode, setProfileEntryMode] = useState("view");
   // Visited tabs, most recent last. Drives back navigation between tabs.
   const tabHistoryRef = useRef([]);
   // True while showing a tab that was opened from the mobile menu.
@@ -1879,83 +1881,92 @@ export default function CounselorDashboard() {
     }
   };
 
-  // Fetch Counselor Data
-  useEffect(() => {
-    const fetchCounsellor = async () => {
+  const fetchCounsellor = useCallback(async () => {
+    try {
+      const storedCounsellorId =
+        (await AsyncStorage.getItem("counsellorId")) ||
+        (await AsyncStorage.getItem("counselorId"));
+      if (!storedCounsellorId) {
+        setLoading(false);
+        return;
+      }
+      setCounsellorId(storedCounsellorId);
+      const token =
+        (await AsyncStorage.getItem("accessToken")) ||
+        (await AsyncStorage.getItem("token"));
+      const res = await axios.get(
+        `${API_BASE_URL}/api/auth/me`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      const data = res.data?.user || res.data?.counsellor;
+      if (!data) {
+        throw new Error("Counsellor profile not found");
+      }
+      // Was a hand-rolled chain that checked string / .url / .publicId but NOT
+      // .secure_url - which is what Cloudinary actually returns, so the header
+      // avatar came out null while the profile page (using this same helper)
+      // showed the photo fine.
+      const profilePhotoUrl = toImageUri(data.profilePhoto) || null;
+      const missingFields = [];
+      if (!data.specialization || (Array.isArray(data.specialization) && data.specialization.length === 0)) missingFields.push('Specialization');
+      if (!data.experience) missingFields.push('Experience');
+      if (!data.qualification && !data.education) missingFields.push('Qualification');
+      if (!data.location) missingFields.push('Location');
+
+      // Fetch accepted chats count for patient count
+      let acceptedChatsCount = 0;
       try {
-        const storedCounsellorId =
-          (await AsyncStorage.getItem("counsellorId")) ||
-          (await AsyncStorage.getItem("counselorId"));
-        if (!storedCounsellorId) {
-          setLoading(false);
-          return;
-        }
-        setCounsellorId(storedCounsellorId);
-        const token =
-          (await AsyncStorage.getItem("accessToken")) ||
-          (await AsyncStorage.getItem("token"));
-        const res = await axios.get(
-          `${API_BASE_URL}/api/auth/counsellors/${storedCounsellorId}`,
+        const chatsRes = await axios.get(
+          `${API_BASE_URL}/api/chat/chats`,
           { headers: token ? { Authorization: `Bearer ${token}` } : {} }
         );
-        const data = res.data?.counsellor;
-        // Was a hand-rolled chain that checked string / .url / .publicId but NOT
-        // .secure_url - which is what Cloudinary actually returns, so the header
-        // avatar came out null while the profile page (using this same helper)
-        // showed the photo fine.
-        const profilePhotoUrl = toImageUri(data.profilePhoto) || null;
-        const missingFields = [];
-        if (!data.specialization || (Array.isArray(data.specialization) && data.specialization.length === 0)) missingFields.push('Specialization');
-        if (!data.experience) missingFields.push('Experience');
-        if (!data.qualification && !data.education) missingFields.push('Qualification');
-        if (!data.location) missingFields.push('Location');
-
-        // Fetch accepted chats count for patient count
-        let acceptedChatsCount = 0;
-        try {
-          const chatsRes = await axios.get(
-            `${API_BASE_URL}/api/chat/chats`,
-            { headers: token ? { Authorization: `Bearer ${token}` } : {} }
-          );
-          const chats = chatsRes.data?.chats || [];
-          acceptedChatsCount = chats.filter(
-            (c) => String(c.status || "").toLowerCase() === "accepted"
-          ).length;
-        } catch (e) {
-          // non-critical — keep 0
-        }
-
-        setCounselorData({
-          name: data.fullName || data.name,
-          specialization: Array.isArray(data.specialization)
-            ? data.specialization.join(", ")
-            : data.specialization,
-          experience: parseInt(data.experience) || null,
-          patients: acceptedChatsCount,
-          rating: data.rating || 4.5,
-          email: data.email,
-          phoneNumber: data.phoneNumber,
-          license: "N/A",
-          education: data.qualification || data.education,
-          university: "N/A",
-          hourlyRate: 0,
-          languages: data.languages || [],
-          specializations: data.specialization || [],
-          aboutMe: data.aboutMe,
-          location: data.location,
-          consultationMode: data.consultationMode,
-          profilePhoto: profilePhotoUrl,
-          profileCompleted: data.profileCompleted === true,
-          missingFields,
-        });
-      } catch (error) {
-        console.error("Error fetching counsellor:", error);
-      } finally {
-        setLoading(false);
+        const chats = chatsRes.data?.chats || [];
+        acceptedChatsCount = chats.filter(
+          (c) => String(c.status || "").toLowerCase() === "accepted"
+        ).length;
+      } catch (e) {
+        // non-critical - keep 0
       }
-    };
-    fetchCounsellor();
+
+      setCounselorData({
+        name: data.fullName || data.name,
+        specialization: Array.isArray(data.specialization)
+          ? data.specialization.join(", ")
+          : data.specialization,
+        experience: parseInt(data.experience) || null,
+        patients: acceptedChatsCount,
+        rating: data.rating || 4.5,
+        email: data.email,
+        phoneNumber: data.phoneNumber,
+        license: "N/A",
+        education: data.qualification || data.education,
+        university: "N/A",
+        hourlyRate: 0,
+        languages: data.languages || [],
+        specializations: data.specialization || [],
+        aboutMe: data.aboutMe,
+        location: data.location,
+        consultationMode: data.consultationMode,
+        profilePhoto: profilePhotoUrl,
+        profileCompleted: data.profileCompleted === true,
+        missingFields,
+      });
+    } catch (error) {
+      console.error("Error fetching counsellor:", error);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  // Fetch Counselor Data
+  useEffect(() => {
+    fetchCounsellor();
+  }, [fetchCounsellor]);
+
+  const handleProfileSaved = useCallback(async () => {
+    await fetchCounsellor();
+    setProfileEntryMode('view');
+  }, [fetchCounsellor]);
 
   // Reload counselor's language whenever this dashboard gains focus
   useEffect(() => {
@@ -2013,7 +2024,12 @@ export default function CounselorDashboard() {
     { id: "settings", icon: "sliders", label: t('settings:settings'), badge: 0 },
   ];
 
-  const handleTabChange = (tabId, fromMenu = false) => {
+  const handleTabChange = (tabId, fromMenu = false, options = {}) => {
+    if (tabId === 'profile') {
+      setProfileEntryMode(options.startEditing ? 'complete' : 'view');
+    } else {
+      setProfileEntryMode('view');
+    }
     menuViaBackRef.current = false;
     if (tabId === activeTab) { setShowMobileMenu(false); return; }
     vibrate(80);
@@ -2025,6 +2041,13 @@ export default function CounselorDashboard() {
     setActiveTab(tabId);
     setShowMobileMenu(false);
   };
+
+  useEffect(() => {
+    if (route.params?.initialTab !== 'profile') return;
+
+    setProfileEntryMode(route.params?.profileStartEditing ? 'complete' : 'view');
+    setActiveTab('profile');
+  }, [route.params?.initialTab, route.params?.profileStartEditing, route.params?.profileIntentAt]);
 
   // One step back through the tab history.
   const handleDashboardBack = () => {
@@ -2498,11 +2521,16 @@ export default function CounselorDashboard() {
             counselorData={counselorData}
             notifCount={pendingRequests.length}
             onBellPress={() => setShowNotifications(true)}
-            onCompleteProfile={() => handleTabChange('profile')}
+            onCompleteProfile={() => handleTabChange('profile', false, { startEditing: true })}
           />
         );
       case "profile":
-        return <CounselorProfile />;
+        return (
+          <CounselorProfile
+            startEditing={profileEntryMode === 'complete'}
+            onProfileSaved={handleProfileSaved}
+          />
+        );
       case "settings":
         return (
           <CounselorSettings
@@ -2518,7 +2546,7 @@ export default function CounselorDashboard() {
             counselorData={counselorData}
             notifCount={pendingRequests.length}
             onBellPress={() => setShowNotifications(true)}
-            onCompleteProfile={() => handleTabChange('profile')}
+            onCompleteProfile={() => handleTabChange('profile', false, { startEditing: true })}
           />
         );
     }
@@ -3017,31 +3045,6 @@ export default function CounselorDashboard() {
             { flexDirection: 'column' },
           ]}
         >
-          {/* Profile incomplete banner */}
-          {activeTab !== 'messages' && counselorData && !counselorData.profileCompleted && (
-            <TouchableOpacity
-              style={profileBanner.wrap}
-              onPress={() => handleTabChange('profile')}
-              activeOpacity={0.85}
-            >
-              <View style={profileBanner.left}>
-                <View style={profileBanner.iconWrap}>
-                  <Icon name="exclamation-triangle" size={16} color="#92400e" />
-                </View>
-                <View style={profileBanner.textWrap}>
-                  <Text style={profileBanner.title}>Complete your profile to appear in the directory</Text>
-                  {counselorData.missingFields && counselorData.missingFields.length > 0 && (
-                    <Text style={profileBanner.missing}>
-                      Missing: {counselorData.missingFields.join(' · ')}
-                    </Text>
-                  )}
-                </View>
-              </View>
-              <View style={profileBanner.btn}>
-                <Text style={profileBanner.btnText}>Complete Now</Text>
-              </View>
-            </TouchableOpacity>
-          )}
           <View style={{ flex: 1 }}>
             {renderTabContent()}
           </View>
@@ -4159,46 +4162,6 @@ const aptStyles = StyleSheet.create({
 });
 
 // â”€â”€â”€ Main Styles (unchanged from original) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const profileBanner = StyleSheet.create({
-  wrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#F0F9FF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#BAE6FD',
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    gap: 10,
-  },
-  left: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10 },
-  iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: '#E0F2FE',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  textWrap: { flex: 1 },
-  title: { fontSize: 12, fontWeight: '700', color: '#1E3A8A', lineHeight: 17 },
-  missing: { fontSize: 11, color: '#2563EB', marginTop: 2 },
-  btn: {
-    backgroundColor: '#2563EB',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    flexShrink: 0,
-    shadowColor: '#2563EB',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  btnText: { fontSize: 11, fontWeight: '700', color: '#ffffff' },
-});
-
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
