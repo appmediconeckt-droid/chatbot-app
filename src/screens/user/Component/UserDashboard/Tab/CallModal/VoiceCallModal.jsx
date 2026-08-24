@@ -338,15 +338,6 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
 
         <Text style={[styles.callerName, { color: t.brand }]} numberOfLines={1}>{displayName}</Text>
 
-        <View style={styles.badgeRow}>
-          <View style={styles.badgeAudio}>
-            <Text style={styles.badgeAudioText}>{tr('HD AUDIO')}</Text>
-          </View>
-          <View style={[styles.badgeSecure, { backgroundColor: t.tint }]}>
-            <Text style={[styles.badgeSecureText, { color: t.brand }]}>{tr('ENCRYPTED')}</Text>
-          </View>
-        </View>
-
         <View style={styles.timerRow}>
           {isConnecting ? (
             <ActivityIndicator size="small" color={t.brand} />
@@ -459,15 +450,6 @@ const VoiceConnectingPreview = ({ onHangup, callerName, callerProfilePic, isCoun
         </View>
 
         <Text style={[styles.callerName, { color: theme.brand }]} numberOfLines={1}>{displayName}</Text>
-
-        <View style={styles.badgeRow}>
-          <View style={styles.badgeAudio}>
-            <Text style={styles.badgeAudioText}>{tr('HD AUDIO')}</Text>
-          </View>
-          <View style={[styles.badgeSecure, { backgroundColor: theme.tint }]}>
-            <Text style={[styles.badgeSecureText, { color: theme.brand }]}>{tr('ENCRYPTED')}</Text>
-          </View>
-        </View>
 
         <View style={styles.timerRow}>
           <ActivityIndicator size="small" color={theme.brand} />
@@ -981,35 +963,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     maxWidth: '82%',
     textAlign: 'center',
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 16,
-  },
-  badgeAudio: {
-    backgroundColor: '#EEF2F7',
-    paddingHorizontal: 11,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  badgeAudioText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#64748b',
-    letterSpacing: 0.5,
-  },
-  badgeSecure: {
-    backgroundColor: '#E6F6EC',
-    paddingHorizontal: 11,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  badgeSecureText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#00652C',
-    letterSpacing: 0.5,
   },
   timerRow: {
     flexDirection: 'row',
