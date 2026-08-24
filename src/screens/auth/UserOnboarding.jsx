@@ -38,7 +38,7 @@ const OnboardingPage1 = () => {
     <OnboardingHero source={require('../../public/user1.png')} />
     <Text style={s.title}>{t('Your Safe Space to Talk')}</Text>
     <Text style={s.description}>
-      Connect with trusted counselors in a private, secure environment designed to support your mental well-being.
+      Connect with trusted consultants in a private, secure environment designed to support your mental well-being.
     </Text>
   </View>
 );
@@ -49,9 +49,9 @@ const OnboardingPage2 = () => {
   return (
     <View style={s.page}>
       <OnboardingHero source={require('../../public/user2.png')} />
-      <Text style={s.title}>{t('Find the Right Counselor')}</Text>
+      <Text style={s.title}>{t('Find the Right Consultant')}</Text>
       <Text style={s.description}>
-        Browse experienced counselors based on specialty, language, availability, consultation type, and reviews.
+        Browse experienced consultants based on specialty, language, availability, consultation type, and reviews.
       </Text>
     </View>
 );
@@ -69,7 +69,7 @@ const OnboardingPage3 = () => {
     </View>
     <Text style={s.title}>{t('Your AI Wellness Companion')}</Text>
     <Text style={s.description}>
-      Get instant emotional support, wellness tips, and guidance anytime before connecting with a counselor.
+      Get instant emotional support, wellness tips, and guidance anytime before connecting with a consultant.
     </Text>
 
     <View style={s.aiChatBox}>
@@ -112,7 +112,7 @@ const OnboardingPage4 = () => {
 
     <Text style={s.title}>{t('Book, Chat & Heal')}</Text>
     <Text style={s.description}>
-      Schedule appointments, join secure video sessions, chat with counselors, and track your wellness journey—all in one place.
+      Schedule appointments, join secure video sessions, chat with consultants, and track your wellness journey—all in one place.
     </Text>
 
     <View style={s.featuresList}>

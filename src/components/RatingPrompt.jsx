@@ -24,7 +24,7 @@ const RatingPrompt = ({ triggerKey }) => {
     if (result?.showPopup && result?.counselorId) {
       setTarget({
         counselorId: result.counselorId,
-        counselorName: result.counselorName || "your counselor",
+        counselorName: result.counselorName || "your consultant",
         counselorPhoto: result.counselorPhoto || null,
       });
       setSuccess(false);

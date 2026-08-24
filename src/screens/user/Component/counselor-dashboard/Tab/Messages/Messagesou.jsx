@@ -464,7 +464,7 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
           <Text style={styles.onboardingEyebrow}>WELCOME TO HUMAELI</Text>
           <Text style={styles.onboardingTitle}>Complete your professional profile</Text>
           <Text style={styles.onboardingDescription}>
-            Complete your profile to appear in the counselor directory and start receiving consultation requests.
+            Complete your profile to appear in the consultant directory and start receiving consultation requests.
           </Text>
 
           <View style={styles.profileChecklist}>

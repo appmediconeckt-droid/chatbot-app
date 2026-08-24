@@ -23,7 +23,7 @@ const Appointments = ({ navigation }) => {
     {
       id: 1,
       counselor: 'Dr. Emily Chen',
-      specialization: 'Mental Health Counselor',
+      specialization: 'Mental Health Consultant',
       date: '2026-07-25',
       time: '2:30 PM',
       type: 'Video Call',

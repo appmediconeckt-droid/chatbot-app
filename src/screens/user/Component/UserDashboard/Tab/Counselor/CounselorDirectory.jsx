@@ -67,7 +67,7 @@ const AVAIL_STATUS_META = {
 };
 
 // Utility Functions
-const getInitials = (name = "Counselor") =>
+const getInitials = (name = "Consultant") =>
   name
     .split(" ")
     .filter(Boolean)
@@ -204,7 +204,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
         
         return {
           id: c._id || c.id || index.toString(),
-          name: c.fullName || c.name || "Counselor",
+          name: c.fullName || c.name || "Consultant",
           specialization: Array.isArray(c.specialization) ? c.specialization.join(", ") : (c.specialization || "General"),
           experience: c.experience || 0,
           // Real aggregate rating from the backend (0 when not yet rated).
@@ -245,7 +245,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       
     } catch (err) {
       console.error("Failed to fetch counselors:", err);
-      setError(err.response?.data?.message || "Unable to load counselors right now. Please check your connection.");
+      setError(err.response?.data?.message || "Unable to load consultants right now. Please check your connection.");
     } finally {
       setIsLoading(false);
     }
@@ -369,7 +369,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
   const handleSendChatRequest = async () => {
     if (!selectedCounselor) return;
     if (!selectedCounselor.profileCompleted) {
-      Alert.alert("Counselor Unavailable", "This counselor profile is not complete yet.");
+      Alert.alert("Consultant Unavailable", "This consultant profile is not complete yet.");
       setShowChatModal(false);
       resetChatForm();
       return;
@@ -481,9 +481,9 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       } else if (error.response?.data?.reason === "counselor_unavailable") {
         // Counselor has marked themselves Busy or Offline.
         Alert.alert(
-          "Counselor Unavailable",
+          "Consultant Unavailable",
           error.response.data.error ||
-            "This counselor is not available right now. Please try again later."
+            "This consultant is not available right now. Please try again later."
         );
       } else if (error.response?.data?.status === "pending") {
         // Request already sent and waiting for the counselor to accept — not an error.
@@ -509,7 +509,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
   // Book appointment - Handle success properly
   const handleConfirmBooking = async () => {
     if (!selectedCounselor?.profileCompleted) {
-      Alert.alert("Counselor Unavailable", "This counselor profile is not complete yet.");
+      Alert.alert("Consultant Unavailable", "This consultant profile is not complete yet.");
       setShowBookingModal(false);
       resetBookingForm();
       return;
@@ -546,7 +546,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       if (response.data._id || response.data.success || response.data.message === "Appointment booked successfully") {
         Alert.alert(
           "Success",
-          "Appointment booked successfully! The counselor has been notified.",
+          "Appointment booked successfully! The consultant has been notified.",
           [{ 
             text: "OK", 
             onPress: () => {
@@ -585,7 +585,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
   };
 
   const renderCounselorCard = ({ item: counselor }) => {
-    const name = counselor.name || "Counselor";
+    const name = counselor.name || "Consultant";
     const location = counselor.location || "Online";
     const hasImageError = imageErrors[counselor.id];
     const profilePhotoUrl = !hasImageError ? counselor.profilePhoto : null;
@@ -623,7 +623,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                 style={styles.ratingRow}
               />
             ) : (
-              <Text style={styles.newBadgeText}>✨ New counselor</Text>
+              <Text style={styles.newBadgeText}>✨ New consultant</Text>
             )}
             {location !== "Online" && (
               <Text style={styles.locationText}>📍 {location}</Text>
@@ -697,7 +697,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#6366F1" />
-        <Text style={styles.loadingText}>Loading counselors...</Text>
+        <Text style={styles.loadingText}>Loading consultants...</Text>
       </View>
     );
   }
@@ -781,7 +781,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
               {(searchTerm || searchLocation || selectedCategory !== "all") && (
                 <View style={styles.filterStats}>
                   <Text style={styles.filterCount}>
-                    Found {filteredAndSortedCounselors.length} counselor(s)
+                    Found {filteredAndSortedCounselors.length} consultant(s)
                   </Text>
                   <TouchableOpacity onPress={() => {
                     setSearchTerm("");
@@ -844,7 +844,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
             {filteredAndSortedCounselors.length === 0 && !error && (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyIcon}>🔍</Text>
-                <Text style={styles.emptyTitle}>No counselors found</Text>
+                <Text style={styles.emptyTitle}>No consultants found</Text>
                 <Text style={styles.emptyText}>Try adjusting your search or filter</Text>
                 <TouchableOpacity style={styles.resetButton} onPress={() => {
                   setSearchTerm("");
@@ -919,7 +919,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                 </View>
                 <View style={styles.infoRow}>
                   <Text style={styles.infoIcon}>✅</Text>
-                  <Text style={styles.infoText}>Counselor will be notified instantly</Text>
+                  <Text style={styles.infoText}>Consultant will be notified instantly</Text>
                 </View>
               </View>
 
@@ -965,7 +965,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                 <View style={styles.userInfoDetails}>
                   <Text style={styles.userInfoLabel}>You are chatting anonymously as:</Text>
                   <Text style={styles.userInfoName}>{userAnonymous || "Anonymous"}</Text>
-                  <Text style={styles.userInfoNote}>This anonymous name will be shown to the counselor</Text>
+                  <Text style={styles.userInfoNote}>This anonymous name will be shown to the consultant</Text>
                 </View>
               </View>
 
@@ -1007,7 +1007,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
               <View style={styles.infoBox}>
                 <View style={styles.infoRow}>
                   <Text style={styles.infoIcon}>⏳</Text>
-                  <Text style={styles.infoText}>Sends a request to the counselor</Text>
+                  <Text style={styles.infoText}>Sends a request to the consultant</Text>
                 </View>
                 <View style={styles.infoRow}>
                   <Text style={styles.infoIcon}>✅</Text>

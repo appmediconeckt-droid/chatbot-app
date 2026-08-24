@@ -1191,7 +1191,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             <MaterialIcons name="event-busy" size={40} color="#A7E3BE" />
             <Text style={styles.appointmentEmptyTitle}>{t('No appointments found')}</Text>
             <Text style={styles.appointmentEmptySubtitle}>
-              {t('Try changing filters or book a new session with a counselor.')}
+              {t('Try changing filters or book a new session with a consultant.')}
             </Text>
           </View>
         ) : (
@@ -1976,7 +1976,7 @@ export default function UserDashboard() {
 
       if (!currentUserId || !counselorId) {
         console.warn("Call aborted — missing ids:", { currentUserId, counselorId, apt });
-        Alert.alert("Error", "Missing user or counselor information");
+        Alert.alert("Error", "Missing user or consultant information");
         return;
       }
 
@@ -2447,7 +2447,7 @@ export default function UserDashboard() {
 
       Alert.alert(
         t('appointment:bookedSuccessfully', 'Appointment Booked'),
-        `Your appointment request was sent to ${directBookCounselor.fullName || directBookCounselor.name || 'the counselor'}.`
+        `Your appointment request was sent to ${directBookCounselor.fullName || directBookCounselor.name || 'the consultant'}.`
       );
       setShowDirectBookingModal(false);
       setDirectBookNotes('');
@@ -3244,7 +3244,7 @@ export default function UserDashboard() {
                 placeholderTextColor="#94a3b8"
               />
 
-              <Text style={styles.directBookingHint}>Sent to the counselor for confirmation.</Text>
+              <Text style={styles.directBookingHint}>Sent to the consultant for confirmation.</Text>
             </ScrollView>
 
             <View style={styles.directBookingActions}>

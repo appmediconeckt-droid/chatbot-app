@@ -324,7 +324,7 @@ const CounselorSignup = ({ navigation, route }) => {
 
       if (response.data?.success) {
         const hasSession = await persistCounselorSession(response.data);
-        showNotification(response.data.message || 'Counselor registered!');
+        showNotification(response.data.message || 'Consultant registered!');
 
         if (hasSession) {
           setTimeout(() => navigation.replace('LocationGate', { destination: 'CounselorDashboard' }), 1500);
@@ -693,7 +693,7 @@ const CounselorSignup = ({ navigation, route }) => {
                         <Icon name="camera-plus-outline" size={30} color="#004AC6" />
                       )}
                     </TouchableOpacity>
-                    <Text style={styles.photoLabel}>{t('Counselor Photo')}</Text>
+                    <Text style={styles.photoLabel}>{t('Consultant Photo')}</Text>
                   </Animated.View>
                 )} */}
                 <ScrollView
@@ -763,7 +763,7 @@ const CounselorSignup = ({ navigation, route }) => {
                       }}
                     />
                   </Animated.View>
-                  <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[16] }]}><Text style={styles.switchText}>{isLogin ? "New counselor?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#004AC6' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
+                  <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[16] }]}><Text style={styles.switchText}>{isLogin ? "New consultant?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#004AC6' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
                 </ScrollView>
               </Animated.View>
             </ScrollView>
@@ -814,7 +814,7 @@ const CounselorSignup = ({ navigation, route }) => {
                 onPress={handleVerifyOtp}
                 disabled={isVerifyingOtp || otpCode.length !== 6}
               >
-                {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Counselor')}</Text>}
+                {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Consultant')}</Text>}
               </TouchableOpacity>
               <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity>
             </View>
@@ -835,7 +835,7 @@ const CounselorSignup = ({ navigation, route }) => {
                 <Icon name="devices" size={40} color="#004AC6" />
               </View>
               <Text style={styles.modalTitle}>{t('Switching Devices')}</Text>
-              <Text style={styles.modalSub}>{t('Counselor account active on another device. Logout there and continue here?')}</Text>
+              <Text style={styles.modalSub}>{t('Consultant account active on another device. Logout there and continue here?')}</Text>
               {!deviceOtpSent ? (
                 <TouchableOpacity
                   style={[styles.modalActionBtn, isSendingDeviceOtp && styles.modalActionBtnDisabled]}

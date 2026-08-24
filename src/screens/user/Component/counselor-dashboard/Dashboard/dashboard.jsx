@@ -1091,7 +1091,7 @@ export default function CounselorDashboard() {
       return;
     }
     if (!storedCounsellorId) {
-      showToast("Missing counsellor ID. Please login again.", "error");
+      showToast("Missing consultant ID. Please login again.", "error");
       return;
     }
     if (!token) {
@@ -1174,7 +1174,7 @@ export default function CounselorDashboard() {
             callType: isVoice ? 'audio' : 'video',
             counsellorId: storedCounsellorId,
             userId: userId,
-            counsellorName: counselorData?.fullName || "Counselor"
+            counsellorName: counselorData?.fullName || "Consultant"
           });
         }
         
@@ -1298,7 +1298,7 @@ export default function CounselorDashboard() {
     try {
       const token = await getAuthToken();
       const userId = await getCounsellorId();
-      if (!userId) return { success: false, error: "No counsellor ID found" };
+      if (!userId) return { success: false, error: "No consultant ID found" };
       if (!token) return { success: false, error: "Session expired. Please login again." };
 
       const response = await axios.put(
@@ -1326,7 +1326,7 @@ export default function CounselorDashboard() {
     try {
       const token = await getAuthToken();
       const counsellorId = await getCounsellorId();
-      if (!counsellorId) return { success: false, error: "No counsellor ID found" };
+      if (!counsellorId) return { success: false, error: "No consultant ID found" };
       if (!token) return { success: false, error: "Session expired. Please login again." };
       const response = await axios.post(
         `${API_BASE_URL}/api/video/calls/${callId}/join`,
@@ -2094,10 +2094,10 @@ export default function CounselorDashboard() {
     const g = h < 12 ? 'Good Morning' : h < 17 ? t('Good Afternoon') : t('Good Evening');
     // First name only — surname is dropped (e.g. "Vivek Singh" → "Dr. Vivek").
     const firstNameOnly =
-      (counselorData?.name || 'Counselor')
+      (counselorData?.name || 'Consultant')
         .replace(/^Dr\.?\s*/i, '')
         .trim()
-        .split(/\s+/)[0] || 'Counselor';
+        .split(/\s+/)[0] || 'Consultant';
     return `${g}, Dr. ${firstNameOnly}`;
   })();
   if (loading) {
@@ -2161,11 +2161,11 @@ export default function CounselorDashboard() {
     const firstName = (
       (counselorData?.name || "").replace(/^Dr\.?\s*/i, "").split(" ")[0] ||
       counselorData?.name ||
-      "Counselor"
+      "Consultant"
     ).toUpperCase();
     const counselorPhoto = counselorData?.profilePhoto || null;
     const counselorInitial = (counselorData?.name || "C").charAt(0).toUpperCase();
-    const shortHeaderName = (counselorData?.name || "Counselor").replace(/^Dr\.?\s*/i, "").slice(0, 8);
+    const shortHeaderName = (counselorData?.name || "Consultant").replace(/^Dr\.?\s*/i, "").slice(0, 8);
 
     return (
       <ScrollView
@@ -2636,7 +2636,7 @@ export default function CounselorDashboard() {
 
                 {/* Name */}
                 <Text style={styles.profileName} numberOfLines={1}>
-                  {counselorData?.name || "Counselor"}
+                  {counselorData?.name || "Consultant"}
                 </Text>
 
                 {/* Specialization */}

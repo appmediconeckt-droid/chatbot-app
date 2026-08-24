@@ -624,9 +624,9 @@ const ChatInterface = ({ setActiveTab }) => {
         {searchTerm ? (
           <>
             <Ionicons name="search-outline" size={64} color="#cbd5e1" />
-            <Text style={styles.emptyTitle}>{t('messages:noCounselorsFound', 'No counselors found')}</Text>
+            <Text style={styles.emptyTitle}>{t('messages:noCounselorsFound', 'No consultants found')}</Text>
             <Text style={styles.emptyText}>
-              {t('messages:noCounselorsMatching', 'No counselors matching "{{term}}"', { term: searchTerm })}
+              {t('messages:noCounselorsMatching', 'No consultants matching "{{term}}"', { term: searchTerm })}
             </Text>
             <TouchableOpacity style={styles.clearButton} onPress={() => setSearchTerm('')}>
               <Text style={styles.clearButtonText}>{t('messages:clearSearch', 'Clear search')}</Text>
@@ -654,7 +654,7 @@ const ChatInterface = ({ setActiveTab }) => {
             <Text style={styles.emptyEyebrow}>{t('messages:welcomeSafeSpace', 'YOUR SAFE SPACE')}</Text>
             <Text style={styles.emptyTitle}>{t('messages:newUserChatTitle', 'Find someone who understands')}</Text>
             <Text style={styles.emptyText}>
-              {t('messages:newUserChatSubtitle', 'Explore counselor profiles and choose who feels right for you.')}
+              {t('messages:newUserChatSubtitle', 'Explore consultant profiles and choose who feels right for you.')}
             </Text>
 
             <View style={styles.emptyBenefits}>
@@ -680,7 +680,7 @@ const ChatInterface = ({ setActiveTab }) => {
               onPress={handleStartNewChat}
             >
               <Ionicons name="people-outline" size={17} color="#ffffff" />
-              <Text style={styles.startButtonText}>{t('messages:findCounselor', 'Find a counselor')}</Text>
+              <Text style={styles.startButtonText}>{t('messages:findCounselor', 'Find a consultant')}</Text>
               <Ionicons name="arrow-forward" size={16} color="#ffffff" />
             </PatientGradientButton>
             <Text style={styles.emptyReassurance}>
@@ -713,7 +713,7 @@ const ChatInterface = ({ setActiveTab }) => {
           <Ionicons name="search" size={18} color={PATIENT.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder={t('messages:searchCounselors', 'Search counselors...')}
+            placeholder={t('messages:searchCounselors', 'Search consultants...')}
             placeholderTextColor={PATIENT.textMuted}
             value={searchTerm}
             onChangeText={setSearchTerm}

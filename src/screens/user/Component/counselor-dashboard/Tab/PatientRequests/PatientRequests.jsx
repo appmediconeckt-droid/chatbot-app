@@ -59,7 +59,7 @@ const PatientRequests = () => {
       name: 'Neha Singh',
       age: 24,
       gender: 'Female',
-      issue: 'Relationship counseling',
+      issue: 'Relationship consultation',
       requestedDate: '2024-01-13',
       status: 'pending',
       priority: 'high',

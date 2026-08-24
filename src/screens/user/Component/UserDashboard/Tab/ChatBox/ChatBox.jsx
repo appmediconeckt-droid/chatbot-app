@@ -104,7 +104,7 @@ const IncomingCallModal = ({
 
   if (!isOpen) return null;
 
-  const displayName = callData?.from?.displayName || callData?.from?.fullName || callerName || "Counselor";
+  const displayName = callData?.from?.displayName || callData?.from?.fullName || callerName || "Consultant";
   const profilePhoto = callData?.from?.profilePhoto || callerImage;
 
   const formatRequestTime = (dateString) => {
@@ -262,7 +262,7 @@ const ChatBox = () => {
       id: launchCallData?.id || launchCallData?._id,
       callId: launchCallData?.callId || launchCallData?.id || launchCallData?._id,
       roomId: launchCallData?.roomId,
-      name: receiver?.name || currentCounselor?.name || "Counselor",
+      name: receiver?.name || currentCounselor?.name || "Consultant",
       type: launchCallType,
       callType: launchCallType,
       profilePic: photo,
@@ -643,8 +643,8 @@ const ChatBox = () => {
         id: detailedCall?.id || callId,
         callId,
         roomId: response.data.roomId || detailedCall?.roomId || incomingCallData.roomId,
-        name: detailedCall?.initiator?.displayName || detailedCall?.initiator?.fullName || incomingCallData.name || "Counselor",
-        displayName: detailedCall?.initiator?.displayName || detailedCall?.initiator?.fullName || incomingCallData.name || "Counselor",
+        name: detailedCall?.initiator?.displayName || detailedCall?.initiator?.fullName || incomingCallData.name || "Consultant",
+        displayName: detailedCall?.initiator?.displayName || detailedCall?.initiator?.fullName || incomingCallData.name || "Consultant",
         type: modalType,
         callType: modalType,
         profilePic: detailedCall?.initiator?.profilePhoto || incomingCallData.image || null,
@@ -1182,7 +1182,7 @@ const ChatBox = () => {
 
   const initiateVideoCall = useCallback(async () => {
     if (!currentCounselor) {
-      setCallError("Counselor information not available");
+      setCallError("Consultant information not available");
       return;
     }
 
@@ -1194,7 +1194,7 @@ const ChatBox = () => {
       const initiatorId = resolveCurrentUserId();
       const receiverId = resolveCounselorId();
 
-      if (!initiatorId || !receiverId) throw new Error("Unable to start call. Missing user/counselor ID.");
+      if (!initiatorId || !receiverId) throw new Error("Unable to start call. Missing user/consultant ID.");
 
       const response = await axios.post(`${API_BASE_URL}/api/video/calls/initiate`, {
         initiatorId, initiatorType: "user", receiverId, receiverType: "counsellor", callType: "video",
@@ -1206,7 +1206,7 @@ const ChatBox = () => {
           id: response.data.callData?.id,
           callId: response.data.callId,
           roomId: response.data.roomId,
-          name: response.data.callData?.receiver?.name || currentCounselor.name || "Counselor",
+          name: response.data.callData?.receiver?.name || currentCounselor.name || "Consultant",
           type: "video",
           callType: "video",
           profilePic: receiverProfilePhoto,
@@ -1238,7 +1238,7 @@ const ChatBox = () => {
 
   const initiateVoiceCall = useCallback(async () => {
     if (!currentCounselor) {
-      setCallError("Counselor information not available");
+      setCallError("Consultant information not available");
       return;
     }
 
@@ -1250,7 +1250,7 @@ const ChatBox = () => {
       const initiatorId = resolveCurrentUserId();
       const receiverId = resolveCounselorId();
 
-      if (!initiatorId || !receiverId) throw new Error("Unable to start call. Missing user/counselor ID.");
+      if (!initiatorId || !receiverId) throw new Error("Unable to start call. Missing user/consultant ID.");
 
       const response = await axios.post(`${API_BASE_URL}/api/video/calls/initiate`, {
         initiatorId, initiatorType: "user", receiverId, receiverType: "counsellor", callType: "audio",
@@ -1262,7 +1262,7 @@ const ChatBox = () => {
           id: response.data.callData?.id,
           callId: response.data.callId,
           roomId: response.data.roomId,
-          name: response.data.callData?.receiver?.name || currentCounselor.name || "Counselor",
+          name: response.data.callData?.receiver?.name || currentCounselor.name || "Consultant",
           type: "voice",
           callType: "audio",
           profilePic: receiverProfilePhoto,
@@ -1567,7 +1567,7 @@ const ChatBox = () => {
   }, [hideCallEntry]);
 
   // Counselor identity — declared before renderMessage so its deps are in scope.
-  const counselorName = currentCounselor?.displayName || currentCounselor?.name || "Counselor";
+  const counselorName = currentCounselor?.displayName || currentCounselor?.name || "Consultant";
   const counselorOnline = resolveOnlineStatus(currentCounselor);
   const counselorProfilePhoto = getProfilePhotoUrl(currentCounselor);
   // Header shows a short handle (max 8 chars) so long names don't crowd the bar.
@@ -1795,7 +1795,7 @@ const ChatBox = () => {
     let statusStyle = {};
     switch (chatStatus) {
       case "pending":
-        statusText = "⏳ Waiting for counselor to accept...";
+        statusText = "⏳ Waiting for consultant to accept...";
         statusStyle = styles.statusPending;
         break;
       case "ended":

@@ -413,11 +413,11 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         status === 'pending'
           ? t(
               'appointment:requestPendingMessage',
-              'Your request is waiting for the counselor to accept. You can schedule an appointment once it is accepted.'
+              'Your request is waiting for the consultant to accept. You can schedule an appointment once it is accepted.'
             )
           : t(
               'appointment:requestFirstMessage',
-              'Send a request to this counselor first. You can schedule an appointment once they accept.'
+              'Send a request to this consultant first. You can schedule an appointment once they accept.'
             )
       );
       return;
@@ -588,7 +588,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         setShowUserModal(false);
         Alert.alert(
           t('appointment:sessionRequestSent'),
-          'Your request was already sent. Please wait for the counselor to accept.'
+          'Your request was already sent. Please wait for the consultant to accept.'
         );
         return;
       }
@@ -637,7 +637,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
       Alert.alert(
         t('appointment:bookedSuccessfully', 'Booked Successfully'),
-        t('appointment:appointmentRequestSent', 'Appointment request sent. The counselor has been notified.'),
+        t('appointment:appointmentRequestSent', 'Appointment request sent. The consultant has been notified.'),
       );
       setShowBookingModal(false);
       setBookingNotes('');
@@ -724,7 +724,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
           <View style={styles.btnPendingRow}>
             <Ionicons name="time-outline" size={15} color="#B45309" />
             <Text style={styles.btnPendingText} numberOfLines={1}>
-              {t('appointment:requestPending', 'Request pending — waiting for counselor to accept')}
+              {t('appointment:requestPending', 'Request pending — waiting for consultant to accept')}
             </Text>
           </View>
         ) : !online ? (
@@ -1020,18 +1020,18 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
           sortedCounselors.length > 0 ? null : counselors.length === 0 ? (
             <View style={styles.emptyContainer}>
               <ActivityIndicator size="large" color="#00652C" />
-              <Text style={styles.emptyText}>Loading counselors...</Text>
+              <Text style={styles.emptyText}>Loading consultants...</Text>
             </View>
           ) : (
             <View style={styles.emptyContainer}>
               <Ionicons name="funnel-outline" size={26} color={PATIENT.textMuted} />
               <Text style={styles.emptyText}>
                 {searchQuery.trim()
-                  ? 'No counselors match your search.'
-                  : 'No counselors match this filter.'}
+                  ? 'No consultants match your search.'
+                  : 'No consultants match this filter.'}
               </Text>
               <TouchableOpacity onPress={clearFilters} activeOpacity={0.8} style={styles.emptyResetBtn}>
-                <Text style={styles.emptyResetText}>Show all counselors</Text>
+                <Text style={styles.emptyResetText}>Show all consultants</Text>
               </TouchableOpacity>
             </View>
           )
@@ -1095,7 +1095,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                 </View>
 
                 <Text style={styles.anonNote}>
-                  {t('appointment:anonNote', 'Your real identity remains hidden. Only your anonymous name is visible to the counselor.')}
+                  {t('appointment:anonNote', 'Your real identity remains hidden. Only your anonymous name is visible to the consultant.')}
                 </Text>
               </LinearGradient>
 
@@ -1315,7 +1315,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                 />
 
                 <Text style={styles.privacyNote}>
-                  Sent to the counselor for confirmation.
+                  Sent to the consultant for confirmation.
                 </Text>
               </View>
 

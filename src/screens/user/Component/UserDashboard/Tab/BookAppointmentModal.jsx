@@ -169,7 +169,7 @@ const BookAppointmentModal = ({ visible, onClose, onConfirm, counselorName = 'Dr
 
             {/* Confirmation Message */}
             <View style={s.confirmSection}>
-              <Text style={s.confirmTitle}>{t('Send to the counselor for confirmation')}</Text>
+              <Text style={s.confirmTitle}>{t('Send to the consultant for confirmation')}</Text>
               <Text style={s.confirmSubtitle}>
                 Your appointment request will be sent to {counselorName} for confirmation.
               </Text>

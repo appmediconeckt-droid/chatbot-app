@@ -139,7 +139,7 @@ const CounselorPrivacyPolicy = ({ onClose }) => {
 
   const dial = () => Linking.openURL(`tel:${SUPPORT_PHONE_TEL}`).catch(() => {});
   const email = () => {
-    const subject = encodeURIComponent('Privacy question - Humaeli Counselor');
+    const subject = encodeURIComponent('Privacy question - Humaeli Consultant');
     Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}`).catch(() => {});
   };
 
@@ -255,7 +255,7 @@ const CounselorPrivacyPolicy = ({ onClose }) => {
           </View>
         </View>
 
-        <Text style={s.footer}>{t('Humaeli Counselor App v2.4.1')}</Text>
+        <Text style={s.footer}>{t('Humaeli Consultant App v2.4.1')}</Text>
       </ScrollView>
     </View>
   );
