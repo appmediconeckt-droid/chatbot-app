@@ -799,13 +799,13 @@ export default function CounselorDashboard() {
   const insets = useSafeAreaInsets();
   const MOBILE_HEADER_BAR_HEIGHT = 60;
   const MOBILE_BOTTOM_NAV_BAR_HEIGHT = 66;
-  const topInset = Platform.OS === "ios" ? insets.top : 0;
+  const topInset = Platform.OS === "android"
+    ? Math.min(Math.max(insets.top, 8), 16)
+    : insets.top;
   const mobileHeaderHeight = topInset + MOBILE_HEADER_BAR_HEIGHT;
-  const dashboardBottomInset = Platform.OS === "ios" ? insets.bottom : 0;
+  const dashboardBottomInset = Math.max(insets.bottom, 0);
   const mobileBottomNavHeight = MOBILE_BOTTOM_NAV_BAR_HEIGHT + dashboardBottomInset;
-  const mobileBottomNavPaddingBottom = Platform.OS === "ios"
-    ? Math.max(insets.bottom, 12)
-    : 8;
+  const mobileBottomNavPaddingBottom = Math.max(dashboardBottomInset, 8);
   const isFocused = useIsFocused();
   const route = useRoute();
   const [activeTab, setActiveTab] = useState("messages");
@@ -2540,7 +2540,7 @@ export default function CounselorDashboard() {
 
   return (
     <SafeAreaView style={styles.screen} edges={isMobile ? [] : ["top"]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
       <View style={styles.container}>
         {/* Session detail modal (View Details) */}
         <SessionDetailModal
