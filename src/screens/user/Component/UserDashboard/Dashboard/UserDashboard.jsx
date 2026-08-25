@@ -885,16 +885,15 @@ const counselorDisplayName = (apt) => {
 
 const sheetStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.4)', justifyContent: 'flex-end' },
-  // Height is set at render from the top inset - a flat 30 crowded the status
-  // bar on devices with a taller one and left a gap on devices with none.
-  backdrop: { height: 30 },
-  sheet: { flex: 1, backgroundColor: '#ffffff', borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#0f172a', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
-  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1', alignSelf: 'center', marginTop: 10, marginBottom: 14 },
-  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  backdrop: { flex: 1 },
+  sheet: { width: '100%', backgroundColor: '#ffffff', borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#0f172a', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
+  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1', alignSelf: 'center', marginTop: 10, marginBottom: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   title: { fontSize: 19, fontWeight: '800', color: '#0f172a' },
   subtitle: { fontSize: 13.5, fontWeight: '500', color: '#64748b', marginTop: 4 },
   closeBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  scroll: { paddingHorizontal: 18, paddingTop: 10, gap: 10, flexGrow: 1, justifyContent: 'flex-end' },
+  scrollView: { width: '100%' },
+  scroll: { paddingHorizontal: 18, paddingTop: 10, gap: 10 },
   docCard: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 10 },
   docAvatar: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#e2e8f0' },
   docNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 1 },
@@ -930,6 +929,7 @@ const sheetStyles = StyleSheet.create({
   closePastBtn: { paddingVertical: 12, alignItems: 'center' },
   closePastText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
   joinBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 12, marginBottom: 10 },
+  joinBtnDisabled: { opacity: 0.55 },
   joinText: { fontSize: 15, fontWeight: '800', color: '#ffffff' },
   secRow: { flexDirection: 'row', gap: 12 },
   secBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, paddingVertical: 10, borderWidth: 1.5, borderColor: '#E6F6EC' },
@@ -938,7 +938,7 @@ const sheetStyles = StyleSheet.create({
 
 const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) => {
   const { t } = useLanguageRender();
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(true);
   const [activeTab, setActiveTab] = useState("Upcoming");
@@ -976,8 +976,8 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 
   // Tablet detection for responsive modal
   const isTablet = screenWidth >= 600;
-  const modalWidth = isTablet ? screenWidth * 0.7 : screenWidth * 0.88;
-  const modalMaxWidth = isTablet ? 700 : 420;
+  const sheetMaxHeight = Math.min(screenHeight * (isTablet ? 0.82 : 0.86), isTablet ? 720 : 680);
+  const sheetScrollMaxHeight = Math.max(360, sheetMaxHeight - 90);
 
   const fetchAppointments = useCallback(async () => {
     try {
@@ -1097,10 +1097,15 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const timeLabel = aptDate ? aptDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-";
   const dateLabel = aptDate ? aptDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "-";
   const statusRaw = selectedApt?.status || "pending";
-  const statusCap = statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1);
+  const statusLower = String(statusRaw).toLowerCase();
+  const statusCap = statusLower.charAt(0).toUpperCase() + statusLower.slice(1);
   const modeLabel = selectedApt?.mode || selectedApt?.sessionType || "Video Call";
   const durationLabel = selectedApt?.duration ? `${selectedApt.duration} Minutes` : "45 Minutes";
-  const isPast = activeTab === "Past" || selectedApt?.status === "completed" || selectedApt?.status === "canceled" || (aptDate && aptDate <= new Date());
+  const aptTime = aptDate?.getTime?.() ?? NaN;
+  const hasValidAptTime = Number.isFinite(aptTime);
+  const sessionHasStarted = hasValidAptTime && aptTime <= Date.now();
+  const isPast = activeTab === "Past" || statusLower === "completed" || statusLower === "canceled";
+  const isJoinDisabled = !sessionHasStarted || statusLower === "completed" || statusLower === "canceled";
   // Extract real talk duration from appointment data
   const getTalkDuration = () => {
     if (selectedApt?.actualDuration) return selectedApt.actualDuration;
@@ -1311,13 +1316,13 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
         onRequestClose={() => setShowDetailsModal(false)}
       >
         <View style={sheetStyles.overlay}>
-          <View style={[sheetStyles.backdrop, { height: Math.max(sheetInsets.top, 24) }]}>
+          <View style={[sheetStyles.backdrop, { paddingTop: Math.max(sheetInsets.top, 24) }]}>
             <TouchableWithoutFeedback onPress={() => setShowDetailsModal(false)}>
               <View style={{ flex: 1 }} />
             </TouchableWithoutFeedback>
           </View>
 
-          <View style={sheetStyles.sheet}>
+          <View style={[sheetStyles.sheet, { maxHeight: sheetMaxHeight }]}>
             <View style={sheetStyles.grabber} />
 
             {/* Header */}
@@ -1336,7 +1341,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             </View>
 
             <ScrollView
-              style={{ flex: 1 }}
+              style={[sheetStyles.scrollView, { maxHeight: sheetScrollMaxHeight }]}
               contentContainerStyle={[
                 sheetStyles.scroll,
                 { paddingBottom: Math.max(sheetInsets.bottom, 12) + 12 },
@@ -1449,18 +1454,20 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
               {!isPast ? (
                 <View style={sheetStyles.inlineFooter}>
                   <TouchableOpacity
-                    activeOpacity={0.9}
+                    activeOpacity={isJoinDisabled ? 1 : 0.9}
+                    disabled={isJoinDisabled}
                     onPress={() => {
+                      if (isJoinDisabled) return;
                       const apt = selectedApt;
                       setShowDetailsModal(false);
                       setTimeout(() => onVideoCall && onVideoCall(apt), MODAL_DISMISS_MS);
                     }}
                   >
                     <LinearGradient
-                      colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                      colors={isJoinDisabled ? ['#94a3b8', '#cbd5e1'] : [PATIENT.gradientFrom, PATIENT.gradientTo]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
-                      style={sheetStyles.joinBtn}
+                      style={[sheetStyles.joinBtn, isJoinDisabled && sheetStyles.joinBtnDisabled]}
                     >
                       <Ionicons name="videocam" size={20} color="#ffffff" />
                       <Text style={sheetStyles.joinText}>{t('Join Video Session')}</Text>
