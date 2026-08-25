@@ -67,7 +67,7 @@ const WalletSkeleton = () => {
   );
 };
 
-const WalletDashboard = ({ userData = {} }) => {
+const WalletDashboard = ({ userData = {}, navigation }) => {
   const { t } = useLanguageRender();
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState('');
@@ -403,8 +403,12 @@ const WalletDashboard = ({ userData = {} }) => {
     <View style={styles.cardSection}>
       <View style={styles.transactionsHeader}>
         <Text style={styles.sectionTitle}>{t('wallet:transactionHistory')}</Text>
-        <TouchableOpacity onPress={fetchWalletData}>
-          <Text style={styles.linkBtn}>{t('wallet:refresh')}</Text>
+        <TouchableOpacity
+          onPress={() => navigation?.navigate?.('TransactionsHistory') || fetchWalletData()}
+        >
+          <Text style={styles.linkBtn}>
+            {navigation?.navigate ? t('wallet:viewHistory') : t('wallet:refresh')}
+          </Text>
         </TouchableOpacity>
       </View>
 

@@ -2588,7 +2588,7 @@ export default function UserDashboard() {
           />
         );
       case "Wallet":
-        return <WalletDashboard userData={userData} />;
+        return <WalletDashboard userData={userData} navigation={navigation} />;
       case "Video":
         return <CallHistory />;
       case "profile":

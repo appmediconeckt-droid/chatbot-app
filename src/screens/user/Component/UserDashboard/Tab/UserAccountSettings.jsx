@@ -469,7 +469,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                   <View style={s.otpDoneRow}>
                     <Ionicons name="checkmark-circle" size={16} color={PATIENT.primary} />
                     <Text style={s.otpDoneText}>
-                      {t('Code entered')} · {otpCode}
+                      {t('OTP verified')}
                     </Text>
                     <TouchableOpacity onPress={() => setOtpVerified(false)}>
                       <Text style={s.otpDoneChange}>{t('Change')}</Text>
