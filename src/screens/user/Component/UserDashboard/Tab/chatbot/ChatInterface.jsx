@@ -1189,7 +1189,6 @@ const styles = {
     minHeight: 34,
     paddingHorizontal: 12,
     borderRadius: 17,
-    backgroundColor: '#F2FBF5',
     marginBottom: 18,
   },
   emptyBenefit: {
