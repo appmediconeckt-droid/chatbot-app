@@ -59,6 +59,14 @@ import { loadUserLanguage } from '../../../../../i18n';
 import { DOCTOR, DOCTOR_GRADIENT } from "../../../../../theme/palette";
 import { toImageUri } from "../../../../../utils/imageUri";
 
+const normalizeCallType = (value) => {
+  const type = String(value || '').trim().toLowerCase();
+  if (type === 'audio' || type === 'voice' || type.includes('audio') || type.includes('voice')) {
+    return 'voice';
+  }
+  return 'video';
+};
+
 // â”€â”€â”€ Incoming Call Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const IncomingCallModal = ({
   isOpen,
@@ -172,7 +180,7 @@ const IncomingCallModal = ({
     toImageUri(callData?.image) ||
     toImageUri(callerDisplay.avatarUrl) ||
     toImageUri(callerImage);
-  const isVideo = callType === "video";
+  const isVideo = normalizeCallType(callType || callData?.callType) === "video";
 
   // Wave ring interpolations (expand out + fade)
   const ringStyle = (val) => ({
@@ -1072,7 +1080,7 @@ export default function CounselorDashboard() {
 
   // â”€â”€ Initiate Video Call from Appointments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleInitiateVideoCallFromApt = async (apt, callType = "video") => {
-    const isVoice = callType === "audio";
+    const isVoice = normalizeCallType(callType) === "voice";
     const patientInfo = apt.patient || {};
     const storedCounsellorId = await getCounsellorId();
     const token = await getAuthToken();
@@ -1410,10 +1418,13 @@ export default function CounselorDashboard() {
       console.warn("Could not fetch accepted call details:", detailsError);
     }
 
-    const incomingType = String(
-      callData.callType || detailedCall?.type || "video"
-    ).toLowerCase();
-    const modalType = incomingType === "audio" ? "voice" : incomingType;
+    const modalType = normalizeCallType(
+      callData.callType ||
+      detailedCall?.callType ||
+      detailedCall?.type ||
+      result.data?.callType ||
+      "video"
+    );
     const initiatorIdStr = String(detailedCall?.initiator?.id || detailedCall?.initiator?._id || '');
     const remoteParticipant = detailedCall
       ? initiatorIdStr === String(counsellorId)
@@ -1602,6 +1613,8 @@ export default function CounselorDashboard() {
           displayName = fromData.fullName;
         }
 
+        const resolvedCallType = normalizeCallType(waitingCall.callType || waitingCall.type);
+
         setIncomingCallData({
           callId: waitingCall.callId || waitingCall.id || waitingCall._id,
           roomId: waitingCall.roomId,
@@ -1613,7 +1626,7 @@ export default function CounselorDashboard() {
             fromData.avatar ||
             getAnonymousUserDisplay(fromData).avatarUrl ||
             null,
-          callType: waitingCall.callType || "video",
+          callType: resolvedCallType,
           from: fromData,
           initiator: waitingCall.initiator,
           requestedAt: waitingCall.requestedAt,
@@ -1898,7 +1911,6 @@ export default function CounselorDashboard() {
       if (!data.specialization || (Array.isArray(data.specialization) && data.specialization.length === 0)) missingFields.push('Specialization');
       if (!data.experience) missingFields.push('Experience');
       if (!data.qualification && !data.education) missingFields.push('Qualification');
-      if (!data.location) missingFields.push('Location');
 
       // Fetch accepted chats count for patient count
       let acceptedChatsCount = 0;
@@ -1925,6 +1937,8 @@ export default function CounselorDashboard() {
         rating: data.rating || 4.5,
         email: data.email,
         phoneNumber: data.phoneNumber,
+        dateOfBirth: data.dateOfBirth,
+        gender: data.gender,
         license: "N/A",
         education: data.qualification || data.education,
         university: "N/A",
@@ -1933,6 +1947,8 @@ export default function CounselorDashboard() {
         specializations: data.specialization || [],
         aboutMe: data.aboutMe,
         location: data.location,
+        address: data.address,
+        certifications: data.certifications,
         consultationMode: data.consultationMode,
         profilePhoto: profilePhotoUrl,
         profileCompleted: data.profileCompleted === true,

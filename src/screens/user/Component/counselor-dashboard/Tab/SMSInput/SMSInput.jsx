@@ -17,7 +17,6 @@ import {
   StatusBar,
   Image,
   Linking,
-  useWindowDimensions,
   Pressable,
 } from 'react-native';
 import TextInput from '../../../../../../components/TranslatedTextInput';
@@ -44,6 +43,7 @@ import {
   getAnonymousUserAvatar,
   getAnonymousUserDisplay,
 } from '../../../../../../utils/anonymousUser';
+import toImageUri from '../../../../../../utils/imageUri';
 import GradientFill from '../../../../../../components/common/GradientFill';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import ChatSkeleton from "../../../../../../components/common/ChatSkeleton";
@@ -68,6 +68,14 @@ const getAvatarBg = (name) => {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return AVATAR_BG_COLORS[Math.abs(hash) % AVATAR_BG_COLORS.length];
+};
+
+const normalizeIncomingCallType = (value) => {
+  const type = String(value || '').trim().toLowerCase();
+  if (type === 'audio' || type === 'voice' || type.includes('audio') || type.includes('voice')) {
+    return 'voice';
+  }
+  return 'video';
 };
 
 // ─── Avatar Component (identical to ChatListAvatar) ───────────────────────
@@ -111,7 +119,7 @@ const IncomingCallModal = ({
   onRejectCall,
 }) => {
   const { t } = useLanguageRender();
-  const { width: winWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [isJoining, setIsJoining] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
   const { stopRinging } = useRingtone();
@@ -120,7 +128,6 @@ const IncomingCallModal = ({
     if (isJoining) return;
     setIsJoining(true);
     stopRinging();
-    onClose();
     if (onJoinCall && callData) {
       try {
         await onJoinCall(callData.callId);
@@ -128,9 +135,11 @@ const IncomingCallModal = ({
         console.error("Error joining call:", error);
       } finally {
         setIsJoining(false);
+        onClose();
       }
     } else {
       setIsJoining(false);
+      onClose();
     }
   };
 
@@ -138,7 +147,6 @@ const IncomingCallModal = ({
     if (isRejecting) return;
     setIsRejecting(true);
     stopRinging();
-    onClose();
     if (onRejectCall && callData) {
       try {
         await onRejectCall(callData.callId);
@@ -146,47 +154,101 @@ const IncomingCallModal = ({
         console.error("Error rejecting call:", error);
       } finally {
         setIsRejecting(false);
+        onClose();
       }
     } else {
       setIsRejecting(false);
+      onClose();
     }
   };
 
   if (!isOpen) return null;
 
-  const displayName = callerName || "Anonymous User";
+  const callerDisplay = getAnonymousUserDisplay(callData?.from || callData || {});
+  const displayName =
+    callData?.from?.anonymous ||
+    callData?.from?.anonName ||
+    callData?.from?.anonymousName ||
+    callData?.name ||
+    callerName ||
+    callerDisplay.name ||
+    "Anonymous User";
   const displayInitial = (displayName?.charAt(0) || "A").toUpperCase();
+  const resolvedCallType = normalizeIncomingCallType(callType || callData?.callType);
+  const isVideo = resolvedCallType === "video";
+  const profilePhoto =
+    toImageUri(callData?.from?.profilePhoto) ||
+    toImageUri(callData?.from?.image) ||
+    toImageUri(callData?.from?.avatarUrl) ||
+    toImageUri(callData?.initiator?.profilePhoto) ||
+    toImageUri(callData?.initiator?.image) ||
+    toImageUri(callData?.image) ||
+    toImageUri(callerDisplay.avatarUrl) ||
+    toImageUri(callerAvatar);
+  const callerLocation =
+    callData?.from?.location ||
+    callData?.from?.city ||
+    callData?.location ||
+    callData?.city ||
+    null;
 
   return (
-    <Modal visible={isOpen} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.incomingCallOverlay}>
-        <View style={[
-          styles.incomingCallModal,
-          callType === "video" ? styles.videoCallModal : styles.voiceCallModal,
-          { width: Math.min(winWidth * 0.88, 380) },
-        ]}>
-          <View style={styles.incomingCallContent}>
-            <View style={styles.incomingCallerInfo}>
-              <View style={[styles.incomingCallerAvatar, { backgroundColor: getAvatarBg(displayName) }]}>
+    <Modal
+      visible={isOpen}
+      transparent={false}
+      statusBarTranslucent
+      navigationBarTranslucent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={[styles.incomingCallScreen, { paddingTop: insets.top + 28, paddingBottom: insets.bottom + 36 }]}>
+        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+
+        <View style={styles.incomingCallHeader}>
+          <Text style={styles.incomingCallKicker}>
+            {isVideo ? t('call:incomingVideoCall', 'INCOMING VIDEO CALL') : t('call:incomingVoiceCall', 'INCOMING VOICE CALL')}
+          </Text>
+          <Text style={styles.incomingCallerName} numberOfLines={1}>{displayName}</Text>
+          {!!callerLocation && (
+            <View style={styles.incomingCallLocationRow}>
+              <Ionicons name="location-outline" size={14} color="#94A3B8" />
+              <Text style={styles.incomingCallLocation} numberOfLines={1}>{callerLocation}</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.incomingCallAvatarZone}>
+          <View style={styles.incomingCallRingLarge} />
+          <View style={styles.incomingCallRingSmall} />
+          <View style={[styles.incomingCallerAvatar, { backgroundColor: getAvatarBg(displayName) }]}>
+            {profilePhoto ? (
+              <Image source={{ uri: profilePhoto }} style={styles.incomingAvatarImage} resizeMode="cover" />
+            ) : (
+              <LinearGradient colors={SENT_GRADIENT} start={SENT_GRADIENT_START} end={SENT_GRADIENT_END} style={styles.incomingAvatarGradient}>
                 <Text style={styles.avatarInitialLarge}>{displayInitial}</Text>
-              </View>
-              <Text style={styles.incomingCallerName}>{displayName}</Text>
-              <Text style={styles.incomingCallType}>
-                {callType === "video" ? "📹 Video Call" : "📞 Voice Call"}
-              </Text>
-              <Text style={styles.incomingCallMessage}>
-                {callData?.requestMessage || `Incoming ${callType} call...`}
-              </Text>
-            </View>
-            <View style={styles.incomingCallControls}>
-              <TouchableOpacity style={[styles.incomingCallBtn, styles.rejectBtn]} onPress={handleReject} disabled={isRejecting}>
-                {isRejecting ? <ActivityIndicator size="small" color="white" /> : <Text style={styles.incomingCallBtnText}>{t('call:reject')}</Text>}
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.incomingCallBtn, styles.acceptBtn]} onPress={handleJoin} disabled={isJoining}>
-                <GradientFill />
-                {isJoining ? <ActivityIndicator size="small" color="white" /> : <Text style={styles.incomingCallBtnText}>{t('call:accept')}</Text>}
-              </TouchableOpacity>
-            </View>
+              </LinearGradient>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.incomingCallMeta}>
+          <Ionicons name={isVideo ? "videocam" : "call"} size={18} color="#64748B" />
+          <Text style={styles.incomingCallType}>{isVideo ? t('call:videoCall', 'Video Call') : t('call:voiceCall', 'Voice Call')}</Text>
+        </View>
+
+        <View style={styles.incomingCallControls}>
+          <View style={styles.incomingCallActionCol}>
+            <TouchableOpacity style={[styles.incomingCallBtn, styles.rejectBtn]} onPress={handleReject} disabled={isRejecting} activeOpacity={0.85}>
+              {isRejecting ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="call" size={28} color="#FFFFFF" style={styles.callEndIcon} />}
+            </TouchableOpacity>
+            <Text style={styles.incomingCallBtnLabel}>{isRejecting ? t('common:loading') : t('call:reject', 'Decline')}</Text>
+          </View>
+          <View style={styles.incomingCallActionCol}>
+            <TouchableOpacity style={[styles.incomingCallBtn, styles.acceptBtn]} onPress={handleJoin} disabled={isJoining} activeOpacity={0.85}>
+              <GradientFill />
+              {isJoining ? <ActivityIndicator size="small" color="white" /> : <Ionicons name={isVideo ? "videocam" : "call"} size={28} color="#FFFFFF" />}
+            </TouchableOpacity>
+            <Text style={styles.incomingCallBtnLabel}>{isJoining ? t('call:connecting', 'Connecting...') : t('call:accept', 'Accept')}</Text>
           </View>
         </View>
       </View>
@@ -951,16 +1013,43 @@ const SMSInput = ({ navigation, route }) => {
           });
           detailedCall = details.data?.call;
         } catch(e) {}
-        const callType = incomingCallData.callType || detailedCall?.type || "video";
-        const modalType = callType === "audio" ? "voice" : callType;
+        const modalType = normalizeIncomingCallType(
+          incomingCallData.callType ||
+          detailedCall?.callType ||
+          detailedCall?.type ||
+          response.data?.callType ||
+          "video"
+        );
+        const initiatorId = detailedCall?.initiator?.id || detailedCall?.initiator?._id;
+        const remoteParticipant =
+          detailedCall && String(initiatorId) === String(counselorId)
+            ? detailedCall.receiver
+            : detailedCall?.initiator || incomingCallData?.from || {};
+        const remoteName =
+          remoteParticipant?.anonymous ||
+          remoteParticipant?.anonName ||
+          remoteParticipant?.anonymousName ||
+          remoteParticipant?.displayName ||
+          remoteParticipant?.fullName ||
+          incomingCallData.name ||
+          "Anonymous User";
         const callDataForModal = {
+          id: detailedCall?.id || detailedCall?._id || callId,
           callId,
-          roomId: response.data.roomId || detailedCall?.roomId,
-          name: incomingCallData.name,
+          roomId: response.data.roomId || detailedCall?.roomId || incomingCallData.roomId,
+          name: remoteName,
           type: modalType,
           callType: modalType,
-          status: "active",
+          status: response.data?.status || detailedCall?.status || "active",
+          profilePic: remoteParticipant?.profilePhoto || remoteParticipant?.image || incomingCallData.image || null,
+          apiCallData: detailedCall,
+          initiator: detailedCall?.initiator || incomingCallData.initiator,
+          receiver: detailedCall?.receiver || incomingCallData.receiver,
+          initiatorId: detailedCall?.initiator?.id || detailedCall?.initiator?._id,
+          receiverId: detailedCall?.receiver?.id || detailedCall?.receiver?._id,
+          currentUserId: counselorId,
           currentUserType: "counsellor",
+          from: incomingCallData.from,
           isIncoming: true,
         };
         if (modalType === "video") {
@@ -1136,14 +1225,27 @@ const SMSInput = ({ navigation, route }) => {
         const calls = res.data.pendingRequests || [];
         if (calls.length > 0) {
           const call = calls[0];
-          const from = call.from || {};
+          const from = call.from || call.initiator || {};
+          const resolvedCallType = normalizeIncomingCallType(call.callType || call.type);
           setIncomingCallData({
-            callId: call.callId,
+            callId: call.callId || call.id || call._id,
             roomId: call.roomId,
             name: from.anonymous || from.anonName || from.anonymousName || "Anonymous User",
             avatar: "👤",
-            callType: call.callType || "video",
-            requestMessage: call.requestMessage || `Incoming ${call.callType || "video"} call...`,
+            image:
+              from.profilePhoto ||
+              from.image ||
+              from.avatarUrl ||
+              from.avatar ||
+              getAnonymousUserDisplay(from).avatarUrl ||
+              null,
+            callType: resolvedCallType,
+            requestMessage: call.requestMessage || `Incoming ${resolvedCallType} call...`,
+            from,
+            initiator: call.initiator,
+            receiver: call.receiver,
+            requestedAt: call.requestedAt,
+            expiresAt: call.expiresAt,
           });
           setShowIncomingModal(true);
         }
@@ -1665,7 +1767,7 @@ const SMSInput = ({ navigation, route }) => {
 
         <VideoCallModal isOpen={isVideoModalOpen} onClose={handleCloseModal} callData={selectedCall} currentUser={{ id: counselorId, role: "counsellor" }} onEndCall={handleEndIncomingCall} />
         <VoiceCallModal isOpen={isVoiceModalOpen} onClose={handleCloseModal} callData={selectedCall} currentUser={{ id: counselorId, role: "counsellor" }} onEndCall={handleEndIncomingCall} />
-        <IncomingCallModal isOpen={isFocused && showIncomingModal} onClose={() => setShowIncomingModal(false)} callType={incomingCallData.callType} callerName={incomingCallData.name} callerAvatar={incomingCallData.avatar} callData={incomingCallData} onJoinCall={handleJoinIncomingCall} onRejectCall={handleRejectIncomingCall} />
+        <IncomingCallModal isOpen={isFocused && showIncomingModal} onClose={() => setShowIncomingModal(false)} callType={incomingCallData.callType} callerName={incomingCallData.name} callerAvatar={incomingCallData.image || incomingCallData.avatar} callData={incomingCallData} onJoinCall={handleJoinIncomingCall} onRejectCall={handleRejectIncomingCall} />
         <ZoomableImageViewer
           visible={imagePreviewVisible}
           uri={imagePreviewUrl}
@@ -1897,22 +1999,129 @@ const styles = StyleSheet.create({
   sendBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
   sendBtnActive: { shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.35, shadowRadius: 5, elevation: 5 },
   sendBtnDisabled: { backgroundColor: '#CBD5E1', opacity: 0.7 },
-  incomingCallOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.6)', justifyContent: 'center', alignItems: 'center' },
-  incomingCallModal: { maxWidth: 360, backgroundColor: '#FFFFFF', borderRadius: 24, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 10 },
-  videoCallModal: { borderTopWidth: 3, borderTopColor: '#003A9B' },
-  voiceCallModal: { borderTopWidth: 3, borderTopColor: '#003A9B' },
-  incomingCallContent: { padding: 24, alignItems: 'center' },
-  incomingCallerInfo: { alignItems: 'center', marginBottom: 24 },
-  incomingCallerAvatar: { width: 90, height: 90, borderRadius: 45, justifyContent: 'center', alignItems: 'center', marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 6 },
-  avatarInitialLarge: { fontSize: 38, fontWeight: '800', color: '#FFFFFF', letterSpacing: 1 },
-  incomingCallerName: { fontSize: 20, fontWeight: '700', color: '#111827', marginBottom: 4 },
-  incomingCallType: { fontSize: 13, color: '#6B7280', marginBottom: 8, fontWeight: '500' },
-  incomingCallMessage: { fontSize: 12, color: '#2563EB', fontWeight: '500' },
-  incomingCallControls: { flexDirection: 'row', gap: 12, width: '100%' },
-  incomingCallBtn: { flex: 1, paddingVertical: 12, borderRadius: 28, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
-  acceptBtn: { overflow: 'hidden' },
+  incomingCallScreen: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 28,
+  },
+  incomingCallHeader: {
+    width: '100%',
+    alignItems: 'center',
+    paddingTop: 12,
+  },
+  incomingCallKicker: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: DOCTOR.primary,
+    textTransform: 'uppercase',
+    marginBottom: 12,
+  },
+  incomingCallerName: {
+    width: '100%',
+    fontSize: 30,
+    fontWeight: '800',
+    color: '#0F172A',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  incomingCallLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    maxWidth: '90%',
+  },
+  incomingCallLocation: {
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  incomingCallAvatarZone: {
+    width: 240,
+    height: 240,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  incomingCallRingLarge: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    borderWidth: 2,
+    borderColor: '#DDEBFF',
+  },
+  incomingCallRingSmall: {
+    position: 'absolute',
+    width: 178,
+    height: 178,
+    borderRadius: 89,
+    borderWidth: 2,
+    borderColor: '#EAF2FF',
+  },
+  incomingCallerAvatar: {
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    shadowColor: DOCTOR.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  incomingAvatarGradient: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  incomingAvatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  avatarInitialLarge: { fontSize: 56, fontWeight: '800', color: '#FFFFFF' },
+  incomingCallMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: '#F1F5F9',
+  },
+  incomingCallType: { fontSize: 14, color: '#64748B', fontWeight: '700' },
+  incomingCallControls: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  incomingCallActionCol: {
+    alignItems: 'center',
+    gap: 11,
+  },
+  incomingCallBtn: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 9,
+    elevation: 7,
+  },
+  acceptBtn: { backgroundColor: DOCTOR.primary },
   rejectBtn: { backgroundColor: '#DC2626' },
-  incomingCallBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
+  callEndIcon: { transform: [{ rotate: '135deg' }] },
+  incomingCallBtnLabel: { color: '#64748B', fontWeight: '700', fontSize: 13 },
   // Options Menu Styles
   optionsOverlay: {
     flex: 1,

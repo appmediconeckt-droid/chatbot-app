@@ -37,6 +37,7 @@ import useLanguageRender from '../../../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
 import {
+  getPhoneLengthLabel,
   isValidLocalPhoneNumber,
   normalizeLocalPhoneNumber,
   splitInternationalPhoneNumber,
@@ -600,8 +601,8 @@ const PatientProfile = ({ onProfileUpdate }) => {
       editFormData.phone || "",
       editFormData.phoneCountryCode,
     );
-    if (!isValidLocalPhoneNumber(normalizedPhone)) {
-      showNotificationMessage("Phone number must be 10 digits", "error");
+    if (!isValidLocalPhoneNumber(normalizedPhone, editFormData.phoneCountryCode)) {
+      showNotificationMessage(`Phone number must be ${getPhoneLengthLabel(editFormData.phoneCountryCode)} digits`, "error");
       return;
     }
     const emergencyPhone = normalizeLocalPhoneNumber(
@@ -610,9 +611,12 @@ const PatientProfile = ({ onProfileUpdate }) => {
     );
     if (
       emergencyPhone &&
-      !isValidLocalPhoneNumber(emergencyPhone)
+      !isValidLocalPhoneNumber(emergencyPhone, editFormData.emergencyContact.phoneCountryCode)
     ) {
-      showNotificationMessage("Emergency contact phone must be 10 digits", "error");
+      showNotificationMessage(
+        `Emergency contact phone must be ${getPhoneLengthLabel(editFormData.emergencyContact.phoneCountryCode)} digits`,
+        "error",
+      );
       return;
     }
     try {
@@ -1226,7 +1230,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   <CountryPhoneInput
                     value={editFormData.phone}
                     countryCode={editFormData.phoneCountryCode}
-                    onChangePhoneNumber={(text) => handleEditFormChange("phone", normalizeLocalPhoneNumber(text, editFormData.phoneCountryCode))}
+                    onChangePhoneNumber={(text) => handleEditFormChange("phone", text)}
                     onChangeCountryCode={(code) => handleEditFormChange("phoneCountryCode", code)}
                     placeholder="Phone number"
                     accentColor={PATIENT.primary}
@@ -1319,7 +1323,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   <CountryPhoneInput
                     value={editFormData.emergencyContact.phone}
                     countryCode={editFormData.emergencyContact.phoneCountryCode}
-                    onChangePhoneNumber={(text) => handleEditFormChange("emergencyContact.phone", normalizeLocalPhoneNumber(text, editFormData.emergencyContact.phoneCountryCode))}
+                    onChangePhoneNumber={(text) => handleEditFormChange("emergencyContact.phone", text)}
                     onChangeCountryCode={(code) => handleEditFormChange("emergencyContact.phoneCountryCode", code)}
                     placeholder="Phone number"
                     accentColor={PATIENT.primary}
