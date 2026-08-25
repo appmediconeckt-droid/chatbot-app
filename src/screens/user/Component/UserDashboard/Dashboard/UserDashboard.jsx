@@ -73,6 +73,7 @@ const AI_NAME = 'Humaelio';
 const AI_CHAT_TITLE_SUFFIX = 'AI Assistant';
 
 const AI_WELCOME_MESSAGE = "Hello, I'm Humaelio AI. How are you feeling today?";
+const AI_OPENING_EVENT = "__humaelio_ai_opening__";
 
 const isGeneratedUserAvatarUrl = (raw) => {
   const url = typeof raw === "string" ? raw : raw?.url || raw?.secure_url || "";
@@ -1697,13 +1698,19 @@ export default function UserDashboard() {
     setIsLoading(true);
     try {
       const response = await axiosInstance.post(
-        '/api/ai/message',
-        { message: "hi", history: [], language: lang }
+        '/api/ai-chat/send-message',
+        {
+          message: AI_OPENING_EVENT,
+          kind: "opening",
+          history: [],
+          language: lang,
+        }
       );
  
       if (response.data?.success) {
-        if (response.data.data?.sessionId) {
-          setAiSessionId(response.data.data.sessionId);
+        const responsePayload = response.data?.data || response.data || {};
+        if (responsePayload?.sessionId) {
+          setAiSessionId(responsePayload.sessionId);
         }
 
         setChatMessages([
@@ -1725,7 +1732,7 @@ export default function UserDashboard() {
         {
           id: Date.now(),
           text: AI_WELCOME_MESSAGE,
-            system: 'welcome',
+          system: 'welcome',
           sender: "ai",
         },
       ]);
@@ -2401,8 +2408,8 @@ export default function UserDashboard() {
 
   const allMenuItems = [
     { id: "Chat", icon: "chat", label: t('dashboard:chat'), type: "material" },
-    { id: "Counselor", icon: "psychology", label: t('dashboard:counselor'), type: "material" },
-    { id: "Appointment", icon: "event-available", label: t('dashboard:appointment', 'Appointment'), type: "material" },
+    { id: "Counselor", icon: "psychology", label: t('dashboard:consultants', 'Consultants'), type: "material" },
+    { id: "Appointment", icon: "event-available", label: t('dashboard:appointments', 'Appointments'), type: "material" },
     { id: "Wallet", icon: "account-balance-wallet", label: t('dashboard:wallet'), type: "material" },
     { id: "Video", icon: "history", label: t('dashboard:callHistory'), type: "material" },
   ];
@@ -2748,7 +2755,7 @@ export default function UserDashboard() {
       >
         {[
           { id: 'Chat', icon: 'chatbubble-ellipses-outline', iconActive: 'chatbubble-ellipses', label: t('dashboard:chat') },
-          { id: 'Counselor', icon: 'bulb-outline', iconActive: 'bulb', label: t('dashboard:counselor') },
+          { id: 'Counselor', icon: 'bulb-outline', iconActive: 'bulb', label: t('dashboard:consultants', 'Consultants') },
         ].map((tab) => (
           <TouchableOpacity
             key={tab.id}
@@ -2775,7 +2782,7 @@ export default function UserDashboard() {
         <View style={styles.navCenterSpacer} />
 
         {[
-          { id: 'Appointment', icon: 'calendar-outline', iconActive: 'calendar', label: t('dashboard:appointment', 'Appointment') },
+          { id: 'Appointment', icon: 'calendar-outline', iconActive: 'calendar', label: t('dashboard:appointments', 'Appointments') },
           { id: 'Wallet', icon: 'wallet-outline', iconActive: 'wallet', label: t('dashboard:wallet') },
         ].map((tab) => (
           <TouchableOpacity
