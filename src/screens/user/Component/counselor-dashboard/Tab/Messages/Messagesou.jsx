@@ -101,16 +101,33 @@ const avatarStyles = StyleSheet.create({
 const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile }) => {
   const { t } = useLanguageRender();
 
-  const counselorPhoto = counselorData?.profilePhoto || null;
+  const counselorPhoto = counselorData?.profilePhoto || counselorData?.profilePhotoUrl || null;
+  const counselorAddress = counselorData?.address || {};
+  const hasText = (value) => String(value || '').trim().length > 0;
+  const hasArrayItems = (value) => Array.isArray(value) && value.length > 0;
+  const hasArrayItemsOrText = (value) => hasArrayItems(value) || hasText(value);
+  const addressComplete =
+    hasText(counselorAddress.line1) &&
+    hasText(counselorAddress.city) &&
+    hasText(counselorAddress.state) &&
+    hasText(counselorAddress.pincode) &&
+    hasText(counselorAddress.country);
   const profileTasks = [
     { label: 'Profile photo', complete: !!counselorPhoto },
-    { label: 'Specialization', complete: !!counselorData?.specialization || counselorData?.specializations?.length > 0 },
-    { label: 'Qualification', complete: !!counselorData?.education },
+    { label: 'Date of birth', complete: !!counselorData?.dateOfBirth },
+    { label: 'Gender', complete: !!counselorData?.gender },
+    { label: 'Phone', complete: !!counselorData?.phoneNumber },
+    { label: 'Specialization', complete: hasArrayItemsOrText(counselorData?.specialization) || hasArrayItems(counselorData?.specializations) },
+    { label: 'Qualification', complete: hasText(counselorData?.qualification) || hasText(counselorData?.education) },
     { label: 'Experience', complete: Number(counselorData?.experience) > 0 },
-    { label: 'Location', complete: !!counselorData?.location },
-    { label: 'Languages', complete: counselorData?.languages?.length > 0 },
+    { label: 'About me', complete: hasText(counselorData?.aboutMe) },
+    { label: 'Consultation mode', complete: hasArrayItemsOrText(counselorData?.consultationMode) },
+    { label: 'Address', complete: addressComplete },
+    { label: 'Certification', complete: hasArrayItems(counselorData?.certifications) },
+    { label: 'Languages', complete: hasArrayItemsOrText(counselorData?.languages) },
   ];
-  const profileIncomplete = counselorData?.profileCompleted !== true;
+  const allProfileTasksComplete = profileTasks.every((task) => task.complete);
+  const profileIncomplete = counselorData?.profileCompleted !== true && !allProfileTasksComplete;
   const [searchTerm, setSearchTerm] = useState('');
   const [users, setUsers] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);

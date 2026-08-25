@@ -243,6 +243,44 @@ export const COUNTRY_CODES = [
 const DEFAULT_COUNTRY_CODE = '+91';
 export const LOCAL_PHONE_NUMBER_LENGTH = 10;
 
+const LOCAL_PHONE_NUMBER_LENGTHS_BY_ISO2 = {
+  AF: [9], AL: [8, 9], DZ: [9], AS: [10], AD: [6], AO: [9], AI: [10],
+  AG: [10], AR: [10], AM: [8], AW: [7], AU: [9], AT: [10, 11, 12, 13],
+  AZ: [9], BS: [10], BH: [8], BD: [10], BB: [10], BY: [9], BE: [9],
+  BZ: [7], BJ: [8], BM: [10], BT: [8], BO: [8], BA: [8], BW: [7, 8],
+  BR: [10, 11], VG: [10], BN: [7], BG: [8, 9], BF: [8], BI: [8],
+  KH: [8, 9], CM: [9], CA: [10], CV: [7], KY: [10], CF: [8], TD: [8],
+  CL: [9], CN: [11], CO: [10], KM: [7], CG: [9], CK: [5], CR: [8],
+  HR: [8, 9], CU: [8], CW: [7], CY: [8], CZ: [9], CD: [9], DK: [8],
+  DJ: [8], DM: [10], DO: [10], EC: [9], EG: [10], SV: [8], GQ: [9],
+  ER: [7], EE: [7, 8], SZ: [8], ET: [9], FK: [5], FO: [6], FJ: [7],
+  FI: [9, 10], FR: [9], GF: [9], PF: [6], GA: [8], GM: [7], GE: [9],
+  DE: [10, 11], GH: [9], GI: [8], GR: [10], GL: [6], GD: [10], GP: [9],
+  GU: [10], GT: [8], GG: [6], GN: [9], GW: [7], GY: [7], HT: [8],
+  HN: [8], HK: [8], HU: [9], IS: [7], IN: [10], ID: [9, 10, 11, 12],
+  IR: [10], IQ: [10], IE: [9], IM: [10], IL: [9], IT: [9, 10],
+  CI: [10], JM: [10], JP: [10], JE: [10], JO: [9], KZ: [10], KE: [9],
+  KI: [5, 8], XK: [8], KW: [8], KG: [9], LA: [8, 10], LV: [8], LB: [8],
+  LS: [8], LR: [7, 8], LY: [9], LI: [7], LT: [8], LU: [9], MO: [8],
+  MG: [9], MW: [9], MY: [9, 10], MV: [7], ML: [8], MT: [8], MH: [7],
+  MQ: [9], MR: [8], MU: [8], YT: [9], MX: [10], FM: [7], MD: [8],
+  MC: [8, 9], MN: [8], ME: [8], MS: [10], MA: [9], MZ: [9], MM: [8, 9, 10],
+  NA: [9], NR: [7], NP: [10], NL: [9], NC: [6], NZ: [8, 9, 10], NI: [8],
+  NE: [8], NG: [10], NU: [4], KP: [10], MK: [8], MP: [10], NO: [8],
+  OM: [8], PK: [10], PW: [7], PS: [9], PA: [8], PG: [8], PY: [9],
+  PE: [9], PH: [10], PL: [9], PT: [9], PR: [10], QA: [8], RE: [9],
+  RO: [9], RU: [10], RW: [9], BL: [9], SH: [4], KN: [10], LC: [10],
+  MF: [9], PM: [6], VC: [10], WS: [5, 7], SM: [10], ST: [7], SA: [9],
+  SN: [9], RS: [8, 9], SC: [7], SL: [8], SG: [8], SX: [10], SK: [9],
+  SI: [8], SB: [5, 7], SO: [8, 9], ZA: [9], KR: [9, 10], SS: [9],
+  ES: [9], LK: [9], SD: [9], SR: [7], SE: [9], CH: [9], SY: [9],
+  TW: [9], TJ: [9], TZ: [9], TH: [9], TL: [7, 8], TG: [8], TK: [4],
+  TO: [5, 7], TT: [10], TN: [8], TR: [10], TM: [8], TC: [10], TV: [5],
+  VI: [10], UG: [9], UA: [9], AE: [9], GB: [10], US: [10], UY: [8],
+  UZ: [9], VU: [5, 7], VA: [10], VE: [10], VN: [9], WF: [6],
+  EH: [9], YE: [9], ZM: [9], ZW: [9],
+};
+
 const codeDigits = (code) => String(code || '').replace(/\D/g, '');
 
 const sortedCountryCodes = [...COUNTRY_CODES].sort(
@@ -256,25 +294,41 @@ export const normalizeLocalPhoneNumber = (value, countryCode = DEFAULT_COUNTRY_C
   const digits = String(value || '').replace(/\D/g, '');
   const countryDigits = codeDigits(normalizeCountryCode(countryCode));
   const defaultCountryDigits = codeDigits(DEFAULT_COUNTRY_CODE);
+  const maxLength = getPhoneMaxLengthForCountryCode(countryCode);
   let localDigits = digits;
 
-  if (localDigits.length > LOCAL_PHONE_NUMBER_LENGTH) {
+  if (localDigits.length > maxLength) {
     const prefixes = [countryDigits, defaultCountryDigits].filter(Boolean);
     const matchingPrefix = prefixes.find(
       (prefix) =>
         localDigits.startsWith(prefix) &&
-        localDigits.length - prefix.length === LOCAL_PHONE_NUMBER_LENGTH,
+        localDigits.length - prefix.length <= maxLength,
     );
     if (matchingPrefix) {
       localDigits = localDigits.slice(matchingPrefix.length);
     }
   }
 
-  return localDigits.slice(0, LOCAL_PHONE_NUMBER_LENGTH);
+  return localDigits.slice(0, maxLength);
 };
 
-export const isValidLocalPhoneNumber = (value) =>
-  new RegExp(`^\\d{${LOCAL_PHONE_NUMBER_LENGTH}}$`).test(String(value || ''));
+export const getPhoneLengthsForCountryCode = (countryCode = DEFAULT_COUNTRY_CODE) => {
+  const normalized = normalizeCountryCode(countryCode);
+  const country = COUNTRY_CODES.find((item) => item.code === normalized);
+  const fallbackLength = Math.max(4, 15 - codeDigits(normalized).length);
+  return LOCAL_PHONE_NUMBER_LENGTHS_BY_ISO2[country?.iso2] || [fallbackLength];
+};
+
+export const getPhoneMaxLengthForCountryCode = (countryCode = DEFAULT_COUNTRY_CODE) =>
+  Math.max(...getPhoneLengthsForCountryCode(countryCode));
+
+export const getPhoneLengthLabel = (countryCode = DEFAULT_COUNTRY_CODE) =>
+  getPhoneLengthsForCountryCode(countryCode).join(' or ');
+
+export const isValidLocalPhoneNumber = (value, countryCode = DEFAULT_COUNTRY_CODE) => {
+  const digits = String(value || '').replace(/\D/g, '');
+  return getPhoneLengthsForCountryCode(countryCode).includes(digits.length);
+};
 
 export const normalizeCountryCode = (value) => {
   if (!value) return DEFAULT_COUNTRY_CODE;
@@ -283,9 +337,6 @@ export const normalizeCountryCode = (value) => {
   const matched = COUNTRY_CODES.find((country) => codeDigits(country.code) === digits);
   return matched?.code || `+${digits}`;
 };
-
-export const getPhoneMaxLengthForCountryCode = (countryCode) =>
-  Math.max(4, 15 - codeDigits(countryCode).length);
 
 export const splitInternationalPhoneNumber = (value, fallbackCode = DEFAULT_COUNTRY_CODE) => {
   const raw = String(value || '').trim();
@@ -317,7 +368,7 @@ export const buildInternationalPhoneNumber = (countryCode, phoneNumber) => {
 };
 
 export const isValidInternationalPhoneNumber = (countryCode, phoneNumber) => {
-  return isValidLocalPhoneNumber(normalizeLocalPhoneNumber(phoneNumber, countryCode));
+  return isValidLocalPhoneNumber(normalizeLocalPhoneNumber(phoneNumber, countryCode), countryCode);
 };
 
 export const findCountryByCode = (countryCode) => {

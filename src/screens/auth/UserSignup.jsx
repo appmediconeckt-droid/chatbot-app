@@ -613,6 +613,7 @@ import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
 import CountryPhoneInput from '../../components/common/CountryPhoneInput';
 import {
+  getPhoneLengthLabel,
   isValidLocalPhoneNumber,
   normalizeLocalPhoneNumber,
 } from '../../utils/countryCodes';
@@ -639,7 +640,13 @@ const UserSignup = ({ navigation, route }) => {
   const isCompact = width < 360 || height < 700;
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
-  const { scrollRef, keyboardOpen, keyboardInset, scrollFocusedInputIntoView } = useKeyboardAwareScroll();
+  const {
+    scrollRef,
+    keyboardInset,
+    scrollFocusedInputIntoView,
+    handleKeyboardAwareScroll,
+    handleKeyboardAwareScrollLayout,
+  } = useKeyboardAwareScroll();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -828,7 +835,9 @@ const UserSignup = ({ navigation, route }) => {
     else if (!emailVerified) newErrors.email = "Please verify your email first";
 
     if (!formData.phoneNumber) newErrors.phoneNumber = "Phone number is required";
-    else if (!isValidLocalPhoneNumber(formData.phoneNumber)) newErrors.phoneNumber = "Phone number must be 10 digits";
+    else if (!isValidLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode)) {
+      newErrors.phoneNumber = `Phone number must be ${getPhoneLengthLabel(formData.phoneCountryCode)} digits`;
+    }
 
     const calculatedAge = calculateAgeFromDateOfBirth(formData.dateOfBirth);
     if (!formData.dateOfBirth || calculatedAge === null) newErrors.dateOfBirth = "Date of birth is required";
@@ -1207,7 +1216,7 @@ const UserSignup = ({ navigation, route }) => {
         <CountryPhoneInput
           value={formData.phoneNumber}
           countryCode={formData.phoneCountryCode}
-          onChangePhoneNumber={(text) => handleChange(name, normalizeLocalPhoneNumber(text, formData.phoneCountryCode))}
+          onChangePhoneNumber={(text) => handleChange(name, text)}
           onChangeCountryCode={(code) => handleChange('phoneCountryCode', code)}
           focused={isFocused}
           accentColor="#00652C"
@@ -1270,10 +1279,10 @@ const UserSignup = ({ navigation, route }) => {
 
   const scrollContainerStyle = {
     ...styles.scrollContent,
-    justifyContent: isLogin && !keyboardOpen ? 'center' : 'flex-start',
+    justifyContent: isLogin ? 'center' : 'flex-start',
     paddingHorizontal: isCompact ? 12 : 16,
     paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 62 : 76),
-    paddingBottom: isLogin ? (isCompact ? 44 : 60) + keyboardInset : (isCompact ? 14 : 20),
+    paddingBottom: (isLogin ? (isCompact ? 44 : 60) : (isCompact ? 14 : 20)) + keyboardInset,
   };
   const panelStyle = [
     styles.panel,
@@ -1301,6 +1310,7 @@ const UserSignup = ({ navigation, route }) => {
   const formContentStyle = [
     styles.formPanel,
     !isLogin && styles.signupFormPanel,
+    !isLogin && { paddingBottom: (isCompact ? 18 : 24) + keyboardInset },
   ];
 
   return (
@@ -1318,6 +1328,9 @@ const UserSignup = ({ navigation, route }) => {
               ref={isLogin ? scrollRef : null}
               contentContainerStyle={scrollContainerStyle}
               showsVerticalScrollIndicator={false}
+              onLayout={isLogin ? handleKeyboardAwareScrollLayout : undefined}
+              onScroll={isLogin ? handleKeyboardAwareScroll : undefined}
+              scrollEventThrottle={16}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
               scrollEnabled={isLogin}
@@ -1335,6 +1348,9 @@ const UserSignup = ({ navigation, route }) => {
                   style={formScrollStyle}
                   contentContainerStyle={formContentStyle}
                   showsVerticalScrollIndicator={!isLogin}
+                  onLayout={!isLogin ? handleKeyboardAwareScrollLayout : undefined}
+                  onScroll={!isLogin ? handleKeyboardAwareScroll : undefined}
+                  scrollEventThrottle={16}
                   keyboardShouldPersistTaps="handled"
                   nestedScrollEnabled
                   scrollEnabled={!isLogin}
