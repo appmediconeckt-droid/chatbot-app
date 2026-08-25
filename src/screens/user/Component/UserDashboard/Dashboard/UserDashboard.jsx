@@ -58,6 +58,7 @@ import PrivacyPolicy from "../Tab/PrivacyPolicy/PrivacyPolicy";
 import NotificationScreen from "../Tab/Notifications/NotificationScreen";
 import UserAccountSettings from "../Tab/UserAccountSettings";
 import { toImageUri } from "../../../../../utils/imageUri";
+import { clearAccountLocalData } from "../../../../../utils/authSession";
 
 // Time for a Modal to finish dismissing. RN can only transition one Modal at a
 // time, so opening the next one any sooner gets silently dropped.
@@ -2331,13 +2332,23 @@ export default function UserDashboard() {
     }
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     safeVibrate([220, 100, 220]);
     setShowDeleteConfirm(false);
-    setDeleteSuccess(true);
-    setTimeout(() => {
-      navigation.navigate("RoleSelector");
-    }, 2500);
+    try {
+      await axiosInstance.delete('/api/auth/delete');
+      await clearAccountLocalData();
+      setDeleteSuccess(true);
+      setTimeout(() => {
+        navigation.replace("RoleSelector");
+      }, 1500);
+    } catch (error) {
+      console.error("Delete account error:", error);
+      Alert.alert(
+        "Delete failed",
+        error?.response?.data?.message || "Could not delete your account. Please try again.",
+      );
+    }
   };
 
   const handleAcceptCall = async (callId) => {
@@ -3075,6 +3086,7 @@ export default function UserDashboard() {
             </View>
             <View style={styles.confirmModalBody}>
               <Text style={styles.confirmModalText}>{t('settings:deleteWarning')}</Text>
+              <Text style={styles.confirmModalText}>Payment history will be kept.</Text>
             </View>
             <View style={styles.confirmModalFooter}>
               <TouchableOpacity

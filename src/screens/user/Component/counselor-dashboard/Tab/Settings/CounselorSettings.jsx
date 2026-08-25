@@ -13,6 +13,7 @@ import {
   Dimensions,
   Animated,
   Modal,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
@@ -33,6 +34,7 @@ import CounselorWallet from '../Wallet/CounselorWallet';
 import LanguageSelector from '../../../../../../components/common/LanguageSelector';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useKeyboardAwareScroll from '../../../../../../hooks/useKeyboardAwareScroll';
+import { clearAccountLocalData } from '../../../../../../utils/authSession';
 
 const TERMS_URL = 'https://humaeli.com/terms-of-use/';
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -137,6 +139,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   const [showHelp, setShowHelp] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showWallet, setShowWallet] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   // Feedback modal state
   const [feedbackModal, setFeedbackModal] = useState(false);
@@ -175,6 +178,40 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     } finally {
       setFeedbackLoading(false);
     }
+  };
+
+  const deleteAccount = async () => {
+    if (deletingAccount) return;
+    setDeletingAccount(true);
+    try {
+      const token =
+        (await AsyncStorage.getItem('accessToken')) ||
+        (await AsyncStorage.getItem('token'));
+      await axios.delete(`${API_BASE_URL}/api/auth/delete`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      await clearAccountLocalData();
+      navigation.replace('RoleSelector');
+    } catch (err) {
+      Alert.alert(
+        'Delete failed',
+        err.response?.data?.message || err.message || 'Could not delete your account. Please try again.',
+      );
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const confirmDeleteAccount = () => {
+    if (deletingAccount) return;
+    Alert.alert(
+      'Delete account',
+      'Your chats, calls, appointments, ratings, notifications, and local app data will be deleted. Payment history will be kept.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: deleteAccount },
+      ],
+    );
   };
 
   // Password modal state
@@ -359,6 +396,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     if (id === 'help') return setShowHelp(true);
     if (id === 'privacy') return setShowPrivacy(true);
     if (id === 'terms') return Linking.openURL(TERMS_URL);
+    if (id === 'delete_account') return confirmDeleteAccount();
     if (id === 'feedback') {
       setFeedbackNotice({ type: '', msg: '' });
       return setFeedbackModal(true);
@@ -444,6 +482,17 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           // not leave the app, so the chevron is the honest affordance.
           label: t('settings:privacyPolicy'),
           type: 'nav',
+        },
+        {
+          id: 'delete_account',
+          icon: 'trash-2',
+          iconBg: '#FEF2F2',
+          iconColor: '#DC2626',
+          label: t('settings:deleteAccount', 'Delete Account'),
+          subtitle: t('Payment history will be kept'),
+          type: 'nav',
+          danger: true,
+          disabled: deletingAccount,
         },
       ],
     },
@@ -563,7 +612,11 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
               const rowProps =
                 item.type === 'switch'
                   ? {}
-                  : { onPress: () => handleNav(item.id), activeOpacity: 0.65 };
+                  : {
+                      onPress: item.disabled ? undefined : () => handleNav(item.id),
+                      activeOpacity: item.disabled ? 1 : 0.65,
+                      disabled: item.disabled,
+                    };
               return (
                 <RowWrap
                   key={item.id}
@@ -623,6 +676,8 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                       )}
                       {item.externalLink ? (
                         <Feather name="external-link" size={16} color="#94a3b8" />
+                      ) : item.disabled ? (
+                        <ActivityIndicator size="small" color="#DC2626" />
                       ) : !item.danger ? (
                         <Feather name="chevron-right" size={18} color="#cbd5e1" />
                       ) : null}
