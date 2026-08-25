@@ -238,7 +238,7 @@ const RoleSelector = () => {
                   </LinearGradient>
                   <View style={styles.roleTextWrap}>
                     <Text style={[styles.roleName, { fontSize: R.roleName }]}>{t('User')}</Text>
-                    <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>{t('Find trusted counselors')}</Text>
+                    <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>{t('Find trusted consultants')}</Text>
                   </View>
                   {selectedRole === 'user' && isLoading ? (
                     <ActivityIndicator size="small" color={PATIENT.primary} />
@@ -250,7 +250,7 @@ const RoleSelector = () => {
                 </TouchableOpacity>
               </Animated.View>
 
-              {/* Counselor → blue */}
+              {/* Consultant → blue */}
               <Animated.View style={{ transform: [{ translateY: counselorCardSlide }, { scale: scaleCounselor }] }}>
                 <TouchableOpacity
                   activeOpacity={0.9}
@@ -279,7 +279,7 @@ const RoleSelector = () => {
                     <Icon name="briefcase-variant" size={R.roleIconGlyph} color="#ffffff" />
                   </LinearGradient>
                   <View style={styles.roleTextWrap}>
-                    <Text style={[styles.roleName, { fontSize: R.roleName }]}>{t('Counselor')}</Text>
+                    <Text style={[styles.roleName, { fontSize: R.roleName }]}>{t('Consultant')}</Text>
                     <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>{t('Manage your practice')}</Text>
                   </View>
                   {selectedRole === 'counselor' && isLoading ? (

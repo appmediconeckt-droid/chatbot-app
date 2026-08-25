@@ -252,7 +252,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         (await AsyncStorage.getItem('token'));
 
       if (!counsellorId) {
-        setError('Counselor ID not found. Please login again.');
+        setError('Consultant ID not found. Please login again.');
         setLoading(false);
         return;
       }

@@ -209,7 +209,7 @@ const TransactionsHistory = ({ navigation }) => {
             <Ionicons name="search" size={18} color="#94a3b8" />
             <TextInput
               style={s.searchInput}
-              placeholder={t('Search transactions, counselors...')}
+              placeholder={t('Search transactions, consultants...')}
               placeholderTextColor="#cbd5e1"
               value={searchQuery}
               onChangeText={setSearchQuery}

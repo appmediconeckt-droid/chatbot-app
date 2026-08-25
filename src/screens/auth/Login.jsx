@@ -169,7 +169,7 @@ const Login = ({ navigation, route }) => {
 
   const getRoleLabel = (role) => {
     const normalized = normalizeRole(role);
-    return normalized === 'counselor' ? 'Counsellor' : 'User';
+    return normalized === 'counselor' ? 'Consultant' : 'User';
   };
 
   const buildRoleMismatchMessage = (actualRole, selectedRole) => {

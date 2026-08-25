@@ -59,8 +59,8 @@ const requestLocationPermission = async () => {
 const REASONS = [
   {
     icon: '📍',
-    title: 'Match you with nearby counsellors',
-    body: 'We use your location to show counsellors available in your area for faster, better support.',
+    title: 'Match you with nearby consultants',
+    body: 'We use your location to show consultants available in your area for faster, better support.',
   },
   {
     icon: '🔒',
@@ -194,8 +194,8 @@ const LocationGate = ({ navigation, route }) => {
           {isHard
             ? 'Location was permanently blocked. Open Settings → enable Location for this app, then come back.'
             : attempt === 1
-            ? 'Without location access you\'ll miss nearby counsellors, account security alerts, and emergency support. Please allow it.'
-            : 'Location is still blocked. Features like nearby counsellors and emergency support won\'t work properly.'}
+            ? 'Without location access you\'ll miss nearby consultants, account security alerts, and emergency support. Please allow it.'
+            : 'Location is still blocked. Features like nearby consultants and emergency support won\'t work properly.'}
         </Text>
       </Animated.View>
     );

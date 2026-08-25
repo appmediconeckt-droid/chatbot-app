@@ -49,7 +49,7 @@ const GRADIENT_END = { x: 1, y: 0.5 };
  */
 const RatingModal = ({
   visible,
-  counselorName = "your counselor",
+  counselorName = "your consultant",
   counselorPhoto,
   submitting = false,
   success = false,
@@ -131,7 +131,7 @@ const RatingModal = ({
                 )}
               </View>
 
-              <Text style={styles.title}>{t('Rate your counselor')}</Text>
+              <Text style={styles.title}>{t('Rate your consultant')}</Text>
               <Text style={styles.subtitle}>
                 How was your experience with{" "}
                 <Text style={styles.counselorName}>{counselorName}</Text>?

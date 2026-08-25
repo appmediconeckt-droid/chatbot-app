@@ -126,7 +126,7 @@ const Landing = ({ navigation }) => {
                     : styles.descriptionRegular,
               ]}
             >
-              In your difficult time of mental health to connect with counsellors, psychologists,
+              In your difficult time of mental health to connect with consultants, psychologists,
               psychological wellness practitioners & psychiatrists
             </Text>
 
