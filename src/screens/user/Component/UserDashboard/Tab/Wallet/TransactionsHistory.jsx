@@ -47,19 +47,6 @@ const statusStyle = (status) => {
   return { label: s.toUpperCase() || 'UNKNOWN', color: '#94a3b8' };
 };
 
-const mergeTransactions = (current, incoming) => {
-  const seen = new Set(current.map((tx) => String(tx?._id)));
-  return [
-    ...current,
-    ...incoming.filter((tx) => {
-      const id = String(tx?._id);
-      if (!id || seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    }),
-  ];
-};
-
 const TransactionsHistory = ({ navigation }) => {
   const { t } = useLanguageRender();
   const [activeFilter, setActiveFilter] = useState('All');
@@ -91,12 +78,12 @@ const TransactionsHistory = ({ navigation }) => {
     return params;
   }, [activeFilter, searchQuery]);
 
-  const fetchWallet = useCallback(async ({ page = 1, append = false, silent = false } = {}) => {
+  const fetchWallet = useCallback(async ({ page = 1, silent = false, pageChange = false } = {}) => {
     const requestId = requestSeqRef.current + 1;
     requestSeqRef.current = requestId;
     const isCurrentRequest = () => requestId === requestSeqRef.current;
 
-    if (append) {
+    if (pageChange) {
       setLoadingMore(true);
     } else if (!silent) {
       setLoading(true);
@@ -107,7 +94,7 @@ const TransactionsHistory = ({ navigation }) => {
       if (!isCurrentRequest()) return;
       const nextTransactions = Array.isArray(res?.data?.transactions) ? res.data.transactions : [];
       setBalance(Number(res?.data?.balance || 0));
-      setTransactions((current) => append ? mergeTransactions(current, nextTransactions) : nextTransactions);
+      setTransactions(nextTransactions);
       setSpendingSummary(res?.data?.spendingSummary || { total: 0, breakdown: [] });
       setPagination(res?.data?.pagination || {
         page,
@@ -143,8 +130,13 @@ const TransactionsHistory = ({ navigation }) => {
 
   const loadNextPage = useCallback(() => {
     if (loading || refreshing || loadingMore || !pagination.hasNextPage) return;
-    fetchWallet({ page: pagination.page + 1, append: true, silent: true });
+    fetchWallet({ page: pagination.page + 1, pageChange: true, silent: true });
   }, [fetchWallet, loading, loadingMore, pagination.hasNextPage, pagination.page, refreshing]);
+
+  const loadPreviousPage = useCallback(() => {
+    if (loading || refreshing || loadingMore || pagination.page <= 1) return;
+    fetchWallet({ page: pagination.page - 1, pageChange: true, silent: true });
+  }, [fetchWallet, loading, loadingMore, pagination.page, refreshing]);
 
   // Group into month sections, newest first.
   const sections = useMemo(() => {
@@ -161,6 +153,13 @@ const TransactionsHistory = ({ navigation }) => {
       });
     return Array.from(byMonth.entries()).map(([month, items]) => ({ month, data: items }));
   }, [transactions]);
+
+  const totalTransactions = Number(pagination.total || transactions.length || 0);
+  const currentPage = Number(pagination.page || 1);
+  const totalPages = Math.max(1, Number(pagination.totalPages || 1));
+  const pageLimit = Math.max(1, Number(pagination.limit || PAGE_SIZE));
+  const showingStart = totalTransactions ? ((currentPage - 1) * pageLimit) + 1 : 0;
+  const showingEnd = totalTransactions ? Math.min(totalTransactions, showingStart + transactions.length - 1) : 0;
 
   const renderTransaction = (tx) => {
     const isCredit = tx.type === 'credit';
@@ -265,7 +264,7 @@ const TransactionsHistory = ({ navigation }) => {
 
       {pagination.total > 0 && (
         <Text style={s.paginationSummary}>
-          Showing {transactions.length} of {pagination.total} transactions
+          Showing {showingStart}-{showingEnd} of {pagination.total} transactions
         </Text>
       )}
     </>
@@ -276,17 +275,39 @@ const TransactionsHistory = ({ navigation }) => {
       return (
         <View style={s.footerLoader}>
           <ActivityIndicator size="small" color={PATIENT.primary} />
-          <Text style={s.footerText}>{t('Loading more...')}</Text>
+          <Text style={s.footerText}>{t('Loading page...')}</Text>
         </View>
       );
     }
-    if (!pagination.hasNextPage || sections.length === 0) {
+    if (sections.length === 0 || totalPages <= 1) {
       return <View style={{ height: 30 }} />;
     }
     return (
-      <TouchableOpacity style={s.loadMoreBtn} onPress={loadNextPage} activeOpacity={0.85}>
-        <Text style={s.loadMoreText}>{t('Load more')}</Text>
-      </TouchableOpacity>
+      <View style={s.paginationFooter}>
+        <TouchableOpacity
+          style={[s.pageBtn, currentPage <= 1 && s.pageBtnDisabled]}
+          onPress={loadPreviousPage}
+          disabled={currentPage <= 1}
+          activeOpacity={0.85}
+          accessibilityLabel={t('Previous page')}
+        >
+          <Ionicons name="chevron-back" size={16} color={currentPage <= 1 ? '#94a3b8' : PATIENT.primary} />
+        </TouchableOpacity>
+
+        <Text style={s.pageInfo}>
+          {t('Page')} {currentPage} {t('of')} {totalPages}
+        </Text>
+
+        <TouchableOpacity
+          style={[s.pageBtn, !pagination.hasNextPage && s.pageBtnDisabled]}
+          onPress={loadNextPage}
+          disabled={!pagination.hasNextPage}
+          activeOpacity={0.85}
+          accessibilityLabel={t('Next page')}
+        >
+          <Ionicons name="chevron-forward" size={16} color={!pagination.hasNextPage ? '#94a3b8' : PATIENT.primary} />
+        </TouchableOpacity>
+      </View>
     );
   };
 
@@ -341,8 +362,6 @@ const TransactionsHistory = ({ navigation }) => {
               tintColor={PATIENT.primary}
             />
           }
-          onEndReached={loadNextPage}
-          onEndReachedThreshold={0.35}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={s.listContent}
         />
@@ -399,8 +418,10 @@ const s = StyleSheet.create({
   retryText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
   footerLoader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 18 },
   footerText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  loadMoreBtn: { alignSelf: 'center', marginTop: 16, marginBottom: 30, paddingHorizontal: 22, paddingVertical: 10, borderRadius: 999, backgroundColor: PATIENT.primary },
-  loadMoreText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
+  paginationFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: 16, marginTop: 18, marginBottom: 30, gap: 10 },
+  pageBtn: { width: 44, height: 38, borderRadius: 19, borderWidth: 1, borderColor: '#CDEBD8', backgroundColor: '#EAF8EF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  pageBtnDisabled: { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
+  pageInfo: { flex: 1, textAlign: 'center', color: '#64748b', fontSize: 12, fontWeight: '700' },
 });
 
 export default TransactionsHistory;
