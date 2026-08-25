@@ -22,7 +22,7 @@ import {
   useWindowDimensions,
   Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import ZoomableImageViewer from '../../../../../../components/common/ZoomableImageViewer';
@@ -48,8 +48,6 @@ import GradientFill from '../../../../../../components/common/GradientFill';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import ChatSkeleton from "../../../../../../components/common/ChatSkeleton";
 import {
-  fetchChatCallEntries,
-  mergeTimelineForInverted,
   describeCall,
 } from '../../../../../../utils/chatCallHistory';
 
@@ -199,10 +197,12 @@ const IncomingCallModal = ({
 // ─── Main Component ────────────────────────────────────────────────────────
 const SMSInput = ({ navigation, route }) => {
   const { t } = useLanguageRender();
+  const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   useScreenshotPrevent();
   const location = route.params || {};
   const [message, setMessage] = useState("");
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const messageInputRef = useRef(null);
   const keyboardVisibleRef = useRef(false);
   const sendFocusGuardRef = useRef(false);
@@ -552,16 +552,13 @@ const SMSInput = ({ navigation, route }) => {
     } catch { setCallHistory([]); }
   }, [USER_ID, counselorId]);
 
-  // ─── Merged timeline (messages + calls sorted oldest→newest) ────────────
   const getMergedTimeline = useCallback(() => {
-    const hidden = new Set(hiddenCallIds.map(String));
-    const visibleCalls = callHistory.filter((c) => !hidden.has(String(c.id)));
-    return [...messages, ...visibleCalls].sort((a, b) => {
+    return [...messages].filter((item) => !item?.isCall).sort((a, b) => {
       const tA = a.fullTime || a.createdAt || a.timestamp;
       const tB = b.fullTime || b.createdAt || b.timestamp;
       return new Date(tA) - new Date(tB);
     });
-  }, [messages, callHistory, hiddenCallIds]);
+  }, [messages]);
 
   const hiddenCallsStorageKey = useCallback(() => `hiddenCallEntries_${getChatIdForAPI()}`, [chatId, USER_ID, counselorId, selectedUser]);
 
@@ -1026,7 +1023,7 @@ const SMSInput = ({ navigation, route }) => {
       // error branch below the skeleton is what should be shown then, not an
       // endless skeleton waiting on the 6s guard.
       try {
-        await Promise.all([fetchMessagesFromAPI(), fetchCallHistory()]);
+        await fetchMessagesFromAPI();
       } finally {
         if (alive) setTimelineReady(true);
       }
@@ -1036,25 +1033,10 @@ const SMSInput = ({ navigation, route }) => {
     return () => { alive = false; clearTimeout(guard); };
   }, [selectedUser, chatId, counselorId]);
 
-  // Load call history for this conversation and merge it into the thread.
   const loadCallHistory = async () => {
-    try {
-      if (!counselorId || !USER_ID) return;
-      const token = await getAuthToken();
-      const entries = await fetchChatCallEntries({
-        currentUserId: counselorId,
-        peerId: USER_ID,
-        token,
-      });
-      setCallHistory(entries);
-    } catch (_) {
-      // Non-fatal — chat still renders without call entries.
-    }
+    setCallHistory([]);
   };
 
-  // Secondary refresh once both ids are known. It used to be the ONLY thing that
-  // loaded call history on this screen when the ids resolved late, which is why
-  // the bubbles appeared well after the messages.
   useEffect(() => {
     if (counselorId && USER_ID) loadCallHistory();
   }, [counselorId, USER_ID, chatId]);
@@ -1251,13 +1233,16 @@ const SMSInput = ({ navigation, route }) => {
   }, []);
 
   useEffect(() => {
-    // iOS fires keyboardWillShow (pre-animation); Android ONLY fires
-    // keyboardDidShow. KeyboardAvoidingView does the lifting — these listeners
-    // just keep the newest message visible (WhatsApp-style). Same as user side.
+    // Android uses adjustNothing for the activity, so lift the composer by the
+    // measured keyboard height instead of relying on a full-window resize.
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSub = Keyboard.addListener(showEvt, () => {
+    const showSub = Keyboard.addListener(showEvt, (event) => {
       keyboardVisibleRef.current = true;
+      if (Platform.OS === 'android') {
+        const keyboardHeight = event?.endCoordinates?.height || 0;
+        setKeyboardInset(Math.max(0, keyboardHeight - insets.bottom));
+      }
       if (shouldAutoScrollRef.current) {
         requestAnimationFrame(() => scrollToBottom(true));
         setTimeout(() => scrollToBottom(true), 120);
@@ -1265,6 +1250,7 @@ const SMSInput = ({ navigation, route }) => {
     });
     const hideSub = Keyboard.addListener(hideEvt, () => {
       keyboardVisibleRef.current = false;
+      if (Platform.OS === 'android') setKeyboardInset(0);
       if (sendFocusGuardRef.current) {
         requestAnimationFrame(() => messageInputRef.current?.focus());
         return;
@@ -1272,7 +1258,7 @@ const SMSInput = ({ navigation, route }) => {
     });
 
     return () => { showSub.remove(); hideSub.remove(); };
-  }, [scrollToBottom]);
+  }, [insets.bottom, scrollToBottom]);
 
   // ─── Render functions ────────────────────────────────────────────────────
   const renderMessageStatus = (msg) => {
@@ -1616,12 +1602,10 @@ const SMSInput = ({ navigation, route }) => {
           <View style={[
             styles.inputArea,
             {
-              // Permanently paint and pad through the bottom system inset so
-              // closing the keyboard cannot reveal an empty strip below the
-              // composer. Constant geometry also prevents a delayed jump.
-              // The enclosing SafeAreaView supplies the navigation-bar inset.
-              // A fixed inner padding avoids the late keyboard-event jump.
+              // SafeAreaView owns the bottom system inset. Android gets a
+              // measured keyboard margin so the composer stays above the IME.
               paddingBottom: 8,
+              marginBottom: Platform.OS === 'android' ? keyboardInset : 0,
             },
           ]}>
             <View style={styles.inputAreaInner}>

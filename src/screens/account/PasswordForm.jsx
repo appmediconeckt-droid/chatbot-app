@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import useLanguageRender from '../../hooks/useLanguageRender';
+import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
 
 const modeContent = {
   change: {
@@ -40,6 +41,7 @@ const modeContent = {
 
 const PasswordForm = ({ mode = 'change', onSubmit }) => {
   const { t } = useLanguageRender();
+  const { scrollRef, keyboardInset, scrollFocusedInputIntoView } = useKeyboardAwareScroll();
   const copy = modeContent[mode] || modeContent.change;
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
@@ -133,6 +135,7 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
         <TextInput
           value={value}
           onChangeText={onChangeText}
+          onFocus={scrollFocusedInputIntoView}
           style={styles.input}
           secureTextEntry={!visible}
           autoCapitalize="none"
@@ -153,9 +156,14 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
+        ref={scrollRef}
         style={styles.container}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          Platform.OS === 'android' && keyboardInset ? { paddingBottom: keyboardInset + 28 } : null,
+        ]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         <View style={styles.header}>
           <View style={styles.iconCircle}>
@@ -175,6 +183,7 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
                   <TextInput
                     value={email}
                     onChangeText={setEmail}
+                    onFocus={scrollFocusedInputIntoView}
                     style={styles.input}
                     keyboardType="email-address"
                     autoCapitalize="none"
@@ -190,6 +199,7 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
                   <TextInput
                     value={otp}
                     onChangeText={(value) => setOtp(value.replace(/\D/g, '').slice(0, 6))}
+                    onFocus={scrollFocusedInputIntoView}
                     style={styles.input}
                     keyboardType="number-pad"
                     autoCapitalize="none"

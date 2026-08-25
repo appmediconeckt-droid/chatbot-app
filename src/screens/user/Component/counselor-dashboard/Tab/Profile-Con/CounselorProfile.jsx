@@ -22,6 +22,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { pick } from '@react-native-documents/picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
@@ -34,6 +35,12 @@ import {
   normalizeLocalPhoneNumber,
   splitInternationalPhoneNumber,
 } from '../../../../../../utils/countryCodes';
+import {
+  calculateAgeFromDateOfBirth,
+  formatDateOfBirthDisplay,
+  getDatePickerValue,
+  toDateOnlyString,
+} from '../../../../../../utils/dateOfBirth';
 
 const { width } = Dimensions.get('window');
 
@@ -48,6 +55,17 @@ const VERIFICATION_DOCUMENT_OPTIONS = [
 ];
 const ALLOWED_DOCUMENT_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/jpg', 'image/png'];
 
+const createBlankEmailChange = () => ({
+  sending: false,
+  sent: false,
+  verifying: false,
+  verified: false,
+  sentValue: null,
+  verifiedValue: null,
+  otp: '',
+  error: '',
+});
+
 const normalizeGender = (value) => {
   if (!value) return '';
   const v = String(value).trim().toLowerCase();
@@ -57,12 +75,7 @@ const normalizeGender = (value) => {
   return v;
 };
 
-const normalizeBloodGroup = (value) => {
-  if (!value) return '';
-  return String(value).replace(/\s+/g, '').toUpperCase();
-};
-
-const CounselorProfile = () => {
+const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   const navigation = useNavigation();
   const { t: tLanguage } = useTranslation();
   const { t } = useLanguageRender();
@@ -97,7 +110,6 @@ const CounselorProfile = () => {
     age: null,
     gender: '',
     dateOfBirth: null,
-    bloodGroup: '',
     address: {
       line1: '',
       line2: '',
@@ -120,7 +132,7 @@ const CounselorProfile = () => {
     }
   });
 
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(startEditing);
   const [editedData, setEditedData] = useState(counselor);
   const [clientsCount, setClientsCount] = useState(0);
   const [sessionsCount, setSessionsCount] = useState(0);
@@ -128,6 +140,7 @@ const CounselorProfile = () => {
   const [newLanguage, setNewLanguage] = useState('');
   const [newSpecialization, setNewSpecialization] = useState('');
   const [newConsultationMode, setNewConsultationMode] = useState('');
+  const [showDateOfBirthPicker, setShowDateOfBirthPicker] = useState(false);
   const [newCertification, setNewCertification] = useState({
     name: '',
     issueDate: '',
@@ -139,11 +152,44 @@ const CounselorProfile = () => {
 
   const [documents, setDocuments] = useState([]);
   const [selectedDocumentType, setSelectedDocumentType] = useState(null);
+  const [emailChange, setEmailChange] = useState(createBlankEmailChange);
 
   useEffect(() => {
     fetchCounselorProfile();
     fetchStatsData();
   }, []);
+
+  useEffect(() => {
+    if (startEditing) setIsEditing(true);
+  }, [startEditing]);
+
+  const normalizedEditedEmail = String(editedData?.email || '').trim().toLowerCase();
+  const normalizedCurrentEmail = String(counselor?.email || '').trim().toLowerCase();
+  const isEmailDirty = () => normalizedEditedEmail !== normalizedCurrentEmail;
+  const emailReady =
+    !isEmailDirty() ||
+    (emailChange.verified && emailChange.verifiedValue === normalizedEditedEmail);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setEmailChange(createBlankEmailChange());
+      return;
+    }
+
+    if (
+      (emailChange.sent && emailChange.sentValue !== normalizedEditedEmail) ||
+      (emailChange.verified && emailChange.verifiedValue !== normalizedEditedEmail)
+    ) {
+      setEmailChange(createBlankEmailChange());
+    }
+  }, [
+    emailChange.sent,
+    emailChange.sentValue,
+    emailChange.verified,
+    emailChange.verifiedValue,
+    isEditing,
+    normalizedEditedEmail,
+  ]);
 
   const fetchStatsData = async () => {
     try {
@@ -206,12 +252,12 @@ const CounselorProfile = () => {
         return;
       }
 
-      const response = await axios.get(`${API_BASE_URL}/api/auth/counsellors/${counsellorId}`, {
+      const response = await axios.get(`${API_BASE_URL}/api/auth/me`, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (response.data.success && response.data.counsellor) {
-        const userData = response.data.counsellor;
+      if (response.data.success && (response.data.user || response.data.counsellor)) {
+        const userData = response.data.user || response.data.counsellor;
 
         let profilePhotoUrl = '';
         if (userData.profilePhoto) {
@@ -226,6 +272,11 @@ const CounselorProfile = () => {
           userData.phoneNumber || userData.phone || '',
           userData.phoneCountryCode || '+91',
         );
+        const dateOfBirth = userData.dateOfBirth
+          ? String(userData.dateOfBirth).split('T')[0]
+          : '';
+        const ageFromDateOfBirth = calculateAgeFromDateOfBirth(dateOfBirth);
+
         const formattedData = {
           _id: userData._id,
           uniqueCode: userData.uniqueCode || `CNS-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
@@ -253,10 +304,9 @@ const CounselorProfile = () => {
             userData.online === true ||
             String(userData.status || '').toLowerCase() === 'online',
           profileCompleted: userData.profileCompleted || false,
-          age: userData.age || null,
+          age: ageFromDateOfBirth ?? userData.age ?? null,
           gender: normalizeGender(userData.gender),
-          dateOfBirth: userData.dateOfBirth || null,
-          bloodGroup: normalizeBloodGroup(userData.bloodGroup),
+          dateOfBirth,
           address: userData.address || {
             line1: '', line2: '', city: '', state: '', pincode: '', country: 'India'
           },
@@ -384,8 +434,123 @@ const CounselorProfile = () => {
     }
   };
 
+  const getAuthHeaders = async () => {
+    const accessToken =
+      (await AsyncStorage.getItem('accessToken')) ||
+      (await AsyncStorage.getItem('token'));
+    return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+  };
+
+  const sendEmailChangeOtp = async () => {
+    const newValue = normalizedEditedEmail;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newValue)) {
+      const msg = 'Please enter a valid email address';
+      setEmailChange(prev => ({ ...prev, error: msg }));
+      setError(msg);
+      return;
+    }
+
+    setEmailChange(prev => ({ ...prev, sending: true, error: '' }));
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      const headers = await getAuthHeaders();
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/profile-change/send-otp`,
+        { field: 'email', newValue },
+        { headers, timeout: 15000 },
+      );
+
+      if (!response.data?.success) {
+        throw new Error(response.data?.message || 'Failed to send verification OTP');
+      }
+
+      setEmailChange({
+        sending: false,
+        sent: true,
+        verifying: false,
+        verified: false,
+        sentValue: newValue,
+        verifiedValue: null,
+        otp: '',
+        error: '',
+      });
+      setSuccessMessage(response.data?.message || `OTP sent to ${newValue}`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to send verification OTP';
+      setEmailChange(prev => ({ ...prev, sending: false, error: msg }));
+      setError(msg);
+      Alert.alert('Verification Error', msg);
+    }
+  };
+
+  const verifyEmailChangeOtp = async () => {
+    const newValue = normalizedEditedEmail;
+    const otp = String(emailChange.otp || '').trim();
+    if (otp.length < 4) {
+      const msg = 'Please enter the OTP first';
+      setEmailChange(prev => ({ ...prev, error: msg }));
+      return;
+    }
+
+    setEmailChange(prev => ({ ...prev, verifying: true, error: '' }));
+    setError('');
+
+    try {
+      const headers = await getAuthHeaders();
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/profile-change/verify-otp`,
+        { field: 'email', newValue, otp },
+        { headers },
+      );
+
+      if (!response.data?.success) {
+        throw new Error(response.data?.message || 'Email verification failed');
+      }
+
+      setEmailChange({
+        sending: false,
+        sent: false,
+        verifying: false,
+        verified: true,
+        sentValue: null,
+        verifiedValue: newValue,
+        otp: '',
+        error: '',
+      });
+      setSuccessMessage('Email verified. Tap Save to update your profile.');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Email verification failed';
+      setEmailChange(prev => ({ ...prev, verifying: false, error: msg }));
+      setError(msg);
+      Alert.alert('Verification Error', msg);
+    }
+  };
+
   const handleInputChange = (field, value) => {
+    if (field === 'dateOfBirth') {
+      const dateOfBirth = toDateOnlyString(value);
+      const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
+      setEditedData(prev => ({
+        ...prev,
+        dateOfBirth,
+        age: calculatedAge !== null ? calculatedAge : '',
+      }));
+      return;
+    }
+
     setEditedData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleDateOfBirthChange = (_event, selectedDate) => {
+    if (Platform.OS === 'android') {
+      setShowDateOfBirthPicker(false);
+    }
+    if (!selectedDate) return;
+    handleInputChange('dateOfBirth', selectedDate);
   };
 
   const handleTabPress = (tabKey) => {
@@ -612,6 +777,14 @@ const CounselorProfile = () => {
   };
 
   const handleSave = async () => {
+    const dateOfBirth = toDateOnlyString(editedData.dateOfBirth);
+    const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
+
+    if (dateOfBirth && calculatedAge === null) {
+      setError('Select a valid date of birth');
+      return;
+    }
+
     const normalizedPhone = normalizeLocalPhoneNumber(
       editedData.phoneNumber || '',
       editedData.phoneCountryCode,
@@ -620,6 +793,16 @@ const CounselorProfile = () => {
       setError('Phone number must be 10 digits');
       return;
     }
+
+    if (!emailReady) {
+      const msg = emailChange.sent
+        ? 'Please enter and confirm the OTP sent to your new email before saving.'
+        : 'Please verify your new email before saving.';
+      setError(msg);
+      Alert.alert('Email Verification Required', msg);
+      return;
+    }
+
     try {
       setLoading(true);
       setError('');
@@ -641,10 +824,13 @@ const CounselorProfile = () => {
       formData.append('aboutMe', editedData.aboutMe);
       formData.append('education', editedData.education);
 
-      if (editedData.age) formData.append('age', editedData.age.toString());
+      if (dateOfBirth) {
+        formData.append('dateOfBirth', dateOfBirth);
+        formData.append('age', calculatedAge.toString());
+      } else if (editedData.age) {
+        formData.append('age', editedData.age.toString());
+      }
       if (editedData.gender) formData.append('gender', editedData.gender);
-      if (editedData.bloodGroup) formData.append('bloodGroup', editedData.bloodGroup);
-
       if (editedData.address) {
         formData.append('address[line1]', editedData.address.line1 || '');
         formData.append('address[line2]', editedData.address.line2 || '');
@@ -718,7 +904,9 @@ const CounselorProfile = () => {
       const response = await updateCounselorProfile(formData);
       if (response.data.success) {
         setSuccessMessage('Profile updated successfully!');
+        setEmailChange(createBlankEmailChange());
         await fetchCounselorProfile();
+        await onProfileSaved?.();
         setIsEditing(false);
         setTimeout(() => setSuccessMessage(''), 3000);
       } else {
@@ -757,7 +945,9 @@ const CounselorProfile = () => {
     setNewLanguage('');
     setNewSpecialization('');
     setNewConsultationMode('');
+    setShowDateOfBirthPicker(false);
     setNewCertification({ name: '', issueDate: '', expiryDate: '', issuedBy: '', document: null, documentName: '' });
+    setEmailChange(createBlankEmailChange());
     setIsEditing(false);
     setError('');
     setSuccessMessage('');
@@ -804,9 +994,13 @@ const CounselorProfile = () => {
       style={styles.container} 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView 
+      <ScrollView
+        style={styles.scrollView}
         showsVerticalScrollIndicator={false} 
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isEditing && styles.scrollContentEditing,
+        ]}
       >
         {/* FULL WIDTH - NO SIDE SPACING */}
         <View style={styles.fullWidth}>
@@ -875,25 +1069,6 @@ const CounselorProfile = () => {
             )}
           </View>
 
-          {/* Save / Cancel while editing */}
-          {isEditing && (
-            <View style={styles.heroEditActions}>
-              <TouchableOpacity onPress={handleCancel} style={styles.heroCancelBtn} activeOpacity={0.85}>
-                <Text style={styles.heroCancelText}>{t('common:cancel')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleSave} style={styles.heroSaveBtn} disabled={loading} activeOpacity={0.9}>
-                {loading ? (
-                  <ActivityIndicator size="small" color="#2563EB" />
-                ) : (
-                  <>
-                    <Icon name="check" size={15} color="#2563EB" />
-                    <Text style={styles.heroSaveText}>{t('common:save')}</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          )}
-
           {/* Stats strip */}
           <View style={styles.heroStats}>
             <View style={styles.heroStatItem}>
@@ -951,18 +1126,70 @@ const CounselorProfile = () => {
 
         {/* All profile content — no tabs */}
         <View style={styles.tabContent}>
-          {/* Personal info card — age, gender, blood group, email, phone, location, address */}
+          {/* Personal info card - DOB, age, gender, email, phone, location, address */}
           <View style={styles.card}>
             <View style={styles.sectionHead}>
               <Icon name="person-outline" size={18} color="#004AC6" />
               <Text style={styles.cardTitle}>{t('Personal Information')}</Text>
             </View>
             <View style={styles.detailRow}>
+              <Icon name="event" size={18} color="#2563EB" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailLabel}>{t('profile:dateOfBirth')}</Text>
+                {isEditing ? (
+                  <>
+                    <TouchableOpacity
+                      style={styles.datePickerButton}
+                      onPress={() => setShowDateOfBirthPicker(true)}
+                      activeOpacity={0.85}
+                    >
+                      <Icon name="calendar-today" size={18} color="#2563EB" />
+                      <Text
+                        style={[
+                          styles.datePickerText,
+                          !editedData.dateOfBirth && styles.datePickerPlaceholder,
+                        ]}
+                      >
+                        {formatDateOfBirthDisplay(
+                          editedData.dateOfBirth,
+                          'Select date of birth',
+                        )}
+                      </Text>
+                      <Icon name="expand-more" size={20} color="#94A3B8" />
+                    </TouchableOpacity>
+                    {showDateOfBirthPicker && (
+                      <DateTimePicker
+                        value={getDatePickerValue(editedData.dateOfBirth)}
+                        mode="date"
+                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                        maximumDate={new Date()}
+                        onChange={handleDateOfBirthChange}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <Text style={styles.detailValue}>
+                    {formatDateOfBirthDisplay(
+                      counselor.dateOfBirth,
+                      t('profile:notSpecified'),
+                    )}
+                  </Text>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.detailRow}>
               <Icon name="cake" size={18} color="#2563EB" />
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>{t('profile:age')}</Text>
                 {isEditing ? (
-                  <TextInput style={styles.input} value={editedData.age?.toString() || ''} onChangeText={(v) => handleInputChange('age', parseInt(v) || 0)} placeholder="Your age" placeholderTextColor="#9CA3AF" keyboardType="numeric" />
+                  <TextInput
+                    style={[styles.input, styles.readonlyInput]}
+                    value={editedData.age?.toString() || ''}
+                    editable={false}
+                    placeholder="Age will be calculated"
+                    placeholderTextColor="#9CA3AF"
+                  />
                 ) : (
                   <Text style={styles.detailValue}>{counselor.age || t('profile:notSpecified')}</Text>
                 )}
@@ -988,23 +1215,85 @@ const CounselorProfile = () => {
             </View>
 
             <View style={styles.detailRow}>
-              <Icon name="bloodtype" size={18} color="#DC2626" />
-              <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>{t('profile:bloodGroup')}</Text>
-                {isEditing ? (
-                  <TextInput style={styles.input} value={editedData.bloodGroup || ''} onChangeText={(v) => handleInputChange('bloodGroup', v)} placeholder="e.g., A+" placeholderTextColor="#9CA3AF" />
-                ) : (
-                  <Text style={styles.detailValue}>{counselor.bloodGroup || t('profile:notSpecified')}</Text>
-                )}
-              </View>
-            </View>
-
-            <View style={styles.detailRow}>
               <Icon name="email" size={18} color="#2563EB" />
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>{t('auth:email')}</Text>
                 {isEditing ? (
-                  <TextInput style={styles.input} value={editedData.email || ''} onChangeText={(v) => handleInputChange('email', v)} placeholder="Your email" placeholderTextColor="#9CA3AF" keyboardType="email-address" autoCapitalize="none" />
+                  <>
+                    <View style={styles.verifyRow}>
+                      <TextInput
+                        style={[styles.input, styles.verifyInput]}
+                        value={editedData.email || ''}
+                        onChangeText={(v) => handleInputChange('email', v)}
+                        placeholder="Your email"
+                        placeholderTextColor="#9CA3AF"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                      {isEmailDirty() && !emailChange.verified && (
+                        <TouchableOpacity
+                          onPress={sendEmailChangeOtp}
+                          style={[
+                            styles.verifyBtn,
+                            emailChange.sending && styles.verifyBtnDisabled,
+                          ]}
+                          disabled={emailChange.sending}
+                          activeOpacity={0.85}
+                        >
+                          {emailChange.sending ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <Text style={styles.verifyBtnText}>
+                              {emailChange.sent ? t('profile:resend', 'Resend') : t('profile:verify', 'Verify')}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      )}
+                      {emailChange.verified && (
+                        <View style={styles.verifiedBadge}>
+                          <Icon name="check-circle" size={18} color="#2563EB" />
+                          <Text style={styles.verifiedText}>{t('Verified')}</Text>
+                        </View>
+                      )}
+                    </View>
+                    {emailChange.sent && !emailChange.verified && (
+                      <View style={styles.otpRow}>
+                        <TextInput
+                          style={[styles.input, styles.otpInput]}
+                          value={emailChange.otp}
+                          onChangeText={(value) =>
+                            setEmailChange(prev => ({
+                              ...prev,
+                              otp: value.replace(/\D/g, '').slice(0, 6),
+                            }))
+                          }
+                          keyboardType="number-pad"
+                          maxLength={6}
+                          placeholder={t('6-digit OTP')}
+                          placeholderTextColor="#94A3B8"
+                        />
+                        <TouchableOpacity
+                          onPress={verifyEmailChangeOtp}
+                          style={[
+                            styles.verifyBtn,
+                            styles.confirmBtn,
+                            (emailChange.verifying || emailChange.otp.length < 4) && styles.verifyBtnDisabled,
+                          ]}
+                          disabled={emailChange.verifying || emailChange.otp.length < 4}
+                          activeOpacity={0.85}
+                        >
+                          {emailChange.verifying ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <Text style={styles.verifyBtnText}>{t('common:confirm')}</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                    {!!emailChange.error && (
+                      <Text style={styles.fieldErrorText}>{emailChange.error}</Text>
+                    )}
+                  </>
                 ) : (
                   <Text style={styles.detailValue}>{counselor.email || t('profile:notSpecified')}</Text>
                 )}
@@ -1387,6 +1676,31 @@ const CounselorProfile = () => {
         <View style={{ height: 40 }} />
         </View>
       </ScrollView>
+      {isEditing && (
+        <View style={styles.bottomEditActions}>
+          <TouchableOpacity onPress={handleCancel} style={styles.bottomCancelBtn} activeOpacity={0.85}>
+            <Text style={styles.bottomCancelText}>{t('common:cancel')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleSave}
+            style={[
+              styles.bottomSaveBtn,
+              (loading || !emailReady) && styles.bottomSaveBtnDisabled,
+            ]}
+            disabled={loading || !emailReady}
+            activeOpacity={0.9}
+          >
+            {loading ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <>
+                <Icon name="check" size={16} color="#ffffff" />
+                <Text style={styles.bottomSaveText}>{t('common:save')}</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 };
@@ -1396,9 +1710,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
     paddingBottom: 40,
     paddingTop: 0,
+  },
+  scrollContentEditing: {
+    paddingBottom: 124,
   },
   fullWidth: {
     width: '100%',
@@ -1478,18 +1798,61 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999,
   },
   heroEditText: { fontSize: 12, fontWeight: '700', color: '#2563EB' },
-  heroEditActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  heroCancelBtn: {
-    flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 11,
-    borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.18)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)',
+  bottomEditActions: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 14,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 10,
   },
-  heroCancelText: { color: '#ffffff', fontSize: 13.5, fontWeight: '700' },
-  heroSaveBtn: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    paddingVertical: 11, borderRadius: 10, backgroundColor: '#ffffff',
+  bottomCancelBtn: {
+    flex: 1,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
   },
-  heroSaveText: { color: '#2563EB', fontSize: 13.5, fontWeight: '800' },
+  bottomCancelText: {
+    color: '#334155',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  bottomSaveBtn: {
+    flex: 1,
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 12,
+    backgroundColor: '#2563EB',
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.24,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  bottomSaveBtnDisabled: {
+    backgroundColor: '#94A3B8',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  bottomSaveText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
   heroStats: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.16)', borderRadius: 14,
@@ -1944,6 +2307,31 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     color: '#1F2937',
   },
+  readonlyInput: {
+    backgroundColor: '#F8FAFC',
+    color: '#64748B',
+  },
+  datePickerButton: {
+    minHeight: 50,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingHorizontal: 13,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  datePickerText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#1F2937',
+    fontWeight: '600',
+  },
+  datePickerPlaceholder: {
+    color: '#9CA3AF',
+    fontWeight: '400',
+  },
   phoneInputWrapper: {
     height: 50,
     borderRadius: 10,
@@ -1956,6 +2344,69 @@ const styles = StyleSheet.create({
   },
   flexInput: {
     flex: 1,
+  },
+  verifyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  verifyInput: {
+    flex: 1,
+  },
+  verifyBtn: {
+    minHeight: 44,
+    minWidth: 86,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verifyBtnDisabled: {
+    backgroundColor: '#94A3B8',
+  },
+  confirmBtn: {
+    backgroundColor: '#1D4ED8',
+  },
+  verifyBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  verifiedBadge: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  verifiedText: {
+    color: '#2563EB',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  otpRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  otpInput: {
+    flex: 1,
+    textAlign: 'center',
+    letterSpacing: 4,
+    fontWeight: '800',
+  },
+  fieldErrorText: {
+    color: '#DC2626',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+    lineHeight: 16,
   },
 
   // Chips

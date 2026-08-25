@@ -143,9 +143,11 @@ export default function ResetPasswordScreen() {
             <TouchableOpacity
               onPress={() => setShowPassword(!showPassword)}
               style={styles.eyeIcon}
+              accessibilityRole="button"
+              accessibilityLabel={showPassword ? "Hide password" : "Show password"}
             >
               <Ionicons
-                name={showPassword ? "eye-outline" : "eye-off-outline"}
+                name={showPassword ? "eye-off-outline" : "eye-outline"}
                 size={20}
                 color="#64748b"
               />
@@ -179,9 +181,11 @@ export default function ResetPasswordScreen() {
             <TouchableOpacity
               onPress={() => setShowConfirmPassword(!showConfirmPassword)}
               style={styles.eyeIcon}
+              accessibilityRole="button"
+              accessibilityLabel={showConfirmPassword ? "Hide password" : "Show password"}
             >
               <Ionicons
-                name={showConfirmPassword ? "eye-outline" : "eye-off-outline"}
+                name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
                 size={20}
                 color="#64748b"
               />

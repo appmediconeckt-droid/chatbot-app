@@ -97,7 +97,6 @@ const RIGHTS = [
 
 const SHARING = [
   'Counselors you book see only what a session needs — your name (or anonymous label), age, gender and the chat history of that session.',
-  'Payment and refund details are processed by our payment provider; Humaeli never stores your full card number.',
   'We do not sell your data, and we do not share it for advertising.',
   'Data may be disclosed if required by law or to protect someone from serious harm.',
 ];
@@ -351,13 +350,13 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
           <TouchableOpacity style={s.helpPrimary} activeOpacity={0.85} onPress={openSupport}>
             <Text style={[s.helpPrimaryText, { color: C.primary }]}>{t('Contact Support')}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.helpSecondary} activeOpacity={0.85} onPress={() => openTab('settings')}>
+          {/* <TouchableOpacity style={s.helpSecondary} activeOpacity={0.85} onPress={() => openTab('settings')}>
             <Text style={s.helpSecondaryText}>{t('Privacy Settings')}</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </LinearGradient>
 
         {/* A policy with no effective date can't be relied on. */}
-        <Text style={s.stamp}>Last updated: {LAST_UPDATED}</Text>
+        {/* <Text style={s.stamp}>Last updated: {LAST_UPDATED}</Text> */}
       </ScrollView>
     </View>
   );

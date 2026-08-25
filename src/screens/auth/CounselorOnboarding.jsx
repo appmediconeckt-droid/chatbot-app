@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Image,
@@ -8,8 +8,6 @@ import {
   StyleSheet,
   StatusBar,
   Dimensions,
-  FlatList,
-  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -19,6 +17,7 @@ import { DOCTOR } from '../../theme/palette';
 import useLanguageRender from '../../hooks/useLanguageRender';
 
 const { width } = Dimensions.get('window');
+const TOTAL_PAGES = 4;
 
 // The supplied artwork is taller than a fixed 200px band would allow, so the
 // card takes its shape FROM the image (via the asset's real dimensions) instead
@@ -87,18 +86,18 @@ const OnboardingPage4 = () => {
     </Text>
 
     <View style={s.featuresList}>
-      <TouchableOpacity style={s.featureSmallBtn}>
+      <View style={s.featureSmallBtn}>
         <MaterialIcons name="schedule" size={16} color={DOCTOR.primary} />
         <Text style={s.featureSmallBtnText}>{t('Smart Scheduling')}</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={s.featureSmallBtn}>
+      </View>
+      <View style={s.featureSmallBtn}>
         <Ionicons name="mail-outline" size={16} color={DOCTOR.primary} />
         <Text style={s.featureSmallBtnText}>{t('Secure Messaging')}</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={s.featureSmallBtn}>
+      </View>
+      <View style={s.featureSmallBtn}>
         <Ionicons name="folder-outline" size={16} color={DOCTOR.primary} />
         <Text style={s.featureSmallBtnText}>{t('Patient Records')}</Text>
-      </TouchableOpacity>
+      </View>
     </View>
   </View>
 );
@@ -109,43 +108,49 @@ const CounselorOnboarding = ({ navigation, route, previewMode = false, onPreview
   const [currentPage, setCurrentPage] = useState(0);
   const scrollViewRef = useRef(null);
 
-  const pages = [
+  const pages = useMemo(() => [
     <OnboardingPage1 key="1" />,
     <OnboardingPage2 key="2" />,
     <OnboardingPage3 key="3" />,
     <OnboardingPage4 key="4" />,
-  ];
+  ], []);
 
-  const finishOnboarding = () => {
+  const finishOnboarding = useCallback(() => {
     if (previewMode && onPreviewComplete) {
       onPreviewComplete();
       return;
     }
-    navigation.replace(
-      route?.params?.destination || 'CounselorDashboard',
-      route?.params?.destinationParams,
-    );
-  };
+    const destination = route?.params?.destination || 'CounselorSignup';
+    const destinationParams = route?.params?.destinationParams || { role: 'counselor' };
 
-  const goToNextPage = () => {
-    if (currentPage < pages.length - 1) {
+    navigation.replace(destination, destinationParams);
+  }, [
+    navigation,
+    onPreviewComplete,
+    previewMode,
+    route?.params?.destination,
+    route?.params?.destinationParams,
+  ]);
+
+  const goToNextPage = useCallback(() => {
+    if (currentPage < TOTAL_PAGES - 1) {
       setCurrentPage(currentPage + 1);
       scrollViewRef.current?.scrollTo({ x: (currentPage + 1) * width, animated: true });
     } else {
       finishOnboarding();
     }
-  };
+  }, [currentPage, finishOnboarding]);
 
   useEffect(() => {
     if (!previewMode) return undefined;
 
-    const delay = currentPage < pages.length - 1 ? 1300 : 1600;
+    const delay = currentPage < TOTAL_PAGES - 1 ? 1300 : 1600;
     const timer = setTimeout(() => {
       goToNextPage();
     }, delay);
 
     return () => clearTimeout(timer);
-  }, [currentPage, previewMode]);
+  }, [currentPage, goToNextPage, previewMode]);
 
   const onScroll = (event) => {
     const pageNumber = Math.round(event.nativeEvent.contentOffset.x / width);
@@ -158,7 +163,7 @@ const CounselorOnboarding = ({ navigation, route, previewMode = false, onPreview
 
       {/* Header */}
       <View style={s.header}>
-        <View style={{ width: 24 }} />
+        <View style={s.headerSpacer} />
         <TouchableOpacity onPress={finishOnboarding}>
           <Text style={s.skipText}>{t('Skip')}</Text>
         </TouchableOpacity>
@@ -185,10 +190,7 @@ const CounselorOnboarding = ({ navigation, route, previewMode = false, onPreview
             key={idx}
             style={[
               s.dot,
-              {
-                backgroundColor: idx === currentPage ? DOCTOR.primary : '#cbd5e1',
-                width: idx === currentPage ? 24 : 8,
-              },
+              idx === currentPage ? s.dotActive : s.dotInactive,
             ]}
           />
         ))}
@@ -197,21 +199,16 @@ const CounselorOnboarding = ({ navigation, route, previewMode = false, onPreview
       {/* Buttons */}
       <View style={s.buttonsContainer}>
         {currentPage === pages.length - 1 ? (
-          <>
-            <TouchableOpacity activeOpacity={0.85} onPress={goToNextPage} style={s.buttonWrapper}>
-              <LinearGradient
-                colors={[DOCTOR.gradientFrom, DOCTOR.gradientTo]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={s.nextBtn}
-              >
-                <Text style={s.nextBtnText}>{route?.params?.destination ? t('Get Started') : t('Complete Profile')}</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={finishOnboarding}>
-              <Text style={s.maybeLaterText}>{t('Maybe Later')}</Text>
-            </TouchableOpacity>
-          </>
+          <TouchableOpacity activeOpacity={0.85} onPress={finishOnboarding} style={s.buttonWrapper}>
+            <LinearGradient
+              colors={[DOCTOR.gradientFrom, DOCTOR.gradientTo]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={s.nextBtn}
+            >
+              <Text style={s.nextBtnText}>{t('Get Started')}</Text>
+            </LinearGradient>
+          </TouchableOpacity>
         ) : (
           <TouchableOpacity activeOpacity={0.85} onPress={goToNextPage} style={s.buttonWrapper}>
             <LinearGradient
@@ -233,6 +230,7 @@ const CounselorOnboarding = ({ navigation, route, previewMode = false, onPreview
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: DOCTOR.backgroundTint },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
+  headerSpacer: { width: 24 },
   skipText: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
 
   pagesScroll: { flex: 1 },
@@ -268,12 +266,13 @@ const s = StyleSheet.create({
 
   dotsContainer: { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 16 },
   dot: { height: 8, borderRadius: 4 },
+  dotActive: { backgroundColor: DOCTOR.primary, width: 24 },
+  dotInactive: { backgroundColor: '#cbd5e1', width: 8 },
 
   buttonsContainer: { paddingHorizontal: 20, paddingBottom: 20, gap: 12 },
   buttonWrapper: { width: '100%' },
   nextBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 14 },
   nextBtnText: { fontSize: 16, fontWeight: '800', color: '#ffffff' },
-  maybeLaterText: { fontSize: 14, fontWeight: '600', color: DOCTOR.primary, textAlign: 'center', paddingVertical: 10 },
 });
 
 export default CounselorOnboarding;

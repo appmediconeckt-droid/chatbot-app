@@ -338,15 +338,6 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
 
         <Text style={[styles.callerName, { color: t.brand }]} numberOfLines={1}>{displayName}</Text>
 
-        <View style={styles.badgeRow}>
-          <View style={styles.badgeAudio}>
-            <Text style={styles.badgeAudioText}>{tr('HD AUDIO')}</Text>
-          </View>
-          <View style={[styles.badgeSecure, { backgroundColor: t.tint }]}>
-            <Text style={[styles.badgeSecureText, { color: t.brand }]}>{tr('ENCRYPTED')}</Text>
-          </View>
-        </View>
-
         <View style={styles.timerRow}>
           {isConnecting ? (
             <ActivityIndicator size="small" color={t.brand} />
@@ -427,6 +418,79 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
           </TouchableOpacity>
         </View>
       </Animated.View>
+    </View>
+  );
+};
+
+const VoiceConnectingPreview = ({ onHangup, callerName, callerProfilePic, isCounselor }) => {
+  const { t: tr } = useLanguageRender();
+  const theme = isCounselor ? counselorTheme : userTheme;
+  const displayName = callerName || 'Participant';
+  const canShowPhoto =
+    !isCounselor &&
+    typeof callerProfilePic === 'string' &&
+    (callerProfilePic.startsWith('http://') || callerProfilePic.startsWith('https://'));
+  const displayInitial = (displayName?.charAt(0) || 'U').toUpperCase();
+
+  return (
+    <View style={styles.audioCallWrap}>
+      <View style={styles.audioCallTop}>
+        <View style={styles.avatarZone}>
+          <View style={[styles.ripple, { borderColor: theme.brand, opacity: 0.1, transform: [{ scale: 1.45 }] }]} />
+          <View style={[styles.ripple, { borderColor: theme.brand, opacity: 0.18, transform: [{ scale: 1.22 }] }]} />
+          <View style={styles.avatarRing}>
+            <View style={[styles.avatarCircle, { backgroundColor: theme.tint }]}>
+              {canShowPhoto ? (
+                <Image source={{ uri: callerProfilePic }} style={styles.avatarImage} />
+              ) : (
+                <Text style={[styles.avatarText, { color: theme.brand }]}>{displayInitial}</Text>
+              )}
+            </View>
+          </View>
+        </View>
+
+        <Text style={[styles.callerName, { color: theme.brand }]} numberOfLines={1}>{displayName}</Text>
+
+        <View style={styles.timerRow}>
+          <ActivityIndicator size="small" color={theme.brand} />
+          <Text style={[styles.timerText, { color: theme.brand }]}>{tr('Connecting…')}</Text>
+        </View>
+
+        <View style={styles.waveRow}>
+          {Array.from({ length: 9 }).map((_, i) => (
+            <View
+              key={i}
+              style={[
+                styles.waveBar,
+                {
+                  height: 22,
+                  backgroundColor: mixHex(theme.waveFrom, theme.waveTo, i / 8),
+                  opacity: 0.9,
+                },
+              ]}
+            />
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.bottomArea}>
+        <View style={styles.controlPanel}>
+          <TouchableOpacity style={[styles.ctrlBtn, { backgroundColor: theme.tint, opacity: 0.65 }]} disabled>
+            <Ionicons name="mic" size={24} color="#0f172a" />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.ctrlBtn, { backgroundColor: theme.tint, opacity: 0.65 }]} disabled>
+            <Ionicons name="volume-high" size={24} color="#0f172a" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.endBtn} onPress={onHangup} activeOpacity={0.85}>
+            <Ionicons
+              name="call"
+              size={26}
+              color="#fff"
+              style={{ transform: [{ rotate: '135deg' }] }}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
     </View>
   );
 };
@@ -706,7 +770,7 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
   return (
     <Modal
       visible={isOpen}
-      animationType="slide"
+      animationType="fade"
       transparent={false}
       // Explicit, not relying on the app-wide default: without these the modal
       // window stops above the navigation bar and the dashboard's tab bar stayed
@@ -718,7 +782,7 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
       <SafeAreaView style={[styles.container, { backgroundColor: '#ffffff' }]}>
         <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-        {(loading || !!error) && (
+        {!!error && !loading && (
           <View style={styles.lightHeader}>
             <Text style={styles.lightHeaderTitle}>{tr('Voice Call')}</Text>
             {/* Counselor side: no cross. Android back still cancels a connecting
@@ -734,10 +798,12 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
 
         <View style={[styles.content, { backgroundColor: '#ffffff' }]}>
           {loading && (
-            <View style={styles.centerWrap}>
-              <ActivityIndicator size="large" color={t.brand} />
-              <Text style={[styles.statusText, { color: t.brand }]}>Connecting...</Text>
-            </View>
+            <VoiceConnectingPreview
+              onHangup={() => handleClose(true)}
+              callerName={displayName}
+              callerProfilePic={callData?.profilePic || null}
+              isCounselor={isCounselorView}
+            />
           )}
 
           {!!error && !loading && (
@@ -897,35 +963,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     maxWidth: '82%',
     textAlign: 'center',
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 16,
-  },
-  badgeAudio: {
-    backgroundColor: '#EEF2F7',
-    paddingHorizontal: 11,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  badgeAudioText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#64748b',
-    letterSpacing: 0.5,
-  },
-  badgeSecure: {
-    backgroundColor: '#E6F6EC',
-    paddingHorizontal: 11,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  badgeSecureText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#00652C',
-    letterSpacing: 0.5,
   },
   timerRow: {
     flexDirection: 'row',

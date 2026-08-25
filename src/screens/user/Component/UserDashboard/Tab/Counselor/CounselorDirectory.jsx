@@ -81,6 +81,17 @@ const normalizeArray = (value) => {
   return [];
 };
 
+const isCompletedCounselorProfile = (counselor) => {
+  const specializations = normalizeArray(counselor?.specialization);
+  return (
+    counselor?.profileCompleted === true &&
+    specializations.length > 0 &&
+    Number(counselor?.experience || 0) > 0 &&
+    Boolean(counselor?.location) &&
+    Boolean(counselor?.qualification || counselor?.education)
+  );
+};
+
 const getProfilePhotoUrl = (counselor) => {
   if (!counselor) return null;
   
@@ -186,7 +197,9 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       
       console.log("Number of counselors fetched:", counselors.length);
       
-      const formattedCounselors = counselors.map((c, index) => {
+      const visibleCounselors = counselors.filter(isCompletedCounselorProfile);
+
+      const formattedCounselors = visibleCounselors.map((c, index) => {
         const profilePhotoUrl = getProfilePhotoUrl(c);
         
         return {
@@ -216,6 +229,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
           aboutMe: c.aboutMe,
           qualification: c.qualification,
           totalSessions: c.totalSessions || 0,
+          profileCompleted: c.profileCompleted === true,
         };
       });
       
@@ -354,6 +368,12 @@ const CounselorDirectoryScreen = ({ navigation }) => {
   // Send chat request - Handle existing chat gracefully
   const handleSendChatRequest = async () => {
     if (!selectedCounselor) return;
+    if (!selectedCounselor.profileCompleted) {
+      Alert.alert("Counselor Unavailable", "This counselor profile is not complete yet.");
+      setShowChatModal(false);
+      resetChatForm();
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -488,6 +508,12 @@ const CounselorDirectoryScreen = ({ navigation }) => {
 
   // Book appointment - Handle success properly
   const handleConfirmBooking = async () => {
+    if (!selectedCounselor?.profileCompleted) {
+      Alert.alert("Counselor Unavailable", "This counselor profile is not complete yet.");
+      setShowBookingModal(false);
+      resetBookingForm();
+      return;
+    }
     if (!bookingDate) {
       Alert.alert("Error", "Please select a date and time");
       return;

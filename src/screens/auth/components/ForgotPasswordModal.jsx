@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import LinearGradient from 'react-native-linear-gradient';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { API_BASE_URL } from '../../../axiosConfig';
 import useLanguageRender from '../../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -386,8 +387,17 @@ const ForgotPasswordModal = ({
                     secureTextEntry={!showPassword}
                     editable={!loading && !success}
                   />
-                  <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(!showPassword)}>
-                    <Text style={styles.eyeEmoji}>{showPassword ? '🙈' : '👁️'}</Text>
+                  <TouchableOpacity
+                    style={styles.eyeBtn}
+                    onPress={() => setShowPassword(!showPassword)}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={22}
+                      color="#64748b"
+                    />
                   </TouchableOpacity>
                 </View>
 
@@ -405,8 +415,17 @@ const ForgotPasswordModal = ({
                     secureTextEntry={!showConfirmPassword}
                     editable={!loading && !success}
                   />
-                  <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-                    <Text style={styles.eyeEmoji}>{showConfirmPassword ? '🙈' : '👁️'}</Text>
+                  <TouchableOpacity
+                    style={styles.eyeBtn}
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    accessibilityRole="button"
+                    accessibilityLabel={showConfirmPassword ? 'Hide password' : 'Show password'}
+                  >
+                    <Ionicons
+                      name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={22}
+                      color="#64748b"
+                    />
                   </TouchableOpacity>
                 </View>
 
@@ -582,9 +601,8 @@ const styles = StyleSheet.create({
   eyeBtn: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-  },
-  eyeEmoji: {
-    fontSize: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   primaryBtn: {
     borderRadius: 16,
