@@ -318,15 +318,11 @@ const CounselorDirectoryScreen = ({ navigation }) => {
     setRefreshing(false);
   }, [fetchCounselors]);
 
-  const allTreatments = useMemo(() => {
-    const treatments = new Set();
-    counselorsData.forEach((counselor) => {
-      normalizeArray(counselor.expertise).forEach((item) => {
-        if (item && item.trim()) treatments.add(item.trim());
-      });
-    });
-    return Array.from(treatments).sort();
-  }, [counselorsData]);
+  const statusFilterChips = useMemo(() => ([
+    { id: 'all', label: t('common:all', 'All') },
+    { id: 'online', label: t('common:online', 'Online') },
+    { id: 'offline', label: t('common:offline', 'Offline') },
+  ]), [t]);
 
   const filteredAndSortedCounselors = useMemo(() => {
     let filtered = counselorsData.filter((counselor) => {
@@ -336,16 +332,18 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       const location = (counselor.location || "").toLowerCase();
       const languages = (counselor.languages || []).join(" ").toLowerCase();
       const expertise = (counselor.expertise || []).join(" ").toLowerCase();
+      const qualification = (counselor.qualification || "").toLowerCase();
+      const status = counselor.online ? "online available" : "offline unavailable";
       
-      const searchableText = `${name} ${specialization} ${aboutMe} ${location} ${languages} ${expertise}`;
+      const searchableText = `${name} ${specialization} ${aboutMe} ${location} ${languages} ${expertise} ${qualification} ${status}`;
       const matchesSearch = searchTerm === "" || searchableText.includes(searchTerm.toLowerCase());
       
       const matchesLocation = searchLocation === "" || location.includes(searchLocation.toLowerCase());
       
-      const matchesCategory = selectedCategory === "all" || 
-        (counselor.expertise && counselor.expertise.some(s => 
-          s.toLowerCase() === selectedCategory.toLowerCase()
-        ));
+      const matchesCategory =
+        selectedCategory === "all" ||
+        (selectedCategory === "online" && counselor.online) ||
+        (selectedCategory === "offline" && !counselor.online);
 
       return matchesSearch && matchesLocation && matchesCategory;
     });
@@ -795,25 +793,18 @@ const CounselorDirectoryScreen = ({ navigation }) => {
             </View>
 
             {/* Filter Chips */}
-            {allTreatments.length > 0 && (
-              <View style={styles.filtersContainer}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.filtersContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {statusFilterChips.map((chip) => (
                   <FilterChip
-                    label="All"
-                    active={selectedCategory === "all"}
-                    onPress={() => setSelectedCategory("all")}
+                    key={chip.id}
+                    label={chip.label}
+                    active={selectedCategory === chip.id}
+                    onPress={() => setSelectedCategory(chip.id)}
                   />
-                  {allTreatments.slice(0, 12).map((treatment) => (
-                    <FilterChip
-                      key={treatment}
-                      label={treatment}
-                      active={selectedCategory === treatment}
-                      onPress={() => setSelectedCategory(treatment)}
-                    />
-                  ))}
-                </ScrollView>
-              </View>
-            )}
+                ))}
+              </ScrollView>
+            </View>
 
             {/* Sort Bar */}
             <View style={styles.sortBar}>

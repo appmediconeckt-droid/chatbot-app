@@ -828,33 +828,29 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
 
-    return (
-      String(counselor.name || '').toLowerCase().includes(q) ||
-      String(counselor.specialization || '').toLowerCase().includes(q) ||
-      String(counselor.location || '').toLowerCase().includes(q)
-    );
+    const searchableText = [
+      counselor.name,
+      counselor.specialization,
+      counselor.location,
+      counselor.experience,
+      Number(counselor.rating) > 0 ? `${counselor.rating} rating` : 'new',
+      Number(counselor.rating) >= 4.5 ? 'top rated' : '',
+      counselor.location ? 'nearby' : '',
+      counselor.available ? 'online available' : 'offline unavailable',
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return searchableText.includes(q);
   });
 
-  // Chips: All / Online / Nearby / Top Rated + specializations from the data.
-  // A counselor's `specialization` is a combined string ("Anxiety , Depression")
-  // so we split on any separator ( , | / ) and add each specialty as its own
-  // chip — otherwise the whole combined string shows up as a single chip.
+  // Only status chips are shown here; specialties and other labels remain searchable.
   const filterChips = (() => {
-    const specs = [];
-    counselors.forEach((c) => {
-      String(c.specialization || '')
-        .split(/[,|/]/)
-        .forEach((part) => {
-          const s = part.trim();
-          if (s && s.toLowerCase() !== 'general' && !specs.includes(s)) specs.push(s);
-        });
-    });
     return [
       { id: 'all', label: t('common:all', 'All') },
       { id: 'online', label: t('common:online', 'Online') },
-      { id: 'nearby', label: t('appointment:nearby', 'Nearby') },
-      { id: 'topRated', label: t('appointment:topRated', 'Top Rated') },
-      ...specs.map((s) => ({ id: s, label: s })),
+      { id: 'offline', label: t('common:offline', 'Offline') },
     ];
   })();
 
@@ -872,12 +868,8 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const chipFiltered = filteredCounselors.filter((c) => {
     if (activeFilter === 'all') return true;
     if (activeFilter === 'online') return !!c.available;
-    if (activeFilter === 'nearby') return !!c.location;
-    // Real ratings only. Counselors used to be given a default rating of 4.5 on
-    // load, and this threshold is 4.5, so "Top Rated" matched every one of them
-    // and looked identical to "All".
-    if (activeFilter === 'topRated') return (Number(c.rating) || 0) >= 4.5;
-    return String(c.specialization || '').toLowerCase().includes(String(activeFilter).toLowerCase());
+    if (activeFilter === 'offline') return !c.available;
+    return true;
   });
 
   const sortedCounselors = [...chipFiltered].sort((a, b) => {

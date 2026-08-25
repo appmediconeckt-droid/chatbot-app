@@ -19,6 +19,7 @@ import { API_BASE_URL } from '../../../../../../axiosConfig';
 import useRingtone from '../../../../../../hooks/useRingtone';
 import { useScreenshotPreventModal } from '../../../../../../utils/useScreenshotPrevent';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import toImageUri from '../../../../../../utils/imageUri';
 
 import {
   StreamVideo,
@@ -29,6 +30,117 @@ import {
   useCallStateHooks,
   CallingState,
 } from '@stream-io/video-react-native-sdk';
+
+const IMAGE_KEYS = [
+  'profilePhoto',
+  'profilePic',
+  'avatar',
+  'photo',
+  'userProfilePhoto',
+  'counselorProfilePhoto',
+  'counsellorProfilePhoto',
+];
+
+const normalizeImageUri = (raw) => {
+  const uri = toImageUri(raw);
+  if (!uri || typeof uri !== 'string') return null;
+
+  const trimmed = uri.trim();
+  if (!trimmed) return null;
+  if (/^(https?:|file:|content:|data:)/i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('/')) return `${API_BASE_URL}${trimmed}`;
+  if (trimmed.length < 5 || !/[/.]/.test(trimmed)) return null;
+  return `${API_BASE_URL}/${trimmed}`;
+};
+
+const firstImageUri = (...values) => {
+  for (const value of values) {
+    const uri = normalizeImageUri(value);
+    if (uri) return uri;
+  }
+  return null;
+};
+
+const parseStoredValue = (value) => {
+  if (!value || typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return trimmed;
+  try { return JSON.parse(trimmed); } catch (_) { return trimmed; }
+};
+
+const getCallParty = (callData, key) => (
+  callData?.apiCallData?.[key] ||
+  callData?.[key] ||
+  null
+);
+
+const getPartyId = (party) => (
+  party?._id ||
+  party?.id ||
+  party?.userId ||
+  party?.counselorId ||
+  party?.counsellorId ||
+  null
+);
+
+const partyMatchesRole = (party, currentUserType) => {
+  const role = String(currentUserType || '').toLowerCase();
+  if (!role) return false;
+  const partyType = String(party?.type || party?.role || party?.userType || '').toLowerCase();
+  if (!partyType) return false;
+  if (/^(user|patient)/.test(role)) return /^(user|patient)/.test(partyType);
+  if (/counsell?o?u?r/.test(role)) return /counsell?o?u?r/.test(partyType);
+  return partyType === role;
+};
+
+const resolveCallParties = (callData, currentUser) => {
+  const initiator = getCallParty(callData, 'initiator');
+  const receiver = getCallParty(callData, 'receiver');
+  const currentUserId = callData?.currentUserId || currentUser?.id || currentUser?._id || null;
+  const currentUserType = callData?.currentUserType || currentUser?.role || currentUser?.type || null;
+  const initiatorId = getPartyId(initiator);
+  const receiverId = getPartyId(receiver);
+
+  if (currentUserId && initiatorId && String(currentUserId) === String(initiatorId)) {
+    return { localParty: initiator, remoteParty: receiver };
+  }
+  if (currentUserId && receiverId && String(currentUserId) === String(receiverId)) {
+    return { localParty: receiver, remoteParty: initiator };
+  }
+  if (partyMatchesRole(initiator, currentUserType)) {
+    return { localParty: initiator, remoteParty: receiver };
+  }
+  if (partyMatchesRole(receiver, currentUserType)) {
+    return { localParty: receiver, remoteParty: initiator };
+  }
+  return { localParty: null, remoteParty: null };
+};
+
+const getPersonPhoto = (person) => firstImageUri(
+  person?.profilePhoto,
+  person?.profilePic,
+  person?.image,
+  person?.avatarUrl,
+  person?.avatar,
+  person?.photo,
+);
+
+const getStoredProfilePhoto = async () => {
+  const entries = await AsyncStorage.multiGet(IMAGE_KEYS);
+  return firstImageUri(...entries.map(([, value]) => parseStoredValue(value)));
+};
+
+const hasVideoTrack = (participant) => {
+  if (!participant) return false;
+  if (participant.videoStream) return true;
+  const tracks = Array.isArray(participant.publishedTracks) ? participant.publishedTracks : [];
+  return tracks.some((track) => (
+    track === 2 ||
+    String(track).toLowerCase() === 'video' ||
+    String(track).toLowerCase() === 'track_type_video'
+  ));
+};
 
 const resolveCallDisplayName = (callData, isCounselor) => {
   const apiCallData = callData?.apiCallData || {};
@@ -61,14 +173,33 @@ const resolveCallDisplayName = (callData, isCounselor) => {
   return preferred || preferredAnonymous || 'Participant';
 };
 
-// Keep the label inside the draggable self-view so it always moves with the
-// camera preview and cannot be clipped independently from it.
+const ProfileVideoFallback = ({ participant, profilePhoto, compact = false }) => {
+  const photoUri = firstImageUri(profilePhoto, participant?.image);
+
+  return (
+    <View style={[styles.videoOffFallback, compact && styles.videoOffFallbackCompact]}>
+      {photoUri ? (
+        <Image
+          source={{ uri: photoUri }}
+          style={compact ? styles.videoOffAvatarCompact : styles.videoOffAvatar}
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={compact ? styles.videoOffIconWrapCompact : styles.videoOffIconWrap}>
+          <Ionicons
+            name="videocam-off"
+            size={compact ? 24 : 42}
+            color="rgba(255,255,255,0.82)"
+          />
+        </View>
+      )}
+    </View>
+  );
+};
+
 const SelfParticipantView = ({ style, ...props }) => (
   <View style={[style, styles.pipCard]}>
     <ParticipantView {...props} style={StyleSheet.absoluteFillObject} />
-    <View style={styles.pipNameBadge} pointerEvents="none">
-      <Text style={styles.pipNameText} numberOfLines={1}>You</Text>
-    </View>
   </View>
 );
 
@@ -192,7 +323,7 @@ const VideoConnectingPreview = ({ onHangup, participantName, participantPhoto, i
 // ─── Inner call UI ────────────────────────────────────────────────────────────
 // onLocalHangup: user pressed end button (sends call.end() to kill for both sides)
 // onRemoteEnded: remote side already ended, just cleanup locally
-const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, participantName, participantPhoto }) => {
+const CallUI = ({ onLocalHangup, onRemoteEnded, isOutgoing, participantName, participantPhoto, localParticipantPhoto }) => {
   const insets = useSafeAreaInsets();
   const { useCallCallingState, useRemoteParticipants, useLocalParticipant } = useCallStateHooks();
   const callingState = useCallCallingState();
@@ -253,18 +384,6 @@ const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, partici
     }
   }, [hasRemote, isEnded, isOutgoing, startRinging, stopRinging]);
 
-  // Counselor side: strip the user's real photo from Stream's participant
-  // object so the SDK's built-in UI renders initials instead of a real avatar.
-  // Name is left alone — backend already gives us a safe label.
-  useEffect(() => {
-    if (!isCounselor) return;
-    remoteParticipants.forEach((p) => {
-      if (p?.publishedTracks && p.image) {
-        try { p.image = ''; } catch (_) {}
-      }
-    });
-  }, [isCounselor, remoteParticipants]);
-
   // Call duration — starts once the other side actually joins.
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -293,7 +412,20 @@ const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, partici
   }, [hasRemote]);
 
   const remote = remoteParticipants[0];
+  const isRemoteVideoOn = Boolean(remote?.videoStream) && hasVideoTrack(remote);
   const initial = String(participantName || 'U').trim().charAt(0).toUpperCase() || 'U';
+  const RemoteVideoFallback = useCallback(
+    ({ participant }) => (
+      <ProfileVideoFallback participant={participant} profilePhoto={participantPhoto} />
+    ),
+    [participantPhoto],
+  );
+  const LocalVideoFallback = useCallback(
+    ({ participant }) => (
+      <ProfileVideoFallback participant={participant} profilePhoto={localParticipantPhoto} compact />
+    ),
+    [localParticipantPhoto],
+  );
 
   return (
     <View style={styles.callRoot}>
@@ -306,11 +438,12 @@ const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, partici
           ParticipantLabel={null}
           ParticipantNetworkQualityIndicator={null}
           ParticipantReaction={null}
+          ParticipantVideoFallback={RemoteVideoFallback}
         />
       ) : (
         <View style={styles.waitingWrap}>
           <View style={styles.waitingAvatar}>
-            {!isCounselor && participantPhoto ? (
+            {participantPhoto ? (
               <Image source={{ uri: participantPhoto }} style={styles.waitingAvatarImg} />
             ) : (
               <Text style={styles.waitingInitial}>{initial}</Text>
@@ -330,6 +463,7 @@ const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, partici
           alignment="top-right"
           objectFit="cover"
           ParticipantView={SelfParticipantView}
+          ParticipantVideoFallback={LocalVideoFallback}
           draggableContainerStyle={[
             styles.pipStage,
             { top: insets.top + 12, bottom: insets.bottom + 104 },
@@ -341,7 +475,7 @@ const CallUI = ({ onLocalHangup, onRemoteEnded, isCounselor, isOutgoing, partici
       )}
 
       {/* Name + timer overlay (top-left) — only once connected */}
-      {!!participantName && remote && (
+      {!!participantName && remote && isRemoteVideoOn && (
         <View
           style={[styles.participantNameBadge, { top: insets.top + 12 }]}
           pointerEvents="none"
@@ -380,12 +514,26 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
   const { stopRinging } = useRingtone();
   // Loose match: the counselor dashboard sent "counsellour" (typo), which matched
   // neither exact spelling, so counselors were shown the user variant of the call.
-  const isCounselorView = /counsell?o?u?r/i.test(String(callData?.currentUserType || ''));
+  const currentUserType = callData?.currentUserType || currentUser?.role || currentUser?.type || '';
+  const isCounselorView = /counsell?o?u?r/i.test(String(currentUserType));
   const displayName = resolveCallDisplayName(callData, isCounselorView);
-  // Same source and guard VoiceCallModal uses, so both calls show the same face.
-  const rawPhoto = callData?.profilePic || callData?.receiver?.profilePhoto || null;
-  const participantPhoto =
-    typeof rawPhoto === 'string' && /^https?:\/\//i.test(rawPhoto) ? rawPhoto : null;
+  const { localParty, remoteParty } = resolveCallParties(callData, currentUser);
+  const participantPhoto = firstImageUri(
+    getPersonPhoto(remoteParty),
+    callData?.profilePic,
+    callData?.profilePhoto,
+    callData?.image,
+    callData?.receiver?.profilePhoto,
+    callData?.initiator?.profilePhoto,
+  );
+  const [localParticipantPhoto, setLocalParticipantPhoto] = useState(() => firstImageUri(
+    currentUser?.profilePhoto,
+    currentUser?.profilePic,
+    currentUser?.image,
+    currentUser?.avatarUrl,
+    currentUser?.avatar,
+    getPersonPhoto(localParty),
+  ));
 
   const cleanup = useCallback(async (endForAll = false) => {
     if (cleaningUpRef.current) return;
@@ -482,12 +630,28 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
           currentUser?.fullName || currentUser?.name ||
           (await AsyncStorage.getItem('fullName')) ||
           (await AsyncStorage.getItem('userName')) || 'User';
+        const streamUserPhoto =
+          firstImageUri(
+            currentUser?.profilePhoto,
+            currentUser?.profilePic,
+            currentUser?.image,
+            currentUser?.avatarUrl,
+            currentUser?.avatar,
+            getPersonPhoto(localParty),
+          ) ||
+          (await getStoredProfilePhoto());
+
+        setLocalParticipantPhoto(streamUserPhoto);
 
         // getOrCreateInstance reuses an existing WS connection when the same
         // apiKey+userId combo is already connected — avoids duplicate connections
         const streamClient = StreamVideoClient.getOrCreateInstance({
           apiKey,
-          user: { id: streamUserId, name: userName },
+          user: {
+            id: streamUserId,
+            name: userName,
+            ...(streamUserPhoto ? { image: streamUserPhoto } : {}),
+          },
           token: streamToken,
         });
         clientRef.current = streamClient;
@@ -657,7 +821,7 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
             <View style={styles.centerWrap}>
               <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
               <Text style={styles.errorText}>{error}</Text>
-              <TouchableOpacity style={[styles.retryBtn, { backgroundColor: '#EF4444' }]} onPress={handleClose}>
+              <TouchableOpacity style={[styles.retryBtn, styles.closeErrorBtn]} onPress={handleClose}>
                 <Text style={styles.retryBtnText}>{t('Close')}</Text>
               </TouchableOpacity>
             </View>
@@ -671,8 +835,8 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
                   onRemoteEnded={() => handleClose(false)}
                   participantName={displayName}
                   participantPhoto={participantPhoto}
+                  localParticipantPhoto={localParticipantPhoto}
                   isOutgoing={callData?.isIncoming !== true}
-                  isCounselor={isCounselorView}
                 />
               </StreamCall>
             </StreamVideo>
@@ -712,10 +876,52 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginTop: 8,
   },
+  closeErrorBtn: { backgroundColor: '#EF4444' },
   retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   // Full-screen remote video + waiting state
   callRoot: { flex: 1, backgroundColor: '#0B0B0F' },
   fullVideo: { ...StyleSheet.absoluteFillObject, backgroundColor: '#0B0B0F' },
+  videoOffFallback: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#0B0B0F',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoOffFallbackCompact: {
+    backgroundColor: '#15151A',
+  },
+  videoOffAvatar: {
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#1E293B',
+  },
+  videoOffAvatarCompact: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#1E293B',
+  },
+  videoOffIconWrap: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoOffIconWrapCompact: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   waitingWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   waitingAvatar: {
     width: 112, height: 112, borderRadius: 56, overflow: 'hidden',
@@ -750,25 +956,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#15151A',
     elevation: 0,
     shadowOpacity: 0,
-  },
-  pipNameBadge: {
-    position: 'absolute',
-    left: 8,
-    right: 8,
-    bottom: 8,
-    alignItems: 'flex-start',
-  },
-  pipNameText: {
-    maxWidth: '100%',
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 16,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 9,
-    backgroundColor: 'rgba(0,0,0,0.58)',
-    overflow: 'hidden',
   },
   // Name + timer overlay — top-left, plain white text over the video (Figma)
   participantNameBadge: {
