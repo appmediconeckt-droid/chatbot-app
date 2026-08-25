@@ -24,6 +24,7 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import GoogleAuthButton from './components/GoogleAuthButton';
 import ForgotPasswordModal from './components/ForgotPasswordModal';
+import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 import CountryPhoneInput from '../../components/common/CountryPhoneInput';
@@ -50,6 +51,7 @@ import {
   postPublicAuthEndpoint,
   postPublicAuthEndpointWithOtpRetry,
 } from './authUtils';
+import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
 
 const OTP_RESEND_SECONDS = 60;
 
@@ -267,7 +269,10 @@ const CounselorSignup = ({ navigation, route }) => {
     if (!formData.aboutMe) newErrors.aboutMe = "About me required";
 
     if (!formData.password) newErrors.password = "Password required";
-    else if (formData.password.length < 6) newErrors.password = "Min 6 characters";
+    else {
+      const passwordCheck = validateStrongPassword(formData.password);
+      if (!passwordCheck.isValid) newErrors.password = passwordCheck.message;
+    }
     if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = "Mismatch";
 
     setErrors(newErrors);
@@ -334,6 +339,7 @@ const CounselorSignup = ({ navigation, route }) => {
         location: formData.location.trim(),
         aboutMe: formData.aboutMe.trim(),
         password: formData.password,
+        confirmPassword: formData.confirmPassword,
         role: 'counselor',
         isEmailVerified: true,
         isPhoneVerified: true,
@@ -794,13 +800,49 @@ const CounselorSignup = ({ navigation, route }) => {
                       {renderInput(13, 'aboutMe', 'account-details-outline', 'About Me', { multiline: true })}
                     </>
                   ) : (<>{renderInput(1, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' })}</>)}
-                  <Animated.View key="pwd-section" style={{ opacity: fieldAnims[14] }}>
-                    <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
-                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} /><TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
-                    </View>
-                  </Animated.View>
-                  {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#004AC6' }]}>{t('Forgot password?')}</Text></TouchableOpacity>)}
-                  {!isLogin && (<Animated.View key="cpwd-section" style={{ opacity: fieldAnims[15] }}><View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}><Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={(event) => { setFocusedField('confirmPassword'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Confirm Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} /><TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity></View></Animated.View>)}
+	                  <Animated.View key="pwd-section" style={{ opacity: fieldAnims[14] }}>
+	                    <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
+	                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#004AC6' : '#64748b'} style={styles.inputIcon} />
+	                      <TextInput
+	                        style={styles.textInput}
+	                        value={formData.password}
+	                        onChangeText={(text) => handleChange('password', text)}
+	                        onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }}
+	                        onBlur={() => setFocusedField(null)}
+	                        placeholder={t('Password')}
+	                        placeholderTextColor="#94a3b8"
+	                        secureTextEntry={!showPassword}
+	                      />
+	                      <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+	                        <Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" />
+	                      </TouchableOpacity>
+	                    </View>
+	                    {!isLogin && <Text style={styles.passwordHint}>{t(STRONG_PASSWORD_HINT)}</Text>}
+	                    {!isLogin && <PasswordRequirementChecklist password={formData.password} style={styles.passwordChecklist} />}
+	                    {!isLogin && errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
+	                  </Animated.View>
+	                  {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#004AC6' }]}>{t('Forgot password?')}</Text></TouchableOpacity>)}
+	                  {!isLogin && (
+	                    <Animated.View key="cpwd-section" style={{ opacity: fieldAnims[15] }}>
+	                      <View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}>
+	                        <Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#004AC6' : '#64748b'} style={styles.inputIcon} />
+	                        <TextInput
+	                          style={styles.textInput}
+	                          value={formData.confirmPassword}
+	                          onChangeText={(text) => handleChange('confirmPassword', text)}
+	                          onFocus={(event) => { setFocusedField('confirmPassword'); scrollFocusedInputIntoView(event); }}
+	                          onBlur={() => setFocusedField(null)}
+	                          placeholder={t('Confirm Password')}
+	                          placeholderTextColor="#94a3b8"
+	                          secureTextEntry={!showConfirmPassword}
+	                        />
+	                        <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
+	                          <Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" />
+	                        </TouchableOpacity>
+	                      </View>
+	                      {errors.confirmPassword ? <Text style={styles.errorText}>{errors.confirmPassword}</Text> : null}
+	                    </Animated.View>
+	                  )}
                   <Animated.View key="btn-section" style={{ opacity: fieldAnims[16], marginTop: 10 }}>
                     <TouchableOpacity activeOpacity={0.9} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
                       <LinearGradient
@@ -1027,6 +1069,8 @@ const styles = StyleSheet.create({
   verifiedBtn: { backgroundColor: 'transparent' },
   verifyBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   errorText: { color: '#ef4444', fontSize: 11, marginTop: 4, marginLeft: 16, fontWeight: '600' },
+  passwordHint: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 4, marginLeft: 16, fontWeight: '600' },
+  passwordChecklist: { marginLeft: 16, marginRight: 4 },
   row: { flexDirection: 'row', gap: 12 },
   sectionLabel: { fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
