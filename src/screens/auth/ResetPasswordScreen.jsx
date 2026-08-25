@@ -15,6 +15,8 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import axios from "axios";
 import { API_BASE_URL } from "../../axiosConfig";
 import useLanguageRender from '../../hooks/useLanguageRender';
+import { STRONG_PASSWORD_HINT, validateStrongPassword } from "../../utils/passwordPolicy";
+import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 
 export default function ResetPasswordScreen() {
   const { t } = useLanguageRender();
@@ -29,10 +31,6 @@ export default function ResetPasswordScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const validatePassword = (pwd) => {
-    return pwd.length >= 3;
-  };
-
   const handleResetPassword = async () => {
     setError("");
 
@@ -41,8 +39,9 @@ export default function ResetPasswordScreen() {
       return;
     }
 
-    if (!validatePassword(password)) {
-      setError("Password must be at least 3 characters");
+    const passwordCheck = validateStrongPassword(password);
+    if (!passwordCheck.isValid) {
+      setError(passwordCheck.message);
       return;
     }
 
@@ -153,7 +152,8 @@ export default function ResetPasswordScreen() {
               />
             </TouchableOpacity>
           </View>
-          <Text style={styles.hint}>{t('At least 3 characters')}</Text>
+          <Text style={styles.hint}>{t(STRONG_PASSWORD_HINT)}</Text>
+          <PasswordRequirementChecklist password={password} style={styles.passwordChecklist} />
         </View>
 
         {/* Confirm Password Input */}
@@ -309,6 +309,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#94a3b8",
     marginTop: 6,
+  },
+  passwordChecklist: {
+    marginTop: 8,
   },
   resetBtn: {
     backgroundColor: "#2c50cd",

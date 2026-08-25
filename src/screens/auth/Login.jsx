@@ -26,6 +26,8 @@ import logo from '../../image/Humaeli.png';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useToast } from '../../components/common/ToastProvider';
+import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
+import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 
 // Vertical inset of the login scroll content.
 const SCROLL_PAD_V = 24;
@@ -634,8 +636,9 @@ const Login = ({ navigation, route }) => {
       return;
     }
 
-    if (fpNewPassword.length < 3) {
-      setFpError('Password must be at least 3 characters');
+    const passwordCheck = validateStrongPassword(fpNewPassword);
+    if (!passwordCheck.isValid) {
+      setFpError(passwordCheck.message);
       return;
     }
 
@@ -1167,16 +1170,18 @@ const Login = ({ navigation, route }) => {
                         onPress={() => setFpShowPassword(!fpShowPassword)}
                         accessibilityRole="button"
                         accessibilityLabel={fpShowPassword ? 'Hide password' : 'Show password'}
-                      >
-                        <Ionicons
-                          name={fpShowPassword ? 'eye-off-outline' : 'eye-outline'}
-                          size={22}
-                          color="#64748b"
-                        />
-                      </TouchableOpacity>
-                    </View>
+	                      >
+	                        <Ionicons
+	                          name={fpShowPassword ? 'eye-off-outline' : 'eye-outline'}
+	                          size={22}
+	                          color="#64748b"
+	                        />
+	                      </TouchableOpacity>
+	                    </View>
+	                    <Text style={styles.fpPasswordHint}>{t(STRONG_PASSWORD_HINT)}</Text>
+	                    <PasswordRequirementChecklist password={fpNewPassword} style={styles.fpPasswordChecklist} />
 
-                    {/* Confirm Password */}
+	                    {/* Confirm Password */}
                     <Text style={styles.fpLabel}>{t('Confirm Password *')}</Text>
                     <View style={styles.fpPasswordWrapper}>
                       <TextInput
@@ -1666,7 +1671,7 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderRadius: 12,
     backgroundColor: '#f8fafc',
-    marginBottom: 16,
+    marginBottom: 6,
     alignSelf: 'stretch',
   },
   fpPasswordInput: {
@@ -1681,6 +1686,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  fpPasswordHint: {
+    alignSelf: 'stretch',
+    color: '#64748b',
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 4,
+  },
+  fpPasswordChecklist: {
+    alignSelf: 'stretch',
+    marginBottom: 10,
   },
   fpButton: {
     backgroundColor: '#2c50cd',
@@ -1730,6 +1746,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#2c50cd',
+    marginLeft: 4,
   },
 });
 
