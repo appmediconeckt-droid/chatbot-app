@@ -30,13 +30,14 @@ const styles = StyleSheet.create({
   wrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
     marginTop: 6,
   },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
-    minWidth: '46%',
+    width: '50%',
+    paddingRight: 8,
+    marginBottom: 6,
   },
   dot: {
     width: 8,
@@ -47,9 +48,9 @@ const styles = StyleSheet.create({
   },
   label: {
     flexShrink: 1,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '700',
+    fontSize: 10.5,
+    lineHeight: 14,
+    fontWeight: '600',
   },
 });
 
