@@ -864,7 +864,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <View style={pwStyles.otpDoneRow}>
                     <Feather name="check-circle" size={15} color="#004AC6" />
                     <Text style={pwStyles.otpDoneText}>
-                      {t('auth:enterOtp')} · {pwForm.otp}
+                      {t('auth:otpVerified', 'OTP verified')}
                     </Text>
                     <TouchableOpacity onPress={() => setOtpVerified(false)}>
                       <Text style={pwStyles.otpDoneChange}>{t('common:edit', 'Change')}</Text>
