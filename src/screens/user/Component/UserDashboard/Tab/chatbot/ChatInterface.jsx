@@ -511,34 +511,30 @@ const ChatInterface = ({ setActiveTab }) => {
     }
   }, [selectedCounselor, deleteChat]);
 
-  // Chips: All / Online / Recent, then the specializations present in the list.
+  // Only status chips are shown here; specialties remain searchable.
   const filterChips = useMemo(() => {
-    const specs = [];
-    counselors.forEach((c) => {
-      const s = (c.specialization || '').trim();
-      if (s && s !== 'Counselor' && !specs.includes(s)) specs.push(s);
-    });
     return [
       { id: 'all', label: t('common:all', 'All') },
       { id: 'online', label: t('common:online', 'Online') },
-      { id: 'recent', label: t('messages:recent', 'Recent') },
-      ...specs.slice(0, 6).map((s) => ({ id: s, label: s })),
+      { id: 'offline', label: t('common:offline', 'Offline') },
     ];
-  }, [counselors, t]);
+  }, [t]);
 
   const filteredCounselors = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     return counselors.filter((counselor) => {
       const matchesSearch =
         !term ||
-        counselor.name.toLowerCase().includes(term) ||
-        counselor.specialization.toLowerCase().includes(term) ||
-        counselor.lastMessage.toLowerCase().includes(term);
+        String(counselor.name || '').toLowerCase().includes(term) ||
+        String(counselor.specialization || '').toLowerCase().includes(term) ||
+        String(counselor.lastMessage || '').toLowerCase().includes(term) ||
+        (counselor.online ? 'online available' : 'offline unavailable').includes(term);
       if (!matchesSearch) return false;
 
-      if (activeFilter === 'all' || activeFilter === 'recent') return true;
+      if (activeFilter === 'all') return true;
       if (activeFilter === 'online') return !!counselor.online;
-      return counselor.specialization === activeFilter;
+      if (activeFilter === 'offline') return !counselor.online;
+      return true;
     });
   }, [counselors, searchTerm, activeFilter]);
 
