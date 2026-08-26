@@ -1656,7 +1656,7 @@ const styles = StyleSheet.create({
   inputWrapperFocused: { borderColor: '#00652C', backgroundColor: '#ffffff' },
   inputIcon: { marginRight: 12 },
   textInput: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
-  metricTextInput: { fontSize: 18, fontWeight: '800' },
+  metricTextInput: { fontSize: 15, fontWeight: '600' },
   phoneTextInput: { fontSize: 15 },
   datePickerText: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
   datePickerPlaceholder: { color: '#94a3b8' },
