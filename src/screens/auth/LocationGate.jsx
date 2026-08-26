@@ -59,7 +59,7 @@ const requestLocationPermission = async () => {
 const REASONS = [
   {
     icon: '📍',
-    title: 'Match you with nearby consultants',
+    title: 'Match you with consultants',
     body: 'We use your location to show consultants available in your area for faster, better support.',
   },
   {
