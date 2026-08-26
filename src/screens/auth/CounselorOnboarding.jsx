@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
-  Image,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -15,28 +14,24 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { DOCTOR } from '../../theme/palette';
 import useLanguageRender from '../../hooks/useLanguageRender';
+import HumaeliHeroVideo from '../../components/common/HumaeliHeroVideo';
 
 const { width } = Dimensions.get('window');
 const TOTAL_PAGES = 4;
-
-// The supplied artwork is taller than a fixed 200px band would allow, so the
-// card takes its shape FROM the image (via the asset's real dimensions) instead
-// of letterboxing it inside tinted bars.
-const OnboardingHero = ({ source }) => {
-  const meta = Image.resolveAssetSource(source);
-  const ratio = meta && meta.height ? meta.width / meta.height : 1.4;
-  return (
-    <View style={[s.illustration, { aspectRatio: ratio }]}>
-      <Image source={source} style={s.illustrationImage} resizeMode="contain" />
-    </View>
-  );
-};
 
 const OnboardingPage1 = () => {
   const { t } = useLanguageRender();
   return (
   <View style={s.page}>
-    <OnboardingHero source={require('../../public/consleor1.png')} />
+    <View style={s.onboardingVideoCard}>
+      <HumaeliHeroVideo
+        style={StyleSheet.absoluteFill}
+        sourceName="consultation_video_2"
+        fallbackSource={null}
+        muted
+        resizeMode="cover"
+      />
+    </View>
     <Text style={s.title}>{t('Grow Your Practice Digitally')}</Text>
     <Text style={s.description}>
       Reach more patients through secure online and offline consultations.
@@ -53,7 +48,16 @@ const OnboardingPage2 = () => {
   const { t } = useLanguageRender();
   return (
   <View style={s.page}>
-    <OnboardingHero source={require('../../public/consleor2.png')} />
+    <View style={[s.onboardingVideoCard, s.secondOnboardingVideoCard]}>
+      <HumaeliHeroVideo
+        style={StyleSheet.absoluteFill}
+        sourceName="floating_illu"
+        fallbackSource={null}
+        muted
+        resizeMode="cover"
+        zoomScale={1.06}
+      />
+    </View>
     <Text style={s.title}>{t('Manage Appointments Effortlessly')}</Text>
     <Text style={s.description}>
       Accept bookings, reschedule appointments, and manage your daily calendar in one place.
@@ -66,7 +70,15 @@ const OnboardingPage3 = () => {
   const { t } = useLanguageRender();
   return (
   <View style={s.page}>
-    <OnboardingHero source={require('../../public/consleor3.png')} />
+    <View style={s.onboardingVideoCard}>
+      <HumaeliHeroVideo
+        style={StyleSheet.absoluteFill}
+        sourceName="consultant_onb_2"
+        fallbackSource={null}
+        muted
+        resizeMode="cover"
+      />
+    </View>
     <Text style={s.title}>{t('Consult. Connect. Earn.')}</Text>
     <Text style={s.description}>
       Offer video consultations, in-person visits, and build lasting relationships with patients.
@@ -79,7 +91,15 @@ const OnboardingPage4 = () => {
   const { t } = useLanguageRender();
   return (
   <View style={s.page}>
-    <OnboardingHero source={require('../../public/consleor4.png')} />
+    <View style={s.onboardingVideoCard}>
+      <HumaeliHeroVideo
+        style={StyleSheet.absoluteFill}
+        sourceName="consultant_onb_video_2"
+        fallbackSource={null}
+        muted
+        resizeMode="cover"
+      />
+    </View>
     <Text style={s.title}>{t("You're Ready to Start")}</Text>
     <Text style={s.description}>
       Complete your profile and let Humaeli help manage your practice.
@@ -236,8 +256,8 @@ const s = StyleSheet.create({
   pagesScroll: { flex: 1 },
   page: { width, paddingHorizontal: 24, paddingVertical: 40, justifyContent: 'center', gap: 20 },
 
-  illustrationImage: { width: '100%', height: '100%' },
-  illustration: { width: '100%', overflow: 'hidden', justifyContent: 'center', alignItems: 'center', backgroundColor: '#E7EEFE', borderRadius: 20, marginBottom: 20 },
+  onboardingVideoCard: { width: '100%', aspectRatio: 1.4, overflow: 'hidden', backgroundColor: '#E7EEFE', borderRadius: 20, marginBottom: 20 },
+  secondOnboardingVideoCard: { backgroundColor: 'transparent', borderRadius: 16 },
 
   title: { fontSize: 24, fontWeight: '800', color: '#0f172a', textAlign: 'center' },
   description: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 21 },

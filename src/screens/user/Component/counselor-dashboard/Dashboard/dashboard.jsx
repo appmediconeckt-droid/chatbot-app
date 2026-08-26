@@ -3188,6 +3188,7 @@ export default function CounselorDashboard() {
 const sessStyles = StyleSheet.create({
   headerWrap: {
     paddingHorizontal: 16,
+    paddingTop: 12,
     marginBottom: 6,
   },
   headerTopRow: {

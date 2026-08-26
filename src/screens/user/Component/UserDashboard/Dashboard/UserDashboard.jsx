@@ -30,7 +30,6 @@ import { useNavigation, useIsFocused } from "@react-navigation/native";
 import axios from "axios";
 import axiosInstance, { API_BASE_URL } from "../../../../../axiosConfig";
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { launchImageLibrary } from "react-native-image-picker";
 import socketService from "../../../../../services/socketService";
 import Icon from "react-native-vector-icons/FontAwesome5";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
@@ -115,25 +114,16 @@ const ChatPopup = ({
   const { t } = useLanguageRender();
   const { width, height } = useWindowDimensions();
   const [speakingId, setSpeakingId] = useState(null);
-  const [aiAttachment, setAiAttachment] = useState(null);
   const [aiInputPlaceholder, setAiInputPlaceholder] = useState('Type your question');
-
-  const pickAiAttachment = useCallback(() => {
-    launchImageLibrary({ mediaType: "photo", quality: 0.8 }, (res) => {
-      if (res.didCancel || res.errorCode || !res.assets?.[0]?.uri) return;
-      setAiAttachment(res.assets[0].uri);
-    });
-  }, []);
 
   const handleAiSend = useCallback(() => {
     const text = (newMessage || "").trim();
-    if (!text && !aiAttachment) return;
-    sendMessage(text, aiAttachment || null);
-    setAiAttachment(null);
+    if (!text) return;
+    sendMessage(text, null);
     requestAnimationFrame(() => inputRef.current?.focus());
     setTimeout(() => inputRef.current?.focus(), 80);
     setTimeout(() => inputRef.current?.focus(), 220);
-  }, [newMessage, aiAttachment, sendMessage]);
+  }, [newMessage, sendMessage]);
 
   useEffect(() => {
     let isMounted = true;
@@ -494,15 +484,6 @@ const ChatPopup = ({
           )}
         </ScrollView>
 
-        {aiAttachment && (
-          <View style={styles.aiAttachPreview}>
-            <Image source={{ uri: toImageUri(aiAttachment) }} style={styles.aiAttachThumb} />
-            <Text style={styles.aiAttachName} numberOfLines={1}>{t('dashboard:aiPhotoAttached')}</Text>
-            <TouchableOpacity onPress={() => setAiAttachment(null)} hitSlop={8}>
-              <MaterialIcons name="close" size={18} color="#64748b" />
-            </TouchableOpacity>
-          </View>
-        )}
         <View
           style={[
             styles.chatPopupFooter,
@@ -513,11 +494,6 @@ const ChatPopup = ({
             },
           ]}
         >
-          {/* + button → attach photo */}
-          <TouchableOpacity style={styles.plusBtn} activeOpacity={0.75} onPress={pickAiAttachment}>
-            <MaterialIcons name="add" size={22} color="#64748b" />
-          </TouchableOpacity>
-
           {/* Input pill: leading icon + text */}
           <View style={styles.chatInputPill}>
             <MaterialIcons name="auto-awesome" size={17} color="#006B2C" style={styles.chatInputLead} />
@@ -542,11 +518,11 @@ const ChatPopup = ({
           <TouchableOpacity
             style={[
               styles.sendBtn,
-              (!newMessage.trim() && !aiAttachment) && styles.sendBtnDisabled,
+              !newMessage.trim() && styles.sendBtnDisabled,
             ]}
             onPressIn={() => inputRef.current?.focus()}
             onPress={handleAiSend}
-            disabled={isLoading || (!newMessage.trim() && !aiAttachment)}
+            disabled={isLoading || !newMessage.trim()}
             activeOpacity={0.85}
           >
             <MaterialIcons name="send" size={19} color="white" />
@@ -563,8 +539,15 @@ const ChatPopup = ({
               >
                 <MaterialIcons name="refresh" size={26} color="#ffffff" />
               </LinearGradient>
-              <Text style={styles.resetConfirmTitle}>{t('dashboard:resetChatTitle')}</Text>
-              <Text style={styles.resetConfirmText}>{t('dashboard:resetChatMessage')}</Text>
+              <Text style={styles.resetConfirmTitle}>
+                {t('common:resetChatTitle', 'Start a fresh chat?')}
+              </Text>
+              <Text style={styles.resetConfirmText}>
+                {t(
+                  'common:resetChatMessage',
+                  'This clears the current AI chat and starts again with the welcome mood options.'
+                )}
+              </Text>
               <View style={styles.resetConfirmActions}>
                 <TouchableOpacity
                   style={[styles.resetConfirmBtn, styles.resetCancelBtn]}
@@ -572,7 +555,7 @@ const ChatPopup = ({
                   disabled={isLoading}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.resetCancelText}>{t('common:cancel')}</Text>
+                  <Text style={styles.resetCancelText}>{t('common:cancel', 'Cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.resetConfirmBtn, styles.resetStartBtn, isLoading && styles.resetBtnDisabled]}
@@ -581,7 +564,9 @@ const ChatPopup = ({
                   activeOpacity={0.85}
                 >
                   <Text style={styles.resetStartText}>
-                    {isLoading ? t('dashboard:startingFresh') : t('dashboard:startFresh')}
+                    {isLoading
+                      ? t('common:startingFresh', 'Starting...')
+                      : t('common:startFresh', 'Start Fresh')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1211,7 +1196,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 <View style={styles.appointmentMetaColumn}>
                   <View style={styles.aptNameRow}>
                     <Text style={styles.appointmentDoctorName} numberOfLines={1}>
-                      Dr. {apt?.counselor?.fullName || "Counselor"}
+                      {apt?.counselor?.fullName || "Counselor"}
                     </Text>
                   </View>
                   <Text style={styles.appointmentSpecialization} numberOfLines={1}>
@@ -2549,14 +2534,6 @@ export default function UserDashboard() {
       onPress: () => openTabFromSidebar('Video', handleMenuItemClick),
     },
     {
-      id: 'language',
-      type: 'language',
-      icon: 'globe-outline',
-      iconActive: 'globe',
-      label: t('settings:language', 'Language'),
-      isActive: false,
-    },
-    {
       id: 'settings',
       icon: 'settings-outline',
       iconActive: 'settings',
@@ -2905,24 +2882,6 @@ export default function UserDashboard() {
               {/* Pressable, not TouchableOpacity: opacity alone gave no visible
                   feedback, so Help and Privacy looked dead when tapped. */}
               {sidebarItems.map((item) => {
-                if (item.type === 'language') {
-                  return (
-                    <LanguageSelector
-                      key={item.id}
-                      brand={PATIENT.primary}
-                      userId={userId}
-                      role="user"
-                      triggerStyle={styles.sbItem}
-                    >
-                      <View style={styles.sbIconChip}>
-                        <Ionicons name={item.icon} size={19} color={PATIENT.primary} />
-                      </View>
-                      <Text style={styles.sbItemText}>{item.label}</Text>
-                      <Ionicons name="chevron-forward" size={17} color="#CBD5E1" />
-                    </LanguageSelector>
-                  );
-                }
-
                 return (
                   <Pressable
                     key={item.id}
@@ -2954,24 +2913,38 @@ export default function UserDashboard() {
               })}
             </View>
 
-            {/* Logout */}
-            <TouchableOpacity
-              style={styles.sbLogout}
-              activeOpacity={0.85}
-              onPress={() => { setShowMoreModal(false); setShowLogoutConfirm(true); }}
-            >
-              <LinearGradient
-                colors={['#DC2626', '#F87171']}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={StyleSheet.absoluteFillObject}
-              />
-              <View style={styles.sbLogoutIcon}>
-                <Ionicons name="log-out-outline" size={19} color="#ffffff" />
-              </View>
-              <Text style={styles.sbLogoutText}>{t('settings:logoutAccount')}</Text>
-              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />
-            </TouchableOpacity>
+            <View style={styles.sbBottomActions}>
+              <LanguageSelector
+                brand={PATIENT.primary}
+                userId={userId}
+                role="user"
+                triggerStyle={styles.sbItem}
+              >
+                <View style={styles.sbIconChip}>
+                  <Ionicons name="globe-outline" size={19} color={PATIENT.primary} />
+                </View>
+                <Text style={styles.sbItemText}>{t('settings:language', 'Language')}</Text>
+                <Ionicons name="chevron-forward" size={17} color="#CBD5E1" />
+              </LanguageSelector>
+
+              <TouchableOpacity
+                style={styles.sbLogout}
+                activeOpacity={0.85}
+                onPress={() => { setShowMoreModal(false); setShowLogoutConfirm(true); }}
+              >
+                <LinearGradient
+                  colors={['#DC2626', '#F87171']}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+                <View style={styles.sbLogoutIcon}>
+                  <Ionicons name="log-out-outline" size={19} color="#ffffff" />
+                </View>
+                <Text style={styles.sbLogoutText}>{t('settings:logoutAccount')}</Text>
+                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />
+              </TouchableOpacity>
+            </View>
           </SafeAreaView>
 
           <TouchableOpacity
@@ -3418,8 +3391,11 @@ const styles = StyleSheet.create({
     color: PATIENT.primary,
     fontWeight: '700',
   },
-  sbLogout: {
+  sbBottomActions: {
     marginTop: 'auto',
+    gap: 10,
+  },
+  sbLogout: {
     width: '100%',
     height: 52,
     flexDirection: 'row',
@@ -4462,29 +4438,6 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     backgroundColor: "#e2e8f0",
   },
-  aiAttachPreview: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginHorizontal: 12,
-    marginBottom: -2,
-    marginTop: 6,
-    padding: 8,
-    backgroundColor: "#F1F5F9",
-    borderRadius: 12,
-  },
-  aiAttachThumb: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: "#e2e8f0",
-  },
-  aiAttachName: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#334155",
-  },
   chatCounselorMention: {
     color: "#1d4ed8",
     fontWeight: "700",
@@ -4606,14 +4559,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-  },
-  plusBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#F1F5F9",
-    justifyContent: "center",
-    alignItems: "center",
   },
   chatInputPill: {
     flex: 1,

@@ -40,7 +40,7 @@ const isGeneratedUserAvatarUrl = (raw) => {
   );
 };
 
-const UserAccountSettings = ({ onNavigateBack }) => {
+const UserAccountSettings = () => {
   const { t } = useLanguageRender();
   const navigation = useNavigation();
   const [account, setAccount] = useState({ name: '', email: '', phone: '', profilePhoto: '' });
@@ -320,11 +320,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
       <View style={s.header}>
-        <TouchableOpacity onPress={onNavigateBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Ionicons name="chevron-back" size={24} color="#0f172a" />
-        </TouchableOpacity>
         <Text style={s.headerTitle}>{t('settings:settings', 'Settings')}</Text>
-        <View style={s.headerSpacer} />
       </View>
 
       <ScrollView
@@ -660,19 +656,17 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9F9FF', paddingTop: 0 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
-    height: 56,
-    flexDirection: 'row',
+    height: 44,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: 16,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
   },
-  headerTitle: { fontSize: 18, lineHeight: 22, fontWeight: '800', color: '#0f172a', includeFontPadding: false },
-  headerSpacer: { width: 24 },
+  headerTitle: { fontSize: 18, lineHeight: 22, fontWeight: '800', color: '#0f172a', textAlign: 'center', includeFontPadding: false },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 96 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 96 },
 
   section: {
     backgroundColor: '#ffffff',

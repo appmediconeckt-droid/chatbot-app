@@ -82,6 +82,16 @@ const LocationGate = ({ navigation, route }) => {
   // Role → theme: counselor = blue, user = green (matches the rest of the app).
   // The destination name tells us the role, so no extra param is needed.
   const isCounselor = /counsel/i.test(String(destination || ''));
+  const reasons = isCounselor
+    ? [
+        {
+          icon: '📍',
+          title: 'Help nearby patients find you',
+          body: 'We use your location to show your profile to patients looking for consultants in your area.',
+        },
+        ...REASONS.slice(1),
+      ]
+    : REASONS;
   const C = isCounselor
     ? { bg: '#EFF4FE', blob1: '#C3D8FB', blob2: '#A8C6F8', primary: '#004AC6', primaryDark: '#003A9B', headline: '#0B2A6B' }
     : { bg: '#F0FDF4', blob1: '#BBF7D0', blob2: '#A7F3D0', primary: '#059669', primaryDark: '#047857', headline: '#064E3B' };
@@ -172,7 +182,7 @@ const LocationGate = ({ navigation, route }) => {
   // ─── Render helpers ──────────────────────────────────────────────────────
 
   const renderReasons = () =>
-    REASONS.map((r, i) => (
+    reasons.map((r, i) => (
       <View key={i} style={styles.reasonRow}>
         <Text style={styles.reasonIcon}>{r.icon}</Text>
         <View style={styles.reasonText}>
@@ -193,6 +203,10 @@ const LocationGate = ({ navigation, route }) => {
         <Text style={styles.deniedText}>
           {isHard
             ? 'Location was permanently blocked. Open Settings → enable Location for this app, then come back.'
+            : isCounselor
+            ? attempt === 1
+              ? 'Without location access, nearby patients may not find your profile and location-based account security will be limited. Please allow it.'
+              : 'Location is still blocked. Features like local profile visibility and location-based security will not work properly.'
             : attempt === 1
             ? 'Without location access you\'ll miss nearby consultants, account security alerts, and emergency support. Please allow it.'
             : 'Location is still blocked. Features like nearby consultants and emergency support won\'t work properly.'}

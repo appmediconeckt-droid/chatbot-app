@@ -17,7 +17,9 @@ class HumaeliHeroVideoView(private val reactContext: ThemedReactContext) :
   private val textureView = TextureView(reactContext)
   private var mediaPlayer: MediaPlayer? = null
   private var surface: Surface? = null
-  private var sourceName: String = "mobile_hero_section_video"
+  // Wait for React Native to provide the requested source. Starting the landing
+  // video by default can briefly show the wrong clip in reused video cards.
+  private var sourceName: String = ""
   private var muted: Boolean = false
   private var resizeMode: String = "cover"
   private var focusX: Float = 0.5f

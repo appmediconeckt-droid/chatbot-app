@@ -57,10 +57,10 @@ const Landing = ({ navigation }) => {
       <HumaeliHeroVideo
         style={StyleSheet.absoluteFill}
         muted
-        resizeMode="cover"
+        resizeMode="fitwidth"
         focusX={0.5}
-        focusY={0.18}
-        zoomScale={0.95}
+        focusY={0}
+        zoomScale={1}
       />
       <LinearGradient
         pointerEvents="none"

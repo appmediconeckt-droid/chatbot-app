@@ -706,7 +706,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         </View>
         <View style={styles.rowBody}>
           <Text style={styles.rowLabel}>{t('settings:appVersion', 'App Version')}</Text>
-          <Text style={styles.rowSub}>Humaeli v1.2.4 (Build 240)</Text>
+          <Text style={styles.rowSub}>Humaeli v1.2.4</Text>
         </View>
       </View>
 

@@ -2,6 +2,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { API_BASE_URL, TUNNEL_HEADERS } from "../../axiosConfig";
 
+// Railway may need time to wake the service and the deployed mail provider can
+// take longer than Axios' old 30s limit. Keep auth requests below the UI-level
+// loading state, but do not abort a valid OTP send while the backend is still
+// waiting for SMTP.
+const PUBLIC_AUTH_TIMEOUT_MS = 120000;
+
 export const setUserEmail = async (email) => {
   await AsyncStorage.setItem("userEmail", email);
 };
@@ -101,68 +107,12 @@ const makeHttpError = (response, fallback = 'Request failed') => {
   return error;
 };
 
-const postWithRawXhr = async (url, payload, options = {}) => {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', url, true);
-    xhr.withCredentials = true;
-    xhr.timeout = options.timeout || 30000;
-    xhr.setRequestHeader('Accept', 'application/json');
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    Object.entries(TUNNEL_HEADERS).forEach(([key, value]) => {
-      xhr.setRequestHeader(key, value);
-    });
-
-    xhr.onload = () => {
-      const bodyText = xhr.responseText || '';
-      let data = bodyText;
-      if (bodyText) {
-        try {
-          data = JSON.parse(bodyText);
-        } catch {
-          data = bodyText;
-        }
-      } else {
-        data = {};
-      }
-
-      const response = {
-        data,
-        status: xhr.status,
-        statusText: xhr.statusText,
-      };
-
-      if (xhr.status < 200 || xhr.status >= 300) {
-        reject(makeHttpError(response));
-        return;
-      }
-
-      resolve(response);
-    };
-
-    xhr.onerror = () => {
-      const error = new Error('Network request failed');
-      error.userMessage = 'Android could not open the HTTPS connection to the backend.';
-      reject(error);
-    };
-
-    xhr.ontimeout = () => {
-      const error = new Error('The server took too long to respond. Please try again.');
-      error.code = 'ECONNABORTED';
-      reject(error);
-    };
-
-    xhr.send(JSON.stringify(payload));
-  });
-};
-
 export const postPublicAuthEndpoint = async (endpoint, payload, options = {}) => {
   const url = `${API_BASE_URL}/api/auth/${endpoint}`;
-  let axiosNetworkError = null;
 
   try {
     const response = await axios.post(url, payload, {
-      timeout: options.timeout || 30000,
+      timeout: options.timeout || PUBLIC_AUTH_TIMEOUT_MS,
       withCredentials: true,
       headers: {
         Accept: 'application/json',
@@ -178,31 +128,22 @@ export const postPublicAuthEndpoint = async (endpoint, payload, options = {}) =>
 
     return response;
   } catch (error) {
-    if (error?.response || error?.code === 'ECONNABORTED') throw error;
-    axiosNetworkError = error;
-
-    try {
-      return await postWithRawXhr(url, payload, options);
-    } catch (xhrError) {
-      if (endpoint === 'complete-registration') {
-        throw makeHttpError({
-          data: {
-            message:
-              'Registration failed because the backend requires a valid email OTP verification session before complete-registration. Make sure the deployed backend matches the web auth flow.',
-            success: false,
-          },
-          status: 400,
-          statusText: 'Bad Request',
-        });
-      }
-      console.log('[public-auth] request failed', {
-        endpoint,
-        url,
-        axiosMessage: axiosNetworkError?.message,
-        xhrMessage: xhrError?.message,
-      });
-      throw xhrError;
+    // Never retry an OTP POST automatically. The server may have accepted the
+    // first request before its response was lost; sending it again can create a
+    // second OTP and immediately invalidate the first email.
+    if (!error?.response) {
+      error.userMessage = error?.code === 'ECONNABORTED'
+        ? 'The email server did not respond within 2 minutes. Please try again later.'
+        : 'The app could not complete the connection to the deployed backend.';
     }
+    console.log('[public-auth] request failed', {
+      endpoint,
+      url,
+      code: error?.code,
+      message: error?.message,
+      status: error?.response?.status,
+    });
+    throw error;
   }
 };
 
