@@ -14,7 +14,7 @@ const VIDEO_BACKGROUND_COLOR = '#04181B';
 
 const HumaeliHeroVideo = ({
   style,
-  sourceName = 'mobile_hero_section_video',
+  sourceName = '',
   fallbackSource = require('../../image/wellness_hero.png'),
   muted = false,
   resizeMode = 'cover',

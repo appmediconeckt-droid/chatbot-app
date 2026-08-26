@@ -42,7 +42,8 @@
     "confirmed": "Confirmed",
     "canceled": "Canceled",
     "sending": "Sending...",
-    "loadingMessages": "Loading messages..."
+    "loadingMessages": "Loading messages...",
+    "attach": "Attach"
   },
   "auth": {
     "login": "Login",
@@ -534,6 +535,17 @@
     "checklistItem5": "Do not share OTPs, passwords, or sensitive account details inside chat messages.",
     "checklistItem6": "Use My Profile and Settings to update or review the data stored in your account.",
     "manageData": "Manage profile data",
-    "securitySettings": "Security settings"
+    "securitySettings": "Security settings",
+    "aiQuickReplyLow": "Low",
+    "aiQuickReplyOkay": "Okay",
+    "aiQuickReplyGood": "Good",
+    "aiQuickReplyGreat": "Great",
+    "aiPhotoAttached": "Photo attached",
+    "aiTryAgain": "Try Again",
+    "aiVoiceHint": "Speak when you're ready — I'll reply once you pause.",
+    "resetChatTitle": "Start a fresh chat?",
+    "resetChatMessage": "This clears the current AI chat and starts again with the welcome mood options.",
+    "startFresh": "Start Fresh",
+    "startingFresh": "Starting..."
   }
 }

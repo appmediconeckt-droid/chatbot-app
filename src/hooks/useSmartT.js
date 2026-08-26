@@ -5,6 +5,11 @@ import { translationService } from '../i18n/translationService';
 // Shared across all components so a string is only fetched once per language.
 const liveCache = {}; // `${lang}::${english}` -> translated
 const pending = new Set(); // keys currently being fetched
+const translationListeners = new Set();
+
+const notifyTranslationListeners = () => {
+  translationListeners.forEach((listener) => listener());
+};
 
 const isEnglish = (lng) =>
   !lng || lng === 'en-US' || lng === 'en' || lng === 'en-GB' || lng === 'en-IN';
@@ -38,7 +43,12 @@ export function useSmartT() {
   useEffect(() => {
     const rerender = () => force((n) => n + 1);
     inst.on('languageChanged', rerender);
-    return () => inst.off('languageChanged', rerender);
+    translationListeners.add(rerender);
+
+    return () => {
+      inst.off('languageChanged', rerender);
+      translationListeners.delete(rerender);
+    };
   }, [inst]);
 
   const t = useCallback(
@@ -73,7 +83,10 @@ export function useSmartT() {
             pending.delete(ck);
             if (res && res !== en) {
               liveCache[ck] = applyConsultantLabel(res);
-              force((n) => n + 1);
+              // A request is shared globally, so every mounted translated text
+              // using that cached phrase must be notified—not only the hook
+              // instance that happened to start the request.
+              notifyTranslationListeners();
             }
           })
           .catch(() => pending.delete(ck));
