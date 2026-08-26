@@ -1,10 +1,102 @@
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const parser = require('@babel/parser');
+const traverse = require('@babel/traverse').default;
 
 const root = path.resolve(__dirname, '..');
 const localeDir = path.join(root, 'src', 'i18n', 'locales');
 const english = JSON.parse(fs.readFileSync(path.join(localeDir, 'en-US.json'), 'utf8'));
+
+const phraseKey = (value) => {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash * 33) ^ value.charCodeAt(index)) >>> 0;
+  }
+  return `p${hash.toString(36)}`;
+};
+
+const pageSources = [
+  'src/screens/user/Component/UserDashboard/Tab/HelpSupport/HelpSupport.jsx',
+  'src/screens/user/Component/UserDashboard/Tab/PrivacyPolicy/PrivacyPolicy.jsx',
+  'src/screens/user/Component/UserDashboard/Tab/UserAccountSettings.jsx',
+  'src/screens/user/Component/UserDashboard/Tab/Callls/CallHistory.jsx',
+  'src/screens/user/Component/UserDashboard/Tab/Appointment/BookAppointment.jsx',
+  'src/screens/user/Component/UserDashboard/Tab/Appointments/Appointments.jsx',
+  'src/screens/user/Component/UserDashboard/Tab/chatbot/ChatInterface.jsx',
+  'src/screens/user/Component/UserDashboard/Tab/Wallet/WalletDashboard.jsx',
+  'src/screens/user/Component/UserDashboard/Tab/Wallet/TransactionsHistory.jsx',
+  'src/screens/user/Component/UserDashboard/Dashboard/UserDashboard.jsx',
+];
+
+const collectPagePhrases = () => {
+  const phrases = new Set([
+    'Unknown', 'Today', 'Yesterday', 'Incoming', 'Outgoing', 'Missed',
+    'Completed', 'Failed', 'Pending', 'minutes', 'seconds',
+  ]);
+  const add = (value) => {
+    const text = String(value || '').trim().replace(/\s+/g, ' ');
+    if (text.length > 1 && /[A-Za-z]/.test(text) && !/^[\w-]+:[\w.-]+$/.test(text)) {
+      phrases.add(text);
+    }
+  };
+  const visiblePropertyNames = new Set([
+    'label', 'title', 'subtitle', 'sub', 'description', 'desc', 'question',
+    'answer', 'collects', 'purpose',
+  ]);
+
+  pageSources.forEach((relativePath) => {
+    const ast = parser.parse(fs.readFileSync(path.join(root, relativePath), 'utf8'), {
+      sourceType: 'module',
+      plugins: ['jsx'],
+    });
+    traverse(ast, {
+      CallExpression(nodePath) {
+        if (nodePath.node.callee.type !== 'Identifier' || nodePath.node.callee.name !== 't') return;
+        const argument = nodePath.node.arguments[0];
+        if (argument?.type === 'StringLiteral') add(argument.value);
+        const fallback = nodePath.node.arguments[1];
+        if (fallback?.type === 'StringLiteral') add(fallback.value);
+      },
+      JSXText(nodePath) {
+        add(nodePath.node.value);
+      },
+      JSXAttribute(nodePath) {
+        if (!['placeholder', 'accessibilityLabel'].includes(nodePath.node.name?.name)) return;
+        if (nodePath.node.value?.type === 'StringLiteral') add(nodePath.node.value.value);
+      },
+      ConditionalExpression(nodePath) {
+        if (!nodePath.findParent((parent) => parent.isJSXExpressionContainer())) return;
+        if (nodePath.node.consequent?.type === 'StringLiteral') add(nodePath.node.consequent.value);
+        if (nodePath.node.alternate?.type === 'StringLiteral') add(nodePath.node.alternate.value);
+      },
+      ObjectProperty(nodePath) {
+        const name = nodePath.node.key?.name || nodePath.node.key?.value;
+        if (!visiblePropertyNames.has(name)) return;
+        const value = nodePath.node.value;
+        if (value?.type === 'StringLiteral') add(value.value);
+        if (value?.type === 'ArrayExpression') {
+          value.elements.forEach((element) => {
+            if (element?.type === 'StringLiteral') add(element.value);
+          });
+        }
+      },
+    });
+  });
+
+  const dictionary = {};
+  phrases.forEach((phrase) => {
+    const id = phraseKey(phrase);
+    if (dictionary[id] && dictionary[id] !== phrase) {
+      throw new Error(`Phrase hash collision: ${dictionary[id]} / ${phrase}`);
+    }
+    dictionary[id] = phrase;
+  });
+  return dictionary;
+};
+
+english.phrases = { ...(english.phrases || {}), ...collectPagePhrases() };
+fs.writeFileSync(path.join(localeDir, 'en-US.json'), `${JSON.stringify(english, null, 2)}\n`, 'utf8');
 const indexSource = fs.readFileSync(path.join(root, 'src', 'i18n', 'index.js'), 'utf8');
 const languageSection = indexSource.slice(
   indexSource.indexOf('export const LANGUAGES = ['),
