@@ -38,13 +38,13 @@ import LinearGradient from 'react-native-linear-gradient';
 import { BlurView } from "@react-native-community/blur";
 import safeVibrate from "../../../../../utils/safeVibrate";
 import { forceStopRingtone, startIncomingRingtone } from "../../../../../hooks/useRingtone";
+import { useToast } from "../../../../../components/common/ToastProvider";
 import ChatInterface from "../Tab/chatbot/ChatInterface";
 import CounselorTable from "../Tab/Appointment/BookAppointment";
 import WalletDashboard from "../Tab/Wallet/WalletDashboard";
 import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
 import AvatarPicker from "../../PatientProfile/AvatarPicker";
-import LanguageSelector from '../../../../../components/common/LanguageSelector';
 import RatingPrompt from '../../../../../components/RatingPrompt';
 import { loadUserLanguage } from '../../../../../i18n';
 import AutoTranslatedText from '../../../../../components/AutoTranslatedText';
@@ -1538,6 +1538,7 @@ export default function UserDashboard() {
   const aiButtonBottom = (Platform.OS === "ios" ? 42 : 28) + dashboardBottomInset;
   const { i18n } = useTranslation();
   const { t } = useLanguageRender();
+  const { showToast } = useToast();
   const navigation = useNavigation();
   const isFocused = useIsFocused();
   const [active, setActive] = useState("Chat");
@@ -1614,6 +1615,23 @@ export default function UserDashboard() {
   const [selectedLang, setSelectedLang] = useState(i18n.language || 'en-IN');
   const [showAvatarChooser, setShowAvatarChooser] = useState(false);
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
+
+  const showLanguageComingSoon = useCallback(() => {
+    setShowMoreModal(false);
+    setTimeout(() => {
+      showToast({
+        title: 'Coming soon',
+        message: 'Work is in progress.',
+        type: 'info',
+        accent: PATIENT.primary,
+        bg: '#E6F6EC',
+        border: '#BDE8CD',
+        icon: 'i',
+        translate: false,
+        duration: 3200,
+      });
+    }, MODAL_DISMISS_MS);
+  }, [showToast]);
 
   const handleAIContactClick = (name) => {
     setTargetCounselor(name);
@@ -2914,18 +2932,20 @@ export default function UserDashboard() {
             </View>
 
             <View style={styles.sbBottomActions}>
-              <LanguageSelector
-                brand={PATIENT.primary}
-                userId={userId}
-                role="user"
-                triggerStyle={styles.sbItem}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.sbItem,
+                  pressed && styles.sbItemPressed,
+                ]}
+                onPress={showLanguageComingSoon}
+                android_ripple={{ color: '#D7F0E1', borderless: false }}
               >
                 <View style={styles.sbIconChip}>
                   <Ionicons name="globe-outline" size={19} color={PATIENT.primary} />
                 </View>
                 <Text style={styles.sbItemText}>{t('settings:language', 'Language')}</Text>
                 <Ionicons name="chevron-forward" size={17} color="#CBD5E1" />
-              </LanguageSelector>
+              </Pressable>
 
               <TouchableOpacity
                 style={styles.sbLogout}
