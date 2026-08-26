@@ -5,8 +5,6 @@ import {
   ActivityIndicator,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   TouchableOpacity,
   View,
   Image,
@@ -14,6 +12,8 @@ import {
   StatusBar,
   Alert,
 } from 'react-native';
+import TextInput from '../../../../../components/TranslatedTextInput';
+import Text from '../../../../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
@@ -24,6 +24,11 @@ import PATIENT, {
   GRADIENT_DIRECTION,
 } from '../../../../../theme/palette';
 import PatientGradientButton from '../../../../../components/common/PatientGradientButton';
+import {
+  STRONG_PASSWORD_HINT,
+  validateStrongPassword,
+} from '../../../../../utils/passwordPolicy';
+import PasswordRequirementChecklist from '../../../../../components/common/PasswordRequirementChecklist';
 
 const isGeneratedUserAvatarUrl = (raw) => {
   const url = typeof raw === 'string' ? raw : raw?.url || raw?.secure_url || '';
@@ -35,7 +40,7 @@ const isGeneratedUserAvatarUrl = (raw) => {
   );
 };
 
-const UserAccountSettings = ({ onNavigateBack }) => {
+const UserAccountSettings = () => {
   const { t } = useLanguageRender();
   const navigation = useNavigation();
   const [account, setAccount] = useState({ name: '', email: '', phone: '', profilePhoto: '' });
@@ -224,6 +229,11 @@ const UserAccountSettings = ({ onNavigateBack }) => {
       Alert.alert('Error', 'Enter new password');
       return;
     }
+    const addPasswordCheck = validateStrongPassword(newPasswordAdd);
+    if (!addPasswordCheck.isValid) {
+      Alert.alert('Error', addPasswordCheck.message);
+      return;
+    }
     if (newPasswordAdd !== confirmPasswordAdd) {
       Alert.alert('Error', 'Passwords do not match');
       return;
@@ -260,6 +270,11 @@ const UserAccountSettings = ({ onNavigateBack }) => {
     }
     if (!newPassword) {
       Alert.alert('Error', 'Enter your new password');
+      return;
+    }
+    const changePasswordCheck = validateStrongPassword(newPassword);
+    if (!changePasswordCheck.isValid) {
+      Alert.alert('Error', changePasswordCheck.message);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -305,11 +320,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
       <View style={s.header}>
-        <TouchableOpacity onPress={onNavigateBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Ionicons name="chevron-back" size={24} color="#0f172a" />
-        </TouchableOpacity>
         <Text style={s.headerTitle}>{t('settings:settings', 'Settings')}</Text>
-        <View style={s.headerSpacer} />
       </View>
 
       <ScrollView
@@ -469,7 +480,7 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                   <View style={s.otpDoneRow}>
                     <Ionicons name="checkmark-circle" size={16} color={PATIENT.primary} />
                     <Text style={s.otpDoneText}>
-                      {t('Code entered')} · {otpCode}
+                      {t('OTP verified')}
                     </Text>
                     <TouchableOpacity onPress={() => setOtpVerified(false)}>
                       <Text style={s.otpDoneChange}>{t('Change')}</Text>
@@ -485,18 +496,20 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                         placeholder="••••••••••••"
                         placeholderTextColor="#cbd5e1"
                         secureTextEntry={!showNewPasswordAdd}
-                        value={newPasswordAdd}
-                        onChangeText={setNewPasswordAdd}
-                      />
-                      <TouchableOpacity onPress={() => setShowNewPasswordAdd(!showNewPasswordAdd)}>
+	                        value={newPasswordAdd}
+	                        onChangeText={setNewPasswordAdd}
+	                      />
+	                      <TouchableOpacity onPress={() => setShowNewPasswordAdd(!showNewPasswordAdd)}>
                         <Ionicons
                           name={showNewPasswordAdd ? 'eye' : 'eye-off'}
                           size={16}
                           color="#94a3b8"
                         />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
+	                      </TouchableOpacity>
+	                    </View>
+	                    <Text style={s.passwordHint}>{t(STRONG_PASSWORD_HINT)}</Text>
+	                    <PasswordRequirementChecklist password={newPasswordAdd} style={s.passwordChecklist} />
+	                  </View>
 
                   <View style={s.inputBox}>
                     <Text style={s.inputLabel}>{t('Confirm Password')}</Text>
@@ -563,18 +576,20 @@ const UserAccountSettings = ({ onNavigateBack }) => {
                     placeholder="••••••••••••"
                     placeholderTextColor="#cbd5e1"
                     secureTextEntry={!showNewPassword}
-                    value={newPassword}
-                    onChangeText={setNewPassword}
-                  />
+	                    value={newPassword}
+	                    onChangeText={setNewPassword}
+	                  />
                   <TouchableOpacity onPress={() => setShowNewPassword(!showNewPassword)}>
                     <Ionicons
                       name={showNewPassword ? 'eye' : 'eye-off'}
                       size={16}
                       color="#94a3b8"
                     />
-                  </TouchableOpacity>
-                </View>
-              </View>
+	                  </TouchableOpacity>
+	                </View>
+	                <Text style={s.passwordHint}>{t(STRONG_PASSWORD_HINT)}</Text>
+	                <PasswordRequirementChecklist password={newPassword} style={s.passwordChecklist} />
+	              </View>
 
               <View style={s.inputBox}>
                 <Text style={s.inputLabel}>{t('Confirm Password')}</Text>
@@ -638,22 +653,20 @@ const UserAccountSettings = ({ onNavigateBack }) => {
 };
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9F9FF', paddingTop: 0, paddingBottom: 40 },
+  container: { flex: 1, backgroundColor: '#F9F9FF', paddingTop: 0 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
-    height: 56,
-    flexDirection: 'row',
+    height: 44,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: 16,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
   },
-  headerTitle: { fontSize: 18, lineHeight: 22, fontWeight: '800', color: '#0f172a', includeFontPadding: false },
-  headerSpacer: { width: 24 },
+  headerTitle: { fontSize: 18, lineHeight: 22, fontWeight: '800', color: '#0f172a', textAlign: 'center', includeFontPadding: false },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 96 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 96 },
 
   section: {
     backgroundColor: '#ffffff',
@@ -701,6 +714,8 @@ const s = StyleSheet.create({
   inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 8, paddingHorizontal: 11, borderWidth: 1, borderColor: '#dbe3ef', minHeight: 42, gap: 8 },
   input: { flex: 1, color: '#0f172a', fontSize: 13, lineHeight: 16, fontWeight: '500', paddingVertical: 10, includeFontPadding: false },
   emailReadonly: { flex: 1, color: '#64748b', fontSize: 13, lineHeight: 16, fontWeight: '500', includeFontPadding: false },
+  passwordHint: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 4, includeFontPadding: false },
+  passwordChecklist: { marginTop: 6 },
 
   otpBtn: { backgroundColor: PATIENT.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, minWidth: 80, alignItems: 'center' },
   otpBtnText: { color: '#fff', fontSize: 13, lineHeight: 16, fontWeight: '700', includeFontPadding: false },

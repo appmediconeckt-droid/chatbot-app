@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  TextInput,
   SafeAreaView,
   StatusBar,
 } from 'react-native';
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import OtpCodeInput from './components/OtpCodeInput';

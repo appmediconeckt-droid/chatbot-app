@@ -6,13 +6,13 @@ import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
   Alert,
   Dimensions,
 } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -59,7 +59,7 @@ const PatientRequests = () => {
       name: 'Neha Singh',
       age: 24,
       gender: 'Female',
-      issue: 'Relationship counseling',
+      issue: 'Relationship consultation',
       requestedDate: '2024-01-13',
       status: 'pending',
       priority: 'high',

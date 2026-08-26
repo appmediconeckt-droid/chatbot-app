@@ -3,7 +3,6 @@ import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
@@ -13,6 +12,7 @@ import {
   Platform,
   RefreshControl,
 } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance, { API_BASE_URL } from '../../../../../../axiosConfig';
 import socketService from '../../../../../../services/socketService';

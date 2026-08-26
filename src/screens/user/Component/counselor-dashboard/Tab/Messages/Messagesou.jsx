@@ -3,17 +3,14 @@ import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   FlatList,
-  ActivityIndicator,
   StyleSheet,
-  Dimensions,
-  StatusBar,
   Animated,
   Image,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -30,8 +27,6 @@ import GradientFill from '../../../../../../components/common/GradientFill';
 import socketService from '../../../../../../services/socketService';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
 const SkeletonItem = () => {
@@ -106,29 +101,33 @@ const avatarStyles = StyleSheet.create({
 const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile }) => {
   const { t } = useLanguageRender();
 
-  // Time-aware greeting for the header.
-  const greetingLabel = (() => {
-    const h = new Date().getHours();
-    if (h < 12) return t('counselor:goodMorning', 'Good Morning');
-    if (h < 17) return t('counselor:goodAfternoon', 'Good Afternoon');
-    return t('counselor:goodEvening', 'Good Evening');
-  })();
-  const counselorName = counselorData?.name || counselorData?.fullName || 'Counselor';
-  const counselorPhoto = counselorData?.profilePhoto || null;
+  const counselorPhoto = counselorData?.profilePhoto || counselorData?.profilePhotoUrl || null;
+  const counselorAddress = counselorData?.address || {};
+  const hasText = (value) => String(value || '').trim().length > 0;
+  const hasArrayItems = (value) => Array.isArray(value) && value.length > 0;
+  const hasArrayItemsOrText = (value) => hasArrayItems(value) || hasText(value);
+  const addressComplete =
+    hasText(counselorAddress.line1) &&
+    hasText(counselorAddress.city) &&
+    hasText(counselorAddress.state) &&
+    hasText(counselorAddress.pincode) &&
+    hasText(counselorAddress.country);
   const profileTasks = [
     { label: 'Profile photo', complete: !!counselorPhoto },
-    { label: 'Specialization', complete: !!counselorData?.specialization || counselorData?.specializations?.length > 0 },
-    { label: 'Qualification', complete: !!counselorData?.education },
+    { label: 'Date of birth', complete: !!counselorData?.dateOfBirth },
+    { label: 'Gender', complete: !!counselorData?.gender },
+    { label: 'Phone', complete: !!counselorData?.phoneNumber },
+    { label: 'Specialization', complete: hasArrayItemsOrText(counselorData?.specialization) || hasArrayItems(counselorData?.specializations) },
+    { label: 'Qualification', complete: hasText(counselorData?.qualification) || hasText(counselorData?.education) },
     { label: 'Experience', complete: Number(counselorData?.experience) > 0 },
-    { label: 'Location', complete: !!counselorData?.location },
-    { label: 'Languages', complete: counselorData?.languages?.length > 0 },
+    { label: 'About me', complete: hasText(counselorData?.aboutMe) },
+    { label: 'Consultation mode', complete: hasArrayItemsOrText(counselorData?.consultationMode) },
+    { label: 'Address', complete: addressComplete },
+    { label: 'Certification', complete: hasArrayItems(counselorData?.certifications) },
+    { label: 'Languages', complete: hasArrayItemsOrText(counselorData?.languages) },
   ];
-  const completedProfileTasks = profileTasks.filter((task) => task.complete).length;
-  const profilePercent = Math.round((completedProfileTasks / profileTasks.length) * 100);
-  const profileIncomplete = counselorData?.profileCompleted !== true;
-  const counselorInitial = counselorName.charAt(0).toUpperCase();
-  // Header shows at most 8 characters of the name (no ellipsis dots).
-  const shortName = counselorName.slice(0, 8);
+  const allProfileTasksComplete = profileTasks.every((task) => task.complete);
+  const profileIncomplete = counselorData?.profileCompleted !== true && !allProfileTasksComplete;
   const [searchTerm, setSearchTerm] = useState('');
   const [users, setUsers] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
@@ -473,18 +472,6 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
   );
 
   const renderEmptyState = () => {
-    if (users.length > 0) {
-      return (
-        <View style={styles.emptyStateCard}>
-          <View style={styles.emptyIconCircle}>
-            <Ionicons name="search-outline" size={28} color="#64748B" />
-          </View>
-          <Text style={styles.emptyTitle}>{t('messages:noChatsFound', 'No matching conversations')}</Text>
-          <Text style={styles.emptyDescription}>Try changing your search or filter.</Text>
-        </View>
-      );
-    }
-
     if (profileIncomplete) {
       return (
         <View style={styles.onboardingCard}>
@@ -494,16 +481,8 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
           <Text style={styles.onboardingEyebrow}>WELCOME TO HUMAELI</Text>
           <Text style={styles.onboardingTitle}>Complete your professional profile</Text>
           <Text style={styles.onboardingDescription}>
-            Complete your profile to appear in the counselor directory and start receiving consultation requests.
+            Complete your profile to appear in the consultant directory and start receiving consultation requests.
           </Text>
-
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressLabel}>Profile completion</Text>
-            <Text style={styles.progressValue}>{profilePercent}%</Text>
-          </View>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${profilePercent}%` }]} />
-          </View>
 
           <View style={styles.profileChecklist}>
             {profileTasks.map((task) => (
@@ -528,6 +507,18 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
       );
     }
 
+    if (users.length > 0) {
+      return (
+        <View style={styles.emptyStateCard}>
+          <View style={styles.emptyIconCircle}>
+            <Ionicons name="search-outline" size={28} color="#64748B" />
+          </View>
+          <Text style={styles.emptyTitle}>{t('messages:noChatsFound', 'No matching conversations')}</Text>
+          <Text style={styles.emptyDescription}>Try changing your search or filter.</Text>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.emptyStateCard}>
         <View style={styles.emptyIconCircle}>
@@ -547,40 +538,40 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
-
-      <View style={styles.searchSection}>
-        <View style={styles.searchContainer}>
-          <View style={styles.searchIconWrap}>
-            <Ionicons name="search-outline" size={18} color="#2563EB" />
+      {!profileIncomplete && (
+        <View style={styles.searchSection}>
+          <View style={styles.searchContainer}>
+            <View style={styles.searchIconWrap}>
+              <Ionicons name="search-outline" size={18} color="#2563EB" />
+            </View>
+            <TextInput
+              style={styles.searchInput}
+              placeholder={t('messages:searchMessages')}
+              placeholderTextColor="#9CA3AF"
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+              returnKeyType="search"
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+            {searchTerm.length > 0 && (
+              <TouchableOpacity
+                style={styles.searchClearButton}
+                onPress={() => setSearchTerm('')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={14} color="#9CA3AF" />
+              </TouchableOpacity>
+            )}
           </View>
-          <TextInput
-            style={styles.searchInput}
-            placeholder={t('messages:searchMessages')}
-            placeholderTextColor="#9CA3AF"
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-            returnKeyType="search"
-            autoCorrect={false}
-            autoCapitalize="none"
-          />
-          {searchTerm.length > 0 && (
-            <TouchableOpacity
-              style={styles.searchClearButton}
-              onPress={() => setSearchTerm('')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="close" size={14} color="#9CA3AF" />
-            </TouchableOpacity>
-          )}
         </View>
-      </View>
+      )}
 
-      {loading && users.length === 0 ? (
+      {loading && users.length === 0 && !profileIncomplete ? (
         <View style={styles.shimmerContainer}>
           {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => <SkeletonItem key={i} />)}
         </View>
-      ) : error && users.length === 0 ? (
+      ) : error && users.length === 0 && !profileIncomplete ? (
         <View style={styles.empty}>
           <Ionicons name="alert-circle-outline" size={40} color="#94A3B8" />
           <Text style={styles.emptyText}>{t('messages:failedToLoad')}</Text>
@@ -590,12 +581,12 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
         </View>
       ) : (
         <FlatList
-          data={filteredUsers}
+          data={profileIncomplete ? [] : filteredUsers}
           keyExtractor={(item) => item.id}
           renderItem={renderUserItem}
-          ListHeaderComponent={renderListHeader()}
+          ListHeaderComponent={profileIncomplete ? null : renderListHeader()}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, profileIncomplete && styles.profileGateList]}
           ListEmptyComponent={renderEmptyState()}
         />
       )}
@@ -717,6 +708,7 @@ const styles = StyleSheet.create({
 
   // ─── List ─────────────────────────────────────────────────────────────────
   list: { width: '100%', paddingBottom: 100, backgroundColor: '#F1F5F9' },
+  profileGateList: { flexGrow: 1, paddingTop: 16, paddingBottom: 28 },
   chatCard: {
     flexDirection: 'row',
     marginHorizontal: 12,
@@ -820,11 +812,6 @@ const styles = StyleSheet.create({
   onboardingEyebrow: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.4, color: '#2563EB' },
   onboardingTitle: { fontSize: 21, fontWeight: '800', color: '#0F172A', textAlign: 'center', marginTop: 7 },
   onboardingDescription: { fontSize: 13.5, lineHeight: 20, color: '#64748B', textAlign: 'center', marginTop: 9 },
-  progressHeader: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, marginBottom: 8 },
-  progressLabel: { fontSize: 12.5, fontWeight: '700', color: '#334155' },
-  progressValue: { fontSize: 12.5, fontWeight: '800', color: '#2563EB' },
-  progressTrack: { width: '100%', height: 8, borderRadius: 4, backgroundColor: '#E2E8F0', overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 4, backgroundColor: '#2563EB' },
   profileChecklist: { width: '100%', marginTop: 18, gap: 10 },
   checklistRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   checklistText: { fontSize: 13, color: '#475569', fontWeight: '600' },

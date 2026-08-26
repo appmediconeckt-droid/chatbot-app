@@ -4,16 +4,16 @@ import {
   Modal,
   Platform,
   StyleSheet,
-  Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import TextInput from '../TranslatedTextInput';
+import Text from '../TranslatedText';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {
   COUNTRY_CODES,
-  LOCAL_PHONE_NUMBER_LENGTH,
   findCountryByCode,
+  getPhoneMaxLengthForCountryCode,
   normalizeLocalPhoneNumber,
 } from '../../utils/countryCodes';
 
@@ -31,12 +31,13 @@ const CountryPhoneInput = ({
   inputStyle,
   iconColor = '#64748b',
   placeholderTextColor = '#94a3b8',
-  showIcon = true,
+  showIcon = false,
 }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [query, setQuery] = useState('');
   const selectedCountry = findCountryByCode(countryCode);
   const selectedCode = selectedCountry?.code || countryCode || '+91';
+  const maxPhoneLength = getPhoneMaxLengthForCountryCode(selectedCode);
 
   const filteredCountries = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -95,7 +96,7 @@ const CountryPhoneInput = ({
           placeholder={placeholder}
           placeholderTextColor={placeholderTextColor}
           keyboardType="phone-pad"
-          maxLength={LOCAL_PHONE_NUMBER_LENGTH}
+          maxLength={maxPhoneLength}
         />
       </View>
 

@@ -3,11 +3,11 @@ import {
   Animated,
   StatusBar,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
   useWindowDimensions,
 } from 'react-native';
+import Text from '../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import HumaeliHeroVideo from '../../components/common/HumaeliHeroVideo';
@@ -57,10 +57,10 @@ const Landing = ({ navigation }) => {
       <HumaeliHeroVideo
         style={StyleSheet.absoluteFill}
         muted
-        resizeMode="cover"
+        resizeMode="fitwidth"
         focusX={0.5}
-        focusY={0.18}
-        zoomScale={0.95}
+        focusY={0}
+        zoomScale={1}
       />
       <LinearGradient
         pointerEvents="none"
@@ -126,7 +126,7 @@ const Landing = ({ navigation }) => {
                     : styles.descriptionRegular,
               ]}
             >
-              In your difficult time of mental health to connect with counsellors, psychologists,
+              In your difficult time of mental health to connect with consultants, psychologists,
               psychological wellness practitioners & psychiatrists
             </Text>
 

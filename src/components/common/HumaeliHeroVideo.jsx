@@ -14,6 +14,8 @@ const VIDEO_BACKGROUND_COLOR = '#04181B';
 
 const HumaeliHeroVideo = ({
   style,
+  sourceName = 'mobile_hero_section_video',
+  fallbackSource = require('../../image/wellness_hero.png'),
   muted = false,
   resizeMode = 'cover',
   focusX = 0.5,
@@ -23,8 +25,9 @@ const HumaeliHeroVideo = ({
   if (Platform.OS === 'android' && NativeHumaeliHeroVideo) {
     return (
       <NativeHumaeliHeroVideo
+        key={sourceName}
         style={style}
-        sourceName="mobile_hero_section_video"
+        sourceName={sourceName}
         muted={muted}
         resizeMode={resizeMode}
         focusX={focusX}
@@ -34,13 +37,17 @@ const HumaeliHeroVideo = ({
     );
   }
 
+  const fallbackResizeMode = resizeMode === 'fitwidth' ? 'contain' : resizeMode;
+
   return (
     <View style={[style, styles.fallback]}>
-      <Image
-        source={require('../../image/wellness_hero.png')}
-        style={[StyleSheet.absoluteFill, { transform: [{ scale: zoomScale }] }]}
-        resizeMode={resizeMode}
-      />
+      {fallbackSource ? (
+        <Image
+          source={fallbackSource}
+          style={[StyleSheet.absoluteFill, { transform: [{ scale: zoomScale }] }]}
+          resizeMode={fallbackResizeMode}
+        />
+      ) : null}
     </View>
   );
 };

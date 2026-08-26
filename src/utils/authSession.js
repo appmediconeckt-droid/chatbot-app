@@ -12,9 +12,40 @@ const SESSION_KEYS = [
   'isAuthenticated',
 ];
 
+const ACCOUNT_CACHE_KEYS = [
+  'activeChats',
+  'userAnonymousName',
+  'currentChat',
+  'chatMessages',
+  'deletedMessageIds',
+];
+
 export const clearStoredSession = async () => {
   await AsyncStorage.multiRemove(SESSION_KEYS);
 };
+
+export const clearAccountLocalData = async () => {
+  const keys = await AsyncStorage.getAllKeys();
+  const dynamicAccountKeys = keys.filter((key) => {
+    const normalized = String(key || '').toLowerCase();
+    return (
+      normalized.startsWith('hidden_calls_') ||
+      normalized.startsWith('deletedmessages_') ||
+      normalized.startsWith('chat_messages_') ||
+      normalized.startsWith('chatmessages_') ||
+      normalized.startsWith('activechat_') ||
+      normalized.includes('callhistory')
+    );
+  });
+
+  await AsyncStorage.multiRemove([
+    ...SESSION_KEYS,
+    ...ACCOUNT_CACHE_KEYS,
+    ...dynamicAccountKeys,
+  ]);
+};
+
+export const clearStoredSessionAndAccountCache = clearAccountLocalData;
 
 export const resetToRoleSelector = (navigation) => {
   navigation?.replace?.('RoleSelector');
@@ -39,7 +70,7 @@ export const forceSignOut = async ({ silent = false } = {}) => {
     // Read the role BEFORE clearing, so the login screen keeps the right theme
     // (green for a user, blue for a counselor).
     const role = await AsyncStorage.getItem('userRole');
-    await clearStoredSession();
+    await clearStoredSessionAndAccountCache();
 
     const navigated = resetToLogin(role);
     if (!silent && navigated) {

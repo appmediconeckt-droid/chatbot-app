@@ -5,19 +5,22 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import GradientFill from '../../../../../../components/common/GradientFill';
 import { DOCTOR } from '../../../../../../theme/palette';
+import {
+  SUPPORT_EMAIL,
+  SUPPORT_PHONE_DISPLAY,
+  SUPPORT_PHONE_TEL,
+} from '../../../../../../config';
 
-const SUPPORT_EMAIL = 'support@humaeli.com';
-const SUPPORT_PHONE = '+1 (800) 555-0199';
 // India's unified emergency number (police / ambulance / fire).
 const EMERGENCY_PHONE = '112';
 // Government of India's 24x7 mental-health helpline.
@@ -48,7 +51,7 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
 
   const mailTo = (subject) => {
     const body = encodeURIComponent(
-      `Please describe the issue below:\n\n\n---\nRole: Counselor\nApp version: ${APP_VERSION}\nPlatform: mobile`,
+      `Please describe the issue below:\n\n\n---\nRole: Consultant\nApp version: ${APP_VERSION}\nPlatform: mobile`,
     );
     Linking.openURL(
       `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${body}`,
@@ -57,9 +60,9 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
     });
   };
 
-  const dial = (number) => {
+  const dial = (number, fallbackDisplay = number) => {
     Linking.openURL(`tel:${number}`).catch(() => {
-      Alert.alert(t('Call support'), `${t('Please call us at')} ${number}`);
+      Alert.alert(t('Call support'), `${t('Please call us at')} ${fallbackDisplay}`);
     });
   };
 
@@ -72,7 +75,7 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
       onPress: () =>
         onOpenEarnings
           ? onOpenEarnings()
-          : mailTo('Counselor support - earnings question'),
+          : mailTo('Consultant support - earnings question'),
     },
     {
       icon: 'shield-check-outline',
@@ -81,19 +84,19 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
       onPress: () =>
         onOpenProfile
           ? onOpenProfile()
-          : mailTo('Counselor support - verification question'),
+          : mailTo('Consultant support - verification question'),
     },
     {
       icon: 'email-outline',
       label: t('Email support'),
       sub: t('Replies within 24 hours'),
-      onPress: () => mailTo('Counselor support request'),
+      onPress: () => mailTo('Consultant support request'),
     },
     {
       icon: 'phone-outline',
       label: t('Call support'),
       sub: t('Mon-Fri, 9am - 5pm IST'),
-      onPress: () => dial(SUPPORT_PHONE),
+      onPress: () => dial(SUPPORT_PHONE_TEL, SUPPORT_PHONE_DISPLAY),
     },
   ];
 
@@ -107,13 +110,13 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
     {
       q: t('How is my earning per session calculated?'),
       a: t(
-        'Each session is split between your share and the platform commission. The exact percentages, and what that means in rupees, are shown on the Counselor share and Platform commission cards in Earnings & Payouts. Your payout is the session amount minus that commission.',
+        'Each session is split between your share and the platform commission. The exact percentages, and what that means in rupees, are shown on the Consultant share and Platform commission cards in Earnings. Your payout is the session amount minus that commission.',
       ),
     },
     {
       q: t('Why am I not receiving new chat requests?'),
       a: t(
-        'New requests only reach counselors who are online. Check that your status shows Online on the dashboard, that the app has notification permission, and that you have a working internet connection. Requests already accepted continue to appear under Messages regardless of your status.',
+        'New requests only reach consultants who are online. Check that your status shows Online on the dashboard, that the app has notification permission, and that you have a working internet connection. Requests already accepted continue to appear under Messages regardless of your status.',
       ),
     },
     {
@@ -143,7 +146,7 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
     {
       q: t('How is my rating calculated?'),
       a: t(
-        'Clients can rate a counselor after a completed session. Your rating is the average of those scores. Counselors with no ratings yet are shown as New rather than with a score.',
+        'Clients can rate a consultant after a completed session. Your rating is the average of those scores. Consultants with no ratings yet are shown as New rather than with a score.',
       ),
     },
   ];
@@ -185,7 +188,7 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={s.headerTitle}>{t('Help and Support')}</Text>
-          <Text style={s.headerSub}>{t('Counselor support centre')}</Text>
+          <Text style={s.headerSub}>{t('Consultant support centre')}</Text>
         </View>
       </View>
 
@@ -255,7 +258,7 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
         <View style={s.plainCard}>
           <TouchableOpacity
             style={s.row}
-            onPress={() => mailTo('Counselor support request')}
+            onPress={() => mailTo('Consultant support request')}
             activeOpacity={0.7}
           >
             <MaterialCommunityIcons name="email-outline" size={20} color={DOCTOR.primary} />
@@ -265,10 +268,14 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
             </View>
           </TouchableOpacity>
           <View style={s.divider} />
-          <TouchableOpacity style={s.row} onPress={() => dial(SUPPORT_PHONE)} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={s.row}
+            onPress={() => dial(SUPPORT_PHONE_TEL, SUPPORT_PHONE_DISPLAY)}
+            activeOpacity={0.7}
+          >
             <MaterialCommunityIcons name="phone-outline" size={20} color={DOCTOR.primary} />
             <View style={{ flex: 1 }}>
-              <Text style={s.rowValue}>{SUPPORT_PHONE}</Text>
+              <Text style={s.rowValue}>{SUPPORT_PHONE_DISPLAY}</Text>
               <Text style={s.rowSub}>{t('Mon-Fri, 9am - 5pm IST')}</Text>
             </View>
           </TouchableOpacity>
@@ -282,7 +289,7 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
           </Text>
           <TouchableOpacity
             style={s.reportBtn}
-            onPress={() => mailTo(`Counselor bug report - Humaeli v${APP_VERSION}`)}
+            onPress={() => mailTo(`Consultant bug report - Humaeli v${APP_VERSION}`)}
             activeOpacity={0.85}
           >
             <MaterialCommunityIcons name="bug-outline" size={18} color="#0f172a" />
@@ -292,7 +299,7 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
 
         <View style={s.versionBox}>
           <Text style={s.versionText}>
-            {t('Humaeli Counselor')} · {t('Version')} {APP_VERSION}
+            {t('Humaeli Consultant')} · {t('Version')} {APP_VERSION}
           </Text>
           <Text style={s.versionSub}>
             {t('Last updated')}: {LAST_UPDATED}

@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -10,6 +8,8 @@ import {
   ActivityIndicator,
   SafeAreaView,
 } from "react-native";
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import { useNavigation, useRoute } from "@react-navigation/native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import axios from "axios";

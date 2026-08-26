@@ -2,12 +2,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  Text,
   TouchableOpacity,
   FlatList,
   Image,
   Modal,
-  TextInput,
   ScrollView,
   ActivityIndicator,
   SafeAreaView,
@@ -17,6 +15,8 @@ import {
   useWindowDimensions,
   Animated,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -413,11 +413,11 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         status === 'pending'
           ? t(
               'appointment:requestPendingMessage',
-              'Your request is waiting for the counselor to accept. You can schedule an appointment once it is accepted.'
+              'Your request is waiting for the consultant to accept. You can schedule an appointment once it is accepted.'
             )
           : t(
               'appointment:requestFirstMessage',
-              'Send a request to this counselor first. You can schedule an appointment once they accept.'
+              'Send a request to this consultant first. You can schedule an appointment once they accept.'
             )
       );
       return;
@@ -588,7 +588,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
         setShowUserModal(false);
         Alert.alert(
           t('appointment:sessionRequestSent'),
-          'Your request was already sent. Please wait for the counselor to accept.'
+          'Your request was already sent. Please wait for the consultant to accept.'
         );
         return;
       }
@@ -637,7 +637,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
 
       Alert.alert(
         t('appointment:bookedSuccessfully', 'Booked Successfully'),
-        t('appointment:appointmentRequestSent', 'Appointment request sent. The counselor has been notified.'),
+        t('appointment:appointmentRequestSent', 'Appointment request sent. The consultant has been notified.'),
       );
       setShowBookingModal(false);
       setBookingNotes('');
@@ -724,7 +724,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
           <View style={styles.btnPendingRow}>
             <Ionicons name="time-outline" size={15} color="#B45309" />
             <Text style={styles.btnPendingText} numberOfLines={1}>
-              {t('appointment:requestPending', 'Request pending — waiting for counselor to accept')}
+              {t('appointment:requestPending', 'Request pending — waiting for consultant to accept')}
             </Text>
           </View>
         ) : !online ? (
@@ -828,33 +828,29 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
 
-    return (
-      String(counselor.name || '').toLowerCase().includes(q) ||
-      String(counselor.specialization || '').toLowerCase().includes(q) ||
-      String(counselor.location || '').toLowerCase().includes(q)
-    );
+    const searchableText = [
+      counselor.name,
+      counselor.specialization,
+      counselor.location,
+      counselor.experience,
+      Number(counselor.rating) > 0 ? `${counselor.rating} rating` : 'new',
+      Number(counselor.rating) >= 4.5 ? 'top rated' : '',
+      counselor.location ? 'nearby' : '',
+      counselor.available ? 'online available' : 'offline unavailable',
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return searchableText.includes(q);
   });
 
-  // Chips: All / Online / Nearby / Top Rated + specializations from the data.
-  // A counselor's `specialization` is a combined string ("Anxiety , Depression")
-  // so we split on any separator ( , | / ) and add each specialty as its own
-  // chip — otherwise the whole combined string shows up as a single chip.
+  // Only status chips are shown here; specialties and other labels remain searchable.
   const filterChips = (() => {
-    const specs = [];
-    counselors.forEach((c) => {
-      String(c.specialization || '')
-        .split(/[,|/]/)
-        .forEach((part) => {
-          const s = part.trim();
-          if (s && s.toLowerCase() !== 'general' && !specs.includes(s)) specs.push(s);
-        });
-    });
     return [
       { id: 'all', label: t('common:all', 'All') },
       { id: 'online', label: t('common:online', 'Online') },
-      { id: 'nearby', label: t('appointment:nearby', 'Nearby') },
-      { id: 'topRated', label: t('appointment:topRated', 'Top Rated') },
-      ...specs.map((s) => ({ id: s, label: s })),
+      { id: 'offline', label: t('common:offline', 'Offline') },
     ];
   })();
 
@@ -872,12 +868,8 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
   const chipFiltered = filteredCounselors.filter((c) => {
     if (activeFilter === 'all') return true;
     if (activeFilter === 'online') return !!c.available;
-    if (activeFilter === 'nearby') return !!c.location;
-    // Real ratings only. Counselors used to be given a default rating of 4.5 on
-    // load, and this threshold is 4.5, so "Top Rated" matched every one of them
-    // and looked identical to "All".
-    if (activeFilter === 'topRated') return (Number(c.rating) || 0) >= 4.5;
-    return String(c.specialization || '').toLowerCase().includes(String(activeFilter).toLowerCase());
+    if (activeFilter === 'offline') return !c.available;
+    return true;
   });
 
   const sortedCounselors = [...chipFiltered].sort((a, b) => {
@@ -1020,18 +1012,18 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
           sortedCounselors.length > 0 ? null : counselors.length === 0 ? (
             <View style={styles.emptyContainer}>
               <ActivityIndicator size="large" color="#00652C" />
-              <Text style={styles.emptyText}>Loading counselors...</Text>
+              <Text style={styles.emptyText}>Loading consultants...</Text>
             </View>
           ) : (
             <View style={styles.emptyContainer}>
               <Ionicons name="funnel-outline" size={26} color={PATIENT.textMuted} />
               <Text style={styles.emptyText}>
                 {searchQuery.trim()
-                  ? 'No counselors match your search.'
-                  : 'No counselors match this filter.'}
+                  ? 'No consultants match your search.'
+                  : 'No consultants match this filter.'}
               </Text>
               <TouchableOpacity onPress={clearFilters} activeOpacity={0.8} style={styles.emptyResetBtn}>
-                <Text style={styles.emptyResetText}>Show all counselors</Text>
+                <Text style={styles.emptyResetText}>Show all consultants</Text>
               </TouchableOpacity>
             </View>
           )
@@ -1095,7 +1087,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                 </View>
 
                 <Text style={styles.anonNote}>
-                  {t('appointment:anonNote', 'Your real identity remains hidden. Only your anonymous name is visible to the counselor.')}
+                  {t('appointment:anonNote', 'Your real identity remains hidden. Only your anonymous name is visible to the consultant.')}
                 </Text>
               </LinearGradient>
 
@@ -1315,7 +1307,7 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
                 />
 
                 <Text style={styles.privacyNote}>
-                  Sent to the counselor for confirmation.
+                  Sent to the consultant for confirmation.
                 </Text>
               </View>
 

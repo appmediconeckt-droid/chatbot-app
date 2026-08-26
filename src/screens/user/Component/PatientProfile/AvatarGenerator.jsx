@@ -1,8 +1,15 @@
 import React, { useState } from "react";
 import {
-  View, Text, Modal, TouchableOpacity, Image,
-  ScrollView, StyleSheet, Dimensions, FlatList,
+  View,
+  Modal,
+  TouchableOpacity,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Dimensions,
+  FlatList,
 } from "react-native";
+import Text from '../../../../components/TranslatedText';
 import LinearGradient from "react-native-linear-gradient";
 import useLanguageRender from '../../../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

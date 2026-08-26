@@ -3,8 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   View,
-  Text,
-  TextInput,
   ScrollView,
   TouchableOpacity,
   Image,
@@ -16,6 +14,8 @@ import {
   Dimensions,
   Animated,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import axios from 'axios';
@@ -27,10 +27,10 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import safeVibrate from '../../../../../../utils/safeVibrate';
-import { formatLocation, parseLocation } from '../../../../../../utils/locationFormatter';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import CountryPhoneInput from '../../../../../../components/common/CountryPhoneInput';
 import {
+  getPhoneLengthLabel,
   isValidLocalPhoneNumber,
   normalizeLocalPhoneNumber,
   splitInternationalPhoneNumber,
@@ -80,7 +80,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   const { t: tLanguage } = useTranslation();
   const { t } = useLanguageRender();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [activeTab, setActiveTab] = useState('professional');
 
@@ -170,6 +170,11 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     !isEmailDirty() ||
     (emailChange.verified && emailChange.verifiedValue === normalizedEditedEmail);
 
+  const showErrorPopup = (message, title = 'Error') => {
+    setError(message);
+    Alert.alert(title, message);
+  };
+
   useEffect(() => {
     if (!isEditing) {
       setEmailChange(createBlankEmailChange());
@@ -217,21 +222,30 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   };
 
   const calcProfileCompletion = (data) => {
+    const hasText = (value) => String(value || '').trim().length > 0;
+    const hasArrayItems = (value) => Array.isArray(value) && value.length > 0;
+    const address = data?.address || {};
     const fields = [
-      { key: 'fullName', check: v => !!v },
-      { key: 'email', check: v => !!v },
-      { key: 'phoneNumber', check: v => !!v },
-      { key: 'profilePhotoUrl', check: v => !!v },
-      { key: 'specialization', check: v => Array.isArray(v) && v.length > 0 },
-      { key: 'experience', check: v => !!v && v > 0 },
-      { key: 'qualification', check: v => !!v },
-      { key: 'location', check: v => !!v },
-      { key: 'aboutMe', check: v => !!v },
-      { key: 'languages', check: v => Array.isArray(v) && v.length > 0 },
-      { key: 'consultationMode', check: v => Array.isArray(v) && v.length > 0 },
-      { key: 'gender', check: v => !!v },
+      hasText(data?.fullName),
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(data?.email || '').trim()),
+      isValidLocalPhoneNumber(data?.phoneNumber, data?.phoneCountryCode),
+      hasText(data?.profilePhotoUrl) || !!data?.profilePhoto,
+      hasText(data?.dateOfBirth) && calculateAgeFromDateOfBirth(data?.dateOfBirth) !== null,
+      hasText(data?.gender),
+      hasArrayItems(data?.specialization),
+      Number(data?.experience) > 0,
+      hasText(data?.qualification) || hasText(data?.education),
+      hasText(data?.aboutMe),
+      hasArrayItems(data?.languages),
+      hasArrayItems(data?.consultationMode),
+      hasText(address.line1),
+      hasText(address.city),
+      hasText(address.state),
+      hasText(address.pincode),
+      hasText(address.country),
+      hasArrayItems(data?.certifications),
     ];
-    const filled = fields.filter(f => f.check(data[f.key])).length;
+    const filled = fields.filter(Boolean).length;
     return Math.round((filled / fields.length) * 100);
   };
 
@@ -247,7 +261,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         (await AsyncStorage.getItem('token'));
 
       if (!counsellorId) {
-        setError('Counselor ID not found. Please login again.');
+        setError('Consultant ID not found. Please login again.');
         setLoading(false);
         return;
       }
@@ -781,7 +795,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
 
     if (dateOfBirth && calculatedAge === null) {
-      setError('Select a valid date of birth');
+      showErrorPopup('Select a valid date of birth', 'Invalid Date of Birth');
       return;
     }
 
@@ -789,8 +803,9 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       editedData.phoneNumber || '',
       editedData.phoneCountryCode,
     );
-    if (!isValidLocalPhoneNumber(normalizedPhone)) {
-      setError('Phone number must be 10 digits');
+    if (!isValidLocalPhoneNumber(normalizedPhone, editedData.phoneCountryCode)) {
+      const expectedLength = getPhoneLengthLabel(editedData.phoneCountryCode);
+      showErrorPopup(`Phone number must be ${expectedLength} digits`, 'Invalid Phone Number');
       return;
     }
 
@@ -798,8 +813,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       const msg = emailChange.sent
         ? 'Please enter and confirm the OTP sent to your new email before saving.'
         : 'Please verify your new email before saving.';
-      setError(msg);
-      Alert.alert('Email Verification Required', msg);
+      showErrorPopup(msg, 'Email Verification Required');
       return;
     }
 
@@ -820,7 +834,6 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       formData.append('phoneCountryCode', editedData.phoneCountryCode || '+91');
       formData.append('qualification', editedData.qualification || editedData.education);
       formData.append('experience', editedData.experience.toString());
-      formData.append('location', editedData.location);
       formData.append('aboutMe', editedData.aboutMe);
       formData.append('education', editedData.education);
 
@@ -903,14 +916,14 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
 
       const response = await updateCounselorProfile(formData);
       if (response.data.success) {
-        setSuccessMessage('Profile updated successfully!');
+        const successMsg = response.data?.message || 'Profile updated successfully!';
+        Alert.alert('Success', successMsg);
         setEmailChange(createBlankEmailChange());
         await fetchCounselorProfile();
         await onProfileSaved?.();
         setIsEditing(false);
-        setTimeout(() => setSuccessMessage(''), 3000);
       } else {
-        setError(response.data.message || 'Failed to update profile');
+        showErrorPopup(response.data.message || 'Failed to update profile');
       }
     } catch (err) {
       console.error('Error updating profile:', err);
@@ -932,8 +945,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         errorMsg = err.response?.data?.message || err.message || 'Failed to update profile';
       }
 
-      setError(errorMsg);
-      Alert.alert('Error', errorMsg);
+      showErrorPopup(errorMsg);
       setTimeout(() => setError(''), 5000);
     } finally {
       setLoading(false);
@@ -1006,10 +1018,10 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         <View style={styles.fullWidth}>
         
         {/* Notification Banner - Full Width */}
-        {(successMessage || error) && (
-          <View style={[styles.banner, successMessage ? styles.successBanner : styles.errorBanner]}>
-            <Icon name={successMessage ? 'check-circle' : 'error-outline'} size={20} color="#fff" />
-            <Text style={styles.bannerText}>{successMessage || error}</Text>
+        {successMessage && (
+          <View style={[styles.banner, styles.successBanner]}>
+            <Icon name="check-circle" size={20} color="#fff" />
+            <Text style={styles.bannerText}>{successMessage}</Text>
           </View>
         )}
 
@@ -1096,6 +1108,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         {/* Profile Completion Card */}
         {(() => {
           const pct = calcProfileCompletion(counselor);
+          if (pct >= 100) return null;
           const barColor = '#2563EB';
           const bgColor = '#EFF6FF';
           const borderColor = '#DBEAFE';
@@ -1116,7 +1129,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
               </View>
               {pct < 100 && (
                 <Text style={styles.completionHint}>
-                  {pct < 50 ? 'Add specialization, experience & location to get discovered' :
+                  {pct < 50 ? 'Add your professional details to get discovered' :
                    pct < 80 ? t('Almost there! Fill remaining fields to appear in search') : t('Just a few fields left to complete your profile')}
                 </Text>
               )}
@@ -1126,7 +1139,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
 
         {/* All profile content — no tabs */}
         <View style={styles.tabContent}>
-          {/* Personal info card - DOB, age, gender, email, phone, location, address */}
+          {/* Personal info card - DOB, age, gender, email, phone, address */}
           <View style={styles.card}>
             <View style={styles.sectionHead}>
               <Icon name="person-outline" size={18} color="#004AC6" />
@@ -1308,51 +1321,18 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
                   <CountryPhoneInput
                     value={editedData.phoneNumber || ''}
                     countryCode={editedData.phoneCountryCode || '+91'}
-                    onChangePhoneNumber={(v) => handleInputChange('phoneNumber', normalizeLocalPhoneNumber(v, editedData.phoneCountryCode))}
+                    onChangePhoneNumber={(v) => handleInputChange('phoneNumber', v)}
                     onChangeCountryCode={(code) => handleInputChange('phoneCountryCode', code)}
                     placeholder="Phone number"
                     placeholderTextColor="#9CA3AF"
                     accentColor="#004AC6"
                     containerStyle={styles.phoneInputWrapper}
+                    showIcon={false}
                   />
                 ) : (
                   <Text style={styles.detailValue}>
                     {counselor.phoneNumber || t('profile:notSpecified')}
                   </Text>
-                )}
-              </View>
-            </View>
-
-            <View style={styles.detailRow}>
-              <Icon name="location-on" size={18} color="#DC2626" />
-              <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>{t('profile:location')}</Text>
-                {isEditing ? (
-                  <TextInput style={styles.input} value={editedData.location || ''} onChangeText={(v) => handleInputChange('location', v)} placeholder="e.g., Bangalore, Pune, Delhi" placeholderTextColor="#9CA3AF" />
-                ) : (
-                  <>
-                    {counselor.location ? (
-                      <View style={{ gap: 4 }}>
-                        {counselor.location
-                          .split(',')
-                          .map(loc => loc.trim())
-                          .filter(loc => loc.length > 0)
-                          .map((loc, index) => (
-                            <View key={index} style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: index === 0 ? 0 : 12 }}>
-                              <Text style={[styles.detailValue, { marginRight: 6 }]}>
-                                {index === 0 ? '📍' : '•'}
-                              </Text>
-                              <TranslatedMessageBubble
-                                text={loc}
-                                style={styles.detailValue}
-                              />
-                            </View>
-                          ))}
-                      </View>
-                    ) : (
-                      <Text style={styles.detailValue}>{t('profile:notSpecified')}</Text>
-                    )}
-                  </>
                 )}
               </View>
             </View>
@@ -1750,9 +1730,6 @@ const styles = StyleSheet.create({
   },
   successBanner: {
     backgroundColor: '#2563EB',
-  },
-  errorBanner: {
-    backgroundColor: '#ef4444',
   },
   bannerText: {
     color: '#fff',

@@ -3,8 +3,6 @@ import { useTranslation } from 'react-i18next';
 import useLanguageRender from '../../../../../hooks/useLanguageRender';
 import {
   View,
-  Text,
-  TextInput,
   ScrollView,
   TouchableOpacity,
   Image,
@@ -24,13 +22,14 @@ import {
   Pressable,
   BackHandler,
 } from "react-native";
+import TextInput from '../../../../../components/TranslatedTextInput';
+import Text from '../../../../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, useIsFocused } from "@react-navigation/native";
 import axios from "axios";
 import axiosInstance, { API_BASE_URL } from "../../../../../axiosConfig";
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { launchImageLibrary } from "react-native-image-picker";
 import socketService from "../../../../../services/socketService";
 import Icon from "react-native-vector-icons/FontAwesome5";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
@@ -58,6 +57,7 @@ import PrivacyPolicy from "../Tab/PrivacyPolicy/PrivacyPolicy";
 import NotificationScreen from "../Tab/Notifications/NotificationScreen";
 import UserAccountSettings from "../Tab/UserAccountSettings";
 import { toImageUri } from "../../../../../utils/imageUri";
+import { clearAccountLocalData } from "../../../../../utils/authSession";
 
 // Time for a Modal to finish dismissing. RN can only transition one Modal at a
 // time, so opening the next one any sooner gets silently dropped.
@@ -73,6 +73,7 @@ const AI_NAME = 'Humaelio';
 const AI_CHAT_TITLE_SUFFIX = 'AI Assistant';
 
 const AI_WELCOME_MESSAGE = "Hello, I'm Humaelio AI. How are you feeling today?";
+const AI_OPENING_EVENT = "__humaelio_ai_opening__";
 
 const isGeneratedUserAvatarUrl = (raw) => {
   const url = typeof raw === "string" ? raw : raw?.url || raw?.secure_url || "";
@@ -113,25 +114,16 @@ const ChatPopup = ({
   const { t } = useLanguageRender();
   const { width, height } = useWindowDimensions();
   const [speakingId, setSpeakingId] = useState(null);
-  const [aiAttachment, setAiAttachment] = useState(null);
   const [aiInputPlaceholder, setAiInputPlaceholder] = useState('Type your question');
-
-  const pickAiAttachment = useCallback(() => {
-    launchImageLibrary({ mediaType: "photo", quality: 0.8 }, (res) => {
-      if (res.didCancel || res.errorCode || !res.assets?.[0]?.uri) return;
-      setAiAttachment(res.assets[0].uri);
-    });
-  }, []);
 
   const handleAiSend = useCallback(() => {
     const text = (newMessage || "").trim();
-    if (!text && !aiAttachment) return;
-    sendMessage(text, aiAttachment || null);
-    setAiAttachment(null);
+    if (!text) return;
+    sendMessage(text, null);
     requestAnimationFrame(() => inputRef.current?.focus());
     setTimeout(() => inputRef.current?.focus(), 80);
     setTimeout(() => inputRef.current?.focus(), 220);
-  }, [newMessage, aiAttachment, sendMessage]);
+  }, [newMessage, sendMessage]);
 
   useEffect(() => {
     let isMounted = true;
@@ -492,15 +484,6 @@ const ChatPopup = ({
           )}
         </ScrollView>
 
-        {aiAttachment && (
-          <View style={styles.aiAttachPreview}>
-            <Image source={{ uri: toImageUri(aiAttachment) }} style={styles.aiAttachThumb} />
-            <Text style={styles.aiAttachName} numberOfLines={1}>{t('dashboard:aiPhotoAttached')}</Text>
-            <TouchableOpacity onPress={() => setAiAttachment(null)} hitSlop={8}>
-              <MaterialIcons name="close" size={18} color="#64748b" />
-            </TouchableOpacity>
-          </View>
-        )}
         <View
           style={[
             styles.chatPopupFooter,
@@ -511,11 +494,6 @@ const ChatPopup = ({
             },
           ]}
         >
-          {/* + button → attach photo */}
-          <TouchableOpacity style={styles.plusBtn} activeOpacity={0.75} onPress={pickAiAttachment}>
-            <MaterialIcons name="add" size={22} color="#64748b" />
-          </TouchableOpacity>
-
           {/* Input pill: leading icon + text */}
           <View style={styles.chatInputPill}>
             <MaterialIcons name="auto-awesome" size={17} color="#006B2C" style={styles.chatInputLead} />
@@ -540,11 +518,11 @@ const ChatPopup = ({
           <TouchableOpacity
             style={[
               styles.sendBtn,
-              (!newMessage.trim() && !aiAttachment) && styles.sendBtnDisabled,
+              !newMessage.trim() && styles.sendBtnDisabled,
             ]}
             onPressIn={() => inputRef.current?.focus()}
             onPress={handleAiSend}
-            disabled={isLoading || (!newMessage.trim() && !aiAttachment)}
+            disabled={isLoading || !newMessage.trim()}
             activeOpacity={0.85}
           >
             <MaterialIcons name="send" size={19} color="white" />
@@ -561,8 +539,15 @@ const ChatPopup = ({
               >
                 <MaterialIcons name="refresh" size={26} color="#ffffff" />
               </LinearGradient>
-              <Text style={styles.resetConfirmTitle}>{t('dashboard:resetChatTitle')}</Text>
-              <Text style={styles.resetConfirmText}>{t('dashboard:resetChatMessage')}</Text>
+              <Text style={styles.resetConfirmTitle}>
+                {t('common:resetChatTitle', 'Start a fresh chat?')}
+              </Text>
+              <Text style={styles.resetConfirmText}>
+                {t(
+                  'common:resetChatMessage',
+                  'This clears the current AI chat and starts again with the welcome mood options.'
+                )}
+              </Text>
               <View style={styles.resetConfirmActions}>
                 <TouchableOpacity
                   style={[styles.resetConfirmBtn, styles.resetCancelBtn]}
@@ -570,7 +555,7 @@ const ChatPopup = ({
                   disabled={isLoading}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.resetCancelText}>{t('common:cancel')}</Text>
+                  <Text style={styles.resetCancelText}>{t('common:cancel', 'Cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.resetConfirmBtn, styles.resetStartBtn, isLoading && styles.resetBtnDisabled]}
@@ -579,7 +564,9 @@ const ChatPopup = ({
                   activeOpacity={0.85}
                 >
                   <Text style={styles.resetStartText}>
-                    {isLoading ? t('dashboard:startingFresh') : t('dashboard:startFresh')}
+                    {isLoading
+                      ? t('common:startingFresh', 'Starting...')
+                      : t('common:startFresh', 'Start Fresh')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -884,16 +871,15 @@ const counselorDisplayName = (apt) => {
 
 const sheetStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.4)', justifyContent: 'flex-end' },
-  // Height is set at render from the top inset - a flat 30 crowded the status
-  // bar on devices with a taller one and left a gap on devices with none.
-  backdrop: { height: 30 },
-  sheet: { flex: 1, backgroundColor: '#ffffff', borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#0f172a', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
-  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1', alignSelf: 'center', marginTop: 10, marginBottom: 14 },
-  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  backdrop: { flex: 1 },
+  sheet: { width: '100%', backgroundColor: '#ffffff', borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#0f172a', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
+  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1', alignSelf: 'center', marginTop: 10, marginBottom: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   title: { fontSize: 19, fontWeight: '800', color: '#0f172a' },
   subtitle: { fontSize: 13.5, fontWeight: '500', color: '#64748b', marginTop: 4 },
   closeBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  scroll: { paddingHorizontal: 18, paddingTop: 10, gap: 10, flexGrow: 1, justifyContent: 'flex-end' },
+  scrollView: { width: '100%' },
+  scroll: { paddingHorizontal: 18, paddingTop: 10, gap: 10 },
   docCard: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 10 },
   docAvatar: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#e2e8f0' },
   docNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 1 },
@@ -929,6 +915,7 @@ const sheetStyles = StyleSheet.create({
   closePastBtn: { paddingVertical: 12, alignItems: 'center' },
   closePastText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
   joinBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 12, marginBottom: 10 },
+  joinBtnDisabled: { opacity: 0.55 },
   joinText: { fontSize: 15, fontWeight: '800', color: '#ffffff' },
   secRow: { flexDirection: 'row', gap: 12 },
   secBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, paddingVertical: 10, borderWidth: 1.5, borderColor: '#E6F6EC' },
@@ -937,7 +924,7 @@ const sheetStyles = StyleSheet.create({
 
 const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) => {
   const { t } = useLanguageRender();
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(true);
   const [activeTab, setActiveTab] = useState("Upcoming");
@@ -975,8 +962,8 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 
   // Tablet detection for responsive modal
   const isTablet = screenWidth >= 600;
-  const modalWidth = isTablet ? screenWidth * 0.7 : screenWidth * 0.88;
-  const modalMaxWidth = isTablet ? 700 : 420;
+  const sheetMaxHeight = Math.min(screenHeight * (isTablet ? 0.82 : 0.86), isTablet ? 720 : 680);
+  const sheetScrollMaxHeight = Math.max(360, sheetMaxHeight - 90);
 
   const fetchAppointments = useCallback(async () => {
     try {
@@ -1096,10 +1083,15 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const timeLabel = aptDate ? aptDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-";
   const dateLabel = aptDate ? aptDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "-";
   const statusRaw = selectedApt?.status || "pending";
-  const statusCap = statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1);
+  const statusLower = String(statusRaw).toLowerCase();
+  const statusCap = statusLower.charAt(0).toUpperCase() + statusLower.slice(1);
   const modeLabel = selectedApt?.mode || selectedApt?.sessionType || "Video Call";
   const durationLabel = selectedApt?.duration ? `${selectedApt.duration} Minutes` : "45 Minutes";
-  const isPast = activeTab === "Past" || selectedApt?.status === "completed" || selectedApt?.status === "canceled" || (aptDate && aptDate <= new Date());
+  const aptTime = aptDate?.getTime?.() ?? NaN;
+  const hasValidAptTime = Number.isFinite(aptTime);
+  const sessionHasStarted = hasValidAptTime && aptTime <= Date.now();
+  const isPast = activeTab === "Past" || statusLower === "completed" || statusLower === "canceled";
+  const isJoinDisabled = !sessionHasStarted || statusLower === "completed" || statusLower === "canceled";
   // Extract real talk duration from appointment data
   const getTalkDuration = () => {
     if (selectedApt?.actualDuration) return selectedApt.actualDuration;
@@ -1191,7 +1183,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             <MaterialIcons name="event-busy" size={40} color="#A7E3BE" />
             <Text style={styles.appointmentEmptyTitle}>{t('No appointments found')}</Text>
             <Text style={styles.appointmentEmptySubtitle}>
-              {t('Try changing filters or book a new session with a counselor.')}
+              {t('Try changing filters or book a new session with a consultant.')}
             </Text>
           </View>
         ) : (
@@ -1204,7 +1196,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 <View style={styles.appointmentMetaColumn}>
                   <View style={styles.aptNameRow}>
                     <Text style={styles.appointmentDoctorName} numberOfLines={1}>
-                      Dr. {apt?.counselor?.fullName || "Counselor"}
+                      {apt?.counselor?.fullName || "Counselor"}
                     </Text>
                   </View>
                   <Text style={styles.appointmentSpecialization} numberOfLines={1}>
@@ -1310,13 +1302,13 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
         onRequestClose={() => setShowDetailsModal(false)}
       >
         <View style={sheetStyles.overlay}>
-          <View style={[sheetStyles.backdrop, { height: Math.max(sheetInsets.top, 24) }]}>
+          <View style={[sheetStyles.backdrop, { paddingTop: Math.max(sheetInsets.top, 24) }]}>
             <TouchableWithoutFeedback onPress={() => setShowDetailsModal(false)}>
               <View style={{ flex: 1 }} />
             </TouchableWithoutFeedback>
           </View>
 
-          <View style={sheetStyles.sheet}>
+          <View style={[sheetStyles.sheet, { maxHeight: sheetMaxHeight }]}>
             <View style={sheetStyles.grabber} />
 
             {/* Header */}
@@ -1335,7 +1327,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             </View>
 
             <ScrollView
-              style={{ flex: 1 }}
+              style={[sheetStyles.scrollView, { maxHeight: sheetScrollMaxHeight }]}
               contentContainerStyle={[
                 sheetStyles.scroll,
                 { paddingBottom: Math.max(sheetInsets.bottom, 12) + 12 },
@@ -1448,18 +1440,20 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
               {!isPast ? (
                 <View style={sheetStyles.inlineFooter}>
                   <TouchableOpacity
-                    activeOpacity={0.9}
+                    activeOpacity={isJoinDisabled ? 1 : 0.9}
+                    disabled={isJoinDisabled}
                     onPress={() => {
+                      if (isJoinDisabled) return;
                       const apt = selectedApt;
                       setShowDetailsModal(false);
                       setTimeout(() => onVideoCall && onVideoCall(apt), MODAL_DISMISS_MS);
                     }}
                   >
                     <LinearGradient
-                      colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                      colors={isJoinDisabled ? ['#94a3b8', '#cbd5e1'] : [PATIENT.gradientFrom, PATIENT.gradientTo]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
-                      style={sheetStyles.joinBtn}
+                      style={[sheetStyles.joinBtn, isJoinDisabled && sheetStyles.joinBtnDisabled]}
                     >
                       <Ionicons name="videocam" size={20} color="#ffffff" />
                       <Text style={sheetStyles.joinText}>{t('Join Video Session')}</Text>
@@ -1697,13 +1691,19 @@ export default function UserDashboard() {
     setIsLoading(true);
     try {
       const response = await axiosInstance.post(
-        '/api/ai/message',
-        { message: "hi", history: [], language: lang }
+        '/api/ai-chat/send-message',
+        {
+          message: AI_OPENING_EVENT,
+          kind: "opening",
+          history: [],
+          language: lang,
+        }
       );
  
       if (response.data?.success) {
-        if (response.data.data?.sessionId) {
-          setAiSessionId(response.data.data.sessionId);
+        const responsePayload = response.data?.data || response.data || {};
+        if (responsePayload?.sessionId) {
+          setAiSessionId(responsePayload.sessionId);
         }
 
         setChatMessages([
@@ -1725,7 +1725,7 @@ export default function UserDashboard() {
         {
           id: Date.now(),
           text: AI_WELCOME_MESSAGE,
-            system: 'welcome',
+          system: 'welcome',
           sender: "ai",
         },
       ]);
@@ -1976,7 +1976,7 @@ export default function UserDashboard() {
 
       if (!currentUserId || !counselorId) {
         console.warn("Call aborted — missing ids:", { currentUserId, counselorId, apt });
-        Alert.alert("Error", "Missing user or counselor information");
+        Alert.alert("Error", "Missing user or consultant information");
         return;
       }
 
@@ -2317,13 +2317,23 @@ export default function UserDashboard() {
     }
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     safeVibrate([220, 100, 220]);
     setShowDeleteConfirm(false);
-    setDeleteSuccess(true);
-    setTimeout(() => {
-      navigation.navigate("RoleSelector");
-    }, 2500);
+    try {
+      await axiosInstance.delete('/api/auth/delete');
+      await clearAccountLocalData();
+      setDeleteSuccess(true);
+      setTimeout(() => {
+        navigation.replace("RoleSelector");
+      }, 1500);
+    } catch (error) {
+      console.error("Delete account error:", error);
+      Alert.alert(
+        "Delete failed",
+        error?.response?.data?.message || "Could not delete your account. Please try again.",
+      );
+    }
   };
 
   const handleAcceptCall = async (callId) => {
@@ -2401,8 +2411,8 @@ export default function UserDashboard() {
 
   const allMenuItems = [
     { id: "Chat", icon: "chat", label: t('dashboard:chat'), type: "material" },
-    { id: "Counselor", icon: "psychology", label: t('dashboard:counselor'), type: "material" },
-    { id: "Appointment", icon: "event-available", label: t('dashboard:appointment', 'Appointment'), type: "material" },
+    { id: "Counselor", icon: "psychology", label: t('dashboard:consultants', 'Consultants'), type: "material" },
+    { id: "Appointment", icon: "event-available", label: t('dashboard:appointments', 'Appointments'), type: "material" },
     { id: "Wallet", icon: "account-balance-wallet", label: t('dashboard:wallet'), type: "material" },
     { id: "Video", icon: "history", label: t('dashboard:callHistory'), type: "material" },
   ];
@@ -2447,7 +2457,7 @@ export default function UserDashboard() {
 
       Alert.alert(
         t('appointment:bookedSuccessfully', 'Appointment Booked'),
-        `Your appointment request was sent to ${directBookCounselor.fullName || directBookCounselor.name || 'the counselor'}.`
+        `Your appointment request was sent to ${directBookCounselor.fullName || directBookCounselor.name || 'the consultant'}.`
       );
       setShowDirectBookingModal(false);
       setDirectBookNotes('');
@@ -2524,14 +2534,6 @@ export default function UserDashboard() {
       onPress: () => openTabFromSidebar('Video', handleMenuItemClick),
     },
     {
-      id: 'language',
-      type: 'language',
-      icon: 'globe-outline',
-      iconActive: 'globe',
-      label: t('settings:language', 'Language'),
-      isActive: false,
-    },
-    {
       id: 'settings',
       icon: 'settings-outline',
       iconActive: 'settings',
@@ -2588,7 +2590,7 @@ export default function UserDashboard() {
           />
         );
       case "Wallet":
-        return <WalletDashboard userData={userData} />;
+        return <WalletDashboard userData={userData} navigation={navigation} />;
       case "Video":
         return <CallHistory />;
       case "profile":
@@ -2748,7 +2750,7 @@ export default function UserDashboard() {
       >
         {[
           { id: 'Chat', icon: 'chatbubble-ellipses-outline', iconActive: 'chatbubble-ellipses', label: t('dashboard:chat') },
-          { id: 'Counselor', icon: 'bulb-outline', iconActive: 'bulb', label: t('dashboard:counselor') },
+          { id: 'Counselor', icon: 'bulb-outline', iconActive: 'bulb', label: t('dashboard:consultants', 'Consultants') },
         ].map((tab) => (
           <TouchableOpacity
             key={tab.id}
@@ -2775,7 +2777,7 @@ export default function UserDashboard() {
         <View style={styles.navCenterSpacer} />
 
         {[
-          { id: 'Appointment', icon: 'calendar-outline', iconActive: 'calendar', label: t('dashboard:appointment', 'Appointment') },
+          { id: 'Appointment', icon: 'calendar-outline', iconActive: 'calendar', label: t('dashboard:appointments', 'Appointments') },
           { id: 'Wallet', icon: 'wallet-outline', iconActive: 'wallet', label: t('dashboard:wallet') },
         ].map((tab) => (
           <TouchableOpacity
@@ -2880,24 +2882,6 @@ export default function UserDashboard() {
               {/* Pressable, not TouchableOpacity: opacity alone gave no visible
                   feedback, so Help and Privacy looked dead when tapped. */}
               {sidebarItems.map((item) => {
-                if (item.type === 'language') {
-                  return (
-                    <LanguageSelector
-                      key={item.id}
-                      brand={PATIENT.primary}
-                      userId={userId}
-                      role="user"
-                      triggerStyle={styles.sbItem}
-                    >
-                      <View style={styles.sbIconChip}>
-                        <Ionicons name={item.icon} size={19} color={PATIENT.primary} />
-                      </View>
-                      <Text style={styles.sbItemText}>{item.label}</Text>
-                      <Ionicons name="chevron-forward" size={17} color="#CBD5E1" />
-                    </LanguageSelector>
-                  );
-                }
-
                 return (
                   <Pressable
                     key={item.id}
@@ -2929,24 +2913,38 @@ export default function UserDashboard() {
               })}
             </View>
 
-            {/* Logout */}
-            <TouchableOpacity
-              style={styles.sbLogout}
-              activeOpacity={0.85}
-              onPress={() => { setShowMoreModal(false); setShowLogoutConfirm(true); }}
-            >
-              <LinearGradient
-                colors={['#DC2626', '#F87171']}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={StyleSheet.absoluteFillObject}
-              />
-              <View style={styles.sbLogoutIcon}>
-                <Ionicons name="log-out-outline" size={19} color="#ffffff" />
-              </View>
-              <Text style={styles.sbLogoutText}>{t('settings:logoutAccount')}</Text>
-              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />
-            </TouchableOpacity>
+            <View style={styles.sbBottomActions}>
+              <LanguageSelector
+                brand={PATIENT.primary}
+                userId={userId}
+                role="user"
+                triggerStyle={styles.sbItem}
+              >
+                <View style={styles.sbIconChip}>
+                  <Ionicons name="globe-outline" size={19} color={PATIENT.primary} />
+                </View>
+                <Text style={styles.sbItemText}>{t('settings:language', 'Language')}</Text>
+                <Ionicons name="chevron-forward" size={17} color="#CBD5E1" />
+              </LanguageSelector>
+
+              <TouchableOpacity
+                style={styles.sbLogout}
+                activeOpacity={0.85}
+                onPress={() => { setShowMoreModal(false); setShowLogoutConfirm(true); }}
+              >
+                <LinearGradient
+                  colors={['#DC2626', '#F87171']}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+                <View style={styles.sbLogoutIcon}>
+                  <Ionicons name="log-out-outline" size={19} color="#ffffff" />
+                </View>
+                <Text style={styles.sbLogoutText}>{t('settings:logoutAccount')}</Text>
+                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />
+              </TouchableOpacity>
+            </View>
           </SafeAreaView>
 
           <TouchableOpacity
@@ -3061,6 +3059,7 @@ export default function UserDashboard() {
             </View>
             <View style={styles.confirmModalBody}>
               <Text style={styles.confirmModalText}>{t('settings:deleteWarning')}</Text>
+              <Text style={styles.confirmModalText}>Payment history will be kept.</Text>
             </View>
             <View style={styles.confirmModalFooter}>
               <TouchableOpacity
@@ -3244,7 +3243,7 @@ export default function UserDashboard() {
                 placeholderTextColor="#94a3b8"
               />
 
-              <Text style={styles.directBookingHint}>Sent to the counselor for confirmation.</Text>
+              <Text style={styles.directBookingHint}>Sent to the consultant for confirmation.</Text>
             </ScrollView>
 
             <View style={styles.directBookingActions}>
@@ -3392,8 +3391,11 @@ const styles = StyleSheet.create({
     color: PATIENT.primary,
     fontWeight: '700',
   },
-  sbLogout: {
+  sbBottomActions: {
     marginTop: 'auto',
+    gap: 10,
+  },
+  sbLogout: {
     width: '100%',
     height: 52,
     flexDirection: 'row',
@@ -4436,29 +4438,6 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     backgroundColor: "#e2e8f0",
   },
-  aiAttachPreview: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginHorizontal: 12,
-    marginBottom: -2,
-    marginTop: 6,
-    padding: 8,
-    backgroundColor: "#F1F5F9",
-    borderRadius: 12,
-  },
-  aiAttachThumb: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: "#e2e8f0",
-  },
-  aiAttachName: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#334155",
-  },
   chatCounselorMention: {
     color: "#1d4ed8",
     fontWeight: "700",
@@ -4580,14 +4559,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-  },
-  plusBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#F1F5F9",
-    justifyContent: "center",
-    alignItems: "center",
   },
   chatInputPill: {
     flex: 1,

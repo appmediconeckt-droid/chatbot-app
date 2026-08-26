@@ -1,10 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
-  TextInput,
   TouchableOpacity,
   Alert,
   ActivityIndicator,
@@ -13,6 +11,8 @@ import {
   NativeModules,
   TurboModuleRegistry,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -29,6 +29,7 @@ import PATIENT, {
 import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
 
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000];
+const HISTORY_PAGE_SIZE = 5;
 
 // Razorpay's theme takes one flat colour, but the wallet card is a gradient
 // (#006B2C -> #01CE54). Its midpoint reads as the same brand green on the
@@ -67,7 +68,7 @@ const WalletSkeleton = () => {
   );
 };
 
-const WalletDashboard = ({ userData = {} }) => {
+const WalletDashboard = ({ userData = {}, navigation }) => {
   const { t } = useLanguageRender();
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState('');
@@ -76,6 +77,7 @@ const WalletDashboard = ({ userData = {} }) => {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [activeTab, setActiveTab] = useState('add-money');
+  const [historyPage, setHistoryPage] = useState(1);
   const scrollRef = useRef(null);
   // Y offset of the tab strip inside the scroll content, captured on layout.
   const tabsYRef = useRef(0);
@@ -93,6 +95,10 @@ const WalletDashboard = ({ userData = {} }) => {
   useEffect(() => {
     fetchWalletData();
   }, []);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [transactions.length]);
 
   const fetchWalletData = async () => {
     setFetching(true);
@@ -280,6 +286,20 @@ const WalletDashboard = ({ userData = {} }) => {
     };
   }, [transactions]);
 
+  const historyTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(transactions.length / HISTORY_PAGE_SIZE)),
+    [transactions.length],
+  );
+  const historyStartIndex = (historyPage - 1) * HISTORY_PAGE_SIZE;
+  const visibleTransactions = useMemo(
+    () => transactions.slice(historyStartIndex, historyStartIndex + HISTORY_PAGE_SIZE),
+    [historyStartIndex, transactions],
+  );
+
+  const changeHistoryPage = (nextPage) => {
+    setHistoryPage(Math.min(historyTotalPages, Math.max(1, nextPage)));
+  };
+
   const getStatusColor = (status) => {
     if (status === 'completed') return '#059669';
     if (status === 'pending') return '#d97706';
@@ -403,13 +423,17 @@ const WalletDashboard = ({ userData = {} }) => {
     <View style={styles.cardSection}>
       <View style={styles.transactionsHeader}>
         <Text style={styles.sectionTitle}>{t('wallet:transactionHistory')}</Text>
-        <TouchableOpacity onPress={fetchWalletData}>
-          <Text style={styles.linkBtn}>{t('wallet:refresh')}</Text>
+        <TouchableOpacity
+          onPress={() => navigation?.navigate?.('TransactionsHistory') || fetchWalletData()}
+        >
+          <Text style={styles.linkBtn}>
+            {navigation?.navigate ? t('wallet:viewHistory') : t('wallet:refresh')}
+          </Text>
         </TouchableOpacity>
       </View>
 
       {transactions.length ? (
-        transactions.slice(0, 12).map((tx) => {
+        visibleTransactions.map((tx) => {
           const isCredit = tx?.type === 'credit';
           const statusColor = getStatusColor(tx?.status);
           return (
@@ -443,6 +467,34 @@ const WalletDashboard = ({ userData = {} }) => {
         })
       ) : (
         <Text style={styles.emptyHint}>{t('wallet:noTransactionsFound')}</Text>
+      )}
+
+      {transactions.length > HISTORY_PAGE_SIZE && (
+        <View style={styles.historyPager}>
+          <TouchableOpacity
+            style={[styles.historyPagerBtn, historyPage === 1 && styles.historyPagerBtnDisabled]}
+            onPress={() => changeHistoryPage(historyPage - 1)}
+            disabled={historyPage === 1}
+            activeOpacity={0.85}
+            accessibilityLabel={t('Previous page')}
+          >
+            <MaterialIcons name="chevron-left" size={18} color={historyPage === 1 ? '#94a3b8' : PATIENT.primary} />
+          </TouchableOpacity>
+
+          <Text style={styles.historyPagerInfo}>
+            {t('Page')} {historyPage} {t('of')} {historyTotalPages}
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.historyPagerBtn, historyPage === historyTotalPages && styles.historyPagerBtnDisabled]}
+            onPress={() => changeHistoryPage(historyPage + 1)}
+            disabled={historyPage === historyTotalPages}
+            activeOpacity={0.85}
+            accessibilityLabel={t('Next page')}
+          >
+            <MaterialIcons name="chevron-right" size={18} color={historyPage === historyTotalPages ? '#94a3b8' : PATIENT.primary} />
+          </TouchableOpacity>
+        </View>
       )}
     </View>
   );
@@ -952,6 +1004,38 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 10,
     color: '#94a3b8',
+  },
+  historyPager: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+    paddingTop: 12,
+    marginTop: 2,
+    gap: 8,
+  },
+  historyPagerBtn: {
+    width: 40,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#CDEBD8',
+    backgroundColor: '#EAF8EF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  historyPagerBtnDisabled: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
+  },
+  historyPagerInfo: {
+    flex: 1,
+    textAlign: 'center',
+    color: '#64748b',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });
 

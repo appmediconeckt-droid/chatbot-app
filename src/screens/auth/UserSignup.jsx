@@ -1,21 +1,23 @@
 // import React, { useState, useEffect, useRef, useCallback } from 'react';
 // import {
-//   View,
-//   Text,
-//   TextInput,
-//   TouchableOpacity,
-//   StyleSheet,
-//   ScrollView,
-//   KeyboardAvoidingView,
-//   Platform,
-//   Modal,
-//   ActivityIndicator,
-//   SafeAreaView,
-//   StatusBar,
-//   Image,
-//   useWindowDimensions,
-//   Animated,
+  //   View,
+  //   Text,
+  //   TextInput,
+  //   TouchableOpacity,
+  //   StyleSheet,
+  //   ScrollView,
+  //   KeyboardAvoidingView,
+  //   Platform,
+  //   Modal,
+  //   ActivityIndicator,
+  //   SafeAreaView,
+  //   StatusBar,
+  //   Image,
+  //   useWindowDimensions,
+  //   Animated,
+//,
 // } from 'react-native';
+// import Text from '../../components/TranslatedText';
 // import AsyncStorage from '@react-native-async-storage/async-storage';
 // import axios from 'axios';
 // import { API_BASE_URL } from '../../axiosConfig';
@@ -580,8 +582,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -594,6 +594,8 @@ import {
   useWindowDimensions,
   Animated,
 } from 'react-native';
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
@@ -605,12 +607,14 @@ import AuthBackground from '../../theme/AuthBackground';
 import logo from '../../image/HumaeliIcon.png';
 import GoogleAuthButton from './components/GoogleAuthButton';
 import ForgotPasswordModal from './components/ForgotPasswordModal';
+import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
 import CountryPhoneInput from '../../components/common/CountryPhoneInput';
 import {
+  getPhoneLengthLabel,
   isValidLocalPhoneNumber,
   normalizeLocalPhoneNumber,
 } from '../../utils/countryCodes';
@@ -627,6 +631,7 @@ import {
   postPublicAuthEndpoint,
   postPublicAuthEndpointWithOtpRetry,
 } from './authUtils';
+import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
 
 const OTP_RESEND_SECONDS = 60;
 
@@ -637,7 +642,13 @@ const UserSignup = ({ navigation, route }) => {
   const isCompact = width < 360 || height < 700;
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
-  const { scrollRef, keyboardOpen, keyboardInset, scrollFocusedInputIntoView } = useKeyboardAwareScroll();
+  const {
+    scrollRef,
+    keyboardInset,
+    scrollFocusedInputIntoView,
+    handleKeyboardAwareScroll,
+    handleKeyboardAwareScrollLayout,
+  } = useKeyboardAwareScroll();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -826,7 +837,9 @@ const UserSignup = ({ navigation, route }) => {
     else if (!emailVerified) newErrors.email = "Please verify your email first";
 
     if (!formData.phoneNumber) newErrors.phoneNumber = "Phone number is required";
-    else if (!isValidLocalPhoneNumber(formData.phoneNumber)) newErrors.phoneNumber = "Phone number must be 10 digits";
+    else if (!isValidLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode)) {
+      newErrors.phoneNumber = `Phone number must be ${getPhoneLengthLabel(formData.phoneCountryCode)} digits`;
+    }
 
     const calculatedAge = calculateAgeFromDateOfBirth(formData.dateOfBirth);
     if (!formData.dateOfBirth || calculatedAge === null) newErrors.dateOfBirth = "Date of birth is required";
@@ -834,7 +847,10 @@ const UserSignup = ({ navigation, route }) => {
 
     if (!formData.gender) newErrors.gender = "Gender is required";
     if (!formData.password) newErrors.password = "Password is required";
-    else if (formData.password.length < 3) newErrors.password = "Password must be at least 3 chars";
+    else {
+      const passwordCheck = validateStrongPassword(formData.password);
+      if (!passwordCheck.isValid) newErrors.password = passwordCheck.message;
+    }
 
     if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = "Passwords do not match";
     
@@ -1205,7 +1221,7 @@ const UserSignup = ({ navigation, route }) => {
         <CountryPhoneInput
           value={formData.phoneNumber}
           countryCode={formData.phoneCountryCode}
-          onChangePhoneNumber={(text) => handleChange(name, normalizeLocalPhoneNumber(text, formData.phoneCountryCode))}
+          onChangePhoneNumber={(text) => handleChange(name, text)}
           onChangeCountryCode={(code) => handleChange('phoneCountryCode', code)}
           focused={isFocused}
           accentColor="#00652C"
@@ -1268,10 +1284,10 @@ const UserSignup = ({ navigation, route }) => {
 
   const scrollContainerStyle = {
     ...styles.scrollContent,
-    justifyContent: isLogin && !keyboardOpen ? 'center' : 'flex-start',
+    justifyContent: isLogin ? 'center' : 'flex-start',
     paddingHorizontal: isCompact ? 12 : 16,
     paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 62 : 76),
-    paddingBottom: isLogin ? (isCompact ? 44 : 60) + keyboardInset : (isCompact ? 14 : 20),
+    paddingBottom: (isLogin ? (isCompact ? 44 : 60) : (isCompact ? 14 : 20)) + keyboardInset,
   };
   const panelStyle = [
     styles.panel,
@@ -1299,6 +1315,7 @@ const UserSignup = ({ navigation, route }) => {
   const formContentStyle = [
     styles.formPanel,
     !isLogin && styles.signupFormPanel,
+    !isLogin && { paddingBottom: (isCompact ? 18 : 24) + keyboardInset },
   ];
 
   return (
@@ -1316,6 +1333,9 @@ const UserSignup = ({ navigation, route }) => {
               ref={isLogin ? scrollRef : null}
               contentContainerStyle={scrollContainerStyle}
               showsVerticalScrollIndicator={false}
+              onLayout={isLogin ? handleKeyboardAwareScrollLayout : undefined}
+              onScroll={isLogin ? handleKeyboardAwareScroll : undefined}
+              scrollEventThrottle={16}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
               scrollEnabled={isLogin}
@@ -1333,6 +1353,9 @@ const UserSignup = ({ navigation, route }) => {
                   style={formScrollStyle}
                   contentContainerStyle={formContentStyle}
                   showsVerticalScrollIndicator={!isLogin}
+                  onLayout={!isLogin ? handleKeyboardAwareScrollLayout : undefined}
+                  onScroll={!isLogin ? handleKeyboardAwareScroll : undefined}
+                  scrollEventThrottle={16}
                   keyboardShouldPersistTaps="handled"
                   nestedScrollEnabled
                   scrollEnabled={!isLogin}
@@ -1352,13 +1375,27 @@ const UserSignup = ({ navigation, route }) => {
                       </Animated.View>
                     </>
                   )}
-                  <Animated.View key="pwd-row" style={{ opacity: fieldAnims[7] }}>
-                    <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
-                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
-                      <TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} />
-                      <TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
-                    </View>
-                  </Animated.View>
+	                  <Animated.View key="pwd-row" style={{ opacity: fieldAnims[7] }}>
+	                    <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
+	                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
+	                      <TextInput
+	                        style={styles.textInput}
+	                        value={formData.password}
+	                        onChangeText={(text) => handleChange('password', text)}
+	                        onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }}
+	                        onBlur={() => setFocusedField(null)}
+	                        placeholder={t('Password')}
+	                        placeholderTextColor="#94a3b8"
+	                        secureTextEntry={!showPassword}
+	                      />
+	                      <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+	                        <Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" />
+	                      </TouchableOpacity>
+	                    </View>
+	                    {!isLogin && <Text style={styles.passwordHint}>{t(STRONG_PASSWORD_HINT)}</Text>}
+	                    {!isLogin && <PasswordRequirementChecklist password={formData.password} style={styles.passwordChecklist} />}
+	                    {!isLogin && errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
+	                  </Animated.View>
                   {isLogin && (
                     <TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}>
                       <Text style={styles.forgotText}>{t('Forgot password?')}</Text>
@@ -1366,13 +1403,25 @@ const UserSignup = ({ navigation, route }) => {
                   )}
                   {!isLogin && (
                     <Animated.View key="cpwd-row" style={{ opacity: fieldAnims[7] }}>
-                      <View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}>
-                        <Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
-                        <TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={(event) => { setFocusedField('confirmPassword'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Confirm Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} />
-                        <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
-                      </View>
-                    </Animated.View>
-                  )}
+	                      <View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}>
+	                        <Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
+	                        <TextInput
+	                          style={styles.textInput}
+	                          value={formData.confirmPassword}
+	                          onChangeText={(text) => handleChange('confirmPassword', text)}
+	                          onFocus={(event) => { setFocusedField('confirmPassword'); scrollFocusedInputIntoView(event); }}
+	                          onBlur={() => setFocusedField(null)}
+	                          placeholder={t('Confirm Password')}
+	                          placeholderTextColor="#94a3b8"
+	                          secureTextEntry={!showConfirmPassword}
+	                        />
+	                        <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
+	                          <Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" />
+	                        </TouchableOpacity>
+	                      </View>
+	                      {errors.confirmPassword ? <Text style={styles.errorText}>{errors.confirmPassword}</Text> : null}
+	                    </Animated.View>
+	                  )}
                   <Animated.View key="submit-row" style={{ opacity: fieldAnims[8], marginTop: 10 }}>
                     <TouchableOpacity activeOpacity={0.9} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
                       <LinearGradient
@@ -1607,7 +1656,7 @@ const styles = StyleSheet.create({
   inputWrapperFocused: { borderColor: '#00652C', backgroundColor: '#ffffff' },
   inputIcon: { marginRight: 12 },
   textInput: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
-  metricTextInput: { fontSize: 18, fontWeight: '800' },
+  metricTextInput: { fontSize: 15, fontWeight: '600' },
   phoneTextInput: { fontSize: 15 },
   datePickerText: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
   datePickerPlaceholder: { color: '#94a3b8' },
@@ -1615,6 +1664,8 @@ const styles = StyleSheet.create({
   verifiedBtn: { backgroundColor: 'transparent' },
   verifyBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   errorText: { color: '#ef4444', fontSize: 11, marginTop: 4, marginLeft: 16, fontWeight: '600' },
+  passwordHint: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 4, marginLeft: 16, fontWeight: '600' },
+  passwordChecklist: { marginLeft: 16, marginRight: 4 },
   genderRow: { flexDirection: 'row', gap: 10 },
   genderBtn: { flex: 1, height: 44, borderRadius: 15, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: 'transparent' },
   genderBtnSelected: { backgroundColor: '#f5f7ff', borderColor: '#00652C' },

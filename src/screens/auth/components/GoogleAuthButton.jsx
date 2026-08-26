@@ -14,10 +14,10 @@ import {
   ActivityIndicator,
   Image,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import Text from '../../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_BASE_URL } from '../../../axiosConfig';
@@ -53,7 +53,7 @@ const mapRoleForBackend = (role) =>
 
 const getRoleLabel = (role) => {
   const normalized = normalizeRole(role);
-  return normalized === 'counselor' ? 'Counsellor' : 'User';
+  return normalized === 'counselor' ? 'Consultant' : 'User';
 };
 
 const buildRoleMismatchMessage = ({ actualRole, requestedRole, fallbackMessage }) => {

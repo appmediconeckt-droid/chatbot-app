@@ -7,11 +7,11 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   TouchableOpacity,
   UIManager,
   View,
 } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -39,20 +39,20 @@ const DATA_GROUPS = [
     icon: 'person-outline',
     title: 'Personal Profile',
     collects: ['Name, age and gender', 'Contact details', 'Health preferences'],
-    purpose: ['Personalise your care experience', 'Match you with the right counselor'],
+    purpose: ['Personalise your care experience', 'Match you with the right consultant'],
   },
   {
     id: 'chats',
     icon: 'chatbubbles-outline',
     title: 'Chats & Calls',
     collects: ['Messages and quick replies', 'Chat status and attachments', 'Accepted chat sessions'],
-    purpose: ['Provide continuous conversation history', 'Enable counselor support during sessions'],
+    purpose: ['Provide continuous conversation history', 'Enable consultant support during sessions'],
   },
   {
     id: 'appointments',
     icon: 'calendar-outline',
     title: 'Appointments',
-    collects: ['Booking date and time', 'Selected counselor', 'Session notes'],
+    collects: ['Booking date and time', 'Selected consultant', 'Session notes'],
     purpose: ['Manage your upcoming sessions', 'Send timely reminders'],
   },
   {

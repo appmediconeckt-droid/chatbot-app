@@ -6,7 +6,8 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, Modal, StatusBar, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Modal, StatusBar, StyleSheet, Text as RNText, TextInput, useColorScheme, View } from 'react-native';
+import Text from './src/components/TranslatedText';
 import {
   SafeAreaProvider,
   initialWindowMetrics,
@@ -115,7 +116,7 @@ const withFontCap = (Component: any) => {
     Component.defaultProps.maxFontSizeMultiplier = MAX_FONT_SCALE;
   }
 };
-withFontCap(Text);
+withFontCap(RNText);
 withFontCap(TextInput);
 
 function App() {

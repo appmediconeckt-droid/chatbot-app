@@ -6,14 +6,20 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
+import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
+import {
+  getPasswordStrength,
+  STRONG_PASSWORD_HINT,
+  validateStrongPassword,
+} from '../../utils/passwordPolicy';
 
 const modeContent = {
   change: {
@@ -54,15 +60,10 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
   const [showConfirm, setShowConfirm] = useState(false);
 
   const strength = useMemo(() => {
-    let score = 0;
-    if (password.length >= 6) score += 1;
-    if (/[A-Z]/.test(password)) score += 1;
-    if (/\d/.test(password)) score += 1;
-    if (/[^A-Za-z0-9]/.test(password)) score += 1;
-    return score;
+    return getPasswordStrength(password);
   }, [password]);
 
-  const strengthText = ['Too short', 'Basic', 'Good', 'Strong', 'Very strong'][strength];
+  const strengthText = ['Too short', 'Weak', 'Basic', 'Good', 'Strong', 'Very strong'][strength];
 
   const validate = () => {
     const cleanEmail = email.trim().toLowerCase();
@@ -86,8 +87,9 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
       Alert.alert('Validation', 'Please enter a password');
       return false;
     }
-    if (password.length < 6) {
-      Alert.alert('Validation', 'Password must be at least 6 characters');
+    const passwordCheck = validateStrongPassword(password);
+    if (!passwordCheck.isValid) {
+      Alert.alert('Validation', passwordCheck.message);
       return false;
     }
     if (password !== confirm) {
@@ -228,7 +230,7 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
             onChangeText: setPassword,
             visible: showPassword,
             onToggle: () => setShowPassword((value) => !value),
-            placeholder: 'Minimum 6 characters',
+            placeholder: 'Strong password',
           })}
 
           <View style={styles.strengthRow}>
@@ -243,7 +245,8 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
               />
             ))}
           </View>
-          <Text style={styles.hint}>{password ? strengthText : 'Use letters and numbers for a stronger password'}</Text>
+          <Text style={styles.hint}>{password ? strengthText : STRONG_PASSWORD_HINT}</Text>
+          <PasswordRequirementChecklist password={password} style={styles.passwordChecklist} />
 
           {renderPasswordInput({
             label: 'Confirm Password',
@@ -378,6 +381,9 @@ const styles = StyleSheet.create({
   hint: {
     color: '#64748b',
     fontSize: 12,
+    marginBottom: 6,
+  },
+  passwordChecklist: {
     marginBottom: 14,
   },
   button: {

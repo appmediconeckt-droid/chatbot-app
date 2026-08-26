@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   SectionList,
   StyleSheet,
@@ -11,6 +9,8 @@ import {
   Image,
   useWindowDimensions,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';

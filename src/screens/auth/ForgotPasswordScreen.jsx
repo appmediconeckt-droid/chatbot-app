@@ -1,13 +1,13 @@
 import React, { useState } from "react";
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
   Alert,
 } from "react-native";
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import { useNavigation } from "@react-navigation/native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import axios from "axios";

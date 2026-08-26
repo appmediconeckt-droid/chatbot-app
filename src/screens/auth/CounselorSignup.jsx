@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -15,21 +13,32 @@ import {
   useWindowDimensions,
   Animated,
 } from 'react-native';
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import AuthBackground from '../../theme/AuthBackground';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { launchImageLibrary } from 'react-native-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import GoogleAuthButton from './components/GoogleAuthButton';
 import ForgotPasswordModal from './components/ForgotPasswordModal';
+import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 import CountryPhoneInput from '../../components/common/CountryPhoneInput';
 import {
+  getPhoneLengthLabel,
   isValidLocalPhoneNumber,
   normalizeLocalPhoneNumber,
 } from '../../utils/countryCodes';
+import {
+  calculateAgeFromDateOfBirth,
+  formatDateOfBirthDisplay,
+  getDatePickerValue,
+  toDateOnlyString,
+} from '../../utils/dateOfBirth';
 
 // Import logo
 import logo from '../../image/HumaeliBlue.png';
@@ -42,6 +51,7 @@ import {
   postPublicAuthEndpoint,
   postPublicAuthEndpointWithOtpRetry,
 } from './authUtils';
+import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
 
 const OTP_RESEND_SECONDS = 60;
 
@@ -52,7 +62,13 @@ const CounselorSignup = ({ navigation, route }) => {
   const isCompact = width < 360 || height < 700;
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
-  const { scrollRef, keyboardOpen, keyboardInset, scrollFocusedInputIntoView } = useKeyboardAwareScroll();
+  const {
+    scrollRef,
+    keyboardInset,
+    scrollFocusedInputIntoView,
+    handleKeyboardAwareScroll,
+    handleKeyboardAwareScrollLayout,
+  } = useKeyboardAwareScroll();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -60,6 +76,7 @@ const CounselorSignup = ({ navigation, route }) => {
     phoneNumber: '',
     phoneCountryCode: '+91',
     age: '',
+    dateOfBirth: '',
     gender: '',
     qualification: '',
     specialization: '',
@@ -93,10 +110,11 @@ const CounselorSignup = ({ navigation, route }) => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [notification, setNotification] = useState({ show: false, message: '', type: '' });
+  const [showDateOfBirthPicker, setShowDateOfBirthPicker] = useState(false);
 
   // Verification states
   const [emailVerified, setEmailVerified] = useState(false);
-  const [, setEmailVerificationToken] = useState('');
+  const [emailVerificationToken, setEmailVerificationToken] = useState('');
   const [showOtpModal, setShowOtpModal] = useState({ show: false, type: '', value: '' });
   const [otpCode, setOtpCode] = useState('');
   const [isSendingVerification, setIsSendingVerification] = useState(false);
@@ -235,10 +253,13 @@ const CounselorSignup = ({ navigation, route }) => {
     else if (!emailVerified) newErrors.email = "Please verify your email first";
 
     if (!formData.phoneNumber) newErrors.phoneNumber = "Phone is required";
-    else if (!isValidLocalPhoneNumber(formData.phoneNumber)) newErrors.phoneNumber = "Phone number must be 10 digits";
+    else if (!isValidLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode)) {
+      newErrors.phoneNumber = `Phone number must be ${getPhoneLengthLabel(formData.phoneCountryCode)} digits`;
+    }
 
-    if (!formData.age) newErrors.age = "Age is required";
-    else if (formData.age < 18 || formData.age > 100) newErrors.age = "Must be 18-100";
+    const calculatedAge = calculateAgeFromDateOfBirth(formData.dateOfBirth);
+    if (!formData.dateOfBirth || calculatedAge === null) newErrors.dateOfBirth = "Date of birth is required";
+    else if (calculatedAge < 18 || calculatedAge > 100) newErrors.dateOfBirth = "Must be 18-100";
 
     if (!formData.gender) newErrors.gender = "Gender is required";
     if (!formData.qualification) newErrors.qualification = "Qualification required";
@@ -248,7 +269,10 @@ const CounselorSignup = ({ navigation, route }) => {
     if (!formData.aboutMe) newErrors.aboutMe = "About me required";
 
     if (!formData.password) newErrors.password = "Password required";
-    else if (formData.password.length < 6) newErrors.password = "Min 6 characters";
+    else {
+      const passwordCheck = validateStrongPassword(formData.password);
+      if (!passwordCheck.isValid) newErrors.password = passwordCheck.message;
+    }
     if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = "Mismatch";
 
     setErrors(newErrors);
@@ -298,13 +322,16 @@ const CounselorSignup = ({ navigation, route }) => {
       // setting multipart/form-data without a boundary can make Express see an
       // empty body and report every required field as missing.
       const phoneNumber = normalizeLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode);
+      const dateOfBirth = toDateOnlyString(formData.dateOfBirth);
+      const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
       const data = {
         fullName: formData.fullName.trim(),
         email: formData.email.trim().toLowerCase(),
         phoneNumber,
         phoneNum: phoneNumber,
         phoneCountryCode: formData.phoneCountryCode,
-        age: Number(formData.age),
+        dateOfBirth,
+        age: calculatedAge,
         gender: formData.gender.toLowerCase(),
         qualification: formData.qualification.trim(),
         specialization: formData.specialization.trim(),
@@ -312,9 +339,11 @@ const CounselorSignup = ({ navigation, route }) => {
         location: formData.location.trim(),
         aboutMe: formData.aboutMe.trim(),
         password: formData.password,
+        confirmPassword: formData.confirmPassword,
         role: 'counselor',
         isEmailVerified: true,
         isPhoneVerified: true,
+        emailVerificationToken,
         consultationMode: formData.consultationMode.map(mode => mode.toLowerCase()),
         languages: formData.languages,
       };
@@ -323,7 +352,7 @@ const CounselorSignup = ({ navigation, route }) => {
 
       if (response.data?.success) {
         const hasSession = await persistCounselorSession(response.data);
-        showNotification(response.data.message || 'Counselor registered!');
+        showNotification(response.data.message || 'Consultant registered!');
 
         if (hasSession) {
           setTimeout(() => navigation.replace('LocationGate', { destination: 'CounselorDashboard' }), 1500);
@@ -446,15 +475,6 @@ const CounselorSignup = ({ navigation, route }) => {
         setOtpError(response.data?.message || 'Failed');
       }
     } catch (err) {
-      if (!err?.response) {
-        setFormData(prev => ({ ...prev, email: otpEmail }));
-        setEmailVerified(true);
-        setEmailVerificationToken('');
-        setShowOtpModal({ show: false, type: '', value: '' });
-        setOtpCode('');
-        showNotification('Email verification submitted. Continue registration.');
-        return;
-      }
       setOtpError(getApiErrorMessage(err, 'Verification failed'));
     } finally {
       verifyingOtpRef.current = false;
@@ -558,6 +578,25 @@ const CounselorSignup = ({ navigation, route }) => {
     }
   }, []);
 
+  const handleDateOfBirthChange = (_event, selectedDate) => {
+    if (Platform.OS === 'android') setShowDateOfBirthPicker(false);
+    if (!selectedDate) return;
+
+    const dateOfBirth = toDateOnlyString(selectedDate);
+    const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
+    setFormData(prev => ({
+      ...prev,
+      dateOfBirth,
+      age: calculatedAge !== null ? String(calculatedAge) : '',
+    }));
+    setErrors(prev => {
+      const next = { ...prev };
+      delete next.dateOfBirth;
+      delete next.age;
+      return next;
+    });
+  };
+
   const toggleListItem = useCallback((name, value) => {
     setFormData(prev => {
       let list = [...prev[name]];
@@ -615,7 +654,7 @@ const CounselorSignup = ({ navigation, route }) => {
         <CountryPhoneInput
           value={formData.phoneNumber}
           countryCode={formData.phoneCountryCode}
-          onChangePhoneNumber={(text) => handleChange(name, normalizeLocalPhoneNumber(text, formData.phoneCountryCode))}
+          onChangePhoneNumber={(text) => handleChange(name, text)}
           onChangeCountryCode={(code) => handleChange('phoneCountryCode', code)}
           focused={isFocused}
           accentColor="#004AC6"
@@ -632,12 +671,43 @@ const CounselorSignup = ({ navigation, route }) => {
     );
   };
 
+  const renderDateOfBirthInput = (index) => (
+    <Animated.View key="counselor-input-dateOfBirth" style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
+      <TouchableOpacity
+        style={styles.inputWrapper}
+        onPress={() => setShowDateOfBirthPicker(true)}
+        activeOpacity={0.85}
+      >
+        <Icon name="calendar-month-outline" size={20} color="#64748b" style={styles.inputIcon} />
+        <Text
+          style={[
+            styles.datePickerText,
+            !formData.dateOfBirth && styles.datePickerPlaceholder,
+          ]}
+        >
+          {formatDateOfBirthDisplay(formData.dateOfBirth, t('Date of Birth'))}
+        </Text>
+        <Icon name="chevron-down" size={20} color="#94a3b8" />
+      </TouchableOpacity>
+      {showDateOfBirthPicker && (
+        <DateTimePicker
+          value={getDatePickerValue(formData.dateOfBirth)}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          maximumDate={new Date()}
+          onChange={handleDateOfBirthChange}
+        />
+      )}
+      {errors.dateOfBirth && <Text style={styles.errorText}>{errors.dateOfBirth}</Text>}
+    </Animated.View>
+  );
+
   const scrollContainerStyle = {
     ...styles.scrollContent,
-    justifyContent: isLogin && !keyboardOpen ? 'center' : 'flex-start',
+    justifyContent: isLogin ? 'center' : 'flex-start',
     paddingHorizontal: isCompact ? 12 : 16,
     paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 62 : 76),
-    paddingBottom: isLogin ? (isCompact ? 44 : 60) + keyboardInset : (isCompact ? 14 : 20),
+    paddingBottom: (isLogin ? (isCompact ? 44 : 60) : (isCompact ? 14 : 20)) + keyboardInset,
   };
   const signupPanelHeight = Math.min(
     isTablet ? 760 : 720,
@@ -668,6 +738,7 @@ const CounselorSignup = ({ navigation, route }) => {
   const formContentStyle = [
     styles.formPanel,
     !isLogin && styles.signupFormPanel,
+    !isLogin && { paddingBottom: (isCompact ? 18 : 24) + keyboardInset },
   ];
 
   return (
@@ -682,6 +753,9 @@ const CounselorSignup = ({ navigation, route }) => {
               ref={isLogin ? scrollRef : null}
               contentContainerStyle={scrollContainerStyle}
               showsVerticalScrollIndicator={false}
+              onLayout={isLogin ? handleKeyboardAwareScrollLayout : undefined}
+              onScroll={isLogin ? handleKeyboardAwareScroll : undefined}
+              scrollEventThrottle={16}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
               scrollEnabled={isLogin}
@@ -701,7 +775,7 @@ const CounselorSignup = ({ navigation, route }) => {
                         <Icon name="camera-plus-outline" size={30} color="#004AC6" />
                       )}
                     </TouchableOpacity>
-                    <Text style={styles.photoLabel}>{t('Counselor Photo')}</Text>
+                    <Text style={styles.photoLabel}>{t('Consultant Photo')}</Text>
                   </Animated.View>
                 )} */}
                 <ScrollView
@@ -709,28 +783,67 @@ const CounselorSignup = ({ navigation, route }) => {
                   style={formScrollStyle}
                   contentContainerStyle={formContentStyle}
                   showsVerticalScrollIndicator={!isLogin}
+                  onLayout={!isLogin ? handleKeyboardAwareScrollLayout : undefined}
+                  onScroll={!isLogin ? handleKeyboardAwareScroll : undefined}
+                  scrollEventThrottle={16}
                   keyboardShouldPersistTaps="handled"
                   nestedScrollEnabled
                   scrollEnabled={!isLogin}
                 >
                   {!isLogin ? (
-                    <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderPhoneInput(3)}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
-                      <Animated.View key="gender-section" style={{ opacity: fieldAnims[5] }}><Text style={styles.sectionLabel}>{t('Gender')}</Text><View style={styles.genderRow}>{genderOptions.map(g => (<TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}><Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text></TouchableOpacity>))}</View></Animated.View>
-                      {renderInput(6, 'qualification', 'school-outline', 'Qualification')}{renderInput(7, 'specialization', 'certificate-outline', 'Specialization')}
-                      <View style={styles.row}><View style={{ flex: 1 }}>{renderInput(8, 'experience', 'briefcase-clock-outline', 'Years')}</View><View style={{ flex: 1.5 }}>{renderInput(9, 'location', 'map-marker-radius-outline', 'City')}</View></View>
-                      <Animated.View key="mode-section" style={{ opacity: fieldAnims[10] }}><Text style={styles.sectionLabel}>{t('Consultation Mode')}</Text><View style={styles.tagRow}>{consultationModes.map(m => (<TouchableOpacity key={m} style={[styles.tag, formData.consultationMode.includes(m) && styles.tagSelected]} onPress={() => toggleListItem('consultationMode', m)}><Text style={[styles.tagText, formData.consultationMode.includes(m) && styles.tagTextSelected]}>{m}</Text></TouchableOpacity>))}</View></Animated.View>
-                      <Animated.View key="lang-section" style={{ opacity: fieldAnims[11] }}><Text style={styles.sectionLabel}>{t('Languages')}</Text><View style={styles.tagRow}>{languageOptions.map(l => (<TouchableOpacity key={l} style={[styles.tag, formData.languages.includes(l) && styles.tagSelected]} onPress={() => toggleListItem('languages', l)}><Text style={[styles.tagText, formData.languages.includes(l) && styles.tagTextSelected]}>{l}</Text></TouchableOpacity>))}</View></Animated.View>
-                      {renderInput(12, 'aboutMe', 'account-details-outline', 'About Me', { multiline: true })}
+                    <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderPhoneInput(3)}{renderDateOfBirthInput(4)}{renderInput(5, 'age', 'calendar-account-outline', 'Age', { editable: false, placeholder: 'Age will be calculated' })}
+                      <Animated.View key="gender-section" style={{ opacity: fieldAnims[6] }}><Text style={styles.sectionLabel}>{t('Gender')}</Text><View style={styles.genderRow}>{genderOptions.map(g => (<TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}><Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text></TouchableOpacity>))}</View></Animated.View>
+                      {renderInput(7, 'qualification', 'school-outline', 'Qualification')}{renderInput(8, 'specialization', 'certificate-outline', 'Specialization')}
+                      <View style={styles.row}><View style={{ flex: 1 }}>{renderInput(9, 'experience', 'briefcase-clock-outline', 'Years')}</View><View style={{ flex: 1.5 }}>{renderInput(10, 'location', 'map-marker-radius-outline', 'City')}</View></View>
+                      <Animated.View key="mode-section" style={{ opacity: fieldAnims[11] }}><Text style={styles.sectionLabel}>{t('Consultation Mode')}</Text><View style={styles.tagRow}>{consultationModes.map(m => (<TouchableOpacity key={m} style={[styles.tag, formData.consultationMode.includes(m) && styles.tagSelected]} onPress={() => toggleListItem('consultationMode', m)}><Text style={[styles.tagText, formData.consultationMode.includes(m) && styles.tagTextSelected]}>{m}</Text></TouchableOpacity>))}</View></Animated.View>
+                      <Animated.View key="lang-section" style={{ opacity: fieldAnims[12] }}><Text style={styles.sectionLabel}>{t('Languages')}</Text><View style={styles.tagRow}>{languageOptions.map(l => (<TouchableOpacity key={l} style={[styles.tag, formData.languages.includes(l) && styles.tagSelected]} onPress={() => toggleListItem('languages', l)}><Text style={[styles.tagText, formData.languages.includes(l) && styles.tagTextSelected]}>{l}</Text></TouchableOpacity>))}</View></Animated.View>
+                      {renderInput(13, 'aboutMe', 'account-details-outline', 'About Me', { multiline: true })}
                     </>
                   ) : (<>{renderInput(1, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' })}</>)}
-                  <Animated.View key="pwd-section" style={{ opacity: fieldAnims[13] }}>
-                    <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
-                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} /><TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
-                    </View>
-                  </Animated.View>
-                  {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#004AC6' }]}>{t('Forgot password?')}</Text></TouchableOpacity>)}
-                  {!isLogin && (<Animated.View key="cpwd-section" style={{ opacity: fieldAnims[14] }}><View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}><Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={(event) => { setFocusedField('confirmPassword'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Confirm Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} /><TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity></View></Animated.View>)}
-                  <Animated.View key="btn-section" style={{ opacity: fieldAnims[15], marginTop: 10 }}>
+	                  <Animated.View key="pwd-section" style={{ opacity: fieldAnims[14] }}>
+	                    <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
+	                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#004AC6' : '#64748b'} style={styles.inputIcon} />
+	                      <TextInput
+	                        style={styles.textInput}
+	                        value={formData.password}
+	                        onChangeText={(text) => handleChange('password', text)}
+	                        onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }}
+	                        onBlur={() => setFocusedField(null)}
+	                        placeholder={t('Password')}
+	                        placeholderTextColor="#94a3b8"
+	                        secureTextEntry={!showPassword}
+	                      />
+	                      <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+	                        <Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" />
+	                      </TouchableOpacity>
+	                    </View>
+	                    {!isLogin && <Text style={styles.passwordHint}>{t(STRONG_PASSWORD_HINT)}</Text>}
+	                    {!isLogin && <PasswordRequirementChecklist password={formData.password} style={styles.passwordChecklist} />}
+	                    {!isLogin && errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
+	                  </Animated.View>
+	                  {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#004AC6' }]}>{t('Forgot password?')}</Text></TouchableOpacity>)}
+	                  {!isLogin && (
+	                    <Animated.View key="cpwd-section" style={{ opacity: fieldAnims[15] }}>
+	                      <View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}>
+	                        <Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#004AC6' : '#64748b'} style={styles.inputIcon} />
+	                        <TextInput
+	                          style={styles.textInput}
+	                          value={formData.confirmPassword}
+	                          onChangeText={(text) => handleChange('confirmPassword', text)}
+	                          onFocus={(event) => { setFocusedField('confirmPassword'); scrollFocusedInputIntoView(event); }}
+	                          onBlur={() => setFocusedField(null)}
+	                          placeholder={t('Confirm Password')}
+	                          placeholderTextColor="#94a3b8"
+	                          secureTextEntry={!showConfirmPassword}
+	                        />
+	                        <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
+	                          <Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" />
+	                        </TouchableOpacity>
+	                      </View>
+	                      {errors.confirmPassword ? <Text style={styles.errorText}>{errors.confirmPassword}</Text> : null}
+	                    </Animated.View>
+	                  )}
+                  <Animated.View key="btn-section" style={{ opacity: fieldAnims[16], marginTop: 10 }}>
                     <TouchableOpacity activeOpacity={0.9} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
                       <LinearGradient
                         colors={['#003A9B', '#1490FF']}
@@ -746,7 +859,7 @@ const CounselorSignup = ({ navigation, route }) => {
                       </LinearGradient>
                     </TouchableOpacity>
                   </Animated.View>
-                  <Animated.View key="google-section" style={{ opacity: fieldAnims[15], marginTop: 14 }}>
+                  <Animated.View key="google-section" style={{ opacity: fieldAnims[16], marginTop: 14 }}>
                     <View style={styles.googleDividerRow}>
                       <View style={styles.googleDividerLine} />
                       <Text style={styles.googleDividerText}>or</Text>
@@ -771,7 +884,7 @@ const CounselorSignup = ({ navigation, route }) => {
                       }}
                     />
                   </Animated.View>
-                  <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[16] }]}><Text style={styles.switchText}>{isLogin ? "New counselor?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#004AC6' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
+                  <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[17] }]}><Text style={styles.switchText}>{isLogin ? "New consultant?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#004AC6' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
                 </ScrollView>
               </Animated.View>
             </ScrollView>
@@ -822,7 +935,7 @@ const CounselorSignup = ({ navigation, route }) => {
                 onPress={handleVerifyOtp}
                 disabled={isVerifyingOtp || otpCode.length !== 6}
               >
-                {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Counselor')}</Text>}
+                {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Consultant')}</Text>}
               </TouchableOpacity>
               <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity>
             </View>
@@ -843,7 +956,7 @@ const CounselorSignup = ({ navigation, route }) => {
                 <Icon name="devices" size={40} color="#004AC6" />
               </View>
               <Text style={styles.modalTitle}>{t('Switching Devices')}</Text>
-              <Text style={styles.modalSub}>{t('Counselor account active on another device. Logout there and continue here?')}</Text>
+              <Text style={styles.modalSub}>{t('Consultant account active on another device. Logout there and continue here?')}</Text>
               {!deviceOtpSent ? (
                 <TouchableOpacity
                   style={[styles.modalActionBtn, isSendingDeviceOtp && styles.modalActionBtnDisabled]}
@@ -948,12 +1061,16 @@ const styles = StyleSheet.create({
   inputWrapperFocused: { borderColor: '#004AC6', backgroundColor: '#ffffff' },
   inputIcon: { marginRight: 8 },
   textInput: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
-  metricTextInput: { fontSize: 18, fontWeight: '800' },
+  metricTextInput: { fontSize: 15, fontWeight: '600' },
   phoneTextInput: { fontSize: 15 },
+  datePickerText: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
+  datePickerPlaceholder: { color: '#94a3b8' },
   verifyBtn: { minWidth: 68, minHeight: 34, backgroundColor: '#004AC6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   verifiedBtn: { backgroundColor: 'transparent' },
   verifyBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   errorText: { color: '#ef4444', fontSize: 11, marginTop: 4, marginLeft: 16, fontWeight: '600' },
+  passwordHint: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 4, marginLeft: 16, fontWeight: '600' },
+  passwordChecklist: { marginLeft: 16, marginRight: 4 },
   row: { flexDirection: 'row', gap: 12 },
   sectionLabel: { fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },

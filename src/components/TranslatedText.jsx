@@ -1,10 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { Text } from 'react-native';
-import { useTranslation } from 'react-i18next';
-import { translationService } from '../i18n/translationService';
+import React, { useMemo } from 'react';
+import { Text as RNText } from 'react-native';
+import { useSmartT } from '../hooks/useSmartT';
 
 /**
- * Auto-translating Text component
+ * App text primitive.
+ *
+ * It behaves like React Native's Text, but literal string children are translated
+ * through the shared smart translator. This lets legacy screens keep their
+ * existing JSX while still reacting to the app language selected by either the
+ * user or counselor.
+ *
  * Usage: <TranslatedText>Chat message or dynamic text</TranslatedText>
  * For static i18n keys: <TranslatedText i18nKey="auth:login" />
  */
@@ -14,54 +19,53 @@ export const TranslatedText = ({
   style,
   numberOfLines,
   onLayout,
+  maxFontSizeMultiplier = 1.2,
+  translate = true,
   ...props
 }) => {
-  const { t, i18n } = useTranslation();
-  const [translatedText, setTranslatedText] = useState('');
-  const [isTranslating, setIsTranslating] = useState(false);
+  const { t, language } = useSmartT();
 
-  // For dynamic text, translate via API
-  useEffect(() => {
+  const translatedChildren = useMemo(() => {
     if (i18nKey) {
-      setTranslatedText(t(i18nKey));
-      return;
+      return t(i18nKey);
     }
 
-    const translate = async () => {
-      if (!children || typeof children !== 'string') {
-        setTranslatedText(children);
-        return;
+    if (!translate) {
+      return children;
+    }
+
+    const renderNode = (node) => {
+      if (typeof node === 'string') {
+        const match = /^(\s*)([\s\S]*?)(\s*)$/.exec(node);
+        const leading = match?.[1] || '';
+        const body = match?.[2] || node;
+        const trailing = match?.[3] || '';
+        if (!body || !/[A-Za-z]/.test(body)) {
+          return node;
+        }
+        return `${leading}${t(body, body)}${trailing}`;
       }
 
-      // If English, no need to translate
-      if (i18n.language === 'en-US' || i18n.language === 'en') {
-        setTranslatedText(children);
-        return;
+      if (Array.isArray(node)) {
+        return node.map(renderNode);
       }
 
-      try {
-        setIsTranslating(true);
-        const translated = await translationService.translate(
-          children,
-          i18n.language || 'en-US',
-          'en-US'
-        );
-        setTranslatedText(translated);
-      } catch (error) {
-        console.warn('Translation error:', error);
-        setTranslatedText(children);
-      } finally {
-        setIsTranslating(false);
-      }
+      return node;
     };
 
-    translate();
-  }, [children, i18n.language, i18nKey, t]);
+    return renderNode(children);
+  }, [children, i18nKey, language, t, translate]);
 
   return (
-    <Text style={style} numberOfLines={numberOfLines} onLayout={onLayout} {...props}>
-      {translatedText || (i18nKey ? t(i18nKey) : children)}
-    </Text>
+    <RNText
+      style={style}
+      numberOfLines={numberOfLines}
+      onLayout={onLayout}
+      maxFontSizeMultiplier={maxFontSizeMultiplier}
+      {...props}
+    >
+      {translatedChildren}
+    </RNText>
   );
 };
 
