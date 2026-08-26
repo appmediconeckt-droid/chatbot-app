@@ -40,6 +40,7 @@ import {
   validateStrongPassword,
 } from '../../../../../../utils/passwordPolicy';
 import PasswordRequirementChecklist from '../../../../../../components/common/PasswordRequirementChecklist';
+import { APP_VERSION } from '../../../../../../constants/appInfo';
 
 const TERMS_URL = 'https://humaeli.com/terms-of-use/';
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -720,7 +721,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         </View>
         <View style={styles.rowBody}>
           <Text style={styles.rowLabel}>{t('settings:appVersion', 'App Version')}</Text>
-          <Text style={styles.rowSub}>Humaeli v1.2.4</Text>
+          <Text style={styles.rowSub}>Humaeli v{APP_VERSION}</Text>
         </View>
       </View>
 
