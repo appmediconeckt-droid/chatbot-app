@@ -1,9 +1,8 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE_URL } from '../axiosConfig';
-
 const CACHE_PREFIX = 'translation_cache_';
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
+const MAX_CONCURRENT_REQUESTS = 4;
 
 // App locale code -> Google translate code (only the ones that differ).
 const GOOGLE_LANG = {
@@ -16,10 +15,45 @@ const GOOGLE_LANG = {
   'he-IL': 'iw',
 };
 
+const protectTranslationTokens = (text) => {
+  const tokens = [];
+  const protectedText = text.replace(/\{\{[^{}]+\}\}|\bHumaeli\b/g, (token) => {
+    const marker = `__HUMAELI_${tokens.length}__`;
+    tokens.push(token);
+    return marker;
+  });
+
+  return {
+    protectedText,
+    restore: (translatedText) =>
+      tokens.reduce(
+        (result, token, index) => result.replace(`__HUMAELI_${index}__`, token),
+        translatedText,
+      ),
+  };
+};
+
+const extractTranslatedText = (payload) => {
+  if (typeof payload === 'string') return payload;
+  if (!Array.isArray(payload)) return '';
+  if (typeof payload[0] === 'string') return payload[0];
+
+  // translate.google.com/single returns an array of translated segments.
+  if (Array.isArray(payload[0])) {
+    return payload[0]
+      .map((segment) => (Array.isArray(segment) && typeof segment[0] === 'string' ? segment[0] : ''))
+      .join('');
+  }
+
+  return '';
+};
+
 class TranslationService {
   constructor() {
     this.cache = new Map();
     this.pending = new Map();
+    this.queue = [];
+    this.activeRequests = 0;
     this.loadCacheFromStorage();
   }
 
@@ -39,7 +73,29 @@ class TranslationService {
 
   getCacheKey(text, targetLang, sourceLang = 'en-US') {
     const hash = this.simpleHash(text);
-    return `${CACHE_PREFIX}${sourceLang}_${targetLang}_${hash}`;
+    return `${CACHE_PREFIX}${CACHE_VERSION}_${sourceLang}_${targetLang}_${hash}`;
+  }
+
+  enqueue(request) {
+    return new Promise((resolve, reject) => {
+      this.queue.push({ request, resolve, reject });
+      this.processQueue();
+    });
+  }
+
+  processQueue() {
+    while (this.activeRequests < MAX_CONCURRENT_REQUESTS && this.queue.length > 0) {
+      const job = this.queue.shift();
+      this.activeRequests += 1;
+
+      Promise.resolve()
+        .then(job.request)
+        .then(job.resolve, job.reject)
+        .finally(() => {
+          this.activeRequests -= 1;
+          this.processQueue();
+        });
+    }
   }
 
   simpleHash(str) {
@@ -84,7 +140,9 @@ class TranslationService {
     }
 
     // Make API call
-    const promise = this._translateFromAPI(text, targetLang, sourceLang, cacheKey);
+    const promise = this.enqueue(() =>
+      this._translateFromAPI(text, targetLang, sourceLang, cacheKey),
+    );
     this.pending.set(cacheKey, promise);
 
     try {
@@ -97,23 +155,40 @@ class TranslationService {
 
   async _translateFromAPI(text, targetLang, sourceLang, cacheKey, retryCount = 0) {
     try {
-      // Translate directly via the free Google endpoint (no API key / backend
-      // needed). Auto-detect source so it works for UI strings (English) AND
-      // dynamic chat messages (any language). `dt=t` returns translation segments.
       const tl = GOOGLE_LANG[targetLang] || targetLang.split('-')[0];
-      const url =
-        `https://translate.googleapis.com/translate_a/single?client=gtx` +
-        `&sl=auto&tl=${encodeURIComponent(tl)}&dt=t&q=${encodeURIComponent(text)}`;
+      const { protectedText, restore } = protectTranslationTokens(text);
+      // The old translate.googleapis.com/gtx endpoint now frequently responds
+      // with Google's automated-query block page on Android networks. The
+      // Chrome dictionary endpoint returns the same translation data without
+      // that failure mode and supports all locales exposed by our selector.
+      const encodedLanguage = encodeURIComponent(tl);
+      const encodedText = encodeURIComponent(protectedText);
+      const urls = [
+        `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=${encodedLanguage}&q=${encodedText}`,
+        `https://translate.google.com/translate_a/single?client=at&dt=t&sl=auto&tl=${encodedLanguage}&q=${encodedText}`,
+      ];
 
-      const response = await axios.get(url, {
-        timeout: 15000,
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-      });
+      let rawTranslatedText = '';
+      let lastError;
+      for (const url of urls) {
+        try {
+          const response = await axios.get(url, { timeout: 15000 });
+          rawTranslatedText = extractTranslatedText(response.data);
+          if (rawTranslatedText) break;
+        } catch (endpointError) {
+          lastError = endpointError;
+        }
+      }
 
-      const segments = response.data?.[0];
-      const translatedText = Array.isArray(segments)
-        ? segments.map((s) => (s && s[0]) || '').join('')
-        : text;
+      if (!rawTranslatedText && lastError) throw lastError;
+      const translatedText = restore(rawTranslatedText);
+
+      // Some universal labels/proper nouns (OK, OTP, names) are correctly the
+      // same in the target language, so only an empty payload is an error.
+      if (!translatedText) {
+        throw new Error('Translation endpoint returned no translated text');
+      }
+
       const data = { translatedText: translatedText || text, timestamp: Date.now() };
 
       // Save to cache
@@ -126,8 +201,9 @@ class TranslationService {
 
       return translatedText;
     } catch (error) {
-      // Retry on 429 (rate limit) with exponential backoff
-      if (error.response?.status === 429 && retryCount < 3) {
+      // Retry transient network/rate-limit failures with exponential backoff.
+      const status = error.response?.status;
+      if ((!status || status === 429 || status >= 500) && retryCount < 3) {
         const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
         console.warn(`Rate limited. Retrying in ${delay}ms (attempt ${retryCount + 1}/3)`);
         await new Promise(resolve => setTimeout(resolve, delay));

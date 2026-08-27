@@ -42,11 +42,6 @@ const Landing = ({ navigation }) => {
   }, [fadeAnim, slideAnim]);
 
   const handleGetStarted = () => {
-    if (navigation?.replace) {
-      navigation.replace('RoleSelector');
-      return;
-    }
-
     navigation?.navigate?.('RoleSelector');
   };
 

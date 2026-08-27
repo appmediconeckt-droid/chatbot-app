@@ -271,8 +271,8 @@ const s = StyleSheet.create({
   thirdOnboardingVideoCard: { width: '76%', maxWidth: 240, aspectRatio: 1, alignSelf: 'center', overflow: 'hidden', backgroundColor: '#E6F6EC', borderRadius: 24, marginBottom: 20 },
 
   aiChatBox: { backgroundColor: '#ffffff', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#E6F6EC', marginBottom: 20 },
-  aiBubble: { backgroundColor: '#E6F6EC', borderRadius: 12, padding: 12, marginBottom: 14 },
-  aiMessage: { fontSize: 13, color: '#0f172a', fontWeight: '500' },
+  aiBubble: { backgroundColor: '#E6F6EC', borderRadius: 12, padding: 12, marginBottom: 14, alignItems: 'center', justifyContent: 'center' },
+  aiMessage: { width: '100%', fontSize: 13, color: '#0f172a', fontWeight: '500', textAlign: 'center' },
   responseButtons: { flexDirection: 'row', gap: 8 },
   responseOption: { flex: 1, minWidth: 0, paddingVertical: 4, paddingHorizontal: 2, alignItems: 'center', justifyContent: 'center' },
   responseBtnText: { width: '100%', fontSize: 12, fontWeight: '600', color: '#0f172a', textAlign: 'center' },

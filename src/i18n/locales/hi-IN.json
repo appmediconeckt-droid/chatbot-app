@@ -42,7 +42,8 @@
     "confirmed": "पुष्टि",
     "canceled": "रद्द",
     "sending": "भेजा जा रहा है...",
-    "loadingMessages": "संदेश लोड हो रहे हैं..."
+    "loadingMessages": "संदेश लोड हो रहे हैं...",
+    "attach": "संलग्न करें"
   },
   "auth": {
     "login": "लॉगिन",
@@ -113,7 +114,9 @@
     "aiQuickReplyLow": "कम",
     "aiQuickReplyOkay": "ठीक है",
     "aiQuickReplyGood": "अच्छा",
-    "aiQuickReplyGreat": "बहुत बढ़िया"
+    "aiQuickReplyGreat": "बहुत बढ़िया",
+    "consultants": "सलाहकार",
+    "appointments": "नियुक्तियाँ"
   },
   "counselor": {
     "myClients": "मेरे मरीज़",
@@ -141,7 +144,7 @@
     "appointment": "अपॉइंटमेंट",
     "profile": "प्रोफाइल",
     "signingInAs": "{{name}} के रूप में साइन इन",
-    "loadingAccount": "Loading your account…",
+    "loadingAccount": "आपका खाता लोड हो रहा है...",
     "startVideoCall": "वीडियो कॉल शुरू करें",
     "appointmentCanceled": "यह अपॉइंटमेंट रद्द हो गई।",
     "available": "उपलब्ध",
@@ -186,7 +189,7 @@
     "expired": "समाप्त",
     "deleteChat": "चैट हटाएं",
     "deleteChatConfirm": "क्या आप वाकई इस चैट को हटाना चाहते हैं?",
-    "deleteChatWarning": "⚠️ This action cannot be undone. All messages will be permanently deleted.",
+    "deleteChatWarning": "⚠️ इस क्रिया को पूर्ववत नहीं किया जा सकता. सभी संदेश स्थायी रूप से हटा दिए जाएंगे.",
     "lastMessageLabel": "अंतिम संदेश"
   },
   "settings": {
@@ -354,9 +357,9 @@
     "personalInformation": "व्यक्तिगत जानकारी",
     "patientId": "रोगी आईडी",
     "verify": "सत्यापित करें",
-    "verifying": "Verifying…",
+    "verifying": "सत्यापन किया जा रहा है...",
     "resend": "पुनः भेजें",
-    "sendingOtp": "Sending…",
+    "sendingOtp": "भेजा जा रहा है...",
     "addressLine1": "पंक्ति 1",
     "addressLine2": "पंक्ति 2",
     "city": "शहर",
@@ -410,7 +413,7 @@
     "paymentError": "भुगतान त्रुटि",
     "couldNotInitiatePayment": "भुगतान शुरू नहीं कर सके।",
     "walletFailedToLoad": "वॉलेट डेटा लोड करने में विफल।",
-    "upi": "UPI",
+    "upi": "यूपीआई",
     "card": "कार्ड",
     "netbanking": "नेटबैंकिंग",
     "walletPayment": "वॉलेट"
@@ -532,6 +535,17 @@
     "checklistItem5": "चैट संदेशों के अंदर OTP, पासवर्ड या संवेदनशील खाता विवरण साझा न करें।",
     "checklistItem6": "अपने खाते में संग्रहीत डेटा को अपडेट या समीक्षा करने के लिए मेरी प्रोफाइल और सेटिंग्स का उपयोग करें।",
     "manageData": "प्रोफाइल डेटा प्रबंधित करें",
-    "securitySettings": "सुरक्षा सेटिंग्स"
+    "securitySettings": "सुरक्षा सेटिंग्स",
+    "aiQuickReplyLow": "नीचा",
+    "aiQuickReplyOkay": "ठीक है",
+    "aiQuickReplyGood": "अच्छा",
+    "aiQuickReplyGreat": "बढ़िया",
+    "aiPhotoAttached": "फोटो संलग्न",
+    "aiTryAgain": "पुनः प्रयास करें",
+    "aiVoiceHint": "जब आप तैयार हों तब बोलें - आपके रुकते ही मैं उत्तर दूंगा।",
+    "resetChatTitle": "नई चैट प्रारंभ करें?",
+    "resetChatMessage": "यह वर्तमान AI चैट को साफ़ करता है और स्वागत मूड विकल्पों के साथ फिर से शुरू होता है।",
+    "startFresh": "नए सिरे से शुरुआत करें",
+    "startingFresh": "प्रारंभ..."
   }
 }
