@@ -1548,6 +1548,7 @@ export default function UserDashboard() {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
   const [isMobile, setIsMobile] = useState(windowWidth <= 768);
   const [isLoading, setIsLoading] = useState(false);
@@ -2336,11 +2337,13 @@ export default function UserDashboard() {
   };
 
   const handleDeleteConfirm = async () => {
+    if (deletingAccount) return;
     safeVibrate([220, 100, 220]);
-    setShowDeleteConfirm(false);
+    setDeletingAccount(true);
     try {
       await axiosInstance.delete('/api/auth/delete');
       await clearAccountLocalData();
+      setShowDeleteConfirm(false);
       setDeleteSuccess(true);
       setTimeout(() => {
         navigation.replace("RoleSelector");
@@ -2351,6 +2354,8 @@ export default function UserDashboard() {
         "Delete failed",
         error?.response?.data?.message || "Could not delete your account. Please try again.",
       );
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -2618,7 +2623,12 @@ export default function UserDashboard() {
         // callback after a successful save - it just was never wired up.
         return <PatientProfile onProfileUpdate={fetchUserData} />;
       case "settings":
-        return <UserAccountSettings onNavigateBack={() => handleDashboardBack()} />;
+        return (
+          <UserAccountSettings
+            onNavigateBack={() => handleDashboardBack()}
+            onDeleteAccount={() => setShowDeleteConfirm(true)}
+          />
+        );
       default:
         return <ChatInterface />;
     }
@@ -3085,14 +3095,20 @@ export default function UserDashboard() {
               <TouchableOpacity
                 style={[styles.modalBtn, styles.cancelBtn]}
                 onPress={() => setShowDeleteConfirm(false)}
+                disabled={deletingAccount}
               >
                 <Text style={styles.cancelBtnText}>{t('common:cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.deleteBtn]}
+                style={[styles.modalBtn, styles.deleteBtn, deletingAccount && styles.deleteBtnBusy]}
                 onPress={handleDeleteConfirm}
+                disabled={deletingAccount}
               >
-                <Text style={styles.deleteBtnText}>{t('settings:deleteAccount')}</Text>
+                {deletingAccount ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.deleteBtnText}>{t('settings:deleteAccount')}</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -5349,6 +5365,9 @@ const styles = StyleSheet.create({
   },
   deleteBtn: {
     backgroundColor: "#ef4444",
+  },
+  deleteBtnBusy: {
+    opacity: 0.75,
   },
   deleteBtnText: {
     color: "#ffffff",

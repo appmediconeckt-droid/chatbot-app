@@ -40,7 +40,7 @@ const isGeneratedUserAvatarUrl = (raw) => {
   );
 };
 
-const UserAccountSettings = () => {
+const UserAccountSettings = ({ onDeleteAccount }) => {
   const { t } = useLanguageRender();
   const navigation = useNavigation();
   const [account, setAccount] = useState({ name: '', email: '', phone: '', profilePhoto: '' });
@@ -646,6 +646,32 @@ const UserAccountSettings = () => {
           </View>
         </View>
 
+        <View style={[s.section, s.dangerSection]}>
+          <View style={s.dangerHeader}>
+            <View style={s.dangerIconWrap}>
+              <Ionicons name="warning-outline" size={18} color="#dc2626" />
+            </View>
+            <View style={s.dangerCopy}>
+              <Text style={s.dangerTitle}>{t('settings:deleteAccount', 'Delete Account')}</Text>
+              <Text style={s.dangerSub}>
+                {t(
+                  'settings:deleteWarning',
+                  'This action cannot be undone. All your data will be permanently deleted.',
+                )}
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={s.deleteAccountBtn}
+            activeOpacity={0.85}
+            onPress={onDeleteAccount}
+          >
+            <Ionicons name="trash-outline" size={17} color="#ffffff" />
+            <Text style={s.deleteAccountText}>{t('settings:deleteAccount', 'Delete Account')}</Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={s.bottomSpace} />
       </ScrollView>
     </View>
@@ -740,6 +766,55 @@ const s = StyleSheet.create({
   appLockRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   appLockTitle: { fontSize: 13, lineHeight: 16, fontWeight: '700', color: '#0f172a', includeFontPadding: false },
   appLockSub: { fontSize: 13, lineHeight: 16, color: '#64748b', marginTop: 2, includeFontPadding: false },
+  dangerSection: {
+    borderColor: '#fecaca',
+    backgroundColor: '#fffafa',
+  },
+  dangerHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  dangerIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#fee2e2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dangerCopy: { flex: 1, minWidth: 0 },
+  dangerTitle: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+    color: '#991b1b',
+    includeFontPadding: false,
+  },
+  dangerSub: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#7f1d1d',
+    marginTop: 4,
+    includeFontPadding: false,
+  },
+  deleteAccountBtn: {
+    minHeight: 44,
+    borderRadius: 10,
+    backgroundColor: '#dc2626',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 14,
+  },
+  deleteAccountText: {
+    color: '#ffffff',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '800',
+    includeFontPadding: false,
+  },
   bottomSpace: { height: 24 },
 
 });
