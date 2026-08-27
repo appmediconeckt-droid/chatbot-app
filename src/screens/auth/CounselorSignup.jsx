@@ -22,6 +22,7 @@ import AuthBackground from '../../theme/AuthBackground';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { launchImageLibrary } from 'react-native-image-picker';
 import GoogleAuthButton from './components/GoogleAuthButton';
+import OtpCodeInput from './components/OtpCodeInput';
 import ForgotPasswordModal from './components/ForgotPasswordModal';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
@@ -30,7 +31,7 @@ import socketService from '../../services/socketService';
 import logo from '../../image/HumaeliBlue.png';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
-import { getApiErrorMessage, isOtpRequestSuccessful, isOtpVerificationSuccessful, postPublicAuthEndpoint } from './authUtils';
+import { getApiErrorMessage, isOtpRequestSuccessful, isOtpSessionMissingMessage, isOtpVerificationSuccessful, postPublicAuthEndpoint } from './authUtils';
 
 const CounselorSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
@@ -38,6 +39,7 @@ const CounselorSignup = ({ navigation, route }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
   const { scrollRef, keyboardOpen, keyboardInset, scrollFocusedInputIntoView } = useKeyboardAwareScroll();
+  const modalKeyboardLift = keyboardOpen ? Math.min(56, Math.max(24, Math.round(keyboardInset * 0.12))) : 0;
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -80,13 +82,15 @@ const CounselorSignup = ({ navigation, route }) => {
 
   // Verification states
   const [emailVerified, setEmailVerified] = useState(false);
-  const [, setEmailVerificationToken] = useState('');
+  const [emailVerificationToken, setEmailVerificationToken] = useState('');
   const [showOtpModal, setShowOtpModal] = useState({ show: false, type: '', value: '' });
   const [otpCode, setOtpCode] = useState('');
   const [isSendingVerification, setIsSendingVerification] = useState(false);
   const sendingVerificationRef = useRef(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const verifyingOtpRef = useRef(false);
   const [otpError, setOtpError] = useState('');
+  const [isResendingVerification, setIsResendingVerification] = useState(false);
 
   // Device Conflict States
   const [showDeviceConflict, setShowDeviceConflict] = useState(false);
@@ -212,7 +216,7 @@ const CounselorSignup = ({ navigation, route }) => {
       const response = await axiosInstance.post('/api/auth/login', {
         email: formData.email,
         password: formData.password,
-        role: 'counsellor',
+        role: 'counselor',
       });
       if (await persistCounselorSession(response.data)) {
         showNotification('Login successful!');
@@ -257,11 +261,15 @@ const CounselorSignup = ({ navigation, route }) => {
         aboutMe: formData.aboutMe.trim(),
         password: formData.password,
         role: 'counselor',
-        isEmailVerified: true,
+        isEmailVerified: emailVerified,
         isPhoneVerified: true,
         consultationMode: formData.consultationMode.map(mode => mode.toLowerCase()),
         languages: formData.languages,
       };
+
+      if (emailVerificationToken) {
+        data.emailVerificationToken = emailVerificationToken;
+      }
 
       const response = await postPublicAuthEndpoint('complete-registration', data);
 
@@ -327,18 +335,59 @@ const CounselorSignup = ({ navigation, route }) => {
     }
   };
 
-  const handleVerifyOtp = async () => {
-    const normalizedOtp = otpCode.trim();
-    if (normalizedOtp.length !== 6) return setOtpError('Enter 6 digits');
-    const otpEmail = String(showOtpModal.value || formData.email).trim().toLowerCase();
+  const handleResendVerifyOtp = async () => {
+    if (isResendingVerification || sendingVerificationRef.current) return;
+    const email = formData.email.trim().toLowerCase();
+    const type = 'email';
+    const value = email;
+
+    if (!value) return showNotification(`Enter ${type} first`, 'error');
+    if (type === 'email' && !/^\S+@\S+\.\S+$/.test(value)) {
+      return showNotification('Please enter a valid email address', 'error');
+    }
+
     try {
+      setIsResendingVerification(true);
+      setOtpCode('');
+      setOtpError('');
+      const response = await postPublicAuthEndpoint('send-email-otp', { email: value });
+
+      if (isOtpRequestSuccessful(response)) {
+        setFormData(prev => ({ ...prev, email: value }));
+        setShowOtpModal({ show: true, type, value });
+        showNotification(response.data?.message || `OTP resent to ${type}`);
+      } else {
+        showNotification(response.data?.message || 'Failed to resend OTP', 'error');
+      }
+    } catch (err) {
+      showNotification(getApiErrorMessage(err, 'Failed to resend OTP'), 'error');
+    } finally {
+      setIsResendingVerification(false);
+    }
+  };
+
+  const verifyEmailOtpOnce = async (otpEmail, normalizedOtp) => {
+    const endpoint = 'verify-email-otp';
+    const payload = { email: otpEmail, otp: normalizedOtp };
+    return postPublicAuthEndpoint(endpoint, payload);
+  };
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const handleVerifyOtp = async () => {
+    if (verifyingOtpRef.current) return;
+    const normalizedOtp = otpCode.trim();
+    if (normalizedOtp.length !== 6) {
+      setOtpError('Enter 6 digits');
+      return;
+    }
+    const otpEmail = String(showOtpModal.value || formData.email).trim().toLowerCase();
+    const type = 'email';
+    try {
+      verifyingOtpRef.current = true;
       setIsVerifyingOtp(true);
       setOtpError('');
-      const type = 'email';
-      const endpoint = 'verify-email-otp';
-      const payload = { email: otpEmail, otp: normalizedOtp };
-
-      const response = await postPublicAuthEndpoint(endpoint, payload);
+      let response = await verifyEmailOtpOnce(otpEmail, normalizedOtp);
       if (isOtpVerificationSuccessful(response)) {
         setFormData(prev => ({ ...prev, email: otpEmail }));
         setEmailVerified(true);
@@ -352,7 +401,30 @@ const CounselorSignup = ({ navigation, route }) => {
         setOtpCode('');
         showNotification(`${type} verified!`);
       } else {
-        setOtpError(response.data?.message || 'Failed');
+        const message = response.data?.message || 'Failed';
+        if (isOtpSessionMissingMessage(message)) {
+          await sleep(600);
+          response = await verifyEmailOtpOnce(otpEmail, normalizedOtp);
+          if (isOtpVerificationSuccessful(response)) {
+            setFormData(prev => ({ ...prev, email: otpEmail }));
+            setEmailVerified(true);
+            setEmailVerificationToken(
+              response.data?.emailVerificationToken ||
+              response.data?.data?.emailVerificationToken ||
+              response.data?.result?.emailVerificationToken ||
+              ''
+            );
+            setShowOtpModal({ show: false, type: '', value: '' });
+            setOtpCode('');
+            showNotification(`${type} verified!`);
+            return;
+          }
+        }
+        setOtpError(
+          isOtpSessionMissingMessage(message)
+            ? 'No OTP found. Please request a new OTP.'
+            : message
+        );
       }
     } catch (err) {
       if (!err?.response) {
@@ -364,9 +436,41 @@ const CounselorSignup = ({ navigation, route }) => {
         showNotification('Email verification submitted. Continue registration.');
         return;
       }
-      setOtpError(getApiErrorMessage(err, 'Verification failed'));
+      const message = getApiErrorMessage(err, 'Verification failed');
+      if (isOtpSessionMissingMessage(message)) {
+        await sleep(600);
+        try {
+          const retryResponse = await verifyEmailOtpOnce(otpEmail, normalizedOtp);
+          if (isOtpVerificationSuccessful(retryResponse)) {
+            setFormData(prev => ({ ...prev, email: otpEmail }));
+            setEmailVerified(true);
+            setEmailVerificationToken(
+              retryResponse.data?.emailVerificationToken ||
+              retryResponse.data?.data?.emailVerificationToken ||
+              retryResponse.data?.result?.emailVerificationToken ||
+              ''
+            );
+            setShowOtpModal({ show: false, type: '', value: '' });
+            setOtpCode('');
+            showNotification(`${type} verified!`);
+            return;
+          }
+        } catch (retryErr) {
+          const retryMessage = getApiErrorMessage(retryErr, 'Verification failed');
+          if (!isOtpSessionMissingMessage(retryMessage)) {
+            setOtpError(retryMessage);
+            return;
+          }
+        }
+      }
+      setOtpError(
+        isOtpSessionMissingMessage(message)
+          ? 'No OTP found. Please request a new OTP.'
+          : message
+      );
     } finally {
       setIsVerifyingOtp(false);
+      verifyingOtpRef.current = false;
     }
   };
 
@@ -384,11 +488,14 @@ const CounselorSignup = ({ navigation, route }) => {
   const handleSendDeviceOtp = async () => {
     try {
       setIsSendingDeviceOtp(true);
-      await axiosInstance.post('/api/auth/logout-other-devices', { email: formData.email, role: 'counsellor' });
+      await postPublicAuthEndpoint('logout-other-devices', {
+        email: formData.email.trim().toLowerCase(),
+        role: 'counselor',
+      });
       setDeviceOtpSent(true);
       showNotification('OTP sent to email');
     } catch (err) {
-      showNotification('Failed', 'error');
+      showNotification(getApiErrorMessage(err, 'Failed'), 'error');
     } finally {
       setIsSendingDeviceOtp(false);
     }
@@ -397,11 +504,11 @@ const CounselorSignup = ({ navigation, route }) => {
   const handleVerifyDeviceOtp = async () => {
     try {
       setIsVerifyingDeviceOtp(true);
-      const response = await axiosInstance.post('/api/auth/verify-login-otp', {
-        email: formData.email,
+      const response = await postPublicAuthEndpoint('verify-login-otp', {
+        email: formData.email.trim().toLowerCase(),
         otp: deviceOtp,
         logoutOthers: true,
-        role: 'counsellor'
+        role: 'counselor'
       });
       if (await persistCounselorSession(response.data)) {
         setShowDeviceConflict(false);
@@ -409,7 +516,7 @@ const CounselorSignup = ({ navigation, route }) => {
         navigation.replace('LocationGate', { destination: 'CounselorDashboard' });
       }
     } catch (err) {
-      showNotification('Invalid OTP', 'error');
+      showNotification(getApiErrorMessage(err, 'Invalid OTP'), 'error');
     } finally {
       setIsVerifyingDeviceOtp(false);
     }
@@ -464,8 +571,8 @@ const CounselorSignup = ({ navigation, route }) => {
             {...options}
           />
           {verifyType && !isLogin && (
-            <TouchableOpacity onPress={handleSendVerifyOtp} disabled={isVerified || isSendingVerification} style={[styles.verifyBtn, (isVerified || isSendingVerification) && styles.verifiedBtn]}>
-              {isVerified ? <Icon name="check-decagram" size={18} color="#004AC6" /> : isSendingVerification ? <ActivityIndicator size="small" color="#004AC6" /> : <Text style={styles.verifyBtnText}>{t('Verify')}</Text>}
+            <TouchableOpacity onPress={handleSendVerifyOtp} disabled={isVerified || isSendingVerification} style={[styles.verifyBtn, isVerified && styles.verifiedBtn]}>
+              {isVerified ? <Icon name="check-decagram" size={18} color="#004AC6" /> : isSendingVerification ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.verifyBtnText}>{t('Verify')}</Text>}
             </TouchableOpacity>
           )}
         </View>
@@ -477,7 +584,8 @@ const CounselorSignup = ({ navigation, route }) => {
   const scrollContainerStyle = {
     ...styles.scrollContent,
     justifyContent: isLogin && !keyboardOpen ? 'center' : 'flex-start',
-    paddingBottom: 60 + keyboardInset,
+    paddingTop: isLogin && keyboardOpen ? 60 : styles.scrollContent.paddingTop,
+    paddingBottom: 60 + keyboardInset + (keyboardOpen ? 120 : 0),
   };
 
   return (
@@ -501,81 +609,79 @@ const CounselorSignup = ({ navigation, route }) => {
                   <View style={styles.brandContainer}><Text style={[styles.brandMain, { color: '#004AC6' }]}>{t('Humaeli')}</Text></View>
                   <Text style={styles.tagline}>{'Join our expert team'}</Text>
                 </View>
-                {/* {!isLogin && (
-                  <Animated.View key="photo-section" style={[styles.photoSection, { opacity: fieldAnims[0] }]}>
-                    <TouchableOpacity onPress={handleSelectImage} style={styles.photoCircle}>
-                      {formData.profilePhoto ? (
-                        <Image source={{ uri: formData.profilePhoto.uri }} style={styles.photo} />
-                      ) : (
-                        <Icon name="camera-plus-outline" size={30} color="#004AC6" />
-                      )}
-                    </TouchableOpacity>
-                    <Text style={styles.photoLabel}>{t('Counselor Photo')}</Text>
-                  </Animated.View>
-                )} */}
-                <View style={styles.formPanel}>
-                  {!isLogin ? (
-                    <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderInput(3, 'phoneNumber', 'phone-outline', 'Phone Number', { keyboardType: 'phone-pad', maxLength: 10 })}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
-                      <Animated.View key="gender-section" style={{ opacity: fieldAnims[5] }}><Text style={styles.sectionLabel}>{t('Gender')}</Text><View style={styles.genderRow}>{genderOptions.map(g => (<TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}><Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text></TouchableOpacity>))}</View></Animated.View>
-                      {renderInput(6, 'qualification', 'school-outline', 'Qualification')}{renderInput(7, 'specialization', 'certificate-outline', 'Specialization')}
-                      <View style={styles.row}><View style={{ flex: 1 }}>{renderInput(8, 'experience', 'briefcase-clock-outline', 'Years')}</View><View style={{ flex: 1.5 }}>{renderInput(9, 'location', 'map-marker-radius-outline', 'City')}</View></View>
-                      <Animated.View key="mode-section" style={{ opacity: fieldAnims[10] }}><Text style={styles.sectionLabel}>{t('Consultation Mode')}</Text><View style={styles.tagRow}>{consultationModes.map(m => (<TouchableOpacity key={m} style={[styles.tag, formData.consultationMode.includes(m) && styles.tagSelected]} onPress={() => toggleListItem('consultationMode', m)}><Text style={[styles.tagText, formData.consultationMode.includes(m) && styles.tagTextSelected]}>{m}</Text></TouchableOpacity>))}</View></Animated.View>
-                      <Animated.View key="lang-section" style={{ opacity: fieldAnims[11] }}><Text style={styles.sectionLabel}>{t('Languages')}</Text><View style={styles.tagRow}>{languageOptions.map(l => (<TouchableOpacity key={l} style={[styles.tag, formData.languages.includes(l) && styles.tagSelected]} onPress={() => toggleListItem('languages', l)}><Text style={[styles.tagText, formData.languages.includes(l) && styles.tagTextSelected]}>{l}</Text></TouchableOpacity>))}</View></Animated.View>
-                      {renderInput(12, 'aboutMe', 'account-details-outline', 'About Me', { multiline: true })}
-                    </>
-                  ) : (<>{renderInput(1, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' })}</>)}
-                  <Animated.View key="pwd-section" style={{ opacity: fieldAnims[13] }}>
-                    <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
-                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} /><TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
-                    </View>
-                  </Animated.View>
-                  {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#004AC6' }]}>{t('Forgot password?')}</Text></TouchableOpacity>)}
-                  {!isLogin && (<Animated.View key="cpwd-section" style={{ opacity: fieldAnims[14] }}><View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}><Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={(event) => { setFocusedField('confirmPassword'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Confirm Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} /><TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity></View></Animated.View>)}
-                  <Animated.View key="btn-section" style={{ opacity: fieldAnims[15], marginTop: 10 }}>
-                    <TouchableOpacity activeOpacity={0.9} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
-                      <LinearGradient
-                        colors={['#003A9B', '#1490FF']}
-                        start={{ x: 0, y: 0.5 }}
-                        end={{ x: 1, y: 0.5 }}
-                        style={styles.submitBtn}
-                      >
-                        {isLoading ? (
-                          <ActivityIndicator color="#fff" />
+                  {/* {!isLogin && (
+                    <Animated.View key="photo-section" style={[styles.photoSection, { opacity: fieldAnims[0] }]}>
+                      <TouchableOpacity onPress={handleSelectImage} style={styles.photoCircle}>
+                        {formData.profilePhoto ? (
+                          <Image source={{ uri: formData.profilePhoto.uri }} style={styles.photo} />
                         ) : (
-                          <Text style={styles.submitBtnText}>{isLogin ? 'Login' : 'Create Account'}</Text>
+                          <Icon name="camera-plus-outline" size={30} color="#004AC6" />
                         )}
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </Animated.View>
-                  <Animated.View key="google-section" style={{ opacity: fieldAnims[15], marginTop: 14 }}>
-                    <View style={styles.googleDividerRow}>
-                      <View style={styles.googleDividerLine} />
-                      <Text style={styles.googleDividerText}>or</Text>
-                      <View style={styles.googleDividerLine} />
-                    </View>
-                    <GoogleAuthButton
-                      role="counselor"
-                      mode={isLogin ? 'signin' : 'signup'}
-                      disabled={isLoading}
-                      locationEvent={isLogin ? 'login' : 'signup'}
-                      onSuccess={({ isCounselor }) => {
-                        sendLocationSilently(isLogin ? 'login' : 'signup');
-                        setTimeout(() => {
-                          navigation.replace(
-                            isCounselor ? 'CounselorDashboard' : 'UserDashboard',
-                          );
-                        }, 600);
-                      }}
-                      onError={(msg) => {
-                        // CounselorSignup doesn't have a generic error toast,
-                        // so surface via Alert.
-                        console.warn('[Google sign-in]', msg);
-                      }}
-                    />
-                  </Animated.View>
-                  <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[16] }]}><Text style={styles.switchText}>{isLogin ? "New counselor?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#004AC6' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
-                </View>
-              </Animated.View>
+                      </TouchableOpacity>
+                      <Text style={styles.photoLabel}>{t('Counselor Photo')}</Text>
+                    </Animated.View>
+                  )} */}
+                  <View style={styles.formPanel}>
+                    {!isLogin ? (
+                      <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderInput(3, 'phoneNumber', 'phone-outline', 'Phone Number', { keyboardType: 'phone-pad', maxLength: 10 })}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
+                        <Animated.View key="gender-section" style={{ opacity: fieldAnims[5] }}><Text style={styles.sectionLabel}>{t('Gender')}</Text><View style={styles.genderRow}>{genderOptions.map(g => (<TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}><Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text></TouchableOpacity>))}</View></Animated.View>
+                        {renderInput(6, 'qualification', 'school-outline', 'Qualification')}{renderInput(7, 'specialization', 'certificate-outline', 'Specialization')}
+                        <View style={styles.row}><View style={{ flex: 1 }}>{renderInput(8, 'experience', 'briefcase-clock-outline', 'Years')}</View><View style={{ flex: 1.5 }}>{renderInput(9, 'location', 'map-marker-radius-outline', 'City')}</View></View>
+                        <Animated.View key="mode-section" style={{ opacity: fieldAnims[10] }}><Text style={styles.sectionLabel}>{t('Consultation Mode')}</Text><View style={styles.tagRow}>{consultationModes.map(m => (<TouchableOpacity key={m} style={[styles.tag, formData.consultationMode.includes(m) && styles.tagSelected]} onPress={() => toggleListItem('consultationMode', m)}><Text style={[styles.tagText, formData.consultationMode.includes(m) && styles.tagTextSelected]}>{m}</Text></TouchableOpacity>))}</View></Animated.View>
+                        <Animated.View key="lang-section" style={{ opacity: fieldAnims[11] }}><Text style={styles.sectionLabel}>{t('Languages')}</Text><View style={styles.tagRow}>{languageOptions.map(l => (<TouchableOpacity key={l} style={[styles.tag, formData.languages.includes(l) && styles.tagSelected]} onPress={() => toggleListItem('languages', l)}><Text style={[styles.tagText, formData.languages.includes(l) && styles.tagTextSelected]}>{l}</Text></TouchableOpacity>))}</View></Animated.View>
+                        {renderInput(12, 'aboutMe', 'account-details-outline', 'About Me', { multiline: true })}
+                      </>
+                    ) : (<>{renderInput(1, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' })}</>)}
+                    <Animated.View key="pwd-section" style={{ opacity: fieldAnims[13] }}>
+                      <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
+                        <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} /><TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
+                      </View>
+                    </Animated.View>
+                    {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#004AC6' }]}>{t('Forgot password?')}</Text></TouchableOpacity>)}
+                    {!isLogin && (<Animated.View key="cpwd-section" style={{ opacity: fieldAnims[14] }}><View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}><Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#004AC6' : '#64748b'} style={styles.inputIcon} /><TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={(event) => { setFocusedField('confirmPassword'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Confirm Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} /><TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity></View></Animated.View>)}
+                    <Animated.View key="btn-section" style={{ opacity: fieldAnims[15], marginTop: 10 }}>
+                      <TouchableOpacity activeOpacity={0.9} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
+                        <LinearGradient
+                          colors={['#003A9B', '#1490FF']}
+                          start={{ x: 0, y: 0.5 }}
+                          end={{ x: 1, y: 0.5 }}
+                          style={styles.submitBtn}
+                        >
+                          {isLoading ? (
+                            <ActivityIndicator color="#fff" />
+                          ) : (
+                            <Text style={styles.submitBtnText}>{isLogin ? 'Login' : 'Create Account'}</Text>
+                          )}
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </Animated.View>
+                    <Animated.View key="google-section" style={{ opacity: fieldAnims[15], marginTop: 14 }}>
+                      <View style={styles.googleDividerRow}>
+                        <View style={styles.googleDividerLine} />
+                        <Text style={styles.googleDividerText}>or</Text>
+                        <View style={styles.googleDividerLine} />
+                      </View>
+                      <GoogleAuthButton
+                        role="counselor"
+                        mode={isLogin ? 'signin' : 'signup'}
+                        disabled={isLoading}
+                        locationEvent={isLogin ? 'login' : 'signup'}
+                        onSuccess={({ isCounselor }) => {
+                          sendLocationSilently(isLogin ? 'login' : 'signup');
+                          setTimeout(() => {
+                            navigation.replace(
+                              isCounselor ? 'CounselorDashboard' : 'UserDashboard',
+                            );
+                          }, 600);
+                        }}
+                        onError={(msg) => {
+                          console.warn('[Google sign-in]', msg);
+                        }}
+                      />
+                    </Animated.View>
+                    <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[16] }]}><Text style={styles.switchText}>{isLogin ? "New counselor?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#004AC6' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
+                  </View>
+                </Animated.View>
             </ScrollView>
           </View>
         </SafeAreaView>
@@ -590,13 +696,36 @@ const CounselorSignup = ({ navigation, route }) => {
           onRequestClose={closeOtpModal}
         >
           <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+            <View
+              style={[
+                styles.modalContent,
+                keyboardOpen && { transform: [{ translateY: -modalKeyboardLift }] },
+              ]}
+            >
               <View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name="email-fast-outline" size={40} color="#004AC6" /></View>
               <Text style={styles.modalTitle}>Verify Your Email</Text>
               <Text style={styles.modalSub}>Enter code sent to {showOtpModal.value}</Text>
-              <TextInput key={`${showOtpModal.type}:${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`} style={styles.otpInput} value={otpCode} onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="number-pad" maxLength={6} autoFocus />
+              <OtpCodeInput
+                key={`${showOtpModal.type}:${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`}
+                value={otpCode}
+                onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))}
+                autoFocus
+                containerStyle={styles.otpContainer}
+                boxStyle={styles.otpDigitBox}
+                focusedBoxStyle={[styles.otpDigitBoxFocused, { borderColor: '#004AC6' }]}
+                textStyle={styles.otpDigitText}
+              />
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
-              <TouchableOpacity style={styles.modalActionBtn} onPress={handleVerifyOtp} disabled={isVerifyingOtp}>{isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Counselor')}</Text>}</TouchableOpacity>
+              <TouchableOpacity style={[styles.modalActionBtn, otpCode.length !== 6 && styles.modalActionBtnDisabled]} onPress={handleVerifyOtp} disabled={isVerifyingOtp || otpCode.length !== 6}>{isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Counselor')}</Text>}</TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleResendVerifyOtp}
+                disabled={isResendingVerification}
+                style={styles.resendOtpBtn}
+              >
+                <Text style={styles.resendOtpText}>
+                  {isResendingVerification ? 'Resending OTP...' : 'Resend OTP'}
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity>
             </View>
           </View>
@@ -691,17 +820,23 @@ const styles = StyleSheet.create({
   genderText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
   genderTextSelected: { color: '#004AC6' },
   modalOverlay: { flex: 1, width: '100%', minHeight: '100%', backgroundColor: 'rgba(15,23,42,0.64)', justifyContent: 'center', alignItems: 'center', padding: 22 },
-  modalContent: { backgroundColor: '#fff', borderRadius: 26, padding: 28, width: '100%', maxWidth: 390, alignItems: 'center', borderWidth: 1, borderColor: '#DBEAFE', shadowColor: '#0B2F6B', shadowOpacity: 0.18, shadowRadius: 24, elevation: 14 },
+  modalContent: { backgroundColor: '#fff', borderRadius: 26, padding: 28, width: '100%', maxWidth: 390, maxHeight: '82%', alignItems: 'center', borderWidth: 1, borderColor: '#DBEAFE', shadowColor: '#0B2F6B', shadowOpacity: 0.18, shadowRadius: 24, elevation: 14 },
   modalIcon: { width: 68, height: 68, borderRadius: 34, justifyContent: 'center', alignItems: 'center', marginBottom: 18 },
   modalTitle: { fontSize: 22, fontWeight: '900', color: '#0F172A', marginBottom: 8, textAlign: 'center' },
   modalSub: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 21, marginBottom: 22 },
   modalActionBtn: { width: '100%', height: 54, borderRadius: 16, backgroundColor: '#004AC6', justifyContent: 'center', alignItems: 'center', shadowColor: '#004AC6', shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
+  modalActionBtnDisabled: { backgroundColor: '#CBD5E1', shadowOpacity: 0 },
   modalActionText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   modalErrorText: { width: '100%', color: '#B91C1C', backgroundColor: '#FEF2F2', fontSize: 12, fontWeight: '700', textAlign: 'center', padding: 10, borderRadius: 10, marginTop: -6, marginBottom: 14 },
+  resendOtpBtn: { width: '100%', height: 44, justifyContent: 'center', alignItems: 'center' },
+  resendOtpText: { color: '#004AC6', fontSize: 14, fontWeight: '800' },
   cancelBtn: { width: '100%', height: 44, marginTop: 10, justifyContent: 'center', alignItems: 'center' },
   cancelText: { fontSize: 14, fontWeight: '700', color: '#64748B' },
   otpWrapper: { width: '100%', gap: 16 },
-  otpInput: { width: '100%', height: 56, borderRadius: 16, backgroundColor: '#F8FAFC', borderWidth: 1.5, borderColor: '#BFD7FF', textAlign: 'center', fontSize: 22, letterSpacing: 8, fontWeight: '800', color: '#0F172A', marginBottom: 16 },
+  otpContainer: { width: '100%', marginBottom: 16 },
+  otpDigitBox: { minHeight: 56, borderRadius: 16, borderColor: '#BFD7FF', backgroundColor: '#F8FAFC' },
+  otpDigitBoxFocused: { borderColor: '#004AC6', borderWidth: 2 },
+  otpDigitText: { fontSize: 22, fontWeight: '800', color: '#0F172A' },
   notification: { position: 'absolute', top: 50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 10, zIndex: 1000 },
   notificationText: { color: '#fff', fontSize: 14, fontWeight: '700', marginLeft: 8 },
 });

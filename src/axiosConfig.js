@@ -10,7 +10,7 @@ const API_ENDPOINTS = {
   // Must match the SAME backend the web frontend uses (chatbot/.env.local)
   // so OTP / email / forgot-password behave identically to web.
   
-  DEV_TUNNEL: 'https://m429gbrg-5001.inc1.devtunnels.ms',
+  DEV_TUNNEL: 'https://s5jl7g4z-5001.inc1.devtunnels.ms',
   RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
   LOCAL_ADB_5002: 'http://127.0.0.1:5002',
   LOCAL_5001: 'http://localhost:5001',
@@ -19,7 +19,7 @@ const API_ENDPOINTS = {
 };
 
 export const API_BASE_URL = API_ENDPOINTS.RAILWAY;
-export const AI_REALTIME_BASE_URL = API_ENDPOINTS.RAILWAY.replace(/\/+$/, '');
+export const AI_REALTIME_BASE_URL = API_BASE_URL.RAILWAY.replace(/\/+$/, '');
 export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
   ? { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' }
   : {};
@@ -116,6 +116,26 @@ axiosInstance.interceptors.response.use(
     const originalRequest = error.config;
     const url = originalRequest?.url || '';
     const isAuthRoute = NO_REFRESH_PATHS.some((p) => url.includes(p));
+
+    // Android can occasionally drop the first TLS connection after the app has
+    // been idle. Verifying an OTP is safe to repeat when no HTTP response was
+    // received, so retry it once instead of requiring the user to tap twice.
+  if (
+  !error.response &&
+  originalRequest &&
+  (
+    url.includes('/api/auth/verifyOtp') ||
+    url.includes('/api/auth/verify-email-otp') ||
+    url.includes('/api/auth/verify-login-otp') ||
+    url.includes('/api/auth/verify-forgot-password-otp')
+  ) &&
+  !originalRequest._otpNetworkRetry &&
+  error.code !== 'ERR_CANCELED'
+) {
+      originalRequest._otpNetworkRetry = true;
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      return axiosInstance(originalRequest);
+    }
 
     // This backend returns 404 (instead of 401) when a session has been
     // invalidated by a logout/sign-in on another device. If this device still

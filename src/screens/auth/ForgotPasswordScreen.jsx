@@ -9,9 +9,8 @@ import {
   Alert,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import axios from "axios";
-import { API_BASE_URL } from "../../axiosConfig";
 import useLanguageRender from '../../hooks/useLanguageRender';
+import { getApiErrorMessage, isOtpRequestSuccessful, postPublicAuthEndpoint } from "./authUtils";
 
 const ForgotPasswordScreen = () => {
   const { t } = useLanguageRender();
@@ -23,24 +22,28 @@ const ForgotPasswordScreen = () => {
   const handleSendOTP = async () => {
     setError("");
 
-    if (!email.trim()) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
       setError("Please enter email");
+      return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) {
+      setError("Please enter a valid email");
       return;
     }
 
     try {
       setLoading(true);
-      const response = await axios.post(
-        `${API_BASE_URL}/api/auth/send-forgot-password-otp`,
-        { email }
-      );
+      const response = await postPublicAuthEndpoint("send-forgot-password-otp", {
+        email: cleanEmail,
+      });
 
-      if (response.data.success) {
+      if (isOtpRequestSuccessful(response)) {
         Alert.alert("Success", "OTP sent to email", [
           {
             text: "OK",
             onPress: () => {
-              navigation.navigate("ForgotPasswordOTP", { email });
+              navigation.navigate("ForgotPasswordOTP", { email: cleanEmail });
             },
           },
         ]);
@@ -48,7 +51,7 @@ const ForgotPasswordScreen = () => {
         setError("Failed to send OTP");
       }
     } catch (err) {
-      setError("Error: " + (err.response?.data?.message || err.message));
+      setError("Error: " + getApiErrorMessage(err, "Failed to send OTP"));
     } finally {
       setLoading(false);
     }

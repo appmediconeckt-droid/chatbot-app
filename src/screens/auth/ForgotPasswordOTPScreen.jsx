@@ -12,9 +12,8 @@ import {
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import Ionicons from "react-native-vector-icons/Ionicons";
-import axios from "axios";
-import { API_BASE_URL } from "../../axiosConfig";
 import useLanguageRender from '../../hooks/useLanguageRender';
+import { getApiErrorMessage, isOtpRequestSuccessful, isOtpVerificationSuccessful, postPublicAuthEndpoint } from "./authUtils";
 
 export default function ForgotPasswordOTPScreen() {
   const { t } = useLanguageRender();
@@ -62,13 +61,12 @@ export default function ForgotPasswordOTPScreen() {
 
     try {
       setLoading(true);
-      const response = await axios.post(
-        `${API_BASE_URL}/api/auth/verify-forgot-password-otp`,
-        { email, otp },
-        { withCredentials: true }
-      );
+      const response = await postPublicAuthEndpoint("verify-forgot-password-otp", {
+        email: email.trim().toLowerCase(),
+        otp,
+      });
 
-      if (response.data.success) {
+      if (isOtpVerificationSuccessful(response)) {
         Alert.alert("Success", "OTP verified successfully!", [
           {
             text: "OK",
@@ -81,11 +79,7 @@ export default function ForgotPasswordOTPScreen() {
         setError(response.data.message || "Invalid OTP");
       }
     } catch (err) {
-      const errorMsg =
-        err.response?.data?.message ||
-        err.message ||
-        "Verification failed. Please try again.";
-      setError(errorMsg);
+      setError(getApiErrorMessage(err, "Verification failed. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -95,13 +89,11 @@ export default function ForgotPasswordOTPScreen() {
     setError("");
     try {
       setResending(true);
-      const response = await axios.post(
-        `${API_BASE_URL}/api/auth/send-forgot-password-otp`,
-        { email },
-        { withCredentials: true }
-      );
+      const response = await postPublicAuthEndpoint("send-forgot-password-otp", {
+        email: email.trim().toLowerCase(),
+      });
 
-      if (response.data.success) {
+      if (isOtpRequestSuccessful(response)) {
         setResendTimer(60);
         setCanResend(false);
         Alert.alert("Success", "OTP resent to your email");
@@ -109,11 +101,7 @@ export default function ForgotPasswordOTPScreen() {
         setError(response.data.message || "Failed to resend OTP");
       }
     } catch (err) {
-      const errorMsg =
-        err.response?.data?.message ||
-        err.message ||
-        "Failed to resend OTP. Please try again.";
-      setError(errorMsg);
+      setError(getApiErrorMessage(err, "Failed to resend OTP. Please try again."));
     } finally {
       setResending(false);
     }

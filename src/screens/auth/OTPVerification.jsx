@@ -13,11 +13,17 @@ import {
   StatusBar,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE_URL } from '../../axiosConfig';
 import OtpCodeInput from './components/OtpCodeInput';
-import { setAccessToken, setUserEmail, updateVerificationStatus } from './authUtils';
+import {
+  getApiErrorMessage,
+  isOtpRequestSuccessful,
+  isOtpVerificationSuccessful,
+  postPublicAuthEndpoint,
+  setAccessToken,
+  setUserEmail,
+  updateVerificationStatus,
+} from './authUtils';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import AuthBackground from '../../theme/AuthBackground';
 import { GRADIENT_DIRECTION, gradientForRole, paletteForRole } from '../../theme/palette';
@@ -89,7 +95,12 @@ const OTPVerification = ({ navigation, route }) => {
 
   // ✅ SEND OTP
   const handleSendCode = async () => {
-    if (!email) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      setError('Enter valid email');
+      return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) {
       setError('Enter valid email');
       return;
     }
@@ -99,20 +110,23 @@ const OTPVerification = ({ navigation, route }) => {
     setSuccess('');
 
     try {
-      const res = await axios.post(`${API_BASE_URL}/api/auth/generateOtp`, {
-        email
+      const res = await postPublicAuthEndpoint('generateOtp', {
+        email: cleanEmail,
       });
 
-      if (res.data.success) {
+      if (isOtpRequestSuccessful(res)) {
+        setEmail(cleanEmail);
         setStep('otp');
         setOtp('');
         setTimer(120);
         setCanResend(false);
-        await setUserEmail(email);
+        await setUserEmail(cleanEmail);
         setSuccess('OTP sent successfully');
+      } else {
+        setError(res.data?.message || 'Failed to send OTP');
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to send OTP');
+      setError(getApiErrorMessage(err, 'Failed to send OTP'));
     } finally {
       setIsLoading(false);
     }
@@ -129,12 +143,12 @@ const OTPVerification = ({ navigation, route }) => {
     setError('');
 
     try {
-      const res = await axios.post(`${API_BASE_URL}/api/auth/verifyOtp`, {
-        email,
+      const res = await postPublicAuthEndpoint('verifyOtp', {
+        email: email.trim().toLowerCase(),
         otp
       });
 
-      if (res.data.success) {
+      if (isOtpVerificationSuccessful(res)) {
         const token = res.data?.token || res.data?.accessToken;
         const resolvedRole = normalizeRole(
           res.data?.user?.role || res.data?.role || authRole
@@ -171,9 +185,11 @@ const OTPVerification = ({ navigation, route }) => {
             navigation.replace('LocationGate', { destination: 'UserDashboard' });
           }
         }, 1500);
+      } else {
+        setError(res.data?.message || 'Invalid OTP');
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Invalid OTP');
+      setError(getApiErrorMessage(err, 'Invalid OTP'));
     } finally {
       setIsLoading(false);
     }
@@ -188,20 +204,21 @@ const OTPVerification = ({ navigation, route }) => {
     setSuccess('');
 
     try {
-      const res = await axios.post(
-        `${API_BASE_URL}/api/auth/resendOtp`,
-        { email }
-      );
+      const res = await postPublicAuthEndpoint('resendOtp', {
+        email: email.trim().toLowerCase(),
+      });
 
-      if (res.data.success) {
+      if (isOtpRequestSuccessful(res)) {
         setSuccess('OTP resent successfully');
         setTimer(120);
         setCanResend(false);
 
         setOtp('');
+      } else {
+        setError(res.data?.message || 'Resend failed');
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Resend failed');
+      setError(getApiErrorMessage(err, 'Resend failed'));
     } finally {
       setIsLoading(false);
     }

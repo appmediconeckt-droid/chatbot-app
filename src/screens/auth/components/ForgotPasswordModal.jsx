@@ -9,11 +9,10 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
-import axios from 'axios';
 import LinearGradient from 'react-native-linear-gradient';
-import { API_BASE_URL } from '../../../axiosConfig';
 import useLanguageRender from '../../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getApiErrorMessage, isOtpRequestSuccessful, isOtpVerificationSuccessful, postPublicAuthEndpoint } from '../authUtils';
 
 /**
  * Reusable Forgot Password popup — mirrors the web chatbot flow exactly:
@@ -105,26 +104,26 @@ const ForgotPasswordModal = ({
       setError('Please enter your email address');
       return;
     }
-    if (!/\S+@\S+\.\S+/.test(email)) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!/\S+@\S+\.\S+/.test(cleanEmail)) {
       setError('Please enter a valid email address');
       return;
     }
     try {
       setLoading(true);
-      const res = await axios.post(
-        `${API_BASE_URL}/api/auth/send-forgot-password-otp`,
-        { email },
-        { withCredentials: true },
-      );
-      if (res.data.success) {
+      const res = await postPublicAuthEndpoint('send-forgot-password-otp', {
+        email: cleanEmail,
+      });
+      if (isOtpRequestSuccessful(res)) {
+        setEmail(cleanEmail);
         setOtp('');
         setResendTimer(60);
         setStep('otp');
       } else {
-        setError(res.data.message || 'Failed to send OTP');
+        setError(res.data?.message || 'Failed to send OTP');
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Something went wrong. Please try again.');
+      setError(getApiErrorMessage(err, 'Something went wrong. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -139,12 +138,11 @@ const ForgotPasswordModal = ({
     }
     try {
       setLoading(true);
-      const res = await axios.post(
-        `${API_BASE_URL}/api/auth/verify-forgot-password-otp`,
-        { email, otp },
-        { withCredentials: true },
-      );
-      if (res.data.success) {
+      const res = await postPublicAuthEndpoint('verify-forgot-password-otp', {
+        email: email.trim().toLowerCase(),
+        otp,
+      });
+      if (isOtpVerificationSuccessful(res)) {
         setSuccess('OTP verified successfully! Redirecting...');
         setTimeout(() => {
           setSuccess('');
@@ -153,10 +151,10 @@ const ForgotPasswordModal = ({
           setStep('reset');
         }, 1200);
       } else {
-        setError(res.data.message || 'Invalid OTP');
+        setError(res.data?.message || 'Invalid OTP');
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Verification failed. Please try again.');
+      setError(getApiErrorMessage(err, 'Verification failed. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -167,18 +165,16 @@ const ForgotPasswordModal = ({
     setError('');
     try {
       setResending(true);
-      const res = await axios.post(
-        `${API_BASE_URL}/api/auth/send-forgot-password-otp`,
-        { email },
-        { withCredentials: true },
-      );
-      if (res.data.success) {
+      const res = await postPublicAuthEndpoint('send-forgot-password-otp', {
+        email: email.trim().toLowerCase(),
+      });
+      if (isOtpRequestSuccessful(res)) {
         setResendTimer(60);
       } else {
-        setError(res.data.message || 'Failed to resend OTP');
+        setError(res.data?.message || 'Failed to resend OTP');
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to resend OTP. Please try again.');
+      setError(getApiErrorMessage(err, 'Failed to resend OTP. Please try again.'));
     } finally {
       setResending(false);
     }
@@ -201,21 +197,21 @@ const ForgotPasswordModal = ({
     }
     try {
       setLoading(true);
-      const res = await axios.post(
-        `${API_BASE_URL}/api/auth/reset-password`,
-        { email, newPassword, confirmPassword },
-        { withCredentials: true },
-      );
+      const res = await postPublicAuthEndpoint('reset-password', {
+        email: email.trim().toLowerCase(),
+        newPassword,
+        confirmPassword,
+      });
       if (res.data.success) {
         setSuccess('Password reset successfully! Redirecting to login...');
         setTimeout(() => {
           handleClose();
         }, 1500);
       } else {
-        setError(res.data.message || 'Failed to reset password');
+        setError(res.data?.message || 'Failed to reset password');
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to reset password. Please try again.');
+      setError(getApiErrorMessage(err, 'Failed to reset password. Please try again.'));
     } finally {
       setLoading(false);
     }

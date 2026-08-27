@@ -20,6 +20,12 @@ import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { API_BASE_URL } from '../../axiosConfig';
 import GoogleAuthButton from './components/GoogleAuthButton';
+import {
+  getApiErrorMessage,
+  isOtpRequestSuccessful,
+  isOtpVerificationSuccessful,
+  postPublicAuthEndpoint,
+} from './authUtils';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 import { paletteForRole } from '../../theme/palette';
@@ -95,6 +101,12 @@ const Login = ({ navigation, route }) => {
     return role === 'counselor'
       ? ['counsellor', 'counselor']
       : [mapRoleForBackend(role)];
+  };
+
+  const resolveSelectedRole = async () => {
+    const roleFromRoute = normalizeRole(route?.params?.role);
+    const storedRoleRaw = normalizeRole(await AsyncStorage.getItem('role'));
+    return roleFromRoute || storedRoleRaw || 'user';
   };
 
   useEffect(() => {
@@ -327,11 +339,11 @@ const Login = ({ navigation, route }) => {
     setErrorMessage('');
 
     try {
-      const response = await axios.post(
-        `${API_BASE_URL}/api/auth/logout-other-devices`,
-        { email },
-        { withCredentials: true }
-      );
+      const selectedRole = await resolveSelectedRole();
+      const response = await postPublicAuthEndpoint('logout-other-devices', {
+        email,
+        role: selectedRole,
+      });
 
       if (response.data?.success) {
         setOtpSent(true);
@@ -362,15 +374,13 @@ const Login = ({ navigation, route }) => {
     setErrorMessage('');
 
     try {
-      const roleFromRoute = normalizeRole(route?.params?.role);
-      const storedRole = normalizeRole(await AsyncStorage.getItem('role'));
-      const selectedRole = roleFromRoute || storedRole || 'user';
-
-      const response = await axios.post(
-        `${API_BASE_URL}/api/auth/verify-login-otp`,
-        { email, otp },
-        { withCredentials: true }
-      );
+      const selectedRole = await resolveSelectedRole();
+      const response = await postPublicAuthEndpoint('verify-login-otp', {
+        email,
+        otp,
+        logoutOthers: true,
+        role: selectedRole,
+      });
 
       const token = response.data?.accessToken || response.data?.token;
       if (token) {
@@ -427,33 +437,33 @@ const Login = ({ navigation, route }) => {
   const handleForgotPasswordSendOTP = async () => {
     setFpError('');
 
-    if (!fpEmail.trim()) {
+    const cleanEmail = fpEmail.trim().toLowerCase();
+    if (!cleanEmail) {
       setFpError('Please enter your email address');
       return;
     }
 
-    if (!/\S+@\S+\.\S+/.test(fpEmail)) {
+    if (!/\S+@\S+\.\S+/.test(cleanEmail)) {
       setFpError('Please enter a valid email address');
       return;
     }
 
     try {
       setFpLoading(true);
-      const response = await axios.post(
-        `${API_BASE_URL}/api/auth/send-forgot-password-otp`,
-        { email: fpEmail },
-        { withCredentials: true }
-      );
+      const response = await postPublicAuthEndpoint('send-forgot-password-otp', {
+        email: cleanEmail,
+      });
 
-      if (response.data.success) {
+      if (isOtpRequestSuccessful(response)) {
+        setFpEmail(cleanEmail);
         setFpOtp('');
         setFpResendTimer(60);
         setFpStep('otp');
       } else {
-        setFpError(response.data.message || 'Failed to send OTP');
+        setFpError(response.data?.message || 'Failed to send OTP');
       }
     } catch (err) {
-      setFpError(err.response?.data?.message || 'Something went wrong. Please try again.');
+      setFpError(getApiErrorMessage(err, 'Something went wrong. Please try again.'));
     } finally {
       setFpLoading(false);
     }
@@ -470,13 +480,12 @@ const Login = ({ navigation, route }) => {
 
     try {
       setFpLoading(true);
-      const response = await axios.post(
-        `${API_BASE_URL}/api/auth/verify-forgot-password-otp`,
-        { email: fpEmail, otp: fpOtp },
-        { withCredentials: true }
-      );
+      const response = await postPublicAuthEndpoint('verify-forgot-password-otp', {
+        email: fpEmail.trim().toLowerCase(),
+        otp: fpOtp,
+      });
 
-      if (response.data.success) {
+      if (isOtpVerificationSuccessful(response)) {
         setFpSuccess('OTP verified successfully! Redirecting...');
         setTimeout(() => {
           setFpSuccess('');
@@ -485,10 +494,10 @@ const Login = ({ navigation, route }) => {
           setFpStep('reset');
         }, 1200);
       } else {
-        setFpError(response.data.message || 'Invalid OTP');
+        setFpError(response.data?.message || 'Invalid OTP');
       }
     } catch (err) {
-      setFpError(err.response?.data?.message || 'Verification failed. Please try again.');
+      setFpError(getApiErrorMessage(err, 'Verification failed. Please try again.'));
     } finally {
       setFpLoading(false);
     }
@@ -499,19 +508,17 @@ const Login = ({ navigation, route }) => {
     setFpError('');
     try {
       setFpResending(true);
-      const response = await axios.post(
-        `${API_BASE_URL}/api/auth/send-forgot-password-otp`,
-        { email: fpEmail },
-        { withCredentials: true }
-      );
+      const response = await postPublicAuthEndpoint('send-forgot-password-otp', {
+        email: fpEmail.trim().toLowerCase(),
+      });
 
-      if (response.data.success) {
+      if (isOtpRequestSuccessful(response)) {
         setFpResendTimer(60);
       } else {
-        setFpError(response.data.message || 'Failed to resend OTP');
+        setFpError(response.data?.message || 'Failed to resend OTP');
       }
     } catch (err) {
-      setFpError(err.response?.data?.message || 'Failed to resend OTP. Please try again.');
+      setFpError(getApiErrorMessage(err, 'Failed to resend OTP. Please try again.'));
     } finally {
       setFpResending(false);
     }
@@ -538,11 +545,11 @@ const Login = ({ navigation, route }) => {
 
     try {
       setFpLoading(true);
-      const response = await axios.post(
-        `${API_BASE_URL}/api/auth/reset-password`,
-        { email: fpEmail, newPassword: fpNewPassword, confirmPassword: fpConfirmPassword },
-        { withCredentials: true }
-      );
+      const response = await postPublicAuthEndpoint('reset-password', {
+        email: fpEmail.trim().toLowerCase(),
+        newPassword: fpNewPassword,
+        confirmPassword: fpConfirmPassword,
+      });
 
       if (response.data.success) {
         setFpSuccess('Password reset successfully! Redirecting to login...');
@@ -550,10 +557,10 @@ const Login = ({ navigation, route }) => {
           closeForgotPasswordModal();
         }, 1500);
       } else {
-        setFpError(response.data.message || 'Failed to reset password');
+        setFpError(response.data?.message || 'Failed to reset password');
       }
     } catch (err) {
-      setFpError(err.response?.data?.message || 'Failed to reset password. Please try again.');
+      setFpError(getApiErrorMessage(err, 'Failed to reset password. Please try again.'));
     } finally {
       setFpLoading(false);
     }

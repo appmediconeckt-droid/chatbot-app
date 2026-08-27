@@ -2,6 +2,40 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { API_BASE_URL, TUNNEL_HEADERS } from "../../axiosConfig";
 
+export const PUBLIC_AUTH_TIMEOUT_MS = 30000;
+export const PUBLIC_AUTH_OTP_TIMEOUT_MS = 12000;
+const PUBLIC_AUTH_ORIGINS = [
+  { baseURL: API_BASE_URL, headers: TUNNEL_HEADERS },
+  { baseURL: 'https://m429gbrg-5001.inc1.devtunnels.ms', headers: { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' } },
+];
+
+const FAST_AUTH_ENDPOINTS = [
+  'generateOtp',
+  'resendOtp',
+  'verifyOtp',
+  'send-email-otp',
+  'verify-email-otp',
+  'send-forgot-password-otp',
+  'verify-forgot-password-otp',
+  'logout-other-devices',
+  'verify-login-otp',
+];
+
+const getPublicAuthTimeout = (endpoint, timeout) => {
+  if (timeout) return timeout;
+  return FAST_AUTH_ENDPOINTS.includes(endpoint)
+    ? PUBLIC_AUTH_OTP_TIMEOUT_MS
+    : PUBLIC_AUTH_TIMEOUT_MS;
+};
+
+const isNetworkLevelError = (error) => {
+  return (
+    !error?.response &&
+    error?.code !== 'ECONNABORTED' &&
+    error?.code !== 'ERR_CANCELED'
+  );
+};
+
 export const setUserEmail = async (email) => {
   await AsyncStorage.setItem("userEmail", email);
 };
@@ -31,12 +65,26 @@ export const getAccessToken = async () => {
 
 export const getAuthToken = getAccessToken;
 
+export const isOtpSessionMissingMessage = (message = '') => {
+  const normalized = String(message).toLowerCase();
+  return (
+    /no\s*otp\s*found/.test(normalized) ||
+    /otp\s*(?:not|no)\s*(?:found|available|present)/.test(normalized) ||
+    /request\s+new\s+otp/.test(normalized) ||
+    /resend\s+otp/.test(normalized) ||
+    /otp\s*expired/.test(normalized) ||
+    /verification\s+session\s+(?:missing|expired)/.test(normalized)
+  );
+};
+
 export const isOtpVerificationSuccessful = (response) => {
   const data = response?.data;
   const status = response?.status;
+  const message = String(data?.message || data?.msg || data?.status || '').toLowerCase();
 
   if (status < 200 || status >= 300) return false;
   if (data?.success === false || data?.verified === false) return false;
+  if (isOtpSessionMissingMessage(message)) return false;
 
   const candidates = [data, data?.data, data?.result];
   if (
@@ -51,7 +99,6 @@ export const isOtpVerificationSuccessful = (response) => {
     return true;
   }
 
-  const message = String(data?.message || data?.msg || data?.status || '').toLowerCase();
   if (!message) return false;
 
   const hasSuccessMessage = /verified|success|valid/.test(message);
@@ -83,6 +130,14 @@ export const getApiErrorMessage = (error, fallback) => {
   if (error?.code === 'ECONNABORTED') return 'The server took too long to respond. Please try again.';
   if (!error?.response) {
     const detail = error?.userMessage || error?.message;
+    if (
+      detail &&
+      /network request failed|could not open the https connection|ssl|tls|socket|timed out|econnrefused|ehostunreach|network/i.test(
+        String(detail).toLowerCase()
+      )
+    ) {
+      return 'Could not reach the server. Check your internet connection and try again.';
+    }
     return detail
       ? `Could not reach the server. ${detail}`
       : 'Could not reach the server. Check your internet connection and try again.';
@@ -99,108 +154,66 @@ const makeHttpError = (response, fallback = 'Request failed') => {
   return error;
 };
 
-const postWithRawXhr = async (url, payload, options = {}) => {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', url, true);
-    xhr.withCredentials = true;
-    xhr.timeout = options.timeout || 30000;
-    xhr.setRequestHeader('Accept', 'application/json');
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    Object.entries(TUNNEL_HEADERS).forEach(([key, value]) => {
-      xhr.setRequestHeader(key, value);
-    });
-
-    xhr.onload = () => {
-      const bodyText = xhr.responseText || '';
-      let data = bodyText;
-      if (bodyText) {
-        try {
-          data = JSON.parse(bodyText);
-        } catch {
-          data = bodyText;
-        }
-      } else {
-        data = {};
-      }
-
-      const response = {
-        data,
-        status: xhr.status,
-        statusText: xhr.statusText,
-      };
-
-      if (xhr.status < 200 || xhr.status >= 300) {
-        reject(makeHttpError(response));
-        return;
-      }
-
-      resolve(response);
-    };
-
-    xhr.onerror = () => {
-      const error = new Error('Network request failed');
-      error.userMessage = 'Android could not open the HTTPS connection to the backend.';
-      reject(error);
-    };
-
-    xhr.ontimeout = () => {
-      const error = new Error('The server took too long to respond. Please try again.');
-      error.code = 'ECONNABORTED';
-      reject(error);
-    };
-
-    xhr.send(JSON.stringify(payload));
-  });
-};
-
 export const postPublicAuthEndpoint = async (endpoint, payload, options = {}) => {
-  const url = `${API_BASE_URL}/api/auth/${endpoint}`;
-  let axiosNetworkError = null;
+  const timeout = getPublicAuthTimeout(endpoint, options.timeout);
 
   try {
-    const response = await axios.post(url, payload, {
-      timeout: options.timeout || 30000,
-      withCredentials: true,
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        ...TUNNEL_HEADERS,
-      },
-      validateStatus: () => true,
-    });
+    for (const origin of PUBLIC_AUTH_ORIGINS) {
+      const url = `${origin.baseURL.replace(/\/+$/, '')}/api/auth/${endpoint}`;
+      let response;
+      try {
+      response = await axios.post(url, payload, {
+          timeout,
+          withCredentials: true,
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            ...origin.headers,
+          },
+          validateStatus: () => true,
+        });
+      } catch (error) {
+        if (isNetworkLevelError(error)) {
+          continue;
+        }
+        throw error;
+      }
 
-    if (response.status < 200 || response.status >= 300) {
-      throw makeHttpError(response);
+      if (response.status < 200 || response.status >= 300) {
+        // 404 on auth routes often means the host itself is wrong for this
+        // environment, so keep falling through to the next known origin.
+        if (response.status === 404) {
+          continue;
+        }
+        throw makeHttpError(response);
+      }
+
+      return response;
     }
 
-    return response;
+    throw new Error('Network request failed');
   } catch (error) {
     if (error?.response || error?.code === 'ECONNABORTED') throw error;
-    axiosNetworkError = error;
 
-    try {
-      return await postWithRawXhr(url, payload, options);
-    } catch (xhrError) {
-      if (endpoint === 'complete-registration') {
-        throw makeHttpError({
-          data: {
-            message:
-              'Registration failed because the backend requires a valid email OTP verification session before complete-registration. Make sure the deployed backend matches the web auth flow.',
-            success: false,
-          },
-          status: 400,
-          statusText: 'Bad Request',
-        });
-      }
-      console.log('[public-auth] request failed', {
-        endpoint,
-        url,
-        axiosMessage: axiosNetworkError?.message,
-        xhrMessage: xhrError?.message,
+    if (endpoint === 'complete-registration') {
+      throw makeHttpError({
+        data: {
+          message:
+            'Registration failed because the backend requires a valid email OTP verification session before complete-registration. Make sure the deployed backend matches the web auth flow.',
+          success: false,
+        },
+        status: 400,
+        statusText: 'Bad Request',
       });
-      throw xhrError;
     }
+
+    const networkError = new Error('Network request failed');
+    networkError.userMessage =
+      'Please check your internet connection and try again.';
+    networkError.endpoint = endpoint;
+    networkError.url = `${PUBLIC_AUTH_ORIGINS[0].baseURL.replace(/\/+$/, '')}/api/auth/${endpoint}`;
+    networkError.cause = error;
+    throw networkError;
   }
 };
 

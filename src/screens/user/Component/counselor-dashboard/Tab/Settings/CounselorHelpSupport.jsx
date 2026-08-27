@@ -31,7 +31,7 @@ const LAST_UPDATED = 'July 2026';
 /**
  * Help & Support for the counselor side.
  *
- * Counselors were being shown the *user* help screen, which answers questions
+ * s were being shown the *user* help screen, which answers questions
  * they never ask ("How do I book an appointment?", "How do I add funds to my
  * Wallet?") and offers an AI wellness assistant. This covers what a practitioner
  * actually needs instead: getting paid, receiving requests, running sessions,
