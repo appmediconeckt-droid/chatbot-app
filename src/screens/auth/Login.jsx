@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   ActivityIndicator,
   ScrollView,
   Keyboard,
@@ -15,11 +12,13 @@ import {
   useWindowDimensions,
   Image,
 } from 'react-native';
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { useTranslation } from 'react-i18next';
 import { API_BASE_URL } from '../../axiosConfig';
 import GoogleAuthButton from './components/GoogleAuthButton';
+<<<<<<< HEAD
 import {
   getApiErrorMessage,
   isOtpRequestSuccessful,
@@ -27,12 +26,18 @@ import {
   postPublicAuthEndpoint,
 } from './authUtils';
 import { sendLocationSilently } from '../../utils/locationHelper';
+=======
+import Ionicons from 'react-native-vector-icons/Ionicons';
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 import socketService from '../../services/socketService';
 import { paletteForRole } from '../../theme/palette';
 import AuthBackground from '../../theme/AuthBackground';
 import logo from '../../image/Humaeli.png';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useToast } from '../../components/common/ToastProvider';
+import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
+import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 
 // Vertical inset of the login scroll content.
 const SCROLL_PAD_V = 24;
@@ -40,6 +45,7 @@ const SCROLL_PAD_V = 24;
 const Login = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
+  const { showToast } = useToast();
   // Role decides the whole theme: patient → green, counselor → blue.
   // Layout/animation stay identical; only the palette swaps.
   const C = paletteForRole(route?.params?.role);
@@ -61,6 +67,8 @@ const Login = ({ navigation, route }) => {
   const [otpLoading, setOtpLoading] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
+  const [conflictOtpResendTimer, setConflictOtpResendTimer] = useState(0);
+  const [conflictOtpResending, setConflictOtpResending] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -161,6 +169,49 @@ const Login = ({ navigation, route }) => {
     }
   }, [fpStep, fpResendTimer]);
 
+  useEffect(() => {
+    if (!showConflictModal || !otpSent || conflictOtpResendTimer <= 0) return undefined;
+
+    const timer = setInterval(() => {
+      setConflictOtpResendTimer((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [showConflictModal, otpSent, conflictOtpResendTimer]);
+
+  const formatOtpTimer = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
+  const getRoleLabel = (role) => {
+    const normalized = normalizeRole(role);
+    return normalized === 'counselor' ? 'Consultant' : 'User';
+  };
+
+  const buildRoleMismatchMessage = (actualRole, selectedRole) => {
+    const actualLabel = getRoleLabel(actualRole);
+    const selectedLabel = selectedRole ? getRoleLabel(selectedRole) : 'another';
+    return `Role mismatch: this email is registered as ${actualLabel}, but you selected ${selectedLabel} login. Please go back and select ${actualLabel} login.`;
+  };
+
+  const showLoginError = (message, title = 'Login failed', duration = 8000) => {
+    const safeMessage = String(message || 'Login failed').trim() || 'Login failed';
+    setErrorMessage(safeMessage);
+    showToast({
+      type: 'error',
+      title,
+      message: safeMessage,
+      duration,
+    });
+    if (duration > 0) {
+      setTimeout(() => {
+        setErrorMessage((current) => (current === safeMessage ? '' : current));
+      }, duration);
+    }
+  };
+
   const loadRememberedUser = async () => {
     try {
       const rememberedUserId = await AsyncStorage.getItem('rememberedUserId');
@@ -197,10 +248,11 @@ const Login = ({ navigation, route }) => {
     setSuccessMessage('');
     setIsLoading(true);
 
+    let selectedRole = '';
     try {
       const roleFromRoute = normalizeRole(route?.params?.role);
       const storedRoleRaw = normalizeRole(await AsyncStorage.getItem('role'));
-      const selectedRole = roleFromRoute || storedRoleRaw;
+      selectedRole = roleFromRoute || storedRoleRaw;
       const roleCandidates = buildBackendRoleCandidates(selectedRole);
 
       let response;
@@ -218,11 +270,19 @@ const Login = ({ navigation, route }) => {
           );
           break;
         } catch (error) {
-          const message = String(error?.response?.data?.message || '').toLowerCase();
+          const responseData = error?.response?.data || {};
+          const message = String(responseData?.message || '').toLowerCase();
           const isRoleMismatch =
+            responseData?.roleMismatch === true ||
+            responseData?.code === 'ROLE_MISMATCH' ||
             error?.response?.status === 403 ||
             message.includes('role mismatch') ||
-            message.includes('role');
+            message.includes('registered as a counsellor') ||
+            message.includes('registered as a counselor') ||
+            message.includes('registered as a user') ||
+            message.includes('please use counsellor login') ||
+            message.includes('please use counselor login') ||
+            message.includes('please use user login');
           const isLastAttempt = index === Math.max(roleCandidates.length, 1) - 1;
           if (!isRoleMismatch || isLastAttempt) {
             throw error;
@@ -242,16 +302,18 @@ const Login = ({ navigation, route }) => {
       // THIRD: Validate — if a role was explicitly selected, enforce it.
       if (selectedRole) {
         if (selectedAsCounselor && !isCounselor) {
-          setErrorMessage(
-            "Access denied: You selected the Counsellor login but your account is registered as a User. Please go back and select the correct role."
+          showLoginError(
+            buildRoleMismatchMessage(normalizedUserRole, selectedRole),
+            'Role mismatch'
           );
           setIsLoading(false);
           return;
         }
 
         if (!selectedAsCounselor && isCounselor) {
-          setErrorMessage(
-            "Access denied: You selected the User login but your account is registered as a Counsellor. Please go back and select the correct role."
+          showLoginError(
+            buildRoleMismatchMessage(normalizedUserRole, selectedRole),
+            'Role mismatch'
           );
           setIsLoading(false);
           return;
@@ -321,14 +383,25 @@ const Login = ({ navigation, route }) => {
         setShowConflictModal(true);
         setOtpSent(false);
         setOtp('');
+        setConflictOtpResendTimer(0);
+        setConflictOtpResending(false);
         return;
       }
 
-      const msg = err?.response?.data?.message || err?.message || 'Login failed';
-      setErrorMessage(msg);
-      
-      // Auto-clear error message after 3 seconds
-      setTimeout(() => setErrorMessage(''), 3000);
+      const responseData = err?.response?.data || {};
+      const responseMessage = String(responseData?.message || '').toLowerCase();
+      const isRoleMismatch =
+        responseData?.roleMismatch === true ||
+        responseData?.code === 'ROLE_MISMATCH' ||
+        responseMessage.includes('role mismatch') ||
+        responseMessage.includes('registered as a counsellor') ||
+        responseMessage.includes('registered as a counselor') ||
+        responseMessage.includes('registered as a user');
+      const msg = isRoleMismatch
+        ? buildRoleMismatchMessage(responseData?.actualRole, selectedRole)
+        : err?.response?.data?.message || err?.message || 'Login failed';
+
+      showLoginError(msg, isRoleMismatch ? 'Role mismatch' : 'Login failed');
     } finally {
       setIsLoading(false);
     }
@@ -347,6 +420,8 @@ const Login = ({ navigation, route }) => {
 
       if (response.data?.success) {
         setOtpSent(true);
+        setOtp('');
+        setConflictOtpResendTimer(60);
         setSuccessMessage('OTP sent to your email.');
         // Auto-clear success message
         setTimeout(() => setSuccessMessage(''), 3000);
@@ -360,6 +435,37 @@ const Login = ({ navigation, route }) => {
       setTimeout(() => setErrorMessage(''), 3000);
     } finally {
       setLogoutLoading(false);
+    }
+  };
+
+  const handleResendConflictOtp = async () => {
+    if (conflictOtpResending || conflictOtpResendTimer > 0) return;
+
+    setConflictOtpResending(true);
+    setErrorMessage('');
+    setOtp('');
+
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/logout-other-devices`,
+        { email },
+        { withCredentials: true }
+      );
+
+      if (response.data?.success) {
+        setConflictOtpResendTimer(60);
+        setSuccessMessage('OTP resent to your email.');
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        setErrorMessage(response.data?.message || 'Failed to resend OTP');
+        setTimeout(() => setErrorMessage(''), 3000);
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to resend OTP';
+      setErrorMessage(msg);
+      setTimeout(() => setErrorMessage(''), 3000);
+    } finally {
+      setConflictOtpResending(false);
     }
   };
 
@@ -413,7 +519,7 @@ const Login = ({ navigation, route }) => {
 
       await AsyncStorage.removeItem('role');
 
-      setShowConflictModal(false);
+      closeConflictModal();
       setSuccessMessage('OTP verified! Redirecting...');
 
       socketService.connect().catch(() => {});
@@ -429,6 +535,14 @@ const Login = ({ navigation, route }) => {
     } finally {
       setOtpLoading(false);
     }
+  };
+
+  const closeConflictModal = () => {
+    setShowConflictModal(false);
+    setOtpSent(false);
+    setOtp('');
+    setConflictOtpResendTimer(0);
+    setConflictOtpResending(false);
   };
 
   // ========== FORGOT PASSWORD HANDLERS (mirrors web chatbot exactly) ==========
@@ -533,8 +647,9 @@ const Login = ({ navigation, route }) => {
       return;
     }
 
-    if (fpNewPassword.length < 3) {
-      setFpError('Password must be at least 3 characters');
+    const passwordCheck = validateStrongPassword(fpNewPassword);
+    if (!passwordCheck.isValid) {
+      setFpError(passwordCheck.message);
       return;
     }
 
@@ -595,8 +710,8 @@ const Login = ({ navigation, route }) => {
   const loginCardStyle = [
     styles.loginCard,
     {
-      maxWidth: isTablet ? 460 : 420,
-      padding: isCompact ? 18 : 25,
+      maxWidth: isTablet ? 480 : 440,
+      padding: isCompact ? 20 : 28,
       borderRadius: isCompact ? 16 : 20,
     },
   ];
@@ -673,8 +788,14 @@ const Login = ({ navigation, route }) => {
                 <TouchableOpacity
                   style={styles.eyeIcon}
                   onPress={() => setShowPassword(!showPassword)}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  <Text>{showPassword ? '👁️' : '👁️‍🗨️'}</Text>
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={22}
+                    color="#64748b"
+                  />
                 </TouchableOpacity>
               </View>
             </View>
@@ -749,13 +870,18 @@ const Login = ({ navigation, route }) => {
                 setShowConflictModal(true);
                 setOtpSent(false);
                 setOtp('');
+                setConflictOtpResendTimer(0);
+                setConflictOtpResending(false);
                 setErrorMessage('');
               }}
               onError={(msg) => {
                 console.warn('[Login] Google onError:', msg);
-                setErrorMessage(msg);
-                // 8s — long enough to actually read it.
-                setTimeout(() => setErrorMessage(''), 8000);
+                showLoginError(
+                  msg,
+                  String(msg || '').toLowerCase().includes('role')
+                    ? 'Role mismatch'
+                    : 'Google sign-in failed'
+                );
               }}
             />
 
@@ -788,7 +914,7 @@ const Login = ({ navigation, route }) => {
           visible={showConflictModal}
           transparent={true}
           animationType="slide"
-          onRequestClose={() => setShowConflictModal(false)}
+          onRequestClose={closeConflictModal}
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContainer}>
@@ -799,7 +925,11 @@ const Login = ({ navigation, route }) => {
 
               {/* Logout Other Devices Button */}
               <TouchableOpacity
-                style={styles.modalButton}
+                style={[
+                  styles.modalButton,
+                  { backgroundColor: C.primary, shadowColor: C.primary },
+                  logoutLoading && styles.modalButtonDisabled,
+                ]}
                 onPress={handleLogoutOtherDevices}
                 disabled={logoutLoading}
               >
@@ -832,7 +962,11 @@ const Login = ({ navigation, route }) => {
                     maxLength={6}
                   />
                   <TouchableOpacity
-                    style={[styles.modalButton, styles.verifyButton]}
+                    style={[
+                      styles.modalButton,
+                      { backgroundColor: C.primary, shadowColor: C.primary },
+                      otpLoading && styles.modalButtonDisabled,
+                    ]}
                     onPress={handleVerifyOtp}
                     disabled={otpLoading}
                   >
@@ -845,8 +979,35 @@ const Login = ({ navigation, route }) => {
                       <Text style={styles.modalButtonText}>{t('Verify OTP')}</Text>
                     )}
                   </TouchableOpacity>
+                  <View style={styles.otpResendRow}>
+                    {conflictOtpResendTimer > 0 ? (
+                      <Text style={styles.otpTimerText}>
+                        Resend OTP in {formatOtpTimer(conflictOtpResendTimer)}
+                      </Text>
+                    ) : (
+                      <Text style={styles.otpTimerText}>Didn't receive code?</Text>
+                    )}
+                    <TouchableOpacity
+                      onPress={handleResendConflictOtp}
+                      disabled={conflictOtpResending || conflictOtpResendTimer > 0}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text
+                        style={[
+                          styles.otpResendText,
+                          { color: C.primary },
+                          (conflictOtpResending || conflictOtpResendTimer > 0) && styles.otpResendTextDisabled,
+                        ]}
+                      >
+                        {conflictOtpResending ? 'Sending...' : 'Resend OTP'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               )}
+              <TouchableOpacity onPress={closeConflictModal} style={styles.modalCancelButton}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -1018,12 +1179,20 @@ const Login = ({ navigation, route }) => {
                       <TouchableOpacity
                         style={styles.fpEyeBtn}
                         onPress={() => setFpShowPassword(!fpShowPassword)}
-                      >
-                        <Text style={styles.fpEyeText}>{fpShowPassword ? '🙈' : '👁️'}</Text>
-                      </TouchableOpacity>
-                    </View>
+                        accessibilityRole="button"
+                        accessibilityLabel={fpShowPassword ? 'Hide password' : 'Show password'}
+	                      >
+	                        <Ionicons
+	                          name={fpShowPassword ? 'eye-off-outline' : 'eye-outline'}
+	                          size={22}
+	                          color="#64748b"
+	                        />
+	                      </TouchableOpacity>
+	                    </View>
+	                    <Text style={styles.fpPasswordHint}>{t(STRONG_PASSWORD_HINT)}</Text>
+	                    <PasswordRequirementChecklist password={fpNewPassword} style={styles.fpPasswordChecklist} />
 
-                    {/* Confirm Password */}
+	                    {/* Confirm Password */}
                     <Text style={styles.fpLabel}>{t('Confirm Password *')}</Text>
                     <View style={styles.fpPasswordWrapper}>
                       <TextInput
@@ -1041,8 +1210,14 @@ const Login = ({ navigation, route }) => {
                       <TouchableOpacity
                         style={styles.fpEyeBtn}
                         onPress={() => setFpShowConfirmPassword(!fpShowConfirmPassword)}
+                        accessibilityRole="button"
+                        accessibilityLabel={fpShowConfirmPassword ? 'Hide password' : 'Show password'}
                       >
-                        <Text style={styles.fpEyeText}>{fpShowConfirmPassword ? '🙈' : '👁️'}</Text>
+                        <Ionicons
+                          name={fpShowConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                          size={22}
+                          color="#64748b"
+                        />
                       </TouchableOpacity>
                     </View>
 
@@ -1138,6 +1313,7 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 56,
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 10,
@@ -1196,8 +1372,10 @@ const styles = StyleSheet.create({
   loginButton: {
     backgroundColor: '#007AFF',
     padding: 15,
+    minHeight: 56,
     borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 20,
   },
   loginButtonDisabled: {
@@ -1296,7 +1474,16 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 10,
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  modalButtonDisabled: {
+    backgroundColor: '#94A3B8',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   modalButtonText: {
     color: '#fff',
@@ -1327,6 +1514,40 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 2,
     marginBottom: 12,
+  },
+  otpResendRow: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+    flexWrap: 'wrap',
+  },
+  otpTimerText: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  otpResendText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  otpResendTextDisabled: {
+    color: '#94A3B8',
+  },
+  modalCancelButton: {
+    width: '100%',
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  modalCancelText: {
+    color: '#64748B',
+    fontSize: 14,
+    fontWeight: '700',
   },
   buttonLoadingContainer: {
     flexDirection: 'row',
@@ -1461,7 +1682,7 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderRadius: 12,
     backgroundColor: '#f8fafc',
-    marginBottom: 16,
+    marginBottom: 6,
     alignSelf: 'stretch',
   },
   fpPasswordInput: {
@@ -1474,9 +1695,19 @@ const styles = StyleSheet.create({
   fpEyeBtn: {
     paddingHorizontal: 14,
     paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  fpEyeText: {
-    fontSize: 20,
+  fpPasswordHint: {
+    alignSelf: 'stretch',
+    color: '#64748b',
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 4,
+  },
+  fpPasswordChecklist: {
+    alignSelf: 'stretch',
+    marginBottom: 10,
   },
   fpButton: {
     backgroundColor: '#2c50cd',
@@ -1526,6 +1757,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#2c50cd',
+    marginLeft: 4,
   },
 });
 

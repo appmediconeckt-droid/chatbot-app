@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -9,6 +8,7 @@ import {
   Alert,
   FlatList,
 } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -23,7 +23,7 @@ const Appointments = ({ navigation }) => {
     {
       id: 1,
       counselor: 'Dr. Emily Chen',
-      specialization: 'Mental Health Counselor',
+      specialization: 'Mental Health Consultant',
       date: '2026-07-25',
       time: '2:30 PM',
       type: 'Video Call',

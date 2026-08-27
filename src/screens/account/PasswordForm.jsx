@@ -6,13 +6,20 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import useLanguageRender from '../../hooks/useLanguageRender';
+import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
+import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
+import {
+  getPasswordStrength,
+  STRONG_PASSWORD_HINT,
+  validateStrongPassword,
+} from '../../utils/passwordPolicy';
 
 const modeContent = {
   change: {
@@ -32,7 +39,7 @@ const modeContent = {
   setByOtp: {
     icon: 'mark-email-read',
     title: 'Set Password',
-    subtitle: 'Enter the verified email and create a new password.',
+    subtitle: 'Enter your email, OTP, and create a new password.',
     button: 'Set Password',
     passwordLabel: 'Password',
   },
@@ -40,8 +47,10 @@ const modeContent = {
 
 const PasswordForm = ({ mode = 'change', onSubmit }) => {
   const { t } = useLanguageRender();
+  const { scrollRef, keyboardInset, scrollFocusedInputIntoView } = useKeyboardAwareScroll();
   const copy = modeContent[mode] || modeContent.change;
   const [email, setEmail] = useState('');
+  const [otp, setOtp] = useState('');
   const [oldPassword, setOldPassword] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -51,15 +60,10 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
   const [showConfirm, setShowConfirm] = useState(false);
 
   const strength = useMemo(() => {
-    let score = 0;
-    if (password.length >= 6) score += 1;
-    if (/[A-Z]/.test(password)) score += 1;
-    if (/\d/.test(password)) score += 1;
-    if (/[^A-Za-z0-9]/.test(password)) score += 1;
-    return score;
+    return getPasswordStrength(password);
   }, [password]);
 
-  const strengthText = ['Too short', 'Basic', 'Good', 'Strong', 'Very strong'][strength];
+  const strengthText = ['Too short', 'Weak', 'Basic', 'Good', 'Strong', 'Very strong'][strength];
 
   const validate = () => {
     const cleanEmail = email.trim().toLowerCase();
@@ -71,6 +75,10 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
       Alert.alert('Validation', 'Please enter a valid email address');
       return false;
     }
+    if (mode === 'setByOtp' && otp.length !== 6) {
+      Alert.alert('Validation', 'Please enter the 6-digit OTP');
+      return false;
+    }
     if (mode === 'change' && !oldPassword) {
       Alert.alert('Validation', 'Please enter your current password');
       return false;
@@ -79,8 +87,9 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
       Alert.alert('Validation', 'Please enter a password');
       return false;
     }
-    if (password.length < 6) {
-      Alert.alert('Validation', 'Password must be at least 6 characters');
+    const passwordCheck = validateStrongPassword(password);
+    if (!passwordCheck.isValid) {
+      Alert.alert('Validation', passwordCheck.message);
       return false;
     }
     if (password !== confirm) {
@@ -101,6 +110,7 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
     try {
       await onSubmit?.({
         email: email.trim().toLowerCase(),
+        otp,
         oldPassword,
         password,
       });
@@ -127,6 +137,7 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
         <TextInput
           value={value}
           onChangeText={onChangeText}
+          onFocus={scrollFocusedInputIntoView}
           style={styles.input}
           secureTextEntry={!visible}
           autoCapitalize="none"
@@ -147,9 +158,14 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
+        ref={scrollRef}
         style={styles.container}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          Platform.OS === 'android' && keyboardInset ? { paddingBottom: keyboardInset + 28 } : null,
+        ]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         <View style={styles.header}>
           <View style={styles.iconCircle}>
@@ -161,21 +177,41 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
 
         <View style={styles.card}>
           {mode === 'setByOtp' && (
-            <View style={styles.field}>
-              <Text style={styles.label}>{t('Email')}</Text>
-              <View style={styles.inputShell}>
-                <Icon name="alternate-email" size={20} color="#64748b" />
-                <TextInput
-                  value={email}
-                  onChangeText={setEmail}
-                  style={styles.input}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  placeholder={t('user@example.com')}
-                  placeholderTextColor="#94a3b8"
-                />
+            <>
+              <View style={styles.field}>
+                <Text style={styles.label}>{t('Email')}</Text>
+                <View style={styles.inputShell}>
+                  <Icon name="alternate-email" size={20} color="#64748b" />
+                  <TextInput
+                    value={email}
+                    onChangeText={setEmail}
+                    onFocus={scrollFocusedInputIntoView}
+                    style={styles.input}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    placeholder={t('user@example.com')}
+                    placeholderTextColor="#94a3b8"
+                  />
+                </View>
               </View>
-            </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>{t('OTP Code')}</Text>
+                <View style={styles.inputShell}>
+                  <Icon name="pin" size={20} color="#64748b" />
+                  <TextInput
+                    value={otp}
+                    onChangeText={(value) => setOtp(value.replace(/\D/g, '').slice(0, 6))}
+                    onFocus={scrollFocusedInputIntoView}
+                    style={styles.input}
+                    keyboardType="number-pad"
+                    autoCapitalize="none"
+                    maxLength={6}
+                    placeholder={t('Enter 6-digit OTP')}
+                    placeholderTextColor="#94a3b8"
+                  />
+                </View>
+              </View>
+            </>
           )}
 
           {mode === 'change' &&
@@ -194,7 +230,7 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
             onChangeText: setPassword,
             visible: showPassword,
             onToggle: () => setShowPassword((value) => !value),
-            placeholder: 'Minimum 6 characters',
+            placeholder: 'Strong password',
           })}
 
           <View style={styles.strengthRow}>
@@ -209,7 +245,8 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
               />
             ))}
           </View>
-          <Text style={styles.hint}>{password ? strengthText : 'Use letters and numbers for a stronger password'}</Text>
+          <Text style={styles.hint}>{password ? strengthText : STRONG_PASSWORD_HINT}</Text>
+          <PasswordRequirementChecklist password={password} style={styles.passwordChecklist} />
 
           {renderPasswordInput({
             label: 'Confirm Password',
@@ -344,6 +381,9 @@ const styles = StyleSheet.create({
   hint: {
     color: '#64748b',
     fontSize: 12,
+    marginBottom: 6,
+  },
+  passwordChecklist: {
     marginBottom: 14,
   },
   button: {

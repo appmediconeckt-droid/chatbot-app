@@ -1,8 +1,6 @@
 import React, { useState } from "react";
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -10,10 +8,17 @@ import {
   ActivityIndicator,
   SafeAreaView,
 } from "react-native";
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import { useNavigation, useRoute } from "@react-navigation/native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import useLanguageRender from '../../hooks/useLanguageRender';
+<<<<<<< HEAD
 import { getApiErrorMessage, postPublicAuthEndpoint } from "./authUtils";
+=======
+import { STRONG_PASSWORD_HINT, validateStrongPassword } from "../../utils/passwordPolicy";
+import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 
 export default function ResetPasswordScreen() {
   const { t } = useLanguageRender();
@@ -28,10 +33,6 @@ export default function ResetPasswordScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const validatePassword = (pwd) => {
-    return pwd.length >= 3;
-  };
-
   const handleResetPassword = async () => {
     setError("");
 
@@ -40,8 +41,9 @@ export default function ResetPasswordScreen() {
       return;
     }
 
-    if (!validatePassword(password)) {
-      setError("Password must be at least 3 characters");
+    const passwordCheck = validateStrongPassword(password);
+    if (!passwordCheck.isValid) {
+      setError(passwordCheck.message);
       return;
     }
 
@@ -138,15 +140,18 @@ export default function ResetPasswordScreen() {
             <TouchableOpacity
               onPress={() => setShowPassword(!showPassword)}
               style={styles.eyeIcon}
+              accessibilityRole="button"
+              accessibilityLabel={showPassword ? "Hide password" : "Show password"}
             >
               <Ionicons
-                name={showPassword ? "eye-outline" : "eye-off-outline"}
+                name={showPassword ? "eye-off-outline" : "eye-outline"}
                 size={20}
                 color="#64748b"
               />
             </TouchableOpacity>
           </View>
-          <Text style={styles.hint}>{t('At least 3 characters')}</Text>
+          <Text style={styles.hint}>{t(STRONG_PASSWORD_HINT)}</Text>
+          <PasswordRequirementChecklist password={password} style={styles.passwordChecklist} />
         </View>
 
         {/* Confirm Password Input */}
@@ -174,9 +179,11 @@ export default function ResetPasswordScreen() {
             <TouchableOpacity
               onPress={() => setShowConfirmPassword(!showConfirmPassword)}
               style={styles.eyeIcon}
+              accessibilityRole="button"
+              accessibilityLabel={showConfirmPassword ? "Hide password" : "Show password"}
             >
               <Ionicons
-                name={showConfirmPassword ? "eye-outline" : "eye-off-outline"}
+                name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
                 size={20}
                 color="#64748b"
               />
@@ -219,32 +226,34 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#f1f5f9",
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#eef2ff",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 24,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#c7d2fe",
   },
   header: {
     alignItems: "center",
-    marginBottom: 32,
+    marginBottom: 24,
   },
   iconWrapper: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: "#f0f4ff",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 20,
+    marginBottom: 14,
   },
   title: {
     fontSize: 24,
     fontWeight: "700",
     color: "#081625",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   subtitle: {
     fontSize: 14,
@@ -300,6 +309,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#94a3b8",
     marginTop: 6,
+  },
+  passwordChecklist: {
+    marginTop: 8,
   },
   resetBtn: {
     backgroundColor: "#2c50cd",

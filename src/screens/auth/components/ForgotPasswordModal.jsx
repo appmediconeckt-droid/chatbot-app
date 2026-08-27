@@ -1,18 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Modal,
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+<<<<<<< HEAD
 import LinearGradient from 'react-native-linear-gradient';
 import useLanguageRender from '../../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getApiErrorMessage, isOtpRequestSuccessful, isOtpVerificationSuccessful, postPublicAuthEndpoint } from '../authUtils';
+=======
+import TextInput from '../../../components/TranslatedTextInput';
+import Text from '../../../components/TranslatedText';
+import axios from 'axios';
+import LinearGradient from 'react-native-linear-gradient';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { API_BASE_URL } from '../../../axiosConfig';
+import useLanguageRender from '../../../hooks/useLanguageRender';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../../utils/passwordPolicy';
+import PasswordRequirementChecklist from '../../../components/common/PasswordRequirementChecklist';
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 
 /**
  * Reusable Forgot Password popup — mirrors the web chatbot flow exactly:
@@ -187,8 +198,9 @@ const ForgotPasswordModal = ({
       setError('Please enter a new password');
       return;
     }
-    if (newPassword.length < 3) {
-      setError('Password must be at least 3 characters');
+    const passwordCheck = validateStrongPassword(newPassword);
+    if (!passwordCheck.isValid) {
+      setError(passwordCheck.message);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -382,12 +394,23 @@ const ForgotPasswordModal = ({
                     secureTextEntry={!showPassword}
                     editable={!loading && !success}
                   />
-                  <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(!showPassword)}>
-                    <Text style={styles.eyeEmoji}>{showPassword ? '🙈' : '👁️'}</Text>
-                  </TouchableOpacity>
-                </View>
+                  <TouchableOpacity
+                    style={styles.eyeBtn}
+                    onPress={() => setShowPassword(!showPassword)}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  >
+	                    <Ionicons
+	                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+	                      size={22}
+	                      color="#64748b"
+	                    />
+	                  </TouchableOpacity>
+	                </View>
+	                <Text style={styles.passwordHint}>{t(STRONG_PASSWORD_HINT)}</Text>
+	                <PasswordRequirementChecklist password={newPassword} style={styles.passwordChecklist} />
 
-                <Text style={styles.label}>{t('Confirm Password *')}</Text>
+	                <Text style={styles.label}>{t('Confirm Password *')}</Text>
                 <View style={styles.passwordWrapper}>
                   <TextInput
                     style={styles.passwordInput}
@@ -401,8 +424,17 @@ const ForgotPasswordModal = ({
                     secureTextEntry={!showConfirmPassword}
                     editable={!loading && !success}
                   />
-                  <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-                    <Text style={styles.eyeEmoji}>{showConfirmPassword ? '🙈' : '👁️'}</Text>
+                  <TouchableOpacity
+                    style={styles.eyeBtn}
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    accessibilityRole="button"
+                    accessibilityLabel={showConfirmPassword ? 'Hide password' : 'Show password'}
+                  >
+                    <Ionicons
+                      name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={22}
+                      color="#64748b"
+                    />
                   </TouchableOpacity>
                 </View>
 
@@ -575,12 +607,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#1e293b',
   },
+  passwordHint: {
+    alignSelf: 'stretch',
+    color: '#64748b',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: -1,
+    marginBottom: 4,
+  },
+  passwordChecklist: {
+    alignSelf: 'stretch',
+    marginBottom: 6,
+  },
   eyeBtn: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-  },
-  eyeEmoji: {
-    fontSize: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   primaryBtn: {
     borderRadius: 16,
@@ -624,6 +667,7 @@ const styles = StyleSheet.create({
   footerLink: {
     fontSize: 13.5,
     fontWeight: '700',
+    marginLeft: 4,
   },
 });
 

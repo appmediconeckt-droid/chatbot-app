@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { API_BASE_URL, TUNNEL_HEADERS } from "../../axiosConfig";
 
+<<<<<<< HEAD
 export const PUBLIC_AUTH_TIMEOUT_MS = 30000;
 export const PUBLIC_AUTH_OTP_TIMEOUT_MS = 12000;
 const PUBLIC_AUTH_ORIGINS = [
@@ -35,6 +36,13 @@ const isNetworkLevelError = (error) => {
     error?.code !== 'ERR_CANCELED'
   );
 };
+=======
+// Railway may need time to wake the service and the deployed mail provider can
+// take longer than Axios' old 30s limit. Keep auth requests below the UI-level
+// loading state, but do not abort a valid OTP send while the backend is still
+// waiting for SMTP.
+const PUBLIC_AUTH_TIMEOUT_MS = 120000;
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 
 export const setUserEmail = async (email) => {
   await AsyncStorage.setItem("userEmail", email);
@@ -87,6 +95,7 @@ export const isOtpVerificationSuccessful = (response) => {
   if (isOtpSessionMissingMessage(message)) return false;
 
   const candidates = [data, data?.data, data?.result];
+<<<<<<< HEAD
   if (
     candidates.some(
       (item) =>
@@ -104,6 +113,15 @@ export const isOtpVerificationSuccessful = (response) => {
   const hasSuccessMessage = /verified|success|valid/.test(message);
   const hasFailureMessage = /invalid|failed|failure|error|wrong|expired/.test(message);
   return hasSuccessMessage && !hasFailureMessage;
+=======
+  return candidates.some(
+    (item) =>
+      item?.success === true ||
+      item?.verified === true ||
+      item?.isVerified === true ||
+      item?.emailVerified === true
+  );
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 };
 
 export const isOtpRequestSuccessful = (response) => {
@@ -145,6 +163,19 @@ export const getApiErrorMessage = (error, fallback) => {
   return fallback;
 };
 
+export const isMissingOtpError = (errorOrResponse) => {
+  const data = errorOrResponse?.response?.data || errorOrResponse?.data || {};
+  const message = String(
+    (typeof data === 'string' ? data : data?.message || data?.msg || data?.error) ||
+      errorOrResponse?.message ||
+      ''
+  ).toLowerCase();
+
+  return message.includes('no otp found') || message.includes('request a new otp');
+};
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const makeHttpError = (response, fallback = 'Request failed') => {
   const data = response?.data;
   const error = new Error(
@@ -155,6 +186,7 @@ const makeHttpError = (response, fallback = 'Request failed') => {
 };
 
 export const postPublicAuthEndpoint = async (endpoint, payload, options = {}) => {
+<<<<<<< HEAD
   const timeout = getPublicAuthTimeout(endpoint, options.timeout);
 
   try {
@@ -178,6 +210,21 @@ export const postPublicAuthEndpoint = async (endpoint, payload, options = {}) =>
         }
         throw error;
       }
+=======
+  const url = `${API_BASE_URL}/api/auth/${endpoint}`;
+
+  try {
+    const response = await axios.post(url, payload, {
+      timeout: options.timeout || PUBLIC_AUTH_TIMEOUT_MS,
+      withCredentials: true,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...TUNNEL_HEADERS,
+      },
+      validateStatus: () => true,
+    });
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 
       if (response.status < 200 || response.status >= 300) {
         // 404 on auth routes often means the host itself is wrong for this
@@ -193,6 +240,7 @@ export const postPublicAuthEndpoint = async (endpoint, payload, options = {}) =>
 
     throw new Error('Network request failed');
   } catch (error) {
+<<<<<<< HEAD
     if (error?.response || error?.code === 'ECONNABORTED') throw error;
 
     if (endpoint === 'complete-registration') {
@@ -205,6 +253,48 @@ export const postPublicAuthEndpoint = async (endpoint, payload, options = {}) =>
         status: 400,
         statusText: 'Bad Request',
       });
+=======
+    // Never retry an OTP POST automatically. The server may have accepted the
+    // first request before its response was lost; sending it again can create a
+    // second OTP and immediately invalidate the first email.
+    if (!error?.response) {
+      error.userMessage = error?.code === 'ECONNABORTED'
+        ? 'The email server did not respond within 2 minutes. Please try again later.'
+        : 'The app could not complete the connection to the deployed backend.';
+    }
+    console.log('[public-auth] request failed', {
+      endpoint,
+      url,
+      code: error?.code,
+      message: error?.message,
+      status: error?.response?.status,
+    });
+    throw error;
+  }
+};
+
+export const postPublicAuthEndpointWithOtpRetry = async (
+  endpoint,
+  payload,
+  options = {},
+) => {
+  const attempts = options.attempts || 4;
+  const retryDelayMs = options.retryDelayMs || 450;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await postPublicAuthEndpoint(endpoint, payload, options);
+    } catch (error) {
+      lastError = error;
+      const shouldRetry =
+        endpoint === 'verify-email-otp' &&
+        attempt < attempts &&
+        isMissingOtpError(error);
+
+      if (!shouldRetry) throw error;
+      await wait(retryDelayMs);
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
     }
 
     const networkError = new Error('Network request failed');
@@ -215,6 +305,8 @@ export const postPublicAuthEndpoint = async (endpoint, payload, options = {}) =>
     networkError.cause = error;
     throw networkError;
   }
+
+  throw lastError;
 };
 
 export const getCounsellorId = async () => {

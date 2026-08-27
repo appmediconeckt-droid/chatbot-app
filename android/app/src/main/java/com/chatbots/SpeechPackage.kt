@@ -10,5 +10,5 @@ class SpeechPackage : ReactPackage {
         listOf(SpeechModule(reactContext))
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
-        emptyList()
+        listOf(HumaeliHeroVideoViewManager())
 }

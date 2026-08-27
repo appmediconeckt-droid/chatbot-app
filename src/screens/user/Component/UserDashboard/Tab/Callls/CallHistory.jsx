@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   SectionList,
   StyleSheet,
@@ -11,6 +9,8 @@ import {
   Image,
   useWindowDimensions,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -801,9 +801,10 @@ const styles = StyleSheet.create({
   // "Outgoing" label, auto-width chips overflow a 360dp screen.
   callFilterBtnWrap: {
     flex: 1,
+    minWidth: 0,
   },
   callFilterBtn: {
-    paddingVertical: 8,
+    height: 36,
     paddingHorizontal: 6,
     borderRadius: 10,
     backgroundColor: "#f1f5f9",
@@ -817,9 +818,12 @@ const styles = StyleSheet.create({
     borderColor: "#006B2C",
   },
   callFilterBtnText: {
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 16,
     fontWeight: "600",
     color: "#64748b",
+    textAlign: "center",
+    includeFontPadding: false,
   },
   callFilterBtnTextActive: {
     color: "#ffffff",

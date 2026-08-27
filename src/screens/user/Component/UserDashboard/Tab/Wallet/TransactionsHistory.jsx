@@ -1,16 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
-  Text,
   Image,
-  ScrollView,
+  SectionList,
   TouchableOpacity,
   StyleSheet,
   StatusBar,
-  TextInput,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -25,6 +25,8 @@ const FILTERS = [
   { id: 'Sessions', label: 'Sessions' },
   { id: 'Pending', label: 'Pending' },
 ];
+
+const PAGE_SIZE = 20;
 
 const money = (n) =>
   Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -53,50 +55,93 @@ const TransactionsHistory = ({ navigation }) => {
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [spendingSummary, setSpendingSummary] = useState({ total: 0, breakdown: [] });
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: PAGE_SIZE,
+    total: 0,
+    totalPages: 1,
+    hasNextPage: false,
+  });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
+  const requestSeqRef = useRef(0);
 
-  const fetchWallet = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setLoading(true);
+  const buildParams = useCallback((page) => {
+    const params = { page, limit: PAGE_SIZE };
+    const q = searchQuery.trim();
+    if (q) params.search = q;
+    if (activeFilter === 'Added') params.type = 'credit';
+    if (activeFilter === 'Sessions') params.type = 'debit';
+    if (activeFilter === 'Pending') params.status = 'pending';
+    return params;
+  }, [activeFilter, searchQuery]);
+
+  const fetchWallet = useCallback(async ({ page = 1, silent = false, pageChange = false } = {}) => {
+    const requestId = requestSeqRef.current + 1;
+    requestSeqRef.current = requestId;
+    const isCurrentRequest = () => requestId === requestSeqRef.current;
+
+    if (pageChange) {
+      setLoadingMore(true);
+    } else if (!silent) {
+      setLoading(true);
+    }
     setError(null);
     try {
-      const res = await axiosInstance.get('/api/wallet/data');
+      const res = await axiosInstance.get('/api/wallet/data', { params: buildParams(page) });
+      if (!isCurrentRequest()) return;
+      const nextTransactions = Array.isArray(res?.data?.transactions) ? res.data.transactions : [];
       setBalance(Number(res?.data?.balance || 0));
-      setTransactions(Array.isArray(res?.data?.transactions) ? res.data.transactions : []);
+      setTransactions(nextTransactions);
       setSpendingSummary(res?.data?.spendingSummary || { total: 0, breakdown: [] });
+      setPagination(res?.data?.pagination || {
+        page,
+        limit: PAGE_SIZE,
+        total: nextTransactions.length,
+        totalPages: 1,
+        hasNextPage: false,
+      });
     } catch (e) {
+      if (!isCurrentRequest()) return;
       console.error('Wallet fetch failed', e?.response?.status, e?.message);
       setError('Could not load transactions.');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (isCurrentRequest()) {
+        setLoading(false);
+        setRefreshing(false);
+        setLoadingMore(false);
+      }
     }
-  }, []);
+  }, [buildParams]);
 
-  useEffect(() => { fetchWallet(); }, [fetchWallet]);
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      fetchWallet({ page: 1 });
+    }, searchQuery.trim() ? 350 : 0);
+    return () => clearTimeout(timeout);
+  }, [fetchWallet, searchQuery]);
 
-  // Chip + search filtering.
-  const filtered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return transactions.filter((tx) => {
-      const isCredit = tx.type === 'credit';
-      if (activeFilter === 'Added' && !isCredit) return false;
-      if (activeFilter === 'Sessions' && isCredit) return false;
-      if (activeFilter === 'Pending' && String(tx.status).toLowerCase() !== 'pending') return false;
-      if (!q) return true;
-      const name = tx.counselorId?.fullName || '';
-      return (
-        String(tx.description || '').toLowerCase().includes(q) ||
-        String(name).toLowerCase().includes(q)
-      );
-    });
-  }, [transactions, activeFilter, searchQuery]);
+  const refreshWallet = useCallback(() => {
+    setRefreshing(true);
+    fetchWallet({ page: 1, silent: true });
+  }, [fetchWallet]);
+
+  const loadNextPage = useCallback(() => {
+    if (loading || refreshing || loadingMore || !pagination.hasNextPage) return;
+    fetchWallet({ page: pagination.page + 1, pageChange: true, silent: true });
+  }, [fetchWallet, loading, loadingMore, pagination.hasNextPage, pagination.page, refreshing]);
+
+  const loadPreviousPage = useCallback(() => {
+    if (loading || refreshing || loadingMore || pagination.page <= 1) return;
+    fetchWallet({ page: pagination.page - 1, pageChange: true, silent: true });
+  }, [fetchWallet, loading, loadingMore, pagination.page, refreshing]);
 
   // Group into month sections, newest first.
   const sections = useMemo(() => {
     const byMonth = new Map();
-    [...filtered]
+    [...transactions]
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .forEach((tx) => {
         const d = new Date(tx.createdAt);
@@ -106,8 +151,15 @@ const TransactionsHistory = ({ navigation }) => {
         if (!byMonth.has(key)) byMonth.set(key, []);
         byMonth.get(key).push(tx);
       });
-    return Array.from(byMonth.entries()).map(([month, items]) => ({ month, items }));
-  }, [filtered]);
+    return Array.from(byMonth.entries()).map(([month, items]) => ({ month, data: items }));
+  }, [transactions]);
+
+  const totalTransactions = Number(pagination.total || transactions.length || 0);
+  const currentPage = Number(pagination.page || 1);
+  const totalPages = Math.max(1, Number(pagination.totalPages || 1));
+  const pageLimit = Math.max(1, Number(pagination.limit || PAGE_SIZE));
+  const showingStart = totalTransactions ? ((currentPage - 1) * pageLimit) + 1 : 0;
+  const showingEnd = totalTransactions ? Math.min(totalTransactions, showingStart + transactions.length - 1) : 0;
 
   const renderTransaction = (tx) => {
     const isCredit = tx.type === 'credit';
@@ -157,11 +209,112 @@ const TransactionsHistory = ({ navigation }) => {
     );
   };
 
+  const renderHeader = () => (
+    <>
+      <View style={s.totalCard}>
+        <LinearGradient
+          colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={s.totalGradient}
+        >
+          <View style={s.totalContent}>
+            <Text style={s.totalLabel}>{t('Available Balance')}</Text>
+            <Text style={s.totalAmount}>₹{money(balance)}</Text>
+            <View style={s.savingsRow}>
+              <MaterialCommunityIcons name="chart-line" size={16} color="#ffffff" />
+              <Text style={s.savingsText}>₹{money(spendingSummary.total)} spent so far</Text>
+            </View>
+          </View>
+        </LinearGradient>
+      </View>
+
+      <View style={s.searchBar}>
+        <Ionicons name="search" size={18} color="#94a3b8" />
+        <TextInput
+          style={s.searchInput}
+          placeholder={t('Search transactions, consultants...')}
+          placeholderTextColor="#cbd5e1"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <Ionicons name="close-circle" size={16} color="#cbd5e1" />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={s.filterChips}>
+        {FILTERS.map((f) => {
+          const active = activeFilter === f.id;
+          return (
+            <TouchableOpacity
+              key={f.id}
+              style={[s.filterChip, active && s.filterChipActive]}
+              onPress={() => setActiveFilter(f.id)}
+              activeOpacity={0.85}
+            >
+              {active && <Ionicons name="checkmark" size={14} color="#ffffff" style={{ marginRight: 4 }} />}
+              <Text style={[s.filterChipText, active && s.filterChipTextActive]}>{t(f.label)}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {pagination.total > 0 && (
+        <Text style={s.paginationSummary}>
+          Showing {showingStart}-{showingEnd} of {pagination.total} transactions
+        </Text>
+      )}
+    </>
+  );
+
+  const renderFooter = () => {
+    if (loadingMore) {
+      return (
+        <View style={s.footerLoader}>
+          <ActivityIndicator size="small" color={PATIENT.primary} />
+          <Text style={s.footerText}>{t('Loading page...')}</Text>
+        </View>
+      );
+    }
+    if (sections.length === 0 || totalPages <= 1) {
+      return <View style={{ height: 30 }} />;
+    }
+    return (
+      <View style={s.paginationFooter}>
+        <TouchableOpacity
+          style={[s.pageBtn, currentPage <= 1 && s.pageBtnDisabled]}
+          onPress={loadPreviousPage}
+          disabled={currentPage <= 1}
+          activeOpacity={0.85}
+          accessibilityLabel={t('Previous page')}
+        >
+          <Ionicons name="chevron-back" size={16} color={currentPage <= 1 ? '#94a3b8' : PATIENT.primary} />
+        </TouchableOpacity>
+
+        <Text style={s.pageInfo}>
+          {t('Page')} {currentPage} {t('of')} {totalPages}
+        </Text>
+
+        <TouchableOpacity
+          style={[s.pageBtn, !pagination.hasNextPage && s.pageBtnDisabled]}
+          onPress={loadNextPage}
+          disabled={!pagination.hasNextPage}
+          activeOpacity={0.85}
+          accessibilityLabel={t('Next page')}
+        >
+          <Ionicons name="chevron-forward" size={16} color={!pagination.hasNextPage ? '#94a3b8' : PATIENT.primary} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={s.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor={PATIENT.backgroundTint} />
 
-      {/* Header */}
       <View style={s.header}>
         <TouchableOpacity onPress={() => navigation?.goBack()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="chevron-back" size={24} color="#0f172a" />
@@ -173,100 +326,45 @@ const TransactionsHistory = ({ navigation }) => {
       {loading ? (
         <View style={s.center}><ActivityIndicator size="large" color={PATIENT.primary} /></View>
       ) : (
-        <ScrollView
-          style={s.scroll}
-          showsVerticalScrollIndicator={false}
+        <SectionList
+          sections={sections}
+          keyExtractor={(item, index) => String(item?._id || index)}
+          renderItem={({ item }) => renderTransaction(item)}
+          renderSectionHeader={({ section }) => (
+            <View style={s.dateHeader}>
+              <MaterialCommunityIcons name="circle" size={6} color={PATIENT.primary} style={{ marginRight: 8 }} />
+              <Text style={s.dateHeaderText}>{section.month}</Text>
+            </View>
+          )}
+          ListHeaderComponent={renderHeader}
+          ListEmptyComponent={
+            error ? (
+              <View style={s.empty}>
+                <Ionicons name="cloud-offline-outline" size={38} color="#cbd5e1" />
+                <Text style={s.emptyText}>{error}</Text>
+                <TouchableOpacity style={s.retryBtn} onPress={() => fetchWallet({ page: 1 })} activeOpacity={0.85}>
+                  <Text style={s.retryText}>{t('Retry')}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={s.empty}>
+                <Ionicons name="receipt-outline" size={38} color="#cbd5e1" />
+                <Text style={s.emptyText}>{t('No transactions found.')}</Text>
+              </View>
+            )
+          }
+          ListFooterComponent={renderFooter}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={() => { setRefreshing(true); fetchWallet({ silent: true }); }}
+              onRefresh={refreshWallet}
               colors={[PATIENT.primary]}
               tintColor={PATIENT.primary}
             />
           }
-        >
-          {/* Balance / spend card */}
-          <View style={s.totalCard}>
-            <LinearGradient
-              colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={s.totalGradient}
-            >
-              <View style={s.totalContent}>
-                <Text style={s.totalLabel}>{t('Available Balance')}</Text>
-                <Text style={s.totalAmount}>₹{money(balance)}</Text>
-                <View style={s.savingsRow}>
-                  <MaterialCommunityIcons name="chart-line" size={16} color="#ffffff" />
-                  <Text style={s.savingsText}>₹{money(spendingSummary.total)} spent so far</Text>
-                </View>
-              </View>
-            </LinearGradient>
-          </View>
-
-          {/* Search */}
-          <View style={s.searchBar}>
-            <Ionicons name="search" size={18} color="#94a3b8" />
-            <TextInput
-              style={s.searchInput}
-              placeholder={t('Search transactions, counselors...')}
-              placeholderTextColor="#cbd5e1"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={16} color="#cbd5e1" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Filter chips */}
-          <View style={s.filterChips}>
-            {FILTERS.map((f) => {
-              const active = activeFilter === f.id;
-              return (
-                <TouchableOpacity
-                  key={f.id}
-                  style={[s.filterChip, active && s.filterChipActive]}
-                  onPress={() => setActiveFilter(f.id)}
-                  activeOpacity={0.85}
-                >
-                  {active && <Ionicons name="checkmark" size={14} color="#ffffff" style={{ marginRight: 4 }} />}
-                  <Text style={[s.filterChipText, active && s.filterChipTextActive]}>{t(f.label)}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* List */}
-          {error ? (
-            <View style={s.empty}>
-              <Ionicons name="cloud-offline-outline" size={38} color="#cbd5e1" />
-              <Text style={s.emptyText}>{error}</Text>
-              <TouchableOpacity style={s.retryBtn} onPress={() => fetchWallet()} activeOpacity={0.85}>
-                <Text style={s.retryText}>{t('Retry')}</Text>
-              </TouchableOpacity>
-            </View>
-          ) : sections.length === 0 ? (
-            <View style={s.empty}>
-              <Ionicons name="receipt-outline" size={38} color="#cbd5e1" />
-              <Text style={s.emptyText}>{t('No transactions found.')}</Text>
-            </View>
-          ) : (
-            sections.map((section) => (
-              <View key={section.month}>
-                <View style={s.dateHeader}>
-                  <MaterialCommunityIcons name="circle" size={6} color={PATIENT.primary} style={{ marginRight: 8 }} />
-                  <Text style={s.dateHeaderText}>{section.month}</Text>
-                </View>
-                {section.items.map(renderTransaction)}
-              </View>
-            ))
-          )}
-
-          <View style={{ height: 30 }} />
-        </ScrollView>
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={s.listContent}
+        />
       )}
     </SafeAreaView>
   );
@@ -277,7 +375,7 @@ const s = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  scroll: { flex: 1 },
+  listContent: { paddingBottom: 30 },
 
   totalCard: { marginHorizontal: 16, marginVertical: 16, borderRadius: 16, overflow: 'hidden' },
   totalGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 18, gap: 12 },
@@ -295,6 +393,7 @@ const s = StyleSheet.create({
   filterChipActive: { backgroundColor: PATIENT.primary, borderColor: PATIENT.primary },
   filterChipText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
   filterChipTextActive: { color: '#ffffff' },
+  paginationSummary: { marginHorizontal: 16, marginBottom: 4, fontSize: 12, fontWeight: '600', color: '#64748b' },
 
   dateHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginVertical: 12, marginTop: 16 },
   dateHeaderText: { fontSize: 12, fontWeight: '800', color: PATIENT.primary, letterSpacing: 0.3 },
@@ -317,6 +416,12 @@ const s = StyleSheet.create({
   emptyText: { fontSize: 14, color: '#94a3b8', fontWeight: '500' },
   retryBtn: { paddingHorizontal: 22, paddingVertical: 10, borderRadius: 999, backgroundColor: PATIENT.primary },
   retryText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
+  footerLoader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 18 },
+  footerText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  paginationFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: 16, marginTop: 18, marginBottom: 30, gap: 10 },
+  pageBtn: { width: 44, height: 38, borderRadius: 19, borderWidth: 1, borderColor: '#CDEBD8', backgroundColor: '#EAF8EF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  pageBtnDisabled: { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
+  pageInfo: { flex: 1, textAlign: 'center', color: '#64748b', fontSize: 12, fontWeight: '700' },
 });
 
 export default TransactionsHistory;

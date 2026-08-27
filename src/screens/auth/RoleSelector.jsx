@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  Text,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -15,6 +14,7 @@ import {
   useWindowDimensions,
   Image,
 } from 'react-native';
+import Text from '../../components/TranslatedText';
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -238,7 +238,11 @@ const RoleSelector = () => {
                   </LinearGradient>
                   <View style={styles.roleTextWrap}>
                     <Text style={[styles.roleName, { fontSize: R.roleName }]}>{t('User')}</Text>
+<<<<<<< HEAD
                     <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>{t('Find trusted consultant')}</Text>
+=======
+                    <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>{t('Find trusted consultants')}</Text>
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
                   </View>
                   {selectedRole === 'user' && isLoading ? (
                     <ActivityIndicator size="small" color={PATIENT.primary} />
@@ -250,7 +254,7 @@ const RoleSelector = () => {
                 </TouchableOpacity>
               </Animated.View>
 
-              {/* Counselor → blue */}
+              {/* Consultant → blue */}
               <Animated.View style={{ transform: [{ translateY: counselorCardSlide }, { scale: scaleCounselor }] }}>
                 <TouchableOpacity
                   activeOpacity={0.9}

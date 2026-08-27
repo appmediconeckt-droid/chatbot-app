@@ -5,25 +5,28 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import PATIENT from '../../../../../../theme/palette';
+import {
+  SUPPORT_EMAIL,
+  SUPPORT_PHONE_DISPLAY,
+  SUPPORT_PHONE_TEL,
+} from '../../../../../../config';
 
-const SUPPORT_EMAIL = 'support@humaeli.com';
-const SUPPORT_PHONE = '+1 (800) 555-0199';
 // India's unified emergency number (police / ambulance / fire). Was '911',
 // which simply does not connect from an Indian network.
 const EMERGENCY_PHONE = '112';
-const APP_VERSION = '2.1.4';
+const APP_VERSION = '2.1.6';
 const LAST_UPDATED = 'July 2026';
-// Matches applicationId in android/app/build.gradle.
-const STORE_ID = 'com.chatbots';
+const PLAY_STORE_ID = 'com.mindcrawller.humaeli';
+const PLAY_STORE_URL = `https://play.google.com/store/apps/details?id=com.mindcrawller.humaeli`;
 // Real, region-aware directory of verified crisis lines. Deliberately not a
 // hardcoded list of numbers - a wrong helpline number is worse than none.
 const HELPLINE_DIRECTORY = 'https://findahelpline.com';
@@ -79,7 +82,7 @@ const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
   ];
 
   const faqs = [
-    { question: t('How do I book an appointment?'), answer: t("To book an appointment, navigate to the Counselors tab, select your preferred counselor, choose your consultation type, and pick a date and time. You'll receive a confirmation email with all the details.") },
+    { question: t('How do I book an appointment?'), answer: t("To book an appointment, navigate to the Consultants tab, select your preferred consultant, choose your consultation type, and pick a date and time. You'll receive a confirmation email with all the details.") },
     { question: t('How can I cancel or reschedule?'), answer: t('You can manage your appointments from the Appointments section. Tap any upcoming appointment to reschedule or cancel. Cancellations made 24 hours before the session are eligible for refunds.') },
     { question: t('Is my medical data secure?'), answer: t('Yes, all your personal and medical data is protected with end-to-end encryption and industry-standard security protocols. Your data is never shared with third parties without your consent.') },
     { question: t('How do I add funds to my Wallet?'), answer: t('Go to the Wallet tab and tap "Add Money". Choose your preferred payment method — card, UPI, or bank transfer — and enter the amount you want to add.') },
@@ -98,8 +101,8 @@ const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
         Alert.alert('Email Support', `Please email us at ${SUPPORT_EMAIL}`);
       });
     } else if (action === 'phone') {
-      Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {
-        Alert.alert('Call Support', `Please call us at ${SUPPORT_PHONE}`);
+      Linking.openURL(`tel:${SUPPORT_PHONE_TEL}`).catch(() => {
+        Alert.alert('Call Support', `Please call us at ${SUPPORT_PHONE_DISPLAY}`);
       });
     } else if (action === 'chat') {
       // Open the real chat tab rather than a dead confirmation dialog.
@@ -158,8 +161,8 @@ const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
   const handleCheckForUpdates = () => {
     // market:// opens the Play Store app directly; the https URL is the fallback
     // when the store app isn't installed.
-    Linking.openURL(`market://details?id=${STORE_ID}`).catch(() => {
-      Linking.openURL(`https://play.google.com/store/apps/details?id=${STORE_ID}`).catch(() => {
+    Linking.openURL(`https://play.google.com/store/apps/details?id=com.mindcrawller.humaeli`).catch(() => {
+      Linking.openURL(PLAY_STORE_URL).catch(() => {
         Alert.alert('Check for Updates', `You are on version ${APP_VERSION}. Unable to open the store.`);
       });
     });
@@ -248,7 +251,7 @@ const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
         </View>
 
         {/* Contact Information */}
-        <Text style={s.contactHeading}>{t('CONTACT INFORMATION')}</Text>
+        {/* <Text style={s.contactHeading}>{t('CONTACT INFORMATION')}</Text>
         <View style={s.contactCard}>
           <TouchableOpacity style={s.contactRow} onPress={() => handleQuickAction('email')} activeOpacity={0.7}>
             <View style={s.contactIcon}>
@@ -267,11 +270,11 @@ const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
               <MaterialCommunityIcons name="phone-outline" size={20} color={PATIENT.primary} />
             </View>
             <View style={s.contactInfo}>
-              <Text style={s.contactValue}>{SUPPORT_PHONE}</Text>
+              <Text style={s.contactValue}>{SUPPORT_PHONE_DISPLAY}</Text>
               <Text style={s.contactSub}>Mon–Fri, 9am – 5pm IST</Text>
             </View>
           </TouchableOpacity>
-        </View>
+        </View> */}
 
         {/* Report a Problem */}
         <Text style={s.sectionTitle}>{t('Report a Problem')}</Text>

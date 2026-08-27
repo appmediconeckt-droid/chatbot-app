@@ -1,14 +1,20 @@
 import React, { useState } from "react";
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
   Alert,
 } from "react-native";
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import { useNavigation } from "@react-navigation/native";
+<<<<<<< HEAD
+=======
+import Ionicons from "react-native-vector-icons/Ionicons";
+import axios from "axios";
+import { API_BASE_URL } from "../../axiosConfig";
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 import useLanguageRender from '../../hooks/useLanguageRender';
 import { getApiErrorMessage, isOtpRequestSuccessful, postPublicAuthEndpoint } from "./authUtils";
 
@@ -60,8 +66,8 @@ const ForgotPasswordScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backBtn}>← Back</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Ionicons name="close" size={22} color="#2c50cd" />
         </TouchableOpacity>
 
         <Text style={styles.title}>{t('Forgot Password')}</Text>
@@ -101,23 +107,31 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 20,
   },
   backBtn: {
-    fontSize: 18,
-    color: "#2c50cd",
-    marginBottom: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#eef2ff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#c7d2fe",
   },
   title: {
     fontSize: 28,
     fontWeight: "bold",
     color: "#333",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
     color: "#666",
-    marginBottom: 30,
+    marginBottom: 20,
   },
   errorText: {
     color: "red",

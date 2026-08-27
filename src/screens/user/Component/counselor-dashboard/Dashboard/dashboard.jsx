@@ -3,8 +3,6 @@ import { useLanguageRender } from '../../../../../hooks/useLanguageRender';
 import {
   Image,
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   Modal,
@@ -20,8 +18,10 @@ import {
   StatusBar,
   BackHandler,
 } from "react-native";
+import TextInput from '../../../../../components/TranslatedTextInput';
+import Text from '../../../../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useIsFocused, useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation, useRoute } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios, { API_BASE_URL } from "../../../../../axiosConfig";
 import { getAuthToken, getCounsellorId } from "../../../../auth/authUtils";
@@ -58,6 +58,14 @@ import CounselorGradientButton from '../../../../../components/common/CounselorG
 import { loadUserLanguage } from '../../../../../i18n';
 import { DOCTOR, DOCTOR_GRADIENT } from "../../../../../theme/palette";
 import { toImageUri } from "../../../../../utils/imageUri";
+
+const normalizeCallType = (value) => {
+  const type = String(value || '').trim().toLowerCase();
+  if (type === 'audio' || type === 'voice' || type.includes('audio') || type.includes('voice')) {
+    return 'voice';
+  }
+  return 'video';
+};
 
 // â”€â”€â”€ Incoming Call Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const IncomingCallModal = ({
@@ -172,7 +180,7 @@ const IncomingCallModal = ({
     toImageUri(callData?.image) ||
     toImageUri(callerDisplay.avatarUrl) ||
     toImageUri(callerImage);
-  const isVideo = callType === "video";
+  const isVideo = normalizeCallType(callType || callData?.callType) === "video";
 
   // Wave ring interpolations (expand out + fade)
   const ringStyle = (val) => ({
@@ -236,10 +244,6 @@ const IncomingCallModal = ({
               )}
             </View>
           </Animated.View>
-          <View style={styles.incomingEncryptedBadge}>
-            <Ionicons name="lock-closed" size={11} color={DOCTOR.primary} />
-            <Text style={styles.incomingEncryptedText}>{t('call:encrypted', 'ENCRYPTED')}</Text>
-          </View>
         </View>
 
         <View style={styles.incomingCallActions}>
@@ -801,10 +805,19 @@ export default function CounselorDashboard() {
   const { t } = useLanguageRender();
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const MOBILE_HEADER_BAR_HEIGHT = 68;
-  const topInset = Platform.OS === "ios" ? insets.top : 0;
+  const MOBILE_HEADER_BAR_HEIGHT = 60;
+  const MOBILE_BOTTOM_NAV_BAR_HEIGHT = 66;
+  const topInset = Platform.OS === "android"
+    ? Math.min(Math.max(insets.top, 8), 16)
+    : insets.top;
+  const mobileHeaderHeight = topInset + MOBILE_HEADER_BAR_HEIGHT;
+  const dashboardBottomInset = Math.max(insets.bottom, 0);
+  const mobileBottomNavHeight = MOBILE_BOTTOM_NAV_BAR_HEIGHT + dashboardBottomInset;
+  const mobileBottomNavPaddingBottom = Math.max(dashboardBottomInset, 8);
   const isFocused = useIsFocused();
+  const route = useRoute();
   const [activeTab, setActiveTab] = useState("messages");
+  const [profileEntryMode, setProfileEntryMode] = useState("view");
   // Visited tabs, most recent last. Drives back navigation between tabs.
   const tabHistoryRef = useRef([]);
   // True while showing a tab that was opened from the mobile menu.
@@ -1067,7 +1080,7 @@ export default function CounselorDashboard() {
 
   // â”€â”€ Initiate Video Call from Appointments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleInitiateVideoCallFromApt = async (apt, callType = "video") => {
-    const isVoice = callType === "audio";
+    const isVoice = normalizeCallType(callType) === "voice";
     const patientInfo = apt.patient || {};
     const storedCounsellorId = await getCounsellorId();
     const token = await getAuthToken();
@@ -1086,7 +1099,7 @@ export default function CounselorDashboard() {
       return;
     }
     if (!storedCounsellorId) {
-      showToast("Missing counsellor ID. Please login again.", "error");
+      showToast("Missing consultant ID. Please login again.", "error");
       return;
     }
     if (!token) {
@@ -1169,7 +1182,7 @@ export default function CounselorDashboard() {
             callType: isVoice ? 'audio' : 'video',
             counsellorId: storedCounsellorId,
             userId: userId,
-            counsellorName: counselorData?.fullName || "Counselor"
+            counsellorName: counselorData?.fullName || "Consultant"
           });
         }
         
@@ -1293,7 +1306,7 @@ export default function CounselorDashboard() {
     try {
       const token = await getAuthToken();
       const userId = await getCounsellorId();
-      if (!userId) return { success: false, error: "No counsellor ID found" };
+      if (!userId) return { success: false, error: "No consultant ID found" };
       if (!token) return { success: false, error: "Session expired. Please login again." };
 
       const response = await axios.put(
@@ -1321,7 +1334,7 @@ export default function CounselorDashboard() {
     try {
       const token = await getAuthToken();
       const counsellorId = await getCounsellorId();
-      if (!counsellorId) return { success: false, error: "No counsellor ID found" };
+      if (!counsellorId) return { success: false, error: "No consultant ID found" };
       if (!token) return { success: false, error: "Session expired. Please login again." };
       const response = await axios.post(
         `${API_BASE_URL}/api/video/calls/${callId}/join`,
@@ -1405,10 +1418,13 @@ export default function CounselorDashboard() {
       console.warn("Could not fetch accepted call details:", detailsError);
     }
 
-    const incomingType = String(
-      callData.callType || detailedCall?.type || "video"
-    ).toLowerCase();
-    const modalType = incomingType === "audio" ? "voice" : incomingType;
+    const modalType = normalizeCallType(
+      callData.callType ||
+      detailedCall?.callType ||
+      detailedCall?.type ||
+      result.data?.callType ||
+      "video"
+    );
     const initiatorIdStr = String(detailedCall?.initiator?.id || detailedCall?.initiator?._id || '');
     const remoteParticipant = detailedCall
       ? initiatorIdStr === String(counsellorId)
@@ -1597,6 +1613,8 @@ export default function CounselorDashboard() {
           displayName = fromData.fullName;
         }
 
+        const resolvedCallType = normalizeCallType(waitingCall.callType || waitingCall.type);
+
         setIncomingCallData({
           callId: waitingCall.callId || waitingCall.id || waitingCall._id,
           roomId: waitingCall.roomId,
@@ -1608,7 +1626,7 @@ export default function CounselorDashboard() {
             fromData.avatar ||
             getAnonymousUserDisplay(fromData).avatarUrl ||
             null,
-          callType: waitingCall.callType || "video",
+          callType: resolvedCallType,
           from: fromData,
           initiator: waitingCall.initiator,
           requestedAt: waitingCall.requestedAt,
@@ -1863,83 +1881,95 @@ export default function CounselorDashboard() {
     }
   };
 
-  // Fetch Counselor Data
-  useEffect(() => {
-    const fetchCounsellor = async () => {
+  const fetchCounsellor = useCallback(async () => {
+    try {
+      const storedCounsellorId =
+        (await AsyncStorage.getItem("counsellorId")) ||
+        (await AsyncStorage.getItem("counselorId"));
+      if (!storedCounsellorId) {
+        setLoading(false);
+        return;
+      }
+      setCounsellorId(storedCounsellorId);
+      const token =
+        (await AsyncStorage.getItem("accessToken")) ||
+        (await AsyncStorage.getItem("token"));
+      const res = await axios.get(
+        `${API_BASE_URL}/api/auth/me`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      const data = res.data?.user || res.data?.counsellor;
+      if (!data) {
+        throw new Error("Counsellor profile not found");
+      }
+      // Was a hand-rolled chain that checked string / .url / .publicId but NOT
+      // .secure_url - which is what Cloudinary actually returns, so the header
+      // avatar came out null while the profile page (using this same helper)
+      // showed the photo fine.
+      const profilePhotoUrl = toImageUri(data.profilePhoto) || null;
+      const missingFields = [];
+      if (!data.specialization || (Array.isArray(data.specialization) && data.specialization.length === 0)) missingFields.push('Specialization');
+      if (!data.experience) missingFields.push('Experience');
+      if (!data.qualification && !data.education) missingFields.push('Qualification');
+
+      // Fetch accepted chats count for patient count
+      let acceptedChatsCount = 0;
       try {
-        const storedCounsellorId =
-          (await AsyncStorage.getItem("counsellorId")) ||
-          (await AsyncStorage.getItem("counselorId"));
-        if (!storedCounsellorId) {
-          setLoading(false);
-          return;
-        }
-        setCounsellorId(storedCounsellorId);
-        const token =
-          (await AsyncStorage.getItem("accessToken")) ||
-          (await AsyncStorage.getItem("token"));
-        const res = await axios.get(
-          `${API_BASE_URL}/api/auth/counsellors/${storedCounsellorId}`,
+        const chatsRes = await axios.get(
+          `${API_BASE_URL}/api/chat/chats`,
           { headers: token ? { Authorization: `Bearer ${token}` } : {} }
         );
-        const data = res.data?.counsellor;
-        // Was a hand-rolled chain that checked string / .url / .publicId but NOT
-        // .secure_url - which is what Cloudinary actually returns, so the header
-        // avatar came out null while the profile page (using this same helper)
-        // showed the photo fine.
-        const profilePhotoUrl = toImageUri(data.profilePhoto) || null;
-        const missingFields = [];
-        if (!data.specialization || (Array.isArray(data.specialization) && data.specialization.length === 0)) missingFields.push('Specialization');
-        if (!data.experience) missingFields.push('Experience');
-        if (!data.qualification && !data.education) missingFields.push('Qualification');
-        if (!data.location) missingFields.push('Location');
-
-        // Fetch accepted chats count for patient count
-        let acceptedChatsCount = 0;
-        try {
-          const chatsRes = await axios.get(
-            `${API_BASE_URL}/api/chat/chats`,
-            { headers: token ? { Authorization: `Bearer ${token}` } : {} }
-          );
-          const chats = chatsRes.data?.chats || [];
-          acceptedChatsCount = chats.filter(
-            (c) => String(c.status || "").toLowerCase() === "accepted"
-          ).length;
-        } catch (e) {
-          // non-critical — keep 0
-        }
-
-        setCounselorData({
-          name: data.fullName || data.name,
-          specialization: Array.isArray(data.specialization)
-            ? data.specialization.join(", ")
-            : data.specialization,
-          experience: parseInt(data.experience) || null,
-          patients: acceptedChatsCount,
-          rating: data.rating || 4.5,
-          email: data.email,
-          phoneNumber: data.phoneNumber,
-          license: "N/A",
-          education: data.qualification || data.education,
-          university: "N/A",
-          hourlyRate: 0,
-          languages: data.languages || [],
-          specializations: data.specialization || [],
-          aboutMe: data.aboutMe,
-          location: data.location,
-          consultationMode: data.consultationMode,
-          profilePhoto: profilePhotoUrl,
-          profileCompleted: data.profileCompleted === true,
-          missingFields,
-        });
-      } catch (error) {
-        console.error("Error fetching counsellor:", error);
-      } finally {
-        setLoading(false);
+        const chats = chatsRes.data?.chats || [];
+        acceptedChatsCount = chats.filter(
+          (c) => String(c.status || "").toLowerCase() === "accepted"
+        ).length;
+      } catch (e) {
+        // non-critical - keep 0
       }
-    };
-    fetchCounsellor();
+
+      setCounselorData({
+        name: data.fullName || data.name,
+        specialization: Array.isArray(data.specialization)
+          ? data.specialization.join(", ")
+          : data.specialization,
+        experience: parseInt(data.experience) || null,
+        patients: acceptedChatsCount,
+        rating: data.rating || 4.5,
+        email: data.email,
+        phoneNumber: data.phoneNumber,
+        dateOfBirth: data.dateOfBirth,
+        gender: data.gender,
+        license: "N/A",
+        education: data.qualification || data.education,
+        university: "N/A",
+        hourlyRate: 0,
+        languages: data.languages || [],
+        specializations: data.specialization || [],
+        aboutMe: data.aboutMe,
+        location: data.location,
+        address: data.address,
+        certifications: data.certifications,
+        consultationMode: data.consultationMode,
+        profilePhoto: profilePhotoUrl,
+        profileCompleted: data.profileCompleted === true,
+        missingFields,
+      });
+    } catch (error) {
+      console.error("Error fetching counsellor:", error);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  // Fetch Counselor Data
+  useEffect(() => {
+    fetchCounsellor();
+  }, [fetchCounsellor]);
+
+  const handleProfileSaved = useCallback(async () => {
+    await fetchCounsellor();
+    setProfileEntryMode('view');
+  }, [fetchCounsellor]);
 
   // Reload counselor's language whenever this dashboard gains focus
   useEffect(() => {
@@ -1988,7 +2018,7 @@ export default function CounselorDashboard() {
     {
       id: "appointments",
       icon: "calendar-alt",
-      label: t('counselor:appointment'),
+      label: t('counselor:appointments', 'Appointments'),
       badge: appointments.filter((a) => a.status === "pending").length,
     },
     { id: "sessions", icon: "video", label: t('counselor:sessions'), badge: 0 },
@@ -1997,7 +2027,12 @@ export default function CounselorDashboard() {
     { id: "settings", icon: "sliders", label: t('settings:settings'), badge: 0 },
   ];
 
-  const handleTabChange = (tabId, fromMenu = false) => {
+  const handleTabChange = (tabId, fromMenu = false, options = {}) => {
+    if (tabId === 'profile') {
+      setProfileEntryMode(options.startEditing ? 'complete' : 'view');
+    } else {
+      setProfileEntryMode('view');
+    }
     menuViaBackRef.current = false;
     if (tabId === activeTab) { setShowMobileMenu(false); return; }
     vibrate(80);
@@ -2009,6 +2044,13 @@ export default function CounselorDashboard() {
     setActiveTab(tabId);
     setShowMobileMenu(false);
   };
+
+  useEffect(() => {
+    if (route.params?.initialTab !== 'profile') return;
+
+    setProfileEntryMode(route.params?.profileStartEditing ? 'complete' : 'view');
+    setActiveTab('profile');
+  }, [route.params?.initialTab, route.params?.profileStartEditing, route.params?.profileIntentAt]);
 
   // One step back through the tab history.
   const handleDashboardBack = () => {
@@ -2068,13 +2110,12 @@ export default function CounselorDashboard() {
     const g = h < 12 ? 'Good Morning' : h < 17 ? t('Good Afternoon') : t('Good Evening');
     // First name only — surname is dropped (e.g. "Vivek Singh" → "Dr. Vivek").
     const firstNameOnly =
-      (counselorData?.name || 'Counselor')
+      (counselorData?.name || 'Consultant')
         .replace(/^Dr\.?\s*/i, '')
         .trim()
-        .split(/\s+/)[0] || 'Counselor';
+        .split(/\s+/)[0] || 'Consultant';
     return `${g}, Dr. ${firstNameOnly}`;
   })();
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -2136,11 +2177,11 @@ export default function CounselorDashboard() {
     const firstName = (
       (counselorData?.name || "").replace(/^Dr\.?\s*/i, "").split(" ")[0] ||
       counselorData?.name ||
-      "Counselor"
+      "Consultant"
     ).toUpperCase();
     const counselorPhoto = counselorData?.profilePhoto || null;
     const counselorInitial = (counselorData?.name || "C").charAt(0).toUpperCase();
-    const shortHeaderName = (counselorData?.name || "Counselor").replace(/^Dr\.?\s*/i, "").slice(0, 8);
+    const shortHeaderName = (counselorData?.name || "Consultant").replace(/^Dr\.?\s*/i, "").slice(0, 8);
 
     return (
       <ScrollView
@@ -2482,11 +2523,16 @@ export default function CounselorDashboard() {
             counselorData={counselorData}
             notifCount={pendingRequests.length}
             onBellPress={() => setShowNotifications(true)}
-            onCompleteProfile={() => handleTabChange('profile')}
+            onCompleteProfile={() => handleTabChange('profile', false, { startEditing: true })}
           />
         );
       case "profile":
-        return <CounselorProfile />;
+        return (
+          <CounselorProfile
+            startEditing={profileEntryMode === 'complete'}
+            onProfileSaved={handleProfileSaved}
+          />
+        );
       case "settings":
         return (
           <CounselorSettings
@@ -2502,15 +2548,15 @@ export default function CounselorDashboard() {
             counselorData={counselorData}
             notifCount={pendingRequests.length}
             onBellPress={() => setShowNotifications(true)}
-            onCompleteProfile={() => handleTabChange('profile')}
+            onCompleteProfile={() => handleTabChange('profile', false, { startEditing: true })}
           />
         );
     }
   };
 
   return (
-    <SafeAreaView style={styles.screen} edges={["top"]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+    <SafeAreaView style={styles.screen} edges={isMobile ? [] : ["top"]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
       <View style={styles.container}>
         {/* Session detail modal (View Details) */}
         <SessionDetailModal
@@ -2606,7 +2652,7 @@ export default function CounselorDashboard() {
 
                 {/* Name */}
                 <Text style={styles.profileName} numberOfLines={1}>
-                  {counselorData?.name || "Counselor"}
+                  {counselorData?.name || "Consultant"}
                 </Text>
 
                 {/* Specialization */}
@@ -2758,7 +2804,7 @@ export default function CounselorDashboard() {
 
         {/* Mobile Menu Overlay */}
         {isMobile && showMobileMenu && (
-          <View style={[styles.mobileMenuOverlay, { top: topInset + MOBILE_HEADER_BAR_HEIGHT }]}>
+          <View style={[styles.mobileMenuOverlay, { top: mobileHeaderHeight }]}>
             <View style={styles.mobileMenu}>
 
               {/* Profile */}
@@ -2907,8 +2953,8 @@ export default function CounselorDashboard() {
             style={[
               styles.mobileBottomNav,
               {
-                height: (Platform.OS === 'ios' ? 84 : 66) + insets.bottom,
-                paddingBottom: (Platform.OS === 'ios' ? 24 : 8) + insets.bottom,
+                height: mobileBottomNavHeight,
+                paddingBottom: mobileBottomNavPaddingBottom,
               },
             ]}
           >
@@ -2996,35 +3042,11 @@ export default function CounselorDashboard() {
             styles.mainContent,
             isMobile && styles.mainContentMobile,
             // Clear the fixed greeting header on every tab.
-            isMobile && { marginTop: topInset + MOBILE_HEADER_BAR_HEIGHT },
+            isMobile && { marginTop: mobileHeaderHeight },
+            isMobile && { marginBottom: mobileBottomNavHeight },
             { flexDirection: 'column' },
           ]}
         >
-          {/* Profile incomplete banner */}
-          {activeTab !== 'messages' && counselorData && !counselorData.profileCompleted && (
-            <TouchableOpacity
-              style={profileBanner.wrap}
-              onPress={() => handleTabChange('profile')}
-              activeOpacity={0.85}
-            >
-              <View style={profileBanner.left}>
-                <View style={profileBanner.iconWrap}>
-                  <Icon name="exclamation-triangle" size={16} color="#92400e" />
-                </View>
-                <View style={profileBanner.textWrap}>
-                  <Text style={profileBanner.title}>Complete your profile to appear in the directory</Text>
-                  {counselorData.missingFields && counselorData.missingFields.length > 0 && (
-                    <Text style={profileBanner.missing}>
-                      Missing: {counselorData.missingFields.join(' · ')}
-                    </Text>
-                  )}
-                </View>
-              </View>
-              <View style={profileBanner.btn}>
-                <Text style={profileBanner.btnText}>Complete Now</Text>
-              </View>
-            </TouchableOpacity>
-          )}
           <View style={{ flex: 1 }}>
             {renderTabContent()}
           </View>
@@ -3166,6 +3188,7 @@ export default function CounselorDashboard() {
 const sessStyles = StyleSheet.create({
   headerWrap: {
     paddingHorizontal: 16,
+    paddingTop: 12,
     marginBottom: 6,
   },
   headerTopRow: {
@@ -4142,46 +4165,6 @@ const aptStyles = StyleSheet.create({
 });
 
 // â”€â”€â”€ Main Styles (unchanged from original) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const profileBanner = StyleSheet.create({
-  wrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#F0F9FF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#BAE6FD',
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    gap: 10,
-  },
-  left: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10 },
-  iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: '#E0F2FE',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  textWrap: { flex: 1 },
-  title: { fontSize: 12, fontWeight: '700', color: '#1E3A8A', lineHeight: 17 },
-  missing: { fontSize: 11, color: '#2563EB', marginTop: 2 },
-  btn: {
-    backgroundColor: '#2563EB',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    flexShrink: 0,
-    shadowColor: '#2563EB',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  btnText: { fontSize: 11, fontWeight: '700', color: '#ffffff' },
-});
-
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -4763,7 +4746,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   bottomNavItemActive: {
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "transparent",
   },
   bottomNavLabel: {
     fontSize: 10,
@@ -5561,25 +5544,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   incomingCallInitial: { color: "#FFFFFF", fontSize: 44, fontWeight: "700" },
-  incomingEncryptedBadge: {
-    position: "absolute",
-    bottom: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "#E7EEFE",
-    borderWidth: 1,
-    borderColor: "#D8E3FC",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  incomingEncryptedText: {
-    fontSize: 9.5,
-    fontWeight: "800",
-    color: DOCTOR.primary,
-    letterSpacing: 0.6,
-  },
   incomingCallActions: {
     flexDirection: "row",
     justifyContent: "center",

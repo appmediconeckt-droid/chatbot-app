@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -9,6 +8,7 @@ import {
   Switch,
   Alert,
 } from 'react-native';
+import Text from '../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -20,6 +20,7 @@ import useLanguageRender from '../../../../../hooks/useLanguageRender';
 
 const PIN_STORAGE_KEY = 'appLockPin';
 const BIOMETRIC_ENABLED_KEY = 'appLockBiometricEnabled';
+const BIOMETRIC_PENDING_ENABLE_KEY = 'appLockBiometricPendingEnable';
 
 const AppLockSettings = ({ navigation }) => {
   const { t } = useLanguageRender();
@@ -28,6 +29,7 @@ const AppLockSettings = ({ navigation }) => {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometryType, setBiometryType] = useState(null);
   const [loading, setLoading] = useState(true);
+  const completingPendingBiometricRef = useRef(false);
   // Role → palette: counselor = blue, everyone else = green.
   const [C, setC] = useState(PATIENT);
 
@@ -54,17 +56,52 @@ const AppLockSettings = ({ navigation }) => {
     return unsub;
   }, [navigation]);
 
+  const getBiometryLabel = (type = biometryType) => {
+    if (type === 'FaceID') return 'Face ID';
+    if (type === 'TouchID') return 'Touch ID';
+    return 'Fingerprint';
+  };
+
+  const completePendingBiometricEnable = async ({ pinExists, available, type, enabled }) => {
+    if (completingPendingBiometricRef.current || !pinExists || !available || enabled) return;
+
+    const pending = await AsyncStorage.getItem(BIOMETRIC_PENDING_ENABLE_KEY);
+    if (pending !== 'true') return;
+
+    completingPendingBiometricRef.current = true;
+    try {
+      await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, 'true');
+      await AsyncStorage.removeItem(BIOMETRIC_PENDING_ENABLE_KEY);
+      setBiometricEnabled(true);
+      Alert.alert(
+        t('Biometric Unlock Active'),
+        t(`${getBiometryLabel(type)} unlock is now active.`),
+      );
+    } finally {
+      completingPendingBiometricRef.current = false;
+    }
+  };
+
   const checkSecurityStatus = async () => {
     try {
       const pin = await AsyncStorage.getItem(PIN_STORAGE_KEY);
-      setHasPIN(!!pin);
+      const pinExists = !!pin;
+      setHasPIN(pinExists);
 
       const bioEnabled = await AsyncStorage.getItem(BIOMETRIC_ENABLED_KEY);
-      setBiometricEnabled(bioEnabled === 'true');
+      const enabled = bioEnabled === 'true';
+      setBiometricEnabled(enabled);
 
       const { available, biometryType: type } = await isBiometricAvailable();
       setBiometricAvailable(available);
       setBiometryType(type);
+
+      await completePendingBiometricEnable({
+        pinExists,
+        available,
+        type,
+        enabled,
+      });
     } catch (e) {
       console.error('Failed to check security status:', e);
     } finally {
@@ -74,7 +111,24 @@ const AppLockSettings = ({ navigation }) => {
 
   const handleToggleBiometric = async (value) => {
     if (value && !hasPIN) {
-      Alert.alert(t('PIN Required'), t('Please set up a PIN first before enabling biometric unlock.'));
+      Alert.alert(
+        t('PIN Required'),
+        t('Please set a PIN first. Fingerprint unlock will become active after the PIN is set.'),
+        [
+          {
+            text: t('Cancel'),
+            style: 'cancel',
+            onPress: () => AsyncStorage.removeItem(BIOMETRIC_PENDING_ENABLE_KEY),
+          },
+          {
+            text: t('Set PIN'),
+            onPress: async () => {
+              await AsyncStorage.setItem(BIOMETRIC_PENDING_ENABLE_KEY, 'true');
+              navigation.navigate('PinSetup', { forced: false });
+            },
+          },
+        ],
+      );
       return;
     }
 
@@ -98,6 +152,7 @@ const AppLockSettings = ({ navigation }) => {
       }
     } else {
       await AsyncStorage.removeItem(BIOMETRIC_ENABLED_KEY);
+      await AsyncStorage.removeItem(BIOMETRIC_PENDING_ENABLE_KEY);
       setBiometricEnabled(false);
       Alert.alert(t('Disabled'), t('Biometric unlock has been disabled.'));
     }
@@ -139,6 +194,7 @@ const AppLockSettings = ({ navigation }) => {
           onPress: async () => {
             await AsyncStorage.removeItem(PIN_STORAGE_KEY);
             await AsyncStorage.removeItem(BIOMETRIC_ENABLED_KEY);
+            await AsyncStorage.removeItem(BIOMETRIC_PENDING_ENABLE_KEY);
             setHasPIN(false);
             setBiometricEnabled(false);
             Alert.alert(t('PIN Removed'), t('App lock has been disabled.'));
@@ -146,12 +202,6 @@ const AppLockSettings = ({ navigation }) => {
         },
       ]
     );
-  };
-
-  const getBiometryLabel = () => {
-    if (biometryType === 'FaceID') return 'Face ID';
-    if (biometryType === 'TouchID') return 'Touch ID';
-    return 'Fingerprint';
   };
 
   return (
@@ -254,7 +304,7 @@ const AppLockSettings = ({ navigation }) => {
             <Switch
               value={biometricEnabled && biometricAvailable}
               onValueChange={handleToggleBiometric}
-              disabled={!biometricAvailable || !hasPIN}
+              disabled={!biometricAvailable}
               trackColor={{ false: '#cbd5e1', true: C.primary }}
               thumbColor="#ffffff"
             />

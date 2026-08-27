@@ -1,24 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  TextInput,
   SafeAreaView,
   StatusBar,
 } from 'react-native';
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import OtpCodeInput from './components/OtpCodeInput';
 import {
   getApiErrorMessage,
   isOtpRequestSuccessful,
+<<<<<<< HEAD
   isOtpVerificationSuccessful,
+=======
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
   postPublicAuthEndpoint,
   setAccessToken,
   setUserEmail,
@@ -27,6 +30,8 @@ import {
 import useLanguageRender from '../../hooks/useLanguageRender';
 import AuthBackground from '../../theme/AuthBackground';
 import { GRADIENT_DIRECTION, gradientForRole, paletteForRole } from '../../theme/palette';
+import { sendLocationSilently } from '../../utils/locationHelper';
+import socketService from '../../services/socketService';
 
 const OTPVerification = ({ navigation, route }) => {
   const { t } = useLanguageRender();
@@ -46,10 +51,17 @@ const OTPVerification = ({ navigation, route }) => {
     return value.replace('counsellor', 'counselor');
   };
 
+  const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+
+  const getResponsePayload = (data) => data?.data || data?.result || data || {};
+
   const C = paletteForRole(authRole);
   const activeGradient = gradientForRole(authRole);
 
   useEffect(() => {
+    const routeEmail = normalizeEmail(route?.params?.email);
+    if (routeEmail) setEmail(routeEmail);
+
     const resolveRole = async () => {
       const routeRole = normalizeRole(route?.params?.role);
       if (routeRole) {
@@ -65,7 +77,7 @@ const OTPVerification = ({ navigation, route }) => {
     };
 
     resolveRole();
-  }, [route?.params?.role]);
+  }, [route?.params?.email, route?.params?.role]);
 
   // ✅ TIMER (2 MIN)
   useEffect(() => {
@@ -95,12 +107,17 @@ const OTPVerification = ({ navigation, route }) => {
 
   // ✅ SEND OTP
   const handleSendCode = async () => {
+<<<<<<< HEAD
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail) {
       setError('Enter valid email');
       return;
     }
     if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) {
+=======
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       setError('Enter valid email');
       return;
     }
@@ -111,17 +128,30 @@ const OTPVerification = ({ navigation, route }) => {
 
     try {
       const res = await postPublicAuthEndpoint('generateOtp', {
+<<<<<<< HEAD
         email: cleanEmail,
       });
 
       if (isOtpRequestSuccessful(res)) {
         setEmail(cleanEmail);
+=======
+        email: normalizedEmail,
+      });
+
+      if (isOtpRequestSuccessful(res)) {
+        setEmail(normalizedEmail);
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
         setStep('otp');
         setOtp('');
         setTimer(120);
         setCanResend(false);
+<<<<<<< HEAD
         await setUserEmail(cleanEmail);
         setSuccess('OTP sent successfully');
+=======
+        await setUserEmail(normalizedEmail);
+        setSuccess(res.data?.message || 'OTP sent successfully');
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       } else {
         setError(res.data?.message || 'Failed to send OTP');
       }
@@ -134,8 +164,17 @@ const OTPVerification = ({ navigation, route }) => {
 
   // ✅ VERIFY OTP
   const handleVerifyOtp = async () => {
-    if (otp.length !== 6) {
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedOtp = String(otp || '').trim();
+
+    if (normalizedOtp.length !== 6) {
       setError('Enter complete OTP');
+      return;
+    }
+
+    if (!normalizedEmail) {
+      setError('Enter valid email');
+      setStep('email');
       return;
     }
 
@@ -144,39 +183,63 @@ const OTPVerification = ({ navigation, route }) => {
 
     try {
       const res = await postPublicAuthEndpoint('verifyOtp', {
+<<<<<<< HEAD
         email: email.trim().toLowerCase(),
         otp
       });
 
       if (isOtpVerificationSuccessful(res)) {
         const token = res.data?.token || res.data?.accessToken;
-        const resolvedRole = normalizeRole(
-          res.data?.user?.role || res.data?.role || authRole
-        );
-        const resolvedId = res.data?.user?._id || res.data?.user?.id;
+=======
+        email: normalizedEmail,
+        otp: normalizedOtp,
+      });
 
-        if (token) {
-          await setAccessToken(token);
+      if (res.data?.success !== false) {
+        const payload = getResponsePayload(res.data);
+        const token = payload?.accessToken || payload?.token || res.data?.accessToken || res.data?.token;
+        const refreshToken = payload?.refreshToken || res.data?.refreshToken;
+        const user = payload?.user || res.data?.user;
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
+        const resolvedRole = normalizeRole(
+          user?.role || payload?.role || res.data?.role || authRole
+        );
+        const resolvedId = user?._id || user?.id || payload?._id || payload?.id;
+
+        if (!token) {
+          setError('OTP verified, but login token missing. Please try again.');
+          return;
+        }
+
+        await setAccessToken(token);
+        if (refreshToken) {
+          await AsyncStorage.setItem('refreshToken', refreshToken);
         }
 
         await updateVerificationStatus(true);
         await AsyncStorage.setItem('userRole', resolvedRole);
+        await AsyncStorage.setItem('userType', resolvedRole === 'counselor' ? 'counselor' : 'user');
         await AsyncStorage.setItem('isAuthenticated', 'true');
-        await AsyncStorage.setItem('userEmail', email);
+        await AsyncStorage.setItem('userEmail', normalizedEmail);
 
-        if (res.data?.user) {
-          await AsyncStorage.setItem('userData', JSON.stringify(res.data.user));
+        if (user) {
+          await AsyncStorage.setItem('userData', JSON.stringify(user));
         }
 
         if (resolvedId) {
+          await AsyncStorage.setItem('userId', String(resolvedId));
           if (resolvedRole === 'counselor') {
             await AsyncStorage.setItem('counsellorId', String(resolvedId));
-          } else {
-            await AsyncStorage.setItem('userId', String(resolvedId));
+            await AsyncStorage.setItem('counselorId', String(resolvedId));
           }
         }
 
-        setSuccess('Login successful');
+        await AsyncStorage.removeItem('role');
+        sendLocationSilently('login');
+        socketService.connect().catch(() => {});
+
+        setEmail(normalizedEmail);
+        setSuccess(res.data?.message || 'Login successful');
 
         setTimeout(() => {
           if (resolvedRole === 'counselor') {
@@ -204,12 +267,23 @@ const OTPVerification = ({ navigation, route }) => {
     setSuccess('');
 
     try {
+<<<<<<< HEAD
       const res = await postPublicAuthEndpoint('resendOtp', {
         email: email.trim().toLowerCase(),
       });
 
       if (isOtpRequestSuccessful(res)) {
         setSuccess('OTP resent successfully');
+=======
+      const normalizedEmail = normalizeEmail(email);
+      const res = await postPublicAuthEndpoint('resendOtp', {
+        email: normalizedEmail,
+      });
+
+      if (isOtpRequestSuccessful(res)) {
+        setEmail(normalizedEmail);
+        setSuccess(res.data?.message || 'OTP resent successfully');
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
         setTimer(120);
         setCanResend(false);
 

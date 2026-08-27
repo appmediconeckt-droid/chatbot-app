@@ -1,7 +1,7 @@
 import axios from '../axiosConfig';
 
-const setPasswordByOtp = async ({ email, password }) => {
-  return axios.post('/api/auth/set-password-by-otp', { email, password });
+const setPasswordByOtp = async ({ email, password, otp }) => {
+  return axios.post('/api/auth/set-password-by-otp', { email, password, otp });
 };
 
 const setPassword = async ({ password }) => {

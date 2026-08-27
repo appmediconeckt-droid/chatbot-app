@@ -18,12 +18,13 @@ const CounselorGradientButton = ({
     style={[styles.touchable, style, disabled && styles.disabled]}
   >
     <LinearGradient
+      pointerEvents="none"
       colors={[DOCTOR.gradientFrom, DOCTOR.gradientTo]}
       start={{ x: 0, y: 0.5 }}
       end={{ x: 1, y: 0.5 }}
       style={StyleSheet.absoluteFillObject}
     />
-    <View style={[styles.content, contentStyle]}>{children}</View>
+    <View pointerEvents="none" style={[styles.content, contentStyle]}>{children}</View>
   </TouchableOpacity>
 );
 

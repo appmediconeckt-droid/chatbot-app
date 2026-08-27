@@ -14,10 +14,10 @@ import {
   ActivityIndicator,
   Image,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import Text from '../../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_BASE_URL } from '../../../axiosConfig';
@@ -30,7 +30,6 @@ let StatusCodesModule = null;
 try {
   // Lazy-require so the screen doesn't crash if the native module isn't
   // linked yet (e.g. before `npm install` + rebuild).
-  // eslint-disable-next-line global-require
   const lib = require('@react-native-google-signin/google-signin');
   GoogleSigninModule = lib.GoogleSignin;
   StatusCodesModule = lib.statusCodes;
@@ -51,6 +50,49 @@ const normalizeRole = (role) => {
 
 const mapRoleForBackend = (role) =>
   role === 'counselor' ? 'counsellor' : role;
+
+const getRoleLabel = (role) => {
+  const normalized = normalizeRole(role);
+  return normalized === 'counselor' ? 'Consultant' : 'User';
+};
+
+const buildRoleMismatchMessage = ({ actualRole, requestedRole, fallbackMessage }) => {
+  if (!actualRole && !requestedRole) {
+    return fallbackMessage || 'Role mismatch. Please select the correct login role.';
+  }
+
+  const actualLabel = getRoleLabel(actualRole);
+  const requestedLabel = requestedRole ? getRoleLabel(requestedRole) : 'another';
+  return `Role mismatch: this Google account is registered as ${actualLabel}, but you selected ${requestedLabel} login. Please go back and select ${actualLabel} login.`;
+};
+
+const isGeneratedUserAvatarUrl = (raw) => {
+  const url =
+    typeof raw === 'string'
+      ? raw
+      : raw?.url || raw?.secure_url || '';
+  const value = String(url || '').trim();
+  if (!value) return false;
+  return (
+    value.startsWith('data:image/') ||
+    /^https:\/\/api\.dicebear\.com\//i.test(value)
+  );
+};
+
+const sanitizeUserPhotoForRole = (user, roleName) => {
+  if (!user || roleName !== 'user') return user;
+  const profilePhoto = isGeneratedUserAvatarUrl(user.profilePhoto)
+    ? user.profilePhoto
+    : '';
+  return {
+    ...user,
+    profilePhoto,
+    profilePic: undefined,
+    photo: undefined,
+    picture: undefined,
+    image: undefined,
+  };
+};
 
 const GoogleAuthButton = ({
   role,
@@ -134,7 +176,7 @@ const GoogleAuthButton = ({
     await AsyncStorage.setItem('userRole', userRole);
     await AsyncStorage.setItem('isAuthenticated', 'true');
 
-    const user = data.user || data;
+    const user = sanitizeUserPhotoForRole(data.user || data, userRole);
     if (user) {
       await AsyncStorage.setItem('userData', JSON.stringify(user));
       if (user.email) await AsyncStorage.setItem('userEmail', user.email);
@@ -220,6 +262,7 @@ const GoogleAuthButton = ({
       await exchangeWithBackend(idToken);
     } catch (err) {
       const code = err?.code;
+      const responseData = err?.response?.data || {};
       if (
         StatusCodesModule &&
         (code === StatusCodesModule.SIGN_IN_CANCELLED ||
@@ -233,8 +276,18 @@ const GoogleAuthButton = ({
         );
         return;
       }
+      if (responseData?.code === 'ROLE_MISMATCH' || responseData?.roleMismatch === true) {
+        onError?.(
+          buildRoleMismatchMessage({
+            actualRole: responseData.actualRole,
+            requestedRole: responseData.requestedRole,
+            fallbackMessage: responseData.message,
+          }),
+        );
+        return;
+      }
       if (err?.response?.status === 409) {
-        const conflictEmail = err.response?.data?.email || '';
+        const conflictEmail = responseData?.email || '';
         onConflict?.({ email: conflictEmail });
         return;
       }
@@ -244,22 +297,11 @@ const GoogleAuthButton = ({
         );
         return;
       }
-      if (
-        err?.response?.status === 403 &&
-        err?.response?.data?.code === 'ROLE_MISMATCH'
-      ) {
-        const actual = err.response.data.actualRole;
-        const requested = err.response.data.requestedRole;
-        onError?.(
-          `This Google account is registered as ${actual}. You selected ${requested}. Please go back and pick the ${actual} role.`,
-        );
-        return;
-      }
       const msg =
-        err?.response?.data?.message ||
+        responseData?.message ||
         err?.message ||
         'Google sign-in failed. Please try again.';
-      console.warn('[GoogleAuthButton] error:', msg, err?.response?.data);
+      console.warn('[GoogleAuthButton] error:', msg, responseData);
       onError?.(msg);
     } finally {
       setBusy(false);

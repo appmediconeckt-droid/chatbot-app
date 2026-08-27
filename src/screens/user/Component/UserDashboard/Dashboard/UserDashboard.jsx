@@ -3,8 +3,6 @@ import { useTranslation } from 'react-i18next';
 import useLanguageRender from '../../../../../hooks/useLanguageRender';
 import {
   View,
-  Text,
-  TextInput,
   ScrollView,
   TouchableOpacity,
   Image,
@@ -17,26 +15,21 @@ import {
   Platform,
   StyleSheet,
   useWindowDimensions,
+  Dimensions,
   Animated,
   Easing,
   StatusBar,
-  PermissionsAndroid,
   Pressable,
   BackHandler,
 } from "react-native";
+import TextInput from '../../../../../components/TranslatedTextInput';
+import Text from '../../../../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, useIsFocused } from "@react-navigation/native";
 import axios from "axios";
-import axiosInstance, { API_BASE_URL, AI_REALTIME_BASE_URL } from "../../../../../axiosConfig";
-import {
-  RTCPeerConnection,
-  RTCSessionDescription,
-  mediaDevices,
-} from "@stream-io/react-native-webrtc";
-import InCallManager from "react-native-incall-manager";
+import axiosInstance, { API_BASE_URL } from "../../../../../axiosConfig";
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { launchImageLibrary } from "react-native-image-picker";
 import socketService from "../../../../../services/socketService";
 import Icon from "react-native-vector-icons/FontAwesome5";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
@@ -45,13 +38,13 @@ import LinearGradient from 'react-native-linear-gradient';
 import { BlurView } from "@react-native-community/blur";
 import safeVibrate from "../../../../../utils/safeVibrate";
 import { forceStopRingtone, startIncomingRingtone } from "../../../../../hooks/useRingtone";
+import { useToast } from "../../../../../components/common/ToastProvider";
 import ChatInterface from "../Tab/chatbot/ChatInterface";
 import CounselorTable from "../Tab/Appointment/BookAppointment";
 import WalletDashboard from "../Tab/Wallet/WalletDashboard";
 import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
 import AvatarPicker from "../../PatientProfile/AvatarPicker";
-import LanguageSelector from '../../../../../components/common/LanguageSelector';
 import RatingPrompt from '../../../../../components/RatingPrompt';
 import { loadUserLanguage } from '../../../../../i18n';
 import AutoTranslatedText from '../../../../../components/AutoTranslatedText';
@@ -64,46 +57,45 @@ import PrivacyPolicy from "../Tab/PrivacyPolicy/PrivacyPolicy";
 import NotificationScreen from "../Tab/Notifications/NotificationScreen";
 import UserAccountSettings from "../Tab/UserAccountSettings";
 import { toImageUri } from "../../../../../utils/imageUri";
+import { clearAccountLocalData } from "../../../../../utils/authSession";
 
 // Time for a Modal to finish dismissing. RN can only transition one Modal at a
 // time, so opening the next one any sooner gets silently dropped.
 const MODAL_DISMISS_MS = 320;
 
-// The AI surfaces used to run on their own green pair (#2A8A51 / #0E7552),
-// which read as a different brand from the wallet card. One constant now, so
-// header, avatars and the voice orb can't drift apart again.
+// The AI surface uses the same green pair as the wallet card, so the assistant
+// reads as part of the patient-side brand.
 const AI_GRADIENT = ['#006B2C', '#01CE54'];
 
-// The assistant's name. Product name stays 'Humaelio'; the descriptor after it
-// changes with the surface (chat vs voice) so it reads as one assistant in two
-// modes rather than two products.
+// The assistant's name. Product name stays 'Humaelio' and the descriptor keeps
+// the popup clearly text-chat focused.
 const AI_NAME = 'Humaelio';
 const AI_CHAT_TITLE_SUFFIX = 'AI Assistant';
-const AI_VOICE_TITLE_SUFFIX = 'Voice Assistant';
 
 const AI_WELCOME_MESSAGE = "Hello, I'm Humaelio AI. How are you feeling today?";
-const AI_WELCOME_QUICK_REPLIES = ["😢 Low", "😐 Okay", "🙂 Good", "✨ Great"];
-const AI_QUICK_REPLY_KEYS = {
-  '😢 Low': 'aiQuickReplyLow',
-  '😐 Okay': 'aiQuickReplyOkay',
-  '🙂 Good': 'aiQuickReplyGood',
-  '✨ Great': 'aiQuickReplyGreat',
+const AI_OPENING_EVENT = "__humaelio_ai_opening__";
+
+const isGeneratedUserAvatarUrl = (raw) => {
+  const url = typeof raw === "string" ? raw : raw?.url || raw?.secure_url || "";
+  const value = String(url || "").trim();
+  if (!value) return false;
+  return (
+    value.startsWith("data:image/") ||
+    /^https:\/\/api\.dicebear\.com\//i.test(value)
+  );
+};
+
+const getGeneratedUserAvatarUri = (...values) => {
+  for (const value of values) {
+    if (isGeneratedUserAvatarUrl(value)) {
+      const uri = toImageUri(value);
+      if (uri) return uri;
+    }
+  }
+  return "";
 };
 
 // Improved ChatPopup Component
-const VOICE_LANGUAGES = [
-  { label: 'English (India)', code: 'en-IN' },
-  { label: 'English (US)', code: 'en-US' },
-  { label: 'Hindi', code: 'hi-IN' },
-  { label: 'Tamil', code: 'ta-IN' },
-  { label: 'Telugu', code: 'te-IN' },
-  { label: 'Kannada', code: 'kn-IN' },
-  { label: 'Malayalam', code: 'ml-IN' },
-  { label: 'Bengali', code: 'bn-IN' },
-  { label: 'Gujarati', code: 'gu-IN' },
-  { label: 'Marathi', code: 'mr-IN' },
-];
-
 const ChatPopup = ({
   messages,
   newMessage,
@@ -116,35 +108,22 @@ const ChatPopup = ({
   onCancelReset,
   onConfirmReset,
   onCounselorPress,
-  sendQuickReply,
   selectedLang,
-  setSelectedLang,
-  onLangChange,
   userPhoto,
 }) => {
   const { t } = useLanguageRender();
   const { width, height } = useWindowDimensions();
   const [speakingId, setSpeakingId] = useState(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [aiAttachment, setAiAttachment] = useState(null);
   const [aiInputPlaceholder, setAiInputPlaceholder] = useState('Type your question');
-
-  const pickAiAttachment = useCallback(() => {
-    launchImageLibrary({ mediaType: "photo", quality: 0.8 }, (res) => {
-      if (res.didCancel || res.errorCode || !res.assets?.[0]?.uri) return;
-      setAiAttachment(res.assets[0].uri);
-    });
-  }, []);
 
   const handleAiSend = useCallback(() => {
     const text = (newMessage || "").trim();
-    if (!text && !aiAttachment) return;
-    sendMessage(text, aiAttachment || null);
-    setAiAttachment(null);
+    if (!text) return;
+    sendMessage(text, null);
     requestAnimationFrame(() => inputRef.current?.focus());
     setTimeout(() => inputRef.current?.focus(), 80);
     setTimeout(() => inputRef.current?.focus(), 220);
-  }, [newMessage, aiAttachment, sendMessage]);
+  }, [newMessage, sendMessage]);
 
   useEffect(() => {
     let isMounted = true;
@@ -174,6 +153,7 @@ const ChatPopup = ({
   }, [selectedLang]);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [keyboardScreenY, setKeyboardScreenY] = useState(null);
   // The KeyboardAvoidingView reports the actual space available to the popup.
   // This avoids device-specific keyboard/status/navigation-bar calculations.
   const [overlayHeight, setOverlayHeight] = useState(height);
@@ -193,139 +173,36 @@ const ChatPopup = ({
   );
   const popupTopGap = topSafeInset + 8;
   const availHeight = Math.max(0, overlayHeight - popupTopGap);
-  // Compensate only for the keyboard area that overlaps this Modal. If Android
-  // already resized the window this is zero; edge-to-edge phones get the full
-  // required lift without losing the bottom safe area when the keyboard closes.
+  // Compensate only for the keyboard area that overlaps this Modal. Android
+  // models differ: some resize the Modal window, others keep it full height and
+  // float the keyboard over it. screenY is the reliable "keyboard starts here"
+  // line, so it avoids both under-lifting and double-lifting.
   const nativeKeyboardResize = Math.max(0, height - overlayHeight);
-  const keyboardOverlap = keyboardVisible
-    ? Math.max(0, keyboardHeight - nativeKeyboardResize)
+  const hasKeyboardTop = Number.isFinite(keyboardScreenY) && keyboardScreenY > 0;
+  const keyboardOverlapFromTop = hasKeyboardTop
+    ? Math.max(0, overlayHeight - keyboardScreenY)
     : 0;
+  const keyboardOverlap = keyboardVisible
+    ? (hasKeyboardTop ? keyboardOverlapFromTop : Math.max(0, keyboardHeight - nativeKeyboardResize))
+    : 0;
+  const screenHeight = Dimensions.get('screen').height;
+  const androidBottomInsetFallback = Platform.OS === 'android' && !keyboardVisible
+    ? Math.max(0, Math.min(80, screenHeight - height - topSafeInset))
+    : 0;
+  const bottomSafeInset = Math.max(insets.bottom, androidBottomInsetFallback, 12);
   // The popup itself must also fit in the space left above the keyboard.
   // Otherwise its fixed 630dp height plus the keyboard inset pushes the header
   // off the top of smaller phones even though the input is technically visible.
   const popupAvailableHeight = Math.max(
     0,
-    availHeight - keyboardOverlap - 12,
+    availHeight - keyboardOverlap - (!keyboardVisible ? bottomSafeInset : 0) - 12,
   );
 
   // Detect tablet: width >= 600 is typically tablet range
   const isTablet = width >= 600;
   const popupBaseHeight = isTablet ? 750 : 630;
-  const [showLangPicker, setShowLangPicker] = useState(false);
-  const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
-  const [aiVoiceStatus, setAiVoiceStatus] = useState("idle");
-  const [aiVoiceTime, setAiVoiceTime] = useState(0);
-  const [aiVoiceMuted, setAiVoiceMuted] = useState(false);
-  const [aiVoiceSpeakerOn, setAiVoiceSpeakerOn] = useState(true);
-  const [aiVoiceError, setAiVoiceError] = useState(null);
-  const [aiVoiceTranscript, setAiVoiceTranscript] = useState([]);
   const inputRef = useRef(null);
   const scrollViewRef = useRef(null);
-  const sendMessageRef = useRef(sendMessage);
-  const setNewMessageRef = useRef(setNewMessage);
-  const aiVoicePcRef = useRef(null);
-  const aiVoiceMicStreamRef = useRef(null);
-  const aiVoiceDataChannelRef = useRef(null);
-  const aiVoiceTimerRef = useRef(null);
-  const micPulse = useRef(new Animated.Value(1)).current;
-  // AI voice orb + waveform animations
-  const orbPulse = useRef(new Animated.Value(0)).current;
-  const WAVE_COUNT = 13;
-  const waveAnims = useRef(
-    Array.from({ length: WAVE_COUNT }, () => new Animated.Value(0.25))
-  ).current;
-
-  // Drive the orb glow + waveform whenever the voice modal is live (not errored).
-  useEffect(() => {
-    const active = aiVoiceOpen && !aiVoiceError && aiVoiceStatus !== "error";
-    if (!active) {
-      orbPulse.stopAnimation();
-      orbPulse.setValue(0);
-      waveAnims.forEach((a) => { a.stopAnimation(); a.setValue(0.25); });
-      return;
-    }
-
-    const orbLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(orbPulse, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(orbPulse, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    );
-    orbLoop.start();
-
-    // Speaking = lively/tall bars, listening/other = calmer.
-    const lively = aiVoiceStatus === "speaking" || aiVoiceStatus === "listening";
-    const barLoops = waveAnims.map((a, i) => {
-      const peak = lively ? (0.5 + Math.random() * 0.5) : (0.3 + Math.random() * 0.25);
-      const dur = lively ? (300 + Math.random() * 260) : (600 + Math.random() * 300);
-      return Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 45),
-          Animated.timing(a, { toValue: peak, duration: dur, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.timing(a, { toValue: 0.22, duration: dur, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        ])
-      );
-    });
-    barLoops.forEach((l) => l.start());
-
-    return () => {
-      orbLoop.stop();
-      barLoops.forEach((l) => l.stop());
-    };
-  }, [aiVoiceOpen, aiVoiceStatus, aiVoiceError, orbPulse, waveAnims]);
-
-  const stopAiVoiceTimer = useCallback(() => {
-    if (aiVoiceTimerRef.current) {
-      clearInterval(aiVoiceTimerRef.current);
-      aiVoiceTimerRef.current = null;
-    }
-  }, []);
-
-  const startAiVoiceTimer = useCallback(() => {
-    stopAiVoiceTimer();
-    setAiVoiceTime(0);
-    aiVoiceTimerRef.current = setInterval(() => {
-      setAiVoiceTime((prev) => prev + 1);
-    }, 1000);
-  }, [stopAiVoiceTimer]);
-
-  const cleanupAiVoiceCall = useCallback((options = {}) => {
-    const { closeModal = false, nextStatus = "idle" } = options;
-
-    stopAiVoiceTimer();
-
-    try { aiVoiceDataChannelRef.current?.close?.(); } catch (_) {}
-    aiVoiceDataChannelRef.current = null;
-
-    try { aiVoicePcRef.current?.close?.(); } catch (_) {}
-    aiVoicePcRef.current = null;
-
-    try {
-      aiVoiceMicStreamRef.current?.getTracks?.().forEach((track) => track.stop?.());
-    } catch (_) {}
-    aiVoiceMicStreamRef.current = null;
-
-    try { InCallManager.setSpeakerphoneOn?.(false); } catch (_) {}
-    try { InCallManager.setForceSpeakerphoneOn?.(false); } catch (_) {}
-    try { InCallManager.stop(); } catch (_) {}
-
-    setAiVoiceMuted(false);
-    setAiVoiceSpeakerOn(true);
-    setAiVoiceStatus(nextStatus);
-    if (closeModal) {
-      setAiVoiceOpen(false);
-      setAiVoiceError(null);
-      setAiVoiceTranscript([]);
-      setAiVoiceTime(0);
-    }
-  }, [stopAiVoiceTimer]);
-
-  useEffect(() => {
-    return () => cleanupAiVoiceCall({ closeModal: true });
-  }, [cleanupAiVoiceCall]);
-
-  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
-  useEffect(() => { setNewMessageRef.current = setNewMessage; }, [setNewMessage]);
 
   // Track how much the keyboard OVERLAPS the app window (not the full keyboard
   // height) so the popup sits right above the keyboard on every device. On
@@ -341,10 +218,12 @@ const ChatPopup = ({
     const show = Keyboard.addListener(showEvt, (e) => {
       setKeyboardVisible(true);
       setKeyboardHeight(e?.endCoordinates?.height || 0);
+      setKeyboardScreenY(e?.endCoordinates?.screenY ?? null);
     });
     const hide = Keyboard.addListener(hideEvt, () => {
       setKeyboardVisible(false);
       setKeyboardHeight(0);
+      setKeyboardScreenY(null);
     });
     return () => { show.remove(); hide.remove(); };
   }, []);
@@ -356,361 +235,44 @@ const ChatPopup = ({
     return () => clearTimeout(id);
   }, [messages, isLoading, keyboardVisible, keyboardOverlap]);
 
-  // Pulse animation while recording
-  useEffect(() => {
-    if (isRecording) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(micPulse, { toValue: 1.3, duration: 600, useNativeDriver: true }),
-          Animated.timing(micPulse, { toValue: 1, duration: 600, useNativeDriver: true }),
-        ])
-      ).start();
-    } else {
-      micPulse.stopAnimation();
-      micPulse.setValue(1);
-    }
-  }, [isRecording]);
-
-  // Wire up STT listeners from native SpeechModule
   useEffect(() => {
     const Speech = require('../../../../../utils/SpeechBridge');
-
-    const unsubResult = Speech.onSttResult((transcript) => {
-      if (transcript) setNewMessageRef.current(transcript);
-      setIsRecording(false);
-    });
-    const unsubStart = Speech.onSttStart(() => setIsRecording(true));
-    const unsubEnd = Speech.onSttEnd(() => setIsRecording(false));
-    const unsubError = Speech.onSttError((code) => {
-      if (code !== 'no-match' && code !== 'timeout') {
-        console.warn('[STT] error:', code);
-      }
-      setIsRecording(false);
-    });
     const unsubTts = Speech.onTtsDone(() => setSpeakingId(null));
-
     Speech.initTts();
 
     return () => {
-      unsubResult(); unsubStart(); unsubEnd(); unsubError(); unsubTts();
-      Speech.destroyRecognizer();
-      Speech.stopSpeaking();
+      unsubTts();
+      Speech.stopSpeaking().catch(() => {});
     };
   }, []);
 
-  // Normalize the app language to a speech-recognition locale. Most app codes are
-  // already valid BCP-47 tags (en-US, hi-IN, fr-FR). Bare codes get a region and
-  // anything empty falls back to English (India).
-  const sttLocale = (code) => {
-    const c = String(code || '').replace('_', '-').trim();
-    if (!c) return 'en-IN';
-    if (c.includes('-')) return c;
-    const REGION = { en: 'en-IN', hi: 'hi-IN', ta: 'ta-IN', te: 'te-IN', kn: 'kn-IN', ml: 'ml-IN', bn: 'bn-IN', gu: 'gu-IN', mr: 'mr-IN', pa: 'pa-IN', ur: 'ur-IN' };
-    return REGION[c] || c;
-  };
-
-  const toggleRecording = async () => {
-    const Speech = require('../../../../../utils/SpeechBridge');
-
-    if (isRecording) {
-      try { await Speech.stopListening(); } catch (_) {}
-      setIsRecording(false);
-      return;
-    }
-
-    if (Platform.OS === 'android') {
-      try {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-          {
-            title: 'Microphone Permission',
-            message: 'This app needs microphone access for voice input.',
-            buttonPositive: 'Allow',
-          }
-        );
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          Alert.alert('Permission needed', 'Allow microphone access for voice input.');
-          return;
-        }
-      } catch (err) {
-        console.warn('[STT] permission error:', err);
-        return;
-      }
-    }
-
-    try {
-      await Speech.destroyRecognizer();
-      // Show the recording state immediately (the native "stt-start" event only
-      // fires once the user actually begins speaking, which feels unresponsive).
-      setIsRecording(true);
-      await Speech.startListening(sttLocale(selectedLang));
-    } catch (e) {
-      console.warn('[STT] start error:', e?.message ?? e);
-      setIsRecording(false);
-      Alert.alert('Voice Error', e?.message?.includes('available')
-        ? t('Speech recognition is not available on this device.') : t('Could not start voice input. Please try again.'));
-    }
-  };
-
-  const stopSpeaking = () => {
+  const stopSpeaking = useCallback(() => {
     const Speech = require('../../../../../utils/SpeechBridge');
     Speech.stopSpeaking().catch(() => {});
     setSpeakingId(null);
-  };
+  }, []);
 
-  const speakMessage = async (messageId, text) => {
-    if (speakingId === messageId) { stopSpeaking(); return; }
+  const speakMessage = useCallback(async (messageId, text) => {
+    const cleanText = String(text || '').trim();
+    if (!cleanText) return;
+    if (speakingId === messageId) {
+      stopSpeaking();
+      return;
+    }
+
     stopSpeaking();
     const Speech = require('../../../../../utils/SpeechBridge');
     setSpeakingId(messageId);
     try {
-      await Speech.speakText(text, selectedLang);
+      await Speech.speakText(cleanText, selectedLang);
     } catch (err) {
       console.warn('[TTS] error:', err?.message ?? err);
       setSpeakingId(null);
     }
-  };
-
-  const setAiVoiceSpeakerRoute = (enabled) => {
-    try { InCallManager.setSpeakerphoneOn?.(enabled); } catch (_) {}
-    try { InCallManager.setForceSpeakerphoneOn?.(enabled); } catch (_) {}
-  };
-
-  const formatAiVoiceTime = (seconds) => {
-    const mins = Math.floor(seconds / 60).toString().padStart(2, "0");
-    const secs = (seconds % 60).toString().padStart(2, "0");
-    return `${mins}:${secs}`;
-  };
-
-  const getAiVoiceStatusText = () => {
-    if (aiVoiceError) return "Not connected";
-    switch (aiVoiceStatus) {
-      case "connecting": return "Connecting…";
-      case "listening": return "Listening…";
-      case "thinking": return "Thinking…";
-      case "speaking": return "Speaking…";
-      case "error": return "Not connected";
-      default: return "Ready to talk";
-    }
-  };
-
-  const appendAiVoiceTranscript = (speaker, text) => {
-    const cleanText = String(text || "").trim();
-    if (!cleanText) return;
-    setAiVoiceTranscript((prev) => [
-      ...prev.slice(-5),
-      { id: `${Date.now()}_${Math.random()}`, speaker, text: cleanText },
-    ]);
-  };
-
-  const configureAiVoiceTurnDetection = (dataChannel) => {
-    if (!dataChannel || dataChannel.readyState !== "open") return;
-    const voiceLanguage = VOICE_LANGUAGES.find((language) => language.code === selectedLang)?.label || selectedLang || 'English (India)';
-    dataChannel.send(JSON.stringify({
-      type: "session.update",
-      session: {
-        type: "realtime",
-        instructions: `Always respond in ${voiceLanguage}.`,
-        audio: {
-          input: {
-            transcription: { model: "gpt-4o-mini-transcribe" },
-            turn_detection: {
-              type: "server_vad",
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 500,
-              create_response: true,
-              interrupt_response: true,
-            },
-          },
-        },
-      },
-    }));
-  };
-
-  const handleAiVoiceRealtimeEvent = (event) => {
-    switch (event?.type) {
-      case "input_audio_buffer.speech_started":
-        setAiVoiceStatus("listening");
-        break;
-      case "input_audio_buffer.speech_stopped":
-        setAiVoiceStatus("thinking");
-        break;
-      case "response.audio.delta":
-      case "response.audio_transcript.delta":
-        setAiVoiceStatus("speaking");
-        break;
-      case "conversation.item.input_audio_transcription.completed":
-        appendAiVoiceTranscript("You", event.transcript);
-        break;
-      case "response.audio_transcript.done":
-        appendAiVoiceTranscript("AI", event.transcript);
-        break;
-      case "response.done":
-        setAiVoiceStatus("listening");
-        break;
-      case "error":
-        setAiVoiceError(event?.error?.message || "I couldn't connect just now. Please try again.");
-        cleanupAiVoiceCall({ nextStatus: "error" });
-        setAiVoiceOpen(true);
-        break;
-      default:
-        break;
-    }
-  };
-
-  const waitForIceGathering = (pc) => new Promise((resolve) => {
-    if (!pc || pc.iceGatheringState === "complete") {
-      resolve();
-      return;
-    }
-
-    const timeout = setTimeout(resolve, 1600);
-    pc.onicegatheringstatechange = () => {
-      if (pc.iceGatheringState === "complete") {
-        clearTimeout(timeout);
-        resolve();
-      }
-    };
-  });
-
-  const requestAiVoiceMicPermission = async () => {
-    if (Platform.OS !== "android") return true;
-    const granted = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-      {
-        title: "Microphone Permission",
-        message: "This app needs microphone access for AI voice calls.",
-        buttonPositive: "Allow",
-      }
-    );
-    return granted === PermissionsAndroid.RESULTS.GRANTED;
-  };
-
-  const startAiVoiceCall = async () => {
-    if (aiVoicePcRef.current || aiVoiceStatus === "connecting") return;
-
-    const Speech = require('../../../../../utils/SpeechBridge');
-    try { await Speech.stopListening(); } catch (_) {}
-    try { await Speech.stopSpeaking(); } catch (_) {}
-    setIsRecording(false);
-    setSpeakingId(null);
-
-    setAiVoiceOpen(true);
-    setAiVoiceStatus("connecting");
-    setAiVoiceError(null);
-    setAiVoiceTranscript([]);
-    setAiVoiceTime(0);
-
-    try {
-      const hasPermission = await requestAiVoiceMicPermission();
-      if (!hasPermission) {
-        throw new Error("Please allow microphone access to start the AI voice call.");
-      }
-
-      try { InCallManager.start({ media: "audio" }); } catch (_) {}
-      setAiVoiceSpeakerRoute(true);
-
-      const pc = new RTCPeerConnection();
-      aiVoicePcRef.current = pc;
-
-      pc.onconnectionstatechange = () => {
-        const state = pc.connectionState;
-        if (state === "connected") {
-          setAiVoiceStatus("listening");
-          startAiVoiceTimer();
-        }
-        if (state === "failed" || state === "disconnected" || state === "closed") {
-          if (aiVoicePcRef.current) {
-            setAiVoiceError("The voice connection dropped. Please try again.");
-            cleanupAiVoiceCall({ nextStatus: "error" });
-            setAiVoiceOpen(true);
-          }
-        }
-      };
-
-      pc.ontrack = () => {
-        setAiVoiceStatus((prev) => (prev === "connecting" ? "listening" : prev));
-      };
-
-      const dataChannel = pc.createDataChannel("oai-events");
-      aiVoiceDataChannelRef.current = dataChannel;
-      dataChannel.onopen = () => {
-        configureAiVoiceTurnDetection(dataChannel);
-        setAiVoiceStatus("listening");
-        startAiVoiceTimer();
-      };
-      dataChannel.onmessage = (messageEvent) => {
-        try {
-          handleAiVoiceRealtimeEvent(JSON.parse(messageEvent.data));
-        } catch (parseError) {
-          console.warn("[AI Voice] event parse error:", parseError);
-        }
-      };
-      dataChannel.onerror = () => {
-        setAiVoiceError("I couldn't connect just now. Please try again.");
-        cleanupAiVoiceCall({ nextStatus: "error" });
-        setAiVoiceOpen(true);
-      };
-
-      const micStream = await mediaDevices.getUserMedia({ audio: true, video: false });
-      aiVoiceMicStreamRef.current = micStream;
-      micStream.getTracks().forEach((track) => pc.addTrack(track, micStream));
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await waitForIceGathering(pc);
-
-      const token = await AsyncStorage.getItem("token") || await AsyncStorage.getItem("accessToken");
-      const sdp = pc.localDescription?.sdp || offer.sdp || "";
-      const response = await fetch(`${AI_REALTIME_BASE_URL}/api/ai/realtime/session`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/sdp",
-          "X-Tunnel-Skip-AntiPhishing-Page": "true",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: sdp,
-      });
-
-      const answerSdp = await response.text();
-      if (!response.ok) {
-        const isHtmlError = /<!doctype html|<html|cannot post/i.test(answerSdp);
-        throw new Error(
-          isHtmlError
-            ? `AI voice route is not available on ${AI_REALTIME_BASE_URL}. Please start/deploy the latest backend.`
-            : answerSdp || "Could not start AI voice call."
-        );
-      }
-
-      await pc.setRemoteDescription(new RTCSessionDescription({
-        type: "answer",
-        sdp: answerSdp,
-      }));
-    } catch (error) {
-      console.error("[AI Voice] start error:", error);
-      setAiVoiceError("I couldn't start voice chat. Please try again.");
-      cleanupAiVoiceCall({ nextStatus: "error" });
-      setAiVoiceOpen(true);
-    }
-  };
-
-  const toggleAiVoiceMute = () => {
-    const nextMuted = !aiVoiceMuted;
-    aiVoiceMicStreamRef.current?.getAudioTracks?.().forEach((track) => {
-      track.enabled = !nextMuted;
-    });
-    setAiVoiceMuted(nextMuted);
-  };
-
-  const toggleAiVoiceSpeaker = () => {
-    const nextSpeaker = !aiVoiceSpeakerOn;
-    setAiVoiceSpeakerRoute(nextSpeaker);
-    setAiVoiceSpeakerOn(nextSpeaker);
-  };
+  }, [selectedLang, speakingId, stopSpeaking]);
 
   return (
-  <Modal statusBarTranslucent navigationBarTranslucent
+  <Modal statusBarTranslucent
     animationType="slide"
     transparent={true}
     visible={true}
@@ -779,18 +341,6 @@ const ChatPopup = ({
                 <MaterialIcons name="refresh" size={20} color="white" />
               </TouchableOpacity>
             )}
-            <TouchableOpacity
-              onPress={startAiVoiceCall}
-              style={[styles.chatIconBtn, aiVoiceStatus === "connecting" && styles.chatIconBtnDisabled]}
-              disabled={aiVoiceStatus === "connecting"}
-              accessibilityLabel="Start AI voice call"
-            >
-              {aiVoiceStatus === "connecting" ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : (
-                <MaterialIcons name="call" size={20} color="white" />
-              )}
-            </TouchableOpacity>
             <TouchableOpacity
               onPress={onClose}
               style={styles.chatIconBtn}
@@ -881,39 +431,23 @@ const ChatPopup = ({
                         </Text>
                       )
                     )}
-                    {isAiMsg && Array.isArray(message.quickReplies) && message.quickReplies.length > 0 && (
-                      <View style={styles.quickRepliesWrap}>
-                        {message.quickReplies.map((reply) => (
-                          <TouchableOpacity
-                            key={reply}
-                            style={[
-                              styles.quickReplyBtn,
-                              isLoading && styles.quickReplyBtnDisabled,
-                            ]}
-                            activeOpacity={0.8}
-                            disabled={isLoading}
-                            onPress={() => sendQuickReply?.(reply)}
-                          >
-                            <Text style={styles.quickReplyText}>
-                              {t(`dashboard:${AI_QUICK_REPLY_KEYS[reply] || ''}`, reply)}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
                   </View>
-                  {isAiMsg && (
+                  {isAiMsg && !!message.text && (
                     <TouchableOpacity
-                      style={styles.speakBtn}
+                      style={[
+                        styles.speakBtn,
+                        isSpeaking && styles.speakBtnActive,
+                      ]}
                       onPress={() => speakMessage(message.id, message.text)}
-                      activeOpacity={0.7}
+                      activeOpacity={0.75}
+                      accessibilityLabel={isSpeaking ? 'Stop AI response audio' : 'Listen to AI response'}
                     >
                       <MaterialIcons
                         name={isSpeaking ? "stop-circle" : "volume-up"}
                         size={14}
                         color={isSpeaking ? "#ef4444" : "#006B2C"}
                       />
-                      <Text style={[styles.speakBtnText, isSpeaking && { color: '#ef4444' }]}>
+                      <Text style={[styles.speakBtnText, isSpeaking && styles.speakBtnTextActive]}>
                         {isSpeaking ? "Stop" : "Listen"}
                       </Text>
                     </TouchableOpacity>
@@ -950,31 +484,17 @@ const ChatPopup = ({
           )}
         </ScrollView>
 
-        {aiAttachment && (
-          <View style={styles.aiAttachPreview}>
-            <Image source={{ uri: toImageUri(aiAttachment) }} style={styles.aiAttachThumb} />
-            <Text style={styles.aiAttachName} numberOfLines={1}>{t('dashboard:aiPhotoAttached')}</Text>
-            <TouchableOpacity onPress={() => setAiAttachment(null)} hitSlop={8}>
-              <MaterialIcons name="close" size={18} color="#64748b" />
-            </TouchableOpacity>
-          </View>
-        )}
         <View
           style={[
             styles.chatPopupFooter,
             {
               paddingBottom: keyboardVisible
                 ? 12
-                : Math.max(insets.bottom, 12) + 8,
+                : bottomSafeInset + 8,
             },
           ]}
         >
-          {/* + button → attach photo */}
-          <TouchableOpacity style={styles.plusBtn} activeOpacity={0.75} onPress={pickAiAttachment}>
-            <MaterialIcons name="add" size={22} color="#64748b" />
-          </TouchableOpacity>
-
-          {/* Input pill: leading icon + text + mic */}
+          {/* Input pill: leading icon + text */}
           <View style={styles.chatInputPill}>
             <MaterialIcons name="auto-awesome" size={17} color="#006B2C" style={styles.chatInputLead} />
             <TextInput
@@ -993,41 +513,20 @@ const ChatPopup = ({
               maxLength={2000}
               textAlignVertical="center"
             />
-            <TouchableOpacity
-              style={styles.inlineMicBtn}
-              onPress={toggleRecording}
-              activeOpacity={0.7}
-            >
-              <Animated.View style={{ transform: [{ scale: micPulse }] }}>
-                <MaterialIcons
-                  name={isRecording ? "mic" : "mic-none"}
-                  size={20}
-                  color={isRecording ? "#ef4444" : "#94a3b8"}
-                />
-              </Animated.View>
-            </TouchableOpacity>
           </View>
 
-          {/* Green action button: send when typing/attached, else voice */}
-          {(newMessage.trim() || aiAttachment) ? (
-            <TouchableOpacity
-              style={styles.sendBtn}
-              onPressIn={() => inputRef.current?.focus()}
-              onPress={handleAiSend}
-              disabled={isLoading}
-              activeOpacity={0.85}
-            >
-              <MaterialIcons name="send" size={19} color="white" />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={styles.sendBtn}
-              onPress={startAiVoiceCall}
-              activeOpacity={0.85}
-            >
-              <MaterialIcons name="graphic-eq" size={20} color="white" />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={[
+              styles.sendBtn,
+              !newMessage.trim() && styles.sendBtnDisabled,
+            ]}
+            onPressIn={() => inputRef.current?.focus()}
+            onPress={handleAiSend}
+            disabled={isLoading || !newMessage.trim()}
+            activeOpacity={0.85}
+          >
+            <MaterialIcons name="send" size={19} color="white" />
+          </TouchableOpacity>
         </View>
         {showResetConfirm && (
           <View style={styles.resetConfirmOverlay}>
@@ -1040,8 +539,15 @@ const ChatPopup = ({
               >
                 <MaterialIcons name="refresh" size={26} color="#ffffff" />
               </LinearGradient>
-              <Text style={styles.resetConfirmTitle}>{t('dashboard:resetChatTitle')}</Text>
-              <Text style={styles.resetConfirmText}>{t('dashboard:resetChatMessage')}</Text>
+              <Text style={styles.resetConfirmTitle}>
+                {t('common:resetChatTitle', 'Start a fresh chat?')}
+              </Text>
+              <Text style={styles.resetConfirmText}>
+                {t(
+                  'common:resetChatMessage',
+                  'This clears the current AI chat and starts again with the welcome mood options.'
+                )}
+              </Text>
               <View style={styles.resetConfirmActions}>
                 <TouchableOpacity
                   style={[styles.resetConfirmBtn, styles.resetCancelBtn]}
@@ -1049,7 +555,7 @@ const ChatPopup = ({
                   disabled={isLoading}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.resetCancelText}>{t('common:cancel')}</Text>
+                  <Text style={styles.resetCancelText}>{t('common:cancel', 'Cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.resetConfirmBtn, styles.resetStartBtn, isLoading && styles.resetBtnDisabled]}
@@ -1058,123 +564,15 @@ const ChatPopup = ({
                   activeOpacity={0.85}
                 >
                   <Text style={styles.resetStartText}>
-                    {isLoading ? t('dashboard:startingFresh') : t('dashboard:startFresh')}
+                    {isLoading
+                      ? t('common:startingFresh', 'Starting...')
+                      : t('common:startFresh', 'Start Fresh')}
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         )}
-        <Modal statusBarTranslucent navigationBarTranslucent
-          animationType="fade"
-          transparent={true}
-          visible={aiVoiceOpen}
-          onRequestClose={() => cleanupAiVoiceCall({ closeModal: true })}
-        >
-          <View style={styles.aiVoiceOverlay}>
-            <View style={styles.aiVoiceCard}>
-              <View style={styles.aiVoiceOrbWrap}>
-                <Animated.View
-                  style={[
-                    styles.aiVoiceOrbGlowOuter,
-                    {
-                      opacity: orbPulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.9] }),
-                      transform: [{ scale: orbPulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.25] }) }],
-                    },
-                  ]}
-                />
-                <Animated.View
-                  style={[
-                    styles.aiVoiceOrbGlowInner,
-                    {
-                      opacity: orbPulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }),
-                      transform: [{ scale: orbPulse.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1.12] }) }],
-                    },
-                  ]}
-                />
-                <LinearGradient
-                  colors={AI_GRADIENT}
-                  start={{ x: 0, y: 0.5 }}
-                  end={{ x: 1, y: 0.5 }}
-                  style={styles.aiVoiceAvatar}
-                >
-                  <MaterialIcons name="mic" size={40} color="#ffffff" />
-                </LinearGradient>
-              </View>
-
-              <View style={styles.aiVoiceWave}>
-                {waveAnims.map((a, i) => (
-                  <Animated.View
-                    key={i}
-                    style={[styles.aiVoiceWaveBar, { transform: [{ scaleY: a }] }]}
-                  />
-                ))}
-              </View>
-
-              <Text style={styles.aiVoiceTitle}>
-                {AI_NAME} - <AutoTranslatedText style={styles.aiVoiceTitle}>{AI_VOICE_TITLE_SUFFIX}</AutoTranslatedText>
-              </Text>
-              <Text style={styles.aiVoiceStatusText}>{getAiVoiceStatusText()}</Text>
-              <Text style={styles.aiVoiceTimer}>{formatAiVoiceTime(aiVoiceTime)}</Text>
-              {aiVoiceError ? (
-                <View style={styles.aiVoiceErrorBox}>
-                  <Text style={styles.aiVoiceErrorText}>{aiVoiceError}</Text>
-                  <TouchableOpacity
-                    style={styles.aiVoiceRetryBtn}
-                    onPress={() => {
-                      // A failed data channel can leave the peer connection alive.
-                      // Close it first so retry always creates a completely fresh call.
-                      cleanupAiVoiceCall({ nextStatus: "idle" });
-                      setAiVoiceOpen(true);
-                      setTimeout(() => startAiVoiceCall(), 0);
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <MaterialIcons name="refresh" size={16} color="#ffffff" />
-                    <Text style={styles.aiVoiceRetryText}>{t('dashboard:aiTryAgain')}</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                  <Text style={styles.aiVoiceHint}>{t('dashboard:aiVoiceHint')}</Text>
-              )}
-
-              {aiVoiceTranscript.length > 0 && (
-                <View style={styles.aiVoiceTranscriptBox}>
-                  {aiVoiceTranscript.map((item) => (
-                    <Text key={item.id} style={styles.aiVoiceTranscriptText} numberOfLines={2}>
-                      <Text style={styles.aiVoiceTranscriptSpeaker}>{item.speaker}: </Text>
-                      {item.text}
-                    </Text>
-                  ))}
-                </View>
-              )}
-
-              <View style={styles.aiVoiceControls}>
-                <TouchableOpacity
-                  style={[styles.aiVoiceControlBtn, aiVoiceMuted && styles.aiVoiceControlBtnActive]}
-                  onPress={toggleAiVoiceMute}
-                  activeOpacity={0.8}
-                >
-                  <MaterialIcons name={aiVoiceMuted ? "mic-off" : "mic"} size={24} color={aiVoiceMuted ? "#ffffff" : "#334155"} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.aiVoiceControlBtn, aiVoiceSpeakerOn && styles.aiVoiceControlBtnActiveBlue]}
-                  onPress={toggleAiVoiceSpeaker}
-                  activeOpacity={0.8}
-                >
-                  <MaterialIcons name={aiVoiceSpeakerOn ? "volume-up" : "hearing"} size={24} color={aiVoiceSpeakerOn ? "#ffffff" : "#334155"} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.aiVoiceControlBtn, styles.aiVoiceEndBtn]}
-                  onPress={() => cleanupAiVoiceCall({ closeModal: true })}
-                  activeOpacity={0.85}
-                >
-                  <MaterialIcons name="call-end" size={26} color="#ffffff" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
       </View>
     </KeyboardAvoidingView>
   </Modal>
@@ -1473,19 +871,17 @@ const counselorDisplayName = (apt) => {
 
 const sheetStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.4)', justifyContent: 'flex-end' },
-  // Height is set at render from the top inset - a flat 30 crowded the status
-  // bar on devices with a taller one and left a gap on devices with none.
-  backdrop: { height: 30 },
-  sheet: { flex: 1, backgroundColor: '#ffffff', borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#0f172a', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
-  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1', alignSelf: 'center', marginTop: 12, marginBottom: 18 },
-  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  backdrop: { flex: 1 },
+  sheet: { width: '100%', backgroundColor: '#ffffff', borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#0f172a', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
+  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1', alignSelf: 'center', marginTop: 10, marginBottom: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   title: { fontSize: 19, fontWeight: '800', color: '#0f172a' },
   subtitle: { fontSize: 13.5, fontWeight: '500', color: '#64748b', marginTop: 4 },
   closeBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  // paddingBottom is overridden at render with the measured footer height.
-  scroll: { paddingHorizontal: 18, paddingTop: 12, gap: 12, flexGrow: 1, justifyContent: 'flex-start' },
-  docCard: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 12 },
-  docAvatar: { width: 48, height: 48, borderRadius: 10, backgroundColor: '#e2e8f0' },
+  scrollView: { width: '100%' },
+  scroll: { paddingHorizontal: 18, paddingTop: 10, gap: 10 },
+  docCard: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 10 },
+  docAvatar: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#e2e8f0' },
   docNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 1 },
   docName: { fontSize: 14, fontWeight: '700', color: '#0f172a', flex: 1 },
   docSpec: { fontSize: 12, fontWeight: '500', color: '#64748b', marginBottom: 4 },
@@ -1493,49 +889,42 @@ const sheetStyles = StyleSheet.create({
   docMetaText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
   // flexShrink 0: the name column beside it is flex:1, so without this a long
   // counselor name or a longer translated status squashed the pill.
-  confirmPill: { flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PATIENT.primary, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  confirmPill: { flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PATIENT.primary, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   confirmDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ffffff' },
   confirmText: { fontSize: 12, fontWeight: '700', color: '#ffffff' },
-  countBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#E6F6EC' },
-  countIcon: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  countBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: '#E6F6EC' },
+  countIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   countLabel: { fontSize: 11, fontWeight: '500', color: '#64748b' },
   countValue: { fontSize: 17, fontWeight: '800', color: PATIENT.primary, marginTop: 1 },
   countDay: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
   countTime: { fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 1 },
-  pastBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ecfdf5', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#a7f3d0' },
-  pastIcon: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  pastBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ecfdf5', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: '#a7f3d0' },
+  pastIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   pastLabel: { fontSize: 11, fontWeight: '500', color: '#059669' },
   pastValue: { fontSize: 15, fontWeight: '800', color: '#10b981', marginTop: 1 },
   pastDay: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
   pastTime: { fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 1 },
   gridRow: { flexDirection: 'row', gap: 10 },
-  gridCell: { flex: 1, alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 10, padding: 10 },
-  gridIcon: { width: 40, height: 40, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  gridCell: { flex: 1, alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 10, padding: 8 },
+  gridIcon: { width: 36, height: 36, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginBottom: 5 },
   gridLabel: { fontSize: 10.5, fontWeight: '700', color: '#94a3b8', letterSpacing: 0.5, marginBottom: 3 },
   gridValue: { fontSize: 13, fontWeight: '700', color: '#0f172a', textAlign: 'center' },
-  timelineCard: { backgroundColor: '#f8fafc', borderRadius: 12, padding: 12 },
-  tlItem: { flexDirection: 'row', gap: 10, marginBottom: 10 },
-  tlDotCol: { alignItems: 'center', width: 22 },
-  tlDot: { width: 9, height: 9, borderRadius: 4.5 },
-  tlLine: { width: 2, flex: 1, backgroundColor: '#e2e8f0', marginTop: 6, marginBottom: 6 },
-  tlDate: { fontSize: 11.5, fontWeight: '600', color: '#64748b', marginBottom: 1 },
-  tlStatus: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 },
-  footerPast: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 },
+  inlineFooter: { paddingTop: 4 },
   // Wrapper clips the gradient to the rounded corners.
   closePastBtnWrap: { borderRadius: 12, overflow: 'hidden' },
   closePastBtn: { paddingVertical: 12, alignItems: 'center' },
   closePastText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
-  joinBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 14, marginBottom: 12 },
+  joinBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 12, marginBottom: 10 },
+  joinBtnDisabled: { opacity: 0.55 },
   joinText: { fontSize: 15, fontWeight: '800', color: '#ffffff' },
   secRow: { flexDirection: 'row', gap: 12 },
-  secBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, paddingVertical: 12, borderWidth: 1.5, borderColor: '#E6F6EC' },
+  secBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: PATIENT.backgroundTint, borderRadius: 12, paddingVertical: 10, borderWidth: 1.5, borderColor: '#E6F6EC' },
   secText: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
 });
 
 const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) => {
   const { t } = useLanguageRender();
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(true);
   const [activeTab, setActiveTab] = useState("Upcoming");
@@ -1548,9 +937,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   // and nothing was compensating for the device's bottom inset. On a phone with
   // gesture navigation the footer's Chat / Call row ran under the system bar.
   const sheetInsets = useSafeAreaInsets();
-  // Footer is absolutely positioned, so the scroll needs to reserve its height.
-  // It was a hardcoded 130 that barely fitted and never accounted for the inset.
-  const [footerHeight, setFooterHeight] = useState(130);
 
   // Live countdown to the session start while the details sheet is open.
   useEffect(() => {
@@ -1576,8 +962,8 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 
   // Tablet detection for responsive modal
   const isTablet = screenWidth >= 600;
-  const modalWidth = isTablet ? screenWidth * 0.7 : screenWidth * 0.88;
-  const modalMaxWidth = isTablet ? 700 : 420;
+  const sheetMaxHeight = Math.min(screenHeight * (isTablet ? 0.82 : 0.86), isTablet ? 720 : 680);
+  const sheetScrollMaxHeight = Math.max(360, sheetMaxHeight - 90);
 
   const fetchAppointments = useCallback(async () => {
     try {
@@ -1697,10 +1083,15 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const timeLabel = aptDate ? aptDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-";
   const dateLabel = aptDate ? aptDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "-";
   const statusRaw = selectedApt?.status || "pending";
-  const statusCap = statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1);
+  const statusLower = String(statusRaw).toLowerCase();
+  const statusCap = statusLower.charAt(0).toUpperCase() + statusLower.slice(1);
   const modeLabel = selectedApt?.mode || selectedApt?.sessionType || "Video Call";
   const durationLabel = selectedApt?.duration ? `${selectedApt.duration} Minutes` : "45 Minutes";
-  const isPast = activeTab === "Past" || selectedApt?.status === "completed" || selectedApt?.status === "canceled" || (aptDate && aptDate <= new Date());
+  const aptTime = aptDate?.getTime?.() ?? NaN;
+  const hasValidAptTime = Number.isFinite(aptTime);
+  const sessionHasStarted = hasValidAptTime && aptTime <= Date.now();
+  const isPast = activeTab === "Past" || statusLower === "completed" || statusLower === "canceled";
+  const isJoinDisabled = !sessionHasStarted || statusLower === "completed" || statusLower === "canceled";
   // Extract real talk duration from appointment data
   const getTalkDuration = () => {
     if (selectedApt?.actualDuration) return selectedApt.actualDuration;
@@ -1715,17 +1106,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     return selectedApt?.duration || "45";
   };
   const talkDuration = getTalkDuration();
-  const relDay = (d) => {
-    if (!d) return "";
-    const dd = new Date(d);
-    const today = new Date();
-    const yst = new Date();
-    yst.setDate(today.getDate() - 1);
-    const time = dd.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    if (dd.toDateString() === today.toDateString()) return `Today, ${time}`;
-    if (dd.toDateString() === yst.toDateString()) return "Yesterday";
-    return dd.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  };
 
   return (
     <View style={styles.appointmentsRoot}>
@@ -1803,7 +1183,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             <MaterialIcons name="event-busy" size={40} color="#A7E3BE" />
             <Text style={styles.appointmentEmptyTitle}>{t('No appointments found')}</Text>
             <Text style={styles.appointmentEmptySubtitle}>
-              {t('Try changing filters or book a new session with a counselor.')}
+              {t('Try changing filters or book a new session with a consultant.')}
             </Text>
           </View>
         ) : (
@@ -1816,9 +1196,8 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 <View style={styles.appointmentMetaColumn}>
                   <View style={styles.aptNameRow}>
                     <Text style={styles.appointmentDoctorName} numberOfLines={1}>
-                      Dr. {apt?.counselor?.fullName || "Counselor"}
+                      {apt?.counselor?.fullName || "Counselor"}
                     </Text>
-                    <Ionicons name="checkmark-circle" size={14} color={PATIENT.primary} />
                   </View>
                   <Text style={styles.appointmentSpecialization} numberOfLines={1}>
                     {apt?.counselor?.specialization || t('Mental Wellness Specialist')}
@@ -1923,13 +1302,13 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
         onRequestClose={() => setShowDetailsModal(false)}
       >
         <View style={sheetStyles.overlay}>
-          <View style={[sheetStyles.backdrop, { height: Math.max(sheetInsets.top, 24) }]}>
+          <View style={[sheetStyles.backdrop, { paddingTop: Math.max(sheetInsets.top, 24) }]}>
             <TouchableWithoutFeedback onPress={() => setShowDetailsModal(false)}>
               <View style={{ flex: 1 }} />
             </TouchableWithoutFeedback>
           </View>
 
-          <View style={sheetStyles.sheet}>
+          <View style={[sheetStyles.sheet, { maxHeight: sheetMaxHeight }]}>
             <View style={sheetStyles.grabber} />
 
             {/* Header */}
@@ -1948,8 +1327,11 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             </View>
 
             <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={[sheetStyles.scroll, { paddingBottom: footerHeight + 16 }]}
+              style={[sheetStyles.scrollView, { maxHeight: sheetScrollMaxHeight }]}
+              contentContainerStyle={[
+                sheetStyles.scroll,
+                { paddingBottom: Math.max(sheetInsets.bottom, 12) + 12 },
+              ]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               bounces={false}
@@ -1962,7 +1344,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     <Text style={sheetStyles.docName} numberOfLines={1}>
                       {counselorDisplayName(selectedApt)}
                     </Text>
-                    <Ionicons name="checkmark-circle" size={15} color={PATIENT.primary} />
                   </View>
                   <Text style={sheetStyles.docSpec} numberOfLines={1}>
                     {selectedApt?.counselor?.specialization || "Mental Wellness Specialist"}
@@ -2056,112 +1437,76 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 </View>
               </View>
 
-              {/* Activity timeline */}
-              <View style={sheetStyles.timelineCard}>
-                <View style={sheetStyles.tlItem}>
-                  <View style={sheetStyles.tlDotCol}>
-                    <View style={[sheetStyles.tlDot, { backgroundColor: "#CBD5E1" }]} />
-                    <View style={sheetStyles.tlLine} />
-                  </View>
-                  <View style={{ flex: 1, paddingBottom: 14 }}>
-                    <Text style={sheetStyles.tlDate}>{relDay(selectedApt?.createdAt) || "Recently"}</Text>
-                    <Text style={sheetStyles.tlStatus}>{t('Booked')}</Text>
+              {!isPast ? (
+                <View style={sheetStyles.inlineFooter}>
+                  <TouchableOpacity
+                    activeOpacity={isJoinDisabled ? 1 : 0.9}
+                    disabled={isJoinDisabled}
+                    onPress={() => {
+                      if (isJoinDisabled) return;
+                      const apt = selectedApt;
+                      setShowDetailsModal(false);
+                      setTimeout(() => onVideoCall && onVideoCall(apt), MODAL_DISMISS_MS);
+                    }}
+                  >
+                    <LinearGradient
+                      colors={isJoinDisabled ? ['#94a3b8', '#cbd5e1'] : [PATIENT.gradientFrom, PATIENT.gradientTo]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={[sheetStyles.joinBtn, isJoinDisabled && sheetStyles.joinBtnDisabled]}
+                    >
+                      <Ionicons name="videocam" size={20} color="#ffffff" />
+                      <Text style={sheetStyles.joinText}>{t('Join Video Session')}</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  <View style={sheetStyles.secRow}>
+                    <TouchableOpacity
+                      style={sheetStyles.secBtn}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        const apt = selectedApt;
+                        setShowDetailsModal(false);
+                        setTimeout(() => onChat && onChat(apt), MODAL_DISMISS_MS);
+                      }}
+                    >
+                      <Ionicons name="chatbubble-ellipses" size={17} color="#F59E0B" />
+                      <Text style={sheetStyles.secText}>{t('Chat')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={sheetStyles.secBtn}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        const apt = selectedApt;
+                        setShowDetailsModal(false);
+                        setTimeout(() => onVoiceCall && onVoiceCall(apt), MODAL_DISMISS_MS);
+                      }}
+                    >
+                      <Ionicons name="call" size={17} color={PATIENT.primary} />
+                      <Text style={sheetStyles.secText}>{t('Call')}</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
-                <View style={sheetStyles.tlItem}>
-                  <View style={sheetStyles.tlDotCol}>
-                    <View style={[sheetStyles.tlDot, { backgroundColor: PATIENT.primary }]} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={sheetStyles.tlDate}>{relDay(selectedApt?.updatedAt) || relDay(selectedApt?.createdAt) || "Today"}</Text>
-                    <Text style={sheetStyles.tlStatus}>{statusCap}</Text>
-                  </View>
+              ) : (
+                <View style={sheetStyles.inlineFooter}>
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() => setShowDetailsModal(false)}
+                    style={sheetStyles.closePastBtnWrap}
+                  >
+                    <LinearGradient
+                      colors={['#006B2C', '#01CE54']}
+                      start={{ x: 0, y: 0.5 }}
+                      end={{ x: 1, y: 0.5 }}
+                      style={sheetStyles.closePastBtn}
+                    >
+                      <Text style={sheetStyles.closePastText}>{t('Close')}</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
                 </View>
-              </View>
+              )}
+
             </ScrollView>
-
-            {/* Fixed footer actions - only for upcoming */}
-            {!isPast && (
-              <View
-                style={[
-                  sheetStyles.footer,
-                  { paddingBottom: Math.max(sheetInsets.bottom, 12) + 8 },
-                ]}
-                onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
-              >
-                <TouchableOpacity
-                  activeOpacity={0.9}
-                  onPress={() => {
-                    const apt = selectedApt;
-                    setShowDetailsModal(false);
-                    setTimeout(() => onVideoCall && onVideoCall(apt), MODAL_DISMISS_MS);
-                  }}
-                >
-                  <LinearGradient
-                    colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={sheetStyles.joinBtn}
-                  >
-                    <Ionicons name="videocam" size={20} color="#ffffff" />
-                    <Text style={sheetStyles.joinText}>{t('Join Video Session')}</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-
-                <View style={sheetStyles.secRow}>
-                  <TouchableOpacity
-                    style={sheetStyles.secBtn}
-                    activeOpacity={0.85}
-                    onPress={() => {
-                      const apt = selectedApt;
-                      setShowDetailsModal(false);
-                      setTimeout(() => onChat && onChat(apt), MODAL_DISMISS_MS);
-                    }}
-                  >
-                    <Ionicons name="chatbubble-ellipses" size={17} color="#F59E0B" />
-                    <Text style={sheetStyles.secText}>{t('Chat')}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={sheetStyles.secBtn}
-                    activeOpacity={0.85}
-                    onPress={() => {
-                      const apt = selectedApt;
-                      setShowDetailsModal(false);
-                      setTimeout(() => onVoiceCall && onVoiceCall(apt), MODAL_DISMISS_MS);
-                    }}
-                  >
-                    <Ionicons name="call" size={17} color={PATIENT.primary} />
-                    <Text style={sheetStyles.secText}>{t('Call')}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            {/* Footer for past appointments - just close button */}
-            {isPast && (
-              <View
-                style={[
-                  sheetStyles.footerPast,
-                  { paddingBottom: Math.max(sheetInsets.bottom, 12) + 8 },
-                ]}
-                onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
-              >
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() => setShowDetailsModal(false)}
-                  style={sheetStyles.closePastBtnWrap}
-                >
-                  <LinearGradient
-                    colors={['#006B2C', '#01CE54']}
-                    start={{ x: 0, y: 0.5 }}
-                    end={{ x: 1, y: 0.5 }}
-                    style={sheetStyles.closePastBtn}
-                  >
-                    <Text style={sheetStyles.closePastText}>{t('Close')}</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            )}
           </View>
         </View>
       </Modal>
@@ -2170,13 +1515,30 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 };
 
 export default function UserDashboard() {
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [avatarFailed, setAvatarFailed] = useState(false);
   // The bottom tab bar had a fixed paddingBottom (6 on Android), so on a phone
   // with gesture navigation its labels were clipped by the gesture bar.
   const navInsets = useSafeAreaInsets();
+  const androidStatusInset = Platform.OS === 'android'
+    ? Math.max(navInsets.top, StatusBar.currentHeight || 0)
+    : 0;
+  const androidVisibleBottomInset = Platform.OS === 'android'
+    ? Math.max(0, Dimensions.get('screen').height - windowHeight - androidStatusInset)
+    : 0;
+  const androidNavInsetFallback = Platform.OS === 'android'
+    ? (androidVisibleBottomInset <= 80 ? androidVisibleBottomInset : 0)
+    : 0;
+  const androidStableBottomInset = Platform.OS === 'android'
+    ? (navInsets.bottom <= 80 ? navInsets.bottom : 0)
+    : navInsets.bottom;
+  const dashboardBottomInset = Math.max(androidStableBottomInset, androidNavInsetFallback, 0);
+  const bottomNavHeight = (Platform.OS === 'ios' ? 84 : 68) + dashboardBottomInset;
+  const bottomNavPaddingBottom = (Platform.OS === 'ios' ? 20 : 6) + dashboardBottomInset;
+  const aiButtonBottom = (Platform.OS === "ios" ? 42 : 28) + dashboardBottomInset;
   const { i18n } = useTranslation();
   const { t } = useLanguageRender();
+  const { showToast } = useToast();
   const navigation = useNavigation();
   const isFocused = useIsFocused();
   const [active, setActive] = useState("Chat");
@@ -2186,6 +1548,7 @@ export default function UserDashboard() {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
   const [isMobile, setIsMobile] = useState(windowWidth <= 768);
   const [isLoading, setIsLoading] = useState(false);
@@ -2248,12 +1611,28 @@ export default function UserDashboard() {
   });
 
   const [chatMessages, setChatMessages] = useState([]);
-  // AI/voice language — seeded from the app (dashboard) language so the AI speaks
-  // the same language by default. The in-chat picker can still override it.
+  // AI chat language — seeded from the app language so replies match the
+  // dashboard language by default.
   const [selectedLang, setSelectedLang] = useState(i18n.language || 'en-IN');
-  const [photoUploading, setPhotoUploading] = useState(false);
   const [showAvatarChooser, setShowAvatarChooser] = useState(false);
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
+
+  const showLanguageComingSoon = useCallback(() => {
+    setShowMoreModal(false);
+    setTimeout(() => {
+      showToast({
+        title: 'Coming soon',
+        message: 'Work is in progress.',
+        type: 'info',
+        accent: PATIENT.primary,
+        bg: '#E6F6EC',
+        border: '#BDE8CD',
+        icon: 'i',
+        translate: false,
+        duration: 3200,
+      });
+    }, MODAL_DISMISS_MS);
+  }, [showToast]);
 
   const handleAIContactClick = (name) => {
     setTargetCounselor(name);
@@ -2331,13 +1710,19 @@ export default function UserDashboard() {
     setIsLoading(true);
     try {
       const response = await axiosInstance.post(
-        '/api/ai/message',
-        { message: "hi", history: [], language: lang }
+        '/api/ai-chat/send-message',
+        {
+          message: AI_OPENING_EVENT,
+          kind: "opening",
+          history: [],
+          language: lang,
+        }
       );
  
       if (response.data?.success) {
-        if (response.data.data?.sessionId) {
-          setAiSessionId(response.data.data.sessionId);
+        const responsePayload = response.data?.data || response.data || {};
+        if (responsePayload?.sessionId) {
+          setAiSessionId(responsePayload.sessionId);
         }
 
         setChatMessages([
@@ -2348,7 +1733,6 @@ export default function UserDashboard() {
             text: AI_WELCOME_MESSAGE,
             system: 'welcome',
             sender: "ai",
-            quickReplies: response.data.data?.quickReplies || AI_WELCOME_QUICK_REPLIES,
           },
         ]);
       } else {
@@ -2360,9 +1744,8 @@ export default function UserDashboard() {
         {
           id: Date.now(),
           text: AI_WELCOME_MESSAGE,
-            system: 'welcome',
+          system: 'welcome',
           sender: "ai",
-          quickReplies: AI_WELCOME_QUICK_REPLIES,
         },
       ]);
     } finally {
@@ -2581,12 +1964,7 @@ export default function UserDashboard() {
           // (which also falls back to its own local state) showed one. Each is
           // run through toImageUri, so any string / {url} / {secure_url} /
           // {publicId} shape resolves.
-          profilePhoto:
-            toImageUri(user.profilePhoto) ||
-            toImageUri(user.profilePic) ||
-            toImageUri(user.avatar) ||
-            toImageUri(user.photo) ||
-            "",
+          profilePhoto: getGeneratedUserAvatarUri(user.profilePhoto, user.profilePic, user.avatar, user.photo),
         });
       }
     } catch (error) {
@@ -2617,7 +1995,7 @@ export default function UserDashboard() {
 
       if (!currentUserId || !counselorId) {
         console.warn("Call aborted — missing ids:", { currentUserId, counselorId, apt });
-        Alert.alert("Error", "Missing user or counselor information");
+        Alert.alert("Error", "Missing user or consultant information");
         return;
       }
 
@@ -2705,10 +2083,9 @@ export default function UserDashboard() {
     }
   };
 
-  // Upload a profile photo (file) or generated avatar (url) from the header.
+  // Save a generated avatar from the header/profile drawer.
   const uploadHeaderPhoto = async (formData, optimisticUri) => {
     try {
-      setPhotoUploading(true);
       const token =
         (await AsyncStorage.getItem("accessToken")) ||
         (await AsyncStorage.getItem("token"));
@@ -2729,25 +2106,7 @@ export default function UserDashboard() {
       }
     } catch (e) {
       console.error("Header photo upload failed:", e);
-    } finally {
-      setPhotoUploading(false);
     }
-  };
-
-  // Pick an image from the library and upload it.
-  const handleHeaderUploadPhoto = () => {
-    setShowAvatarChooser(false);
-    launchImageLibrary({ mediaType: "photo", quality: 0.8 }, async (res) => {
-      if (res.didCancel || res.errorCode || !res.assets?.[0]) return;
-      const asset = res.assets[0];
-      const formData = new FormData();
-      formData.append("profilePhoto", {
-        uri: asset.uri,
-        type: asset.type || "image/jpeg",
-        name: asset.fileName || "photo.jpg",
-      });
-      await uploadHeaderPhoto(formData, asset.uri);
-    });
   };
 
   // Generated avatar selected → save it.
@@ -2781,12 +2140,7 @@ export default function UserDashboard() {
       sender: "user",
       image: imageUri || null,
     };
-    setChatMessages((prev) => [
-      ...prev.map((msg) =>
-        msg.sender === "ai" && msg.quickReplies ? { ...msg, quickReplies: null } : msg
-      ),
-      userMessage,
-    ]);
+    setChatMessages((prev) => [...prev, userMessage]);
     setNewMessage("");
     setIsLoading(true);
 
@@ -2826,7 +2180,6 @@ export default function UserDashboard() {
           id: Date.now() + 1,
           text: aiResponse,
           sender: "ai",
-          quickReplies: responsePayload.quickReplies || response.data?.quickReplies || null,
         };
         setChatMessages((prev) => [...prev, aiMessage]);
       } else {
@@ -2847,10 +2200,6 @@ export default function UserDashboard() {
         setUnreadCount((prev) => prev + 1);
       }
     }
-  };
-
-  const sendQuickReply = async (replyText) => {
-    await sendMessage(replyText);
   };
 
   const handleMenuItemClick = (id) => {
@@ -2875,8 +2224,7 @@ export default function UserDashboard() {
     if (!isFocused) return undefined;
 
     const onBackPress = () => {
-      // Topmost first, roughly in z-order. The AI voice sheet lives inside
-      // ChatPopup and closes itself via its own onRequestClose.
+      // Topmost first, roughly in z-order.
       if (chatOpen) { setChatOpen(false); return true; }
       if (showLogoutConfirm) { setShowLogoutConfirm(false); return true; }
       if (showAvatarBuilder) { setShowAvatarBuilder(false); return true; }
@@ -2988,13 +2336,27 @@ export default function UserDashboard() {
     }
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
+    if (deletingAccount) return;
     safeVibrate([220, 100, 220]);
-    setShowDeleteConfirm(false);
-    setDeleteSuccess(true);
-    setTimeout(() => {
-      navigation.navigate("RoleSelector");
-    }, 2500);
+    setDeletingAccount(true);
+    try {
+      await axiosInstance.delete('/api/auth/delete');
+      await clearAccountLocalData();
+      setShowDeleteConfirm(false);
+      setDeleteSuccess(true);
+      setTimeout(() => {
+        navigation.replace("RoleSelector");
+      }, 1500);
+    } catch (error) {
+      console.error("Delete account error:", error);
+      Alert.alert(
+        "Delete failed",
+        error?.response?.data?.message || "Could not delete your account. Please try again.",
+      );
+    } finally {
+      setDeletingAccount(false);
+    }
   };
 
   const handleAcceptCall = async (callId) => {
@@ -3072,8 +2434,8 @@ export default function UserDashboard() {
 
   const allMenuItems = [
     { id: "Chat", icon: "chat", label: t('dashboard:chat'), type: "material" },
-    { id: "Counselor", icon: "psychology", label: t('dashboard:counselor'), type: "material" },
-    { id: "Appointment", icon: "event-available", label: t('dashboard:myAppointment'), type: "material" },
+    { id: "Counselor", icon: "psychology", label: t('dashboard:consultants', 'Consultants'), type: "material" },
+    { id: "Appointment", icon: "event-available", label: t('dashboard:appointments', 'Appointments'), type: "material" },
     { id: "Wallet", icon: "account-balance-wallet", label: t('dashboard:wallet'), type: "material" },
     { id: "Video", icon: "history", label: t('dashboard:callHistory'), type: "material" },
   ];
@@ -3118,7 +2480,7 @@ export default function UserDashboard() {
 
       Alert.alert(
         t('appointment:bookedSuccessfully', 'Appointment Booked'),
-        `Your appointment request was sent to ${directBookCounselor.fullName || directBookCounselor.name || 'the counselor'}.`
+        `Your appointment request was sent to ${directBookCounselor.fullName || directBookCounselor.name || 'the consultant'}.`
       );
       setShowDirectBookingModal(false);
       setDirectBookNotes('');
@@ -3251,7 +2613,7 @@ export default function UserDashboard() {
           />
         );
       case "Wallet":
-        return <WalletDashboard userData={userData} />;
+        return <WalletDashboard userData={userData} navigation={navigation} />;
       case "Video":
         return <CallHistory />;
       case "profile":
@@ -3261,7 +2623,12 @@ export default function UserDashboard() {
         // callback after a successful save - it just was never wired up.
         return <PatientProfile onProfileUpdate={fetchUserData} />;
       case "settings":
-        return <UserAccountSettings onNavigateBack={() => handleDashboardBack()} />;
+        return (
+          <UserAccountSettings
+            onNavigateBack={() => handleDashboardBack()}
+            onDeleteAccount={() => setShowDeleteConfirm(true)}
+          />
+        );
       default:
         return <ChatInterface />;
     }
@@ -3372,7 +2739,7 @@ export default function UserDashboard() {
       </View>
 
       {/* MAIN CONTENT */}
-      <View style={styles.contentContainer}>
+      <View style={[styles.contentContainer, { marginBottom: bottomNavHeight }]}>
         {renderContent()}
       </View>
 
@@ -3393,10 +2760,7 @@ export default function UserDashboard() {
           onCancelReset={cancelResetChat}
           onConfirmReset={confirmResetChat}
           onCounselorPress={handleAIContactClick}
-          sendQuickReply={sendQuickReply}
           selectedLang={selectedLang}
-          setSelectedLang={setSelectedLang}
-          onLangChange={handleLangChange}
           userPhoto={userData.profilePhoto}
         />
       )}
@@ -3407,14 +2771,14 @@ export default function UserDashboard() {
         style={[
           styles.bottomNav,
           {
-            height: (Platform.OS === 'ios' ? 84 : 68) + navInsets.bottom,
-            paddingBottom: (Platform.OS === 'ios' ? 20 : 6) + navInsets.bottom,
+            height: bottomNavHeight,
+            paddingBottom: bottomNavPaddingBottom,
           },
         ]}
       >
         {[
           { id: 'Chat', icon: 'chatbubble-ellipses-outline', iconActive: 'chatbubble-ellipses', label: t('dashboard:chat') },
-          { id: 'Counselor', icon: 'bulb-outline', iconActive: 'bulb', label: t('dashboard:counselor') },
+          { id: 'Counselor', icon: 'bulb-outline', iconActive: 'bulb', label: t('dashboard:consultants', 'Consultants') },
         ].map((tab) => (
           <TouchableOpacity
             key={tab.id}
@@ -3429,7 +2793,8 @@ export default function UserDashboard() {
             />
             <Text
               style={[styles.navLabel, active === tab.id && styles.navLabelActive]}
-              numberOfLines={1}
+              numberOfLines={2}
+              maxFontSizeMultiplier={1}
             >
               {tab.label}
             </Text>
@@ -3440,7 +2805,7 @@ export default function UserDashboard() {
         <View style={styles.navCenterSpacer} />
 
         {[
-          { id: 'Appointment', icon: 'calendar-outline', iconActive: 'calendar', label: t('dashboard:myAppointment') },
+          { id: 'Appointment', icon: 'calendar-outline', iconActive: 'calendar', label: t('dashboard:appointments', 'Appointments') },
           { id: 'Wallet', icon: 'wallet-outline', iconActive: 'wallet', label: t('dashboard:wallet') },
         ].map((tab) => (
           <TouchableOpacity
@@ -3456,7 +2821,8 @@ export default function UserDashboard() {
             />
             <Text
               style={[styles.navLabel, active === tab.id && styles.navLabelActive]}
-              numberOfLines={1}
+              numberOfLines={2}
+              maxFontSizeMultiplier={1}
             >
               {tab.label}
             </Text>
@@ -3466,7 +2832,12 @@ export default function UserDashboard() {
 
       {/* AI FLOATING BUTTON — centred above the bottom nav */}
       <TouchableOpacity
-        style={styles.aiButton}
+        style={[
+          styles.aiButton,
+          {
+            bottom: aiButtonBottom,
+          },
+        ]}
         onPress={() => setChatOpen(true)}
         activeOpacity={0.85}
         hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
@@ -3532,71 +2903,78 @@ export default function UserDashboard() {
                   <Text style={styles.sbUserRole} numberOfLines={1}>{t('auth:userRole', 'Patient')}</Text>
                 </View>
               </TouchableOpacity>
-
-              <View style={styles.sbGlobeWrap}>
-                <LanguageSelector
-                  iconName="globe-outline"
-                  iconColor="#ffffff"
-                  iconSize={20}
-                  userId={userId}
-                  role="user"
-                  brand={PATIENT.primary}
-                />
-              </View>
             </LinearGradient>
 
             {/* Menu */}
             <View style={styles.sbMenu}>
               {/* Pressable, not TouchableOpacity: opacity alone gave no visible
                   feedback, so Help and Privacy looked dead when tapped. */}
-              {sidebarItems.map((item) => (
-                <Pressable
-                  key={item.id}
-                  style={({ pressed }) => [
-                    styles.sbItem,
-                    item.isActive && styles.sbItemActive,
-                    pressed && styles.sbItemPressed,
-                  ]}
-                  onPress={item.onPress}
-                  android_ripple={{ color: '#D7F0E1', borderless: false }}
-                >
-                  <View style={[styles.sbIconChip, item.isActive && styles.sbIconChipActive]}>
+              {sidebarItems.map((item) => {
+                return (
+                  <Pressable
+                    key={item.id}
+                    style={({ pressed }) => [
+                      styles.sbItem,
+                      item.isActive && styles.sbItemActive,
+                      pressed && styles.sbItemPressed,
+                    ]}
+                    onPress={item.onPress}
+                    android_ripple={{ color: '#D7F0E1', borderless: false }}
+                  >
+                    <View style={[styles.sbIconChip, item.isActive && styles.sbIconChipActive]}>
+                      <Ionicons
+                        name={item.isActive ? item.iconActive : item.icon}
+                        size={19}
+                        color={item.isActive ? '#ffffff' : PATIENT.primary}
+                      />
+                    </View>
+                    <Text style={[styles.sbItemText, item.isActive && styles.sbItemTextActive]}>
+                      {item.label}
+                    </Text>
                     <Ionicons
-                      name={item.isActive ? item.iconActive : item.icon}
-                      size={19}
-                      color={item.isActive ? '#ffffff' : PATIENT.primary}
+                      name="chevron-forward"
+                      size={17}
+                      color={item.isActive ? PATIENT.primary : '#CBD5E1'}
                     />
-                  </View>
-                  <Text style={[styles.sbItemText, item.isActive && styles.sbItemTextActive]}>
-                    {item.label}
-                  </Text>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={17}
-                    color={item.isActive ? PATIENT.primary : '#CBD5E1'}
-                  />
-                </Pressable>
-              ))}
+                  </Pressable>
+                );
+              })}
             </View>
 
-            {/* Logout */}
-            <TouchableOpacity
-              style={styles.sbLogout}
-              activeOpacity={0.85}
-              onPress={() => { setShowMoreModal(false); setShowLogoutConfirm(true); }}
-            >
-              <LinearGradient
-                colors={['#DC2626', '#F87171']}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={StyleSheet.absoluteFillObject}
-              />
-              <View style={styles.sbLogoutIcon}>
-                <Ionicons name="log-out-outline" size={19} color="#ffffff" />
-              </View>
-              <Text style={styles.sbLogoutText}>{t('settings:logoutAccount')}</Text>
-              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />
-            </TouchableOpacity>
+            <View style={styles.sbBottomActions}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.sbItem,
+                  pressed && styles.sbItemPressed,
+                ]}
+                onPress={showLanguageComingSoon}
+                android_ripple={{ color: '#D7F0E1', borderless: false }}
+              >
+                <View style={styles.sbIconChip}>
+                  <Ionicons name="globe-outline" size={19} color={PATIENT.primary} />
+                </View>
+                <Text style={styles.sbItemText}>{t('settings:language', 'Language')}</Text>
+                <Ionicons name="chevron-forward" size={17} color="#CBD5E1" />
+              </Pressable>
+
+              <TouchableOpacity
+                style={styles.sbLogout}
+                activeOpacity={0.85}
+                onPress={() => { setShowMoreModal(false); setShowLogoutConfirm(true); }}
+              >
+                <LinearGradient
+                  colors={['#DC2626', '#F87171']}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+                <View style={styles.sbLogoutIcon}>
+                  <Ionicons name="log-out-outline" size={19} color="#ffffff" />
+                </View>
+                <Text style={styles.sbLogoutText}>{t('settings:logoutAccount')}</Text>
+                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />
+              </TouchableOpacity>
+            </View>
           </SafeAreaView>
 
           <TouchableOpacity
@@ -3711,19 +3089,26 @@ export default function UserDashboard() {
             </View>
             <View style={styles.confirmModalBody}>
               <Text style={styles.confirmModalText}>{t('settings:deleteWarning')}</Text>
+              <Text style={styles.confirmModalText}>Payment history will be kept.</Text>
             </View>
             <View style={styles.confirmModalFooter}>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.cancelBtn]}
                 onPress={() => setShowDeleteConfirm(false)}
+                disabled={deletingAccount}
               >
                 <Text style={styles.cancelBtnText}>{t('common:cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.deleteBtn]}
+                style={[styles.modalBtn, styles.deleteBtn, deletingAccount && styles.deleteBtnBusy]}
                 onPress={handleDeleteConfirm}
+                disabled={deletingAccount}
               >
-                <Text style={styles.deleteBtnText}>{t('settings:deleteAccount')}</Text>
+                {deletingAccount ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.deleteBtnText}>{t('settings:deleteAccount')}</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -3761,7 +3146,7 @@ export default function UserDashboard() {
         >
           <View style={styles.avatarChooserSheet}>
             <View style={styles.avatarChooserHandle} />
-            <Text style={styles.avatarChooserTitle}>{t('profile:changePhoto', 'Change Profile Photo')}</Text>
+            <Text style={styles.avatarChooserTitle}>{t('profile:createAvatar', 'Change Avatar')}</Text>
 
             <TouchableOpacity
               style={styles.avatarChooserOption}
@@ -3774,21 +3159,6 @@ export default function UserDashboard() {
               <View style={styles.avatarChooserTextWrap}>
                 <Text style={styles.avatarChooserOptionTitle}>{t('profile:createAvatar', 'Create Avatar')}</Text>
                 <Text style={styles.avatarChooserOptionSub}>{t('profile:createAvatarSub', 'Build a custom cartoon avatar')}</Text>
-              </View>
-              <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.avatarChooserOption}
-              onPress={handleHeaderUploadPhoto}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.avatarChooserIcon, { backgroundColor: '#E6F6EC' }]}>
-                <MaterialIcons name="image" size={22} color="#2563eb" />
-              </View>
-              <View style={styles.avatarChooserTextWrap}>
-                <Text style={styles.avatarChooserOptionTitle}>{t('profile:uploadPhoto', 'Upload Photo')}</Text>
-                <Text style={styles.avatarChooserOptionSub}>{t('profile:uploadPhotoSub', 'Choose from your gallery')}</Text>
               </View>
               <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
             </TouchableOpacity>
@@ -3909,7 +3279,7 @@ export default function UserDashboard() {
                 placeholderTextColor="#94a3b8"
               />
 
-              <Text style={styles.directBookingHint}>Sent to the counselor for confirmation.</Text>
+              <Text style={styles.directBookingHint}>Sent to the consultant for confirmation.</Text>
             </ScrollView>
 
             <View style={styles.directBookingActions}>
@@ -4017,14 +3387,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.75)',
     marginTop: 1,
   },
-  sbGlobeWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   sbMenu: {
     marginTop: 22,
     gap: 4,
@@ -4065,8 +3427,11 @@ const styles = StyleSheet.create({
     color: PATIENT.primary,
     fontWeight: '700',
   },
-  sbLogout: {
+  sbBottomActions: {
     marginTop: 'auto',
+    gap: 10,
+  },
+  sbLogout: {
     width: '100%',
     height: 52,
     flexDirection: 'row',
@@ -4433,8 +3798,9 @@ const styles = StyleSheet.create({
   aptTabBtn: {
     flex: 1,
     borderRadius: 9,
-    paddingVertical: 10,
+    height: 40,
     alignItems: "center",
+    justifyContent: "center",
     overflow: "hidden",
   },
   aptTabBtnActive: {
@@ -4442,8 +3808,9 @@ const styles = StyleSheet.create({
   },
   aptTabText: {
     color: PATIENT.textSecondary,
-    fontSize: 13.5,
+    fontSize: 13,
     fontWeight: "600",
+    textAlign: "center",
   },
   aptTabTextActive: {
     color: "#ffffff",
@@ -4920,22 +4287,31 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: PATIENT.border,
     paddingBottom: Platform.OS === "ios" ? 20 : 6,
+    paddingHorizontal: 4,
     zIndex: 998,
   },
   navItem: {
     flex: 1,
+    minWidth: 0,
+    height: 54,
     justifyContent: "center",
     alignItems: "center",
-    gap: 3,
+    gap: 4,
+    paddingHorizontal: 2,
   },
   navCenterSpacer: {
-    width: 72,
+    width: 64,
+    flexShrink: 0,
   },
   navLabel: {
-    fontSize: 10.5,
-    fontWeight: "500",
+    width: "100%",
+    minHeight: 24,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "600",
     color: PATIENT.textMuted,
     textAlign: "center",
+    includeFontPadding: false,
   },
   navLabelActive: {
     color: PATIENT.primary,
@@ -4972,7 +4348,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   // flex:1 lets this column give way to the action icons; without it the title
-  // kept its intrinsic width and overlapped the reset/call/close buttons.
+  // kept its intrinsic width and overlapped the reset/close buttons.
   chatHeaderInfo: {
     flex: 1,
     flexDirection: "row",
@@ -5065,9 +4441,8 @@ const styles = StyleSheet.create({
   chatMessageWrapperAi: {
     alignSelf: "flex-start",
   },
-  // Column holding the bubble (+ Listen button). flexShrink lets it size to the
-  // bubble's content instead of stretching to fill the row. alignItems keeps the
-  // Listen button aligned under the bubble on the correct side.
+  // Column holding the bubble. flexShrink lets it size to the bubble's content
+  // instead of stretching to fill the row.
   chatBubbleColumn: {
     flexShrink: 1,
     alignItems: "flex-start",
@@ -5099,29 +4474,6 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     backgroundColor: "#e2e8f0",
   },
-  aiAttachPreview: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginHorizontal: 12,
-    marginBottom: -2,
-    marginTop: 6,
-    padding: 8,
-    backgroundColor: "#F1F5F9",
-    borderRadius: 12,
-  },
-  aiAttachThumb: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: "#e2e8f0",
-  },
-  aiAttachName: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#334155",
-  },
   chatCounselorMention: {
     color: "#1d4ed8",
     fontWeight: "700",
@@ -5130,29 +4482,28 @@ const styles = StyleSheet.create({
   chatBubbleTextUser: {
     color: "#ffffff",
   },
-  quickRepliesWrap: {
+  speakBtn: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 12,
-  },
-  quickReplyBtn: {
-    minWidth: 92,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 18,
-    backgroundColor: "#E6F6EC",
-    borderWidth: 1,
-    borderColor: "#A7E3BE",
     alignItems: "center",
+    gap: 4,
+    marginTop: 5,
+    marginLeft: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "#E6F6EC",
+    alignSelf: "flex-start",
   },
-  quickReplyBtnDisabled: {
-    opacity: 0.5,
+  speakBtnActive: {
+    backgroundColor: "#FEE2E2",
   },
-  quickReplyText: {
-    color: "#4f46e5",
-    fontSize: 13,
+  speakBtnText: {
+    fontSize: 11,
     fontWeight: "700",
+    color: "#006B2C",
+  },
+  speakBtnTextActive: {
+    color: "#ef4444",
   },
   resetConfirmOverlay: {
     position: "absolute",
@@ -5245,78 +4596,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  langBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: "#E6F6EC",
-    borderWidth: 1,
-    borderColor: "#c7c7f5",
-    minWidth: 52,
-  },
-  langBtnText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#006B2C",
-  },
-  langPickerOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  langPickerCard: {
-    width: "82%",
-    backgroundColor: "#ffffff",
-    borderRadius: 18,
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  langPickerTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#1e293b",
-    textAlign: "center",
-    marginBottom: 10,
-    paddingHorizontal: 12,
-  },
-  langPickerItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 10,
-    marginHorizontal: 4,
-  },
-  langPickerItemActive: {
-    backgroundColor: "#E6F6EC",
-  },
-  langPickerItemText: {
-    fontSize: 14,
-    color: "#334155",
-    fontWeight: "500",
-  },
-  langPickerItemTextActive: {
-    color: "#006B2C",
-    fontWeight: "700",
-  },
-  plusBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#F1F5F9",
-    justifyContent: "center",
-    alignItems: "center",
-  },
   chatInputPill: {
     flex: 1,
     flexDirection: "row",
@@ -5340,13 +4619,6 @@ const styles = StyleSheet.create({
     // ~4 lines before it starts scrolling internally.
     maxHeight: 96,
   },
-  inlineMicBtn: {
-    width: 30,
-    height: 30,
-    justifyContent: "center",
-    alignItems: "center",
-    marginLeft: 4,
-  },
   sendBtn: {
     width: 44,
     height: 44,
@@ -5362,203 +4634,6 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: {
     opacity: 0.5,
-  },
-  speakBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 4,
-    marginLeft: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: "#E6F6EC",
-    alignSelf: "flex-start",
-  },
-  speakBtnText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#006B2C",
-  },
-  aiVoiceOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.66)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 22,
-  },
-  aiVoiceCard: {
-    width: "100%",
-    maxWidth: 360,
-    borderRadius: 24,
-    backgroundColor: "#ffffff",
-    padding: 22,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.26,
-    shadowRadius: 28,
-    elevation: 18,
-  },
-  aiVoiceOrbWrap: {
-    width: 168,
-    height: 168,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  aiVoiceOrbGlowOuter: {
-    position: "absolute",
-    width: 168,
-    height: 168,
-    borderRadius: 84,
-    backgroundColor: "rgba(0, 107, 44,0.14)",
-  },
-  aiVoiceOrbGlowInner: {
-    position: "absolute",
-    width: 128,
-    height: 128,
-    borderRadius: 64,
-    backgroundColor: "rgba(0, 107, 44,0.22)",
-  },
-  aiVoiceAvatar: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#006B2C",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.45,
-    shadowRadius: 16,
-    elevation: 10,
-  },
-  aiVoiceWave: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    height: 46,
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  aiVoiceWaveBar: {
-    width: 4,
-    height: 46,
-    borderRadius: 3,
-    backgroundColor: "#006B2C",
-  },
-  aiVoiceTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#111827",
-    textAlign: "center",
-  },
-  aiVoiceStatusText: {
-    marginTop: 6,
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#006B2C",
-  },
-  aiVoiceTimer: {
-    marginTop: 8,
-    fontSize: 30,
-    fontWeight: "800",
-    color: "#0f172a",
-  },
-  aiVoiceHint: {
-    marginTop: 10,
-    fontSize: 13,
-    lineHeight: 19,
-    color: "#64748b",
-    textAlign: "center",
-  },
-  aiVoiceError: {
-    marginTop: 10,
-    fontSize: 13,
-    lineHeight: 19,
-    color: "#dc2626",
-    textAlign: "center",
-    fontWeight: "600",
-  },
-  aiVoiceErrorBox: {
-    marginTop: 14,
-    alignItems: "center",
-    backgroundColor: "#F9F9FF",
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    width: "100%",
-  },
-  aiVoiceErrorText: {
-    fontSize: 13.5,
-    lineHeight: 20,
-    color: "#475569",
-    textAlign: "center",
-    fontWeight: "500",
-    marginBottom: 12,
-  },
-  aiVoiceRetryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    backgroundColor: "#006B2C",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 999,
-  },
-  aiVoiceRetryText: {
-    color: "#ffffff",
-    fontSize: 13.5,
-    fontWeight: "700",
-  },
-  aiVoiceTranscriptBox: {
-    width: "100%",
-    marginTop: 16,
-    padding: 12,
-    borderRadius: 16,
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  aiVoiceTranscriptText: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: "#334155",
-    marginBottom: 5,
-  },
-  aiVoiceTranscriptSpeaker: {
-    fontWeight: "800",
-    color: "#4f46e5",
-  },
-  aiVoiceControls: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 14,
-    marginTop: 22,
-  },
-  aiVoiceControlBtn: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "#f1f5f9",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  aiVoiceControlBtnActive: {
-    backgroundColor: "#ef4444",
-    borderColor: "#ef4444",
-  },
-  aiVoiceControlBtnActiveBlue: {
-    backgroundColor: "#006B2C",
-    borderColor: "#006B2C",
-  },
-  aiVoiceEndBtn: {
-    backgroundColor: "#dc2626",
-    borderColor: "#dc2626",
   },
 
   loadingDots: {
@@ -6290,6 +5365,9 @@ const styles = StyleSheet.create({
   },
   deleteBtn: {
     backgroundColor: "#ef4444",
+  },
+  deleteBtnBusy: {
+    opacity: 0.75,
   },
   deleteBtnText: {
     color: "#ffffff",

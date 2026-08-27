@@ -7,11 +7,11 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   TouchableOpacity,
   UIManager,
   View,
 } from 'react-native';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -39,20 +39,20 @@ const DATA_GROUPS = [
     icon: 'person-outline',
     title: 'Personal Profile',
     collects: ['Name, age and gender', 'Contact details', 'Health preferences'],
-    purpose: ['Personalise your care experience', 'Match you with the right counselor'],
+    purpose: ['Personalise your care experience', 'Match you with the right consultant'],
   },
   {
     id: 'chats',
     icon: 'chatbubbles-outline',
     title: 'Chats & Calls',
     collects: ['Messages and quick replies', 'Chat status and attachments', 'Accepted chat sessions'],
-    purpose: ['Provide continuous conversation history', 'Enable counselor support during sessions'],
+    purpose: ['Provide continuous conversation history', 'Enable consultant support during sessions'],
   },
   {
     id: 'appointments',
     icon: 'calendar-outline',
     title: 'Appointments',
-    collects: ['Booking date and time', 'Selected counselor', 'Session notes'],
+    collects: ['Booking date and time', 'Selected consultant', 'Session notes'],
     purpose: ['Manage your upcoming sessions', 'Send timely reminders'],
   },
   {
@@ -97,7 +97,6 @@ const RIGHTS = [
 
 const SHARING = [
   'Counselors you book see only what a session needs — your name (or anonymous label), age, gender and the chat history of that session.',
-  'Payment and refund details are processed by our payment provider; Humaeli never stores your full card number.',
   'We do not sell your data, and we do not share it for advertising.',
   'Data may be disclosed if required by law or to protect someone from serious harm.',
 ];
@@ -169,7 +168,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
   const QUICK_ACTIONS = [
     { icon: 'person-outline', title: 'Manage Profile', sub: 'Update details', onPress: () => openTab('profile') },
     { icon: 'shield-checkmark-outline', title: 'Security Settings', sub: 'Passwords & OTP', onPress: () => openTab('settings') },
-    { icon: 'trash-outline', title: 'Delete Account', sub: 'Remove data', danger: true, onPress: () => openTab('settings') },
+    // { icon: 'trash-outline', title: 'Delete Account', sub: 'Remove data', danger: true, onPress: () => openTab('settings') },
   ];
 
   return (
@@ -351,13 +350,13 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
           <TouchableOpacity style={s.helpPrimary} activeOpacity={0.85} onPress={openSupport}>
             <Text style={[s.helpPrimaryText, { color: C.primary }]}>{t('Contact Support')}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.helpSecondary} activeOpacity={0.85} onPress={() => openTab('settings')}>
+          {/* <TouchableOpacity style={s.helpSecondary} activeOpacity={0.85} onPress={() => openTab('settings')}>
             <Text style={s.helpSecondaryText}>{t('Privacy Settings')}</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </LinearGradient>
 
         {/* A policy with no effective date can't be relied on. */}
-        <Text style={s.stamp}>Last updated: {LAST_UPDATED}</Text>
+        {/* <Text style={s.stamp}>Last updated: {LAST_UPDATED}</Text> */}
       </ScrollView>
     </View>
   );

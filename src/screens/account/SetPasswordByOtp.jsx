@@ -4,8 +4,8 @@ import PasswordForm from './PasswordForm';
 import authService from '../../services/authService';
 
 const SetPasswordByOtp = ({ navigation }) => {
-  const handleSubmit = async ({ email, password }) => {
-    const response = await authService.setPasswordByOtp({ email, password });
+  const handleSubmit = async ({ email, password, otp }) => {
+    const response = await authService.setPasswordByOtp({ email, password, otp });
     Alert.alert(
       'Password Saved',
       response?.data?.message || 'Password set successfully. Please log in.',

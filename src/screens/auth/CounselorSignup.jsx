@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -15,37 +13,80 @@ import {
   useWindowDimensions,
   Animated,
 } from 'react-native';
+import TextInput from '../../components/TranslatedTextInput';
+import Text from '../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import AuthBackground from '../../theme/AuthBackground';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { launchImageLibrary } from 'react-native-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import GoogleAuthButton from './components/GoogleAuthButton';
 import OtpCodeInput from './components/OtpCodeInput';
 import ForgotPasswordModal from './components/ForgotPasswordModal';
+import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
+import CountryPhoneInput from '../../components/common/CountryPhoneInput';
+import {
+  getPhoneLengthLabel,
+  isValidLocalPhoneNumber,
+  normalizeLocalPhoneNumber,
+} from '../../utils/countryCodes';
+import {
+  calculateAgeFromDateOfBirth,
+  formatDateOfBirthDisplay,
+  getDatePickerValue,
+  toDateOnlyString,
+} from '../../utils/dateOfBirth';
 
 // Import logo
 import logo from '../../image/HumaeliBlue.png';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
+<<<<<<< HEAD
 import { getApiErrorMessage, isOtpRequestSuccessful, isOtpSessionMissingMessage, isOtpVerificationSuccessful, postPublicAuthEndpoint } from './authUtils';
+=======
+import {
+  getApiErrorMessage,
+  isOtpRequestSuccessful,
+  isOtpVerificationSuccessful,
+  postPublicAuthEndpoint,
+  postPublicAuthEndpointWithOtpRetry,
+} from './authUtils';
+import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
+
+const OTP_RESEND_SECONDS = 60;
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 
 const CounselorSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
   const { width, height } = useWindowDimensions();
+  const isTablet = width >= 600;
+  const isCompact = width < 360 || height < 700;
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
+<<<<<<< HEAD
   const { scrollRef, keyboardOpen, keyboardInset, scrollFocusedInputIntoView } = useKeyboardAwareScroll();
   const modalKeyboardLift = keyboardOpen ? Math.min(56, Math.max(24, Math.round(keyboardInset * 0.12))) : 0;
+=======
+  const {
+    scrollRef,
+    keyboardInset,
+    scrollFocusedInputIntoView,
+    handleKeyboardAwareScroll,
+    handleKeyboardAwareScrollLayout,
+  } = useKeyboardAwareScroll();
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     fullName: '',
     phoneNumber: '',
+    phoneCountryCode: '+91',
     age: '',
+    dateOfBirth: '',
     gender: '',
     qualification: '',
     specialization: '',
@@ -79,6 +120,7 @@ const CounselorSignup = ({ navigation, route }) => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [notification, setNotification] = useState({ show: false, message: '', type: '' });
+  const [showDateOfBirthPicker, setShowDateOfBirthPicker] = useState(false);
 
   // Verification states
   const [emailVerified, setEmailVerified] = useState(false);
@@ -90,7 +132,13 @@ const CounselorSignup = ({ navigation, route }) => {
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const verifyingOtpRef = useRef(false);
   const [otpError, setOtpError] = useState('');
+<<<<<<< HEAD
   const [isResendingVerification, setIsResendingVerification] = useState(false);
+=======
+  const [otpResendTimer, setOtpResendTimer] = useState(0);
+  const [isResendingOtp, setIsResendingOtp] = useState(false);
+  const resendingOtpRef = useRef(false);
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 
   // Device Conflict States
   const [showDeviceConflict, setShowDeviceConflict] = useState(false);
@@ -98,6 +146,9 @@ const CounselorSignup = ({ navigation, route }) => {
   const [deviceOtpSent, setDeviceOtpSent] = useState(false);
   const [isSendingDeviceOtp, setIsSendingDeviceOtp] = useState(false);
   const [isVerifyingDeviceOtp, setIsVerifyingDeviceOtp] = useState(false);
+  const [deviceOtpResendTimer, setDeviceOtpResendTimer] = useState(0);
+  const [isResendingDeviceOtp, setIsResendingDeviceOtp] = useState(false);
+  const resendingDeviceOtpRef = useRef(false);
 
   // Forgot Password popup
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -157,6 +208,32 @@ const CounselorSignup = ({ navigation, route }) => {
     createOrbLoop(particle2, -150).start();
   }, []);
 
+  useEffect(() => {
+    if (!showOtpModal.show || otpResendTimer <= 0) return undefined;
+
+    const interval = setInterval(() => {
+      setOtpResendTimer(prev => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [showOtpModal.show, otpResendTimer]);
+
+  useEffect(() => {
+    if (!showDeviceConflict || !deviceOtpSent || deviceOtpResendTimer <= 0) return undefined;
+
+    const interval = setInterval(() => {
+      setDeviceOtpResendTimer(prev => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [showDeviceConflict, deviceOtpSent, deviceOtpResendTimer]);
+
+  const formatOtpTimer = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
   const persistCounselorSession = async (data) => {
     const token = data?.token || data?.accessToken;
     if (!token) return false;
@@ -190,10 +267,13 @@ const CounselorSignup = ({ navigation, route }) => {
     else if (!emailVerified) newErrors.email = "Please verify your email first";
 
     if (!formData.phoneNumber) newErrors.phoneNumber = "Phone is required";
-    else if (!/^\d{10}$/.test(formData.phoneNumber)) newErrors.phoneNumber = "Must be 10 digits";
+    else if (!isValidLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode)) {
+      newErrors.phoneNumber = `Phone number must be ${getPhoneLengthLabel(formData.phoneCountryCode)} digits`;
+    }
 
-    if (!formData.age) newErrors.age = "Age is required";
-    else if (formData.age < 18 || formData.age > 100) newErrors.age = "Must be 18-100";
+    const calculatedAge = calculateAgeFromDateOfBirth(formData.dateOfBirth);
+    if (!formData.dateOfBirth || calculatedAge === null) newErrors.dateOfBirth = "Date of birth is required";
+    else if (calculatedAge < 18 || calculatedAge > 100) newErrors.dateOfBirth = "Must be 18-100";
 
     if (!formData.gender) newErrors.gender = "Gender is required";
     if (!formData.qualification) newErrors.qualification = "Qualification required";
@@ -203,7 +283,10 @@ const CounselorSignup = ({ navigation, route }) => {
     if (!formData.aboutMe) newErrors.aboutMe = "About me required";
 
     if (!formData.password) newErrors.password = "Password required";
-    else if (formData.password.length < 6) newErrors.password = "Min 6 characters";
+    else {
+      const passwordCheck = validateStrongPassword(formData.password);
+      if (!passwordCheck.isValid) newErrors.password = passwordCheck.message;
+    }
     if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = "Mismatch";
 
     setErrors(newErrors);
@@ -226,6 +309,11 @@ const CounselorSignup = ({ navigation, route }) => {
       }
     } catch (err) {
       if (err?.response?.status === 409) {
+        setDeviceOtp('');
+        setDeviceOtpSent(false);
+        setDeviceOtpResendTimer(0);
+        setIsResendingDeviceOtp(false);
+        resendingDeviceOtpRef.current = false;
         setShowDeviceConflict(true);
         showNotification('Active session elsewhere', 'info');
       } else {
@@ -247,12 +335,17 @@ const CounselorSignup = ({ navigation, route }) => {
       // There is no file in the current signup form, so send JSON. Manually
       // setting multipart/form-data without a boundary can make Express see an
       // empty body and report every required field as missing.
+      const phoneNumber = normalizeLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode);
+      const dateOfBirth = toDateOnlyString(formData.dateOfBirth);
+      const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
       const data = {
         fullName: formData.fullName.trim(),
         email: formData.email.trim().toLowerCase(),
-        phoneNumber: formData.phoneNumber.trim(),
-        phoneNum: formData.phoneNumber.trim(),
-        age: Number(formData.age),
+        phoneNumber,
+        phoneNum: phoneNumber,
+        phoneCountryCode: formData.phoneCountryCode,
+        dateOfBirth,
+        age: calculatedAge,
         gender: formData.gender.toLowerCase(),
         qualification: formData.qualification.trim(),
         specialization: formData.specialization.trim(),
@@ -260,9 +353,11 @@ const CounselorSignup = ({ navigation, route }) => {
         location: formData.location.trim(),
         aboutMe: formData.aboutMe.trim(),
         password: formData.password,
+        confirmPassword: formData.confirmPassword,
         role: 'counselor',
         isEmailVerified: emailVerified,
         isPhoneVerified: true,
+        emailVerificationToken,
         consultationMode: formData.consultationMode.map(mode => mode.toLowerCase()),
         languages: formData.languages,
       };
@@ -275,7 +370,7 @@ const CounselorSignup = ({ navigation, route }) => {
 
       if (response.data?.success) {
         const hasSession = await persistCounselorSession(response.data);
-        showNotification(response.data.message || 'Counselor registered!');
+        showNotification(response.data.message || 'Consultant registered!');
 
         if (hasSession) {
           setTimeout(() => navigation.replace('LocationGate', { destination: 'CounselorDashboard' }), 1500);
@@ -323,6 +418,7 @@ const CounselorSignup = ({ navigation, route }) => {
       if (isOtpRequestSuccessful(response)) {
         setFormData(prev => ({ ...prev, email: value }));
         setShowOtpModal({ show: true, type, value });
+        setOtpResendTimer(OTP_RESEND_SECONDS);
         showNotification(response.data?.message || `OTP sent to ${type}`);
       } else {
         showNotification(response.data?.message || 'Failed to send OTP', 'error');
@@ -336,6 +432,7 @@ const CounselorSignup = ({ navigation, route }) => {
   };
 
   const handleResendVerifyOtp = async () => {
+<<<<<<< HEAD
     if (isResendingVerification || sendingVerificationRef.current) return;
     const email = formData.email.trim().toLowerCase();
     const type = 'email';
@@ -388,6 +485,53 @@ const CounselorSignup = ({ navigation, route }) => {
       setIsVerifyingOtp(true);
       setOtpError('');
       let response = await verifyEmailOtpOnce(otpEmail, normalizedOtp);
+=======
+    if (resendingOtpRef.current || otpResendTimer > 0) return;
+
+    const email = String(showOtpModal.value || formData.email).trim().toLowerCase();
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+      setOtpError('Enter valid email');
+      return;
+    }
+
+    try {
+      resendingOtpRef.current = true;
+      setIsResendingOtp(true);
+      setOtpError('');
+      setOtpCode('');
+
+      const response = await postPublicAuthEndpoint('send-email-otp', { email });
+      if (isOtpRequestSuccessful(response)) {
+        setFormData(prev => ({ ...prev, email }));
+        setShowOtpModal({ show: true, type: 'email', value: email });
+        setOtpResendTimer(OTP_RESEND_SECONDS);
+        showNotification(response.data?.message || 'OTP resent successfully');
+      } else {
+        setOtpError(response.data?.message || 'Failed to resend OTP');
+      }
+    } catch (err) {
+      setOtpError(getApiErrorMessage(err, 'Failed to resend OTP'));
+    } finally {
+      resendingOtpRef.current = false;
+      setIsResendingOtp(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (verifyingOtpRef.current) return;
+    const normalizedOtp = otpCode.trim();
+    if (normalizedOtp.length !== 6) return setOtpError('Enter 6 digits');
+    const otpEmail = String(showOtpModal.value || formData.email).trim().toLowerCase();
+    try {
+      verifyingOtpRef.current = true;
+      setIsVerifyingOtp(true);
+      setOtpError('');
+      const type = 'email';
+      const endpoint = 'verify-email-otp';
+      const payload = { email: otpEmail, otp: normalizedOtp };
+
+      const response = await postPublicAuthEndpointWithOtpRetry(endpoint, payload);
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       if (isOtpVerificationSuccessful(response)) {
         setFormData(prev => ({ ...prev, email: otpEmail }));
         setEmailVerified(true);
@@ -427,6 +571,7 @@ const CounselorSignup = ({ navigation, route }) => {
         );
       }
     } catch (err) {
+<<<<<<< HEAD
       if (!err?.response) {
         setFormData(prev => ({ ...prev, email: otpEmail }));
         setEmailVerified(true);
@@ -468,7 +613,11 @@ const CounselorSignup = ({ navigation, route }) => {
           ? 'No OTP found. Please request a new OTP.'
           : message
       );
+=======
+      setOtpError(getApiErrorMessage(err, 'Verification failed'));
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
     } finally {
+      verifyingOtpRef.current = false;
       setIsVerifyingOtp(false);
       verifyingOtpRef.current = false;
     }
@@ -478,6 +627,9 @@ const CounselorSignup = ({ navigation, route }) => {
     setShowOtpModal({ show: false, type: '', value: '' });
     setOtpCode('');
     setOtpError('');
+    setOtpResendTimer(0);
+    setIsResendingOtp(false);
+    resendingOtpRef.current = false;
   };
 
   // Forgot password — open the in-screen popup (email → OTP → reset)
@@ -488,11 +640,17 @@ const CounselorSignup = ({ navigation, route }) => {
   const handleSendDeviceOtp = async () => {
     try {
       setIsSendingDeviceOtp(true);
+<<<<<<< HEAD
       await postPublicAuthEndpoint('logout-other-devices', {
         email: formData.email.trim().toLowerCase(),
         role: 'counselor',
       });
+=======
+      setDeviceOtp('');
+      await axiosInstance.post('/api/auth/logout-other-devices', { email: formData.email, role: 'counsellor' });
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       setDeviceOtpSent(true);
+      setDeviceOtpResendTimer(OTP_RESEND_SECONDS);
       showNotification('OTP sent to email');
     } catch (err) {
       showNotification(getApiErrorMessage(err, 'Failed'), 'error');
@@ -501,17 +659,46 @@ const CounselorSignup = ({ navigation, route }) => {
     }
   };
 
+  const handleResendDeviceOtp = async () => {
+    if (resendingDeviceOtpRef.current || deviceOtpResendTimer > 0) return;
+
+    try {
+      resendingDeviceOtpRef.current = true;
+      setIsResendingDeviceOtp(true);
+      setDeviceOtp('');
+      await axiosInstance.post('/api/auth/logout-other-devices', { email: formData.email, role: 'counsellor' });
+      setDeviceOtpResendTimer(OTP_RESEND_SECONDS);
+      showNotification('OTP resent to email');
+    } catch (err) {
+      showNotification('Failed to resend OTP', 'error');
+    } finally {
+      resendingDeviceOtpRef.current = false;
+      setIsResendingDeviceOtp(false);
+    }
+  };
+
   const handleVerifyDeviceOtp = async () => {
+    if (deviceOtp.trim().length !== 6) {
+      showNotification('Enter 6 digit OTP', 'error');
+      return;
+    }
+
     try {
       setIsVerifyingDeviceOtp(true);
+<<<<<<< HEAD
       const response = await postPublicAuthEndpoint('verify-login-otp', {
         email: formData.email.trim().toLowerCase(),
         otp: deviceOtp,
+=======
+      const response = await axiosInstance.post('/api/auth/verify-login-otp', {
+        email: formData.email,
+        otp: deviceOtp.trim(),
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
         logoutOthers: true,
         role: 'counselor'
       });
       if (await persistCounselorSession(response.data)) {
-        setShowDeviceConflict(false);
+        closeDeviceConflictModal();
         // Device-conflict resolution is a login → location gate, then dashboard.
         navigation.replace('LocationGate', { destination: 'CounselorDashboard' });
       }
@@ -522,9 +709,19 @@ const CounselorSignup = ({ navigation, route }) => {
     }
   };
 
-  const showNotification = (message, type = 'success') => {
+  const closeDeviceConflictModal = () => {
+    setShowDeviceConflict(false);
+    setDeviceOtp('');
+    setDeviceOtpSent(false);
+    setDeviceOtpResendTimer(0);
+    setIsResendingDeviceOtp(false);
+    resendingDeviceOtpRef.current = false;
+  };
+
+  const showNotification = (message, type = 'success', duration) => {
+    const displayDuration = duration ?? (type === 'error' ? 8000 : 3000);
     setNotification({ show: true, message, type });
-    setTimeout(() => setNotification({ show: false, message: '', type: '' }), 3000);
+    setTimeout(() => setNotification({ show: false, message: '', type: '' }), displayDuration);
   };
 
   const handleChange = useCallback((name, value) => {
@@ -534,6 +731,25 @@ const CounselorSignup = ({ navigation, route }) => {
       setEmailVerificationToken('');
     }
   }, []);
+
+  const handleDateOfBirthChange = (_event, selectedDate) => {
+    if (Platform.OS === 'android') setShowDateOfBirthPicker(false);
+    if (!selectedDate) return;
+
+    const dateOfBirth = toDateOnlyString(selectedDate);
+    const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
+    setFormData(prev => ({
+      ...prev,
+      dateOfBirth,
+      age: calculatedAge !== null ? String(calculatedAge) : '',
+    }));
+    setErrors(prev => {
+      const next = { ...prev };
+      delete next.dateOfBirth;
+      delete next.age;
+      return next;
+    });
+  };
 
   const toggleListItem = useCallback((name, value) => {
     setFormData(prev => {
@@ -548,17 +764,19 @@ const CounselorSignup = ({ navigation, route }) => {
     const isFocused = focusedField === name;
     const isVerified = verifyType === 'email' && emailVerified;
     const isMultiline = options.multiline;
+    const isMetricField = name === 'age' || name === 'weight';
 
     return (
       <Animated.View key={`counselor-input-${name}`} style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
         <View style={[
           styles.inputWrapper,
+          isMetricField && styles.metricInputWrapper,
           isFocused && styles.inputWrapperFocused,
           isMultiline && { height: 'auto', minHeight: 70, alignItems: 'flex-start', paddingTop: 10 }
         ]}>
           <Icon name={icon} size={20} color={isFocused ? '#004AC6' : '#64748b'} style={[styles.inputIcon, isMultiline && { marginTop: 4 }]} />
           <TextInput
-            style={[styles.textInput, isMultiline && { height: 'auto', minHeight: 50, textAlignVertical: 'top' }]}
+            style={[styles.textInput, isMetricField && styles.metricTextInput, isMultiline && { height: 'auto', minHeight: 50, textAlignVertical: 'top' }]}
             value={formData[name]}
             onChangeText={(text) => handleChange(name, text)}
             onFocus={(event) => {
@@ -581,12 +799,107 @@ const CounselorSignup = ({ navigation, route }) => {
     );
   };
 
+  const renderPhoneInput = (index) => {
+    const name = 'phoneNumber';
+    const isFocused = focusedField === name;
+
+    return (
+      <Animated.View key="counselor-input-phoneNumber" style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
+        <CountryPhoneInput
+          value={formData.phoneNumber}
+          countryCode={formData.phoneCountryCode}
+          onChangePhoneNumber={(text) => handleChange(name, text)}
+          onChangeCountryCode={(code) => handleChange('phoneCountryCode', code)}
+          focused={isFocused}
+          accentColor="#004AC6"
+          containerStyle={styles.phoneInputWrapper}
+          inputStyle={styles.phoneTextInput}
+          onFocus={(event) => {
+            setFocusedField(name);
+            scrollFocusedInputIntoView(event);
+          }}
+          onBlur={() => setFocusedField(null)}
+        />
+        {errors[name] && <Text style={styles.errorText}>{errors[name]}</Text>}
+      </Animated.View>
+    );
+  };
+
+  const renderDateOfBirthInput = (index) => (
+    <Animated.View key="counselor-input-dateOfBirth" style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
+      <TouchableOpacity
+        style={styles.inputWrapper}
+        onPress={() => setShowDateOfBirthPicker(true)}
+        activeOpacity={0.85}
+      >
+        <Icon name="calendar-month-outline" size={20} color="#64748b" style={styles.inputIcon} />
+        <Text
+          style={[
+            styles.datePickerText,
+            !formData.dateOfBirth && styles.datePickerPlaceholder,
+          ]}
+        >
+          {formatDateOfBirthDisplay(formData.dateOfBirth, t('Date of Birth'))}
+        </Text>
+        <Icon name="chevron-down" size={20} color="#94a3b8" />
+      </TouchableOpacity>
+      {showDateOfBirthPicker && (
+        <DateTimePicker
+          value={getDatePickerValue(formData.dateOfBirth)}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          maximumDate={new Date()}
+          onChange={handleDateOfBirthChange}
+        />
+      )}
+      {errors.dateOfBirth && <Text style={styles.errorText}>{errors.dateOfBirth}</Text>}
+    </Animated.View>
+  );
+
   const scrollContainerStyle = {
     ...styles.scrollContent,
+<<<<<<< HEAD
     justifyContent: isLogin && !keyboardOpen ? 'center' : 'flex-start',
     paddingTop: isLogin && keyboardOpen ? 60 : styles.scrollContent.paddingTop,
     paddingBottom: 60 + keyboardInset + (keyboardOpen ? 120 : 0),
+=======
+    justifyContent: isLogin ? 'center' : 'flex-start',
+    paddingHorizontal: isCompact ? 12 : 16,
+    paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 62 : 76),
+    paddingBottom: (isLogin ? (isCompact ? 44 : 60) : (isCompact ? 14 : 20)) + keyboardInset,
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
   };
+  const signupPanelHeight = Math.min(
+    isTablet ? 760 : 720,
+    Math.max(360, height - (isCompact ? 78 : 96))
+  );
+  const signupPanelPaddingY = isCompact ? 18 : 22;
+  const signupLogoSize = isCompact ? 64 : 80;
+  const signupHeaderHeight = signupLogoSize + (isCompact ? 68 : 74);
+  const signupFormHeight = Math.max(
+    260,
+    signupPanelHeight - (signupPanelPaddingY * 2) - signupHeaderHeight
+  );
+  const panelStyle = [
+    styles.panel,
+    {
+      maxWidth: isTablet ? 480 : 440,
+      height: isLogin ? undefined : signupPanelHeight,
+      paddingHorizontal: isCompact ? 16 : 22,
+      paddingVertical: signupPanelPaddingY,
+      borderRadius: isCompact ? 28 : 40,
+    },
+  ];
+  const formScrollStyle = [
+    styles.formScroll,
+    !isLogin && styles.signupFormScroll,
+    !isLogin && { height: signupFormHeight },
+  ];
+  const formContentStyle = [
+    styles.formPanel,
+    !isLogin && styles.signupFormPanel,
+    !isLogin && { paddingBottom: (isCompact ? 18 : 24) + keyboardInset },
+  ];
 
   return (
     <View style={styles.container}>
@@ -597,26 +910,121 @@ const CounselorSignup = ({ navigation, route }) => {
           <View style={styles.flex}>
             <TouchableOpacity style={styles.backBtn} onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.replace('RoleSelector'))}><Icon name="chevron-left" size={28} color="#0F172A" /></TouchableOpacity>
             <ScrollView
-              ref={scrollRef}
+              ref={isLogin ? scrollRef : null}
               contentContainerStyle={scrollContainerStyle}
               showsVerticalScrollIndicator={false}
+              onLayout={isLogin ? handleKeyboardAwareScrollLayout : undefined}
+              onScroll={isLogin ? handleKeyboardAwareScroll : undefined}
+              scrollEventThrottle={16}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              scrollEnabled={isLogin}
             >
-              <Animated.View style={[styles.panel, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+              <Animated.View style={[panelStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
                   <Image source={logo} style={styles.logo} resizeMode="contain" />
                   <View style={styles.brandContainer}><Text style={[styles.brandMain, { color: '#004AC6' }]}>{t('Humaeli')}</Text></View>
                   <Text style={styles.tagline}>{'Join our expert team'}</Text>
                 </View>
+<<<<<<< HEAD
                   {/* {!isLogin && (
                     <Animated.View key="photo-section" style={[styles.photoSection, { opacity: fieldAnims[0] }]}>
                       <TouchableOpacity onPress={handleSelectImage} style={styles.photoCircle}>
                         {formData.profilePhoto ? (
                           <Image source={{ uri: formData.profilePhoto.uri }} style={styles.photo} />
+=======
+                {/* {!isLogin && (
+                  <Animated.View key="photo-section" style={[styles.photoSection, { opacity: fieldAnims[0] }]}>
+                    <TouchableOpacity onPress={handleSelectImage} style={styles.photoCircle}>
+                      {formData.profilePhoto ? (
+                        <Image source={{ uri: formData.profilePhoto.uri }} style={styles.photo} />
+                      ) : (
+                        <Icon name="camera-plus-outline" size={30} color="#004AC6" />
+                      )}
+                    </TouchableOpacity>
+                    <Text style={styles.photoLabel}>{t('Consultant Photo')}</Text>
+                  </Animated.View>
+                )} */}
+                <ScrollView
+                  ref={!isLogin ? scrollRef : null}
+                  style={formScrollStyle}
+                  contentContainerStyle={formContentStyle}
+                  showsVerticalScrollIndicator={!isLogin}
+                  onLayout={!isLogin ? handleKeyboardAwareScrollLayout : undefined}
+                  onScroll={!isLogin ? handleKeyboardAwareScroll : undefined}
+                  scrollEventThrottle={16}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                  scrollEnabled={!isLogin}
+                >
+                  {!isLogin ? (
+                    <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderPhoneInput(3)}{renderDateOfBirthInput(4)}{renderInput(5, 'age', 'calendar-account-outline', 'Age', { editable: false, placeholder: 'Age will be calculated' })}
+                      <Animated.View key="gender-section" style={{ opacity: fieldAnims[6] }}><Text style={styles.sectionLabel}>{t('Gender')}</Text><View style={styles.genderRow}>{genderOptions.map(g => (<TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}><Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text></TouchableOpacity>))}</View></Animated.View>
+                      {renderInput(7, 'qualification', 'school-outline', 'Qualification')}{renderInput(8, 'specialization', 'certificate-outline', 'Specialization')}
+                      <View style={styles.row}><View style={{ flex: 1 }}>{renderInput(9, 'experience', 'briefcase-clock-outline', 'Years')}</View><View style={{ flex: 1.5 }}>{renderInput(10, 'location', 'map-marker-radius-outline', 'City')}</View></View>
+                      <Animated.View key="mode-section" style={{ opacity: fieldAnims[11] }}><Text style={styles.sectionLabel}>{t('Consultation Mode')}</Text><View style={styles.tagRow}>{consultationModes.map(m => (<TouchableOpacity key={m} style={[styles.tag, formData.consultationMode.includes(m) && styles.tagSelected]} onPress={() => toggleListItem('consultationMode', m)}><Text style={[styles.tagText, formData.consultationMode.includes(m) && styles.tagTextSelected]}>{m}</Text></TouchableOpacity>))}</View></Animated.View>
+                      <Animated.View key="lang-section" style={{ opacity: fieldAnims[12] }}><Text style={styles.sectionLabel}>{t('Languages')}</Text><View style={styles.tagRow}>{languageOptions.map(l => (<TouchableOpacity key={l} style={[styles.tag, formData.languages.includes(l) && styles.tagSelected]} onPress={() => toggleListItem('languages', l)}><Text style={[styles.tagText, formData.languages.includes(l) && styles.tagTextSelected]}>{l}</Text></TouchableOpacity>))}</View></Animated.View>
+                      {renderInput(13, 'aboutMe', 'account-details-outline', 'About Me', { multiline: true })}
+                    </>
+                  ) : (<>{renderInput(1, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' })}</>)}
+	                  <Animated.View key="pwd-section" style={{ opacity: fieldAnims[14] }}>
+	                    <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
+	                      <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#004AC6' : '#64748b'} style={styles.inputIcon} />
+	                      <TextInput
+	                        style={styles.textInput}
+	                        value={formData.password}
+	                        onChangeText={(text) => handleChange('password', text)}
+	                        onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }}
+	                        onBlur={() => setFocusedField(null)}
+	                        placeholder={t('Password')}
+	                        placeholderTextColor="#94a3b8"
+	                        secureTextEntry={!showPassword}
+	                      />
+	                      <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+	                        <Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" />
+	                      </TouchableOpacity>
+	                    </View>
+	                    {!isLogin && <Text style={styles.passwordHint}>{t(STRONG_PASSWORD_HINT)}</Text>}
+	                    {!isLogin && <PasswordRequirementChecklist password={formData.password} style={styles.passwordChecklist} />}
+	                    {!isLogin && errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
+	                  </Animated.View>
+	                  {isLogin && (<TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}><Text style={[styles.forgotText, { color: '#004AC6' }]}>{t('Forgot password?')}</Text></TouchableOpacity>)}
+	                  {!isLogin && (
+	                    <Animated.View key="cpwd-section" style={{ opacity: fieldAnims[15] }}>
+	                      <View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}>
+	                        <Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#004AC6' : '#64748b'} style={styles.inputIcon} />
+	                        <TextInput
+	                          style={styles.textInput}
+	                          value={formData.confirmPassword}
+	                          onChangeText={(text) => handleChange('confirmPassword', text)}
+	                          onFocus={(event) => { setFocusedField('confirmPassword'); scrollFocusedInputIntoView(event); }}
+	                          onBlur={() => setFocusedField(null)}
+	                          placeholder={t('Confirm Password')}
+	                          placeholderTextColor="#94a3b8"
+	                          secureTextEntry={!showConfirmPassword}
+	                        />
+	                        <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
+	                          <Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" />
+	                        </TouchableOpacity>
+	                      </View>
+	                      {errors.confirmPassword ? <Text style={styles.errorText}>{errors.confirmPassword}</Text> : null}
+	                    </Animated.View>
+	                  )}
+                  <Animated.View key="btn-section" style={{ opacity: fieldAnims[16], marginTop: 10 }}>
+                    <TouchableOpacity activeOpacity={0.9} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
+                      <LinearGradient
+                        colors={['#003A9B', '#1490FF']}
+                        start={{ x: 0, y: 0.5 }}
+                        end={{ x: 1, y: 0.5 }}
+                        style={styles.submitBtn}
+                      >
+                        {isLoading ? (
+                          <ActivityIndicator color="#fff" />
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
                         ) : (
                           <Icon name="camera-plus-outline" size={30} color="#004AC6" />
                         )}
+<<<<<<< HEAD
                       </TouchableOpacity>
                       <Text style={styles.photoLabel}>{t('Counselor Photo')}</Text>
                     </Animated.View>
@@ -682,6 +1090,39 @@ const CounselorSignup = ({ navigation, route }) => {
                     <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[16] }]}><Text style={styles.switchText}>{isLogin ? "New counselor?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#004AC6' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
                   </View>
                 </Animated.View>
+=======
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </Animated.View>
+                  <Animated.View key="google-section" style={{ opacity: fieldAnims[16], marginTop: 14 }}>
+                    <View style={styles.googleDividerRow}>
+                      <View style={styles.googleDividerLine} />
+                      <Text style={styles.googleDividerText}>or</Text>
+                      <View style={styles.googleDividerLine} />
+                    </View>
+                    <GoogleAuthButton
+                      role="counselor"
+                      mode={isLogin ? 'signin' : 'signup'}
+                      disabled={isLoading}
+                      locationEvent={isLogin ? 'login' : 'signup'}
+                      onSuccess={({ isCounselor }) => {
+                        sendLocationSilently(isLogin ? 'login' : 'signup');
+                        setTimeout(() => {
+                          navigation.replace(
+                            isCounselor ? 'CounselorDashboard' : 'UserDashboard',
+                          );
+                        }, 600);
+                      }}
+                      onError={(msg) => {
+                        console.warn('[Google sign-in]', msg);
+                        showNotification(msg || 'Google sign-in failed', 'error');
+                      }}
+                    />
+                  </Animated.View>
+                  <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[17] }]}><Text style={styles.switchText}>{isLogin ? "New consultant?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#004AC6' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
+                </ScrollView>
+              </Animated.View>
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
             </ScrollView>
           </View>
         </SafeAreaView>
@@ -705,6 +1146,7 @@ const CounselorSignup = ({ navigation, route }) => {
               <View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name="email-fast-outline" size={40} color="#004AC6" /></View>
               <Text style={styles.modalTitle}>Verify Your Email</Text>
               <Text style={styles.modalSub}>Enter code sent to {showOtpModal.value}</Text>
+<<<<<<< HEAD
               <OtpCodeInput
                 key={`${showOtpModal.type}:${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`}
                 value={otpCode}
@@ -725,6 +1167,39 @@ const CounselorSignup = ({ navigation, route }) => {
                 <Text style={styles.resendOtpText}>
                   {isResendingVerification ? 'Resending OTP...' : 'Resend OTP'}
                 </Text>
+=======
+              <TextInput key={`${showOtpModal.type}:${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`} style={styles.otpInput} value={otpCode} onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="number-pad" maxLength={6} autoFocus />
+              <View style={styles.otpResendRow}>
+                {otpResendTimer > 0 ? (
+                  <Text style={styles.otpTimerText}>
+                    {t('Resend OTP in')} {formatOtpTimer(otpResendTimer)}
+                  </Text>
+                ) : (
+                  <Text style={styles.otpTimerText}>{t("Didn't receive code?")}</Text>
+                )}
+                <TouchableOpacity
+                  onPress={handleResendVerifyOtp}
+                  disabled={otpResendTimer > 0 || isResendingOtp}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text
+                    style={[
+                      styles.otpResendText,
+                      (otpResendTimer > 0 || isResendingOtp) && styles.otpResendTextDisabled,
+                    ]}
+                  >
+                    {isResendingOtp ? t('Sending...') : t('Resend')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
+              <TouchableOpacity
+                style={[styles.modalActionBtn, (isVerifyingOtp || otpCode.length !== 6) && styles.modalActionBtnDisabled]}
+                onPress={handleVerifyOtp}
+                disabled={isVerifyingOtp || otpCode.length !== 6}
+              >
+                {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Consultant')}</Text>}
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
               </TouchableOpacity>
               <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity>
             </View>
@@ -740,7 +1215,68 @@ const CounselorSignup = ({ navigation, route }) => {
           navigationBarTranslucent
         >
           <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { borderTopWidth: 4, borderColor: '#004AC6' }]}><View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name="devices" size={40} color="#004AC6" /></View><Text style={styles.modalTitle}>{t('Switching Devices')}</Text><Text style={styles.modalSub}>{t('Counselor account active on another device. Logout there and continue here?')}</Text>{!deviceOtpSent ? (<TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6' }]} onPress={handleSendDeviceOtp} disabled={isSendingDeviceOtp}>{isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Log out other device')}</Text>}</TouchableOpacity>) : (<View style={styles.otpWrapper}><TextInput style={styles.otpInput} value={deviceOtp} onChangeText={setDeviceOtp} placeholder={t('Enter OTP')} placeholderTextColor="#94a3b8" keyboardType="numeric" maxLength={6} /><TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: '#004AC6' }]} onPress={handleVerifyDeviceOtp} disabled={isVerifyingDeviceOtp}>{isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify & Takeover')}</Text>}</TouchableOpacity></View>)}<TouchableOpacity onPress={() => setShowDeviceConflict(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity></View>
+            <View style={[styles.modalContent, { borderTopWidth: 4, borderColor: '#004AC6' }]}>
+              <View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}>
+                <Icon name="devices" size={40} color="#004AC6" />
+              </View>
+              <Text style={styles.modalTitle}>{t('Switching Devices')}</Text>
+              <Text style={styles.modalSub}>{t('Consultant account active on another device. Logout there and continue here?')}</Text>
+              {!deviceOtpSent ? (
+                <TouchableOpacity
+                  style={[styles.modalActionBtn, isSendingDeviceOtp && styles.modalActionBtnDisabled]}
+                  onPress={handleSendDeviceOtp}
+                  disabled={isSendingDeviceOtp}
+                >
+                  {isSendingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Log out other device')}</Text>}
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.otpWrapper}>
+                  <TextInput
+                    style={styles.otpInput}
+                    value={deviceOtp}
+                    onChangeText={(value) => setDeviceOtp(value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder={t('Enter OTP')}
+                    placeholderTextColor="#94a3b8"
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    autoFocus
+                  />
+                  <View style={styles.otpResendRow}>
+                    {deviceOtpResendTimer > 0 ? (
+                      <Text style={styles.otpTimerText}>
+                        {t('Resend OTP in')} {formatOtpTimer(deviceOtpResendTimer)}
+                      </Text>
+                    ) : (
+                      <Text style={styles.otpTimerText}>{t("Didn't receive code?")}</Text>
+                    )}
+                    <TouchableOpacity
+                      onPress={handleResendDeviceOtp}
+                      disabled={deviceOtpResendTimer > 0 || isResendingDeviceOtp}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text
+                        style={[
+                          styles.otpResendText,
+                          (deviceOtpResendTimer > 0 || isResendingDeviceOtp) && styles.otpResendTextDisabled,
+                        ]}
+                      >
+                        {isResendingDeviceOtp ? t('Sending...') : t('Resend OTP')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.modalActionBtn, isVerifyingDeviceOtp && styles.modalActionBtnDisabled]}
+                    onPress={handleVerifyDeviceOtp}
+                    disabled={isVerifyingDeviceOtp}
+                  >
+                    {isVerifyingDeviceOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify & Takeover')}</Text>}
+                  </TouchableOpacity>
+                </View>
+              )}
+              <TouchableOpacity onPress={closeDeviceConflictModal} style={styles.cancelBtn}>
+                <Text style={styles.cancelText}>{t('Cancel')}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </Modal>
         {notification.show && (<Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#004AC6' : '#004AC6' }]}><Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color="#fff" /><Text style={styles.notificationText}>{notification.message}</Text></Animated.View>)}
@@ -761,14 +1297,14 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   flex: { flex: 1 },
   gradient: { flex: 1, overflow: 'hidden' },
-  lavaOrb: { position: 'absolute', width: 300, height: 300, borderRadius: 150, opacity: 0.35 },
+  lavaOrb: { position: 'absolute', width: 400, height: 400, borderRadius: 150, opacity: 0.35 },
   orb1: { top: -100, left: -50, backgroundColor: '#004AC6' },
   orb2: { bottom: -50, right: -100, backgroundColor: '#004AC6' },
   safeArea: { flex: 1 },
   scrollContent: { padding: 24, paddingTop: 100, paddingBottom: 60, flexGrow: 1 },
   backBtn: { position: 'absolute', top: 30, left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
-  panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, padding: 24, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
-  header: { alignItems: 'center', marginBottom: 20 },
+  panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, padding: 28, width: '100%', maxWidth: 440, alignSelf: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
+  header: { alignItems: 'center', marginBottom: 14 },
   logo: { width: 80, height: 80 },
   brandContainer: { flexDirection: 'row', marginTop: 4 },
   brandMain: { fontSize: 26, fontWeight: '900', color: '#1e293b' },
@@ -778,16 +1314,27 @@ const styles = StyleSheet.create({
   photoCircle: { width: 90, height: 90, borderRadius: 45, backgroundColor: '#f0fdf4', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#004AC6', overflow: 'hidden' },
   photo: { width: '100%', height: '100%' },
   photoLabel: { fontSize: 12, fontWeight: '700', color: '#004AC6', marginTop: 8 },
-  formPanel: { gap: 12 },
+  formScroll: { width: '100%' },
+  signupFormScroll: { flexShrink: 0 },
+  formPanel: { gap: 10 },
+  signupFormPanel: { paddingBottom: 18 },
   inputField: { width: '100%' },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 18, paddingHorizontal: 12, height: 52, borderWidth: 1.5, borderColor: '#f1f5f9' },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 18, paddingHorizontal: 16, height: 58, borderWidth: 1.5, borderColor: '#f1f5f9' },
+  metricInputWrapper: { height: 66, borderRadius: 20, paddingHorizontal: 20 },
+  phoneInputWrapper: { height: 58, paddingHorizontal: 16 },
   inputWrapperFocused: { borderColor: '#004AC6', backgroundColor: '#ffffff' },
   inputIcon: { marginRight: 8 },
-  textInput: { flex: 1, color: '#1e293b', fontSize: 14, fontWeight: '600' },
+  textInput: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
+  metricTextInput: { fontSize: 15, fontWeight: '600' },
+  phoneTextInput: { fontSize: 15 },
+  datePickerText: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
+  datePickerPlaceholder: { color: '#94a3b8' },
   verifyBtn: { minWidth: 68, minHeight: 34, backgroundColor: '#004AC6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   verifiedBtn: { backgroundColor: 'transparent' },
   verifyBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   errorText: { color: '#ef4444', fontSize: 11, marginTop: 4, marginLeft: 16, fontWeight: '600' },
+  passwordHint: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 4, marginLeft: 16, fontWeight: '600' },
+  passwordChecklist: { marginLeft: 16, marginRight: 4 },
   row: { flexDirection: 'row', gap: 12 },
   sectionLabel: { fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
@@ -809,7 +1356,7 @@ const styles = StyleSheet.create({
   },
   forgotLink: { alignSelf: 'flex-end', marginTop: -8, marginBottom: 8 },
   forgotText: { fontSize: 12, fontWeight: '700' },
-  submitBtn: { height: 56, borderRadius: 20, justifyContent: 'center', alignItems: 'center', shadowColor: '#004AC6', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
+  submitBtn: { height: 60, borderRadius: 20, justifyContent: 'center', alignItems: 'center', shadowColor: '#004AC6', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
   submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   switchRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 10 },
   switchText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
@@ -825,7 +1372,11 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 22, fontWeight: '900', color: '#0F172A', marginBottom: 8, textAlign: 'center' },
   modalSub: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 21, marginBottom: 22 },
   modalActionBtn: { width: '100%', height: 54, borderRadius: 16, backgroundColor: '#004AC6', justifyContent: 'center', alignItems: 'center', shadowColor: '#004AC6', shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
+<<<<<<< HEAD
   modalActionBtnDisabled: { backgroundColor: '#CBD5E1', shadowOpacity: 0 },
+=======
+  modalActionBtnDisabled: { backgroundColor: '#94A3B8', shadowOpacity: 0, elevation: 0 },
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
   modalActionText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   modalErrorText: { width: '100%', color: '#B91C1C', backgroundColor: '#FEF2F2', fontSize: 12, fontWeight: '700', textAlign: 'center', padding: 10, borderRadius: 10, marginTop: -6, marginBottom: 14 },
   resendOtpBtn: { width: '100%', height: 44, justifyContent: 'center', alignItems: 'center' },
@@ -833,10 +1384,18 @@ const styles = StyleSheet.create({
   cancelBtn: { width: '100%', height: 44, marginTop: 10, justifyContent: 'center', alignItems: 'center' },
   cancelText: { fontSize: 14, fontWeight: '700', color: '#64748B' },
   otpWrapper: { width: '100%', gap: 16 },
+<<<<<<< HEAD
   otpContainer: { width: '100%', marginBottom: 16 },
   otpDigitBox: { minHeight: 56, borderRadius: 16, borderColor: '#BFD7FF', backgroundColor: '#F8FAFC' },
   otpDigitBoxFocused: { borderColor: '#004AC6', borderWidth: 2 },
   otpDigitText: { fontSize: 22, fontWeight: '800', color: '#0F172A' },
+=======
+  otpInput: { width: '100%', height: 56, borderRadius: 16, backgroundColor: '#F8FAFC', borderWidth: 1.5, borderColor: '#BFD7FF', textAlign: 'center', fontSize: 22, letterSpacing: 8, fontWeight: '800', color: '#0F172A', marginBottom: 16 },
+  otpResendRow: { width: '100%', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: -6, marginBottom: 16, flexWrap: 'wrap' },
+  otpTimerText: { color: '#64748B', fontSize: 13, fontWeight: '700', textAlign: 'center' },
+  otpResendText: { color: '#004AC6', fontSize: 13, fontWeight: '900' },
+  otpResendTextDisabled: { color: '#94A3B8' },
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
   notification: { position: 'absolute', top: 50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 10, zIndex: 1000 },
   notificationText: { color: '#fff', fontSize: 14, fontWeight: '700', marginLeft: 8 },
 });

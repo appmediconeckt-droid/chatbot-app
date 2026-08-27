@@ -4,7 +4,6 @@ import TranslatedMessageBubble from '../../../../../../components/TranslatedMess
 import { useNavigation } from '@react-navigation/native';
 import {
   View,
-  Text,
   Image,
   ScrollView,
   TouchableOpacity,
@@ -14,12 +13,17 @@ import {
   Dimensions,
   Animated,
   Modal,
+  Alert,
   KeyboardAvoidingView,
   Platform,
-  TextInput,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
+<<<<<<< HEAD
+=======
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
+import axios from 'axios';
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Feather from 'react-native-vector-icons/Feather';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -27,14 +31,21 @@ import LinearGradient from 'react-native-linear-gradient';
 import axiosInstance from '../../../../../../axiosConfig';
 import CounselorHelpSupport from './CounselorHelpSupport';
 import GradientFill from '../../../../../../components/common/GradientFill';
+import { useToast } from '../../../../../../components/common/ToastProvider';
 import { DOCTOR } from '../../../../../../theme/palette';
 import CounselorPrivacyPolicy from './CounselorPrivacyPolicy';
 import CounselorWallet from '../Wallet/CounselorWallet';
-import LanguageSelector from '../../../../../../components/common/LanguageSelector';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import useKeyboardAwareScroll from '../../../../../../hooks/useKeyboardAwareScroll';
+import { clearAccountLocalData } from '../../../../../../utils/authSession';
+import {
+  STRONG_PASSWORD_HINT,
+  validateStrongPassword,
+} from '../../../../../../utils/passwordPolicy';
+import PasswordRequirementChecklist from '../../../../../../components/common/PasswordRequirementChecklist';
 
 const TERMS_URL = 'https://humaeli.com/terms-of-use/';
-const { width } = Dimensions.get('window');
+const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const isTablet = width >= 600;
 
 const useShimmer = () => {
@@ -77,10 +88,10 @@ const SettingsSkeleton = () => {
       {/* Search bar */}
       <Animated.View style={[skel.searchBar, { opacity }]} />
 
-      {/* Sections — mirror the live page: Account(3), Security(3), Privacy(2), Support(2) */}
-      <SkSection rows={3} />
-      <SkSection rows={3} />
+      {/* Sections — mirror the live page: Account(2), Security(3), Privacy(1), Support(2) */}
       <SkSection rows={2} />
+      <SkSection rows={3} />
+      <SkSection rows={1} />
       <SkSection rows={2} />
 
       {/* App version card */}
@@ -97,9 +108,6 @@ const SettingsSkeleton = () => {
     </View>
   );
 };
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
 const formatName = (full) => {
   if (!full) return '';
   const trimmed = String(full).trim();
@@ -124,8 +132,14 @@ const FEEDBACK_CATEGORIES = [
 
 const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }) => {
   const insets = useSafeAreaInsets();
+  const {
+    scrollRef: pwScrollRef,
+    keyboardInset: pwKeyboardInset,
+    scrollFocusedInputIntoView,
+  } = useKeyboardAwareScroll();
   const navigation = useNavigation();
   const { t } = useLanguageRender();
+  const { showToast } = useToast();
   const [counselor, setCounselor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [settingsSearch, setSettingsSearch] = useState('');
@@ -134,6 +148,21 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   const [showHelp, setShowHelp] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showWallet, setShowWallet] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
+  const showLanguageComingSoon = () => {
+    showToast({
+      title: 'Coming soon',
+      message: 'Work is in progress.',
+      type: 'info',
+      accent: DOCTOR.primary,
+      bg: '#EFF6FF',
+      border: '#BFDBFE',
+      icon: 'i',
+      translate: false,
+      duration: 3200,
+    });
+  };
 
   // Feedback modal state
   const [feedbackModal, setFeedbackModal] = useState(false);
@@ -168,6 +197,40 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     } finally {
       setFeedbackLoading(false);
     }
+  };
+
+  const deleteAccount = async () => {
+    if (deletingAccount) return;
+    setDeletingAccount(true);
+    try {
+      const token =
+        (await AsyncStorage.getItem('accessToken')) ||
+        (await AsyncStorage.getItem('token'));
+      await axios.delete(`${API_BASE_URL}/api/auth/delete`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      await clearAccountLocalData();
+      navigation.replace('RoleSelector');
+    } catch (err) {
+      Alert.alert(
+        'Delete failed',
+        err.response?.data?.message || err.message || 'Could not delete your account. Please try again.',
+      );
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const confirmDeleteAccount = () => {
+    if (deletingAccount) return;
+    Alert.alert(
+      'Delete account',
+      'Your chats, calls, appointments, ratings, notifications, and local app data will be deleted. Payment history will be kept.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: deleteAccount },
+      ],
+    );
   };
 
   // Password modal state
@@ -233,10 +296,9 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     } finally { setPwLoading(false); }
   };
 
-  // Checks the code against the server before the password fields appear, so a
-  // wrong OTP is caught here instead of after a password has been typed. The
-  // token verifyOtp returns is deliberately IGNORED - this counselor is already
-  // signed in and the stored session must not change.
+  // Checks the code before the password fields appear. New backends validate
+  // with a non-consuming endpoint; older deployed backends may not have that
+  // route yet, so final password save remains the source of truth for OTP.
   const handleVerifyOtp = async () => {
     setPwNotice({ type: '', msg: '' });
     if (!pwForm.otp || pwForm.otp.length !== 6) {
@@ -250,13 +312,24 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     }
     setOtpVerifying(true);
     try {
+<<<<<<< HEAD
       const res = await axiosInstance.post('/api/auth/verifyOtp', { email, otp: pwForm.otp });
+=======
+      const res = await axios.post(`${API_BASE_URL}/api/auth/verify-password-otp`, {
+        email: counselor?.email?.trim().toLowerCase(),
+        otp: pwForm.otp,
+      });
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       if (res.data?.success) {
         setOtpVerified(true);
       } else {
         setPwNotice({ type: 'error', msg: res.data?.message || 'That OTP is not correct.' });
       }
     } catch (err) {
+      if (err.response?.status === 404) {
+        setOtpVerified(true);
+        return;
+      }
       setPwNotice({
         type: 'error',
         msg: err.response?.data?.message || 'That OTP is not correct.',
@@ -266,8 +339,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     }
   };
 
-  // A bad code only surfaces on save, so step back to the OTP rather than leave
-  // the counselor on a password form that will keep failing.
+  // If the code expires between verify and save, step back to the OTP step.
   const pwFailed = (message, fallback) => {
     const msg = message || fallback;
     if (/otp|code|expired|invalid/i.test(msg)) {
@@ -281,7 +353,8 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     setPwNotice({ type: '', msg: '' });
     if (!otpSent) { setPwNotice({ type: 'error', msg: 'Please request an OTP first.' }); return; }
     if (!pwForm.otp || pwForm.otp.length !== 6) { setPwNotice({ type: 'error', msg: 'Enter the 6-digit OTP.' }); return; }
-    if (pwForm.password.length < 6) { setPwNotice({ type: 'error', msg: 'Password must be at least 6 characters.' }); return; }
+    const passwordCheck = validateStrongPassword(pwForm.password);
+    if (!passwordCheck.isValid) { setPwNotice({ type: 'error', msg: passwordCheck.message }); return; }
     if (pwForm.password !== pwForm.confirmPassword) { setPwNotice({ type: 'error', msg: 'Passwords do not match.' }); return; }
     const email = await getCounselorEmail();
     if (!email) { setPwNotice({ type: 'error', msg: 'Email not found.' }); return; }
@@ -309,7 +382,8 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   const handleChangePassword = async () => {
     setPwNotice({ type: '', msg: '' });
     if (!pwForm.oldPassword) { setPwNotice({ type: 'error', msg: 'Enter your current password.' }); return; }
-    if (pwForm.newPassword.length < 6) { setPwNotice({ type: 'error', msg: 'New password must be at least 6 characters.' }); return; }
+    const passwordCheck = validateStrongPassword(pwForm.newPassword);
+    if (!passwordCheck.isValid) { setPwNotice({ type: 'error', msg: passwordCheck.message }); return; }
     if (pwForm.newPassword !== pwForm.confirmNewPassword) { setPwNotice({ type: 'error', msg: 'Passwords do not match.' }); return; }
     if (pwForm.oldPassword === pwForm.newPassword) { setPwNotice({ type: 'error', msg: 'New password must differ from current.' }); return; }
     setPwLoading(true);
@@ -334,6 +408,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   const fetchCounselor = async () => {
     try {
       setLoading(true);
+<<<<<<< HEAD
       const [counsellorId, alternateCounselorId, storedEmail, rawUserData] = await Promise.all([
         AsyncStorage.getItem('counsellorId'),
         AsyncStorage.getItem('counselorId'),
@@ -352,6 +427,21 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         setCounselor(res.data.counsellor);
       } else if (fallbackEmail) {
         setCounselor({ email: fallbackEmail });
+=======
+      const counsellorId = await AsyncStorage.getItem('counsellorId');
+      const token = await AsyncStorage.getItem('accessToken') || await AsyncStorage.getItem('token');
+      if (!counsellorId) {
+        setLoading(false);
+        return;
+      }
+      const res = await axios.get(
+        `${API_BASE_URL}/api/auth/me`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const counselorData = res.data?.user || res.data?.counsellor;
+      if (res.data?.success && counselorData) {
+        setCounselor(counselorData);
+>>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       }
     } catch (err) {
       console.error('Settings: failed to load counselor', err);
@@ -364,7 +454,6 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
 
   const handleNav = (id) => {
     if (id === 'profile') return onNavigate?.('profile');
-    if (id === 'payout') return setShowWallet(true);
     if (id === 'change_password') return openPwModal('change');
     if (id === 'add_password') return openPwModal('set');
     // App Lock manage screen: view status, set/change/remove the PIN, and the
@@ -375,15 +464,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     if (id === 'help') return setShowHelp(true);
     if (id === 'privacy') return setShowPrivacy(true);
     if (id === 'terms') return Linking.openURL(TERMS_URL);
-    if (id === 'delete_account')
-      return Alert.alert(
-        'Delete Account',
-        'This will permanently delete your account and all data. This action cannot be undone.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: () => {} },
-        ]
-      );
+    if (id === 'delete_account') return confirmDeleteAccount();
     if (id === 'feedback') {
       setFeedbackNotice({ type: '', msg: '' });
       return setFeedbackModal(true);
@@ -406,10 +487,6 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     counselor?.phoneNumber ||
     counselor?.phone ||
     'Personal & professional details';
-  const payoutSubtitle = counselor?.payoutAccount?.maskedNumber
-    ? `${counselor.payoutAccount.bankName || 'Bank'} •••• ${counselor.payoutAccount.maskedNumber}`
-    : 'Add a bank account for payouts';
-  const payoutBadge = counselor?.payoutAccount?.verified ? 'Verified' : null;
   const SECTIONS = [
     {
       title: t('settings:account'),
@@ -420,14 +497,6 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           iconBg: '#EFF6FF',
           iconColor: '#2563EB',
           label: t('counselor:profile'),
-          type: 'nav',
-        },
-        {
-          id: 'payout',
-          icon: 'credit-card',
-          iconBg: '#EFF6FF',
-          iconColor: '#2563EB',
-          label: t('settings:payoutAccount'),
           type: 'nav',
         },
         {
@@ -486,10 +555,12 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           id: 'delete_account',
           icon: 'trash-2',
           iconBg: '#FEF2F2',
-          iconColor: '#EF4444',
+          iconColor: '#DC2626',
           label: t('settings:deleteAccount', 'Delete Account'),
-          danger: true,
+          subtitle: t('Payment history will be kept'),
           type: 'nav',
+          danger: true,
+          disabled: deletingAccount,
         },
       ],
     },
@@ -524,6 +595,11 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         items: s.items.filter((it) => String(it.label).toLowerCase().includes(sq)),
       })).filter((s) => s.items.length > 0)
     : SECTIONS;
+  const passwordSheetMaxHeight = pwKeyboardInset
+    ? Math.max(260, SCREEN_HEIGHT - pwKeyboardInset - insets.top - 16)
+    : isTablet ? '80%' : '90%';
+  const passwordSheetBottomGap = Platform.OS === 'android' ? pwKeyboardInset : 0;
+  const passwordBodyBottomPadding = Math.max(insets.bottom + 20, pwKeyboardInset ? 44 : 20);
 
   return (
     <>
@@ -576,16 +652,15 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
             {section.items.map((item, idx) => {
               const isLast = idx === section.items.length - 1;
 
-              // Language: the whole row is a LanguageSelector trigger (opens the
-              // shared language sheet). Matches the Figma's Account → Language row.
+              // Language is temporarily unavailable, so keep the row in place
+              // and show a short status message instead of opening the selector.
               if (item.type === 'language') {
                 return (
-                  <LanguageSelector
+                  <TouchableOpacity
                     key={item.id}
-                    brand={DOCTOR.primary}
-                    userId={counselor?._id}
-                    role="counselor"
-                    triggerStyle={[styles.row, !isLast && styles.rowDivider]}
+                    style={[styles.row, !isLast && styles.rowDivider]}
+                    onPress={showLanguageComingSoon}
+                    activeOpacity={0.65}
                   >
                     <View style={[styles.iconBox, { backgroundColor: item.iconBg }]}>
                       <Feather name={item.icon} size={18} color={item.iconColor} />
@@ -596,7 +671,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                     <View style={styles.rowTrail}>
                       <Feather name="chevron-right" size={18} color="#cbd5e1" />
                     </View>
-                  </LanguageSelector>
+                  </TouchableOpacity>
                 );
               }
 
@@ -604,7 +679,11 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
               const rowProps =
                 item.type === 'switch'
                   ? {}
-                  : { onPress: () => handleNav(item.id), activeOpacity: 0.65 };
+                  : {
+                      onPress: item.disabled ? undefined : () => handleNav(item.id),
+                      activeOpacity: item.disabled ? 1 : 0.65,
+                      disabled: item.disabled,
+                    };
               return (
                 <RowWrap
                   key={item.id}
@@ -664,6 +743,8 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                       )}
                       {item.externalLink ? (
                         <Feather name="external-link" size={16} color="#94a3b8" />
+                      ) : item.disabled ? (
+                        <ActivityIndicator size="small" color="#DC2626" />
                       ) : !item.danger ? (
                         <Feather name="chevron-right" size={18} color="#cbd5e1" />
                       ) : null}
@@ -685,7 +766,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         </View>
         <View style={styles.rowBody}>
           <Text style={styles.rowLabel}>{t('settings:appVersion', 'App Version')}</Text>
-          <Text style={styles.rowSub}>Humaeli v1.2.4 (Build 240)</Text>
+          <Text style={styles.rowSub}>Humaeli v1.2.4</Text>
         </View>
       </View>
 
@@ -804,7 +885,16 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     {/* Password Modal */}
     <Modal statusBarTranslucent navigationBarTranslucent visible={pwModal} animationType="slide" transparent onRequestClose={() => setPwModal(false)}>
       <KeyboardAvoidingView style={pwStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={[pwStyles.sheet, { maxHeight: isTablet ? '80%' : '90%' }]}>
+        <View
+          style={[
+            pwStyles.sheet,
+            {
+              maxHeight: passwordSheetMaxHeight,
+              marginBottom: passwordSheetBottomGap,
+              paddingBottom: pwKeyboardInset ? 0 : Math.max(insets.bottom, 12),
+            },
+          ]}
+        >
           {/* Sheet header */}
           <View style={pwStyles.sheetHeader}>
             <View>
@@ -821,9 +911,15 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           </View>
 
           <ScrollView
+            ref={pwScrollRef}
             bounces={false}
-            contentContainerStyle={[pwStyles.body, isTablet && { padding: 36, gap: 18 }]}
+            contentContainerStyle={[
+              pwStyles.body,
+              { paddingBottom: passwordBodyBottomPadding },
+              isTablet && { padding: 36, gap: 18, paddingBottom: passwordBodyBottomPadding },
+            ]}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
             showsVerticalScrollIndicator={false}
           >
             {/* Notice */}
@@ -861,6 +957,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                         style={pwStyles.input}
                         value={pwForm.otp}
                         onChangeText={(v) => setPw('otp', v)}
+                        onFocus={scrollFocusedInputIntoView}
                         keyboardType="number-pad"
                         maxLength={6}
                         placeholder="6-digit OTP"
@@ -889,7 +986,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <View style={pwStyles.otpDoneRow}>
                     <Feather name="check-circle" size={15} color="#004AC6" />
                     <Text style={pwStyles.otpDoneText}>
-                      {t('auth:enterOtp')} · {pwForm.otp}
+                      {t('auth:otpVerified', 'OTP verified')}
                     </Text>
                     <TouchableOpacity onPress={() => setOtpVerified(false)}>
                       <Text style={pwStyles.otpDoneChange}>{t('common:edit', 'Change')}</Text>
@@ -904,15 +1001,17 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:newPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.password} onChangeText={(v) => setPw('password', v)} secureTextEntry={!showNew} placeholder="Minimum 6 characters" placeholderTextColor="#94a3b8" autoCapitalize="none" />
-                    <TouchableOpacity onPress={() => setShowNew((x) => !x)}><Feather name={showNew ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
-                  </View>
-                </View>
+	                    <TextInput style={pwStyles.input} value={pwForm.password} onChangeText={(v) => setPw('password', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showNew} placeholder="Strong password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+	                    <TouchableOpacity onPress={() => setShowNew((x) => !x)}><Feather name={showNew ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
+	                  </View>
+	                  <Text style={pwStyles.passwordHint}>{t(STRONG_PASSWORD_HINT)}</Text>
+	                  <PasswordRequirementChecklist password={pwForm.password} style={pwStyles.passwordChecklist} />
+	                </View>
                 <View style={pwStyles.field}>
                   <Text style={pwStyles.label}>{t('auth:confirmPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.confirmPassword} onChangeText={(v) => setPw('confirmPassword', v)} secureTextEntry={!showConfirm} placeholder="Re-enter password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TextInput style={pwStyles.input} value={pwForm.confirmPassword} onChangeText={(v) => setPw('confirmPassword', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showConfirm} placeholder="Re-enter password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
                     <TouchableOpacity onPress={() => setShowConfirm((x) => !x)}><Feather name={showConfirm ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
                   </View>
                 </View>
@@ -931,7 +1030,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:oldPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.oldPassword} onChangeText={(v) => setPw('oldPassword', v)} secureTextEntry={!showOld} placeholder="Enter current password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TextInput style={pwStyles.input} value={pwForm.oldPassword} onChangeText={(v) => setPw('oldPassword', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showOld} placeholder="Enter current password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
                     <TouchableOpacity onPress={() => setShowOld((x) => !x)}><Feather name={showOld ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
                   </View>
                 </View>
@@ -940,16 +1039,18 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:newPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.newPassword} onChangeText={(v) => setPw('newPassword', v)} secureTextEntry={!showNew} placeholder="Minimum 6 characters" placeholderTextColor="#94a3b8" autoCapitalize="none" />
-                    <TouchableOpacity onPress={() => setShowNew((x) => !x)}><Feather name={showNew ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
-                  </View>
-                </View>
+	                    <TextInput style={pwStyles.input} value={pwForm.newPassword} onChangeText={(v) => setPw('newPassword', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showNew} placeholder="Strong password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+	                    <TouchableOpacity onPress={() => setShowNew((x) => !x)}><Feather name={showNew ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
+	                  </View>
+	                  <Text style={pwStyles.passwordHint}>{t(STRONG_PASSWORD_HINT)}</Text>
+	                  <PasswordRequirementChecklist password={pwForm.newPassword} style={pwStyles.passwordChecklist} />
+	                </View>
 
                 <View style={pwStyles.field}>
                   <Text style={pwStyles.label}>{t('auth:confirmPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.confirmNewPassword} onChangeText={(v) => setPw('confirmNewPassword', v)} secureTextEntry={!showConfirm} placeholder="Re-enter new password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TextInput style={pwStyles.input} value={pwForm.confirmNewPassword} onChangeText={(v) => setPw('confirmNewPassword', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showConfirm} placeholder="Re-enter new password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
                     <TouchableOpacity onPress={() => setShowConfirm((x) => !x)}><Feather name={showConfirm ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
                   </View>
                 </View>
@@ -1480,6 +1581,8 @@ const pwStyles = StyleSheet.create({
   },
   input: { flex: 1, color: '#111827', fontSize: 14, paddingVertical: 10 },
   emailText: { flex: 1, color: '#64748b', fontSize: 14 },
+  passwordHint: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 4 },
+  passwordChecklist: { marginTop: 6 },
   otpBtn: {
     overflow: 'hidden',
     paddingHorizontal: 12,

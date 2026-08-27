@@ -1,8 +1,16 @@
 import React, { useState, useMemo } from "react";
 import {
-  View, Text, Modal, TouchableOpacity, Image,
-  ScrollView, StyleSheet, Dimensions, ActivityIndicator, Alert,
+  View,
+  Modal,
+  TouchableOpacity,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Dimensions,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
+import Text from '../../../../components/TranslatedText';
 import LinearGradient from "react-native-linear-gradient";
 import { PATIENT_GRADIENT, GRADIENT_DIRECTION } from "../../../../theme/palette";
 import * as ImagePicker from "react-native-image-picker";

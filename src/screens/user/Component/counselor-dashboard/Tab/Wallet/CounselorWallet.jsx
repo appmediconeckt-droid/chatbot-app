@@ -1,10 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
-  TextInput,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -14,6 +12,8 @@ import {
   Animated,
   Modal,
 } from 'react-native';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from 'react-native-vector-icons/Feather';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -482,7 +482,7 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
     [
       data?.period?.filtered ? t('Earned in selected period') : t('Total earned'),
       data?.totalEarned,
-      `${counselorPercentage}% counselor share`,
+      `${counselorPercentage}% consultant share`,
     ],
     ['Available for payout', data?.pendingPayout, 'Earned, but not withdrawn yet'],
     [
@@ -507,7 +507,7 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
           >
             <Feather name="chevron-left" size={24} color="#0f172a" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>{t('Earnings &amp; Payouts')}</Text>
+          <Text style={styles.headerTitle}>{t('Earnings')}</Text>
           {/* Balances the back button so the title stays optically centred. */}
           <View style={styles.backBtn} />
         </View>
@@ -825,7 +825,7 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
 
         {/* Revenue split */}
         <View style={[styles.splitCard, { backgroundColor: '#EFF4FE', borderColor: '#C7DAFB' }]}>
-          <Text style={[styles.splitLabel, { color: '#003A9B' }]}>{t('Counselor share')}</Text>
+          <Text style={[styles.splitLabel, { color: '#003A9B' }]}>{t('Consultant share')}</Text>
           <View style={styles.splitRow}>
             <Text style={[styles.splitValue, { color: '#002357' }]}>{counselorPercentage}%</Text>
             <Text style={[styles.splitHint, { color: '#003A9B' }]}>

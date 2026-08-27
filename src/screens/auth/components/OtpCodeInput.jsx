@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import TextInput from '../../../components/TranslatedTextInput';
+import Text from '../../../components/TranslatedText';
 
 const OtpCodeInput = ({
   value = "",
