@@ -14,6 +14,17 @@ const notifyTranslationListeners = () => {
 const isEnglish = (lng) =>
   !lng || lng === 'en-US' || lng === 'en' || lng === 'en-GB' || lng === 'en-IN';
 
+// Literal UI copy is used by a number of older screens (for example
+// t('Help and Support')) instead of a namespaced key. Give those phrases a
+// stable local-dictionary id so they do not depend on a network translation.
+const phraseKey = (value) => {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash * 33) ^ value.charCodeAt(index)) >>> 0;
+  }
+  return `p${hash.toString(36)}`;
+};
+
 const applyConsultantLabel = (text) => {
   if (typeof text !== 'string' || !text) return text;
 
@@ -55,17 +66,35 @@ export function useSmartT() {
     (key, opts) => {
       // Support t('key', 'Default text') as well as t('key', { ...options }).
       const options = typeof opts === 'string' ? { defaultValue: opts } : (opts || {});
-      const val = rawT(key, options);
+      const isLiteralPhrase =
+        typeof key === 'string' && !key.includes(':') && /[A-Za-z]/.test(key);
+      const localPhraseKey = isLiteralPhrase ? `phrases:${phraseKey(key)}` : null;
+      const val = localPhraseKey
+        ? rawT(localPhraseKey, { ...options, defaultValue: key, keySeparator: false })
+        : rawT(key, options);
       if (typeof val !== 'string' || !val) return val;
       const looksLikeKeyId =
         typeof key === 'string' && !key.includes(' ') && /[:.]/.test(key);
-      const rawEn = rawT(key, { ...options, lng: 'en-US' });
+      const rawEn = localPhraseKey
+        ? rawT(localPhraseKey, { ...options, lng: 'en-US', defaultValue: key, keySeparator: false })
+        : rawT(key, { ...options, lng: 'en-US' });
       if (rawEn === key && looksLikeKeyId) return val;
       if (isEnglish(lang)) return applyConsultantLabel(val);
 
       // The English source for this key — used to detect "not translated yet".
       const en = applyConsultantLabel(rawEn);
       if (val !== rawEn && val !== en) return applyConsultantLabel(val); // already translated statically
+      // A namespaced key may only provide an English defaultValue while its
+      // locale entry is absent. Reuse the generated local phrase dictionary
+      // before considering the Azure live fallback.
+      if (typeof en === 'string' && /[A-Za-z]/.test(en)) {
+        const phraseValue = rawT(`phrases:${phraseKey(en)}`, {
+          lng: lang,
+          defaultValue: en,
+          keySeparator: false,
+        });
+        if (phraseValue !== en) return applyConsultantLabel(phraseValue);
+      }
       // If the value equals the key AND the key looks like an i18n id
       // (e.g. "counselor:today", no spaces) it's a genuinely missing key — don't
       // send the key id to the translator. A literal phrase like "Video Call" is
