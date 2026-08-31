@@ -29,6 +29,8 @@ import { useNavigation } from '@react-navigation/native';
 import safeVibrate from '../../../../../../utils/safeVibrate';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import CountryPhoneInput from '../../../../../../components/common/CountryPhoneInput';
+import { useToast } from '../../../../../../components/common/ToastProvider';
+import { DOCTOR } from '../../../../../../theme/palette';
 import {
   getPhoneLengthLabel,
   isValidLocalPhoneNumber,
@@ -54,6 +56,10 @@ const VERIFICATION_DOCUMENT_OPTIONS = [
   'Clinic / Hospital Affiliation Proof'
 ];
 const ALLOWED_DOCUMENT_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/jpg', 'image/png'];
+const DATE_PICKER_FIELDS = {
+  issueDate: 'issueDate',
+  expiryDate: 'expiryDate',
+};
 
 const createBlankEmailChange = () => ({
   sending: false,
@@ -79,6 +85,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   const navigation = useNavigation();
   const { t: tLanguage } = useTranslation();
   const { t } = useLanguageRender();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -153,6 +160,8 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   const [documents, setDocuments] = useState([]);
   const [selectedDocumentType, setSelectedDocumentType] = useState(null);
   const [emailChange, setEmailChange] = useState(createBlankEmailChange);
+  const [showRemainingAfterSave, setShowRemainingAfterSave] = useState(false);
+  const [certDatePickerField, setCertDatePickerField] = useState(null);
 
   useEffect(() => {
     fetchCounselorProfile();
@@ -221,31 +230,41 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     }
   };
 
-  const calcProfileCompletion = (data) => {
+  const getProfileChecklist = (data, verificationDocuments = documents) => {
     const hasText = (value) => String(value || '').trim().length > 0;
     const hasArrayItems = (value) => Array.isArray(value) && value.length > 0;
     const address = data?.address || {};
-    const fields = [
-      hasText(data?.fullName),
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(data?.email || '').trim()),
-      isValidLocalPhoneNumber(data?.phoneNumber, data?.phoneCountryCode),
-      hasText(data?.profilePhotoUrl) || !!data?.profilePhoto,
-      hasText(data?.dateOfBirth) && calculateAgeFromDateOfBirth(data?.dateOfBirth) !== null,
-      hasText(data?.gender),
-      hasArrayItems(data?.specialization),
-      Number(data?.experience) > 0,
-      hasText(data?.qualification) || hasText(data?.education),
-      hasText(data?.aboutMe),
-      hasArrayItems(data?.languages),
-      hasArrayItems(data?.consultationMode),
-      hasText(address.line1),
-      hasText(address.city),
-      hasText(address.state),
-      hasText(address.pincode),
-      hasText(address.country),
-      hasArrayItems(data?.certifications),
+    return [
+      { label: 'Profile photo', done: hasText(data?.profilePhotoUrl) || !!data?.profilePhoto },
+      { label: 'Full name', done: hasText(data?.fullName) },
+      { label: 'Email address', done: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(data?.email || '').trim()) },
+      { label: 'Phone number', done: isValidLocalPhoneNumber(data?.phoneNumber, data?.phoneCountryCode) },
+      { label: 'Date of birth', done: hasText(data?.dateOfBirth) && calculateAgeFromDateOfBirth(data?.dateOfBirth) !== null },
+      { label: 'Gender', done: hasText(data?.gender) },
+      { label: 'Specialization', done: hasArrayItems(data?.specialization) },
+      { label: 'Experience', done: Number(data?.experience) > 0 },
+      { label: 'Education / qualification', done: hasText(data?.qualification) || hasText(data?.education) },
+      { label: 'About me', done: hasText(data?.aboutMe) },
+      { label: 'Languages', done: hasArrayItems(data?.languages) },
+      { label: 'Consultation mode', done: hasArrayItems(data?.consultationMode) },
+      { label: 'Address line', done: hasText(address.line1) },
+      { label: 'City', done: hasText(address.city) },
+      { label: 'State', done: hasText(address.state) },
+      { label: 'Pincode', done: hasText(address.pincode) },
+      { label: 'Country', done: hasText(address.country) },
+      { label: 'Licenses & certificates', done: hasArrayItems(data?.certifications) },
+      { label: 'Verification document upload', done: hasArrayItems(verificationDocuments) || hasArrayItems(data?.certifications) },
     ];
-    const filled = fields.filter(Boolean).length;
+  };
+
+  const getMissingProfileItems = (data, verificationDocuments = documents) =>
+    getProfileChecklist(data, verificationDocuments)
+      .filter(item => !item.done)
+      .map(item => item.label);
+
+  const calcProfileCompletion = (data) => {
+    const fields = getProfileChecklist(data).filter(item => item.label !== 'Verification document upload');
+    const filled = fields.filter(item => item.done).length;
     return Math.round((filled / fields.length) * 100);
   };
 
@@ -567,6 +586,18 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     handleInputChange('dateOfBirth', selectedDate);
   };
 
+  const handleCertificationDateChange = (_event, selectedDate) => {
+    if (Platform.OS === 'android') {
+      setCertDatePickerField(null);
+    }
+    if (!selectedDate || !certDatePickerField) return;
+    const field = certDatePickerField;
+    setNewCertification(prev => ({
+      ...prev,
+      [field]: toDateOnlyString(selectedDate),
+    }));
+  };
+
   const handleTabPress = (tabKey) => {
     if (activeTab === tabKey) return;
     safeVibrate(80);
@@ -693,14 +724,8 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   };
 
   const handleAddCertification = () => {
-    // Validation: Check if verification documents are uploaded first
-    if (documents.length === 0) {
-      Alert.alert('Required', 'Please upload at least 1 verification document before adding certifications');
-      return;
-    }
-
     if (!newCertification.name.trim()) {
-      Alert.alert('Error', 'Please enter certification name');
+      Alert.alert('Error', 'Please select certificate type');
       return;
     }
 
@@ -712,6 +737,15 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     if (!newCertification.document?.uri) {
       Alert.alert('Error', 'Please upload a document before adding this certificate.');
       return;
+    }
+
+    if (newCertification.issueDate && newCertification.expiryDate) {
+      const issueTime = new Date(newCertification.issueDate).getTime();
+      const expiryTime = new Date(newCertification.expiryDate).getTime();
+      if (!Number.isNaN(issueTime) && !Number.isNaN(expiryTime) && expiryTime < issueTime) {
+        Alert.alert('Invalid Date', 'Expiry date cannot be before issue date.');
+        return;
+      }
     }
 
     const newCert = {
@@ -726,6 +760,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     };
     setEditedData(prev => ({ ...prev, certifications: [...prev.certifications, newCert] }));
     setNewCertification({ name: '', issueDate: '', expiryDate: '', issuedBy: '', document: null, documentName: '' });
+    setCertDatePickerField(null);
   };
 
   const handleRemoveCertification = (certId) => {
@@ -745,43 +780,42 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     }
 
     try {
-      launchImageLibrary(
-        {
-          mediaType: 'mixed',
-          includeBase64: false,
-          selectionLimit: 1,
-        },
-        (response) => {
-          if (response.didCancel) return;
-          if (response.errorCode) {
-            Alert.alert('Error', response.errorMessage || 'Failed to pick file');
-            return;
-          }
+      const [selectedDocument] = await pick({ type: ALLOWED_DOCUMENT_TYPES });
+      if (!selectedDocument?.uri) {
+        Alert.alert('Error', 'Unable to read selected document.');
+        return;
+      }
 
-          const asset = response.assets?.[0];
-          if (!asset) return;
+      const fileType = selectedDocument.type || '';
+      if (fileType && !ALLOWED_DOCUMENT_TYPES.includes(fileType)) {
+        Alert.alert('Invalid File', 'Only PDF, DOC, DOCX, JPG, and PNG files are allowed.');
+        return;
+      }
 
-          const fileType = asset.type || '';
-          if (!ALLOWED_DOCUMENT_TYPES.includes(fileType)) {
-            Alert.alert('Invalid File', 'Only PDF, DOC, DOCX, JPG, and PNG files are allowed.');
-            return;
-          }
+      const newDoc = {
+        _id: `doc_${Date.now()}`,
+        documentType: selectedDocumentType,
+        documentName: selectedDocument.name || 'document',
+        uri: selectedDocument.uri,
+        type: selectedDocument.type || 'application/octet-stream',
+        size: selectedDocument.size
+      };
 
-          const newDoc = {
-            _id: `doc_${Date.now()}`,
-            documentType: selectedDocumentType,
-            documentName: asset.fileName || 'document',
-            uri: asset.uri,
-            type: asset.type,
-            size: asset.fileSize
-          };
-
-          setDocuments(prev => [...prev, newDoc]);
-          setSelectedDocumentType(null);
-          Alert.alert('Success', 'Document uploaded successfully');
-        }
-      );
+      setDocuments(prev => [...prev, newDoc]);
+      setSelectedDocumentType(null);
+      showToast({
+        title: 'Uploaded',
+        message: 'Verification document added. Save profile to submit it.',
+        type: 'success',
+        accent: DOCTOR.primary,
+        bg: '#EFF6FF',
+        border: '#BFDBFE',
+        icon: 'OK',
+        translate: false,
+        duration: 2800,
+      });
     } catch (err) {
+      if (err?.code === 'OPERATION_CANCELED') return;
       Alert.alert('Error', 'Failed to upload document');
     }
   };
@@ -904,6 +938,18 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         formData.append('certifications', JSON.stringify(certificationPayload));
       }
 
+      documents.forEach((doc, index) => {
+        formData.append(`verificationDocuments[${index}][documentType]`, doc.documentType || '');
+        formData.append(`verificationDocuments[${index}][documentName]`, doc.documentName || '');
+        if (doc?.uri) {
+          formData.append(`verificationDocuments[${index}][document]`, {
+            uri: doc.uri,
+            type: doc.type || 'application/octet-stream',
+            name: doc.documentName || `verification-document-${index + 1}`
+          });
+        }
+      });
+
       (editedData.certifications || []).forEach((cert, index) => {
         if (cert?.document?.uri) {
           formData.append(`certifications[${index}][document]`, {
@@ -916,11 +962,24 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
 
       const response = await updateCounselorProfile(formData);
       if (response.data.success) {
-        const successMsg = response.data?.message || 'Profile updated successfully!';
-        Alert.alert('Success', successMsg);
+        showToast({
+          title: 'Success',
+          message: 'Consultant profile updated successfully!',
+          type: 'success',
+          accent: '#FFFFFF',
+          border: DOCTOR.gradientTo,
+          gradientColors: [DOCTOR.gradientFrom, DOCTOR.gradientTo],
+          iconBg: 'rgba(255,255,255,0.18)',
+          titleColor: '#FFFFFF',
+          messageColor: '#EAF4FF',
+          icon: 'OK',
+          translate: false,
+          duration: 3200,
+        });
         setEmailChange(createBlankEmailChange());
         await fetchCounselorProfile();
         await onProfileSaved?.();
+        setShowRemainingAfterSave(true);
         setIsEditing(false);
       } else {
         showErrorPopup(response.data.message || 'Failed to update profile');
@@ -958,8 +1017,10 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     setNewSpecialization('');
     setNewConsultationMode('');
     setShowDateOfBirthPicker(false);
+    setCertDatePickerField(null);
     setNewCertification({ name: '', issueDate: '', expiryDate: '', issuedBy: '', document: null, documentName: '' });
     setEmailChange(createBlankEmailChange());
+    setShowRemainingAfterSave(false);
     setIsEditing(false);
     setError('');
     setSuccessMessage('');
@@ -1586,9 +1647,49 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
                 </View>
                 <TextInput style={styles.input} value={newCertification.issuedBy} onChangeText={(v) => setNewCertification(prev => ({ ...prev, issuedBy: v }))} placeholder="Issued by" placeholderTextColor="#9CA3AF" />
                 <View style={styles.dateRow}>
-                  <TextInput style={[styles.input, styles.flexInput]} value={newCertification.issueDate} onChangeText={(v) => setNewCertification(prev => ({ ...prev, issueDate: v }))} placeholder="Issue date" placeholderTextColor="#9CA3AF" />
-                  <TextInput style={[styles.input, styles.flexInput]} value={newCertification.expiryDate} onChangeText={(v) => setNewCertification(prev => ({ ...prev, expiryDate: v }))} placeholder="Expiry date" placeholderTextColor="#9CA3AF" />
+                  <TouchableOpacity
+                    style={[styles.datePickerButton, styles.datePickerFlex]}
+                    onPress={() => setCertDatePickerField(DATE_PICKER_FIELDS.issueDate)}
+                    activeOpacity={0.85}
+                  >
+                    <Icon name="calendar-today" size={17} color="#2563EB" />
+                    <Text
+                      style={[
+                        styles.datePickerText,
+                        !newCertification.issueDate && styles.datePickerPlaceholder,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {newCertification.issueDate ? formatDate(newCertification.issueDate) : 'Issue date'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.datePickerButton, styles.datePickerFlex]}
+                    onPress={() => setCertDatePickerField(DATE_PICKER_FIELDS.expiryDate)}
+                    activeOpacity={0.85}
+                  >
+                    <Icon name="event-available" size={17} color="#2563EB" />
+                    <Text
+                      style={[
+                        styles.datePickerText,
+                        !newCertification.expiryDate && styles.datePickerPlaceholder,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {newCertification.expiryDate ? formatDate(newCertification.expiryDate) : 'Expiry date'}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
+                {certDatePickerField && (
+                  <DateTimePicker
+                    value={getDatePickerValue(newCertification[certDatePickerField])}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    maximumDate={certDatePickerField === DATE_PICKER_FIELDS.issueDate ? new Date() : undefined}
+                    minimumDate={certDatePickerField === DATE_PICKER_FIELDS.expiryDate && newCertification.issueDate ? getDatePickerValue(newCertification.issueDate) : undefined}
+                    onChange={handleCertificationDateChange}
+                  />
+                )}
                 <TouchableOpacity onPress={handleUploadCertificationDocument} style={styles.uploadDocBtn}>
                   <Text style={styles.uploadDocBtnText}>{newCertification.documentName ? `Document: ${newCertification.documentName}` : 'Upload Document *'}</Text>
                 </TouchableOpacity>
@@ -1649,6 +1750,46 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
               )}
             </View>
           )}
+
+          {showRemainingAfterSave && (() => {
+            const missingItems = getMissingProfileItems(counselor, documents);
+            return (
+              <View style={styles.remainingCard}>
+                <View style={styles.remainingHeader}>
+                  <Icon
+                    name={missingItems.length ? 'playlist-add-check' : 'verified'}
+                    size={20}
+                    color="#2563EB"
+                  />
+                  <View style={styles.remainingHeaderText}>
+                    <Text style={styles.remainingTitle}>
+                      {missingItems.length ? 'Remaining profile updates' : 'Profile is complete'}
+                    </Text>
+                    <Text style={styles.remainingSubtitle}>
+                      {missingItems.length
+                        ? `${missingItems.length} item${missingItems.length > 1 ? 's' : ''} left to complete`
+                        : 'All important consultant profile details are filled.'}
+                    </Text>
+                  </View>
+                </View>
+                {missingItems.length > 0 && (
+                  <View style={styles.remainingList}>
+                    {missingItems.slice(0, 6).map((item) => (
+                      <View key={item} style={styles.remainingItem}>
+                        <Icon name="radio-button-unchecked" size={15} color="#2563EB" />
+                        <Text style={styles.remainingItemText}>{item}</Text>
+                      </View>
+                    ))}
+                    {missingItems.length > 6 && (
+                      <Text style={styles.remainingMoreText}>
+                        +{missingItems.length - 6} more
+                      </Text>
+                    )}
+                  </View>
+                )}
+              </View>
+            );
+          })()}
 
         </View>
 
@@ -2299,6 +2440,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  datePickerFlex: {
+    flex: 1,
+  },
   datePickerText: {
     flex: 1,
     fontSize: 14,
@@ -2673,6 +2817,53 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: 8,
     textAlign: 'center',
+  },
+  remainingCard: {
+    marginTop: 14,
+    padding: 16,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 14,
+  },
+  remainingHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  remainingHeaderText: {
+    flex: 1,
+  },
+  remainingTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1E3A8A',
+  },
+  remainingSubtitle: {
+    marginTop: 3,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  remainingList: {
+    marginTop: 12,
+    gap: 8,
+  },
+  remainingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  remainingItemText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  remainingMoreText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2563EB',
   },
 
   // Card section icon box

@@ -40,6 +40,7 @@ import {
   validateStrongPassword,
 } from '../../../../../../utils/passwordPolicy';
 import PasswordRequirementChecklist from '../../../../../../components/common/PasswordRequirementChecklist';
+import PsychiatristDirectory from '../../../../../../components/common/PsychiatristDirectory';
 
 const TERMS_URL = 'https://humaeli.com/terms-of-use/';
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -145,6 +146,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   const [showHelp, setShowHelp] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showWallet, setShowWallet] = useState(false);
+  const [showPsychiatrists, setShowPsychiatrists] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
   const showLanguageComingSoon = () => {
@@ -416,6 +418,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     if (id === 'contact')
       return Linking.openURL('mailto:support@humaeli.com');
     if (id === 'help') return setShowHelp(true);
+    if (id === 'psychiatrists') return setShowPsychiatrists(true);
     if (id === 'privacy') return setShowPrivacy(true);
     if (id === 'terms') return Linking.openURL(TERMS_URL);
     if (id === 'delete_account') return confirmDeleteAccount();
@@ -460,6 +463,15 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           iconColor: '#2563EB',
           label: t('settings:language', 'Language'),
           type: 'language',
+        },
+        {
+          id: 'psychiatrists',
+          icon: 'users',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: t('Psychiatrists'),
+          subtitle: t('View psychiatrists for patient referrals'),
+          type: 'nav',
         },
       ],
     },
@@ -834,6 +846,11 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     {/* Earnings & Payouts */}
     <Modal statusBarTranslucent navigationBarTranslucent visible={showWallet} animationType="slide" transparent={false} onRequestClose={() => setShowWallet(false)}>
       <CounselorWallet onClose={() => setShowWallet(false)} />
+    </Modal>
+
+    {/* Psychiatrists Directory */}
+    <Modal statusBarTranslucent navigationBarTranslucent visible={showPsychiatrists} animationType="slide" transparent={false} onRequestClose={() => setShowPsychiatrists(false)}>
+      <PsychiatristDirectory onClose={() => setShowPsychiatrists(false)} />
     </Modal>
 
     {/* Password Modal */}

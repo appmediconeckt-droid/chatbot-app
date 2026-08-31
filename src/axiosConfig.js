@@ -109,6 +109,16 @@ const NO_REFRESH_PATHS = [
   // expired session and sign the user out mid-flow.
 ];
 
+const NO_FORCE_SIGN_OUT_404_PATHS = [
+  '/api/prescriptions',
+  '/api/auth/counsellors',
+  '/api/chat/counselors',
+  '/api/chat/counsellors',
+  '/api/counselors',
+  '/api/counsellors',
+  '/api/consultants',
+];
+
 axiosInstance.interceptors.response.use(
   (response) => {
     return response;
@@ -117,13 +127,14 @@ axiosInstance.interceptors.response.use(
     const originalRequest = error.config;
     const url = originalRequest?.url || '';
     const isAuthRoute = NO_REFRESH_PATHS.some((p) => url.includes(p));
+    const shouldNotForceSignOutOn404 = NO_FORCE_SIGN_OUT_404_PATHS.some((p) => url.includes(p));
 
     // This backend returns 404 (instead of 401) when a session has been
     // invalidated by a logout/sign-in on another device. If this device still
     // has credentials, treat that response as an ended session and leave the
     // protected screen immediately. Auth routes are excluded because a 404
     // there is a genuine endpoint/account error and must remain visible.
-    if (error.response?.status === 404 && !isAuthRoute) {
+    if (error.response?.status === 404 && !isAuthRoute && !shouldNotForceSignOutOn404) {
       const [accessToken, legacyToken] = await Promise.all([
         AsyncStorage.getItem('accessToken'),
         AsyncStorage.getItem('token'),

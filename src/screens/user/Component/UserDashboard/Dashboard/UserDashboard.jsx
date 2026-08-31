@@ -26,7 +26,7 @@ import TextInput from '../../../../../components/TranslatedTextInput';
 import Text from '../../../../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useNavigation, useIsFocused } from "@react-navigation/native";
+import { useNavigation, useIsFocused, useRoute } from "@react-navigation/native";
 import axios from "axios";
 import axiosInstance, { API_BASE_URL } from "../../../../../axiosConfig";
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -56,6 +56,7 @@ import HelpSupport from "../Tab/HelpSupport/HelpSupport";
 import PrivacyPolicy from "../Tab/PrivacyPolicy/PrivacyPolicy";
 import NotificationScreen from "../Tab/Notifications/NotificationScreen";
 import UserAccountSettings from "../Tab/UserAccountSettings";
+import PrescriptionScreen from "../Tab/Prescription/PrescriptionScreen";
 import { toImageUri } from "../../../../../utils/imageUri";
 import { clearAccountLocalData } from "../../../../../utils/authSession";
 
@@ -1540,11 +1541,13 @@ export default function UserDashboard() {
   const { t } = useLanguageRender();
   const { showToast } = useToast();
   const navigation = useNavigation();
+  const route = useRoute();
   const isFocused = useIsFocused();
   const [active, setActive] = useState("Chat");
   const [chatOpen, setChatOpen] = useState(false);
   const [newMessage, setNewMessage] = useState("");
   const [targetCounselor, setTargetCounselor] = useState("");
+  const [openCounselorRequestTarget, setOpenCounselorRequestTarget] = useState("");
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -1636,9 +1639,21 @@ export default function UserDashboard() {
 
   const handleAIContactClick = (name) => {
     setTargetCounselor(name);
+    setOpenCounselorRequestTarget("");
     switchDashboardTab("Counselor");
     setChatOpen(false);
   };
+
+  useEffect(() => {
+    const params = route?.params || {};
+    if (params.openTab !== 'Counselor' || !params.targetCounselor) return;
+
+    const target = String(params.targetCounselor).trim();
+    if (!target) return;
+    setTargetCounselor(target);
+    setOpenCounselorRequestTarget(params.openCounselorRequest ? target : "");
+    switchDashboardTab("Counselor");
+  }, [route?.params?.openTab, route?.params?.targetCounselor, route?.params?.openCounselorRequest]);
 
   useEffect(() => {
     fetchUserData();
@@ -2436,6 +2451,7 @@ export default function UserDashboard() {
     { id: "Chat", icon: "chat", label: t('dashboard:chat'), type: "material" },
     { id: "Counselor", icon: "psychology", label: t('dashboard:consultants', 'Consultants'), type: "material" },
     { id: "Appointment", icon: "event-available", label: t('dashboard:appointments', 'Appointments'), type: "material" },
+    { id: "Prescription", icon: "receipt-long", label: "Prescription", type: "material" },
     { id: "Wallet", icon: "account-balance-wallet", label: t('dashboard:wallet'), type: "material" },
     { id: "Video", icon: "history", label: t('dashboard:callHistory'), type: "material" },
   ];
@@ -2549,6 +2565,14 @@ export default function UserDashboard() {
       onPress: () => openTabFromSidebar('profile'),
     },
     {
+      id: 'Prescription',
+      icon: 'document-text-outline',
+      iconActive: 'document-text',
+      label: 'Prescription',
+      isActive: !sidebarSection && active === 'Prescription',
+      onPress: () => openTabFromSidebar('Prescription', handleMenuItemClick),
+    },
+    {
       id: 'Video',
       icon: 'call-outline',
       iconActive: 'call',
@@ -2594,7 +2618,13 @@ export default function UserDashboard() {
       case "Chat":
         return <ChatInterface setActiveTab={switchDashboardTab} />;
       case "Counselor":
-        return <CounselorTable initialSearchQuery={targetCounselor} />;
+        return (
+          <CounselorTable
+            initialSearchQuery={targetCounselor}
+            initialOpenRequestName={openCounselorRequestTarget}
+            onInitialOpenHandled={() => setOpenCounselorRequestTarget("")}
+          />
+        );
       case "Appointment":
         return (
           <MyAppointmentsPanel
@@ -2612,6 +2642,8 @@ export default function UserDashboard() {
             onChat={handleAptChat}
           />
         );
+      case "Prescription":
+        return <PrescriptionScreen />;
       case "Wallet":
         return <WalletDashboard userData={userData} navigation={navigation} />;
       case "Video":
