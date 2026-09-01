@@ -28,10 +28,10 @@ import LinearGradient from 'react-native-linear-gradient';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import CounselorHelpSupport from './CounselorHelpSupport';
 import GradientFill from '../../../../../../components/common/GradientFill';
+import { useToast } from '../../../../../../components/common/ToastProvider';
 import { DOCTOR } from '../../../../../../theme/palette';
 import CounselorPrivacyPolicy from './CounselorPrivacyPolicy';
 import CounselorWallet from '../Wallet/CounselorWallet';
-import LanguageSelector from '../../../../../../components/common/LanguageSelector';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useKeyboardAwareScroll from '../../../../../../hooks/useKeyboardAwareScroll';
 import { clearAccountLocalData } from '../../../../../../utils/authSession';
@@ -136,6 +136,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   } = useKeyboardAwareScroll();
   const navigation = useNavigation();
   const { t } = useLanguageRender();
+  const { showToast } = useToast();
   const [counselor, setCounselor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [settingsSearch, setSettingsSearch] = useState('');
@@ -145,6 +146,20 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showWallet, setShowWallet] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+
+  const showLanguageComingSoon = () => {
+    showToast({
+      title: 'Coming soon',
+      message: 'Work is in progress.',
+      type: 'info',
+      accent: DOCTOR.primary,
+      bg: '#EFF6FF',
+      border: '#BFDBFE',
+      icon: 'i',
+      translate: false,
+      duration: 3200,
+    });
+  };
 
   // Feedback modal state
   const [feedbackModal, setFeedbackModal] = useState(false);
@@ -591,16 +606,15 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
             {section.items.map((item, idx) => {
               const isLast = idx === section.items.length - 1;
 
-              // Language: the whole row is a LanguageSelector trigger (opens the
-              // shared language sheet). Matches the Figma's Account → Language row.
+              // Language is temporarily unavailable, so keep the row in place
+              // and show a short status message instead of opening the selector.
               if (item.type === 'language') {
                 return (
-                  <LanguageSelector
+                  <TouchableOpacity
                     key={item.id}
-                    brand={DOCTOR.primary}
-                    userId={counselor?._id}
-                    role="counselor"
-                    triggerStyle={[styles.row, !isLast && styles.rowDivider]}
+                    style={[styles.row, !isLast && styles.rowDivider]}
+                    onPress={showLanguageComingSoon}
+                    activeOpacity={0.65}
                   >
                     <View style={[styles.iconBox, { backgroundColor: item.iconBg }]}>
                       <Feather name={item.icon} size={18} color={item.iconColor} />
@@ -611,7 +625,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                     <View style={styles.rowTrail}>
                       <Feather name="chevron-right" size={18} color="#cbd5e1" />
                     </View>
-                  </LanguageSelector>
+                  </TouchableOpacity>
                 );
               }
 

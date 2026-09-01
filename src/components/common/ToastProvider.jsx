@@ -78,7 +78,14 @@ function ToastViewport({ toast, onHide, topOffset }) {
 
   if (!toast) return null;
 
-  const config = TOAST_THEME[toast.type] || TOAST_THEME.info;
+  const baseConfig = TOAST_THEME[toast.type] || TOAST_THEME.info;
+  const config = {
+    ...baseConfig,
+    accent: toast.accent || baseConfig.accent,
+    bg: toast.bg || baseConfig.bg,
+    border: toast.border || baseConfig.border,
+    icon: toast.icon || baseConfig.icon,
+  };
 
   return (
     <Animated.View
@@ -116,14 +123,14 @@ function ToastViewport({ toast, onHide, topOffset }) {
           ]}
         >
           <View style={[styles.leadingIcon, { backgroundColor: config.accent }]}>
-            <Text style={styles.leadingIconText}>{config.icon}</Text>
+            <Text translate={toast.translate !== false} style={styles.leadingIconText}>{config.icon}</Text>
           </View>
 
           <View style={styles.content}>
-            <Text style={[styles.title, { color: config.accent }]} numberOfLines={1}>
+            <Text translate={toast.translate !== false} style={[styles.title, { color: config.accent }]} numberOfLines={1}>
               {toast.title || config.title}
             </Text>
-            <Text style={styles.message} numberOfLines={3}>
+            <Text translate={toast.translate !== false} style={styles.message} numberOfLines={3}>
               {toast.message}
             </Text>
           </View>
@@ -154,6 +161,11 @@ export function ToastProvider({ children }) {
       title: payload?.title,
       type: payload?.type || "info",
       duration: payload?.duration,
+      accent: payload?.accent,
+      bg: payload?.bg,
+      border: payload?.border,
+      icon: payload?.icon,
+      translate: payload?.translate,
     });
   }, []);
 
