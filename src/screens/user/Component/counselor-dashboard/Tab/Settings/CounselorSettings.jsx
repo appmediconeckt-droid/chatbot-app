@@ -850,7 +850,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
 
     {/* Psychiatrists Directory */}
     <Modal statusBarTranslucent navigationBarTranslucent visible={showPsychiatrists} animationType="slide" transparent={false} onRequestClose={() => setShowPsychiatrists(false)}>
-      <PsychiatristDirectory onClose={() => setShowPsychiatrists(false)} />
+      <PsychiatristDirectory headerVariant="compact" onClose={() => setShowPsychiatrists(false)} />
     </Modal>
 
     {/* Password Modal */}

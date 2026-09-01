@@ -12,6 +12,8 @@ import {
   View,
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import RNFS from 'react-native-fs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../../../../components/TranslatedText';
@@ -48,6 +50,31 @@ const getMedicines = (item) => {
   return Array.isArray(medicines) ? medicines : [];
 };
 
+const getDownloadFileName = (response, fallback) => {
+  const disposition = response?.headers?.['content-disposition'] || '';
+  const match = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
+  if (match?.[1]) return decodeURIComponent(match[1]);
+  return fallback;
+};
+
+const downloadBlobInBrowser = (blob, filename) => {
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(objectUrl);
+};
+
+const getAuthHeaders = async () => {
+  const token =
+    (await AsyncStorage.getItem('accessToken')) ||
+    (await AsyncStorage.getItem('token'));
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
 const PrescriptionScreen = () => {
   const [prescriptions, setPrescriptions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -79,14 +106,37 @@ const PrescriptionScreen = () => {
     fetchPrescriptions(true);
   }, [fetchPrescriptions]);
 
-  const openPrescriptionFile = async (item) => {
+  const downloadPrescriptionPhoto = async (item) => {
     const id = getId(item);
     if (!id) return;
-    const url = `${API_BASE_URL}/api/prescriptions/${id}/file`;
+    const path = `/api/prescriptions/${id}/photo`;
     try {
-      await Linking.openURL(url);
-    } catch (_) {
-      Alert.alert('Prescription', 'No app found to open this prescription file.');
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined') {
+        const response = await axiosInstance.get(path, { responseType: 'blob' });
+        const filename = getDownloadFileName(response, `prescription-${id}.jpg`);
+        downloadBlobInBrowser(response.data, filename);
+        return;
+      }
+
+      const headers = await getAuthHeaders();
+      const filename = `prescription-${id}.jpg`;
+      const destPath = `${RNFS.CachesDirectoryPath}/${filename}`;
+      const result = await RNFS.downloadFile({
+        fromUrl: `${API_BASE_URL}${path}`,
+        toFile: destPath,
+        headers,
+      }).promise;
+
+      if (result.statusCode < 200 || result.statusCode >= 300) {
+        throw new Error('Download failed');
+      }
+
+      await Linking.openURL(`file://${destPath}`);
+    } catch (error) {
+      Alert.alert(
+        'Prescription',
+        error?.response?.data?.message || 'Unable to download this prescription photo.',
+      );
     }
   };
 
@@ -177,7 +227,7 @@ const PrescriptionScreen = () => {
             {uploadingId === id ? <ActivityIndicator size="small" color="#006B2C" /> : <Ionicons name="camera-outline" size={17} color="#006B2C" />}
             <Text style={styles.secondaryBtnText}>{photoUrl ? 'Change photo' : 'Upload photo'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => openPrescriptionFile(item)}>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={() => downloadPrescriptionPhoto(item)}>
             <Ionicons name={Platform.OS === 'ios' ? 'print-outline' : 'download-outline'} size={17} color="#006B2C" />
             <Text style={styles.secondaryBtnText}>Print / Download</Text>
           </TouchableOpacity>

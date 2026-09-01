@@ -12,6 +12,7 @@ import {
 import Feather from 'react-native-vector-icons/Feather';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../TranslatedText';
 import axiosInstance, { API_BASE_URL } from '../../axiosConfig';
 import { DOCTOR, DOCTOR_GRADIENT, GRADIENT_DIRECTION } from '../../theme/palette';
@@ -105,12 +106,14 @@ const sortPsychiatrists = (a, b) => {
 
 const PsychiatristDirectory = ({
   title = 'Psychiatrists',
-  subtitle = 'Verified specialists available for medication support',
+  subtitle = 'Verified psychiatrists available for patient referrals',
   onClose,
   onSelect,
   selectLabel = 'Recommend',
   selectDisabled = false,
+  headerVariant = 'hero',
 }) => {
+  const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [psychiatrists, setPsychiatrists] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -171,19 +174,24 @@ const PsychiatristDirectory = ({
     return (
       <View style={styles.card}>
         <View style={styles.avatarWrap}>
-          {photo ? (
-            <Image source={{ uri: photo }} style={styles.avatar} />
-          ) : (
-            <LinearGradient colors={DOCTOR_GRADIENT} {...GRADIENT_DIRECTION} style={styles.avatarFallback}>
-              <Text style={styles.avatarText}>{name.charAt(0).toUpperCase()}</Text>
-            </LinearGradient>
-          )}
+          <LinearGradient colors={DOCTOR_GRADIENT} {...GRADIENT_DIRECTION} style={styles.avatarRing}>
+            {photo ? (
+              <Image source={{ uri: photo }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarFallback}>
+                <Text style={styles.avatarText}>{name.charAt(0).toUpperCase()}</Text>
+              </View>
+            )}
+          </LinearGradient>
           <View style={[styles.onlineDot, online ? styles.onlineActive : styles.onlineInactive]} />
         </View>
 
         <View style={styles.info}>
-          <Text style={styles.name} numberOfLines={1}>{name}</Text>
-          <Text style={styles.specialization} numberOfLines={2}>{getSpecializationText(item)}</Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.name} numberOfLines={1}>{name}</Text>
+            {online ? <View style={styles.onlineBadgeDot} /> : null}
+          </View>
+          <Text style={styles.specialization} numberOfLines={1}>{getSpecializationText(item)}</Text>
           <View style={styles.metaRow}>
             {rating ? (
               <View style={styles.metaPill}>
@@ -216,26 +224,53 @@ const PsychiatristDirectory = ({
     );
   };
 
+  const compactHeader = headerVariant === 'compact';
+
   return (
     <View style={styles.screen}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" translucent={false} />
-      <LinearGradient
-        colors={DOCTOR_GRADIENT}
-        {...GRADIENT_DIRECTION}
-        style={styles.header}
-      >
-        <View style={styles.headerTextWrap}>
-          <Text style={styles.title} numberOfLines={1}>{title}</Text>
-          <Text style={styles.subtitle} numberOfLines={2}>{subtitle}</Text>
+      <StatusBar barStyle={compactHeader ? 'dark-content' : 'light-content'} backgroundColor={compactHeader ? '#FFFFFF' : DOCTOR.primary} translucent={false} />
+      {compactHeader ? (
+        <View style={[styles.compactTop, { paddingTop: Math.max(insets.top, 10) }]}>
+          <View style={styles.compactNav}>
+            {onClose ? (
+              <TouchableOpacity style={styles.compactCloseBtn} activeOpacity={0.75} onPress={onClose}>
+                <Feather name="chevron-left" size={24} color="#0F172A" />
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.compactHeaderSpacer} />
+            )}
+            <Text style={styles.compactTitle} numberOfLines={1}>{title}</Text>
+            <View style={styles.compactHeaderSpacer} />
+          </View>
+          <View style={styles.compactIntro}>
+            <View style={styles.compactIcon}>
+              <Ionicons name="people-outline" size={19} color={DOCTOR.primary} />
+            </View>
+            <View style={styles.compactIntroText}>
+              <Text style={styles.compactIntroTitle} numberOfLines={1}>Verified Specialists</Text>
+              <Text style={styles.compactSubtitle} numberOfLines={2}>{subtitle}</Text>
+            </View>
+          </View>
         </View>
-        {onClose ? (
-          <TouchableOpacity style={styles.closeBtn} activeOpacity={0.75} onPress={onClose}>
-            <Feather name="x" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
-        ) : null}
-      </LinearGradient>
+      ) : (
+        <LinearGradient
+          colors={DOCTOR_GRADIENT}
+          {...GRADIENT_DIRECTION}
+          style={styles.header}
+        >
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.title} numberOfLines={1}>{title}</Text>
+            <Text style={styles.subtitle} numberOfLines={2}>{subtitle}</Text>
+          </View>
+          {onClose ? (
+            <TouchableOpacity style={styles.closeBtn} activeOpacity={0.75} onPress={onClose}>
+              <Feather name="x" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+          ) : null}
+        </LinearGradient>
+      )}
 
-      <View style={styles.contentTop}>
+      <View style={[styles.contentTop, compactHeader && styles.compactContentTop]}>
         <View style={styles.searchBox}>
           <Feather name="search" size={17} color="#64748B" />
           <TextInput
@@ -314,6 +349,76 @@ const styles = StyleSheet.create({
   headerTextWrap: { flex: 1, paddingRight: 12 },
   title: { color: '#FFFFFF', fontSize: 25, fontWeight: '900' },
   subtitle: { color: 'rgba(255,255,255,0.86)', fontSize: 13, marginTop: 4, lineHeight: 18 },
+  compactTop: {
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8EEF7',
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+  },
+  compactNav: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  compactCloseBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F1F5F9',
+  },
+  compactHeaderSpacer: {
+    width: 40,
+    height: 40,
+  },
+  compactTitle: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 10,
+    color: '#0F172A',
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  compactIntro: {
+    minHeight: 66,
+    borderRadius: 16,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  compactIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    marginRight: 12,
+  },
+  compactIntroText: { flex: 1, minWidth: 0 },
+  compactIntroTitle: {
+    color: '#0F172A',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  compactSubtitle: {
+    color: '#64748B',
+    fontSize: 12.5,
+    lineHeight: 18,
+    fontWeight: '600',
+    marginTop: 2,
+  },
   closeBtn: {
     width: 44,
     height: 44,
@@ -325,6 +430,9 @@ const styles = StyleSheet.create({
   contentTop: {
     paddingHorizontal: 16,
     paddingTop: 16,
+  },
+  compactContentTop: {
+    paddingTop: 14,
   },
   searchBox: {
     height: 54,
@@ -367,48 +475,86 @@ const styles = StyleSheet.create({
   summaryDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: DOCTOR.online },
   list: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 28 },
   card: {
-    minHeight: 104,
+    minHeight: 102,
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 14,
+    borderColor: '#E6EEF8',
+    padding: 13,
     marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: '#0F172A',
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 2,
+    shadowOpacity: 0.09,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 3,
   },
-  avatarWrap: { width: 62, height: 62, marginRight: 14 },
-  avatar: { width: 62, height: 62, borderRadius: 31, backgroundColor: '#E2E8F0' },
-  avatarFallback: { width: 62, height: 62, borderRadius: 31, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#FFFFFF', fontSize: 22, fontWeight: '900' },
+  avatarWrap: { width: 66, height: 66, marginRight: 14 },
+  avatarRing: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    padding: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#E2E8F0',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  avatarFallback: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  avatarText: { color: DOCTOR.primary, fontSize: 22, fontWeight: '900' },
   onlineDot: {
     position: 'absolute',
     right: 2,
     bottom: 2,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     borderWidth: 3,
     borderColor: '#FFFFFF',
   },
   onlineActive: { backgroundColor: DOCTOR.online },
   onlineInactive: { backgroundColor: '#CBD5E1' },
   info: { flex: 1, minWidth: 0 },
-  name: { color: '#0F172A', fontSize: 16, fontWeight: '900' },
-  specialization: { color: '#64748B', fontSize: 13, marginTop: 3, lineHeight: 18, textTransform: 'capitalize' },
-  metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7, marginTop: 9 },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+  },
+  name: { flexShrink: 1, color: '#0F172A', fontSize: 16, lineHeight: 21, fontWeight: '900' },
+  onlineBadgeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: DOCTOR.online,
+    marginLeft: 7,
+  },
+  specialization: { color: '#64748B', fontSize: 13, marginTop: 2, lineHeight: 18, textTransform: 'capitalize' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7, marginTop: 10 },
   metaPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     borderRadius: 999,
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 9,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 10,
     paddingVertical: 5,
   },
   metaText: { color: '#475569', fontSize: 11, fontWeight: '700' },

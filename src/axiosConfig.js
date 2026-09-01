@@ -10,7 +10,7 @@ const API_ENDPOINTS = {
   // Must match the SAME backend the web frontend uses (chatbot/.env.local)
   // so OTP / email / forgot-password behave identically to web.
   
-  DEV_TUNNEL: 'https://m429gbrg-5001.inc1.devtunnels.ms',
+  DEV_TUNNEL: 'https://s5jl7g4z-5001.inc1.devtunnels.ms',
   RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
   LOCAL_ADB_5002: 'http://127.0.0.1:5002',
   LOCAL_5001: 'http://localhost:5001',
@@ -18,8 +18,8 @@ const API_ENDPOINTS = {
   LOCAL_3000: 'http://localhost:3000',
 };
 
-export const API_BASE_URL = API_ENDPOINTS.RAILWAY;
-export const AI_REALTIME_BASE_URL = API_ENDPOINTS.RAILWAY.replace(/\/+$/, '');
+export const API_BASE_URL = API_ENDPOINTS.DEV_TUNNEL;
+export const AI_REALTIME_BASE_URL = API_ENDPOINTS.DEV_TUNNEL.replace(/\/+$/, '');
 export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
   ? { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' }
   : {};

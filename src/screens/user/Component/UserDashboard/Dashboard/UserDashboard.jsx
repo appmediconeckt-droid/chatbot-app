@@ -75,6 +75,7 @@ const AI_CHAT_TITLE_SUFFIX = 'AI Assistant';
 
 const AI_WELCOME_MESSAGE = "Hello, I'm Humaelio AI. How are you feeling today?";
 const AI_OPENING_EVENT = "__humaelio_ai_opening__";
+const INCOMING_CALL_POLL_TABS = new Set(["Chat", "Counselor", "Appointment"]);
 
 const isGeneratedUserAvatarUrl = (raw) => {
   const url = typeof raw === "string" ? raw : raw?.url || raw?.secure_url || "";
@@ -1844,6 +1845,8 @@ export default function UserDashboard() {
   const showCallModalRef = useRef(false);
   const isVideoModalOpenRef = useRef(false);
   const isVoiceModalOpenRef = useRef(false);
+  const activeRef = useRef(active);
+  const isFocusedRef = useRef(isFocused);
   // Ref mirror for callerInfo so "still pending" check has stable access
   const callerInfoRef = useRef({ callId: '' });
 
@@ -1851,6 +1854,8 @@ export default function UserDashboard() {
   useEffect(() => { showCallModalRef.current = showCallModal; }, [showCallModal]);
   useEffect(() => { isVideoModalOpenRef.current = isVideoModalOpen; }, [isVideoModalOpen]);
   useEffect(() => { isVoiceModalOpenRef.current = isVoiceModalOpen; }, [isVoiceModalOpen]);
+  useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { isFocusedRef.current = isFocused; }, [isFocused]);
   useEffect(() => { callerInfoRef.current = callerInfo; }, [callerInfo]);
 
   // Poll for incoming calls from counselor — single stable interval, never restarts
@@ -1859,6 +1864,8 @@ export default function UserDashboard() {
 
     const fetchIncomingCalls = async () => {
       try {
+        if (!isFocusedRef.current) return;
+        if (!INCOMING_CALL_POLL_TABS.has(activeRef.current)) return;
         if (Date.now() < pollBlockedUntilRef.current) return;
         if (showCallModalRef.current || isVideoModalOpenRef.current || isVoiceModalOpenRef.current) return;
 
