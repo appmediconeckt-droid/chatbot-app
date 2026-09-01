@@ -59,6 +59,8 @@ import UserAccountSettings from "../Tab/UserAccountSettings";
 import PrescriptionScreen from "../Tab/Prescription/PrescriptionScreen";
 import { toImageUri } from "../../../../../utils/imageUri";
 import { clearAccountLocalData } from "../../../../../utils/authSession";
+import AiMicButton from "../../../../../components/AiMicButton";
+import { useSpeechToText } from "../../../../../hooks/useSpeechToText";
 
 // Time for a Modal to finish dismissing. RN can only transition one Modal at a
 // time, so opening the next one any sooner gets silently dropped.
@@ -117,6 +119,16 @@ const ChatPopup = ({
   const { width, height } = useWindowDimensions();
   const [speakingId, setSpeakingId] = useState(null);
   const [aiInputPlaceholder, setAiInputPlaceholder] = useState('Type your question');
+  
+  // Speech-to-text hook
+  const {
+    isListening,
+    transcript,
+    error: speechError,
+    startListening,
+    stopListening,
+    clearTranscript,
+  } = useSpeechToText();
 
   const handleAiSend = useCallback(() => {
     const text = (newMessage || "").trim();
@@ -153,6 +165,27 @@ const ChatPopup = ({
       isMounted = false;
     };
   }, [selectedLang]);
+
+  // Handle speech-to-text transcript
+  useEffect(() => {
+    if (transcript && !isListening) {
+      // Append transcript to the message input with a space if there's already text
+      setNewMessage(prev => {
+        const trimmed = prev.trim();
+        return trimmed ? `${trimmed} ${transcript}` : transcript;
+      });
+      clearTranscript();
+    }
+  }, [transcript, isListening, clearTranscript]);
+
+  const handleMicPress = useCallback(() => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  }, [isListening, startListening, stopListening]);
+
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [keyboardScreenY, setKeyboardScreenY] = useState(null);
@@ -516,6 +549,13 @@ const ChatPopup = ({
               textAlignVertical="center"
             />
           </View>
+
+          <AiMicButton
+            isListening={isListening}
+            isLoading={false}
+            onPress={handleMicPress}
+            disabled={isLoading}
+          />
 
           <TouchableOpacity
             style={[
