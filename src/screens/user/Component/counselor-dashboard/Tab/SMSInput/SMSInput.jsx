@@ -26,6 +26,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useIsFocused } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import ZoomableImageViewer from '../../../../../../components/common/ZoomableImageViewer';
+import MicButton from '../../../../../../components/MicButton';
 import LinearGradient from 'react-native-linear-gradient';
 import RNFS from 'react-native-fs';
 import { pick } from '@react-native-documents/picker';
@@ -52,6 +53,7 @@ import PsychiatristDirectory from '../../../../../../components/common/Psychiatr
 import {
   describeCall,
 } from '../../../../../../utils/chatCallHistory';
+import { useSpeechToText } from '../../../../../../hooks/useSpeechToText';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -284,8 +286,18 @@ const SMSInput = ({ navigation, route }) => {
   useScreenshotPrevent();
   const location = route.params || {};
   const [message, setMessage] = useState("");
+  const {
+    isListening: isVoiceTyping,
+    transcript: voiceTranscript,
+    error: voiceTypingError,
+    isAvailable: voiceTypingAvailable,
+    startListening: startVoiceTyping,
+    stopListening: stopVoiceTyping,
+    clearTranscript: clearVoiceTranscript,
+  } = useSpeechToText();
   const [keyboardInset, setKeyboardInset] = useState(0);
   const messageInputRef = useRef(null);
+  const voiceTypingBaseRef = useRef("");
   const keyboardVisibleRef = useRef(false);
   const sendFocusGuardRef = useRef(false);
   const focusRestoreTimersRef = useRef([]);
@@ -1044,6 +1056,33 @@ const SMSInput = ({ navigation, route }) => {
       finishComposerFocusForSend();
     }
   };
+
+  useEffect(() => {
+    const spokenText = String(voiceTranscript || "").trim();
+    if (!spokenText) return;
+
+    const baseText = voiceTypingBaseRef.current;
+    const spacer = baseText && !/\s$/.test(baseText) ? " " : "";
+    setMessage(`${baseText}${spacer}${spokenText}`);
+  }, [voiceTranscript]);
+
+  useEffect(() => {
+    if (voiceTypingError) {
+      console.warn("[Counselor Speech-to-Text] error:", voiceTypingError);
+    }
+  }, [voiceTypingError]);
+
+  const handleVoiceTypingPress = useCallback(() => {
+    if (isVoiceTyping) {
+      stopVoiceTyping();
+      return;
+    }
+
+    voiceTypingBaseRef.current = message || "";
+    clearVoiceTranscript();
+    messageInputRef.current?.focus();
+    startVoiceTyping();
+  }, [clearVoiceTranscript, isVoiceTyping, message, startVoiceTyping, stopVoiceTyping]);
 
   // ─── End session ─────────────────────────────────────────────────────────
   // Counselor ends the session. The backend should mark the chat "ended" and
@@ -2049,6 +2088,16 @@ const SMSInput = ({ navigation, route }) => {
                       }
                     }}
                   />
+                  <MicButton
+                    isListening={isVoiceTyping}
+                    onPress={handleVoiceTypingPress}
+                    disabled={isSending || !voiceTypingAvailable}
+                    color="#2563EB"
+                    backgroundColor="#EFF6FF"
+                    size={34}
+                    iconSize={18}
+                    style={styles.inputMicBtn}
+                  />
                 </View>
                 <TouchableOpacity
                   activeOpacity={0.85}
@@ -2292,21 +2341,40 @@ const styles = StyleSheet.create({
   attachmentPreview: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10, gap: 8 },
   attachmentPreviewText: { flex: 1, color: '#111827', fontSize: 12, fontWeight: '500' },
   inputGroupDisabled: { opacity: 0.7 },
-  inputGroup: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  inputGroup: { width: '100%', flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
   attachBtn: { width: 42, height: 42, borderRadius: 21, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E8EFFB' },
   inputWrapper: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: '#FFFFFF',
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 6,
     minHeight: 44,
+    position: 'relative',
   },
-  textInput: { flex: 1, fontSize: 14, lineHeight: 20, color: '#111827', paddingVertical: Platform.OS === 'ios' ? 6 : 4, paddingHorizontal: 8, maxHeight: 120, minHeight: 36, textAlignVertical: 'center' },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
+  textInput: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#111827',
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingLeft: 8,
+    paddingRight: 42,
+    maxHeight: 120,
+    minHeight: 40,
+    textAlignVertical: 'top',
+  },
+  inputMicBtn: {
+    position: 'absolute',
+    right: 5,
+    bottom: 4,
+  },
+  sendBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', alignSelf: 'flex-end' },
   sendBtnActive: { shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.35, shadowRadius: 5, elevation: 5 },
   sendBtnDisabled: { backgroundColor: '#CBD5E1', opacity: 0.7 },
   incomingCallScreen: {

@@ -28,6 +28,8 @@ import LinearGradient from "react-native-linear-gradient";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import PATIENT from "../../../../../../theme/palette";
 import ZoomableImageViewer from "../../../../../../components/common/ZoomableImageViewer";
+import MicButton from "../../../../../../components/MicButton";
+import { useSpeechToText } from "../../../../../../hooks/useSpeechToText";
 
 // Patient green theme (from Figma).
 const BRAND_GRADIENT = [PATIENT.gradientFrom, PATIENT.gradientTo];
@@ -318,6 +320,15 @@ const ChatBox = () => {
   }, [showIncomingModal, startIncomingRing, stopIncomingRing]);
 
   const [newMessage, setNewMessage] = useState("");
+  const {
+    isListening: isVoiceTyping,
+    transcript: voiceTranscript,
+    error: voiceTypingError,
+    isAvailable: voiceTypingAvailable,
+    startListening: startVoiceTyping,
+    stopListening: stopVoiceTyping,
+    clearTranscript: clearVoiceTranscript,
+  } = useSpeechToText();
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [showOptions, setShowOptions] = useState(false);
   const [confirmState, setConfirmState] = useState({ visible: false, title: '', message: '', onConfirm: null, onCancel: null, destructive: false });
@@ -344,6 +355,7 @@ const ChatBox = () => {
 
   const flatListRef = useRef(null);
   const messageInputRef = useRef(null);
+  const voiceTypingBaseRef = useRef("");
   const keyboardVisibleRef = useRef(false);
   const sendFocusGuardRef = useRef(false);
   const focusRestoreTimersRef = useRef([]);
@@ -1560,6 +1572,34 @@ const ChatBox = () => {
     if (text.trim() !== "") handleTypingIndicator();
   };
 
+  useEffect(() => {
+    const spokenText = String(voiceTranscript || "").trim();
+    if (!spokenText) return;
+
+    const baseText = voiceTypingBaseRef.current;
+    const spacer = baseText && !/\s$/.test(baseText) ? " " : "";
+    setNewMessage(`${baseText}${spacer}${spokenText}`);
+    handleTypingIndicator();
+  }, [voiceTranscript, handleTypingIndicator]);
+
+  useEffect(() => {
+    if (voiceTypingError) {
+      console.warn("[Chat Speech-to-Text] error:", voiceTypingError);
+    }
+  }, [voiceTypingError]);
+
+  const handleVoiceTypingPress = useCallback(() => {
+    if (isVoiceTyping) {
+      stopVoiceTyping();
+      return;
+    }
+
+    voiceTypingBaseRef.current = newMessage || "";
+    clearVoiceTranscript();
+    messageInputRef.current?.focus();
+    startVoiceTyping();
+  }, [clearVoiceTranscript, isVoiceTyping, newMessage, startVoiceTyping, stopVoiceTyping]);
+
   const confirmDeleteCall = useCallback((item) => {
     setConfirmState({
       visible: true,
@@ -2053,6 +2093,16 @@ const ChatBox = () => {
                       requestAnimationFrame(() => messageInputRef.current?.focus());
                     }
                   }}
+                />
+                <MicButton
+                  isListening={isVoiceTyping}
+                  onPress={handleVoiceTypingPress}
+                  disabled={isSending || !voiceTypingAvailable}
+                  color={PATIENT.primary}
+                  backgroundColor="#E8F8EE"
+                  size={34}
+                  iconSize={18}
+                  style={styles.inputMicBtn}
                 />
               </View>
               <TouchableOpacity
@@ -2790,7 +2840,7 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     gap: 6,
     backgroundColor: "#EEF1FA",
     borderRadius: 999,
@@ -2809,18 +2859,27 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flex: 1,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     position: "relative",
+    minHeight: 40,
   },
   textInput: {
     flex: 1,
-    paddingVertical: 2,
-    paddingRight: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingRight: 42,
     paddingLeft: 6,
     fontSize: 15,
+    lineHeight: 20,
     color: "#081625",
-    maxHeight: 100,
-    minHeight: 32,
+    maxHeight: 120,
+    minHeight: 40,
+    textAlignVertical: "top",
+  },
+  inputMicBtn: {
+    position: "absolute",
+    right: 2,
+    bottom: 3,
   },
   emojiBtn: {
     position: "absolute",
@@ -2837,6 +2896,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
+    alignSelf: "flex-end",
     shadowColor: PATIENT.primary,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
