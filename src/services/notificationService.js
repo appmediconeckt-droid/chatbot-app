@@ -129,10 +129,6 @@ export const displaySystemNotification = async remoteMessage => {
  */
 export const requestNotificationPermission = async () => {
   try {
-<<<<<<< HEAD
-    const api = getFirebaseMessagingApi();
-    const messaging = getMessagingInstance();
-=======
     if (Platform.OS === 'android') {
       await notifee.createChannel({
         id: NOTIFICATION_CHANNEL_ID,
@@ -143,7 +139,6 @@ export const requestNotificationPermission = async () => {
         vibration: true,
       });
     }
->>>>>>> d53c218ddabf4a744958bca665aa56793072dc6c
 
     if (Platform.OS === 'android' && Platform.Version >= 33) {
       const result = await PermissionsAndroid.request(
