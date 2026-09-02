@@ -40,7 +40,8 @@
       android:appComponentFactory="androidx.core.app.CoreComponentFactory">
       <meta-data
         android:name="com.google.firebase.messaging.default_notification_channel_id"
-        android:value="humaeli-default" />
+        android:value="humaeli-default"
+        tools:replace="android:value" />
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
