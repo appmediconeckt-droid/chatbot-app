@@ -873,10 +873,14 @@ export default function CounselorDashboard() {
 
   const navigation = useNavigation();
   const { vibrate } = useVibration();
-  const { showToast: showAppToast } = useToast();
+  const { showToast: showAppToast, setToastRole } = useToast();
   // Tracks whether ring has been started so we don't call startIncomingRingtone
   // multiple times for the same modal session (prevents double ring).
   const ringingStartedRef = useRef(false);
+
+  useEffect(() => {
+    setToastRole('counselor');
+  }, [setToastRole]);
 
   useEffect(() => {
     if (!isFocused || !showIncomingCallModal) {
@@ -1845,7 +1849,7 @@ export default function CounselorDashboard() {
   };
 
   const showToast = (message, type = "info") => {
-    showAppToast({ message, type, duration: 3200 });
+    showAppToast({ message, type, duration: 3200, role: 'counselor' });
   };
 
   useEffect(() => {

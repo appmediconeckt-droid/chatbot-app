@@ -2,36 +2,31 @@ import {
   PermissionsAndroid,
   Platform,
 } from 'react-native';
-import notifee, {
-  AndroidCategory,
-  AndroidImportance,
-  EventType,
-} from '@notifee/react-native';
-
-import {
-  getMessaging,
-  getToken,
-  onTokenRefresh,
-  onMessage,
-  onNotificationOpenedApp,
-  getInitialNotification,
-  AuthorizationStatus,
-  isDeviceRegisteredForRemoteMessages,
-  registerDeviceForRemoteMessages,
-  requestPermission,
-} from '@react-native-firebase/messaging';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../axiosConfig';
 
-const messaging = getMessaging();
 const NOTIFICATION_CHANNEL_ID = 'humaeli-default';
 const INCOMING_CALL_CHANNEL_ID = 'humaeli-incoming-calls-v1';
 export const PENDING_INCOMING_CALL_PUSH_KEY = 'pendingIncomingCallPush';
 export const NOTIFICATION_REPLY_ACTION_ID = 'reply-to-chat';
+let firebaseMessagingApi;
+let notifeeApi;
+let backgroundHandlersRegistered = false;
 
-const isChatNotification = data =>
-  String(data?.type || '').toUpperCase() === 'CHAT_MESSAGE' &&
-  Boolean(data?.chatId);
+const getNotificationChatId = data =>
+  data?.chatId || data?.chatID || data?.conversationId || data?.roomId || '';
+
+const isChatNotification = data => {
+  const type = String(
+    data?.type || data?.notificationType || data?.event || '',
+  ).toUpperCase();
+  return Boolean(getNotificationChatId(data)) && [
+    'CHAT_MESSAGE',
+    'CHAT',
+    'MESSAGE',
+    'NEW_MESSAGE',
+  ].includes(type);
+};
 
 const isIncomingCallNotification = data => {
   const type = String(data?.type || '').toUpperCase();
@@ -43,19 +38,58 @@ const isIncomingCallNotification = data => {
   ].includes(type);
 };
 
-/** Send text entered in Android's notification reply field to the chat API. */
+const warnNativeNotificationsUnavailable = (error) => {
+  console.log('[Push] Native notification module unavailable:', error?.message || error);
+};
+
+const getFirebaseMessagingApi = () => {
+  if (firebaseMessagingApi !== undefined) return firebaseMessagingApi;
+  try {
+    firebaseMessagingApi = require('@react-native-firebase/messaging');
+  } catch (error) {
+    firebaseMessagingApi = null;
+    warnNativeNotificationsUnavailable(error);
+  }
+  return firebaseMessagingApi;
+};
+
+const getMessagingInstance = () => {
+  const api = getFirebaseMessagingApi();
+  if (!api?.getMessaging) return null;
+  try {
+    return api.getMessaging();
+  } catch (error) {
+    warnNativeNotificationsUnavailable(error);
+    return null;
+  }
+};
+
+const getNotifeeApi = () => {
+  if (notifeeApi !== undefined) return notifeeApi;
+  try {
+    notifeeApi = require('@notifee/react-native');
+  } catch (error) {
+    notifeeApi = null;
+    warnNativeNotificationsUnavailable(error);
+  }
+  return notifeeApi;
+};
+
+/** Send Android notification inline-reply text without opening the app UI. */
 export const handleNotificationReplyEvent = async ({ type, detail }) => {
+  const notificationApi = getNotifeeApi();
+  const notifee = notificationApi?.default || notificationApi;
   if (
-    type !== EventType.ACTION_PRESS ||
+    type !== notificationApi?.EventType?.ACTION_PRESS ||
     detail?.pressAction?.id !== NOTIFICATION_REPLY_ACTION_ID
   ) {
     return;
   }
 
   const reply = String(detail?.input || '').trim();
-  const chatId = detail?.notification?.data?.chatId;
+  const chatId = getNotificationChatId(detail?.notification?.data);
   if (!reply || !chatId) {
-    console.warn('[Push] Notification reply ignored: missing reply text or chatId');
+    console.warn('[Push] Notification reply ignored: missing text or chatId');
     return;
   }
 
@@ -64,37 +98,66 @@ export const handleNotificationReplyEvent = async ({ type, detail }) => {
       `/api/chat/chat/${encodeURIComponent(chatId)}/message`,
       { content: reply },
     );
-
     if (detail?.notification?.id) {
-      await notifee.cancelNotification(detail.notification.id);
+      await notifee?.cancelNotification?.(detail.notification.id);
     }
-    console.log('[Push] Notification reply sent');
   } catch (error) {
     console.error(
       '[Push] Notification reply failed:',
       error?.response?.data || error?.message || error,
     );
+  }
+};
 
-    await notifee.displayNotification({
-      title: 'Reply not sent',
-      body: 'Please check your connection and try again.',
-      data: detail?.notification?.data,
-      android: {
-        channelId: NOTIFICATION_CHANNEL_ID,
-        importance: AndroidImportance.HIGH,
-        pressAction: { id: 'default' },
-        actions: [{
-          title: 'Retry reply',
-          pressAction: { id: NOTIFICATION_REPLY_ACTION_ID },
-          input: { placeholder: 'Type your reply…' },
-        }],
-      },
-    });
+export const registerBackgroundNotificationHandler = () => {
+  if (backgroundHandlersRegistered) return;
+
+  const api = getFirebaseMessagingApi();
+  const messaging = getMessagingInstance();
+  const notificationApi = getNotifeeApi();
+  const notifee = notificationApi?.default || notificationApi;
+
+  try {
+    if (notifee?.onBackgroundEvent) {
+      notifee.onBackgroundEvent(handleNotificationReplyEvent);
+    }
+    if (notifee?.onForegroundEvent) {
+      notifee.onForegroundEvent(handleNotificationReplyEvent);
+    }
+
+    if (api?.setBackgroundMessageHandler && messaging) {
+      api.setBackgroundMessageHandler(
+        messaging,
+        async remoteMessage => {
+          const data = remoteMessage?.data || {};
+          if (isIncomingCallNotification(data)) {
+            await AsyncStorage.setItem(
+              PENDING_INCOMING_CALL_PUSH_KEY,
+              JSON.stringify({ ...data, receivedAt: Date.now() }),
+            );
+          }
+
+          console.log('Background Notification:', remoteMessage);
+          if (!remoteMessage.notification) {
+            await displaySystemNotification(remoteMessage);
+          }
+        },
+      );
+    }
+    backgroundHandlersRegistered = true;
+  } catch (error) {
+    warnNativeNotificationsUnavailable(error);
   }
 };
 
 /** Show an FCM message as a real device notification. */
 export const displaySystemNotification = async remoteMessage => {
+  const notificationApi = getNotifeeApi();
+  const notifee = notificationApi?.default || notificationApi;
+  const AndroidImportance = notificationApi?.AndroidImportance || {};
+  const AndroidCategory = notificationApi?.AndroidCategory || {};
+  if (!notifee?.displayNotification) return;
+
   const title =
     remoteMessage?.notification?.title ||
     remoteMessage?.data?.title ||
@@ -103,6 +166,7 @@ export const displaySystemNotification = async remoteMessage => {
     remoteMessage?.notification?.body ||
     remoteMessage?.data?.body ||
     remoteMessage?.data?.message ||
+    remoteMessage?.data?.content ||
     'You have a new notification';
 
   const data = Object.fromEntries(
@@ -181,7 +245,14 @@ export const displaySystemNotification = async remoteMessage => {
  */
 export const requestNotificationPermission = async () => {
   try {
+    const api = getFirebaseMessagingApi();
+    const messaging = getMessagingInstance();
+    const notificationApi = getNotifeeApi();
+    const notifee = notificationApi?.default || notificationApi;
+    const AndroidImportance = notificationApi?.AndroidImportance || {};
+
     if (Platform.OS === 'android') {
+      if (!notifee?.createChannel) return false;
       await notifee.createChannel({
         id: NOTIFICATION_CHANNEL_ID,
         name: 'Humaeli notifications',
@@ -213,11 +284,11 @@ export const requestNotificationPermission = async () => {
     }
 
     console.log('✅ Notification permission granted');
-    if (Platform.OS === 'ios') {
-      const status = await requestPermission(messaging);
+    if (Platform.OS === 'ios' && api?.requestPermission && messaging) {
+      const status = await api.requestPermission(messaging);
       const enabled =
-        status === AuthorizationStatus.AUTHORIZED ||
-        status === AuthorizationStatus.PROVISIONAL;
+        status === api.AuthorizationStatus.AUTHORIZED ||
+        status === api.AuthorizationStatus.PROVISIONAL;
 
       if (!enabled) {
         console.log('[Push] Notification permission denied on iOS');
@@ -237,11 +308,15 @@ export const requestNotificationPermission = async () => {
  */
 export const getFCMToken = async () => {
   try {
-    if (!isDeviceRegisteredForRemoteMessages(messaging)) {
-      await registerDeviceForRemoteMessages(messaging);
+    const api = getFirebaseMessagingApi();
+    const messaging = getMessagingInstance();
+    if (!api || !messaging) return null;
+
+    if (!api.isDeviceRegisteredForRemoteMessages(messaging)) {
+      await api.registerDeviceForRemoteMessages(messaging);
     }
 
-    const token = await getToken(messaging);
+    const token = await api.getToken(messaging);
 
     if (!token) {
       throw new Error('Firebase returned an empty FCM token');
@@ -330,7 +405,11 @@ export const listenForTokenRefresh = (
   userId,
   authToken,
 ) => {
-  return onTokenRefresh(messaging, async newToken => {
+  const api = getFirebaseMessagingApi();
+  const messaging = getMessagingInstance();
+  if (!api?.onTokenRefresh || !messaging) return () => {};
+
+  return api.onTokenRefresh(messaging, async newToken => {
     await AsyncStorage.setItem('fcmToken', newToken);
     const currentUserId = userId || await AsyncStorage.getItem('userId');
     const currentAuthToken = authToken ||
@@ -350,7 +429,11 @@ export const listenForTokenRefresh = (
  * App open hai aur notification aayi
  */
 export const listenForForegroundNotifications = () => {
-  return onMessage(messaging, async remoteMessage => {
+  const api = getFirebaseMessagingApi();
+  const messaging = getMessagingInstance();
+  if (!api?.onMessage || !messaging) return () => {};
+
+  return api.onMessage(messaging, async remoteMessage => {
     console.log(
       '🔥 Foreground Notification:',
       remoteMessage,
@@ -371,7 +454,11 @@ export const listenForForegroundNotifications = () => {
  * Background notification click
  */
 export const listenForNotificationOpen = navigation => {
-  return onNotificationOpenedApp(
+  const api = getFirebaseMessagingApi();
+  const messaging = getMessagingInstance();
+  if (!api?.onNotificationOpenedApp || !messaging) return () => {};
+
+  return api.onNotificationOpenedApp(
     messaging,
     remoteMessage => {
       console.log(
@@ -392,8 +479,12 @@ export const listenForNotificationOpen = navigation => {
  */
 export const checkInitialNotification = async navigation => {
   try {
+    const api = getFirebaseMessagingApi();
+    const messaging = getMessagingInstance();
+    if (!api?.getInitialNotification || !messaging) return;
+
     const remoteMessage =
-      await getInitialNotification(messaging);
+      await api.getInitialNotification(messaging);
 
     if (remoteMessage) {
       console.log(
@@ -427,9 +518,9 @@ const handleNotificationNavigation = (
     return;
   }
 
-  if (data.type === 'CHAT_MESSAGE') {
+  if (isChatNotification(data)) {
     navigation?.navigate('Chat', {
-      chatId: data.chatId,
+      chatId: getNotificationChatId(data),
     });
   }
 

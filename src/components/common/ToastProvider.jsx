@@ -9,6 +9,7 @@ import React, {
 import {
   Alert,
   Animated,
+  AppState,
   Easing,
   Pressable,
   StyleSheet,
@@ -17,6 +18,8 @@ import {
 import Text from '../TranslatedText';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import LinearGradient from 'react-native-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DOCTOR_GRADIENT } from '../../theme/palette';
 
 const ToastContext = createContext(null);
 
@@ -51,7 +54,26 @@ const TOAST_THEME = {
   },
 };
 
-function ToastViewport({ toast, onHide, topOffset }) {
+const isConsultantRole = (role) => {
+  const normalized = String(role || '').trim().toLowerCase();
+  return normalized === 'counselor' || normalized === 'counsellor' || normalized === 'consultant';
+};
+
+const applyRoleTheme = (toast, role) => {
+  if (!isConsultantRole(toast?.role || role)) return toast;
+
+  return {
+    ...toast,
+    accent: toast?.accent || '#FFFFFF',
+    border: toast?.border || DOCTOR_GRADIENT[1],
+    gradientColors: toast?.gradientColors || DOCTOR_GRADIENT,
+    iconBg: toast?.iconBg || 'rgba(255,255,255,0.18)',
+    titleColor: toast?.titleColor || '#FFFFFF',
+    messageColor: toast?.messageColor || '#EAF4FF',
+  };
+};
+
+function ToastViewport({ toast, onHide, topOffset, role }) {
   const anim = useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
@@ -79,17 +101,18 @@ function ToastViewport({ toast, onHide, topOffset }) {
 
   if (!toast) return null;
 
-  const baseConfig = TOAST_THEME[toast.type] || TOAST_THEME.info;
+  const themedToast = applyRoleTheme(toast, role);
+  const baseConfig = TOAST_THEME[themedToast.type] || TOAST_THEME.info;
   const config = {
     ...baseConfig,
-    accent: toast.accent || baseConfig.accent,
-    bg: toast.bg || baseConfig.bg,
-    border: toast.border || baseConfig.border,
-    icon: toast.icon || baseConfig.icon,
-    gradientColors: toast.gradientColors,
-    iconBg: toast.iconBg,
-    titleColor: toast.titleColor,
-    messageColor: toast.messageColor,
+    accent: themedToast.accent || baseConfig.accent,
+    bg: themedToast.bg || baseConfig.bg,
+    border: themedToast.border || baseConfig.border,
+    icon: themedToast.icon || baseConfig.icon,
+    gradientColors: themedToast.gradientColors,
+    iconBg: themedToast.iconBg,
+    titleColor: themedToast.titleColor,
+    messageColor: themedToast.messageColor,
   };
   const Surface = config.gradientColors ? LinearGradient : View;
   const surfaceProps = config.gradientColors
@@ -136,15 +159,15 @@ function ToastViewport({ toast, onHide, topOffset }) {
           ]}
         >
           <View style={[styles.leadingIcon, { backgroundColor: iconBg }]}>
-            <Text translate={toast.translate !== false} style={styles.leadingIconText}>{config.icon}</Text>
+            <Text translate={themedToast.translate !== false} style={styles.leadingIconText}>{config.icon}</Text>
           </View>
 
           <View style={styles.content}>
-            <Text translate={toast.translate !== false} style={[styles.title, { color: titleColor }]} numberOfLines={1}>
-              {toast.title || config.title}
+            <Text translate={themedToast.translate !== false} style={[styles.title, { color: titleColor }]} numberOfLines={1}>
+              {themedToast.title || config.title}
             </Text>
-            <Text translate={toast.translate !== false} style={[styles.message, { color: messageColor }]} numberOfLines={3}>
-              {toast.message}
+            <Text translate={themedToast.translate !== false} style={[styles.message, { color: messageColor }]} numberOfLines={3}>
+              {themedToast.message}
             </Text>
           </View>
 
@@ -157,10 +180,20 @@ function ToastViewport({ toast, onHide, topOffset }) {
 
 export function ToastProvider({ children }) {
   const [toast, setToast] = useState(null);
+  const [toastRole, setToastRole] = useState(null);
   const insets = useSafeAreaInsets();
 
   const hideToast = useCallback(() => {
     setToast(null);
+  }, []);
+
+  const refreshStoredRole = useCallback(async () => {
+    try {
+      const role = await AsyncStorage.getItem('userRole');
+      setToastRole(role);
+    } catch (_) {
+      setToastRole(null);
+    }
   }, []);
 
   const showToast = useCallback((payload) => {
@@ -182,11 +215,23 @@ export function ToastProvider({ children }) {
       iconBg: payload?.iconBg,
       titleColor: payload?.titleColor,
       messageColor: payload?.messageColor,
+      role: payload?.role,
       translate: payload?.translate,
     });
   }, []);
 
-  const api = useMemo(() => ({ showToast, hideToast }), [hideToast, showToast]);
+  const api = useMemo(
+    () => ({ showToast, hideToast, setToastRole }),
+    [hideToast, showToast, setToastRole],
+  );
+
+  React.useEffect(() => {
+    refreshStoredRole();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshStoredRole();
+    });
+    return () => subscription.remove();
+  }, [refreshStoredRole]);
 
   React.useEffect(() => {
     const originalAlert = Alert.alert;
@@ -220,12 +265,12 @@ export function ToastProvider({ children }) {
     return () => {
       Alert.alert = originalAlert;
     };
-  }, []);
+  }, [toastRole]);
 
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <ToastViewport toast={toast} onHide={hideToast} topOffset={Math.max(10, insets.top + 6)} />
+      <ToastViewport toast={toast} onHide={hideToast} topOffset={Math.max(10, insets.top + 6)} role={toastRole} />
     </ToastContext.Provider>
   );
 }

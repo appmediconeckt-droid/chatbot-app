@@ -1588,10 +1588,15 @@ export default function UserDashboard() {
   const aiButtonBottom = (Platform.OS === "ios" ? 42 : 28) + dashboardBottomInset;
   const { i18n } = useTranslation();
   const { t } = useLanguageRender();
-  const { showToast } = useToast();
+  const { showToast, setToastRole } = useToast();
   const navigation = useNavigation();
   const route = useRoute();
   const isFocused = useIsFocused();
+
+  useEffect(() => {
+    setToastRole('user');
+  }, [setToastRole]);
+
   const [active, setActive] = useState("Chat");
   const [chatOpen, setChatOpen] = useState(false);
   const [newMessage, setNewMessage] = useState("");
