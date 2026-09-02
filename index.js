@@ -7,15 +7,37 @@ import {
   getMessaging,
   setBackgroundMessageHandler,
 } from '@react-native-firebase/messaging';
+import notifee from '@notifee/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import App from './App';
 import { name as appName } from './app.json';
-import { displaySystemNotification } from './src/services/notificationService';
+import {
+  displaySystemNotification,
+  handleNotificationReplyEvent,
+  PENDING_INCOMING_CALL_PUSH_KEY,
+} from './src/services/notificationService';
 
 const messaging = getMessaging();
+
+// Runs headlessly when the user replies from an Android notification, so the
+// reply can be sent without launching the application UI.
+notifee.onBackgroundEvent(handleNotificationReplyEvent);
+notifee.onForegroundEvent(handleNotificationReplyEvent);
 
 setBackgroundMessageHandler(
   messaging,
   async remoteMessage => {
+    const data = remoteMessage?.data || {};
+    if (
+      String(data.type || '').toUpperCase() === 'INCOMING_CALL' &&
+      data.callId
+    ) {
+      await AsyncStorage.setItem(
+        PENDING_INCOMING_CALL_PUSH_KEY,
+        JSON.stringify({ ...data, receivedAt: Date.now() }),
+      );
+    }
+
     console.log(
       '🔥 Background Notification:',
       remoteMessage,

@@ -1635,6 +1635,7 @@ export default function CounselorDashboard() {
 
         setShowIncomingCallModal(true);
         safeVibrate([320, 160, 320]);
+        await AsyncStorage.removeItem('pendingIncomingCallPush');
       }
     } else {
       setWaitingCalls([]);

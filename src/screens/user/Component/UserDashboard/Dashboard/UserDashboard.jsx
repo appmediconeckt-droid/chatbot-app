@@ -1960,10 +1960,14 @@ export default function UserDashboard() {
           setCallType(resolvedCallType);
           startIncomingRingtone(true);
           setShowCallModal(true);
+          await AsyncStorage.removeItem('pendingIncomingCallPush');
         }
       } catch (_) {}
     };
 
+    // A full-screen push may have just launched the app; show the incoming
+    // call modal immediately instead of waiting for the first 5-second tick.
+    fetchIncomingCalls();
     const intervalId = setInterval(fetchIncomingCalls, 5000);
 
     return () => {

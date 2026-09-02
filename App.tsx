@@ -52,6 +52,7 @@ import { LanguageProvider } from './src/contexts/LanguageContext';
 import {
   listenForTokenRefresh,
   listenForForegroundNotifications,
+  PENDING_INCOMING_CALL_PUSH_KEY,
   requestNotificationPermission,
   syncPushNotificationToken,
 } from './src/services/notificationService';
@@ -149,7 +150,7 @@ function App() {
 
     const bootstrapSessionRoute = async () => {
       try {
-        const [accessToken, token, storedUserRole, userDataRaw, counsellorId, counselorId, storedPin] = await Promise.all([
+        const [accessToken, token, storedUserRole, userDataRaw, counsellorId, counselorId, storedPin, pendingCallRaw] = await Promise.all([
           AsyncStorage.getItem('accessToken'),
           AsyncStorage.getItem('token'),
           AsyncStorage.getItem('userRole'),
@@ -157,7 +158,19 @@ function App() {
           AsyncStorage.getItem('counsellorId'),
           AsyncStorage.getItem('counselorId'),
           AsyncStorage.getItem(PIN_STORAGE_KEY),
+          AsyncStorage.getItem(PENDING_INCOMING_CALL_PUSH_KEY),
         ]);
+
+        let hasFreshIncomingCall = false;
+        if (pendingCallRaw) {
+          try {
+            const pendingCall = JSON.parse(pendingCallRaw);
+            hasFreshIncomingCall = Boolean(
+              pendingCall?.callId &&
+              Date.now() - Number(pendingCall?.receivedAt || 0) < 90000,
+            );
+          } catch (_) {}
+        }
 
         const hasToken = Boolean(accessToken || token);
         if (!hasToken) {
@@ -166,7 +179,7 @@ function App() {
         }
 
         // Show lock screen if the user has set up a PIN
-        if (storedPin) {
+        if (storedPin && !hasFreshIncomingCall) {
           setIsLocked(true);
         }
 
@@ -226,6 +239,33 @@ function App() {
         const elapsed = Date.now() - backgroundedAt.current;
         backgroundedAt.current = null;
         if (elapsed >= LOCK_TIMEOUT_MS) {
+          const pendingCallRaw = await AsyncStorage.getItem(
+            PENDING_INCOMING_CALL_PUSH_KEY,
+          );
+          let hasFreshIncomingCall = false;
+          if (pendingCallRaw) {
+            try {
+              const pendingCall = JSON.parse(pendingCallRaw);
+              hasFreshIncomingCall = Boolean(
+                pendingCall?.callId &&
+                Date.now() - Number(pendingCall?.receivedAt || 0) < 90000,
+              );
+            } catch (_) {}
+          }
+
+          if (hasFreshIncomingCall) {
+            setIsLocked(false);
+            const storedRole = String(
+              (await AsyncStorage.getItem('userRole')) || '',
+            ).toLowerCase();
+            const callDashboard = /counsell?or/.test(storedRole)
+              ? 'CounselorDashboard'
+              : 'UserDashboard';
+            if (navigationRef.isReady()) {
+              navigationRef.navigate(callDashboard as never);
+            }
+            return;
+          }
           const storedPin = await AsyncStorage.getItem(PIN_STORAGE_KEY);
           if (storedPin) {
             setIsLocked(true);

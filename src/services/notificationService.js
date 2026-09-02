@@ -2,7 +2,11 @@ import {
   PermissionsAndroid,
   Platform,
 } from 'react-native';
-import notifee, { AndroidImportance } from '@notifee/react-native';
+import notifee, {
+  AndroidCategory,
+  AndroidImportance,
+  EventType,
+} from '@notifee/react-native';
 
 import {
   getMessaging,
@@ -21,6 +25,73 @@ import axiosInstance from '../axiosConfig';
 
 const messaging = getMessaging();
 const NOTIFICATION_CHANNEL_ID = 'humaeli-default';
+const INCOMING_CALL_CHANNEL_ID = 'humaeli-incoming-calls-v1';
+export const PENDING_INCOMING_CALL_PUSH_KEY = 'pendingIncomingCallPush';
+export const NOTIFICATION_REPLY_ACTION_ID = 'reply-to-chat';
+
+const isChatNotification = data =>
+  String(data?.type || '').toUpperCase() === 'CHAT_MESSAGE' &&
+  Boolean(data?.chatId);
+
+const isIncomingCallNotification = data => {
+  const type = String(data?.type || '').toUpperCase();
+  return Boolean(data?.callId) && [
+    'INCOMING_CALL',
+    'VIDEO_CALL',
+    'VOICE_CALL',
+    'CALL',
+  ].includes(type);
+};
+
+/** Send text entered in Android's notification reply field to the chat API. */
+export const handleNotificationReplyEvent = async ({ type, detail }) => {
+  if (
+    type !== EventType.ACTION_PRESS ||
+    detail?.pressAction?.id !== NOTIFICATION_REPLY_ACTION_ID
+  ) {
+    return;
+  }
+
+  const reply = String(detail?.input || '').trim();
+  const chatId = detail?.notification?.data?.chatId;
+  if (!reply || !chatId) {
+    console.warn('[Push] Notification reply ignored: missing reply text or chatId');
+    return;
+  }
+
+  try {
+    await axiosInstance.post(
+      `/api/chat/chat/${encodeURIComponent(chatId)}/message`,
+      { content: reply },
+    );
+
+    if (detail?.notification?.id) {
+      await notifee.cancelNotification(detail.notification.id);
+    }
+    console.log('[Push] Notification reply sent');
+  } catch (error) {
+    console.error(
+      '[Push] Notification reply failed:',
+      error?.response?.data || error?.message || error,
+    );
+
+    await notifee.displayNotification({
+      title: 'Reply not sent',
+      body: 'Please check your connection and try again.',
+      data: detail?.notification?.data,
+      android: {
+        channelId: NOTIFICATION_CHANNEL_ID,
+        importance: AndroidImportance.HIGH,
+        pressAction: { id: 'default' },
+        actions: [{
+          title: 'Retry reply',
+          pressAction: { id: NOTIFICATION_REPLY_ACTION_ID },
+          input: { placeholder: 'Type your reply…' },
+        }],
+      },
+    });
+  }
+};
 
 /** Show an FCM message as a real device notification. */
 export const displaySystemNotification = async remoteMessage => {
@@ -40,6 +111,9 @@ export const displaySystemNotification = async remoteMessage => {
       String(value),
     ]),
   );
+  const canReply = Platform.OS === 'android' && isChatNotification(data);
+  const isIncomingCall =
+    Platform.OS === 'android' && isIncomingCallNotification(data);
 
   if (Platform.OS === 'android') {
     await notifee.createChannel({
@@ -50,6 +124,18 @@ export const displaySystemNotification = async remoteMessage => {
       sound: 'default',
       vibration: true,
     });
+
+    if (isIncomingCall) {
+      await notifee.createChannel({
+        id: INCOMING_CALL_CHANNEL_ID,
+        name: 'Incoming calls',
+        description: 'Ringing voice and video call notifications',
+        importance: AndroidImportance.HIGH,
+        sound: 'default',
+        vibration: true,
+        vibrationPattern: [300, 500, 300, 500],
+      });
+    }
   }
 
   await notifee.displayNotification({
@@ -57,10 +143,25 @@ export const displaySystemNotification = async remoteMessage => {
     body: String(body),
     data,
     android: {
-      channelId: NOTIFICATION_CHANNEL_ID,
+      channelId: isIncomingCall
+        ? INCOMING_CALL_CHANNEL_ID
+        : NOTIFICATION_CHANNEL_ID,
       importance: AndroidImportance.HIGH,
       sound: 'default',
       pressAction: { id: 'default' },
+      category: isIncomingCall ? AndroidCategory.CALL : undefined,
+      fullScreenAction: isIncomingCall ? { id: 'default' } : undefined,
+      ongoing: isIncomingCall || undefined,
+      autoCancel: !isIncomingCall,
+      loopSound: isIncomingCall || undefined,
+      timeoutAfter: isIncomingCall ? 60000 : undefined,
+      actions: canReply
+        ? [{
+            title: 'Reply',
+            pressAction: { id: NOTIFICATION_REPLY_ACTION_ID },
+            input: { placeholder: 'Type your reply…' },
+          }]
+        : undefined,
     },
     ios: {
       sound: 'default',
@@ -88,6 +189,15 @@ export const requestNotificationPermission = async () => {
         importance: AndroidImportance.HIGH,
         sound: 'default',
         vibration: true,
+      });
+      await notifee.createChannel({
+        id: INCOMING_CALL_CHANNEL_ID,
+        name: 'Incoming calls',
+        description: 'Ringing voice and video call notifications',
+        importance: AndroidImportance.HIGH,
+        sound: 'default',
+        vibration: true,
+        vibrationPattern: [300, 500, 300, 500],
       });
     }
 
@@ -172,16 +282,6 @@ export const saveFCMTokenToBackend = async (
 
     console.log('✅ FCM Token save response:', data);
 
-    // In development only, ask the backend to send a real push immediately
-    // after registration. Release builds will never send this login test.
-    if (__DEV__) {
-      const testResponse = await axiosInstance.post(
-        '/api/notifications/test',
-        { fcmToken: token },
-      );
-      console.log('[Push] Backend test response:', testResponse.data);
-    }
-
     return data;
   } catch (error) {
     console.log('❌ FCM token backend save error:', error);
@@ -256,10 +356,14 @@ export const listenForForegroundNotifications = () => {
       remoteMessage,
     );
 
-    // The visible app already updates through its chat/socket UI. Suppress the
-    // duplicate system banner here; FCM still displays notification payloads
-    // automatically while the app is backgrounded or swiped away.
-    console.log('[Push] Foreground system notification suppressed');
+    // Keep chat actionable in every app state. Incoming calls already use the
+    // foreground in-app modal and ringtone.
+    if (isChatNotification(remoteMessage?.data)) {
+      await displaySystemNotification(remoteMessage);
+      return;
+    }
+
+    console.log('[Push] Foreground non-chat notification suppressed');
   });
 };
 
