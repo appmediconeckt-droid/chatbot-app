@@ -24,6 +24,7 @@ import { API_BASE_URL } from '../../../axiosConfig';
 import { GOOGLE_WEB_CLIENT_ID } from '../../../config';
 import { sendLocationSilently } from '../../../utils/locationHelper';
 import socketService from '../../../services/socketService';
+import { syncPushNotificationToken } from '../../../services/notificationService';
 
 let GoogleSigninModule = null;
 let StatusCodesModule = null;
@@ -191,6 +192,10 @@ const GoogleAuthButton = ({
     }
 
     await AsyncStorage.removeItem('role');
+
+    syncPushNotificationToken().catch(error => {
+      console.warn('[Push] Token sync after Google login failed:', error?.message || error);
+    });
 
     if (!gateDriven) {
       sendLocationSilently(locationEvent);

@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import Text from '../TranslatedText';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import LinearGradient from 'react-native-linear-gradient';
 
 const ToastContext = createContext(null);
 
@@ -85,7 +86,18 @@ function ToastViewport({ toast, onHide, topOffset }) {
     bg: toast.bg || baseConfig.bg,
     border: toast.border || baseConfig.border,
     icon: toast.icon || baseConfig.icon,
+    gradientColors: toast.gradientColors,
+    iconBg: toast.iconBg,
+    titleColor: toast.titleColor,
+    messageColor: toast.messageColor,
   };
+  const Surface = config.gradientColors ? LinearGradient : View;
+  const surfaceProps = config.gradientColors
+    ? { colors: config.gradientColors, start: { x: 0, y: 0.5 }, end: { x: 1, y: 0.5 } }
+    : {};
+  const titleColor = config.titleColor || config.accent;
+  const messageColor = config.messageColor || "#0f172a";
+  const iconBg = config.iconBg || config.accent;
 
   return (
     <Animated.View
@@ -113,30 +125,31 @@ function ToastViewport({ toast, onHide, topOffset }) {
       ]}
     >
       <Pressable onPress={onHide} style={styles.cardWrap}>
-        <View
+        <Surface
+          {...surfaceProps}
           style={[
             styles.card,
             {
-              backgroundColor: config.bg,
+              backgroundColor: config.gradientColors ? undefined : config.bg,
               borderColor: config.border,
             },
           ]}
         >
-          <View style={[styles.leadingIcon, { backgroundColor: config.accent }]}>
+          <View style={[styles.leadingIcon, { backgroundColor: iconBg }]}>
             <Text translate={toast.translate !== false} style={styles.leadingIconText}>{config.icon}</Text>
           </View>
 
           <View style={styles.content}>
-            <Text translate={toast.translate !== false} style={[styles.title, { color: config.accent }]} numberOfLines={1}>
+            <Text translate={toast.translate !== false} style={[styles.title, { color: titleColor }]} numberOfLines={1}>
               {toast.title || config.title}
             </Text>
-            <Text translate={toast.translate !== false} style={styles.message} numberOfLines={3}>
+            <Text translate={toast.translate !== false} style={[styles.message, { color: messageColor }]} numberOfLines={3}>
               {toast.message}
             </Text>
           </View>
 
           <View style={[styles.sideAccent, { backgroundColor: config.accent }]} />
-        </View>
+        </Surface>
       </Pressable>
     </Animated.View>
   );
@@ -165,6 +178,10 @@ export function ToastProvider({ children }) {
       bg: payload?.bg,
       border: payload?.border,
       icon: payload?.icon,
+      gradientColors: payload?.gradientColors,
+      iconBg: payload?.iconBg,
+      titleColor: payload?.titleColor,
+      messageColor: payload?.messageColor,
       translate: payload?.translate,
     });
   }, []);

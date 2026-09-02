@@ -26,7 +26,7 @@ import TextInput from '../../../../../components/TranslatedTextInput';
 import Text from '../../../../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useNavigation, useIsFocused } from "@react-navigation/native";
+import { useNavigation, useIsFocused, useRoute } from "@react-navigation/native";
 import axios from "axios";
 import axiosInstance, { API_BASE_URL } from "../../../../../axiosConfig";
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -56,6 +56,7 @@ import HelpSupport from "../Tab/HelpSupport/HelpSupport";
 import PrivacyPolicy from "../Tab/PrivacyPolicy/PrivacyPolicy";
 import NotificationScreen from "../Tab/Notifications/NotificationScreen";
 import UserAccountSettings from "../Tab/UserAccountSettings";
+import PrescriptionScreen from "../Tab/Prescription/PrescriptionScreen";
 import { toImageUri } from "../../../../../utils/imageUri";
 import { clearAccountLocalData } from "../../../../../utils/authSession";
 
@@ -74,6 +75,7 @@ const AI_CHAT_TITLE_SUFFIX = 'AI Assistant';
 
 const AI_WELCOME_MESSAGE = "Hello, I'm Humaelio AI. How are you feeling today?";
 const AI_OPENING_EVENT = "__humaelio_ai_opening__";
+const INCOMING_CALL_POLL_TABS = new Set(["Chat", "Counselor", "Appointment"]);
 
 const isGeneratedUserAvatarUrl = (raw) => {
   const url = typeof raw === "string" ? raw : raw?.url || raw?.secure_url || "";
@@ -1540,14 +1542,17 @@ export default function UserDashboard() {
   const { t } = useLanguageRender();
   const { showToast } = useToast();
   const navigation = useNavigation();
+  const route = useRoute();
   const isFocused = useIsFocused();
   const [active, setActive] = useState("Chat");
   const [chatOpen, setChatOpen] = useState(false);
   const [newMessage, setNewMessage] = useState("");
   const [targetCounselor, setTargetCounselor] = useState("");
+  const [openCounselorRequestTarget, setOpenCounselorRequestTarget] = useState("");
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
   const [isMobile, setIsMobile] = useState(windowWidth <= 768);
   const [isLoading, setIsLoading] = useState(false);
@@ -1635,9 +1640,21 @@ export default function UserDashboard() {
 
   const handleAIContactClick = (name) => {
     setTargetCounselor(name);
+    setOpenCounselorRequestTarget("");
     switchDashboardTab("Counselor");
     setChatOpen(false);
   };
+
+  useEffect(() => {
+    const params = route?.params || {};
+    if (params.openTab !== 'Counselor' || !params.targetCounselor) return;
+
+    const target = String(params.targetCounselor).trim();
+    if (!target) return;
+    setTargetCounselor(target);
+    setOpenCounselorRequestTarget(params.openCounselorRequest ? target : "");
+    switchDashboardTab("Counselor");
+  }, [route?.params?.openTab, route?.params?.targetCounselor, route?.params?.openCounselorRequest]);
 
   useEffect(() => {
     fetchUserData();
@@ -1828,6 +1845,8 @@ export default function UserDashboard() {
   const showCallModalRef = useRef(false);
   const isVideoModalOpenRef = useRef(false);
   const isVoiceModalOpenRef = useRef(false);
+  const activeRef = useRef(active);
+  const isFocusedRef = useRef(isFocused);
   // Ref mirror for callerInfo so "still pending" check has stable access
   const callerInfoRef = useRef({ callId: '' });
 
@@ -1835,6 +1854,8 @@ export default function UserDashboard() {
   useEffect(() => { showCallModalRef.current = showCallModal; }, [showCallModal]);
   useEffect(() => { isVideoModalOpenRef.current = isVideoModalOpen; }, [isVideoModalOpen]);
   useEffect(() => { isVoiceModalOpenRef.current = isVoiceModalOpen; }, [isVoiceModalOpen]);
+  useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { isFocusedRef.current = isFocused; }, [isFocused]);
   useEffect(() => { callerInfoRef.current = callerInfo; }, [callerInfo]);
 
   // Poll for incoming calls from counselor — single stable interval, never restarts
@@ -1843,6 +1864,8 @@ export default function UserDashboard() {
 
     const fetchIncomingCalls = async () => {
       try {
+        if (!isFocusedRef.current) return;
+        if (!INCOMING_CALL_POLL_TABS.has(activeRef.current)) return;
         if (Date.now() < pollBlockedUntilRef.current) return;
         if (showCallModalRef.current || isVideoModalOpenRef.current || isVoiceModalOpenRef.current) return;
 
@@ -2336,11 +2359,13 @@ export default function UserDashboard() {
   };
 
   const handleDeleteConfirm = async () => {
+    if (deletingAccount) return;
     safeVibrate([220, 100, 220]);
-    setShowDeleteConfirm(false);
+    setDeletingAccount(true);
     try {
       await axiosInstance.delete('/api/auth/delete');
       await clearAccountLocalData();
+      setShowDeleteConfirm(false);
       setDeleteSuccess(true);
       setTimeout(() => {
         navigation.replace("RoleSelector");
@@ -2351,6 +2376,8 @@ export default function UserDashboard() {
         "Delete failed",
         error?.response?.data?.message || "Could not delete your account. Please try again.",
       );
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -2431,6 +2458,7 @@ export default function UserDashboard() {
     { id: "Chat", icon: "chat", label: t('dashboard:chat'), type: "material" },
     { id: "Counselor", icon: "psychology", label: t('dashboard:consultants', 'Consultants'), type: "material" },
     { id: "Appointment", icon: "event-available", label: t('dashboard:appointments', 'Appointments'), type: "material" },
+    { id: "Prescription", icon: "receipt-long", label: "Prescription", type: "material" },
     { id: "Wallet", icon: "account-balance-wallet", label: t('dashboard:wallet'), type: "material" },
     { id: "Video", icon: "history", label: t('dashboard:callHistory'), type: "material" },
   ];
@@ -2544,6 +2572,14 @@ export default function UserDashboard() {
       onPress: () => openTabFromSidebar('profile'),
     },
     {
+      id: 'Prescription',
+      icon: 'document-text-outline',
+      iconActive: 'document-text',
+      label: 'Prescription',
+      isActive: !sidebarSection && active === 'Prescription',
+      onPress: () => openTabFromSidebar('Prescription', handleMenuItemClick),
+    },
+    {
       id: 'Video',
       icon: 'call-outline',
       iconActive: 'call',
@@ -2589,7 +2625,13 @@ export default function UserDashboard() {
       case "Chat":
         return <ChatInterface setActiveTab={switchDashboardTab} />;
       case "Counselor":
-        return <CounselorTable initialSearchQuery={targetCounselor} />;
+        return (
+          <CounselorTable
+            initialSearchQuery={targetCounselor}
+            initialOpenRequestName={openCounselorRequestTarget}
+            onInitialOpenHandled={() => setOpenCounselorRequestTarget("")}
+          />
+        );
       case "Appointment":
         return (
           <MyAppointmentsPanel
@@ -2607,6 +2649,8 @@ export default function UserDashboard() {
             onChat={handleAptChat}
           />
         );
+      case "Prescription":
+        return <PrescriptionScreen />;
       case "Wallet":
         return <WalletDashboard userData={userData} navigation={navigation} />;
       case "Video":
@@ -2618,7 +2662,12 @@ export default function UserDashboard() {
         // callback after a successful save - it just was never wired up.
         return <PatientProfile onProfileUpdate={fetchUserData} />;
       case "settings":
-        return <UserAccountSettings onNavigateBack={() => handleDashboardBack()} />;
+        return (
+          <UserAccountSettings
+            onNavigateBack={() => handleDashboardBack()}
+            onDeleteAccount={() => setShowDeleteConfirm(true)}
+          />
+        );
       default:
         return <ChatInterface />;
     }
@@ -3085,14 +3134,20 @@ export default function UserDashboard() {
               <TouchableOpacity
                 style={[styles.modalBtn, styles.cancelBtn]}
                 onPress={() => setShowDeleteConfirm(false)}
+                disabled={deletingAccount}
               >
                 <Text style={styles.cancelBtnText}>{t('common:cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.deleteBtn]}
+                style={[styles.modalBtn, styles.deleteBtn, deletingAccount && styles.deleteBtnBusy]}
                 onPress={handleDeleteConfirm}
+                disabled={deletingAccount}
               >
-                <Text style={styles.deleteBtnText}>{t('settings:deleteAccount')}</Text>
+                {deletingAccount ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.deleteBtnText}>{t('settings:deleteAccount')}</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -5349,6 +5404,9 @@ const styles = StyleSheet.create({
   },
   deleteBtn: {
     backgroundColor: "#ef4444",
+  },
+  deleteBtnBusy: {
+    opacity: 0.75,
   },
   deleteBtnText: {
     color: "#ffffff",

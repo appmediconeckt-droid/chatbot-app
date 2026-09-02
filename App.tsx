@@ -49,6 +49,12 @@ import AppLockScreen, { PIN_STORAGE_KEY } from './src/screens/auth/AppLockScreen
 import PinSetupScreen from './src/screens/auth/PinSetupScreen';
 import './src/i18n';
 import { LanguageProvider } from './src/contexts/LanguageContext';
+import {
+  listenForTokenRefresh,
+  listenForForegroundNotifications,
+  requestNotificationPermission,
+  syncPushNotificationToken,
+} from './src/services/notificationService';
 // Define your navigation param list
 // import { LogBox } from 'react-native';
 // LogBox.ignoreAllLogs(true);
@@ -119,6 +125,8 @@ const withFontCap = (Component: any) => {
 withFontCap(RNText);
 withFontCap(TextInput);
 
+
+
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
   const [bootRoute, setBootRoute] = useState<keyof RootStackParamList>('Landing');
@@ -128,6 +136,9 @@ function App() {
   // reset to Login when the backend kills this device's session.
   const routeNameRef = useRef<string | undefined>(undefined);
   const backgroundedAt = useRef<number | null>(null);
+
+
+
 
   useEffect(() => {
     const normalizeRole = (role: string | null) => {
@@ -204,6 +215,8 @@ function App() {
   }, []);
 
 
+  
+
   // Re-lock when app returns from background after LOCK_TIMEOUT_MS
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (nextState) => {
@@ -222,6 +235,28 @@ function App() {
     });
     return () => sub.remove();
   }, []);
+
+useEffect(() => {
+  let mounted = true;
+  const unsubscribeForeground = listenForForegroundNotifications();
+  const unsubscribeTokenRefresh = listenForTokenRefresh(null, null);
+
+  (async () => {
+    await requestNotificationPermission();
+    if (mounted) {
+      await syncPushNotificationToken();
+    }
+  })().catch(error => {
+    console.warn('[Push] initialization failed:', error?.message || error);
+  });
+
+  return () => {
+    mounted = false;
+    unsubscribeForeground();
+    unsubscribeTokenRefresh();
+  };
+}, []);
+
 
   if (isBootstrapping) {
     return (
@@ -268,6 +303,14 @@ function App() {
             }
 
             routeNameRef.current = currentRouteName;
+
+            if (
+              currentRouteName === 'LocationGate' ||
+              currentRouteName === 'UserDashboard' ||
+              currentRouteName === 'CounselorDashboard'
+            ) {
+              void syncPushNotificationToken();
+            }
           }}
         >
           <Stack.Navigator

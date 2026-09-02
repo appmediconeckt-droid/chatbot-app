@@ -28,6 +28,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useToast } from '../../components/common/ToastProvider';
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
 import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
+import { syncPushNotificationToken } from '../../services/notificationService';
 
 // Vertical inset of the login scroll content.
 const SCROLL_PAD_V = 24;
@@ -342,6 +343,9 @@ const Login = ({ navigation, route }) => {
       setSuccessMessage(t('auth:login') + ' ' + t('common:success'));
 
       socketService.connect().catch(() => {});
+      syncPushNotificationToken().catch(error => {
+        console.warn('[Push] Token sync after login failed:', error?.message || error);
+      });
 
       const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
       // The PIN is device-local, so a new phone has none. Require setup before
@@ -509,6 +513,9 @@ const Login = ({ navigation, route }) => {
       setSuccessMessage('OTP verified! Redirecting...');
 
       socketService.connect().catch(() => {});
+      syncPushNotificationToken().catch(error => {
+        console.warn('[Push] Token sync after OTP login failed:', error?.message || error);
+      });
 
       const destination = resolvedRole === 'counselor' ? 'CounselorDashboard' : 'UserDashboard';
       setTimeout(() => {

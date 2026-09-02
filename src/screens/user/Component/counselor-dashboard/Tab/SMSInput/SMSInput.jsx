@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
+  ScrollView,
   StyleSheet,
   TouchableOpacity,
   FlatList,
@@ -47,6 +48,7 @@ import toImageUri from '../../../../../../utils/imageUri';
 import GradientFill from '../../../../../../components/common/GradientFill';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import ChatSkeleton from "../../../../../../components/common/ChatSkeleton";
+import PsychiatristDirectory from '../../../../../../components/common/PsychiatristDirectory';
 import {
   describeCall,
 } from '../../../../../../utils/chatCallHistory';
@@ -77,6 +79,24 @@ const normalizeIncomingCallType = (value) => {
   }
   return 'video';
 };
+
+const isPsychiatristSpecialization = (value) => {
+  const text = Array.isArray(value) ? value.join(' ') : String(value || '');
+  return /\bpsychiatrist\b|\bpsychiatry\b/i.test(text);
+};
+
+const createBlankMedicine = () => ({
+  medicineName: '',
+  dosage: '',
+  timeOfDay: {
+    Morning: false,
+    Afternoon: false,
+    Evening: false,
+    Night: false,
+  },
+  whenToTake: '',
+  duration: '',
+});
 
 // ─── Avatar Component (identical to ChatListAvatar) ───────────────────────
 const ChatAvatar = ({ avatarUrl, avatar, name, size = 40, style }) => {
@@ -288,6 +308,13 @@ const SMSInput = ({ navigation, route }) => {
   const [isInitiatingCall, setIsInitiatingCall] = useState(false);
   const [callError, setCallError] = useState(null);
   const [showOptions, setShowOptions] = useState(false);
+  const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
+  const [showPsychiatristPicker, setShowPsychiatristPicker] = useState(false);
+  const [recommendingPsychiatrist, setRecommendingPsychiatrist] = useState(false);
+  const [issuingPrescription, setIssuingPrescription] = useState(false);
+  const [prescriptionProblem, setPrescriptionProblem] = useState('');
+  const [prescriptionInstructions, setPrescriptionInstructions] = useState('');
+  const [prescriptionMedicines, setPrescriptionMedicines] = useState([createBlankMedicine()]);
 
   // Receiving Call States
   const [showIncomingModal, setShowIncomingModal] = useState(false);
@@ -360,6 +387,9 @@ const SMSInput = ({ navigation, route }) => {
   const userDetails = getUserDetailsFromSelected();
   const USER_ID = userDetails.id;
   const USER_NAME = userDetails.name;
+  const canIssuePrescription = isPsychiatristSpecialization(
+    currentCounselor?.specialization || currentCounselor?.specializations,
+  );
 
   const resolveOnlineStatus = (person) => {
     const v = person?.isOnline ?? person?.online;
@@ -387,10 +417,26 @@ const SMSInput = ({ navigation, route }) => {
       let counselorIdValue = null;
       if (counselorData) {
         counselorIdValue = counselorData._id || counselorData.id;
+        setCurrentCounselor(counselorData);
       }
       if (!counselorIdValue) {
         counselorIdValue = await AsyncStorage.getItem("counsellorId") ||
           await AsyncStorage.getItem("counselorId");
+      }
+      try {
+        const token = await getAuthToken();
+        if (token) {
+          const me = await axios.get(`${API_BASE_URL}/api/auth/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const freshCounselor = me.data?.counsellor || me.data?.counselor || me.data?.user;
+          if (freshCounselor) {
+            setCurrentCounselor(freshCounselor);
+            counselorIdValue = counselorIdValue || freshCounselor._id || freshCounselor.id;
+          }
+        }
+      } catch (_) {
+        // Stored counselor data is enough for chat; fresh profile only improves role gating.
       }
       setCounselorId(counselorIdValue);
       return counselorIdValue;
@@ -722,6 +768,122 @@ const SMSInput = ({ navigation, route }) => {
       throw new Error("Invalid API response");
     } catch (error) {
       throw error;
+    }
+  };
+
+  const updatePrescriptionMedicine = (index, field, value) => {
+    setPrescriptionMedicines(prev => prev.map((medicine, i) => (
+      i === index ? { ...medicine, [field]: value } : medicine
+    )));
+  };
+
+  const toggleMedicineTime = (index, slot) => {
+    setPrescriptionMedicines(prev => prev.map((medicine, i) => (
+      i === index
+        ? { ...medicine, timeOfDay: { ...medicine.timeOfDay, [slot]: !medicine.timeOfDay?.[slot] } }
+        : medicine
+    )));
+  };
+
+  const resetPrescriptionForm = () => {
+    setPrescriptionProblem('');
+    setPrescriptionInstructions('');
+    setPrescriptionMedicines([createBlankMedicine()]);
+  };
+
+  const handleOpenPrescription = () => {
+    setShowOptions(false);
+    if (!canIssuePrescription) {
+      Alert.alert('Prescription not allowed', 'Only psychiatrists can create prescriptions.');
+      return;
+    }
+    setShowPrescriptionModal(true);
+  };
+
+  const handleRecommendPsychiatrist = () => {
+    setShowOptions(false);
+    setShowPsychiatristPicker(true);
+  };
+
+  const handleSelectPsychiatrist = async (psychiatrist) => {
+    if (recommendingPsychiatrist) return;
+    const name = psychiatrist?.fullName || psychiatrist?.name || psychiatrist?.displayName || 'a psychiatrist';
+    const specialization = Array.isArray(psychiatrist?.specializations)
+      ? psychiatrist.specializations.filter(Boolean).join(', ')
+      : psychiatrist?.specialization || psychiatrist?.category || 'Psychiatry';
+    const note = `I recommend @${name} for ${specialization} support. Please open Consultants and search "${name}" to view their profile.`;
+    try {
+      setRecommendingPsychiatrist(true);
+      await sendMessageToAPI({ messageContent: note });
+      setShowPsychiatristPicker(false);
+    } catch (error) {
+      Alert.alert('Recommendation failed', error?.response?.data?.message || 'Unable to send psychiatrist recommendation right now.');
+    } finally {
+      setRecommendingPsychiatrist(false);
+    }
+  };
+
+  const handleIssuePrescription = async () => {
+    const validMedicines = prescriptionMedicines
+      .map((medicine) => {
+        const slots = Object.entries(medicine.timeOfDay || {})
+          .filter(([, selected]) => selected)
+          .map(([slot]) => slot);
+        return {
+          medicineName: medicine.medicineName.trim(),
+          name: medicine.medicineName.trim(),
+          dosage: medicine.dosage.trim(),
+          timeOfDay: slots,
+          whenToTake: medicine.whenToTake.trim(),
+          duration: medicine.duration.trim(),
+        };
+      })
+      .filter((medicine) => medicine.medicineName || medicine.dosage || medicine.whenToTake);
+
+    if (!prescriptionProblem.trim()) {
+      Alert.alert('Patient problem required', 'Please describe the patient problem or diagnosis.');
+      return;
+    }
+    if (validMedicines.length === 0 || validMedicines.some((m) => !m.medicineName || !m.dosage || !m.whenToTake || m.timeOfDay.length === 0)) {
+      Alert.alert('Medicine details required', 'Please fill medicine name, dosage, time of day, and when to take.');
+      return;
+    }
+
+    try {
+      setIssuingPrescription(true);
+      const formData = new FormData();
+      formData.append('patientProblem', prescriptionProblem.trim());
+      formData.append('diagnosis', prescriptionProblem.trim());
+      formData.append('instructions', prescriptionInstructions.trim());
+      formData.append('medicines', JSON.stringify(validMedicines));
+      formData.append('patientId', String(USER_ID || ''));
+      formData.append('patientName', USER_NAME || '');
+
+      await axios.post(`${API_BASE_URL}/api/prescriptions/chat/${getChatIdForAPI()}`, formData, {
+        headers: {
+          Authorization: `Bearer ${await getAuthToken()}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      const note = `Prescription created for ${USER_NAME}. Please check the Prescription tab.`;
+      await sendMessageToAPI({ messageContent: note }).catch(() => {});
+      setMessages(prev => [...prev, {
+        id: `temp_rx_${Date.now()}`,
+        text: note,
+        sender: 'me',
+        senderRole: 'counsellor',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        createdAt: new Date().toISOString(),
+        status: 'sent',
+      }]);
+      resetPrescriptionForm();
+      setShowPrescriptionModal(false);
+      Alert.alert('Prescription sent', 'Prescription has been sent to the patient.');
+    } catch (error) {
+      Alert.alert('Prescription failed', error?.response?.data?.message || 'Unable to send prescription.');
+    } finally {
+      setIssuingPrescription(false);
     }
   };
 
@@ -1634,6 +1796,9 @@ const SMSInput = ({ navigation, route }) => {
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.actionBtnDisabled]} onPress={initiateVoiceCall} disabled={isInitiatingCall}>
                 <Ionicons name="call-outline" size={22} color="#004AC6" />
               </TouchableOpacity>
+              <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(true)}>
+                <Ionicons name="ellipsis-vertical" size={22} color="#004AC6" />
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -1653,12 +1818,157 @@ const SMSInput = ({ navigation, route }) => {
                   <Ionicons name="refresh" size={18} color="#526071" />
                   <Text style={styles.optionText}>{t('Refresh Messages')}</Text>
                 </TouchableOpacity>
+                {canIssuePrescription ? (
+                  <TouchableOpacity style={styles.optionItem} onPress={handleOpenPrescription}>
+                    <Ionicons name="medical-outline" size={18} color="#004AC6" />
+                    <Text style={styles.optionText}>Prescription</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity style={styles.optionItem} onPress={handleRecommendPsychiatrist}>
+                    <Ionicons name="person-add-outline" size={18} color="#004AC6" />
+                    <Text style={styles.optionText}>Recommend Psychiatrist</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity style={[styles.optionItem, styles.optionItemLast]} onPress={() => { setShowOptions(false); clearChat(); }}>
                   <Ionicons name="trash-outline" size={18} color="#dc2626" />
                   <Text style={[styles.optionText, styles.optionTextDanger]}>{t('Clear Chat')}</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
+          </Modal>
+
+          <Modal transparent={false} visible={showPsychiatristPicker} animationType="slide" onRequestClose={() => setShowPsychiatristPicker(false)}>
+            <SafeAreaView style={styles.psychiatristModalSafe}>
+              <PsychiatristDirectory
+                title="Psychiatrists"
+                subtitle={`Choose psychiatrist for ${USER_NAME || 'this patient'}`}
+                selectLabel="Recommend"
+                selectDisabled={recommendingPsychiatrist}
+                onClose={() => setShowPsychiatristPicker(false)}
+                onSelect={handleSelectPsychiatrist}
+              />
+            </SafeAreaView>
+          </Modal>
+
+          <Modal transparent visible={showPrescriptionModal} animationType="slide" onRequestClose={() => !issuingPrescription && setShowPrescriptionModal(false)}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.prescriptionOverlay}>
+              <View style={[styles.prescriptionSheet, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+                <View style={styles.prescriptionHeader}>
+                  <View>
+                    <Text style={styles.prescriptionKicker}>Patient prescription</Text>
+                    <Text style={styles.prescriptionTitle}>Create Prescription</Text>
+                    <Text style={styles.prescriptionPatient}>For {USER_NAME}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setShowPrescriptionModal(false)} disabled={issuingPrescription} style={styles.prescriptionClose}>
+                    <Ionicons name="close" size={22} color="#475569" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  <Text style={styles.rxLabel}>Patient problem *</Text>
+                  <TextInput
+                    style={[styles.rxInput, styles.rxTextArea]}
+                    value={prescriptionProblem}
+                    onChangeText={setPrescriptionProblem}
+                    placeholder="Describe the patient's problem or diagnosis"
+                    placeholderTextColor="#94A3B8"
+                    multiline
+                  />
+
+                  {prescriptionMedicines.map((medicine, index) => (
+                    <View key={`medicine-${index}`} style={styles.medicineForm}>
+                      <View style={styles.medicineFormHeader}>
+                        <Text style={styles.medicineFormTitle}>Medicine {index + 1}</Text>
+                        {prescriptionMedicines.length > 1 && (
+                          <TouchableOpacity
+                            onPress={() => setPrescriptionMedicines(prev => prev.filter((_, i) => i !== index))}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Ionicons name="trash-outline" size={18} color="#DC2626" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+
+                      <Text style={styles.rxLabel}>Medicine name *</Text>
+                      <TextInput
+                        style={styles.rxInput}
+                        value={medicine.medicineName}
+                        onChangeText={(value) => updatePrescriptionMedicine(index, 'medicineName', value)}
+                        placeholder="Medicine name"
+                        placeholderTextColor="#94A3B8"
+                      />
+
+                      <Text style={styles.rxLabel}>Dosage *</Text>
+                      <TextInput
+                        style={styles.rxInput}
+                        value={medicine.dosage}
+                        onChangeText={(value) => updatePrescriptionMedicine(index, 'dosage', value)}
+                        placeholder="e.g. 10 mg"
+                        placeholderTextColor="#94A3B8"
+                      />
+
+                      <Text style={styles.rxLabel}>Time of day *</Text>
+                      <View style={styles.timeChipRow}>
+                        {['Morning', 'Afternoon', 'Evening', 'Night'].map((slot) => {
+                          const active = Boolean(medicine.timeOfDay?.[slot]);
+                          return (
+                            <TouchableOpacity
+                              key={slot}
+                              style={[styles.timeChip, active && styles.timeChipActive]}
+                              onPress={() => toggleMedicineTime(index, slot)}
+                            >
+                              <Text style={[styles.timeChipText, active && styles.timeChipTextActive]}>{slot}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      <Text style={styles.rxLabel}>When to take *</Text>
+                      <TextInput
+                        style={styles.rxInput}
+                        value={medicine.whenToTake}
+                        onChangeText={(value) => updatePrescriptionMedicine(index, 'whenToTake', value)}
+                        placeholder="e.g. After breakfast and dinner"
+                        placeholderTextColor="#94A3B8"
+                      />
+
+                      <Text style={styles.rxLabel}>Duration</Text>
+                      <TextInput
+                        style={styles.rxInput}
+                        value={medicine.duration}
+                        onChangeText={(value) => updatePrescriptionMedicine(index, 'duration', value)}
+                        placeholder="e.g. 14 days"
+                        placeholderTextColor="#94A3B8"
+                      />
+                    </View>
+                  ))}
+
+                  <TouchableOpacity style={styles.addMedicineBtn} onPress={() => setPrescriptionMedicines(prev => [...prev, createBlankMedicine()])}>
+                    <Ionicons name="add-circle-outline" size={18} color="#004AC6" />
+                    <Text style={styles.addMedicineText}>Add another medicine</Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.rxLabel}>Instructions</Text>
+                  <TextInput
+                    style={[styles.rxInput, styles.rxTextArea]}
+                    value={prescriptionInstructions}
+                    onChangeText={setPrescriptionInstructions}
+                    placeholder="Additional instructions for the patient"
+                    placeholderTextColor="#94A3B8"
+                    multiline
+                  />
+
+                  <View style={styles.prescriptionActions}>
+                    <TouchableOpacity style={styles.rxCancelBtn} onPress={() => setShowPrescriptionModal(false)} disabled={issuingPrescription}>
+                      <Text style={styles.rxCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.rxSendBtn, issuingPrescription && styles.rxSendBtnDisabled]} onPress={handleIssuePrescription} disabled={issuingPrescription}>
+                      {issuingPrescription ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.rxSendText}>Send Prescription</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+              </View>
+            </KeyboardAvoidingView>
           </Modal>
 
           {/* Messages */}
@@ -2123,6 +2433,10 @@ const styles = StyleSheet.create({
   callEndIcon: { transform: [{ rotate: '135deg' }] },
   incomingCallBtnLabel: { color: '#64748B', fontWeight: '700', fontSize: 13 },
   // Options Menu Styles
+  psychiatristModalSafe: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
   optionsOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
@@ -2161,6 +2475,174 @@ const styles = StyleSheet.create({
   },
   optionTextDanger: {
     color: '#dc2626',
+  },
+  prescriptionOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'flex-end',
+  },
+  prescriptionSheet: {
+    maxHeight: '92%',
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  prescriptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    marginBottom: 12,
+  },
+  prescriptionKicker: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: DOCTOR.primary,
+    textTransform: 'uppercase',
+  },
+  prescriptionTitle: {
+    fontSize: 21,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginTop: 2,
+  },
+  prescriptionPatient: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+    marginTop: 4,
+  },
+  prescriptionClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rxLabel: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#334155',
+    marginBottom: 7,
+    marginTop: 10,
+  },
+  rxInput: {
+    minHeight: 46,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#0F172A',
+  },
+  rxTextArea: {
+    minHeight: 88,
+    textAlignVertical: 'top',
+  },
+  medicineForm: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  medicineFormHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  medicineFormTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  timeChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  timeChip: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeChipActive: {
+    backgroundColor: '#EAF2FF',
+    borderColor: DOCTOR.primary,
+  },
+  timeChipText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  timeChipTextActive: {
+    color: DOCTOR.primary,
+  },
+  addMedicineBtn: {
+    marginTop: 12,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  addMedicineText: {
+    color: DOCTOR.primary,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  prescriptionActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  rxCancelBtn: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rxCancelText: {
+    color: '#334155',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  rxSendBtn: {
+    flex: 1.4,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: DOCTOR.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rxSendBtnDisabled: {
+    opacity: 0.65,
+  },
+  rxSendText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
   },
   // Image Preview Modal Styles
 });

@@ -243,6 +243,16 @@ const ChatBox = () => {
     };
   });
 
+  const handleMentionPress = useCallback((name) => {
+    const cleanName = String(name || '').replace(/^@/, '').trim();
+    if (!cleanName) return;
+    navigation.navigate('UserDashboard', {
+      openTab: 'Counselor',
+      targetCounselor: cleanName,
+      openCounselorRequest: true,
+    });
+  }, [navigation]);
+
   // Launched from the appointment tab: the call already exists server-side, so
   // just open the matching modal. Guarded by a ref so a re-render can't reopen a
   // call the user has already hung up.
@@ -1699,6 +1709,7 @@ const ChatBox = () => {
             text={item.text}
             isUser={isUser}
             style={[styles.messageText, isUser ? styles.userMessageText : styles.counselorMessageText]}
+            onMentionPress={handleMentionPress}
           />
         )}
         {(item.attachmentName || item.attachmentUrl) && (() => {
