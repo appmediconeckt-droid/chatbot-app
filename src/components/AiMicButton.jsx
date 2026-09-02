@@ -7,6 +7,7 @@ const AiMicButton = ({
   isLoading,
   onPress,
   disabled,
+  style,
 }) => {
   const isActive = isListening || isLoading;
   const iconColor = isActive ? '#ef4444' : '#006B2C';
@@ -17,6 +18,7 @@ const AiMicButton = ({
       style={[
         styles.micButton,
         { backgroundColor: bgColor },
+        style,
         disabled && styles.micButtonDisabled,
       ]}
       onPress={onPress}

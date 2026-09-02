@@ -18,6 +18,7 @@ class MainApplication : Application(), ReactApplication {
           add(InCallManagerPackage())
           add(SpeechPackage())
           add(ScreenshotPreventPackage())
+          add(PdfFileOpenerPackage())
         },
     )
   }
