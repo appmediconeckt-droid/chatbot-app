@@ -59,6 +59,8 @@ import UserAccountSettings from "../Tab/UserAccountSettings";
 import PrescriptionScreen from "../Tab/Prescription/PrescriptionScreen";
 import { toImageUri } from "../../../../../utils/imageUri";
 import { clearAccountLocalData } from "../../../../../utils/authSession";
+import AiMicButton from "../../../../../components/AiMicButton";
+import { useSpeechToText } from "../../../../../hooks/useSpeechToText";
 
 // Time for a Modal to finish dismissing. RN can only transition one Modal at a
 // time, so opening the next one any sooner gets silently dropped.
@@ -117,6 +119,18 @@ const ChatPopup = ({
   const { width, height } = useWindowDimensions();
   const [speakingId, setSpeakingId] = useState(null);
   const [aiInputPlaceholder, setAiInputPlaceholder] = useState('Type your question');
+  
+  // Speech-to-text hook
+  const {
+    isListening,
+    transcript,
+    error: speechError,
+    isAvailable: speechAvailable,
+    startListening,
+    stopListening,
+    clearTranscript,
+  } = useSpeechToText({ language: selectedLang });
+  const speechInputBaseRef = useRef('');
 
   const handleAiSend = useCallback(() => {
     const text = (newMessage || "").trim();
@@ -153,6 +167,33 @@ const ChatPopup = ({
       isMounted = false;
     };
   }, [selectedLang]);
+
+  useEffect(() => {
+    const spokenText = String(transcript || '').trim();
+    if (spokenText) {
+      const baseText = speechInputBaseRef.current;
+      const spacer = baseText && !/\s$/.test(baseText) ? ' ' : '';
+      setNewMessage(`${baseText}${spacer}${spokenText}`);
+    }
+  }, [transcript, setNewMessage]);
+
+  useEffect(() => {
+    if (speechError) {
+      console.warn('[AI Speech-to-Text] error:', speechError);
+    }
+  }, [speechError]);
+
+  const handleMicPress = useCallback(() => {
+    if (isListening) {
+      stopListening();
+    } else {
+      speechInputBaseRef.current = newMessage || '';
+      clearTranscript();
+      inputRef.current?.focus();
+      startListening(selectedLang);
+    }
+  }, [clearTranscript, isListening, newMessage, selectedLang, startListening, stopListening]);
+
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [keyboardScreenY, setKeyboardScreenY] = useState(null);
@@ -513,7 +554,14 @@ const ChatPopup = ({
               // Grows with the text, then scrolls - so a long question stays
               // readable instead of running off the end of one line.
               maxLength={2000}
-              textAlignVertical="center"
+              textAlignVertical="top"
+            />
+            <AiMicButton
+              isListening={isListening}
+              isLoading={false}
+              onPress={handleMicPress}
+              disabled={isLoading || !speechAvailable}
+              style={styles.chatInputMicBtn}
             />
           </View>
 
@@ -4632,31 +4680,43 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#eaeaea",
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     gap: 8,
   },
   chatInputPill: {
     flex: 1,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     backgroundColor: "#F1F5F9",
     borderRadius: 22,
-    paddingHorizontal: 12,
+    paddingLeft: 12,
+    paddingRight: 48,
     // minHeight rather than height, so the pill expands as the input wraps.
     minHeight: 44,
     paddingVertical: 4,
+    position: "relative",
   },
   chatInputLead: {
     marginRight: 6,
+    marginBottom: 9,
   },
   chatInput: {
     flex: 1,
-    paddingVertical: 0,
+    paddingTop: 8,
+    paddingBottom: 8,
     paddingHorizontal: 0,
     fontSize: 14,
+    lineHeight: 20,
     color: "#0f172a",
     // ~4 lines before it starts scrolling internally.
     maxHeight: 96,
+    minHeight: 36,
+  },
+  chatInputMicBtn: {
+    position: "absolute",
+    right: 5,
+    bottom: 4,
+    marginLeft: 0,
   },
   sendBtn: {
     width: 44,
@@ -4665,6 +4725,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
+    alignSelf: "flex-end",
     shadowColor: "#006B2C",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,

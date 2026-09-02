@@ -26,6 +26,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useIsFocused } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import ZoomableImageViewer from '../../../../../../components/common/ZoomableImageViewer';
+import MicButton from '../../../../../../components/MicButton';
 import LinearGradient from 'react-native-linear-gradient';
 import RNFS from 'react-native-fs';
 import { pick } from '@react-native-documents/picker';
@@ -52,6 +53,7 @@ import PsychiatristDirectory from '../../../../../../components/common/Psychiatr
 import {
   describeCall,
 } from '../../../../../../utils/chatCallHistory';
+import { useSpeechToText } from '../../../../../../hooks/useSpeechToText';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -99,6 +101,104 @@ const createBlankMedicine = () => ({
 });
 
 // ─── Avatar Component (identical to ChatListAvatar) ───────────────────────
+const escapePdfValue = (value) => String(value || '')
+  .replace(/\\/g, '\\\\')
+  .replace(/\(/g, '\\(')
+  .replace(/\)/g, '\\)')
+  .replace(/\r?\n/g, ' ');
+
+const buildSimplePrescriptionPdf = ({ patientName, psychiatristName, psychiatristId, problem, instructions, medicines }) => {
+  const commands = [];
+  const rect = (x, y, w, h, color) => commands.push(`${color} rg ${x} ${y} ${w} ${h} re f`);
+  const text = (value, x, y, size = 11, color = '0.10 0.14 0.22', font = 'F1') => {
+    commands.push(`${color} rg BT /${font} ${size} Tf ${x} ${y} Td (${escapePdfValue(value)}) Tj ET`);
+  };
+  const line = (x1, y1, x2, y2, color = '0.82 0.88 0.95', width = 1) => {
+    commands.push(`${color} RG ${width} w ${x1} ${y1} m ${x2} ${y2} l S`);
+  };
+
+  rect(0, 0, 612, 792, '0.98 0.99 1');
+  rect(36, 704, 540, 54, '0.10 0.32 0.74');
+  text('HUMAELI', 56, 734, 20, '1 1 1', 'F2');
+  text('DIGITAL PRESCRIPTION', 56, 716, 10, '0.86 0.93 1', 'F2');
+  text(`Date: ${new Date().toLocaleDateString('en-IN')}`, 430, 733, 10, '1 1 1');
+  text(`Practitioner: ${psychiatristName || 'Psychiatrist'}`, 430, 716, 10, '1 1 1');
+  if (psychiatristId) text(`ID: ${psychiatristId}`, 430, 702, 8, '0.86 0.93 1');
+
+  rect(36, 628, 540, 54, '0.94 0.97 1');
+  text('PATIENT', 56, 662, 9, '0.39 0.45 0.55', 'F2');
+  text(patientName || 'Patient', 56, 643, 15, '0.08 0.13 0.22', 'F2');
+  text(`Problem: ${problem}`, 255, 650, 11);
+
+  text('Medicines', 36, 596, 15, '0.08 0.13 0.22', 'F2');
+  rect(36, 566, 540, 24, '0.12 0.29 0.62');
+  text('#', 48, 574, 9, '1 1 1', 'F2');
+  text('Medicine', 78, 574, 9, '1 1 1', 'F2');
+  text('Dosage', 222, 574, 9, '1 1 1', 'F2');
+  text('Time', 316, 574, 9, '1 1 1', 'F2');
+  text('How to take', 424, 574, 9, '1 1 1', 'F2');
+
+  let y = 540;
+  medicines.slice(0, 9).forEach((medicine, index) => {
+    rect(36, y - 7, 540, 28, index % 2 === 0 ? '1 1 1' : '0.96 0.98 1');
+    text(String(index + 1), 50, y + 3, 9);
+    text(medicine.name || 'Medicine', 78, y + 3, 9, '0.08 0.13 0.22', 'F2');
+    text(medicine.dosage || '', 222, y + 3, 9);
+    text((medicine.timeOfDay || []).join(', '), 316, y + 3, 9);
+    text(medicine.timing || '', 424, y + 3, 9);
+    if (medicine.duration) text(`Duration: ${medicine.duration}`, 78, y - 10, 8, '0.39 0.45 0.55');
+    line(36, y - 9, 576, y - 9);
+    y -= 30;
+  });
+
+  if (instructions) {
+    rect(36, Math.max(118, y - 52), 540, 46, '0.92 0.96 1');
+    text('Additional instructions', 52, Math.max(145, y - 24), 10, '0.10 0.32 0.74', 'F2');
+    text(instructions, 52, Math.max(128, y - 42), 10);
+  }
+
+  line(390, 92, 556, 92, '0.58 0.64 0.72');
+  text('Digitally prescribed by', 410, 74, 9, '0.39 0.45 0.55');
+  text(psychiatristName || 'Psychiatrist', 410, 58, 11, '0.08 0.13 0.22', 'F2');
+  line(36, 40, 576, 40);
+  text('This prescription was issued through Humaeli - www.humaeli.com - support@humaeli.com', 92, 24, 8, '0.39 0.45 0.55');
+
+  const stream = commands.join('\n');
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources 4 0 R /Contents 5 0 R >>',
+    '<< /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> /F2 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> >> >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return pdf;
+};
+
+const createPrescriptionAttachment = async ({ patientName, psychiatristName, psychiatristId, problem, instructions, medicines }) => {
+  const safeName = String(patientName || 'Patient').replace(/[^\w.-]+/g, '-');
+  const filename = `Prescription-${safeName}-${new Date().toISOString().slice(0, 10)}.pdf`;
+  const filePath = `${RNFS.CachesDirectoryPath}/${filename}`;
+  const pdf = buildSimplePrescriptionPdf({ patientName, psychiatristName, psychiatristId, problem, instructions, medicines });
+  await RNFS.writeFile(filePath, pdf, 'utf8');
+  return {
+    uri: `file://${filePath}`,
+    type: 'application/pdf',
+    name: filename,
+  };
+};
+
 const ChatAvatar = ({ avatarUrl, avatar, name, size = 40, style }) => {
   const [failed, setFailed] = useState(false);
 
@@ -284,8 +384,18 @@ const SMSInput = ({ navigation, route }) => {
   useScreenshotPrevent();
   const location = route.params || {};
   const [message, setMessage] = useState("");
+  const {
+    isListening: isVoiceTyping,
+    transcript: voiceTranscript,
+    error: voiceTypingError,
+    isAvailable: voiceTypingAvailable,
+    startListening: startVoiceTyping,
+    stopListening: stopVoiceTyping,
+    clearTranscript: clearVoiceTranscript,
+  } = useSpeechToText();
   const [keyboardInset, setKeyboardInset] = useState(0);
   const messageInputRef = useRef(null);
+  const voiceTypingBaseRef = useRef("");
   const keyboardVisibleRef = useRef(false);
   const sendFocusGuardRef = useRef(false);
   const focusRestoreTimersRef = useRef([]);
@@ -834,6 +944,7 @@ const SMSInput = ({ navigation, route }) => {
           name: medicine.medicineName.trim(),
           dosage: medicine.dosage.trim(),
           timeOfDay: slots,
+          timing: medicine.whenToTake.trim(),
           whenToTake: medicine.whenToTake.trim(),
           duration: medicine.duration.trim(),
         };
@@ -851,19 +962,30 @@ const SMSInput = ({ navigation, route }) => {
 
     try {
       setIssuingPrescription(true);
+      const medicinesForApi = validMedicines.map((medicine) => ({
+        name: medicine.name,
+        dosage: medicine.dosage,
+        timeOfDay: medicine.timeOfDay,
+        timing: medicine.timing,
+        duration: medicine.duration,
+      }));
+      const prescriptionPdf = await createPrescriptionAttachment({
+        patientName: USER_NAME,
+        psychiatristName: currentCounselor?.fullName || currentCounselor?.name || 'Psychiatrist',
+        psychiatristId: counselorId,
+        problem: prescriptionProblem.trim(),
+        instructions: prescriptionInstructions.trim(),
+        medicines: medicinesForApi,
+      });
       const formData = new FormData();
-      formData.append('patientProblem', prescriptionProblem.trim());
-      formData.append('diagnosis', prescriptionProblem.trim());
+      formData.append('problem', prescriptionProblem.trim());
       formData.append('instructions', prescriptionInstructions.trim());
-      formData.append('medicines', JSON.stringify(validMedicines));
-      formData.append('patientId', String(USER_ID || ''));
-      formData.append('patientName', USER_NAME || '');
+      formData.append('medicines', JSON.stringify(medicinesForApi));
+      formData.append('attachment', prescriptionPdf);
 
+      const token = await getAuthToken();
       await axios.post(`${API_BASE_URL}/api/prescriptions/chat/${getChatIdForAPI()}`, formData, {
-        headers: {
-          Authorization: `Bearer ${await getAuthToken()}`,
-          'Content-Type': 'multipart/form-data',
-        },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
       const note = `Prescription created for ${USER_NAME}. Please check the Prescription tab.`;
@@ -1044,6 +1166,33 @@ const SMSInput = ({ navigation, route }) => {
       finishComposerFocusForSend();
     }
   };
+
+  useEffect(() => {
+    const spokenText = String(voiceTranscript || "").trim();
+    if (!spokenText) return;
+
+    const baseText = voiceTypingBaseRef.current;
+    const spacer = baseText && !/\s$/.test(baseText) ? " " : "";
+    setMessage(`${baseText}${spacer}${spokenText}`);
+  }, [voiceTranscript]);
+
+  useEffect(() => {
+    if (voiceTypingError) {
+      console.warn("[Counselor Speech-to-Text] error:", voiceTypingError);
+    }
+  }, [voiceTypingError]);
+
+  const handleVoiceTypingPress = useCallback(() => {
+    if (isVoiceTyping) {
+      stopVoiceTyping();
+      return;
+    }
+
+    voiceTypingBaseRef.current = message || "";
+    clearVoiceTranscript();
+    messageInputRef.current?.focus();
+    startVoiceTyping();
+  }, [clearVoiceTranscript, isVoiceTyping, message, startVoiceTyping, stopVoiceTyping]);
 
   // ─── End session ─────────────────────────────────────────────────────────
   // Counselor ends the session. The backend should mark the chat "ended" and
@@ -2049,6 +2198,16 @@ const SMSInput = ({ navigation, route }) => {
                       }
                     }}
                   />
+                  <MicButton
+                    isListening={isVoiceTyping}
+                    onPress={handleVoiceTypingPress}
+                    disabled={isSending || !voiceTypingAvailable}
+                    color="#2563EB"
+                    backgroundColor="#EFF6FF"
+                    size={34}
+                    iconSize={18}
+                    style={styles.inputMicBtn}
+                  />
                 </View>
                 <TouchableOpacity
                   activeOpacity={0.85}
@@ -2292,21 +2451,40 @@ const styles = StyleSheet.create({
   attachmentPreview: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10, gap: 8 },
   attachmentPreviewText: { flex: 1, color: '#111827', fontSize: 12, fontWeight: '500' },
   inputGroupDisabled: { opacity: 0.7 },
-  inputGroup: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  inputGroup: { width: '100%', flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
   attachBtn: { width: 42, height: 42, borderRadius: 21, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E8EFFB' },
   inputWrapper: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: '#FFFFFF',
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 6,
     minHeight: 44,
+    position: 'relative',
   },
-  textInput: { flex: 1, fontSize: 14, lineHeight: 20, color: '#111827', paddingVertical: Platform.OS === 'ios' ? 6 : 4, paddingHorizontal: 8, maxHeight: 120, minHeight: 36, textAlignVertical: 'center' },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
+  textInput: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#111827',
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingLeft: 8,
+    paddingRight: 42,
+    maxHeight: 120,
+    minHeight: 40,
+    textAlignVertical: 'top',
+  },
+  inputMicBtn: {
+    position: 'absolute',
+    right: 5,
+    bottom: 4,
+  },
+  sendBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', alignSelf: 'flex-end' },
   sendBtnActive: { shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.35, shadowRadius: 5, elevation: 5 },
   sendBtnDisabled: { backgroundColor: '#CBD5E1', opacity: 0.7 },
   incomingCallScreen: {
