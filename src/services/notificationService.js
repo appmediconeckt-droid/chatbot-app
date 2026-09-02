@@ -129,8 +129,21 @@ export const displaySystemNotification = async remoteMessage => {
  */
 export const requestNotificationPermission = async () => {
   try {
+<<<<<<< HEAD
     const api = getFirebaseMessagingApi();
     const messaging = getMessagingInstance();
+=======
+    if (Platform.OS === 'android') {
+      await notifee.createChannel({
+        id: NOTIFICATION_CHANNEL_ID,
+        name: 'Humaeli notifications',
+        description: 'Messages, appointments and account notifications',
+        importance: AndroidImportance.HIGH,
+        sound: 'default',
+        vibration: true,
+      });
+    }
+>>>>>>> d53c218ddabf4a744958bca665aa56793072dc6c
 
     if (Platform.OS === 'android' && Platform.Version >= 33) {
       const result = await PermissionsAndroid.request(
@@ -309,7 +322,10 @@ export const listenForForegroundNotifications = () => {
       remoteMessage,
     );
 
-    await displaySystemNotification(remoteMessage);
+    // The visible app already updates through its chat/socket UI. Suppress the
+    // duplicate system banner here; FCM still displays notification payloads
+    // automatically while the app is backgrounded or swiped away.
+    console.log('[Push] Foreground system notification suppressed');
   });
 };
 
