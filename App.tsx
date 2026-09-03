@@ -52,6 +52,8 @@ import { LanguageProvider } from './src/contexts/LanguageContext';
 import {
   listenForTokenRefresh,
   listenForForegroundNotifications,
+  listenForNotificationOpen,
+  checkInitialNotification,
   PENDING_INCOMING_CALL_PUSH_KEY,
   requestNotificationPermission,
   syncPushNotificationToken,
@@ -71,7 +73,7 @@ export type RootStackParamList = {
   OTPVerification: undefined;
   LocationGate: { destination: keyof RootStackParamList; destinationParams?: object };
   UserDashboard: undefined;
-  ChatBox: undefined;
+  ChatBox: { chatId?: string } | undefined;
   CounselorTable: undefined;
   CounselorDashboard: {
     initialTab?: 'profile';
@@ -280,6 +282,7 @@ useEffect(() => {
   let mounted = true;
   const unsubscribeForeground = listenForForegroundNotifications();
   const unsubscribeTokenRefresh = listenForTokenRefresh(null, null);
+  const unsubscribeNotificationOpen = listenForNotificationOpen(navigationRef);
 
   (async () => {
     await requestNotificationPermission();
@@ -294,45 +297,41 @@ useEffect(() => {
     mounted = false;
     unsubscribeForeground();
     unsubscribeTokenRefresh();
+    unsubscribeNotificationOpen();
   };
 }, []);
 
-
-  if (isBootstrapping) {
-    return (
-      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <View style={styles.bootScreen}>
-          <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-          <View style={styles.bootGlowTop} />
-          <View style={styles.bootGlowBottom} />
-          <View style={styles.bootCard}>
-            <View style={styles.bootLogoWrap}>
-              <Image
-                source={require('./src/image/Humaeli-original-backup.png')}
-                style={styles.bootLogoImage}
-                resizeMode="cover"
-              />
-            </View>
-            <View style={styles.bootLoaderRow}>
-              <ActivityIndicator size="small" color="#2563eb" />
-              <Text style={styles.bootLoaderText}>Preparing dashboard</Text>
-            </View>
-          </View>
-        </View>
-      </SafeAreaProvider>
-    );
-  }
 
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       <LanguageProvider>
         <CallProvider>
+          {isBootstrapping ? (
+            <View style={styles.bootScreen}>
+              <View style={styles.bootGlowTop} />
+              <View style={styles.bootGlowBottom} />
+              <View style={styles.bootCard}>
+                <View style={styles.bootLogoWrap}>
+                  <Image
+                    source={require('./src/image/Humaeli-original-backup.png')}
+                    style={styles.bootLogoImage}
+                    resizeMode="cover"
+                  />
+                </View>
+                <View style={styles.bootLoaderRow}>
+                  <ActivityIndicator size="small" color="#2563eb" />
+                  <Text style={styles.bootLoaderText}>Preparing dashboard</Text>
+                </View>
+              </View>
+            </View>
+          ) : (
           <ToastProvider>
         <NavigationContainer
           ref={navigationRef}
           onReady={() => {
             routeNameRef.current = navigationRef.current?.getCurrentRoute()?.name;
+            void checkInitialNotification(navigationRef);
           }}
           onStateChange={() => {
             const previousRouteName = routeNameRef.current;
@@ -406,6 +405,7 @@ useEffect(() => {
           <AppLockScreen onSuccess={() => setIsLocked(false)} />
         )}
           </ToastProvider>
+          )}
         </CallProvider>
       </LanguageProvider>
     </SafeAreaProvider>

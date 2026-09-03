@@ -4,38 +4,44 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../axiosConfig';
+import {
+  isCallNotificationData,
+  notifyIncomingCallIntent,
+} from './callNotificationBridge';
 
 const NOTIFICATION_CHANNEL_ID = 'humaeli-default';
 const INCOMING_CALL_CHANNEL_ID = 'humaeli-incoming-calls-v1';
 export const PENDING_INCOMING_CALL_PUSH_KEY = 'pendingIncomingCallPush';
+export const PENDING_NOTIFICATION_OPEN_KEY = 'pendingNotificationOpen';
 export const NOTIFICATION_REPLY_ACTION_ID = 'reply-to-chat';
 let firebaseMessagingApi;
 let notifeeApi;
 let backgroundHandlersRegistered = false;
+let foregroundPressNavigation;
 
 const getNotificationChatId = data =>
-  data?.chatId || data?.chatID || data?.conversationId || data?.roomId || '';
+  data?.chatId || data?.chatID || data?.chat_id || data?.conversationId ||
+  data?.conversation_id || data?.roomId || data?.room_id || '';
 
 const isChatNotification = data => {
   const type = String(
     data?.type || data?.notificationType || data?.event || '',
   ).toUpperCase();
-  return Boolean(getNotificationChatId(data)) && [
+  if (!getNotificationChatId(data) || isIncomingCallNotification(data)) {
+    return false;
+  }
+  return [
     'CHAT_MESSAGE',
     'CHAT',
     'MESSAGE',
     'NEW_MESSAGE',
-  ].includes(type);
+  ].includes(type) || Boolean(
+    data?.message || data?.content || data?.senderId || data?.sender_id,
+  );
 };
 
 const isIncomingCallNotification = data => {
-  const type = String(data?.type || '').toUpperCase();
-  return Boolean(data?.callId) && [
-    'INCOMING_CALL',
-    'VIDEO_CALL',
-    'VOICE_CALL',
-    'CALL',
-  ].includes(type);
+  return isCallNotificationData(data);
 };
 
 const warnNativeNotificationsUnavailable = (error) => {
@@ -109,6 +115,39 @@ export const handleNotificationReplyEvent = async ({ type, detail }) => {
   }
 };
 
+/** Persist a normal notification press so a cold-started app can navigate once
+ * the NavigationContainer is ready. */
+const handleNotificationPressEvent = async ({ type, detail }) => {
+  const notificationApi = getNotifeeApi();
+  if (
+    type !== notificationApi?.EventType?.PRESS ||
+    detail?.pressAction?.id !== 'default'
+  ) {
+    return;
+  }
+
+  const data = detail?.notification?.data || {};
+  if (Object.keys(data).length) {
+    if (isIncomingCallNotification(data)) {
+      await notifyIncomingCallIntent(data, 'notification-press');
+      return;
+    }
+    if (foregroundPressNavigation) {
+      await handleNotificationNavigation(foregroundPressNavigation, { data });
+      return;
+    }
+    await AsyncStorage.setItem(
+      PENDING_NOTIFICATION_OPEN_KEY,
+      JSON.stringify(data),
+    );
+  }
+};
+
+const handleNotifeeEvent = async event => {
+  await handleNotificationReplyEvent(event);
+  await handleNotificationPressEvent(event);
+};
+
 export const registerBackgroundNotificationHandler = () => {
   if (backgroundHandlersRegistered) return;
 
@@ -119,10 +158,10 @@ export const registerBackgroundNotificationHandler = () => {
 
   try {
     if (notifee?.onBackgroundEvent) {
-      notifee.onBackgroundEvent(handleNotificationReplyEvent);
+      notifee.onBackgroundEvent(handleNotifeeEvent);
     }
     if (notifee?.onForegroundEvent) {
-      notifee.onForegroundEvent(handleNotificationReplyEvent);
+      notifee.onForegroundEvent(handleNotifeeEvent);
     }
 
     if (api?.setBackgroundMessageHandler && messaging) {
@@ -135,10 +174,11 @@ export const registerBackgroundNotificationHandler = () => {
               PENDING_INCOMING_CALL_PUSH_KEY,
               JSON.stringify({ ...data, receivedAt: Date.now() }),
             );
+            await notifyIncomingCallIntent(remoteMessage, 'background-push');
           }
 
           console.log('Background Notification:', remoteMessage);
-          if (!remoteMessage.notification) {
+          if (isIncomingCallNotification(data) || !remoteMessage.notification) {
             await displaySystemNotification(remoteMessage);
           }
         },
@@ -212,9 +252,13 @@ export const displaySystemNotification = async remoteMessage => {
         : NOTIFICATION_CHANNEL_ID,
       importance: AndroidImportance.HIGH,
       sound: 'default',
-      pressAction: { id: 'default' },
+      pressAction: isIncomingCall
+        ? { id: 'default', mainComponent: 'HumaeliIncomingCall' }
+        : { id: 'default' },
       category: isIncomingCall ? AndroidCategory.CALL : undefined,
-      fullScreenAction: isIncomingCall ? { id: 'default' } : undefined,
+      fullScreenAction: isIncomingCall
+        ? { id: 'default', mainComponent: 'HumaeliIncomingCall' }
+        : undefined,
       ongoing: isIncomingCall || undefined,
       autoCancel: !isIncomingCall,
       loopSound: isIncomingCall || undefined,
@@ -439,8 +483,12 @@ export const listenForForegroundNotifications = () => {
       remoteMessage,
     );
 
-    // Keep chat actionable in every app state. Incoming calls already use the
-    // foreground in-app modal and ringtone.
+    if (isIncomingCallNotification(remoteMessage?.data || {})) {
+      await notifyIncomingCallIntent(remoteMessage, 'foreground-push');
+      return;
+    }
+
+    // Keep chat actionable in every app state.
     if (isChatNotification(remoteMessage?.data)) {
       await displaySystemNotification(remoteMessage);
       return;
@@ -456,9 +504,14 @@ export const listenForForegroundNotifications = () => {
 export const listenForNotificationOpen = navigation => {
   const api = getFirebaseMessagingApi();
   const messaging = getMessagingInstance();
-  if (!api?.onNotificationOpenedApp || !messaging) return () => {};
+  foregroundPressNavigation = navigation;
+  if (!api?.onNotificationOpenedApp || !messaging) {
+    return () => {
+      foregroundPressNavigation = undefined;
+    };
+  }
 
-  return api.onNotificationOpenedApp(
+  const unsubscribe = api.onNotificationOpenedApp(
     messaging,
     remoteMessage => {
       console.log(
@@ -466,12 +519,17 @@ export const listenForNotificationOpen = navigation => {
         remoteMessage,
       );
 
-      handleNotificationNavigation(
-        navigation,
-        remoteMessage,
-      );
+      if (isIncomingCallNotification(remoteMessage?.data || {})) {
+        void notifyIncomingCallIntent(remoteMessage, 'notification-open');
+      } else {
+        void handleNotificationNavigation(navigation, remoteMessage);
+      }
     },
   );
+  return () => {
+    foregroundPressNavigation = undefined;
+    unsubscribe();
+  };
 };
 
 /**
@@ -483,8 +541,10 @@ export const checkInitialNotification = async navigation => {
     const messaging = getMessagingInstance();
     if (!api?.getInitialNotification || !messaging) return;
 
-    const remoteMessage =
-      await api.getInitialNotification(messaging);
+    const [remoteMessage, pendingDataRaw] = await Promise.all([
+      api.getInitialNotification(messaging),
+      AsyncStorage.getItem(PENDING_NOTIFICATION_OPEN_KEY),
+    ]);
 
     if (remoteMessage) {
       console.log(
@@ -492,10 +552,17 @@ export const checkInitialNotification = async navigation => {
         remoteMessage,
       );
 
-      handleNotificationNavigation(
-        navigation,
-        remoteMessage,
-      );
+      if (isIncomingCallNotification(remoteMessage?.data || {})) {
+        await notifyIncomingCallIntent(remoteMessage, 'cold-start');
+      } else {
+        await handleNotificationNavigation(navigation, remoteMessage);
+      }
+      await AsyncStorage.removeItem(PENDING_NOTIFICATION_OPEN_KEY);
+    } else if (pendingDataRaw) {
+      await AsyncStorage.removeItem(PENDING_NOTIFICATION_OPEN_KEY);
+      await handleNotificationNavigation(navigation, {
+        data: JSON.parse(pendingDataRaw),
+      });
     }
   } catch (error) {
     console.log(
@@ -508,7 +575,7 @@ export const checkInitialNotification = async navigation => {
 /**
  * Notification click ke according screen open
  */
-const handleNotificationNavigation = (
+export const handleNotificationNavigation = async (
   navigation,
   remoteMessage,
 ) => {
@@ -519,9 +586,26 @@ const handleNotificationNavigation = (
   }
 
   if (isChatNotification(data)) {
-    navigation?.navigate('Chat', {
-      chatId: getNotificationChatId(data),
-    });
+    const role = String(
+      data?.recipientRole ||
+      data?.role ||
+      (await AsyncStorage.getItem('userRole')) ||
+      '',
+    ).toLowerCase();
+    const chatId = getNotificationChatId(data);
+    if (/counsell?or/.test(role)) {
+      navigation?.navigate('SMSInput', {
+        chatId,
+        selectedUser: {
+          id: data?.senderId || data?.userId,
+          name: data?.senderName || data?.title || 'User',
+          chatId,
+        },
+      });
+    } else {
+      navigation?.navigate('ChatBox', { chatId });
+    }
+    return;
   }
 
   if (data.type === 'APPOINTMENT') {

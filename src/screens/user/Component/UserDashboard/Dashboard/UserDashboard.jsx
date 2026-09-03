@@ -1892,6 +1892,7 @@ export default function UserDashboard() {
 
   // Track call IDs already handled so the same call never rings twice
   const handledCallIdsRef = useRef(new Set());
+  const launchedFromCallPushRef = useRef(false);
   // After a call ends, block polling for 6s so the backend clears the call first
   const pollBlockedUntilRef = useRef(0);
   // Refs so the polling interval never needs to restart when modal state changes
@@ -1965,7 +1966,9 @@ export default function UserDashboard() {
           setCallType(resolvedCallType);
           startIncomingRingtone(true);
           setShowCallModal(true);
-          await AsyncStorage.removeItem('pendingIncomingCallPush');
+          launchedFromCallPushRef.current = Boolean(
+            await AsyncStorage.getItem('pendingIncomingCallPush'),
+          );
         }
       } catch (_) {}
     };
@@ -2003,10 +2006,16 @@ export default function UserDashboard() {
         );
 
         if (!stillThere) {
+          const shouldExitAfterCall = launchedFromCallPushRef.current;
+          launchedFromCallPushRef.current = false;
           forceStopRingtone();
           pollBlockedUntilRef.current = Date.now() + 6000;
           setShowCallModal(false);
           setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+          await AsyncStorage.removeItem('pendingIncomingCallPush');
+          if (shouldExitAfterCall && Platform.OS === 'android') {
+            setTimeout(() => BackHandler.exitApp(), 100);
+          }
         }
       } catch (_) {}
     };
@@ -2439,6 +2448,8 @@ export default function UserDashboard() {
   };
 
   const handleAcceptCall = async (callId) => {
+    launchedFromCallPushRef.current = false;
+    await AsyncStorage.removeItem('pendingIncomingCallPush');
     forceStopRingtone();
     setShowCallModal(false);
     setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
@@ -2495,6 +2506,8 @@ export default function UserDashboard() {
   };
 
   const handleRejectCall = async (callId) => {
+    const shouldExitAfterReject = launchedFromCallPushRef.current;
+    launchedFromCallPushRef.current = false;
     forceStopRingtone();
     setShowCallModal(false);
     setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
@@ -2509,6 +2522,10 @@ export default function UserDashboard() {
         ).catch(() => {});
       }
     } catch (_) {}
+    await AsyncStorage.removeItem('pendingIncomingCallPush');
+    if (shouldExitAfterReject && Platform.OS === 'android') {
+      setTimeout(() => BackHandler.exitApp(), 100);
+    }
   };
 
   const allMenuItems = [

@@ -41,6 +41,7 @@ import {
 } from '../../../../../../utils/passwordPolicy';
 import PasswordRequirementChecklist from '../../../../../../components/common/PasswordRequirementChecklist';
 import PsychiatristDirectory from '../../../../../../components/common/PsychiatristDirectory';
+import PrescriptionReviews from '../Prescriptions/PrescriptionReviews';
 
 const TERMS_URL = 'https://humaeli.com/terms-of-use/';
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -147,6 +148,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showWallet, setShowWallet] = useState(false);
   const [showPsychiatrists, setShowPsychiatrists] = useState(false);
+  const [showPrescriptions, setShowPrescriptions] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
   const showLanguageComingSoon = () => {
@@ -397,7 +399,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         `${API_BASE_URL}/api/auth/me`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const counselorData = res.data?.user || res.data?.counsellor;
+      const counselorData = res.data?.user || res.data?.counsellor || res.data?.counselor;
       if (res.data?.success && counselorData) {
         setCounselor(counselorData);
       }
@@ -419,6 +421,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
       return Linking.openURL('mailto:support@humaeli.com');
     if (id === 'help') return setShowHelp(true);
     if (id === 'psychiatrists') return setShowPsychiatrists(true);
+    if (id === 'prescriptions') return setShowPrescriptions(true);
     if (id === 'privacy') return setShowPrivacy(true);
     if (id === 'terms') return Linking.openURL(TERMS_URL);
     if (id === 'delete_account') return confirmDeleteAccount();
@@ -444,6 +447,13 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     counselor?.phoneNumber ||
     counselor?.phone ||
     'Personal & professional details';
+  const specializationText = [
+    counselor?.specialization,
+    counselor?.specializations,
+    counselor?.speciality,
+    counselor?.specialty,
+  ].flat(Infinity).filter(Boolean).join(' ');
+  const isPsychiatrist = /psychiatrist|psychiatry/i.test(specializationText);
   const SECTIONS = [
     {
       title: t('settings:account'),
@@ -464,7 +474,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           label: t('settings:language', 'Language'),
           type: 'language',
         },
-        {
+        ...(!isPsychiatrist ? [{
           id: 'psychiatrists',
           icon: 'users',
           iconBg: '#EFF6FF',
@@ -472,7 +482,15 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           label: t('Psychiatrists'),
           subtitle: t('View psychiatrists for patient referrals'),
           type: 'nav',
-        },
+        }] : [{
+          id: 'prescriptions',
+          icon: 'file-text',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: t('Prescriptions'),
+          subtitle: t('Review prescriptions issued to your patients'),
+          type: 'nav',
+        }]),
       ],
     },
     {
@@ -851,6 +869,20 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     {/* Psychiatrists Directory */}
     <Modal statusBarTranslucent navigationBarTranslucent visible={showPsychiatrists} animationType="slide" transparent={false} onRequestClose={() => setShowPsychiatrists(false)}>
       <PsychiatristDirectory headerVariant="compact" onClose={() => setShowPsychiatrists(false)} />
+    </Modal>
+
+    {/* Only psychiatrists can review prescriptions they issued. The backend
+        /review endpoint additionally scopes records to the authenticated ID. */}
+    <Modal statusBarTranslucent navigationBarTranslucent visible={showPrescriptions} animationType="slide" transparent={false} onRequestClose={() => setShowPrescriptions(false)}>
+      <View style={{ flex: 1 }}>
+        <TouchableOpacity
+          onPress={() => setShowPrescriptions(false)}
+          style={{ position: 'absolute', right: 14, top: Math.max(insets.top, 18) + 24, zIndex: 20, width: 42, height: 42, borderRadius: 21, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Feather name="x" size={23} color="#2563EB" />
+        </TouchableOpacity>
+        <PrescriptionReviews />
+      </View>
     </Modal>
 
     {/* Password Modal */}

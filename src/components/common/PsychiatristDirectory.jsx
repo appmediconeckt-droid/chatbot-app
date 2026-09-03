@@ -18,7 +18,6 @@ import axiosInstance, { API_BASE_URL } from '../../axiosConfig';
 import { DOCTOR, DOCTOR_GRADIENT, GRADIENT_DIRECTION } from '../../theme/palette';
 
 const PSYCHIATRIST_ENDPOINTS = [
-  'https://s5jl7g4z-5001.inc1.devtunnels.ms/api/auth/counsellors',
   '/api/auth/counsellors',
   '/api/chat/counselors',
   '/api/chat/counsellors',

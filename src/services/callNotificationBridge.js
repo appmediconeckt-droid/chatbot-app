@@ -86,9 +86,19 @@ export const notifyIncomingCallIntent = async (remoteMessageOrData, source = 'no
   if (!intent) return null;
 
   pendingIntent = intent;
-  try {
-    await AsyncStorage.setItem(PENDING_CALL_INTENT_KEY, JSON.stringify(intent));
-  } catch (_) {}
+  // Persist only when the app UI is not mounted (headless/killed-state push).
+  // A live controller consumes the event immediately; retaining it would
+  // replay an already-ended call on the next app launch.
+  if (listeners.size === 0) {
+    try {
+      await AsyncStorage.setItem(PENDING_CALL_INTENT_KEY, JSON.stringify(intent));
+    } catch (_) {}
+  } else {
+    pendingIntent = null;
+    try {
+      await AsyncStorage.removeItem(PENDING_CALL_INTENT_KEY);
+    } catch (_) {}
+  }
 
   listeners.forEach((listener) => {
     try {

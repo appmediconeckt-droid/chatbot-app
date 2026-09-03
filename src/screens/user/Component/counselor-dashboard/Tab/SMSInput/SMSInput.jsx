@@ -19,6 +19,7 @@ import {
   Image,
   Linking,
   Pressable,
+  BackHandler,
 } from 'react-native';
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import Text from '../../../../../../components/TranslatedText';
@@ -102,6 +103,9 @@ const createBlankMedicine = () => ({
 
 // ─── Avatar Component (identical to ChatListAvatar) ───────────────────────
 const escapePdfValue = (value) => String(value || '')
+  // The lightweight PDF uses built-in Helvetica and byte offsets. Keep the
+  // stream single-byte so names/instructions cannot corrupt the generated PDF.
+  .replace(/[^\x20-\x7E]/g, '?')
   .replace(/\\/g, '\\\\')
   .replace(/\(/g, '\\(')
   .replace(/\)/g, '\\)')
@@ -428,6 +432,7 @@ const SMSInput = ({ navigation, route }) => {
 
   // Receiving Call States
   const [showIncomingModal, setShowIncomingModal] = useState(false);
+  const launchedFromCallPushRef = useRef(false);
   const [incomingCallData, setIncomingCallData] = useState({
     name: "",
     avatar: "👤",
@@ -578,6 +583,25 @@ const SMSInput = ({ navigation, route }) => {
       fallbackChatIdRef.current = `chat_${stableUserId}_${stableCounselorId}`;
     }
     return fallbackChatIdRef.current;
+  };
+
+  // Prescriptions must always target an existing server-side consultation.
+  // Unlike normal chat recovery, never invent a fallback ID for this endpoint.
+  const getPrescriptionChatId = () => {
+    const candidateChatId =
+      chatId ||
+      selectedUser?.chatId ||
+      selectedUser?.chat_id ||
+      selectedUser?.chat?.chatId ||
+      selectedUser?.chat?._id ||
+      selectedUser?.chat?.id;
+    if (candidateChatId) return candidateChatId;
+
+    const possibleId = selectedUser?.id || selectedUser?._id;
+    if (typeof possibleId === 'string' && possibleId.startsWith('chat_')) {
+      return possibleId;
+    }
+    return null;
   };
 
   const getAttachmentUrl = (item) => {
@@ -962,6 +986,10 @@ const SMSInput = ({ navigation, route }) => {
 
     try {
       setIssuingPrescription(true);
+      const apiChatId = getPrescriptionChatId();
+      if (!apiChatId) {
+        throw new Error('Chat ID not found. Please reopen this conversation and try again.');
+      }
       const medicinesForApi = validMedicines.map((medicine) => ({
         name: medicine.name,
         dosage: medicine.dosage,
@@ -984,9 +1012,15 @@ const SMSInput = ({ navigation, route }) => {
       formData.append('attachment', prescriptionPdf);
 
       const token = await getAuthToken();
-      await axios.post(`${API_BASE_URL}/api/prescriptions/chat/${getChatIdForAPI()}`, formData, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      const response = await axios.post(`${API_BASE_URL}/api/prescriptions/chat/${encodeURIComponent(apiChatId)}`, formData, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'Content-Type': 'multipart/form-data',
+        },
       });
+      if (!response.data?.success) {
+        throw new Error(response.data?.error || response.data?.message || 'Unable to send prescription.');
+      }
 
       const note = `Prescription created for ${USER_NAME}. Please check the Prescription tab.`;
       await sendMessageToAPI({ messageContent: note }).catch(() => {});
@@ -1003,7 +1037,13 @@ const SMSInput = ({ navigation, route }) => {
       setShowPrescriptionModal(false);
       Alert.alert('Prescription sent', 'Prescription has been sent to the patient.');
     } catch (error) {
-      Alert.alert('Prescription failed', error?.response?.data?.message || 'Unable to send prescription.');
+      Alert.alert(
+        'Prescription failed',
+        error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Unable to send prescription.',
+      );
     } finally {
       setIssuingPrescription(false);
     }
@@ -1309,6 +1349,8 @@ const SMSInput = ({ navigation, route }) => {
   };
 
   const handleJoinIncomingCall = async (callId) => {
+    launchedFromCallPushRef.current = false;
+    await AsyncStorage.removeItem('pendingIncomingCallPush');
     try {
       const token = await getAuthToken();
       const response = await axios.put(`${API_BASE_URL}/api/video/calls/${callId}/accept`, {
@@ -1380,11 +1422,17 @@ const SMSInput = ({ navigation, route }) => {
   };
 
   const handleRejectIncomingCall = async (callId) => {
+    const shouldExitAfterReject = launchedFromCallPushRef.current;
+    launchedFromCallPushRef.current = false;
     try {
       const token = await getAuthToken();
       await axios.put(`${API_BASE_URL}/api/video/calls/${callId}/reject`, { userId: counselorId, reason: "declined" }, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      await AsyncStorage.removeItem('pendingIncomingCallPush');
+      if (shouldExitAfterReject && Platform.OS === 'android') {
+        setTimeout(() => BackHandler.exitApp(), 100);
+      }
       return true;
     } catch (error) {
       return false;
@@ -1558,11 +1606,15 @@ const SMSInput = ({ navigation, route }) => {
             requestedAt: call.requestedAt,
             expiresAt: call.expiresAt,
           });
+          launchedFromCallPushRef.current = Boolean(
+            await AsyncStorage.getItem('pendingIncomingCallPush'),
+          );
           setShowIncomingModal(true);
         }
       } catch (err) {}
     };
     if (isFocused && counselorId) {
+      fetchIncoming();
       intervalId = setInterval(fetchIncoming, 5000);
     }
     return () => { if (intervalId) clearInterval(intervalId); };
@@ -2606,7 +2658,7 @@ const styles = StyleSheet.create({
     shadowRadius: 9,
     elevation: 7,
   },
-  acceptBtn: { backgroundColor: DOCTOR.primary },
+  acceptBtn: { backgroundColor: '#16A34A' },
   rejectBtn: { backgroundColor: '#DC2626' },
   callEndIcon: { transform: [{ rotate: '135deg' }] },
   incomingCallBtnLabel: { color: '#64748B', fontWeight: '700', fontSize: 13 },

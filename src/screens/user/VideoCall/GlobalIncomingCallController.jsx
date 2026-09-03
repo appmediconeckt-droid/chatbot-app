@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  BackHandler,
   Easing,
   Image,
   Modal,
+  Platform,
   StatusBar,
   StyleSheet,
   TouchableOpacity,
@@ -14,19 +16,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
-import Text from '../../components/TranslatedText';
-import axiosInstance from '../../axiosConfig';
-import safeVibrate from '../../utils/safeVibrate';
-import { forceStopRingtone, startIncomingRingtone } from '../../hooks/useRingtone';
-import toImageUri from '../../utils/imageUri';
-import VideoCallModal from '../user/Component/UserDashboard/Tab/CallModal/VideoCallModal';
-import VoiceCallModal from '../user/Component/UserDashboard/Tab/CallModal/VoiceCallModal';
+import Text from '../../../components/TranslatedText';
+import axiosInstance from '../../../axiosConfig';
+import safeVibrate from '../../../utils/safeVibrate';
+import { forceStopRingtone, startIncomingRingtone } from '../../../hooks/useRingtone';
+import toImageUri from '../../../utils/imageUri';
+import VideoCallModal from '../Component/UserDashboard/Tab/CallModal/VideoCallModal';
+import VoiceCallModal from '../Component/UserDashboard/Tab/CallModal/VoiceCallModal';
 import {
   consumePendingIncomingCallIntent,
   normalizeCallType,
   setGlobalCallUiActive,
   subscribeToIncomingCallIntents,
-} from '../../services/callNotificationBridge';
+} from '../../../services/callNotificationBridge';
 
 const emptyIncomingCall = {
   callId: '',
@@ -156,53 +158,6 @@ const fetchPendingCall = async (intent, session) => {
   } catch (_) {
     return null;
   }
-};
-
-const buildIncomingCall = async (intent) => {
-  const session = await getStoredSession();
-  if (!session.currentUserId) return null;
-
-  const pendingCall = await fetchPendingCall(intent, session);
-  const callId = intent?.callId || pendingCall?.callId || pendingCall?.id || pendingCall?._id;
-  if (!callId) return null;
-
-  const detailedCall = await fetchCallDetails(callId, session);
-  const sourceCall = detailedCall || pendingCall || intent || {};
-  const remoteParty = resolveRemoteParty(sourceCall, session.currentUserId);
-  const modalType = normalizeCallType(
-    sourceCall.callType ||
-    sourceCall.type ||
-    intent?.callType ||
-    intent?.data?.callType ||
-    intent?.data?.type,
-  );
-  const displayName = displayNameForParty(remoteParty, intent?.name || pendingCall?.name, session.role);
-  const image =
-    toImageUri(remoteParty?.profilePhoto) ||
-    toImageUri(remoteParty?.image) ||
-    toImageUri(remoteParty?.avatarUrl) ||
-    toImageUri(remoteParty?.avatar) ||
-    toImageUri(intent?.image);
-
-  return {
-    callId: String(callId),
-    roomId: sourceCall.roomId || intent?.roomId || '',
-    name: displayName,
-    userName: displayName,
-    image,
-    profilePic: image,
-    callType: modalType,
-    type: modalType,
-    status: sourceCall.status || 'ringing',
-    from: remoteParty,
-    initiator: sourceCall.initiator || intent?.initiator,
-    receiver: sourceCall.receiver || intent?.receiver,
-    requestedAt: sourceCall.requestedAt || intent?.requestedAt,
-    expiresAt: sourceCall.expiresAt || intent?.expiresAt,
-    apiCallData: detailedCall,
-    currentUserId: session.currentUserId,
-    currentUserType: session.streamRole,
-  };
 };
 
 const buildAcceptedCall = async (incomingCall, acceptData) => {
@@ -392,7 +347,7 @@ const RootIncomingCallModal = ({
   );
 };
 
-const GlobalIncomingCallController = () => {
+const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
   const [incomingCall, setIncomingCall] = useState(emptyIncomingCall);
   const [showIncoming, setShowIncoming] = useState(false);
   const [selectedCall, setSelectedCall] = useState(null);
@@ -410,18 +365,28 @@ const GlobalIncomingCallController = () => {
     setShowIncoming(false);
     setIncomingCall(emptyIncomingCall);
     setGlobalCallUiActive(isVideoOpen || isVoiceOpen);
-  }, [isVideoOpen, isVoiceOpen]);
+    if (exitOnDismiss && Platform.OS === 'android') {
+      setTimeout(() => BackHandler.exitApp(), 100);
+    }
+  }, [exitOnDismiss, isVideoOpen, isVoiceOpen]);
 
-  const handleIntent = useCallback(async (intent) => {
+  const handleIntent = useCallback((intent) => {
     if (!intent?.callId) return;
     if (handledCallIdsRef.current.has(String(intent.callId))) return;
     if (showIncoming || isVideoOpen || isVoiceOpen) return;
 
-    const call = await buildIncomingCall(intent);
-    if (!call?.callId) return;
-
-    handledCallIdsRef.current.add(String(call.callId));
-    setIncomingCall(call);
+    // Present immediately from the push payload. Waiting for pending/details
+    // APIs here used to consume most of the short ringing window on cold start.
+    const immediateCall = {
+      ...emptyIncomingCall,
+      ...intent,
+      callId: String(intent.callId),
+      roomId: intent.roomId || '',
+      name: intent.name || 'Incoming call',
+      callType: normalizeCallType(intent.callType || intent?.data?.callType),
+    };
+    handledCallIdsRef.current.add(String(intent.callId));
+    setIncomingCall(immediateCall);
     setShowIncoming(true);
     setGlobalCallUiActive(true);
     startIncomingRingtone(true);
@@ -497,7 +462,8 @@ const GlobalIncomingCallController = () => {
 
   const handleReject = useCallback(async () => {
     const call = incomingCallRef.current;
-    closeIncoming();
+    forceStopRingtone();
+    setShowIncoming(false);
 
     try {
       const session = await getStoredSession();
@@ -508,7 +474,12 @@ const GlobalIncomingCallController = () => {
         );
       }
     } catch (_) {}
-  }, [closeIncoming]);
+    setIncomingCall(emptyIncomingCall);
+    setGlobalCallUiActive(false);
+    if (exitOnDismiss && Platform.OS === 'android') {
+      setTimeout(() => BackHandler.exitApp(), 100);
+    }
+  }, [exitOnDismiss]);
 
   const closeCallModal = useCallback(() => {
     forceStopRingtone();

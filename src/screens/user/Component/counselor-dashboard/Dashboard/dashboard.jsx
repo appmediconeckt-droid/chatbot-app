@@ -851,6 +851,7 @@ export default function CounselorDashboard() {
   // Ref mirrors for modal states — lets polling interval use stable [] deps
   // without going stale on state changes.
   const showIncomingCallModalRef = useRef(false);
+  const launchedFromCallPushRef = useRef(false);
   const isVideoModalOpenRef = useRef(false);
   const isVoiceModalOpenRef = useRef(false);
   const isFocusedRef = useRef(false);
@@ -936,10 +937,16 @@ export default function CounselorDashboard() {
         const stillThere = pending.some((c) => (c?.callId || c?.id || c?._id) === incomingCallData.callId);
 
         if (!stillThere && !cancelled) {
+          const shouldExitAfterCall = launchedFromCallPushRef.current;
+          launchedFromCallPushRef.current = false;
           forceStopRingtone();
           ringingStartedRef.current = false;
           setShowIncomingCallModal(false);
           setIncomingCallData(null);
+          await AsyncStorage.removeItem('pendingIncomingCallPush');
+          if (shouldExitAfterCall && Platform.OS === 'android') {
+            setTimeout(() => BackHandler.exitApp(), 100);
+          }
         }
       } catch (_) {
         // ignore transient polling errors
@@ -1396,6 +1403,8 @@ export default function CounselorDashboard() {
 
   // â”€â”€ Handle Accept Incoming Call â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  const handleAcceptIncomingCall = async (callData) => {
+  launchedFromCallPushRef.current = false;
+  await AsyncStorage.removeItem('pendingIncomingCallPush');
   // Stop ringtone immediately
   forceStopRingtone();
   setShowIncomingCallModal(false);
@@ -1482,10 +1491,16 @@ export default function CounselorDashboard() {
 };
 
   const handleRejectIncomingCall = async (callId) => {
+    const shouldExitAfterReject = launchedFromCallPushRef.current;
+    launchedFromCallPushRef.current = false;
     forceStopRingtone();
     setShowIncomingCallModal(false);
     setIncomingCallData(null);
     await rejectCall(callId);
+    await AsyncStorage.removeItem('pendingIncomingCallPush');
+    if (shouldExitAfterReject && Platform.OS === 'android') {
+      setTimeout(() => BackHandler.exitApp(), 100);
+    }
   };
 
   // â”€â”€ Fetch Waiting Calls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1639,7 +1654,9 @@ export default function CounselorDashboard() {
 
         setShowIncomingCallModal(true);
         safeVibrate([320, 160, 320]);
-        await AsyncStorage.removeItem('pendingIncomingCallPush');
+        launchedFromCallPushRef.current = Boolean(
+          await AsyncStorage.getItem('pendingIncomingCallPush'),
+        );
       }
     } else {
       setWaitingCalls([]);
@@ -5571,8 +5588,8 @@ const styles = StyleSheet.create({
     elevation: 7,
   },
   incomingCallAccept: {
-    backgroundColor: DOCTOR.primary,
-    shadowColor: DOCTOR.primary,
+    backgroundColor: "#16A34A",
+    shadowColor: "#16A34A",
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.32,
     shadowRadius: 10,
