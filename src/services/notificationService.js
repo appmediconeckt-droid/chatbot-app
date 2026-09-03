@@ -178,7 +178,10 @@ export const registerBackgroundNotificationHandler = () => {
           }
 
           console.log('Background Notification:', remoteMessage);
-          if (isIncomingCallNotification(data) || !remoteMessage.notification) {
+          // Notification payloads are already displayed by Android while the
+          // app is backgrounded/killed. Only data-only messages need Notifee
+          // here, otherwise the same push is displayed twice.
+          if (!remoteMessage.notification) {
             await displaySystemNotification(remoteMessage);
           }
         },
@@ -485,6 +488,10 @@ export const listenForForegroundNotifications = () => {
 
     if (isIncomingCallNotification(remoteMessage?.data || {})) {
       await notifyIncomingCallIntent(remoteMessage, 'foreground-push');
+      // The dedicated controller is intentionally not mounted inside the
+      // normal app tree. Always create the call notification here so its
+      // full-screen action can launch HumaeliIncomingCall.
+      await displaySystemNotification(remoteMessage);
       return;
     }
 
