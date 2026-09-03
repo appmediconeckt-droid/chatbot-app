@@ -19,6 +19,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../../components/TranslatedText';
 import axiosInstance from '../../../axiosConfig';
 import safeVibrate from '../../../utils/safeVibrate';
+import socketService from '../../../services/socketService';
 import { forceStopRingtone, startIncomingRingtone } from '../../../hooks/useRingtone';
 import toImageUri from '../../../utils/imageUri';
 import VideoCallModal from '../Component/UserDashboard/Tab/CallModal/VideoCallModal';
@@ -353,7 +354,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
   const [selectedCall, setSelectedCall] = useState(null);
   const [isVideoOpen, setIsVideoOpen] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
-  const handledCallIdsRef = useRef(new Set());
+  const handledCallIdsRef = useRef(new Map());
   const incomingCallRef = useRef(emptyIncomingCall);
 
   useEffect(() => {
@@ -372,7 +373,9 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
 
   const handleIntent = useCallback((intent) => {
     if (!intent?.callId) return;
-    if (handledCallIdsRef.current.has(String(intent.callId))) return;
+    const callKey = String(intent.callId);
+    const lastHandledAt = handledCallIdsRef.current.get(callKey);
+    if (lastHandledAt && Date.now() - lastHandledAt < 5000) return;
     if (showIncoming || isVideoOpen || isVoiceOpen) return;
 
     // Present immediately from the push payload. Waiting for pending/details
@@ -385,7 +388,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
       name: intent.name || 'Incoming call',
       callType: normalizeCallType(intent.callType || intent?.data?.callType),
     };
-    handledCallIdsRef.current.add(String(intent.callId));
+    handledCallIdsRef.current.set(callKey, Date.now());
     setIncomingCall(immediateCall);
     setShowIncoming(true);
     setGlobalCallUiActive(true);
@@ -399,6 +402,57 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
       if (intent) handleIntent(intent);
     });
     return unsubscribe;
+  }, [handleIntent]);
+
+  useEffect(() => {
+    let active = true;
+    let unsubscribeSocket = null;
+    let retryTimer = null;
+
+    const setupSocketIncomingCalls = async () => {
+      try {
+        if (!active || unsubscribeSocket) return;
+        const token =
+          (await AsyncStorage.getItem('accessToken')) ||
+          (await AsyncStorage.getItem('token'));
+        if (!token) {
+          retryTimer = setTimeout(setupSocketIncomingCalls, 2000);
+          return;
+        }
+
+        unsubscribeSocket = await socketService.on('incoming_call_request', (payload = {}) => {
+          if (!active) return;
+          handleIntent({
+            source: 'socket',
+            receivedAt: Date.now(),
+            data: payload,
+            callId: payload.callId || payload.id || payload._id,
+            roomId: payload.roomId || payload.room_id || '',
+            callType: normalizeCallType(payload.callType || payload.type),
+            name: payload.from || payload.callerName || payload.title || 'Incoming call',
+            image: payload.fromProfilePhoto || payload.callerImage || payload.image || null,
+            from: payload.fromId || payload.from || payload.initiator || null,
+            initiator: payload.initiator || payload.from || null,
+            receiver: payload.receiver || null,
+            requestedAt: payload.requestedAt || payload.timestamp || null,
+            expiresAt: payload.expiresAt || null,
+          });
+        });
+      } catch (error) {
+        console.warn('[CallNotification] socket listener failed:', error?.message || error);
+        if (active && !unsubscribeSocket) {
+          retryTimer = setTimeout(setupSocketIncomingCalls, 4000);
+        }
+      }
+    };
+
+    setupSocketIncomingCalls();
+
+    return () => {
+      active = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (unsubscribeSocket) unsubscribeSocket();
+    };
   }, [handleIntent]);
 
   useEffect(() => {

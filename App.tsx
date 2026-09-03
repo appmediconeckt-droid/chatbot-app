@@ -45,6 +45,7 @@ import SetPasswordByOtp from './src/screens/account/SetPasswordByOtp';
 import safeVibrate from './src/utils/safeVibrate';
 import socketService from './src/services/socketService';
 import { CallProvider } from './src/screens/user/VideoCall/CallProvider';
+import GlobalIncomingCallController from './src/screens/user/VideoCall/GlobalIncomingCallController';
 import AppLockScreen, { PIN_STORAGE_KEY } from './src/screens/auth/AppLockScreen';
 import PinSetupScreen from './src/screens/auth/PinSetupScreen';
 import './src/i18n';
@@ -171,7 +172,7 @@ function App() {
               pendingCall?.callId &&
               Date.now() - Number(pendingCall?.receivedAt || 0) < 90000,
             );
-          } catch (_) {}
+          } catch {}
         }
 
         const hasToken = Boolean(accessToken || token);
@@ -252,7 +253,7 @@ function App() {
                 pendingCall?.callId &&
                 Date.now() - Number(pendingCall?.receivedAt || 0) < 90000,
               );
-            } catch (_) {}
+            } catch {}
           }
 
           if (hasFreshIncomingCall) {
@@ -404,6 +405,7 @@ useEffect(() => {
         {isLocked && !isBootstrapping && (
           <AppLockScreen onSuccess={() => setIsLocked(false)} />
         )}
+        <GlobalIncomingCallController />
           </ToastProvider>
           )}
         </CallProvider>

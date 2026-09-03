@@ -396,8 +396,8 @@ export const saveFCMTokenToBackend = async (
     }
 
     const response = await axiosInstance.post(
-      '/api/notifications/register-token',
-      { userId, token, platform: Platform.OS },
+      '/api/notifications/token',
+      { userId, token, fcmToken: token, platform: Platform.OS },
     );
 
     const data = response.data;

@@ -38,6 +38,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { BlurView } from "@react-native-community/blur";
 import safeVibrate from "../../../../../utils/safeVibrate";
 import { forceStopRingtone, startIncomingRingtone } from "../../../../../hooks/useRingtone";
+import { isGlobalCallUiActive } from "../../../../../services/callNotificationBridge";
 import { useToast } from "../../../../../components/common/ToastProvider";
 import ChatInterface from "../Tab/chatbot/ChatInterface";
 import CounselorTable from "../Tab/Appointment/BookAppointment";
@@ -1922,6 +1923,7 @@ export default function UserDashboard() {
         if (!INCOMING_CALL_POLL_TABS.has(activeRef.current)) return;
         if (Date.now() < pollBlockedUntilRef.current) return;
         if (showCallModalRef.current || isVideoModalOpenRef.current || isVoiceModalOpenRef.current) return;
+        if (isGlobalCallUiActive()) return;
 
         const storedUserId = await AsyncStorage.getItem('userId');
         if (!storedUserId) return;
