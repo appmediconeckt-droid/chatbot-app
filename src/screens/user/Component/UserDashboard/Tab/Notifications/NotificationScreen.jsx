@@ -28,6 +28,7 @@ const FILTERS = [
   { id: 'unread', label: 'Unread' },
   { id: 'appointment', label: 'Appointments' },
   { id: 'message', label: 'Chats' },
+  { id: 'call', label: 'Calls' },
 ];
 
 // Per-type visual identity — icon + accent colour + soft tinted background.

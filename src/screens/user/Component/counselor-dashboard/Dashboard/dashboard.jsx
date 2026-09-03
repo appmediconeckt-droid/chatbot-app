@@ -40,6 +40,7 @@ import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityI
 // Custom Hooks
 import useVibration from "../../../../../hooks/useVibration";
 import { forceStopRingtone, startIncomingRingtone } from "../../../../../hooks/useRingtone";
+import { isGlobalCallUiActive } from "../../../../../services/callNotificationBridge";
 import Dashboard from "../Tab/CounselorDashboard/Dashboardcou";
 import Messagesou from "../Tab/Messages/Messagesou";
 import PatientRequests from "../Tab/PatientRequests/PatientRequests";
@@ -1688,7 +1689,8 @@ export default function CounselorDashboard() {
         !isPollingRef.current ||
         showIncomingCallModalRef.current ||
         isVideoModalOpenRef.current ||
-        isVoiceModalOpenRef.current
+        isVoiceModalOpenRef.current ||
+        isGlobalCallUiActive()
       ) return;
       fetchWaitingCalls();
     };

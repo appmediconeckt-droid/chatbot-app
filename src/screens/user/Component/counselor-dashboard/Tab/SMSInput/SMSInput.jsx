@@ -37,6 +37,7 @@ import socketService from '../../../../../../services/socketService';
 import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import useRingtone from '../../../../../../hooks/useRingtone';
+import { isGlobalCallUiActive } from '../../../../../../services/callNotificationBridge';
 import useScreenshotPrevent from '../../../../../../utils/useScreenshotPrevent';
 import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
 import VideoCallModal from '../../../UserDashboard/Tab/CallModal/VideoCallModal';
@@ -1577,7 +1578,7 @@ const SMSInput = ({ navigation, route }) => {
     const fetchIncoming = async () => {
       try {
         const token = await getAuthToken();
-        if (!counselorId || !token || showIncomingModal || isVideoModalOpen || isVoiceModalOpen) return;
+        if (!counselorId || !token || showIncomingModal || isVideoModalOpen || isVoiceModalOpen || isGlobalCallUiActive()) return;
         const res = await axios.get(`${API_BASE_URL}/api/video/calls/pending/${counselorId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });

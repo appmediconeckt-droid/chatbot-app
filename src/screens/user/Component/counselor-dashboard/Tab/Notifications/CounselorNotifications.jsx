@@ -39,6 +39,8 @@ const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'requests', label: 'Requests' },
   { id: 'appointment', label: 'Appointments' },
+  { id: 'message', label: 'Chats' },
+  { id: 'call', label: 'Calls' },
   { id: 'payment', label: 'Payments' },
 ];
 
