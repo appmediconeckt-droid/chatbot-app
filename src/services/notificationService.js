@@ -6,11 +6,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../axiosConfig';
 import {
   isCallNotificationData,
+  normalizeCallType,
   notifyIncomingCallIntent,
 } from './callNotificationBridge';
+import { startIncomingRingtone } from '../hooks/useRingtone';
 
 const NOTIFICATION_CHANNEL_ID = 'humaeli-default';
-const INCOMING_CALL_CHANNEL_ID = 'humaeli-incoming-calls-v1';
+const INCOMING_CALL_CHANNEL_ID = 'humaeli-incoming-calls-v3';
+const MISSED_CALL_NOTIFIED_KEY_PREFIX = 'missedCallNotification:';
 export const PENDING_INCOMING_CALL_PUSH_KEY = 'pendingIncomingCallPush';
 export const PENDING_NOTIFICATION_OPEN_KEY = 'pendingNotificationOpen';
 export const NOTIFICATION_REPLY_ACTION_ID = 'reply-to-chat';
@@ -42,6 +45,47 @@ const isChatNotification = data => {
 
 const isIncomingCallNotification = data => {
   return isCallNotificationData(data);
+};
+
+const getCallNotificationId = data => (
+  data?.callId ||
+  data?.call_id ||
+  data?.id ||
+  data?._id ||
+  data?.call?.callId ||
+  data?.call?.id ||
+  data?.call?._id ||
+  data?.callData?.callId ||
+  data?.callData?.id ||
+  data?.callData?._id ||
+  null
+);
+
+const getCallNotificationName = data => (
+  data?.name ||
+  data?.callerName ||
+  data?.senderName ||
+  data?.title ||
+  data?.from?.anonymous ||
+  data?.from?.anonName ||
+  data?.from?.anonymousName ||
+  data?.from?.displayName ||
+  data?.from?.fullName ||
+  data?.initiator?.anonymous ||
+  data?.initiator?.anonName ||
+  data?.initiator?.anonymousName ||
+  data?.initiator?.displayName ||
+  data?.initiator?.fullName ||
+  'Caller'
+);
+
+const persistIncomingCallPush = async (remoteMessage, source) => {
+  const data = remoteMessage?.data || remoteMessage || {};
+  await AsyncStorage.setItem(
+    PENDING_INCOMING_CALL_PUSH_KEY,
+    JSON.stringify({ ...data, receivedAt: Date.now() }),
+  );
+  await notifyIncomingCallIntent(remoteMessage, source);
 };
 
 const warnNativeNotificationsUnavailable = (error) => {
@@ -170,11 +214,11 @@ export const registerBackgroundNotificationHandler = () => {
         async remoteMessage => {
           const data = remoteMessage?.data || {};
           if (isIncomingCallNotification(data)) {
-            await AsyncStorage.setItem(
-              PENDING_INCOMING_CALL_PUSH_KEY,
-              JSON.stringify({ ...data, receivedAt: Date.now() }),
-            );
-            await notifyIncomingCallIntent(remoteMessage, 'background-push');
+            await persistIncomingCallPush(remoteMessage, 'background-push');
+            startIncomingRingtone(true);
+            await displaySystemNotification(remoteMessage);
+            console.log('Background incoming call notification:', remoteMessage);
+            return;
           }
 
           console.log('Background Notification:', remoteMessage);
@@ -199,6 +243,9 @@ export const displaySystemNotification = async remoteMessage => {
   const notifee = notificationApi?.default || notificationApi;
   const AndroidImportance = notificationApi?.AndroidImportance || {};
   const AndroidCategory = notificationApi?.AndroidCategory || {};
+  const AndroidDefaults = notificationApi?.AndroidDefaults || {};
+  const AndroidVisibility = notificationApi?.AndroidVisibility || {};
+  const AndroidLaunchActivityFlag = notificationApi?.AndroidLaunchActivityFlag || {};
   if (!notifee?.displayNotification) return;
 
   const title =
@@ -236,14 +283,26 @@ export const displaySystemNotification = async remoteMessage => {
       await notifee.createChannel({
         id: INCOMING_CALL_CHANNEL_ID,
         name: 'Incoming calls',
-        description: 'Ringing voice and video call notifications',
+        description: 'Full-screen incoming call alerts; ringtone is played by the app',
         importance: AndroidImportance.HIGH,
-        sound: 'default',
-        vibration: true,
-        vibrationPattern: [300, 500, 300, 500],
+        vibration: false,
+        lights: true,
+        lightColor: '#22c55e',
+        visibility: AndroidVisibility.PUBLIC,
       });
     }
   }
+
+  const callLaunchFlags = [
+    AndroidLaunchActivityFlag.NEW_TASK,
+    AndroidLaunchActivityFlag.CLEAR_TOP,
+    AndroidLaunchActivityFlag.SINGLE_TOP,
+  ].filter(Boolean);
+  const incomingCallPressAction = {
+    id: 'default',
+    mainComponent: 'HumaeliIncomingCall',
+    ...(callLaunchFlags.length ? { launchActivityFlags: callLaunchFlags } : {}),
+  };
 
   await notifee.displayNotification({
     title: String(title),
@@ -254,17 +313,21 @@ export const displaySystemNotification = async remoteMessage => {
         ? INCOMING_CALL_CHANNEL_ID
         : NOTIFICATION_CHANNEL_ID,
       importance: AndroidImportance.HIGH,
-      sound: 'default',
+      sound: isIncomingCall ? undefined : 'default',
+      defaults: isIncomingCall && AndroidDefaults.LIGHTS
+        ? [AndroidDefaults.LIGHTS]
+        : undefined,
+      visibility: isIncomingCall ? AndroidVisibility.PUBLIC : undefined,
       pressAction: isIncomingCall
-        ? { id: 'default', mainComponent: 'HumaeliIncomingCall' }
+        ? incomingCallPressAction
         : { id: 'default' },
       category: isIncomingCall ? AndroidCategory.CALL : undefined,
       fullScreenAction: isIncomingCall
-        ? { id: 'default', mainComponent: 'HumaeliIncomingCall' }
+        ? incomingCallPressAction
         : undefined,
       ongoing: isIncomingCall || undefined,
       autoCancel: !isIncomingCall,
-      loopSound: isIncomingCall || undefined,
+      loopSound: false,
       timeoutAfter: isIncomingCall ? 60000 : undefined,
       actions: canReply
         ? [{
@@ -297,6 +360,7 @@ export const requestNotificationPermission = async () => {
     const notificationApi = getNotifeeApi();
     const notifee = notificationApi?.default || notificationApi;
     const AndroidImportance = notificationApi?.AndroidImportance || {};
+    const AndroidVisibility = notificationApi?.AndroidVisibility || {};
 
     if (Platform.OS === 'android') {
       if (!notifee?.createChannel) return false;
@@ -311,11 +375,12 @@ export const requestNotificationPermission = async () => {
       await notifee.createChannel({
         id: INCOMING_CALL_CHANNEL_ID,
         name: 'Incoming calls',
-        description: 'Ringing voice and video call notifications',
+        description: 'Full-screen incoming call alerts; ringtone is played by the app',
         importance: AndroidImportance.HIGH,
-        sound: 'default',
-        vibration: true,
-        vibrationPattern: [300, 500, 300, 500],
+        vibration: false,
+        lights: true,
+        lightColor: '#22c55e',
+        visibility: AndroidVisibility.PUBLIC,
       });
     }
 
@@ -488,10 +553,6 @@ export const listenForForegroundNotifications = () => {
 
     if (isIncomingCallNotification(remoteMessage?.data || {})) {
       await notifyIncomingCallIntent(remoteMessage, 'foreground-push');
-      // The dedicated controller is intentionally not mounted inside the
-      // normal app tree. Always create the call notification here so its
-      // full-screen action can launch HumaeliIncomingCall.
-      await displaySystemNotification(remoteMessage);
       return;
     }
 
@@ -502,6 +563,77 @@ export const listenForForegroundNotifications = () => {
     }
 
     console.log('[Push] Foreground non-chat notification suppressed');
+  });
+};
+
+export const displayMissedCallNotification = async (callData = {}, reason = 'missed') => {
+  const notificationApi = getNotifeeApi();
+  const notifee = notificationApi?.default || notificationApi;
+  const AndroidImportance = notificationApi?.AndroidImportance || {};
+  if (!notifee?.displayNotification) return;
+
+  const rawData = callData?.data && typeof callData.data === 'object'
+    ? { ...callData.data, ...callData }
+    : callData;
+  const callId = getCallNotificationId(rawData);
+  const callType = normalizeCallType(rawData?.callType || rawData?.call_type || rawData?.type);
+  const callerName = getCallNotificationName(rawData);
+
+  if (callId) {
+    const storageKey = `${MISSED_CALL_NOTIFIED_KEY_PREFIX}${callId}`;
+    try {
+      const alreadyShown = await AsyncStorage.getItem(storageKey);
+      if (alreadyShown) return;
+      await AsyncStorage.setItem(storageKey, String(Date.now()));
+    } catch (_) {}
+  }
+
+  if (Platform.OS === 'android') {
+    await notifee.createChannel({
+      id: NOTIFICATION_CHANNEL_ID,
+      name: 'Humaeli notifications',
+      description: 'Messages, appointments and account notifications',
+      importance: AndroidImportance.HIGH,
+      sound: 'default',
+      vibration: true,
+    });
+  }
+
+  const title = callType === 'voice' ? 'Missed voice call' : 'Missed video call';
+  const body = reason === 'ended'
+    ? `${callerName} ended the call`
+    : `${callerName} tried to call you`;
+
+  await notifee.displayNotification({
+    title,
+    body,
+    data: Object.fromEntries(
+      Object.entries({
+        ...rawData,
+        type: 'MISSED_CALL',
+        callType,
+        callId: callId || '',
+      }).map(([key, value]) => [key, String(value ?? '')]),
+    ),
+    android: Platform.OS === 'android'
+      ? {
+          channelId: NOTIFICATION_CHANNEL_ID,
+          importance: AndroidImportance.HIGH,
+          sound: 'default',
+          pressAction: { id: 'default' },
+          autoCancel: true,
+        }
+      : undefined,
+    ios: {
+      sound: 'default',
+      foregroundPresentationOptions: {
+        alert: true,
+        badge: true,
+        sound: true,
+        banner: true,
+        list: true,
+      },
+    },
   });
 };
 

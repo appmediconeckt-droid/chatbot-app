@@ -54,7 +54,18 @@ const normalizeParty = (party, fallbackId, fallbackName, fallbackType, fallbackI
 export const isCallNotificationData = (data = {}) => {
   const type = String(data.type || data.notificationType || data.event || '').trim().toUpperCase();
   const callType = String(data.callType || data.call_type || data.mode || '').trim().toLowerCase();
-  const hasCallId = Boolean(data.callId || data.call_id || data.id || data._id);
+  const hasCallId = Boolean(
+    data.callId ||
+    data.call_id ||
+    data.id ||
+    data._id ||
+    data.call?.callId ||
+    data.call?.id ||
+    data.call?._id ||
+    data.callData?.callId ||
+    data.callData?.id ||
+    data.callData?._id,
+  );
 
   if (type === 'VIDEO_CALL' || type === 'VOICE_CALL' || type === 'AUDIO_CALL' || type === 'INCOMING_CALL') {
     return true;
@@ -66,6 +77,22 @@ export const isCallNotificationData = (data = {}) => {
 
   return hasCallId && (callType.includes('video') || callType.includes('audio') || callType.includes('voice'));
 };
+
+const getNotificationStreamRoomId = (data = {}) => (
+  data.streamCallId ||
+  data.stream_call_id ||
+  data.streamId ||
+  data.roomId ||
+  data.room_id ||
+  data.channelId ||
+  data.call?.streamCallId ||
+  data.call?.roomId ||
+  data.data?.streamCallId ||
+  data.data?.roomId ||
+  data.callData?.streamCallId ||
+  data.callData?.roomId ||
+  null
+);
 
 export const buildCallIntentFromNotification = (remoteMessageOrData, source = 'notification') => {
   const data = normalizeNotificationData(remoteMessageOrData);
@@ -81,13 +108,26 @@ export const buildCallIntentFromNotification = (remoteMessageOrData, source = 'n
   const callerId = data.callerId || data.fromId || data.senderId || null;
   const callerType = data.callerRole || data.fromType || data.senderRole || null;
   const from = normalizeParty(data.from || data.initiator || data.sender, callerId, callerName, callerType, callerImage);
+  const streamRoomId = getNotificationStreamRoomId(data);
 
   return {
     source,
     receivedAt: Date.now(),
     data,
-    callId: data.callId || data.call_id || data.id || data._id || null,
-    roomId: data.roomId || data.room_id || data.channelId || null,
+    callId:
+      data.callId ||
+      data.call_id ||
+      data.id ||
+      data._id ||
+      data.call?.callId ||
+      data.call?.id ||
+      data.call?._id ||
+      data.callData?.callId ||
+      data.callData?.id ||
+      data.callData?._id ||
+      null,
+    roomId: streamRoomId,
+    streamCallId: streamRoomId,
     callType,
     name: callerName,
     image: callerImage,

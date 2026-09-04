@@ -35,6 +35,26 @@ import { useSpeechToText } from "../../../../../../hooks/useSpeechToText";
 const BRAND_GRADIENT = [PATIENT.gradientFrom, PATIENT.gradientTo];
 const GRADIENT_START = { x: 0, y: 0 };
 const GRADIENT_END = { x: 1, y: 1 };
+
+const getStreamRoomId = (...sources) => {
+  for (const source of sources) {
+    const roomId =
+      source?.streamCallId ||
+      source?.stream_call_id ||
+      source?.streamId ||
+      source?.roomId ||
+      source?.room_id ||
+      source?.channelId ||
+      source?.call?.streamCallId ||
+      source?.call?.roomId ||
+      source?.data?.streamCallId ||
+      source?.data?.roomId ||
+      source?.callData?.streamCallId ||
+      source?.callData?.roomId;
+    if (roomId) return roomId;
+  }
+  return '';
+};
 // Conditionally import RNFS only on native platforms
 let RNFS;
 if (Platform.OS !== 'web') {
@@ -74,7 +94,6 @@ const IncomingCallModal = ({
     if (onAcceptCall && callData) {
       try {
         await onAcceptCall(callData.callId);
-        onClose();
       } catch (error) {
         console.error("Error accepting call:", error);
       } finally {
@@ -269,11 +288,13 @@ const ChatBox = () => {
       getProfilePhotoUrl(receiver) ||
       getProfilePhotoUrl(currentCounselor) ||
       null;
+    const streamRoomId = getStreamRoomId(launchCallData);
 
     setSelectedCall({
       id: launchCallData?.id || launchCallData?._id,
       callId: launchCallData?.callId || launchCallData?.id || launchCallData?._id,
-      roomId: launchCallData?.roomId,
+      roomId: streamRoomId,
+      streamCallId: streamRoomId,
       name: receiver?.name || currentCounselor?.name || "Consultant",
       type: launchCallType,
       callType: launchCallType,
@@ -647,34 +668,33 @@ const ChatBox = () => {
 
       if (!response.data?.success) throw new Error(response.data?.error || "Failed to accept call");
 
-      let detailedCall = null;
-      try {
-        const detailsResponse = await axios.get(`${API_BASE_URL}/api/video/calls/${callId}/details`, {
-          params: { userId, userType: "user" },
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        detailedCall = detailsResponse.data?.call || null;
-      } catch (detailsError) {
-        console.warn("Could not fetch accepted call details:", detailsError);
-      }
+      const acceptedPayload =
+        response.data?.call ||
+        response.data?.callData ||
+        response.data?.data?.call ||
+        response.data?.data?.callData ||
+        null;
 
       const incomingType = String(incomingCallData.callType || "video").toLowerCase();
       const modalType = incomingType === "audio" ? "voice" : incomingType;
 
+      const streamRoomId = getStreamRoomId(response.data, acceptedPayload, incomingCallData);
+      const initiator = acceptedPayload?.initiator || incomingCallData?.from || {};
       const acceptedCallData = {
-        id: detailedCall?.id || callId,
+        id: acceptedPayload?.id || acceptedPayload?._id || callId,
         callId,
-        roomId: response.data.roomId || detailedCall?.roomId || incomingCallData.roomId,
-        name: detailedCall?.initiator?.displayName || detailedCall?.initiator?.fullName || incomingCallData.name || "Consultant",
-        displayName: detailedCall?.initiator?.displayName || detailedCall?.initiator?.fullName || incomingCallData.name || "Consultant",
+        roomId: streamRoomId,
+        streamCallId: streamRoomId,
+        name: initiator?.displayName || initiator?.fullName || incomingCallData.name || "Consultant",
+        displayName: initiator?.displayName || initiator?.fullName || incomingCallData.name || "Consultant",
         type: modalType,
         callType: modalType,
-        profilePic: detailedCall?.initiator?.profilePhoto || incomingCallData.image || null,
-        phoneNumber: detailedCall?.initiator?.phoneNumber || "",
-        status: response.data.status || detailedCall?.status || "active",
-        apiCallData: detailedCall,
-        initiator: detailedCall?.initiator,
-        receiver: detailedCall?.receiver,
+        profilePic: initiator?.profilePhoto || incomingCallData.image || null,
+        phoneNumber: initiator?.phoneNumber || "",
+        status: response.data.status || acceptedPayload?.status || "active",
+        apiCallData: acceptedPayload,
+        initiator: acceptedPayload?.initiator || incomingCallData?.from,
+        receiver: acceptedPayload?.receiver,
         currentUserId: userId,
         currentUserType: "user",
         isIncoming: true,
@@ -1224,10 +1244,12 @@ const ChatBox = () => {
 
       if (response.data && response.data.success) {
         const receiverProfilePhoto = response.data.callData?.receiver?.profilePhoto || getProfilePhotoUrl(currentCounselor) || currentCounselor?.avatar || currentCounselor?.name?.charAt(0) || "👤";
+        const streamRoomId = getStreamRoomId(response.data, response.data.callData);
         const callData = {
           id: response.data.callData?.id,
           callId: response.data.callId,
-          roomId: response.data.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: response.data.callData?.receiver?.name || currentCounselor.name || "Consultant",
           type: "video",
           callType: "video",
@@ -1280,10 +1302,12 @@ const ChatBox = () => {
 
       if (response.data && response.data.success) {
         const receiverProfilePhoto = response.data.callData?.receiver?.profilePhoto || getProfilePhotoUrl(currentCounselor) || currentCounselor?.avatar || currentCounselor?.name?.charAt(0) || "👤";
+        const streamRoomId = getStreamRoomId(response.data, response.data.callData);
         const callData = {
           id: response.data.callData?.id,
           callId: response.data.callId,
-          roomId: response.data.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: response.data.callData?.receiver?.name || currentCounselor.name || "Consultant",
           type: "voice",
           callType: "audio",

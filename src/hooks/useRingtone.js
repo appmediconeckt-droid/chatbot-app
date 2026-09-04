@@ -72,8 +72,9 @@ const startRingingGlobal = (incoming = true) => {
     if (InCallManager) {
       try { InCallManager.setForceSpeakerphoneOn(true); } catch (_) {}
       try { InCallManager.setKeepScreenOn(true); } catch (_) {}
-      // startRingtone loops natively — call once, no JS timer needed.
-      try { InCallManager.startRingtone("_BUNDLE_"); } catch (_) {}
+      // Use the user's selected phone ringtone. "_BUNDLE_" plays the app asset;
+      // "_DEFAULT_" maps to Android/iOS default ringtone through InCallManager.
+      try { InCallManager.startRingtone("_DEFAULT_"); } catch (_) {}
     }
     // Repeat vibration + interval fallback (some Android builds ignore repeat).
     try { Vibration.vibrate(VIBRATION_PATTERN, true); } catch (_) {}
