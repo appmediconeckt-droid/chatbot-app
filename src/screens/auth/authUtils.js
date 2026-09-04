@@ -190,6 +190,7 @@ export const clearAuthData = async () => {
     "refreshToken",
     "userData",
     "userRole",
+    "userType",
     "userId",
     "counsellorId",
     "counselorId",

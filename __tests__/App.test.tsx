@@ -57,6 +57,14 @@ jest.mock('react-native-fs', () => ({
   unlink: jest.fn(),
 }));
 
+jest.mock('@react-native-voice/voice', () => ({
+  start: jest.fn(),
+  stop: jest.fn(),
+  destroy: jest.fn(() => Promise.resolve()),
+  removeAllListeners: jest.fn(),
+  isAvailable: jest.fn(() => Promise.resolve(true)),
+}));
+
 jest.mock('@stream-io/video-react-native-sdk', () => {
   const React = require('react');
   const { View } = require('react-native');
@@ -92,7 +100,20 @@ jest.mock('@stream-io/video-react-native-sdk', () => {
 import App from '../App';
 
 test('renders correctly', async () => {
-  await ReactTestRenderer.act(() => {
-    ReactTestRenderer.create(<App />);
+  jest.useFakeTimers();
+  let renderer: ReactTestRenderer.ReactTestRenderer | null = null;
+
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
   });
+
+  await ReactTestRenderer.act(async () => {
+    jest.advanceTimersByTime(1500);
+    await Promise.resolve();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer?.unmount();
+  });
+  jest.useRealTimers();
 });

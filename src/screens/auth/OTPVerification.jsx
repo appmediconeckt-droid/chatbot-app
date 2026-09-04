@@ -196,6 +196,8 @@ const OTPVerification = ({ navigation, route }) => {
           if (resolvedRole === 'counselor') {
             await AsyncStorage.setItem('counsellorId', String(resolvedId));
             await AsyncStorage.setItem('counselorId', String(resolvedId));
+          } else {
+            await AsyncStorage.multiRemove(['counsellorId', 'counselorId']);
           }
         }
 
