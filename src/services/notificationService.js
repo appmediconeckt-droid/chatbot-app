@@ -225,8 +225,8 @@ export const registerBackgroundNotificationHandler = () => {
           // Notification payloads are already displayed by Android while the
           // app is backgrounded/killed. Only data-only messages need Notifee
           // here, otherwise the same push is displayed twice.
-          if (!remoteMessage.notification) {
-            await displaySystemNotification(remoteMessage);
+          if (displayPromise) {
+            await displayPromise;
           }
         },
       );

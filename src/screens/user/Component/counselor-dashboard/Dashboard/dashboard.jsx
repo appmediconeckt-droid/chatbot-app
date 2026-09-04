@@ -1679,6 +1679,7 @@ export default function CounselorDashboard() {
 
       if (
         waitingCall &&
+        !isGlobalCallUiActive() &&
         !showIncomingCallModalRef.current &&
         !isVideoModalOpenRef.current &&
         !isVoiceModalOpenRef.current

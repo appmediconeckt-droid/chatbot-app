@@ -1610,6 +1610,7 @@ const SMSInput = ({ navigation, route }) => {
           headers: { Authorization: `Bearer ${token}` },
         });
         const calls = res.data.pendingRequests || [];
+        if (isGlobalCallUiActive()) return;
         if (calls.length > 0) {
           const call = calls[0];
           const from = call.from || call.initiator || {};

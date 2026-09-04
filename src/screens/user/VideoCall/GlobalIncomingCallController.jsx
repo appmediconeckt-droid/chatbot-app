@@ -29,8 +29,11 @@ import toImageUri from '../../../utils/imageUri';
 import VideoCallModal from '../Component/UserDashboard/Tab/CallModal/VideoCallModal';
 import VoiceCallModal from '../Component/UserDashboard/Tab/CallModal/VoiceCallModal';
 import {
+  claimIncomingCallPresentation,
   consumePendingIncomingCallIntent,
+  markIncomingCallHandled,
   normalizeCallType,
+  releaseIncomingCallPresentation,
   setGlobalCallUiActive,
   subscribeToIncomingCallIntents,
 } from '../../../services/callNotificationBridge';
@@ -412,6 +415,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
     if (notifyMissed && call?.callId) {
       await displayMissedCallNotification(call, reason);
     }
+    releaseIncomingCallPresentation(call?.callId);
     if (exitOnDismiss && Platform.OS === 'android') {
       setTimeout(() => BackHandler.exitApp(), 100);
     }
@@ -421,6 +425,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
     if (!intent?.callId) return;
     if (handledCallIdsRef.current.has(String(intent.callId))) return;
     if (showIncoming || isVideoOpen || isVoiceOpen) return;
+    if (!claimIncomingCallPresentation(intent.callId)) return;
 
     // Present immediately from the push payload. Waiting for pending/details
     // APIs here used to consume most of the short ringing window on cold start.
@@ -455,8 +460,18 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
 
     const setupSocketIncomingCalls = async () => {
       try {
+        const session = await getStoredSession();
         unsubscribeSocket = await socketService.on('incoming_call_request', (payload = {}) => {
           if (!active) return;
+          const initiatorId = getPartyId(payload.initiator) || payload.fromId;
+          const receiverId = getPartyId(payload.receiver) || payload.receiverId || payload.toId;
+          if (
+            session.currentUserId &&
+            (
+              (receiverId && String(receiverId) !== String(session.currentUserId)) ||
+              (!receiverId && initiatorId && String(initiatorId) === String(session.currentUserId))
+            )
+          ) return;
           handleIntent({
             source: 'socket',
             receivedAt: Date.now(),
@@ -561,6 +576,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
       if (!response.data?.success) throw new Error(response.data?.error || 'Call was not accepted');
 
       const acceptedCall = await buildAcceptedCall(call, response.data);
+      await markIncomingCallHandled(call.callId);
       setSelectedCall(acceptedCall);
       setIncomingCall(emptyIncomingCall);
       if (acceptedCall.callType === 'video') setIsVideoOpen(true);
@@ -588,6 +604,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
       }
     } catch (_) {}
     setIncomingCall(emptyIncomingCall);
+    releaseIncomingCallPresentation(call?.callId);
     setGlobalCallUiActive(false);
     if (exitOnDismiss && Platform.OS === 'android') {
       setTimeout(() => BackHandler.exitApp(), 100);
@@ -595,12 +612,13 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
   }, [exitOnDismiss]);
 
   const closeCallModal = useCallback(() => {
+    releaseIncomingCallPresentation(selectedCall?.callId);
     forceStopRingtone();
     setIsVideoOpen(false);
     setIsVoiceOpen(false);
     setSelectedCall(null);
     setGlobalCallUiActive(false);
-  }, []);
+  }, [selectedCall?.callId]);
 
   const handleEndCall = useCallback(async (callId) => {
     try {

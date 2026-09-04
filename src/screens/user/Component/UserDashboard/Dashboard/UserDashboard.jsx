@@ -1978,6 +1978,7 @@ export default function UserDashboard() {
 
         const response = await axiosInstance.get(`/api/video/calls/pending/${storedUserId}`);
         if (!isMounted) return;
+        if (isGlobalCallUiActive()) return;
 
         const callsList = response.data.pendingRequests || [];
         if (response.data.success && callsList.length > 0) {
@@ -2776,7 +2777,7 @@ export default function UserDashboard() {
   const renderContent = () => {
     switch (active) {
       case "Chat":
-        return <ChatInterface setActiveTab={switchDashboardTab} />;
+        return <ChatInterface setActiveTab={switchDashboardTab} onOpenCounselor={handleAIContactClick} />;
       case "Counselor":
         return (
           <CounselorTable

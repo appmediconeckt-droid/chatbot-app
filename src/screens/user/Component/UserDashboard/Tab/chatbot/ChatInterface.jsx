@@ -32,6 +32,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import PATIENT from '../../../../../../theme/palette';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
+import { formatLocationLabel, getCachedLocationSummary } from '../../../../../../utils/locationHelper';
 
 // Same gradient and direction as the wallet balance card.
 const WALLET_GRADIENT = ['#006B2C', '#01CE54'];
@@ -96,7 +97,7 @@ const resolveOnlineStatus = (person) => {
   return false;
 };
 
-const ChatInterface = ({ setActiveTab }) => {
+const ChatInterface = ({ setActiveTab, onOpenCounselor }) => {
   const navigation = useNavigation();
   const { t } = useLanguageRender();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -111,6 +112,9 @@ const ChatInterface = ({ setActiveTab }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedCounselor, setSelectedCounselor] = useState(null);
   const [activeFilter, setActiveFilter] = useState('all');
+  const [nearbyCounselors, setNearbyCounselors] = useState([]);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const [userLocationLabel, setUserLocationLabel] = useState('');
   const socketRef = useRef(null);
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -454,6 +458,55 @@ const ChatInterface = ({ setActiveTab }) => {
     }
   }, [setActiveTab, navigation]);
 
+  const fetchNearbyCounselors = useCallback(async () => {
+    try {
+      setNearbyLoading(true);
+      const summary = await getCachedLocationSummary();
+      const locationLabel = formatLocationLabel(summary);
+      setUserLocationLabel(locationLabel);
+      if (!summary || !locationLabel) {
+        setNearbyCounselors([]);
+        return;
+      }
+
+      const response = await axios.get(`${API_BASE_URL}/api/chat/counselors`);
+      const list = response.data?.counselors || response.data?.counsellors || (Array.isArray(response.data) ? response.data : []);
+      const locationTerms = [summary.city, summary.state, summary.address]
+        .filter(Boolean)
+        .flatMap((value) => String(value).toLowerCase().split(',').map((part) => part.trim()))
+        .filter((value) => value.length >= 3);
+
+      const nearby = list
+        .filter((person) => {
+          const location = String(person.location || person.address || '').toLowerCase();
+          return person.profileCompleted === true && location && locationTerms.some((term) => location.includes(term));
+        })
+        .map((person) => ({
+          id: person._id || person.id,
+          name: person.fullName || person.name || 'Consultant',
+          specialization: Array.isArray(person.specialization) ? person.specialization.join(', ') : person.specialization || 'Mental health consultant',
+          lastMessage: `Nearby · ${person.location || person.address}`,
+          time: '',
+          unread: 0,
+          online: resolveOnlineStatus(person),
+          avatar: toImageUri(person.profilePhoto) || toImageUri(person.avatar),
+          profilePhoto: person.profilePhoto,
+          location: person.location || person.address,
+          isNearbyDiscovery: true,
+        }));
+      setNearbyCounselors(nearby);
+    } catch (nearbyError) {
+      console.error('Unable to load nearby consultants:', nearbyError);
+      setNearbyCounselors([]);
+    } finally {
+      setNearbyLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeFilter === 'nearby') fetchNearbyCounselors();
+  }, [activeFilter, fetchNearbyCounselors]);
+
   const handleLongPressStart = useCallback((counselor) => {
     pressedItemId.current = counselor.id;
     Animated.spring(scaleAnim, {
@@ -517,12 +570,14 @@ const ChatInterface = ({ setActiveTab }) => {
       { id: 'all', label: t('common:all', 'All') },
       { id: 'online', label: t('common:online', 'Online') },
       { id: 'offline', label: t('common:offline', 'Offline') },
+      { id: 'nearby', label: t('common:nearby', 'Nearby') },
     ];
   }, [t]);
 
   const filteredCounselors = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    return counselors.filter((counselor) => {
+    const source = activeFilter === 'nearby' ? nearbyCounselors : counselors;
+    return source.filter((counselor) => {
       const matchesSearch =
         !term ||
         String(counselor.name || '').toLowerCase().includes(term) ||
@@ -534,9 +589,10 @@ const ChatInterface = ({ setActiveTab }) => {
       if (activeFilter === 'all') return true;
       if (activeFilter === 'online') return !!counselor.online;
       if (activeFilter === 'offline') return !counselor.online;
+      if (activeFilter === 'nearby') return true;
       return true;
     });
-  }, [counselors, searchTerm, activeFilter]);
+  }, [counselors, nearbyCounselors, searchTerm, activeFilter]);
 
   const renderAvatar = (counselor) => {
     // `?.url` alone missed Cloudinary objects that only carry `secure_url`, and
@@ -564,8 +620,10 @@ const ChatInterface = ({ setActiveTab }) => {
     return (
       <TouchableOpacity
         activeOpacity={0.7}
-        onPress={() => handleItemPress(item)}
-        onLongPress={() => handleLongPressStart(item)}
+        onPress={() => item.isNearbyDiscovery
+          ? (onOpenCounselor ? onOpenCounselor(item.name) : handleStartNewChat())
+          : handleItemPress(item)}
+        onLongPress={item.isNearbyDiscovery ? undefined : () => handleLongPressStart(item)}
         onPressOut={handleLongPressEnd}
         delayLongPress={500}
       >
@@ -617,7 +675,23 @@ const ChatInterface = ({ setActiveTab }) => {
     if (initialLoading || loading) return null;
     return (
       <View style={[styles.emptyContainer, compactEmptyState && styles.emptyContainerCompact]}>
-        {searchTerm ? (
+        {activeFilter === 'nearby' ? (
+          <>
+            <Ionicons name="location-outline" size={58} color={PATIENT.primary} />
+            <Text style={styles.emptyTitle}>
+              {userLocationLabel ? 'No nearby consultants found' : 'Your address is not available'}
+            </Text>
+            <Text style={styles.emptyText}>
+              {userLocationLabel
+                ? `No completed consultant profiles currently match ${userLocationLabel}.`
+                : 'Add or refresh your address from your profile to discover nearby consultants and doctors.'}
+            </Text>
+            <PatientGradientButton style={styles.startButton} contentStyle={styles.startButtonContent} onPress={handleStartNewChat}>
+              <Ionicons name="people-outline" size={17} color="#ffffff" />
+              <Text style={styles.startButtonText}>Browse all consultants</Text>
+            </PatientGradientButton>
+          </>
+        ) : searchTerm ? (
           <>
             <Ionicons name="search-outline" size={64} color="#cbd5e1" />
             <Text style={styles.emptyTitle}>{t('messages:noCounselorsFound', 'No consultants found')}</Text>
@@ -757,7 +831,9 @@ const ChatInterface = ({ setActiveTab }) => {
           })}
         </ScrollView>
       </View>
-      {initialLoading ? (
+      {activeFilter === 'nearby' && nearbyLoading ? (
+        <ChatListSkeleton />
+      ) : initialLoading ? (
         <ChatListSkeleton />
       ) : error && !loading ? (
         renderErrorState()
@@ -772,7 +848,9 @@ const ChatInterface = ({ setActiveTab }) => {
           ListHeaderComponent={
             filteredCounselors.length > 0 ? (
               <Text style={styles.sectionTitle}>
-                {t('messages:recentConversations', 'Recent Conversations')}
+                {activeFilter === 'nearby'
+                  ? `${t('common:nearby', 'Nearby')} · ${userLocationLabel}`
+                  : t('messages:recentConversations', 'Recent Conversations')}
               </Text>
             ) : null
           }
