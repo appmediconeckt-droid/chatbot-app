@@ -69,6 +69,37 @@ const parseStoredValue = (value) => {
   try { return JSON.parse(trimmed); } catch (_) { return trimmed; }
 };
 
+const normalizeStreamCallId = (value) => {
+  if (value === null || value === undefined) return null;
+  const raw = typeof value === 'object'
+    ? value.id || value._id || value.callId || value.roomId || value.cid
+    : value;
+  const id = String(raw || '').trim();
+  if (!id) return null;
+  return id.startsWith('default:') ? id.slice('default:'.length) : id;
+};
+
+const getStreamCallIdCandidates = (callData) => {
+  const apiCall = callData?.apiCallData || {};
+  return [
+    callData?.streamCallId,
+    callData?.stream_call_id,
+    callData?.streamId,
+    callData?.roomId,
+    callData?.channelId,
+    apiCall?.streamCallId,
+    apiCall?.stream_call_id,
+    apiCall?.streamId,
+    apiCall?.roomId,
+    apiCall?.channelId,
+    apiCall?.callId,
+    apiCall?.id,
+    apiCall?._id,
+    callData?.callId,
+    callData?.id,
+  ].map(normalizeStreamCallId).filter((id, index, ids) => id && ids.indexOf(id) === index);
+};
+
 const getCallParty = (callData, key) => (
   callData?.apiCallData?.[key] ||
   callData?.[key] ||
@@ -661,10 +692,50 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
           return;
         }
 
-        const streamCall = streamClient.call('default', callData.callId);
-        callRef.current = streamCall;
+        const streamCallIds = getStreamCallIdCandidates(callData);
+        if (streamCallIds.length === 0) throw new Error('Missing Stream call id');
+        const isIncoming = callData?.isIncoming === true;
+        let streamCall = null;
+        let lastJoinError = null;
 
-        // Register listeners before join and store unsub refs so they are
+        for (const streamCallId of streamCallIds) {
+          const candidateCall = streamClient.call('default', streamCallId);
+          callRef.current = candidateCall;
+
+          const currentState = candidateCall.state?.callingState;
+          const alreadyJoined =
+            currentState === CallingState.JOINED ||
+            currentState === CallingState.JOINING;
+
+          try {
+            if (!alreadyJoined) {
+              await candidateCall.join({ create: !isIncoming });
+            }
+            streamCall = candidateCall;
+            break;
+          } catch (joinError) {
+            lastJoinError = joinError;
+            callRef.current = null;
+            try { await candidateCall.leave(); } catch (_) {}
+          }
+        }
+
+        if (!streamCall && isIncoming) {
+          const fallbackCall = streamClient.call('default', streamCallIds[0]);
+          callRef.current = fallbackCall;
+          try {
+            await fallbackCall.join({ create: true });
+            streamCall = fallbackCall;
+          } catch (joinError) {
+            lastJoinError = joinError;
+            callRef.current = null;
+            try { await fallbackCall.leave(); } catch (_) {}
+          }
+        }
+
+        if (!streamCall) throw lastJoinError || new Error('Failed to join Stream call');
+
+        // Register listeners after a successful join and store unsub refs so they are
         // removed exactly once during cleanup — prevents duplicate firings.
         // Use handleCloseRef so the listener always calls the latest handleClose,
         // not the stale closure captured when setup() first ran.
@@ -703,20 +774,6 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
           unsubParticipantLeft,
           unsubParticipantLeftRTC,
         ];
-
-        // Guard: only join if not already connected to this call
-        const currentState = streamCall.state?.callingState;
-        const alreadyJoined =
-          currentState === CallingState.JOINED ||
-          currentState === CallingState.JOINING;
-
-        if (!alreadyJoined) {
-          // Initiator creates the room; callee joins an existing room.
-          // Using create:true on the callee side would start a new room
-          // instead of joining the initiator's room, causing a split session.
-          const isIncoming = callData?.isIncoming === true;
-          await streamCall.join({ create: !isIncoming });
-        }
 
         if (cancelledRef.current) {
           unsubscribersRef.current.forEach((fn) => { try { fn(); } catch (_) {} });

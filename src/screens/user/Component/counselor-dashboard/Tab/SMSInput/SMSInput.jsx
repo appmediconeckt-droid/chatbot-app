@@ -36,7 +36,7 @@ import { DOCTOR } from '../../../../../../theme/palette';
 import socketService from '../../../../../../services/socketService';
 import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
-import useRingtone from '../../../../../../hooks/useRingtone';
+import useRingtone, { INCOMING_RING_TIMEOUT_MS } from '../../../../../../hooks/useRingtone';
 import { isGlobalCallUiActive } from '../../../../../../services/callNotificationBridge';
 import useScreenshotPrevent from '../../../../../../utils/useScreenshotPrevent';
 import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
@@ -260,7 +260,6 @@ const IncomingCallModal = ({
         console.error("Error joining call:", error);
       } finally {
         setIsJoining(false);
-        onClose();
       }
     } else {
       setIsJoining(false);
@@ -1413,11 +1412,14 @@ const SMSInput = ({ navigation, route }) => {
           setSelectedCall(callDataForModal);
           setIsVoiceModalOpen(true);
         }
+        setShowIncomingModal(false);
         return { success: true };
       }
       throw new Error("Failed to accept call");
     } catch (error) {
       console.error("Join call error:", error);
+      setShowIncomingModal(true);
+      startRinging(true);
       throw error;
     }
   };
@@ -1629,6 +1631,23 @@ const SMSInput = ({ navigation, route }) => {
     }
     return () => stopRinging();
   }, [showIncomingModal, isVideoModalOpen, isVoiceModalOpen, isFocused]);
+
+  useEffect(() => {
+    if (!showIncomingModal || !incomingCallData?.callId) return undefined;
+
+    const timeoutId = setTimeout(async () => {
+      const shouldExitAfterCall = launchedFromCallPushRef.current;
+      launchedFromCallPushRef.current = false;
+      stopRinging();
+      setShowIncomingModal(false);
+      await AsyncStorage.removeItem('pendingIncomingCallPush');
+      if (shouldExitAfterCall && Platform.OS === 'android') {
+        setTimeout(() => BackHandler.exitApp(), 100);
+      }
+    }, INCOMING_RING_TIMEOUT_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [showIncomingModal, incomingCallData?.callId, stopRinging]);
 
   useEffect(() => {
     if (!isSocketConnected && selectedUser && counselorId) {

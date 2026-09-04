@@ -169,20 +169,36 @@ export const registerBackgroundNotificationHandler = () => {
         messaging,
         async remoteMessage => {
           const data = remoteMessage?.data || {};
-          if (isIncomingCallNotification(data)) {
-            await AsyncStorage.setItem(
-              PENDING_INCOMING_CALL_PUSH_KEY,
-              JSON.stringify({ ...data, receivedAt: Date.now() }),
-            );
-            await notifyIncomingCallIntent(remoteMessage, 'background-push');
+          const isIncomingCall = isIncomingCallNotification(data);
+
+          // Start the full-screen call notification before doing any storage
+          // work. On a cold/headless launch each AsyncStorage round trip adds
+          // visible delay, while displaying first lets Android open the
+          // dedicated incoming-call component as soon as possible.
+          const displayPromise = !remoteMessage.notification
+            ? displaySystemNotification(remoteMessage)
+            : null;
+
+          if (isIncomingCall) {
+            await Promise.all([
+              AsyncStorage.setItem(
+                PENDING_INCOMING_CALL_PUSH_KEY,
+                JSON.stringify({ ...data, receivedAt: Date.now() }),
+              ),
+              notifyIncomingCallIntent(remoteMessage, 'background-push'),
+              displayPromise,
+            ].filter(Boolean));
+
+            console.log('Background Notification:', remoteMessage);
+            return;
           }
 
           console.log('Background Notification:', remoteMessage);
           // Notification payloads are already displayed by Android while the
           // app is backgrounded/killed. Only data-only messages need Notifee
           // here, otherwise the same push is displayed twice.
-          if (!remoteMessage.notification) {
-            await displaySystemNotification(remoteMessage);
+          if (displayPromise) {
+            await displayPromise;
           }
         },
       );
