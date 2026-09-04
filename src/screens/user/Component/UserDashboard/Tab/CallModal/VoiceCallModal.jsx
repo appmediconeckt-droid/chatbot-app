@@ -20,6 +20,7 @@ import { API_BASE_URL } from '../../../../../../axiosConfig';
 import useRingtone from '../../../../../../hooks/useRingtone';
 import { useScreenshotPreventModal } from '../../../../../../utils/useScreenshotPrevent';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import { joinStreamCall } from './streamCallUtils';
 
 import {
   StreamVideo,
@@ -632,11 +633,15 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
           return;
         }
 
-        // 'default' call type works for audio — camera is disabled before join
-        const streamCall = streamClient.call('default', callData.callId);
+        const streamCall = await joinStreamCall({
+          streamClient,
+          callData,
+          CallingState,
+          disableCamera: true,
+        });
         callRef.current = streamCall;
 
-        // Register listeners before join and store unsub refs so they are
+        // Register listeners after a successful join and store unsub refs so they are
         // removed exactly once during cleanup — prevents duplicate firings.
         // Use handleCloseRef so the listener always calls the latest handleClose,
         // not the stale closure captured when setup() first ran.
@@ -675,23 +680,6 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
           unsubParticipantLeft,
           unsubParticipantLeftRTC,
         ];
-
-        // Disable camera BEFORE joining — avoids unnecessary video track negotiation
-        await streamCall.camera.disable().catch(() => {});
-
-        // Guard: only join if not already connected to this call
-        const currentState = streamCall.state?.callingState;
-        const alreadyJoined =
-          currentState === CallingState.JOINED ||
-          currentState === CallingState.JOINING;
-
-        if (!alreadyJoined) {
-          // Initiator creates the room; callee joins an existing room.
-          // Using create:true on the callee side would start a new room
-          // instead of joining the counselor's room, causing a split session.
-          const isIncoming = callData?.isIncoming === true;
-          await streamCall.join({ create: !isIncoming });
-        }
 
         if (cancelledRef.current) {
           unsubscribersRef.current.forEach((fn) => { try { fn(); } catch (_) {} });

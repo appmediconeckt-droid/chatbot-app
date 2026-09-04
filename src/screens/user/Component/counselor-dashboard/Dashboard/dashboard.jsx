@@ -39,8 +39,13 @@ import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityI
 
 // Custom Hooks
 import useVibration from "../../../../../hooks/useVibration";
-import { forceStopRingtone, startIncomingRingtone } from "../../../../../hooks/useRingtone";
+import {
+  INCOMING_RING_TIMEOUT_MS,
+  forceStopRingtone,
+  startIncomingRingtone,
+} from "../../../../../hooks/useRingtone";
 import { isGlobalCallUiActive } from "../../../../../services/callNotificationBridge";
+import { displayMissedCallNotification } from "../../../../../services/notificationService";
 import Dashboard from "../Tab/CounselorDashboard/Dashboardcou";
 import Messagesou from "../Tab/Messages/Messagesou";
 import PatientRequests from "../Tab/PatientRequests/PatientRequests";
@@ -66,6 +71,46 @@ const normalizeCallType = (value) => {
     return 'voice';
   }
   return 'video';
+};
+
+const TERMINAL_CALL_STATUSES = new Set([
+  'ended',
+  'rejected',
+  'missed',
+  'completed',
+  'cancelled',
+  'canceled',
+  'expired',
+  'timeout',
+  'timed_out',
+  'no_answer',
+]);
+
+const getCallStatus = (payload) => String(
+  payload?.call?.status ||
+  payload?.status ||
+  payload?.data?.status ||
+  ''
+).trim().toLowerCase();
+
+const getStreamRoomId = (...sources) => {
+  for (const source of sources) {
+    const roomId =
+      source?.streamCallId ||
+      source?.stream_call_id ||
+      source?.streamId ||
+      source?.roomId ||
+      source?.room_id ||
+      source?.channelId ||
+      source?.call?.streamCallId ||
+      source?.call?.roomId ||
+      source?.data?.streamCallId ||
+      source?.data?.roomId ||
+      source?.callData?.streamCallId ||
+      source?.callData?.roomId;
+    if (roomId) return roomId;
+  }
+  return '';
 };
 
 // â”€â”€â”€ Incoming Call Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -158,9 +203,13 @@ const IncomingCallModal = ({
   const handleAccept = async () => {
     setIsAccepting(true);
     forceStopRingtone();
-    onClose();
-    if (onAccept) await onAccept(callData);
-    setIsAccepting(false);
+    try {
+      if (onAccept) await onAccept(callData);
+    } catch (error) {
+      console.error("Error accepting call:", error);
+    } finally {
+      setIsAccepting(false);
+    }
   };
 
   const handleReject = async () => {
@@ -921,29 +970,54 @@ export default function CounselorDashboard() {
   useEffect(() => {
     if (!isFocused || !showIncomingCallModal || !incomingCallData?.callId) return;
 
+    const timeoutId = setTimeout(async () => {
+      const shouldExitAfterCall = launchedFromCallPushRef.current;
+      launchedFromCallPushRef.current = false;
+      forceStopRingtone();
+      ringingStartedRef.current = false;
+      setShowIncomingCallModal(false);
+      setIncomingCallData(null);
+      await displayMissedCallNotification(incomingCallData, 'missed');
+      await AsyncStorage.removeItem('pendingIncomingCallPush');
+      if (shouldExitAfterCall && Platform.OS === 'android') {
+        setTimeout(() => BackHandler.exitApp(), 100);
+      }
+    }, INCOMING_RING_TIMEOUT_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [isFocused, showIncomingCallModal, incomingCallData?.callId]);
+
+  useEffect(() => {
+    if (!isFocused || !showIncomingCallModal || !incomingCallData?.callId) return;
+
     let cancelled = false;
 
-    const checkStillPending = async () => {
+    const checkCallEnded = async () => {
       try {
         const token = await getAuthToken();
         const counsellorId = await getCounsellorId();
         if (cancelled || !token || !counsellorId) return;
 
         const response = await axios.get(
-          `${API_BASE_URL}/api/video/calls/pending/${counsellorId}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          `${API_BASE_URL}/api/video/calls/${incomingCallData.callId}/details`,
+          {
+            params: { userId: counsellorId, userType: "counsellor" },
+            headers: { Authorization: `Bearer ${token}` },
+          }
         );
 
-        const pending = response.data?.pendingRequests || [];
-        const stillThere = pending.some((c) => (c?.callId || c?.id || c?._id) === incomingCallData.callId);
-
-        if (!stillThere && !cancelled) {
+        const status = getCallStatus(response.data);
+        if (TERMINAL_CALL_STATUSES.has(status) && !cancelled) {
           const shouldExitAfterCall = launchedFromCallPushRef.current;
           launchedFromCallPushRef.current = false;
           forceStopRingtone();
           ringingStartedRef.current = false;
           setShowIncomingCallModal(false);
           setIncomingCallData(null);
+          await displayMissedCallNotification(
+            incomingCallData,
+            status === 'ended' ? 'ended' : 'missed',
+          );
           await AsyncStorage.removeItem('pendingIncomingCallPush');
           if (shouldExitAfterCall && Platform.OS === 'android') {
             setTimeout(() => BackHandler.exitApp(), 100);
@@ -954,15 +1028,13 @@ export default function CounselorDashboard() {
       }
     };
 
-    checkStillPending();
-    const intervalId = setInterval(checkStillPending, 2000);
+    const intervalId = setInterval(checkCallEnded, 2000);
 
     return () => {
       cancelled = true;
       clearInterval(intervalId);
     };
   }, [isFocused, showIncomingCallModal, incomingCallData?.callId]);
-
   const normalizeObjectId = (value) => {
     if (!value) return null;
 
@@ -1159,6 +1231,7 @@ export default function CounselorDashboard() {
 
       if (response.data?.success) {
         const rawCall = response.data.callData || {};
+        const streamRoomId = getStreamRoomId(response.data, rawCall);
         // Match web: prefer anonymous handle, fall back to backend-provided
         // displayName/fullName, finally "User".
         const displayName =
@@ -1170,7 +1243,8 @@ export default function CounselorDashboard() {
         const callData = {
           id: rawCall?.id || rawCall?._id || response.data.callId,
           callId: response.data.callId,
-          roomId: response.data.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: displayName,
           profilePic: patientInfo.profilePhoto || patientInfo.image || null,
           isIncoming: false,
@@ -1403,50 +1477,48 @@ export default function CounselorDashboard() {
   };
 
   // â”€â”€ Handle Accept Incoming Call â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
- const handleAcceptIncomingCall = async (callData) => {
-  launchedFromCallPushRef.current = false;
-  await AsyncStorage.removeItem('pendingIncomingCallPush');
-  // Stop ringtone immediately
-  forceStopRingtone();
-  setShowIncomingCallModal(false);
-  setIncomingCallData(null);
-  const result = await acceptCall(callData.callId);
-  if (result?.success) {
-    const token = await getAuthToken();
-    const counsellorId = await getCounsellorId();
-    if (!token || !counsellorId) {
-      showToast("Session expired. Please login again.", "error");
+  const handleAcceptIncomingCall = async (callData) => {
+    launchedFromCallPushRef.current = false;
+    await AsyncStorage.removeItem('pendingIncomingCallPush');
+    forceStopRingtone();
+
+    const result = await acceptCall(callData.callId);
+    if (!result?.success) {
+      showToast("Failed to accept call. Please try again.", "error");
+      setShowIncomingCallModal(true);
+      startIncomingRingtone(true);
       return;
     }
-    let detailedCall = null;
-    try {
-      const detailsResponse = await axios.get(
-        `${API_BASE_URL}/api/video/calls/${callData.callId}/details`,
-        {
-          params: { userId: counsellorId, userType: "counsellor" },
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      detailedCall = detailsResponse.data?.call || null;
-    } catch (detailsError) {
-      console.warn("Could not fetch accepted call details:", detailsError);
+
+    const counsellorId = await getCounsellorId();
+    if (!counsellorId) {
+      showToast("Session expired. Please login again.", "error");
+      setShowIncomingCallModal(true);
+      startIncomingRingtone(true);
+      return;
     }
+
+    const acceptedPayload =
+      result.data?.call ||
+      result.data?.callData ||
+      result.data?.data?.call ||
+      result.data?.data?.callData ||
+      null;
 
     const modalType = normalizeCallType(
       callData.callType ||
-      detailedCall?.callType ||
-      detailedCall?.type ||
+      acceptedPayload?.callType ||
+      acceptedPayload?.type ||
       result.data?.callType ||
       "video"
     );
-    const initiatorIdStr = String(detailedCall?.initiator?.id || detailedCall?.initiator?._id || '');
-    const remoteParticipant = detailedCall
+    const initiatorIdStr = String(acceptedPayload?.initiator?.id || acceptedPayload?.initiator?._id || '');
+    const remoteParticipant = acceptedPayload
       ? initiatorIdStr === String(counsellorId)
-        ? detailedCall.receiver
-        : detailedCall.initiator
+        ? acceptedPayload.receiver
+        : acceptedPayload.initiator
       : callData?.from || null;
 
-    // ✅ IMPORTANT FIX: Match web logic - prioritize anonymous fields
     let displayName = "User";
     if (remoteParticipant?.anonymous) {
       displayName = remoteParticipant.anonymous;
@@ -1462,22 +1534,24 @@ export default function CounselorDashboard() {
       displayName = callData.name;
     }
 
+    const streamRoomId = getStreamRoomId(result.data, acceptedPayload, callData);
     const acceptedCallData = {
-      id: detailedCall?.id || detailedCall?._id || callData.callId,
+      id: acceptedPayload?.id || acceptedPayload?._id || callData.callId,
       callId: callData.callId,
-      roomId: result.data?.roomId || detailedCall?.roomId || callData.roomId,
-      name: displayName,  // Now uses anonymous name as priority
+      roomId: streamRoomId,
+      streamCallId: streamRoomId,
+      name: displayName,
       isIncoming: true,
-      status: result.data?.status || detailedCall?.status || "active",
+      status: result.data?.status || acceptedPayload?.status || "active",
       type: modalType,
       callType: modalType,
       profilePic: remoteParticipant?.profilePhoto || remoteParticipant?.image || callData.image || null,
       phoneNumber: remoteParticipant?.phoneNumber || remoteParticipant?.phone || "",
-      apiCallData: detailedCall,
-      initiator: detailedCall?.initiator || callData.initiator,
-      receiver: detailedCall?.receiver,
-      initiatorId: detailedCall?.initiator?.id || detailedCall?.initiator?._id,
-      receiverId: detailedCall?.receiver?.id || detailedCall?.receiver?._id,
+      apiCallData: acceptedPayload,
+      initiator: acceptedPayload?.initiator || callData.initiator,
+      receiver: acceptedPayload?.receiver || callData.receiver,
+      initiatorId: acceptedPayload?.initiator?.id || acceptedPayload?.initiator?._id,
+      receiverId: acceptedPayload?.receiver?.id || acceptedPayload?.receiver?._id,
       currentUserId: counsellorId,
       currentUserType: "counsellor",
       from: callData.from,
@@ -1486,10 +1560,10 @@ export default function CounselorDashboard() {
     setSelectedCall(acceptedCallData);
     if (modalType === "video") setIsVideoModalOpen(true);
     else setIsVoiceModalOpen(true);
-  } else {
-    showToast("Failed to accept call. Please try again.", "error");
-  }
-};
+    ringingStartedRef.current = false;
+    setShowIncomingCallModal(false);
+    setIncomingCallData(null);
+  };
 
   const handleRejectIncomingCall = async (callId) => {
     const shouldExitAfterReject = launchedFromCallPushRef.current;
@@ -1634,10 +1708,12 @@ export default function CounselorDashboard() {
         }
 
         const resolvedCallType = normalizeCallType(waitingCall.callType || waitingCall.type);
+        const streamRoomId = getStreamRoomId(waitingCall);
 
         setIncomingCallData({
           callId: waitingCall.callId || waitingCall.id || waitingCall._id,
-          roomId: waitingCall.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: displayName,  // Now uses anonymous name as priority
           image:
             fromData.profilePhoto ||

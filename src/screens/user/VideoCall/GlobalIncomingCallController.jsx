@@ -20,7 +20,11 @@ import Text from '../../../components/TranslatedText';
 import axiosInstance from '../../../axiosConfig';
 import safeVibrate from '../../../utils/safeVibrate';
 import socketService from '../../../services/socketService';
-import { forceStopRingtone, startIncomingRingtone } from '../../../hooks/useRingtone';
+import {
+  INCOMING_RING_TIMEOUT_MS,
+  forceStopRingtone,
+  startIncomingRingtone,
+} from '../../../hooks/useRingtone';
 import toImageUri from '../../../utils/imageUri';
 import VideoCallModal from '../Component/UserDashboard/Tab/CallModal/VideoCallModal';
 import VoiceCallModal from '../Component/UserDashboard/Tab/CallModal/VoiceCallModal';
@@ -30,6 +34,7 @@ import {
   setGlobalCallUiActive,
   subscribeToIncomingCallIntents,
 } from '../../../services/callNotificationBridge';
+import { displayMissedCallNotification } from '../../../services/notificationService';
 
 const emptyIncomingCall = {
   callId: '',
@@ -135,40 +140,72 @@ const resolveRemoteParty = (call, currentUserId) => {
   return initiator || call?.from || receiver || {};
 };
 
-const fetchCallDetails = async (callId, session) => {
-  if (!callId || !session.currentUserId) return null;
+const getErrorMessage = (error) => (
+  error?.response?.data?.error || error?.message || 'Unable to connect this call'
+);
+
+const TERMINAL_CALL_STATUSES = new Set([
+  'ended',
+  'rejected',
+  'missed',
+  'completed',
+  'cancelled',
+  'canceled',
+  'expired',
+  'timeout',
+  'timed_out',
+  'no_answer',
+]);
+
+const getStatusFromCallResponse = (payload) => String(
+  payload?.call?.status ||
+  payload?.status ||
+  payload?.data?.status ||
+  ''
+).trim().toLowerCase();
+
+const getStreamRoomId = (...sources) => {
+  for (const source of sources) {
+    const roomId =
+      source?.streamCallId ||
+      source?.stream_call_id ||
+      source?.streamId ||
+      source?.roomId ||
+      source?.room_id ||
+      source?.channelId ||
+      source?.call?.streamCallId ||
+      source?.call?.roomId ||
+      source?.data?.streamCallId ||
+      source?.data?.roomId ||
+      source?.callData?.streamCallId ||
+      source?.callData?.roomId;
+    if (roomId) return roomId;
+  }
+  return '';
+};
+
+const fetchCallStatus = async (callId, session) => {
+  if (!callId || !session.currentUserId) return '';
   try {
     const response = await axiosInstance.get(
       `/api/video/calls/${callId}/details`,
       { params: { userId: session.currentUserId, userType: session.apiRole } },
     );
-    return response.data?.call || null;
+    return getStatusFromCallResponse(response.data);
   } catch (_) {
-    return null;
-  }
-};
-
-const getErrorMessage = (error) => (
-  error?.response?.data?.error || error?.message || 'Unable to connect this call'
-);
-
-const fetchPendingCall = async (intent, session) => {
-  if (!session.currentUserId) return null;
-  try {
-    const response = await axiosInstance.get(`/api/video/calls/pending/${session.currentUserId}`);
-    const calls = response.data?.pendingRequests || response.data?.waitingCalls || response.data?.calls || [];
-    if (!Array.isArray(calls) || calls.length === 0) return null;
-    if (!intent?.callId) return calls[0];
-    return calls.find((call) => String(call?.callId || call?.id || call?._id) === String(intent.callId)) || null;
-  } catch (_) {
-    return null;
+    return '';
   }
 };
 
 const buildAcceptedCall = async (incomingCall, acceptData) => {
   const session = await getStoredSession();
-  const detailedCall = await fetchCallDetails(incomingCall.callId, session);
-  const sourceCall = detailedCall || incomingCall;
+  const acceptedPayload =
+    acceptData?.call ||
+    acceptData?.callData ||
+    acceptData?.data?.call ||
+    acceptData?.data?.callData ||
+    null;
+  const sourceCall = acceptedPayload || incomingCall;
   const remoteParty = resolveRemoteParty(sourceCall, session.currentUserId);
   const modalType = normalizeCallType(sourceCall.callType || incomingCall.callType);
   const displayName = displayNameForParty(remoteParty, incomingCall.name, session.role);
@@ -180,7 +217,8 @@ const buildAcceptedCall = async (incomingCall, acceptData) => {
   return {
     id: sourceCall.id || sourceCall._id || incomingCall.callId,
     callId: incomingCall.callId,
-    roomId: acceptData?.roomId || sourceCall.roomId || incomingCall.roomId,
+    roomId: getStreamRoomId(acceptData, sourceCall, incomingCall),
+    streamCallId: getStreamRoomId(acceptData, sourceCall, incomingCall),
     name: displayName,
     userName: displayName,
     type: modalType,
@@ -189,7 +227,7 @@ const buildAcceptedCall = async (incomingCall, acceptData) => {
     profilePic: image,
     image,
     phoneNumber: remoteParty?.phoneNumber || remoteParty?.phone || '',
-    apiCallData: detailedCall || incomingCall.apiCallData,
+    apiCallData: acceptedPayload || incomingCall.apiCallData,
     initiator: sourceCall.initiator || incomingCall.initiator,
     receiver: sourceCall.receiver || incomingCall.receiver,
     initiatorId: getPartyId(sourceCall.initiator),
@@ -365,11 +403,15 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
     incomingCallRef.current = incomingCall;
   }, [incomingCall]);
 
-  const closeIncoming = useCallback(() => {
+  const closeIncoming = useCallback(async ({ notifyMissed = false, reason = 'missed' } = {}) => {
+    const call = incomingCallRef.current;
     forceStopRingtone();
     setShowIncoming(false);
     setIncomingCall(emptyIncomingCall);
     setGlobalCallUiActive(isVideoOpen || isVoiceOpen);
+    if (notifyMissed && call?.callId) {
+      await displayMissedCallNotification(call, reason);
+    }
     if (exitOnDismiss && Platform.OS === 'android') {
       setTimeout(() => BackHandler.exitApp(), 100);
     }
@@ -386,7 +428,8 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
       ...emptyIncomingCall,
       ...intent,
       callId: String(intent.callId),
-      roomId: intent.roomId || '',
+      roomId: getStreamRoomId(intent),
+      streamCallId: getStreamRoomId(intent),
       name: intent.name || 'Incoming call',
       callType: normalizeCallType(intent.callType || intent?.data?.callType),
     };
@@ -419,7 +462,8 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
             receivedAt: Date.now(),
             data: payload,
             callId: payload.callId || payload.id || payload._id,
-            roomId: payload.roomId || payload.room_id || '',
+            roomId: getStreamRoomId(payload),
+            streamCallId: getStreamRoomId(payload),
             callType: normalizeCallType(payload.callType || payload.type),
             name: typeof payload.from === 'string'
               ? payload.from
@@ -469,17 +513,29 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
   useEffect(() => {
     if (!showIncoming || !incomingCall.callId) return undefined;
 
+    const timeoutId = setTimeout(() => {
+      if (incomingCallRef.current?.callId === incomingCall.callId) {
+        closeIncoming({ notifyMissed: true, reason: 'missed' });
+      }
+    }, INCOMING_RING_TIMEOUT_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [showIncoming, incomingCall.callId, closeIncoming]);
+
+  useEffect(() => {
+    if (!showIncoming || !incomingCall.callId) return undefined;
+
     let cancelled = false;
-    const checkStillPending = async () => {
+    const checkCallEnded = async () => {
       const session = await getStoredSession();
       if (cancelled || !session.currentUserId) return;
-      const pending = await fetchPendingCall({ callId: incomingCall.callId }, session);
-      if (!pending && !cancelled) {
-        closeIncoming();
+      const status = await fetchCallStatus(incomingCall.callId, session);
+      if (TERMINAL_CALL_STATUSES.has(status) && !cancelled) {
+        closeIncoming({ notifyMissed: true, reason: status === 'ended' ? 'ended' : 'missed' });
       }
     };
 
-    const intervalId = setInterval(checkStillPending, 2000);
+    const intervalId = setInterval(checkCallEnded, 2000);
     return () => {
       cancelled = true;
       clearInterval(intervalId);
@@ -493,13 +549,13 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
     forceStopRingtone();
     setShowIncoming(false);
 
-    const session = await getStoredSession();
-    if (!session.currentUserId) return;
-
     try {
+      const session = await getStoredSession();
+      if (!session.currentUserId) throw new Error('No active user session for this call');
+
       const response = await axiosInstance.put(
         `/api/video/calls/${call.callId}/accept`,
-        { acceptorType: session.apiRole },
+        { acceptorId: session.currentUserId, acceptorType: session.apiRole },
       );
 
       if (!response.data?.success) throw new Error(response.data?.error || 'Call was not accepted');

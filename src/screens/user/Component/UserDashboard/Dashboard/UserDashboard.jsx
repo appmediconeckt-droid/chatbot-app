@@ -37,8 +37,13 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import LinearGradient from 'react-native-linear-gradient';
 import { BlurView } from "@react-native-community/blur";
 import safeVibrate from "../../../../../utils/safeVibrate";
-import { forceStopRingtone, startIncomingRingtone } from "../../../../../hooks/useRingtone";
+import {
+  INCOMING_RING_TIMEOUT_MS,
+  forceStopRingtone,
+  startIncomingRingtone,
+} from "../../../../../hooks/useRingtone";
 import { isGlobalCallUiActive } from "../../../../../services/callNotificationBridge";
+import { displayMissedCallNotification } from "../../../../../services/notificationService";
 import { useToast } from "../../../../../components/common/ToastProvider";
 import ChatInterface from "../Tab/chatbot/ChatInterface";
 import CounselorTable from "../Tab/Appointment/BookAppointment";
@@ -66,6 +71,45 @@ import { useSpeechToText } from "../../../../../hooks/useSpeechToText";
 // Time for a Modal to finish dismissing. RN can only transition one Modal at a
 // time, so opening the next one any sooner gets silently dropped.
 const MODAL_DISMISS_MS = 320;
+const TERMINAL_CALL_STATUSES = new Set([
+  'ended',
+  'rejected',
+  'missed',
+  'completed',
+  'cancelled',
+  'canceled',
+  'expired',
+  'timeout',
+  'timed_out',
+  'no_answer',
+]);
+
+const getCallStatus = (payload) => String(
+  payload?.call?.status ||
+  payload?.status ||
+  payload?.data?.status ||
+  ''
+).trim().toLowerCase();
+
+const getStreamRoomId = (...sources) => {
+  for (const source of sources) {
+    const roomId =
+      source?.streamCallId ||
+      source?.stream_call_id ||
+      source?.streamId ||
+      source?.roomId ||
+      source?.room_id ||
+      source?.channelId ||
+      source?.call?.streamCallId ||
+      source?.call?.roomId ||
+      source?.data?.streamCallId ||
+      source?.data?.roomId ||
+      source?.callData?.streamCallId ||
+      source?.callData?.roomId;
+    if (roomId) return roomId;
+  }
+  return '';
+};
 
 // The AI surface uses the same green pair as the wallet card, so the assistant
 // reads as part of the patient-side brand.
@@ -695,11 +739,15 @@ const CallModal = ({
   const handleAccept = async () => {
     if (isAccepting) return;
     setIsAccepting(true);
-    if (onAcceptCall && callData) {
-      await onAcceptCall(callData.callId);
-      onClose();
+    try {
+      if (onAcceptCall && callData) {
+        await onAcceptCall(callData.callId);
+      }
+    } catch (error) {
+      console.error("Error accepting call:", error);
+    } finally {
+      setIsAccepting(false);
     }
-    setIsAccepting(false);
   };
 
   const handleReject = async () => {
@@ -1957,7 +2005,8 @@ export default function UserDashboard() {
 
           setCallerInfo({
             callId,
-            roomId: waitingCall.roomId,
+        roomId: getStreamRoomId(waitingCall),
+        streamCallId: getStreamRoomId(waitingCall),
             name: counselorName,
             userName: counselorName,
             image: fromData.profilePhoto || fromData.image || null,
@@ -1991,29 +2040,51 @@ export default function UserDashboard() {
   useEffect(() => {
     if (!showCallModal || !callerInfo.callId) return;
 
+    const timeoutId = setTimeout(async () => {
+      const shouldExitAfterCall = launchedFromCallPushRef.current;
+      launchedFromCallPushRef.current = false;
+      forceStopRingtone();
+      pollBlockedUntilRef.current = Date.now() + 6000;
+      setShowCallModal(false);
+      setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+      await displayMissedCallNotification(callerInfo, 'missed');
+      await AsyncStorage.removeItem('pendingIncomingCallPush');
+      if (shouldExitAfterCall && Platform.OS === 'android') {
+        setTimeout(() => BackHandler.exitApp(), 100);
+      }
+    }, INCOMING_RING_TIMEOUT_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [showCallModal, callerInfo.callId]);
+
+  useEffect(() => {
+    if (!showCallModal || !callerInfo.callId) return;
+
     let cancelled = false;
 
-    const checkStillPending = async () => {
+    const checkCallEnded = async () => {
       try {
         const storedUserId = await AsyncStorage.getItem('userId');
         if (!storedUserId || cancelled) return;
 
-        const response = await axiosInstance.get(`/api/video/calls/pending/${storedUserId}`);
+        const response = await axiosInstance.get(
+          `/api/video/calls/${callerInfoRef.current.callId}/details`,
+          { params: { userId: storedUserId, userType: 'user' } },
+        );
         if (cancelled) return;
 
-        const callsList = response.data.pendingRequests || [];
-        const currentCallId = callerInfoRef.current.callId;
-        const stillThere = callsList.some(
-          (c) => (c?.callId || c?.id || c?._id) === currentCallId
-        );
-
-        if (!stillThere) {
+        const status = getCallStatus(response.data);
+        if (TERMINAL_CALL_STATUSES.has(status)) {
           const shouldExitAfterCall = launchedFromCallPushRef.current;
           launchedFromCallPushRef.current = false;
           forceStopRingtone();
           pollBlockedUntilRef.current = Date.now() + 6000;
           setShowCallModal(false);
           setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+          await displayMissedCallNotification(
+            callerInfoRef.current,
+            status === 'ended' ? 'ended' : 'missed',
+          );
           await AsyncStorage.removeItem('pendingIncomingCallPush');
           if (shouldExitAfterCall && Platform.OS === 'android') {
             setTimeout(() => BackHandler.exitApp(), 100);
@@ -2022,8 +2093,7 @@ export default function UserDashboard() {
       } catch (_) {}
     };
 
-    checkStillPending();
-    const intervalId = setInterval(checkStillPending, 2000);
+    const intervalId = setInterval(checkCallEnded, 2000);
 
     return () => {
       cancelled = true;
@@ -2112,7 +2182,11 @@ export default function UserDashboard() {
           chatId: null,
           counselor,
           callType: callType === "audio" ? "voice" : "video",
-          callData,
+          callData: {
+            ...callData,
+            roomId: getStreamRoomId(response.data, callData),
+            streamCallId: getStreamRoomId(response.data, callData),
+          },
         });
       } else {
         Alert.alert("Error", response.data?.message || `${failLabel} failed. Please try again.`);
@@ -2453,47 +2527,46 @@ export default function UserDashboard() {
     launchedFromCallPushRef.current = false;
     await AsyncStorage.removeItem('pendingIncomingCallPush');
     forceStopRingtone();
-    setShowCallModal(false);
-    setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
     pollBlockedUntilRef.current = Date.now() + 6000;
     try {
       const storedUserId = await AsyncStorage.getItem('userId');
-      if (!storedUserId) return;
+      if (!storedUserId) throw new Error('User ID missing');
 
       const acceptRes = await axiosInstance.put(
         '/api/video/calls/' + callId + '/accept',
         { acceptorId: storedUserId, acceptorType: 'user' }
       );
-      if (!acceptRes.data?.success) return;
+      if (!acceptRes.data?.success) {
+        throw new Error(acceptRes.data?.error || acceptRes.data?.message || 'Failed to accept call');
+      }
 
-      let detailedCall = null;
-      try {
-        const detailsRes = await axiosInstance.get(
-          '/api/video/calls/' + callId + '/details',
-          { params: { userId: storedUserId, userType: 'user' } }
-        );
-        detailedCall = detailsRes.data?.call || null;
-      } catch (_) {}
+      const acceptedPayload =
+        acceptRes.data?.call ||
+        acceptRes.data?.callData ||
+        acceptRes.data?.data?.call ||
+        acceptRes.data?.data?.callData ||
+        null;
 
       const incomingType = String(callerInfo.callType || callType || 'video').toLowerCase();
       const modalType = incomingType === 'audio' ? 'voice' : incomingType;
-      const remoteParticipant = detailedCall?.initiator || callerInfo?.from || {};
+      const remoteParticipant = acceptedPayload?.initiator || callerInfo?.from || {};
 
       const acceptedCallData = {
-        id: detailedCall?.id || detailedCall?._id || callId,
+        id: acceptedPayload?.id || acceptedPayload?._id || callId,
         callId,
-        roomId: acceptRes.data?.roomId || detailedCall?.roomId || callerInfo.roomId,
+        roomId: getStreamRoomId(acceptRes.data, acceptedPayload, callerInfo),
+        streamCallId: getStreamRoomId(acceptRes.data, acceptedPayload, callerInfo),
         name: remoteParticipant?.fullName || remoteParticipant?.displayName || callerInfo.name || 'Counselor',
         type: modalType,
         callType: modalType,
-        status: acceptRes.data?.status || detailedCall?.status || 'active',
+        status: acceptRes.data?.status || acceptedPayload?.status || 'active',
         profilePic: remoteParticipant?.profilePhoto || callerInfo.image || null,
         phoneNumber: remoteParticipant?.phoneNumber || '',
-        apiCallData: detailedCall,
-        initiator: detailedCall?.initiator,
-        receiver: detailedCall?.receiver,
-        initiatorId: detailedCall?.initiator?.id || detailedCall?.initiator?._id,
-        receiverId: detailedCall?.receiver?.id || detailedCall?.receiver?._id,
+        apiCallData: acceptedPayload,
+        initiator: acceptedPayload?.initiator || callerInfo?.from,
+        receiver: acceptedPayload?.receiver,
+        initiatorId: acceptedPayload?.initiator?.id || acceptedPayload?.initiator?._id,
+        receiverId: acceptedPayload?.receiver?.id || acceptedPayload?.receiver?._id,
         currentUserId: storedUserId,
         currentUserType: 'user',
         isIncoming: true,
@@ -2502,8 +2575,12 @@ export default function UserDashboard() {
       setSelectedCall(acceptedCallData);
       if (modalType === 'video') setIsVideoModalOpen(true);
       else setIsVoiceModalOpen(true);
+      setShowCallModal(false);
+      setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
     } catch (error) {
       console.error('Error accepting call:', error);
+      setShowCallModal(true);
+      startIncomingRingtone(true);
     }
   };
 
