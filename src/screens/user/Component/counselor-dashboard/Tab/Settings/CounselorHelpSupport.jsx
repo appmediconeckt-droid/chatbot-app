@@ -20,6 +20,10 @@ import {
   SUPPORT_PHONE_DISPLAY,
   SUPPORT_PHONE_TEL,
 } from '../../../../../../config';
+import {
+  APP_VERSION,
+  LAST_UPDATED,
+} from '../../../../../../constants/appInfo';
 
 // India's unified emergency number (police / ambulance / fire).
 const EMERGENCY_PHONE = '112';
@@ -28,8 +32,6 @@ const KIRAN_HELPLINE = '9152987821';
 // Region-aware directory of verified crisis lines. Deliberately not a hardcoded
 // list of numbers - a wrong helpline number is worse than none.
 const HELPLINE_DIRECTORY = 'https://findahelpline.com';
-const APP_VERSION = '2.1.4';
-const LAST_UPDATED = 'July 2026';
 
 /**
  * Help & Support for the counselor side.
