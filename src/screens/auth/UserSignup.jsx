@@ -809,19 +809,23 @@ const UserSignup = ({ navigation, route }) => {
   const persistUserSession = async (data) => {
     const token = data?.token || data?.accessToken || data?.data?.token;
     if (!token) return false;
+    const user = data?.user || data?.data?.user || null;
 
     await AsyncStorage.setItem('token', token);
     await AsyncStorage.setItem('accessToken', token);
+    if (data?.refreshToken || data?.data?.refreshToken) {
+      await AsyncStorage.setItem('refreshToken', data?.refreshToken || data?.data?.refreshToken);
+    }
     await AsyncStorage.setItem('isAuthenticated', 'true');
     await AsyncStorage.setItem('userType', 'user');
-    await AsyncStorage.setItem('userEmail', formData.email);
+    await AsyncStorage.setItem('userRole', 'user');
+    await AsyncStorage.setItem('userEmail', formData.email.trim().toLowerCase());
+    await AsyncStorage.multiRemove(['counsellorId', 'counselorId']);
 
-    const role = data?.role || data?.user?.role || 'user';
-    await AsyncStorage.setItem('userRole', role);
-
-    if (data.user) {
-      await AsyncStorage.setItem('userData', JSON.stringify(data.user));
-      if (data.user._id) await AsyncStorage.setItem('userId', data.user._id);
+    if (user) {
+      await AsyncStorage.setItem('userData', JSON.stringify(user));
+      const id = user._id || user.id;
+      if (id) await AsyncStorage.setItem('userId', String(id));
     }
     sendLocationSilently('login');
     socketService.connect().catch(() => {});

@@ -268,6 +268,9 @@ export const displaySystemNotification = async remoteMessage => {
   const canReply = Platform.OS === 'android' && isChatNotification(data);
   const isIncomingCall =
     Platform.OS === 'android' && isIncomingCallNotification(data);
+  if (isIncomingCall && !data.receivedAt) {
+    data.receivedAt = String(Date.now());
+  }
 
   if (Platform.OS === 'android') {
     await notifee.createChannel({

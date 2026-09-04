@@ -315,8 +315,12 @@ const Login = ({ navigation, route }) => {
       }
 
       await AsyncStorage.setItem('userRole', normalizedUserRole);
+      await AsyncStorage.setItem('userType', isCounselor ? 'counselor' : 'user');
       await AsyncStorage.setItem('isAuthenticated', 'true');
       await AsyncStorage.setItem('userEmail', email);
+      if (!isCounselor) {
+        await AsyncStorage.multiRemove(['counsellorId', 'counselorId']);
+      }
 
       const user = response.data?.user || response.data;
       if (user) {
@@ -490,9 +494,14 @@ const Login = ({ navigation, route }) => {
       const resolvedRole =
         normalizeRole(response.data?.role || response.data?.user?.role) ||
         selectedRole;
+      const otpIsCounselor = resolvedRole === 'counselor';
       await AsyncStorage.setItem('userRole', resolvedRole);
+      await AsyncStorage.setItem('userType', otpIsCounselor ? 'counselor' : 'user');
       await AsyncStorage.setItem('isAuthenticated', 'true');
       await AsyncStorage.setItem('userEmail', email);
+      if (!otpIsCounselor) {
+        await AsyncStorage.multiRemove(['counsellorId', 'counselorId']);
+      }
 
       const user = response.data?.user || response.data;
       if (user) {
@@ -500,7 +509,7 @@ const Login = ({ navigation, route }) => {
         const id = user._id || user.id;
         if (id) {
           await AsyncStorage.setItem('userId', id);
-          if (resolvedRole === 'counselor') {
+          if (otpIsCounselor) {
             await AsyncStorage.setItem('counsellorId', id);
             await AsyncStorage.setItem('counselorId', id);
           }

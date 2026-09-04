@@ -52,7 +52,6 @@ describe('postPublicAuthEndpoint', () => {
     );
   });
 
-<<<<<<< HEAD
   it('does not repeat an OTP POST after a network failure', async () => {
     const networkError = new Error('Network Error');
     networkError.code = 'ERR_NETWORK';
@@ -65,7 +64,8 @@ describe('postPublicAuthEndpoint', () => {
     });
 
     expect(axios.post).toHaveBeenCalledTimes(1);
-=======
+  });
+
   it('retries verify-email-otp when the live backend briefly reports no OTP store', async () => {
     axios.post
       .mockResolvedValueOnce({
@@ -85,7 +85,6 @@ describe('postPublicAuthEndpoint', () => {
 
     expect(response.data.success).toBe(true);
     expect(axios.post).toHaveBeenCalledTimes(2);
->>>>>>> b3fce7d1132e69c969e7635c631705bab3f7da0c
   });
 });
 

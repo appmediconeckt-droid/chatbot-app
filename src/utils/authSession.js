@@ -7,7 +7,7 @@ import { resetToLogin } from '../navigationRef';
 // the user retype their id after every sign-out.
 const SESSION_KEYS = [
   'accessToken', 'token', 'refreshToken',
-  'userData', 'userId', 'userRole',
+  'userData', 'userId', 'userRole', 'userType', 'userEmail',
   'counsellorId', 'counselorId',
   'isAuthenticated',
 ];
