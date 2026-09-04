@@ -43,6 +43,7 @@ import {
   startIncomingRingtone,
 } from "../../../../../hooks/useRingtone";
 import { isGlobalCallUiActive } from "../../../../../services/callNotificationBridge";
+import { displayMissedCallNotification } from "../../../../../services/notificationService";
 import { useToast } from "../../../../../components/common/ToastProvider";
 import ChatInterface from "../Tab/chatbot/ChatInterface";
 import CounselorTable from "../Tab/Appointment/BookAppointment";
@@ -1977,6 +1978,7 @@ export default function UserDashboard() {
 
         const response = await axiosInstance.get(`/api/video/calls/pending/${storedUserId}`);
         if (!isMounted) return;
+        if (isGlobalCallUiActive()) return;
 
         const callsList = response.data.pendingRequests || [];
         if (response.data.success && callsList.length > 0) {
@@ -2046,6 +2048,7 @@ export default function UserDashboard() {
       pollBlockedUntilRef.current = Date.now() + 6000;
       setShowCallModal(false);
       setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+      await displayMissedCallNotification(callerInfo, 'missed');
       await AsyncStorage.removeItem('pendingIncomingCallPush');
       if (shouldExitAfterCall && Platform.OS === 'android') {
         setTimeout(() => BackHandler.exitApp(), 100);
@@ -2079,6 +2082,10 @@ export default function UserDashboard() {
           pollBlockedUntilRef.current = Date.now() + 6000;
           setShowCallModal(false);
           setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+          await displayMissedCallNotification(
+            callerInfoRef.current,
+            status === 'ended' ? 'ended' : 'missed',
+          );
           await AsyncStorage.removeItem('pendingIncomingCallPush');
           if (shouldExitAfterCall && Platform.OS === 'android') {
             setTimeout(() => BackHandler.exitApp(), 100);
@@ -2534,35 +2541,33 @@ export default function UserDashboard() {
         throw new Error(acceptRes.data?.error || acceptRes.data?.message || 'Failed to accept call');
       }
 
-      let detailedCall = null;
-      try {
-        const detailsRes = await axiosInstance.get(
-          '/api/video/calls/' + callId + '/details',
-          { params: { userId: storedUserId, userType: 'user' } }
-        );
-        detailedCall = detailsRes.data?.call || null;
-      } catch (_) {}
+      const acceptedPayload =
+        acceptRes.data?.call ||
+        acceptRes.data?.callData ||
+        acceptRes.data?.data?.call ||
+        acceptRes.data?.data?.callData ||
+        null;
 
       const incomingType = String(callerInfo.callType || callType || 'video').toLowerCase();
       const modalType = incomingType === 'audio' ? 'voice' : incomingType;
-      const remoteParticipant = detailedCall?.initiator || callerInfo?.from || {};
+      const remoteParticipant = acceptedPayload?.initiator || callerInfo?.from || {};
 
       const acceptedCallData = {
-        id: detailedCall?.id || detailedCall?._id || callId,
+        id: acceptedPayload?.id || acceptedPayload?._id || callId,
         callId,
-        roomId: getStreamRoomId(acceptRes.data, detailedCall, callerInfo),
-        streamCallId: getStreamRoomId(acceptRes.data, detailedCall, callerInfo),
+        roomId: getStreamRoomId(acceptRes.data, acceptedPayload, callerInfo),
+        streamCallId: getStreamRoomId(acceptRes.data, acceptedPayload, callerInfo),
         name: remoteParticipant?.fullName || remoteParticipant?.displayName || callerInfo.name || 'Counselor',
         type: modalType,
         callType: modalType,
-        status: acceptRes.data?.status || detailedCall?.status || 'active',
+        status: acceptRes.data?.status || acceptedPayload?.status || 'active',
         profilePic: remoteParticipant?.profilePhoto || callerInfo.image || null,
         phoneNumber: remoteParticipant?.phoneNumber || '',
-        apiCallData: detailedCall,
-        initiator: detailedCall?.initiator,
-        receiver: detailedCall?.receiver,
-        initiatorId: detailedCall?.initiator?.id || detailedCall?.initiator?._id,
-        receiverId: detailedCall?.receiver?.id || detailedCall?.receiver?._id,
+        apiCallData: acceptedPayload,
+        initiator: acceptedPayload?.initiator || callerInfo?.from,
+        receiver: acceptedPayload?.receiver,
+        initiatorId: acceptedPayload?.initiator?.id || acceptedPayload?.initiator?._id,
+        receiverId: acceptedPayload?.receiver?.id || acceptedPayload?.receiver?._id,
         currentUserId: storedUserId,
         currentUserType: 'user',
         isIncoming: true,
@@ -2772,7 +2777,7 @@ export default function UserDashboard() {
   const renderContent = () => {
     switch (active) {
       case "Chat":
-        return <ChatInterface setActiveTab={switchDashboardTab} />;
+        return <ChatInterface setActiveTab={switchDashboardTab} onOpenCounselor={handleAIContactClick} />;
       case "Counselor":
         return (
           <CounselorTable

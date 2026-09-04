@@ -29,11 +29,15 @@ import toImageUri from '../../../utils/imageUri';
 import VideoCallModal from '../Component/UserDashboard/Tab/CallModal/VideoCallModal';
 import VoiceCallModal from '../Component/UserDashboard/Tab/CallModal/VoiceCallModal';
 import {
+  claimIncomingCallPresentation,
   consumePendingIncomingCallIntent,
+  markIncomingCallHandled,
   normalizeCallType,
+  releaseIncomingCallPresentation,
   setGlobalCallUiActive,
   subscribeToIncomingCallIntents,
 } from '../../../services/callNotificationBridge';
+import { displayMissedCallNotification } from '../../../services/notificationService';
 
 const emptyIncomingCall = {
   callId: '',
@@ -139,19 +143,6 @@ const resolveRemoteParty = (call, currentUserId) => {
   return initiator || call?.from || receiver || {};
 };
 
-const fetchCallDetails = async (callId, session) => {
-  if (!callId || !session.currentUserId) return null;
-  try {
-    const response = await axiosInstance.get(
-      `/api/video/calls/${callId}/details`,
-      { params: { userId: session.currentUserId, userType: session.apiRole } },
-    );
-    return response.data?.call || null;
-  } catch (_) {
-    return null;
-  }
-};
-
 const getErrorMessage = (error) => (
   error?.response?.data?.error || error?.message || 'Unable to connect this call'
 );
@@ -211,8 +202,13 @@ const fetchCallStatus = async (callId, session) => {
 
 const buildAcceptedCall = async (incomingCall, acceptData) => {
   const session = await getStoredSession();
-  const detailedCall = await fetchCallDetails(incomingCall.callId, session);
-  const sourceCall = detailedCall || incomingCall;
+  const acceptedPayload =
+    acceptData?.call ||
+    acceptData?.callData ||
+    acceptData?.data?.call ||
+    acceptData?.data?.callData ||
+    null;
+  const sourceCall = acceptedPayload || incomingCall;
   const remoteParty = resolveRemoteParty(sourceCall, session.currentUserId);
   const modalType = normalizeCallType(sourceCall.callType || incomingCall.callType);
   const displayName = displayNameForParty(remoteParty, incomingCall.name, session.role);
@@ -234,7 +230,7 @@ const buildAcceptedCall = async (incomingCall, acceptData) => {
     profilePic: image,
     image,
     phoneNumber: remoteParty?.phoneNumber || remoteParty?.phone || '',
-    apiCallData: detailedCall || incomingCall.apiCallData,
+    apiCallData: acceptedPayload || incomingCall.apiCallData,
     initiator: sourceCall.initiator || incomingCall.initiator,
     receiver: sourceCall.receiver || incomingCall.receiver,
     initiatorId: getPartyId(sourceCall.initiator),
@@ -410,11 +406,16 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
     incomingCallRef.current = incomingCall;
   }, [incomingCall]);
 
-  const closeIncoming = useCallback(() => {
+  const closeIncoming = useCallback(async ({ notifyMissed = false, reason = 'missed' } = {}) => {
+    const call = incomingCallRef.current;
     forceStopRingtone();
     setShowIncoming(false);
     setIncomingCall(emptyIncomingCall);
     setGlobalCallUiActive(isVideoOpen || isVoiceOpen);
+    if (notifyMissed && call?.callId) {
+      await displayMissedCallNotification(call, reason);
+    }
+    releaseIncomingCallPresentation(call?.callId);
     if (exitOnDismiss && Platform.OS === 'android') {
       setTimeout(() => BackHandler.exitApp(), 100);
     }
@@ -424,6 +425,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
     if (!intent?.callId) return;
     if (handledCallIdsRef.current.has(String(intent.callId))) return;
     if (showIncoming || isVideoOpen || isVoiceOpen) return;
+    if (!claimIncomingCallPresentation(intent.callId)) return;
 
     // Present immediately from the push payload. Waiting for pending/details
     // APIs here used to consume most of the short ringing window on cold start.
@@ -431,7 +433,8 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
       ...emptyIncomingCall,
       ...intent,
       callId: String(intent.callId),
-      roomId: intent.roomId || '',
+      roomId: getStreamRoomId(intent),
+      streamCallId: getStreamRoomId(intent),
       name: intent.name || 'Incoming call',
       callType: normalizeCallType(intent.callType || intent?.data?.callType),
     };
@@ -457,14 +460,25 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
 
     const setupSocketIncomingCalls = async () => {
       try {
+        const session = await getStoredSession();
         unsubscribeSocket = await socketService.on('incoming_call_request', (payload = {}) => {
           if (!active) return;
+          const initiatorId = getPartyId(payload.initiator) || payload.fromId;
+          const receiverId = getPartyId(payload.receiver) || payload.receiverId || payload.toId;
+          if (
+            session.currentUserId &&
+            (
+              (receiverId && String(receiverId) !== String(session.currentUserId)) ||
+              (!receiverId && initiatorId && String(initiatorId) === String(session.currentUserId))
+            )
+          ) return;
           handleIntent({
             source: 'socket',
             receivedAt: Date.now(),
             data: payload,
             callId: payload.callId || payload.id || payload._id,
-            roomId: payload.roomId || payload.room_id || '',
+            roomId: getStreamRoomId(payload),
+            streamCallId: getStreamRoomId(payload),
             callType: normalizeCallType(payload.callType || payload.type),
             name: typeof payload.from === 'string'
               ? payload.from
@@ -516,7 +530,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
 
     const timeoutId = setTimeout(() => {
       if (incomingCallRef.current?.callId === incomingCall.callId) {
-        closeIncoming();
+        closeIncoming({ notifyMissed: true, reason: 'missed' });
       }
     }, INCOMING_RING_TIMEOUT_MS);
 
@@ -532,7 +546,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
       if (cancelled || !session.currentUserId) return;
       const status = await fetchCallStatus(incomingCall.callId, session);
       if (TERMINAL_CALL_STATUSES.has(status) && !cancelled) {
-        closeIncoming();
+        closeIncoming({ notifyMissed: true, reason: status === 'ended' ? 'ended' : 'missed' });
       }
     };
 
@@ -562,6 +576,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
       if (!response.data?.success) throw new Error(response.data?.error || 'Call was not accepted');
 
       const acceptedCall = await buildAcceptedCall(call, response.data);
+      await markIncomingCallHandled(call.callId);
       setSelectedCall(acceptedCall);
       setIncomingCall(emptyIncomingCall);
       if (acceptedCall.callType === 'video') setIsVideoOpen(true);
@@ -589,6 +604,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
       }
     } catch (_) {}
     setIncomingCall(emptyIncomingCall);
+    releaseIncomingCallPresentation(call?.callId);
     setGlobalCallUiActive(false);
     if (exitOnDismiss && Platform.OS === 'android') {
       setTimeout(() => BackHandler.exitApp(), 100);
@@ -596,12 +612,13 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
   }, [exitOnDismiss]);
 
   const closeCallModal = useCallback(() => {
+    releaseIncomingCallPresentation(selectedCall?.callId);
     forceStopRingtone();
     setIsVideoOpen(false);
     setIsVoiceOpen(false);
     setSelectedCall(null);
     setGlobalCallUiActive(false);
-  }, []);
+  }, [selectedCall?.callId]);
 
   const handleEndCall = useCallback(async (callId) => {
     try {

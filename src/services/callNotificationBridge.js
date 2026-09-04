@@ -1,8 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const PENDING_CALL_INTENT_KEY = 'pendingIncomingCallNotification';
+const PENDING_CALL_PUSH_KEY = 'pendingIncomingCallPush';
+const LAST_HANDLED_CALL_KEY = 'lastHandledIncomingCall';
+const HANDLED_CALL_TTL_MS = 2 * 60 * 60 * 1000;
 
 const listeners = new Set();
+const presentedCallIds = new Set();
 let pendingIntent = null;
 let globalCallUiActive = false;
 
@@ -54,7 +58,18 @@ const normalizeParty = (party, fallbackId, fallbackName, fallbackType, fallbackI
 export const isCallNotificationData = (data = {}) => {
   const type = String(data.type || data.notificationType || data.event || '').trim().toUpperCase();
   const callType = String(data.callType || data.call_type || data.mode || '').trim().toLowerCase();
-  const hasCallId = Boolean(data.callId || data.call_id || data.id || data._id);
+  const hasCallId = Boolean(
+    data.callId ||
+    data.call_id ||
+    data.id ||
+    data._id ||
+    data.call?.callId ||
+    data.call?.id ||
+    data.call?._id ||
+    data.callData?.callId ||
+    data.callData?.id ||
+    data.callData?._id,
+  );
 
   if (type === 'VIDEO_CALL' || type === 'VOICE_CALL' || type === 'AUDIO_CALL' || type === 'INCOMING_CALL') {
     return true;
@@ -66,6 +81,22 @@ export const isCallNotificationData = (data = {}) => {
 
   return hasCallId && (callType.includes('video') || callType.includes('audio') || callType.includes('voice'));
 };
+
+const getNotificationStreamRoomId = (data = {}) => (
+  data.streamCallId ||
+  data.stream_call_id ||
+  data.streamId ||
+  data.roomId ||
+  data.room_id ||
+  data.channelId ||
+  data.call?.streamCallId ||
+  data.call?.roomId ||
+  data.data?.streamCallId ||
+  data.data?.roomId ||
+  data.callData?.streamCallId ||
+  data.callData?.roomId ||
+  null
+);
 
 export const buildCallIntentFromNotification = (remoteMessageOrData, source = 'notification') => {
   const data = normalizeNotificationData(remoteMessageOrData);
@@ -81,13 +112,26 @@ export const buildCallIntentFromNotification = (remoteMessageOrData, source = 'n
   const callerId = data.callerId || data.fromId || data.senderId || null;
   const callerType = data.callerRole || data.fromType || data.senderRole || null;
   const from = normalizeParty(data.from || data.initiator || data.sender, callerId, callerName, callerType, callerImage);
+  const streamRoomId = getNotificationStreamRoomId(data);
 
   return {
     source,
     receivedAt: Date.now(),
     data,
-    callId: data.callId || data.call_id || data.id || data._id || null,
-    roomId: data.roomId || data.room_id || data.channelId || null,
+    callId:
+      data.callId ||
+      data.call_id ||
+      data.id ||
+      data._id ||
+      data.call?.callId ||
+      data.call?.id ||
+      data.call?._id ||
+      data.callData?.callId ||
+      data.callData?.id ||
+      data.callData?._id ||
+      null,
+    roomId: streamRoomId,
+    streamCallId: streamRoomId,
     callType,
     name: callerName,
     image: callerImage,
@@ -102,6 +146,31 @@ export const buildCallIntentFromNotification = (remoteMessageOrData, source = 'n
 export const notifyIncomingCallIntent = async (remoteMessageOrData, source = 'notification') => {
   const intent = buildCallIntentFromNotification(remoteMessageOrData, source);
   if (!intent) return null;
+
+  // A killed-state full-screen activity and the normal app can each receive
+  // the same initial notification. Do not replay a call that was already
+  // accepted by the dedicated call activity.
+  const mayReplayHandledCall =
+    listeners.size === 0 ||
+    source === 'cold-start' ||
+    source === 'notification-open' ||
+    source === 'notification-press';
+  if (mayReplayHandledCall) {
+    try {
+      const handledRaw = await AsyncStorage.getItem(LAST_HANDLED_CALL_KEY);
+      const handled = handledRaw ? JSON.parse(handledRaw) : null;
+      if (
+        String(handled?.callId || '') === String(intent.callId) &&
+        Date.now() - Number(handled?.handledAt || 0) < HANDLED_CALL_TTL_MS
+      ) {
+        await Promise.all([
+          AsyncStorage.removeItem(PENDING_CALL_INTENT_KEY),
+          AsyncStorage.removeItem(PENDING_CALL_PUSH_KEY),
+        ]);
+        return null;
+      }
+    } catch (_) {}
+  }
 
   pendingIntent = intent;
   // Persist only when the app UI is not mounted (headless/killed-state push).
@@ -127,6 +196,20 @@ export const notifyIncomingCallIntent = async (remoteMessageOrData, source = 'no
   });
 
   return intent;
+};
+
+export const markIncomingCallHandled = async (callId) => {
+  if (!callId) return;
+
+  pendingIntent = null;
+  await Promise.all([
+    AsyncStorage.setItem(
+      LAST_HANDLED_CALL_KEY,
+      JSON.stringify({ callId: String(callId), handledAt: Date.now() }),
+    ),
+    AsyncStorage.removeItem(PENDING_CALL_INTENT_KEY),
+    AsyncStorage.removeItem(PENDING_CALL_PUSH_KEY),
+  ]);
 };
 
 export const subscribeToIncomingCallIntents = (listener) => {
@@ -162,3 +245,14 @@ export const setGlobalCallUiActive = (active) => {
 };
 
 export const isGlobalCallUiActive = () => globalCallUiActive;
+
+export const claimIncomingCallPresentation = (callId) => {
+  const key = String(callId || '');
+  if (!key || presentedCallIds.has(key)) return false;
+  presentedCallIds.add(key);
+  return true;
+};
+
+export const releaseIncomingCallPresentation = (callId) => {
+  if (callId) presentedCallIds.delete(String(callId));
+};

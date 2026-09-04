@@ -6,7 +6,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, Modal, StatusBar, StyleSheet, Text as RNText, TextInput, useColorScheme, View } from 'react-native';
+import { AppState, Image, Modal, StatusBar, StyleSheet, Text as RNText, TextInput, useColorScheme, View } from 'react-native';
 import Text from './src/components/TranslatedText';
 import {
   SafeAreaProvider,
@@ -46,6 +46,7 @@ import safeVibrate from './src/utils/safeVibrate';
 import socketService from './src/services/socketService';
 import { CallProvider } from './src/screens/user/VideoCall/CallProvider';
 import GlobalIncomingCallController from './src/screens/user/VideoCall/GlobalIncomingCallController';
+import HumaeliHeroVideo from './src/components/common/HumaeliHeroVideo';
 import AppLockScreen, { PIN_STORAGE_KEY } from './src/screens/auth/AppLockScreen';
 import PinSetupScreen from './src/screens/auth/PinSetupScreen';
 import './src/i18n';
@@ -310,20 +311,29 @@ useEffect(() => {
         <CallProvider>
           {isBootstrapping ? (
             <View style={styles.bootScreen}>
-              <View style={styles.bootGlowTop} />
-              <View style={styles.bootGlowBottom} />
-              <View style={styles.bootCard}>
-                <View style={styles.bootLogoWrap}>
-                  <Image
-                    source={require('./src/image/Humaeli-original-backup.png')}
-                    style={styles.bootLogoImage}
-                    resizeMode="cover"
-                  />
-                </View>
-                <View style={styles.bootLoaderRow}>
-                  <ActivityIndicator size="small" color="#2563eb" />
-                  <Text style={styles.bootLoaderText}>Preparing dashboard</Text>
-                </View>
+              <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+              <HumaeliHeroVideo
+                style={StyleSheet.absoluteFill}
+                sourceName="mobile_hero_section_video"
+                muted
+                resizeMode="fitwidth"
+                focusX={0.5}
+                focusY={0}
+                zoomScale={1}
+              />
+              <View style={styles.bootVideoShade} />
+              <View style={styles.bootHeroContent}>
+                <RNText numberOfLines={1} adjustsFontSizeToFit style={styles.bootHeroKicker}>
+                  HUMAELI - YOUR MENTAL WELLNESS
+                </RNText>
+                <RNText style={styles.bootHeroTitle}>
+                  Human Empowered{`\n`}Mental Wellness Support
+                </RNText>
+                <View style={styles.bootHeroDivider} />
+                <RNText style={styles.bootHeroDescription}>
+                  In your difficult time of mental health to connect with consultants, psychologists,
+                  psychological wellness practitioners & psychiatrists
+                </RNText>
               </View>
             </View>
           ) : (
@@ -417,10 +427,49 @@ useEffect(() => {
 const styles = StyleSheet.create({
   bootScreen: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#04181B',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  bootVideoShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(4,24,27,0.34)',
+  },
+  bootHeroContent: {
+    position: 'absolute',
+    bottom: 54,
+    alignSelf: 'center',
+    alignItems: 'center',
+    width: '88%',
+    maxWidth: 360,
+  },
+  bootHeroKicker: {
+    color: '#F4FFF9',
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  bootHeroTitle: {
+    color: '#FFFFFF',
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  bootHeroDivider: {
+    width: 54,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#24C184',
+    marginVertical: 16,
+  },
+  bootHeroDescription: {
+    color: '#E6F5F0',
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
   },
   bootGlowTop: {
     position: 'absolute',

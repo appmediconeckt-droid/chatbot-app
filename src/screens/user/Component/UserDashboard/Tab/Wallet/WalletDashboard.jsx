@@ -78,6 +78,16 @@ const WalletDashboard = ({ userData = {}, navigation }) => {
   const [fetching, setFetching] = useState(true);
   const [activeTab, setActiveTab] = useState('add-money');
   const [historyPage, setHistoryPage] = useState(1);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundSubmitting, setRefundSubmitting] = useState(false);
+  const [refundRequests, setRefundRequests] = useState([]);
+  const [bankDetails, setBankDetails] = useState({
+    accountName: '',
+    accountNumber: '',
+    confirmAccountNumber: '',
+    ifsc: '',
+    bankName: '',
+  });
   const scrollRef = useRef(null);
   // Y offset of the tab strip inside the scroll content, captured on layout.
   const tabsYRef = useRef(0);
@@ -106,6 +116,13 @@ const WalletDashboard = ({ userData = {}, navigation }) => {
       const response = await axiosInstance.get('/api/wallet/data');
       setBalance(Number(response?.data?.balance || 0));
       setTransactions(Array.isArray(response?.data?.transactions) ? response.data.transactions : []);
+      setRefundRequests(
+        Array.isArray(response?.data?.refundRequests)
+          ? response.data.refundRequests
+          : Array.isArray(response?.data?.refunds)
+            ? response.data.refunds
+            : [],
+      );
     } catch (error) {
       console.error('Error fetching wallet data:', error);
       Alert.alert('Wallet', t('wallet:walletFailedToLoad'));
@@ -262,6 +279,89 @@ const WalletDashboard = ({ userData = {}, navigation }) => {
     }
   };
 
+  const updateBankDetail = (key, value) => {
+    setBankDetails((current) => ({ ...current, [key]: value }));
+  };
+
+  const submitRefundRequest = async () => {
+    const requestedAmount = Number(refundAmount);
+    const accountNumber = bankDetails.accountNumber.trim();
+    const ifsc = bankDetails.ifsc.trim().toUpperCase();
+
+    if (!requestedAmount || requestedAmount <= 0) {
+      Alert.alert('Invalid amount', 'Enter a valid refund amount.');
+      return;
+    }
+    if (requestedAmount > balance) {
+      Alert.alert('Insufficient balance', `You can request up to ${formatCurrency(balance)}.`);
+      return;
+    }
+    if (
+      !bankDetails.accountName.trim() ||
+      !accountNumber ||
+      !bankDetails.confirmAccountNumber.trim() ||
+      !ifsc ||
+      !bankDetails.bankName.trim()
+    ) {
+      Alert.alert('Bank details required', 'Please complete all bank account fields.');
+      return;
+    }
+    if (accountNumber !== bankDetails.confirmAccountNumber.trim()) {
+      Alert.alert('Account number mismatch', 'Account number and confirmation do not match.');
+      return;
+    }
+    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) {
+      Alert.alert('Invalid IFSC', 'Enter a valid 11-character IFSC code.');
+      return;
+    }
+
+    Alert.alert(
+      'Confirm refund request',
+      `${formatCurrency(requestedAmount)} will be requested for transfer to the bank account ending in ${accountNumber.slice(-4)}. Processing may take up to 48 hours.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Submit request',
+          onPress: async () => {
+            setRefundSubmitting(true);
+            try {
+              const { data } = await axiosInstance.post('/api/wallet/refund-request', {
+                amount: requestedAmount,
+                accountName: bankDetails.accountName.trim(),
+                accountNumber,
+                ifsc,
+                bankName: bankDetails.bankName.trim(),
+              });
+              if (data?.success === false) {
+                throw new Error(data?.message || 'Refund request could not be submitted.');
+              }
+              setRefundAmount('');
+              setBankDetails({
+                accountName: '',
+                accountNumber: '',
+                confirmAccountNumber: '',
+                ifsc: '',
+                bankName: '',
+              });
+              await fetchWalletData();
+              Alert.alert(
+                'Request submitted',
+                data?.message || 'Your refund request was sent to the admin. The transfer will be processed within 48 hours.',
+              );
+            } catch (error) {
+              Alert.alert(
+                'Request failed',
+                error?.response?.data?.message || error?.message || 'Please try again later.',
+              );
+            } finally {
+              setRefundSubmitting(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const formatCurrency = (value) =>
     `Rs ${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -331,7 +431,13 @@ const WalletDashboard = ({ userData = {}, navigation }) => {
         <Text style={styles.cardNumber}>.... .... .... 4242</Text>
       </View>
 
-      <View style={styles.cardButtonsRow}>
+      <ScrollView
+        horizontal
+        nestedScrollEnabled
+        showsHorizontalScrollIndicator={false}
+        style={styles.cardButtonsScroller}
+        contentContainerStyle={styles.cardButtonsRow}
+      >
         <TouchableOpacity style={styles.primaryMiniAction} onPress={() => goToTab('add-money')}>
           <MaterialIcons name="add" size={17} color={PATIENT.primary} />
           <Text style={styles.primaryMiniActionText}>{t('wallet:addFunds')}</Text>
@@ -340,7 +446,11 @@ const WalletDashboard = ({ userData = {}, navigation }) => {
           <MaterialIcons name="history" size={16} color="#ffffff" />
           <Text style={styles.ghostMiniActionText}>{t('wallet:viewHistory')}</Text>
         </TouchableOpacity>
-      </View>
+        <TouchableOpacity style={styles.ghostMiniAction} onPress={() => goToTab('refund')}>
+          <MaterialIcons name="account-balance" size={16} color="#ffffff" />
+          <Text style={styles.ghostMiniActionText}>Refund</Text>
+        </TouchableOpacity>
+      </ScrollView>
     </LinearGradient>
   );
 
@@ -499,6 +609,93 @@ const WalletDashboard = ({ userData = {}, navigation }) => {
     </View>
   );
 
+  const renderRefundRequest = () => {
+    const activeRequest = refundRequests.find((item) =>
+      ['pending', 'approved', 'processing'].includes(String(item?.status || '').toLowerCase()),
+    );
+
+    return (
+      <View style={styles.cardSection}>
+        <Text style={styles.sectionTitle}>Request wallet refund</Text>
+        <Text style={styles.sectionSubtitle}>
+          Send unused wallet funds to your bank account. Admin review and transfer may take up to 48 hours.
+        </Text>
+
+        {activeRequest && (
+          <View style={styles.refundStatusCard}>
+            <MaterialIcons name="schedule" size={20} color="#B45309" />
+            <View style={styles.refundStatusText}>
+              <Text style={styles.refundStatusTitle}>
+                Refund {String(activeRequest.status || 'pending').toUpperCase()}
+              </Text>
+              <Text style={styles.refundStatusMeta}>
+                {formatCurrency(activeRequest.amount)} · Submitted {formatDate(activeRequest.createdAt)}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        <Text style={styles.formLabel}>Refund amount</Text>
+        <View style={styles.inputBox}>
+          <Text style={styles.currencyPrefix}>Rs</Text>
+          <TextInput
+            style={styles.amountInput}
+            value={refundAmount}
+            onChangeText={setRefundAmount}
+            keyboardType="numeric"
+            placeholder="0.00"
+            placeholderTextColor="#9ca3af"
+          />
+        </View>
+        <Text style={styles.availableHint}>Available: {formatCurrency(balance)}</Text>
+
+        <Text style={styles.bankHeading}>Bank account details</Text>
+        <Text style={styles.bankPrivacy}>Details are used only for this bank transfer.</Text>
+        {[
+          ['accountName', 'Account holder name', 'default'],
+          ['accountNumber', 'Account number', 'number-pad'],
+          ['confirmAccountNumber', 'Confirm account number', 'number-pad'],
+          ['ifsc', 'IFSC code', 'default'],
+          ['bankName', 'Bank name', 'default'],
+        ].map(([key, placeholder, keyboardType]) => (
+          <TextInput
+            key={key}
+            style={styles.refundInput}
+            value={bankDetails[key]}
+            onChangeText={(value) => updateBankDetail(key, key === 'ifsc' ? value.toUpperCase() : value)}
+            placeholder={placeholder}
+            placeholderTextColor="#94A3B8"
+            keyboardType={keyboardType}
+            autoCapitalize={key === 'ifsc' ? 'characters' : 'words'}
+            secureTextEntry={key === 'accountNumber'}
+            maxLength={key === 'ifsc' ? 11 : undefined}
+          />
+        ))}
+
+        <View style={styles.refundInfo}>
+          <MaterialIcons name="info-outline" size={18} color={PATIENT.primary} />
+          <Text style={styles.refundInfoText}>
+            Once submitted, the request goes to the admin for verification. Approved refunds are transferred within 48 hours.
+          </Text>
+        </View>
+
+        <PatientGradientButton
+          style={[styles.payBtn, (refundSubmitting || balance <= 0 || Boolean(activeRequest)) && styles.payBtnDisabled]}
+          onPress={submitRefundRequest}
+          disabled={refundSubmitting || balance <= 0 || Boolean(activeRequest)}
+        >
+          {refundSubmitting ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={styles.payBtnText}>
+              {activeRequest ? 'Request already in review' : 'Submit refund request'}
+            </Text>
+          )}
+        </PatientGradientButton>
+      </View>
+    );
+  };
+
   if (fetching) {
     return (
       <View style={styles.safeArea}>
@@ -575,9 +772,28 @@ const WalletDashboard = ({ userData = {}, navigation }) => {
               </Text>
             </LinearGradient>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.tabBtnWrap}
+            onPress={() => setActiveTab('refund')}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={activeTab === 'refund' ? PATIENT_GRADIENT : TRANSPARENT_GRADIENT}
+              {...GRADIENT_DIRECTION}
+              style={styles.tabBtn}
+            >
+              <Text style={[styles.tabBtnText, activeTab === 'refund' && styles.tabBtnTextActive]} numberOfLines={1} maxFontSizeMultiplier={1}>
+                Refund
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
 
-        {activeTab === 'add-money' ? renderAddMoney() : renderTransactions()}
+        {activeTab === 'add-money'
+          ? renderAddMoney()
+          : activeTab === 'transactions'
+            ? renderTransactions()
+            : renderRefundRequest()}
       </ScrollView>
     </View>
   );
@@ -742,12 +958,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 2,
   },
-  cardButtonsRow: {
+  cardButtonsScroller: {
     marginTop: 16,
+  },
+  cardButtonsRow: {
     flexDirection: 'row',
     gap: 10,
+    paddingRight: 8,
   },
   primaryMiniAction: {
+    flexShrink: 0,
     backgroundColor: '#fff',
     borderRadius: 12,
     paddingHorizontal: 14,
@@ -762,6 +982,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   ghostMiniAction: {
+    flexShrink: 0,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.35)',
     borderRadius: 12,
@@ -1037,6 +1258,72 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  formLabel: {
+    color: PATIENT.text,
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 7,
+  },
+  availableHint: {
+    color: PATIENT.textSecondary,
+    fontSize: 12,
+    marginTop: -5,
+    marginBottom: 18,
+  },
+  bankHeading: {
+    color: PATIENT.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  bankPrivacy: {
+    color: PATIENT.textSecondary,
+    fontSize: 12,
+    marginTop: 3,
+    marginBottom: 10,
+  },
+  refundInput: {
+    borderWidth: 1,
+    borderColor: PATIENT.chipBorder,
+    borderRadius: 12,
+    backgroundColor: PATIENT.backgroundTint,
+    color: PATIENT.text,
+    fontSize: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  refundInfo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 9,
+    borderRadius: 12,
+    backgroundColor: '#EAF8EF',
+    borderWidth: 1,
+    borderColor: '#CDEBD8',
+    padding: 12,
+    marginVertical: 8,
+    marginBottom: 16,
+  },
+  refundInfoText: {
+    flex: 1,
+    color: '#315C42',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  refundStatusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFBEB',
+    padding: 12,
+    marginBottom: 16,
+  },
+  refundStatusText: { flex: 1 },
+  refundStatusTitle: { color: '#92400E', fontSize: 12, fontWeight: '800' },
+  refundStatusMeta: { color: '#B45309', fontSize: 11, marginTop: 3 },
 });
 
 const walletSkel = StyleSheet.create({

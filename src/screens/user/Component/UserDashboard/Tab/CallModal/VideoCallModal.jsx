@@ -20,6 +20,7 @@ import useRingtone from '../../../../../../hooks/useRingtone';
 import { useScreenshotPreventModal } from '../../../../../../utils/useScreenshotPrevent';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import toImageUri from '../../../../../../utils/imageUri';
+import { joinStreamCall } from './streamCallUtils';
 
 import {
   StreamVideo,
@@ -67,37 +68,6 @@ const parseStoredValue = (value) => {
   if (!trimmed) return null;
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return trimmed;
   try { return JSON.parse(trimmed); } catch (_) { return trimmed; }
-};
-
-const normalizeStreamCallId = (value) => {
-  if (value === null || value === undefined) return null;
-  const raw = typeof value === 'object'
-    ? value.id || value._id || value.callId || value.roomId || value.cid
-    : value;
-  const id = String(raw || '').trim();
-  if (!id) return null;
-  return id.startsWith('default:') ? id.slice('default:'.length) : id;
-};
-
-const getStreamCallIdCandidates = (callData) => {
-  const apiCall = callData?.apiCallData || {};
-  return [
-    callData?.streamCallId,
-    callData?.stream_call_id,
-    callData?.streamId,
-    callData?.roomId,
-    callData?.channelId,
-    apiCall?.streamCallId,
-    apiCall?.stream_call_id,
-    apiCall?.streamId,
-    apiCall?.roomId,
-    apiCall?.channelId,
-    apiCall?.callId,
-    apiCall?.id,
-    apiCall?._id,
-    callData?.callId,
-    callData?.id,
-  ].map(normalizeStreamCallId).filter((id, index, ids) => id && ids.indexOf(id) === index);
 };
 
 const getCallParty = (callData, key) => (
@@ -692,48 +662,12 @@ const VideoCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
           return;
         }
 
-        const streamCallIds = getStreamCallIdCandidates(callData);
-        if (streamCallIds.length === 0) throw new Error('Missing Stream call id');
-        const isIncoming = callData?.isIncoming === true;
-        let streamCall = null;
-        let lastJoinError = null;
-
-        for (const streamCallId of streamCallIds) {
-          const candidateCall = streamClient.call('default', streamCallId);
-          callRef.current = candidateCall;
-
-          const currentState = candidateCall.state?.callingState;
-          const alreadyJoined =
-            currentState === CallingState.JOINED ||
-            currentState === CallingState.JOINING;
-
-          try {
-            if (!alreadyJoined) {
-              await candidateCall.join({ create: !isIncoming });
-            }
-            streamCall = candidateCall;
-            break;
-          } catch (joinError) {
-            lastJoinError = joinError;
-            callRef.current = null;
-            try { await candidateCall.leave(); } catch (_) {}
-          }
-        }
-
-        if (!streamCall && isIncoming) {
-          const fallbackCall = streamClient.call('default', streamCallIds[0]);
-          callRef.current = fallbackCall;
-          try {
-            await fallbackCall.join({ create: true });
-            streamCall = fallbackCall;
-          } catch (joinError) {
-            lastJoinError = joinError;
-            callRef.current = null;
-            try { await fallbackCall.leave(); } catch (_) {}
-          }
-        }
-
-        if (!streamCall) throw lastJoinError || new Error('Failed to join Stream call');
+        const streamCall = await joinStreamCall({
+          streamClient,
+          callData,
+          CallingState,
+        });
+        callRef.current = streamCall;
 
         // Register listeners after a successful join and store unsub refs so they are
         // removed exactly once during cleanup — prevents duplicate firings.

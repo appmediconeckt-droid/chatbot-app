@@ -38,6 +38,7 @@ import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import useRingtone, { INCOMING_RING_TIMEOUT_MS } from '../../../../../../hooks/useRingtone';
 import { isGlobalCallUiActive } from '../../../../../../services/callNotificationBridge';
+import { displayMissedCallNotification } from '../../../../../../services/notificationService';
 import useScreenshotPrevent from '../../../../../../utils/useScreenshotPrevent';
 import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
 import VideoCallModal from '../../../UserDashboard/Tab/CallModal/VideoCallModal';
@@ -82,6 +83,26 @@ const normalizeIncomingCallType = (value) => {
     return 'voice';
   }
   return 'video';
+};
+
+const getStreamRoomId = (...sources) => {
+  for (const source of sources) {
+    const roomId =
+      source?.streamCallId ||
+      source?.stream_call_id ||
+      source?.streamId ||
+      source?.roomId ||
+      source?.room_id ||
+      source?.channelId ||
+      source?.call?.streamCallId ||
+      source?.call?.roomId ||
+      source?.data?.streamCallId ||
+      source?.data?.roomId ||
+      source?.callData?.streamCallId ||
+      source?.callData?.roomId;
+    if (roomId) return roomId;
+  }
+  return '';
 };
 
 const isPsychiatristSpecialization = (value) => {
@@ -1285,9 +1306,11 @@ const SMSInput = ({ navigation, route }) => {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
       if (response.data && response.data.success) {
+        const streamRoomId = getStreamRoomId(response.data, response.data.callData);
         const callData = {
           callId: response.data.callId || response.data.callData?._id,
-          roomId: response.data.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: USER_NAME,
           type: "video",
           callType: "video",
@@ -1327,9 +1350,11 @@ const SMSInput = ({ navigation, route }) => {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
       if (response.data && response.data.success) {
+        const streamRoomId = getStreamRoomId(response.data, response.data.callData);
         const callData = {
           callId: response.data.callId || response.data.callData?._id,
-          roomId: response.data.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: USER_NAME,
           type: "voice",
           callType: "audio",
@@ -1358,26 +1383,24 @@ const SMSInput = ({ navigation, route }) => {
         acceptorType: "counsellor",
       }, { headers: { Authorization: `Bearer ${token}` } });
       if (response.data?.success) {
-        let detailedCall = null;
-        try {
-          const details = await axios.get(`${API_BASE_URL}/api/video/calls/${callId}/details`, {
-            params: { userId: counselorId, userType: "counsellor" },
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          detailedCall = details.data?.call;
-        } catch(e) {}
+        const acceptedPayload =
+          response.data?.call ||
+          response.data?.callData ||
+          response.data?.data?.call ||
+          response.data?.data?.callData ||
+          null;
         const modalType = normalizeIncomingCallType(
           incomingCallData.callType ||
-          detailedCall?.callType ||
-          detailedCall?.type ||
+          acceptedPayload?.callType ||
+          acceptedPayload?.type ||
           response.data?.callType ||
           "video"
         );
-        const initiatorId = detailedCall?.initiator?.id || detailedCall?.initiator?._id;
+        const initiatorId = acceptedPayload?.initiator?.id || acceptedPayload?.initiator?._id;
         const remoteParticipant =
-          detailedCall && String(initiatorId) === String(counselorId)
-            ? detailedCall.receiver
-            : detailedCall?.initiator || incomingCallData?.from || {};
+          acceptedPayload && String(initiatorId) === String(counselorId)
+            ? acceptedPayload.receiver
+            : acceptedPayload?.initiator || incomingCallData?.from || {};
         const remoteName =
           remoteParticipant?.anonymous ||
           remoteParticipant?.anonName ||
@@ -1386,20 +1409,22 @@ const SMSInput = ({ navigation, route }) => {
           remoteParticipant?.fullName ||
           incomingCallData.name ||
           "Anonymous User";
+        const streamRoomId = getStreamRoomId(response.data, acceptedPayload, incomingCallData);
         const callDataForModal = {
-          id: detailedCall?.id || detailedCall?._id || callId,
+          id: acceptedPayload?.id || acceptedPayload?._id || callId,
           callId,
-          roomId: response.data.roomId || detailedCall?.roomId || incomingCallData.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: remoteName,
           type: modalType,
           callType: modalType,
-          status: response.data?.status || detailedCall?.status || "active",
+          status: response.data?.status || acceptedPayload?.status || "active",
           profilePic: remoteParticipant?.profilePhoto || remoteParticipant?.image || incomingCallData.image || null,
-          apiCallData: detailedCall,
-          initiator: detailedCall?.initiator || incomingCallData.initiator,
-          receiver: detailedCall?.receiver || incomingCallData.receiver,
-          initiatorId: detailedCall?.initiator?.id || detailedCall?.initiator?._id,
-          receiverId: detailedCall?.receiver?.id || detailedCall?.receiver?._id,
+          apiCallData: acceptedPayload,
+          initiator: acceptedPayload?.initiator || incomingCallData.initiator,
+          receiver: acceptedPayload?.receiver || incomingCallData.receiver,
+          initiatorId: acceptedPayload?.initiator?.id || acceptedPayload?.initiator?._id,
+          receiverId: acceptedPayload?.receiver?.id || acceptedPayload?.receiver?._id,
           currentUserId: counselorId,
           currentUserType: "counsellor",
           from: incomingCallData.from,
@@ -1585,13 +1610,16 @@ const SMSInput = ({ navigation, route }) => {
           headers: { Authorization: `Bearer ${token}` },
         });
         const calls = res.data.pendingRequests || [];
+        if (isGlobalCallUiActive()) return;
         if (calls.length > 0) {
           const call = calls[0];
           const from = call.from || call.initiator || {};
           const resolvedCallType = normalizeIncomingCallType(call.callType || call.type);
+          const streamRoomId = getStreamRoomId(call);
           setIncomingCallData({
             callId: call.callId || call.id || call._id,
-            roomId: call.roomId,
+            roomId: streamRoomId,
+            streamCallId: streamRoomId,
             name: from.anonymous || from.anonName || from.anonymousName || "Anonymous User",
             avatar: "👤",
             image:
@@ -1640,6 +1668,7 @@ const SMSInput = ({ navigation, route }) => {
       launchedFromCallPushRef.current = false;
       stopRinging();
       setShowIncomingModal(false);
+      await displayMissedCallNotification(incomingCallData, 'missed');
       await AsyncStorage.removeItem('pendingIncomingCallPush');
       if (shouldExitAfterCall && Platform.OS === 'android') {
         setTimeout(() => BackHandler.exitApp(), 100);
