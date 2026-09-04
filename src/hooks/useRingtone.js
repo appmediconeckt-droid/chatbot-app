@@ -4,6 +4,7 @@ import InCallManager from "react-native-incall-manager";
 
 const VIBRATION_PATTERN = [0, 400, 200, 400, 1000];
 const MAX_RING_DURATION_MS = 60000;
+export const INCOMING_RING_TIMEOUT_MS = MAX_RING_DURATION_MS;
 
 // Singleton — one shared state across all hook instances so any component
 // can stop the ringtone and it stops everywhere immediately.
