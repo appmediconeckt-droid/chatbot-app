@@ -22,8 +22,8 @@ const API_ENDPOINTS = {
 // release APKs must use the live backend; otherwise an installed APK stops
 // working as soon as the temporary tunnel expires.
 export const API_BASE_URL = __DEV__
-  ? API_ENDPOINTS.RAILWAY
-  : API_ENDPOINTS.RAILWAY;
+  ? API_ENDPOINTS.DEV_TUNNEL
+  : API_ENDPOINTS.DEV_TUNNEL;
 export const AI_REALTIME_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
 export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
   ? { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' }
