@@ -967,6 +967,7 @@ const SMSInput = ({ navigation, route }) => {
       ? psychiatrist.specializations.filter(Boolean).join(', ')
       : psychiatrist?.specialization || psychiatrist?.category || 'Psychiatry';
     const note = `I recommend @${name} for ${specialization} support. Please open Consultants and search "${name}" to view their profile.`;
+   
     try {
       setRecommendingPsychiatrist(true);
       await sendMessageToAPI({ messageContent: note });

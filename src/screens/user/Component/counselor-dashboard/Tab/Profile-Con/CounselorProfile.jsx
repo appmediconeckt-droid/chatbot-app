@@ -486,7 +486,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     setEmailChange(prev => ({ ...prev, sending: true, error: '' }));
     setError('');
     setSuccessMessage('');
-
+    
     try {
       const headers = await getAuthHeaders();
       const response = await axios.post(
