@@ -39,6 +39,18 @@ export const normalizeNotificationData = (remoteMessageOrData) => {
   }, {});
 };
 
+const normalizeParty = (party, fallbackId, fallbackName, fallbackType, fallbackImage) => {
+  if (party && typeof party === 'object') return party;
+  if (!party && !fallbackId && !fallbackName) return null;
+  return {
+    id: party || fallbackId || null,
+    displayName: fallbackName || (typeof party === 'string' ? party : null),
+    fullName: fallbackName || (typeof party === 'string' ? party : null),
+    type: fallbackType || null,
+    profilePhoto: fallbackImage || null,
+  };
+};
+
 export const isCallNotificationData = (data = {}) => {
   const type = String(data.type || data.notificationType || data.event || '').trim().toUpperCase();
   const callType = String(data.callType || data.call_type || data.mode || '').trim().toLowerCase();
@@ -60,9 +72,15 @@ export const buildCallIntentFromNotification = (remoteMessageOrData, source = 'n
   if (!isCallNotificationData(data)) return null;
 
   const callType =
-    data.type === 'VOICE_CALL' || data.type === 'AUDIO_CALL'
+    String(data.type || '').toUpperCase() === 'VOICE_CALL' || String(data.type || '').toUpperCase() === 'AUDIO_CALL'
       ? 'voice'
       : normalizeCallType(data.callType || data.call_type || data.mode || data.type);
+
+  const callerName = data.callerName || data.name || data.title || data.senderName || null;
+  const callerImage = data.callerImage || data.profilePhoto || data.image || data.avatar || null;
+  const callerId = data.callerId || data.fromId || data.senderId || null;
+  const callerType = data.callerRole || data.fromType || data.senderRole || null;
+  const from = normalizeParty(data.from || data.initiator || data.sender, callerId, callerName, callerType, callerImage);
 
   return {
     source,
@@ -71,10 +89,10 @@ export const buildCallIntentFromNotification = (remoteMessageOrData, source = 'n
     callId: data.callId || data.call_id || data.id || data._id || null,
     roomId: data.roomId || data.room_id || data.channelId || null,
     callType,
-    name: data.callerName || data.name || data.title || data.senderName || null,
-    image: data.callerImage || data.profilePhoto || data.image || data.avatar || null,
-    from: data.from || data.initiator || data.sender || null,
-    initiator: data.initiator || data.from || null,
+    name: callerName,
+    image: callerImage,
+    from,
+    initiator: normalizeParty(data.initiator, callerId, callerName, callerType, callerImage),
     receiver: data.receiver || null,
     requestedAt: data.requestedAt || data.createdAt || null,
     expiresAt: data.expiresAt || null,

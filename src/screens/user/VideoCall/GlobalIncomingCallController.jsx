@@ -148,6 +148,10 @@ const fetchCallDetails = async (callId, session) => {
   }
 };
 
+const getErrorMessage = (error) => (
+  error?.response?.data?.error || error?.message || 'Unable to connect this call'
+);
+
 const fetchPendingCall = async (intent, session) => {
   if (!session.currentUserId) return null;
   try {
@@ -354,7 +358,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
   const [selectedCall, setSelectedCall] = useState(null);
   const [isVideoOpen, setIsVideoOpen] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
-  const handledCallIdsRef = useRef(new Map());
+  const handledCallIdsRef = useRef(new Set());
   const incomingCallRef = useRef(emptyIncomingCall);
 
   useEffect(() => {
@@ -373,9 +377,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
 
   const handleIntent = useCallback((intent) => {
     if (!intent?.callId) return;
-    const callKey = String(intent.callId);
-    const lastHandledAt = handledCallIdsRef.current.get(callKey);
-    if (lastHandledAt && Date.now() - lastHandledAt < 5000) return;
+    if (handledCallIdsRef.current.has(String(intent.callId))) return;
     if (showIncoming || isVideoOpen || isVoiceOpen) return;
 
     // Present immediately from the push payload. Waiting for pending/details
@@ -388,7 +390,7 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
       name: intent.name || 'Incoming call',
       callType: normalizeCallType(intent.callType || intent?.data?.callType),
     };
-    handledCallIdsRef.current.set(callKey, Date.now());
+    handledCallIdsRef.current.add(String(intent.callId));
     setIncomingCall(immediateCall);
     setShowIncoming(true);
     setGlobalCallUiActive(true);
@@ -407,19 +409,9 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
   useEffect(() => {
     let active = true;
     let unsubscribeSocket = null;
-    let retryTimer = null;
 
     const setupSocketIncomingCalls = async () => {
       try {
-        if (!active || unsubscribeSocket) return;
-        const token =
-          (await AsyncStorage.getItem('accessToken')) ||
-          (await AsyncStorage.getItem('token'));
-        if (!token) {
-          retryTimer = setTimeout(setupSocketIncomingCalls, 2000);
-          return;
-        }
-
         unsubscribeSocket = await socketService.on('incoming_call_request', (payload = {}) => {
           if (!active) return;
           handleIntent({
@@ -429,10 +421,28 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
             callId: payload.callId || payload.id || payload._id,
             roomId: payload.roomId || payload.room_id || '',
             callType: normalizeCallType(payload.callType || payload.type),
-            name: payload.from || payload.callerName || payload.title || 'Incoming call',
+            name: typeof payload.from === 'string'
+              ? payload.from
+              : payload.from?.displayName || payload.from?.fullName || payload.callerName || payload.title || 'Incoming call',
             image: payload.fromProfilePhoto || payload.callerImage || payload.image || null,
-            from: payload.fromId || payload.from || payload.initiator || null,
-            initiator: payload.initiator || payload.from || null,
+            from: payload.from && typeof payload.from === 'object'
+              ? payload.from
+              : {
+                  id: payload.fromId || null,
+                  displayName: typeof payload.from === 'string' ? payload.from : payload.callerName,
+                  fullName: typeof payload.from === 'string' ? payload.from : payload.callerName,
+                  type: payload.fromType || null,
+                  profilePhoto: payload.fromProfilePhoto || null,
+                },
+            initiator: payload.initiator && typeof payload.initiator === 'object'
+              ? payload.initiator
+              : {
+                  id: payload.fromId || null,
+                  displayName: typeof payload.from === 'string' ? payload.from : payload.callerName,
+                  fullName: typeof payload.from === 'string' ? payload.from : payload.callerName,
+                  type: payload.fromType || null,
+                  profilePhoto: payload.fromProfilePhoto || null,
+                },
             receiver: payload.receiver || null,
             requestedAt: payload.requestedAt || payload.timestamp || null,
             expiresAt: payload.expiresAt || null,
@@ -440,9 +450,6 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
         });
       } catch (error) {
         console.warn('[CallNotification] socket listener failed:', error?.message || error);
-        if (active && !unsubscribeSocket) {
-          retryTimer = setTimeout(setupSocketIncomingCalls, 4000);
-        }
       }
     };
 
@@ -450,7 +457,6 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
 
     return () => {
       active = false;
-      if (retryTimer) clearTimeout(retryTimer);
       if (unsubscribeSocket) unsubscribeSocket();
     };
   }, [handleIntent]);
@@ -490,27 +496,24 @@ const GlobalIncomingCallController = ({ exitOnDismiss = false }) => {
     const session = await getStoredSession();
     if (!session.currentUserId) return;
 
-    const response = await axiosInstance.put(
-      `/api/video/calls/${call.callId}/accept`,
-      {
-        acceptorId: session.currentUserId,
-        acceptorType: session.apiRole,
-      },
-    );
+    try {
+      const response = await axiosInstance.put(
+        `/api/video/calls/${call.callId}/accept`,
+        { acceptorType: session.apiRole },
+      );
 
-    if (!response.data?.success) {
+      if (!response.data?.success) throw new Error(response.data?.error || 'Call was not accepted');
+
+      const acceptedCall = await buildAcceptedCall(call, response.data);
+      setSelectedCall(acceptedCall);
       setIncomingCall(emptyIncomingCall);
-      setGlobalCallUiActive(false);
-      return;
-    }
-
-    const acceptedCall = await buildAcceptedCall(call, response.data);
-    setSelectedCall(acceptedCall);
-    setIncomingCall(emptyIncomingCall);
-    if (acceptedCall.callType === 'video') {
-      setIsVideoOpen(true);
-    } else {
-      setIsVoiceOpen(true);
+      if (acceptedCall.callType === 'video') setIsVideoOpen(true);
+      else setIsVoiceOpen(true);
+    } catch (error) {
+      console.warn('[CallNotification] accept failed:', getErrorMessage(error));
+      setShowIncoming(true);
+      setGlobalCallUiActive(true);
+      startIncomingRingtone(true);
     }
   }, []);
 
