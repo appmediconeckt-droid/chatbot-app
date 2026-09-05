@@ -64,6 +64,10 @@ import CounselorGradientButton from '../../../../../components/common/CounselorG
 import { loadUserLanguage } from '../../../../../i18n';
 import { DOCTOR, DOCTOR_GRADIENT } from "../../../../../theme/palette";
 import { toImageUri } from "../../../../../utils/imageUri";
+import {
+  getNotificationOnlyCallMessage,
+  isNotificationOnlyCallResponse,
+} from "../../../../../utils/callRequestStatus";
 
 const normalizeCallType = (value) => {
   const type = String(value || '').trim().toLowerCase();
@@ -1229,17 +1233,25 @@ export default function CounselorDashboard() {
         );
       }
 
+      const displayName =
+        patientInfo.anonymous ||
+        patientInfo.displayName ||
+        patientInfo.fullName ||
+        "User";
+
       if (response.data?.success) {
+        if (isNotificationOnlyCallResponse(response.data)) {
+          showToast(
+            getNotificationOnlyCallMessage(response.data, displayName),
+            "info",
+          );
+          return;
+        }
+
         const rawCall = response.data.callData || {};
         const streamRoomId = getStreamRoomId(response.data, rawCall);
         // Match web: prefer anonymous handle, fall back to backend-provided
         // displayName/fullName, finally "User".
-        const displayName =
-          patientInfo.anonymous ||
-          patientInfo.displayName ||
-          patientInfo.fullName ||
-          "User";
-
         const callData = {
           id: rawCall?.id || rawCall?._id || response.data.callId,
           callId: response.data.callId,

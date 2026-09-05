@@ -47,6 +47,22 @@ const isIncomingCallNotification = data => {
   return isCallNotificationData(data);
 };
 
+const isNotificationOnlyCallRequest = data => {
+  const type = String(data?.type || data?.notificationType || data?.event || '')
+    .trim()
+    .toUpperCase();
+  const presentation = String(data?.presentation || data?.presentAs || '')
+    .trim()
+    .toLowerCase();
+  return (
+    type.includes('CALL') &&
+    (
+      presentation === 'notification_only' ||
+      String(data?.notificationOnly || '').toLowerCase() === 'true'
+    )
+  );
+};
+
 const getCallNotificationId = data => (
   data?.callId ||
   data?.call_id ||
@@ -225,6 +241,9 @@ export const registerBackgroundNotificationHandler = () => {
           // Notification payloads are already displayed by Android while the
           // app is backgrounded/killed. Only data-only messages need Notifee
           // here, otherwise the same push is displayed twice.
+          const displayPromise = remoteMessage?.notification
+            ? null
+            : displaySystemNotification(remoteMessage);
           if (displayPromise) {
             await displayPromise;
           }
@@ -554,13 +573,14 @@ export const listenForForegroundNotifications = () => {
       remoteMessage,
     );
 
-    if (isIncomingCallNotification(remoteMessage?.data || {})) {
+    const data = remoteMessage?.data || {};
+    if (isIncomingCallNotification(data)) {
       await notifyIncomingCallIntent(remoteMessage, 'foreground-push');
       return;
     }
 
     // Keep chat actionable in every app state.
-    if (isChatNotification(remoteMessage?.data)) {
+    if (isChatNotification(data) || isNotificationOnlyCallRequest(data)) {
       await displaySystemNotification(remoteMessage);
       return;
     }

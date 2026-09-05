@@ -67,6 +67,10 @@ import { toImageUri } from "../../../../../utils/imageUri";
 import { clearAccountLocalData } from "../../../../../utils/authSession";
 import AiMicButton from "../../../../../components/AiMicButton";
 import { useSpeechToText } from "../../../../../hooks/useSpeechToText";
+import {
+  getNotificationOnlyCallMessage,
+  isNotificationOnlyCallResponse,
+} from "../../../../../utils/callRequestStatus";
 
 // Time for a Modal to finish dismissing. RN can only transition one Modal at a
 // time, so opening the next one any sooner gets silently dropped.
@@ -2178,6 +2182,14 @@ export default function UserDashboard() {
       // Backends vary: some return { success, callData }, others return the
       // call object directly. Treat any 2xx with call data as success.
       const callData = response.data?.callData || response.data?.call || response.data;
+      if (isNotificationOnlyCallResponse(response.data)) {
+        Alert.alert(
+          "Call request sent",
+          getNotificationOnlyCallMessage(response.data, counselor?.name || "Consultant"),
+        );
+        return;
+      }
+
       if (response.data?.success !== false && callData) {
         navigation.navigate("ChatBox", {
           chatId: null,

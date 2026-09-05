@@ -180,6 +180,12 @@ const normalizeParty = (party, fallbackId, fallbackName, fallbackType, fallbackI
 };
 
 export const isCallNotificationData = (data = {}) => {
+  const presentation = String(data.presentation || data.presentAs || '').trim().toLowerCase();
+  const notificationOnly =
+    presentation === 'notification_only' ||
+    String(data.notificationOnly || '').toLowerCase() === 'true';
+  if (notificationOnly) return false;
+
   const type = String(data.type || data.notificationType || data.event || '').trim().toUpperCase();
   const callType = String(data.callType || data.call_type || data.mode || '').trim().toLowerCase();
   const hasCallId = Boolean(getCallIdFromData(data));
