@@ -538,13 +538,16 @@ const CounselorRequestChat = ({
       const authToken = await getAuthToken();
 
       if (paymentConfig.enabled) {
-        const amount = Number(paymentConfig.fees?.chat || 100);
+        const chatFee = Number(paymentConfig.fees?.chat || 100);
+        const durationMinutes = Number(paymentConfig.durationMinutes || 30);
+        const amount = Number((chatFee / Math.max(1, durationMinutes)).toFixed(2));
         const currentBalance = Number(walletBalance || 0);
 
         if (currentBalance < amount) {
+          const shortfall = Number((amount - currentBalance).toFixed(2));
           Alert.alert(
             'Insufficient wallet balance',
-            `Please add ₹${amount - currentBalance} to continue.`
+            `Please add ₹${shortfall} to continue.`
           );
           return;
         }
