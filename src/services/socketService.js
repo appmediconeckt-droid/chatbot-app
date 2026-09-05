@@ -12,6 +12,13 @@ import { API_BASE_URL } from '../axiosConfig';
 
 const CONNECTION_TIMEOUT_MS = 20_000;
 const MAX_RECONNECT_ATTEMPTS = 5;
+const AUTH_FAILURE_CODES = new Set([
+  'AUTH_TOKEN_EXPIRED',
+  'AUTH_TOKEN_INVALID',
+  'AUTH_TOKEN_MISSING',
+  'AUTH_SESSION_INACTIVE',
+  'AUTH_USER_INACTIVE',
+]);
 
 class SocketService {
   constructor() {
@@ -52,6 +59,13 @@ class SocketService {
     socket.emit(event, data);
   }
 
+  async _getToken() {
+    return (
+      (await AsyncStorage.getItem('accessToken')) ||
+      (await AsyncStorage.getItem('token'))
+    );
+  }
+
   async on(event, handler) {
     const socket = await this.connect();
     socket.on(event, handler);
@@ -66,9 +80,7 @@ class SocketService {
 
   async _establish() {
     try {
-      const token =
-        (await AsyncStorage.getItem('accessToken')) ||
-        (await AsyncStorage.getItem('token'));
+      const token = await this._getToken();
 
       if (!token) {
         this._connectionPromise = null;
@@ -83,6 +95,7 @@ class SocketService {
 
       const socket = io(API_BASE_URL, {
         transports: ['polling', 'websocket'],
+        upgrade: true,
         auth: { token },
         // Skip the dev tunnel anti-phishing interstitial on the XHR polling
         // handshake — otherwise the relay returns HTML and socket.io reports
@@ -99,6 +112,7 @@ class SocketService {
         reconnectionDelayMax: 5000,
         timeout: CONNECTION_TIMEOUT_MS,
         path: '/socket.io/',
+        withCredentials: true,
         forceNew: false,
         autoConnect: true,
       });
@@ -133,12 +147,7 @@ class SocketService {
             `[SocketService] connect_error (attempt ${this._reconnectAttempts}) code=${code}:`,
             err?.message || err,
           );
-          if (
-            code === 'AUTH_TOKEN_EXPIRED' ||
-            code === 'AUTH_TOKEN_INVALID' ||
-            code === 'AUTH_TOKEN_MISSING' ||
-            code === 'AUTH_USER_INACTIVE'
-          ) {
+          if (AUTH_FAILURE_CODES.has(code)) {
             cleanup();
             this._connectionPromise = null;
             socket.disconnect();
@@ -166,6 +175,17 @@ class SocketService {
   _setupPersistentListeners(socket) {
     socket.on('disconnect', (reason) => {
       console.warn('[SocketService] Disconnected:', reason);
+    });
+    socket.io.on('reconnect_attempt', async () => {
+      const token = await this._getToken();
+      if (token) socket.auth = { token };
+    });
+    socket.on('connect_error', (err) => {
+      const code = err?.data?.code || err?.message || 'UNKNOWN';
+      if (AUTH_FAILURE_CODES.has(code)) {
+        console.warn(`[SocketService] Auth connect_error after session start: ${code}`);
+        socket.disconnect();
+      }
     });
     socket.on('reconnect', () => {
       this._reconnectAttempts = 0;

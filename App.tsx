@@ -114,7 +114,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 // Lock as soon as the user leaves the app and opens it again.
 const LOCK_TIMEOUT_MS = 0;
-const MIN_BOOT_SPLASH_MS = 1400;
+const MIN_BOOT_SPLASH_MS = 1000;
 const VIDEO_BACKGROUND_COLOR = '#04181B';
 
 // ─── Popups must reach the bottom of the screen ──────────────────────────────
@@ -271,12 +271,24 @@ function App() {
     const bootstrapSessionRoute = async () => {
       const startedAt = Date.now();
       let hasFreshIncomingCall = false;
+      let shouldHoldBootSplash = false;
       try {
-        const [accessToken, token, storedUserRole, storedUserType, userDataRaw, counsellorId, counselorId, storedPin] = await Promise.all([
+        const [
+          accessToken,
+          token,
+          storedUserRole,
+          storedUserType,
+          isAuthenticated,
+          userDataRaw,
+          counsellorId,
+          counselorId,
+          storedPin,
+        ] = await Promise.all([
           AsyncStorage.getItem('accessToken'),
           AsyncStorage.getItem('token'),
           AsyncStorage.getItem('userRole'),
           AsyncStorage.getItem('userType'),
+          AsyncStorage.getItem('isAuthenticated'),
           AsyncStorage.getItem('userData'),
           AsyncStorage.getItem('counsellorId'),
           AsyncStorage.getItem('counselorId'),
@@ -332,7 +344,14 @@ function App() {
           // plain app reload. A returning session goes straight to its
           // dashboard (App Lock, if a PIN exists, is handled above via
           // setIsLocked). This stops the location page re-appearing every boot.
+          shouldHoldBootSplash = true;
           setBootRoute(destination);
+        } else if (String(isAuthenticated).toLowerCase() === 'true' || userDataRaw) {
+          // Older builds could persist a token without userRole/userType. Treat
+          // that as a returning session so the public Get Started page never
+          // flashes for an already logged-in user.
+          shouldHoldBootSplash = true;
+          setBootRoute('UserDashboard');
         } else {
           setBootRoute('Landing');
         }
@@ -341,7 +360,7 @@ function App() {
         setBootRoute('Landing');
       } finally {
         const elapsed = Date.now() - startedAt;
-        const minSplashMs = hasFreshIncomingCall ? 0 : MIN_BOOT_SPLASH_MS;
+        const minSplashMs = shouldHoldBootSplash && !hasFreshIncomingCall ? MIN_BOOT_SPLASH_MS : 0;
         if (elapsed < minSplashMs) {
           await new Promise<void>((resolve) => setTimeout(resolve, minSplashMs - elapsed));
         }
