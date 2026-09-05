@@ -68,7 +68,7 @@ const WalletSkeleton = () => {
   );
 };
 
-const WalletDashboard = ({ userData = {}, navigation }) => {
+const WalletDashboard = ({ userData = {}, navigation, initialTab = 'add-money' }) => {
   const { t } = useLanguageRender();
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState('');
@@ -105,6 +105,10 @@ const WalletDashboard = ({ userData = {}, navigation }) => {
   useEffect(() => {
     fetchWalletData();
   }, []);
+
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     setHistoryPage(1);

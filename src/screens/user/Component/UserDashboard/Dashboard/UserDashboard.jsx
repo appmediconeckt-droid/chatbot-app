@@ -1677,6 +1677,7 @@ export default function UserDashboard() {
   // so the next back must skip past it instead of landing on it again.
   const sidebarViaBackRef = useRef(false);
   const [showHelpSupport, setShowHelpSupport] = useState(false);
+  const [walletInitialTab, setWalletInitialTab] = useState('add-money');
   const [showNotifications, setShowNotifications] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -2818,7 +2819,7 @@ export default function UserDashboard() {
       case "Prescription":
         return <PrescriptionScreen />;
       case "Wallet":
-        return <WalletDashboard userData={userData} navigation={navigation} />;
+        return <WalletDashboard userData={userData} navigation={navigation} initialTab={walletInitialTab} />;
       case "Video":
         return <CallHistory />;
       case "profile":
@@ -3218,6 +3219,14 @@ export default function UserDashboard() {
         <PrivacyPolicy
           onClose={() => closeSidebarChild(() => setShowPrivacyPolicy(false))}
           onOpenTab={switchDashboardTab}
+          onOpenHelpSupport={() => {
+            setSidebarSection('help');
+            setShowHelpSupport(true);
+          }}
+          onOpenRefund={() => {
+            setWalletInitialTab('refund');
+            switchDashboardTab('Wallet');
+          }}
         />
       </Modal>
 

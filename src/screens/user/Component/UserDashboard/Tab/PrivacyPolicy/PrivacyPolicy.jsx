@@ -70,30 +70,81 @@ const DATA_GROUPS = [
 const RIGHTS = [
   {
     icon: 'eye-outline',
-    title: 'Access your data',
-    desc: 'Ask for a copy of the personal data Humaeli holds about you.',
+    id: 'access',
+    title: 'Access Your Data',
+    desc: 'Learn how to view your personal information',
   },
   {
     icon: 'create-outline',
-    title: 'Correct your data',
-    desc: 'Update wrong or outdated details from your profile at any time.',
+    id: 'correct',
+    title: 'Correct Your Data',
+    desc: 'Update your information from your profile',
   },
   {
     icon: 'trash-outline',
-    title: 'Delete your account',
-    desc: 'Request erasure of your account and associated personal data.',
-  },
-  {
-    icon: 'close-circle-outline',
-    title: 'Withdraw consent',
-    desc: 'Stop optional processing without losing access to core features.',
+    id: 'delete',
+    title: 'Delete Account',
+    desc: 'Learn how to permanently delete your account',
   },
   {
     icon: 'megaphone-outline',
-    title: 'Raise a grievance',
-    desc: `Write to ${SUPPORT_EMAIL} and we respond within 30 days.`,
+    id: 'grievance',
+    title: 'Raise a Grievance',
+    desc: 'Report an issue or contact Humaeli Support',
+  },
+  {
+    icon: 'wallet-outline',
+    id: 'refund',
+    title: 'Refund',
+    desc: 'Learn how refund requests are processed',
   },
 ];
+
+const RIGHT_DETAILS = {
+  access: {
+    paragraphs: [
+      'You have the right to access the personal information associated with your Humaeli account.',
+      'You can view most of your personal information directly from your Profile section. This may include your name and profile information, email address, mobile number, profile photo, account-related information, app preferences, appointment-related information, and other personal information available in your profile.',
+    ],
+    steps: ['Open the Humaeli app.', 'Go to the Profile section.', 'View the personal information associated with your account.'],
+    action: 'Go to Profile',
+  },
+  correct: {
+    paragraphs: [
+      'You have the right to correct or update inaccurate or outdated personal information associated with your Humaeli account.',
+      'Please ensure that the information you provide is accurate and up to date.',
+    ],
+    steps: ['Open your Profile.', 'Tap the Edit or Edit Profile button.', 'Update the required information.', 'Review your changes.', 'Tap Save or Update to save the updated information.'],
+    action: 'Go to Profile',
+  },
+  delete: {
+    paragraphs: [
+      'You have the right to request deletion of your Humaeli account and associated personal data.',
+    ],
+    steps: ['Open the Humaeli app.', 'Go to Settings.', 'Find the Delete Account option.', 'Tap Delete Account.', 'Read the deletion warning carefully.', 'Confirm that you want to permanently delete your account.'],
+    warning: 'Deleting your account is permanent. You may lose access to the account and your profile information may be deleted according to Humaeli\'s data deletion policy. Records that Humaeli must retain for legal, financial, security, fraud-prevention, or regulatory reasons may be kept for the required period. Review active services, appointments, wallet, refund requests, and other pending activities first.',
+    action: 'Go to Settings',
+  },
+  grievance: {
+    paragraphs: [
+      'If you have a concern, complaint, privacy-related issue, account problem, payment issue, technical problem, or any other concern regarding Humaeli, you can raise a grievance through our Help & Support section.',
+    ],
+    steps: ['Open the Humaeli app.', 'Go to Help & Support.', 'Tap Report an Issue.', 'Select or describe your issue.', 'Add the required details.', 'Submit your request.'],
+    footer: `Our support team will review your request and assist you. You can also contact us at ${SUPPORT_EMAIL}.`,
+    action: 'Go to Help & Support',
+    secondaryAction: 'Email Support',
+  },
+  refund: {
+    paragraphs: [
+      'If you are eligible for a refund, you can submit a refund request through Humaeli.',
+      'Refund eligibility may depend on the service or payment status and Humaeli\'s refund policy. Submitting a refund request does not automatically guarantee approval.',
+    ],
+    steps: ['Submit a refund request from the payment/refund section of the Humaeli app.', 'Provide the required refund details.', 'Your refund request will be sent to the Humaeli Admin for review.', 'The Admin will verify the request.', 'Once approved, the refundable amount will be credited to your Humaeli Wallet.', 'The approved refund should normally be processed to the Humaeli Wallet within approximately 24 hours after approval.'],
+    flow: 'Refund Request  →  Admin Review  →  Admin Approval  →  Refund Processed  →  Amount Added to Humaeli Wallet',
+    footer: 'Contact Help & Support if you have any issue with your refund.',
+    action: 'Request Refund',
+  },
+};
 
 const SHARING = [
   'Counselors you book see only what a session needs — your name (or anonymous label), age, gender and the chat history of that session.',
@@ -116,11 +167,12 @@ const CHECKLIST = [
 
 const LAST_UPDATED = 'July 2026';
 
-const PrivacyPolicy = ({ onClose, onOpenTab }) => {
+const PrivacyPolicy = ({ onClose, onOpenTab, onOpenHelpSupport, onOpenRefund }) => {
   const { t } = useLanguageRender();
   const [C, setC] = useState(PATIENT);
   const [role, setRole] = useState('user');
   const [expanded, setExpanded] = useState('chats');
+  const [expandedRight, setExpandedRight] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -150,13 +202,77 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
     }
   };
 
+  const openRight = (right) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedRight((current) => (current === right.id ? null : right.id));
+  };
+
+  const handleRightAction = (rightId, action) => {
+    if (action === 'Go to Profile') openTab('profile');
+    else if (action === 'Go to Settings') openTab('settings');
+    else if (action === 'Go to Help & Support') {
+      onClose?.();
+      onOpenHelpSupport?.();
+    } else if (action === 'Email Support') openSupport('Humaeli Support / Grievance Request');
+    else if (action === 'Request Refund') {
+      onClose?.();
+      onOpenRefund?.();
+    }
+  };
+
+  const renderRightDetails = (rightId) => {
+    const details = RIGHT_DETAILS[rightId];
+    if (!details) return null;
+    return (
+      <View style={s.rightDetails}>
+        {details.paragraphs.map((paragraph) => (
+          <Text key={paragraph} style={s.rightDetailText}>{t(paragraph)}</Text>
+        ))}
+        {details.steps && (
+          <View style={s.rightSteps}>
+            {details.steps.map((step, index) => (
+              <View key={step} style={s.rightStep}>
+                <View style={[s.stepNumber, { backgroundColor: C.primary }]}>
+                  <Text style={s.stepNumberText}>{index + 1}</Text>
+                </View>
+                <Text style={s.rightDetailText}>{t(step)}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+        {details.warning && (
+          <View style={s.rightWarning}>
+            <Ionicons name="warning-outline" size={17} color="#B45309" />
+            <Text style={s.rightWarningText}>{t(details.warning)}</Text>
+          </View>
+        )}
+        {details.flow && <Text style={[s.rightFlow, { color: C.primary }]}>{t(details.flow)}</Text>}
+        {details.footer && <Text style={s.rightDetailText}>{t(details.footer)}</Text>}
+        <View style={s.rightActions}>
+          <TouchableOpacity
+            style={[s.rightPrimaryAction, { backgroundColor: C.primary }]}
+            onPress={() => handleRightAction(rightId, details.action)}
+            activeOpacity={0.85}
+          >
+            <Text style={s.rightPrimaryActionText}>{t(details.action)}</Text>
+          </TouchableOpacity>
+          {details.secondaryAction && (
+            <TouchableOpacity style={s.rightSecondaryAction} onPress={() => handleRightAction(rightId, details.secondaryAction)} activeOpacity={0.85}>
+              <Text style={[s.rightSecondaryActionText, { color: C.primary }]}>{t(details.secondaryAction)}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    );
+  };
+
   // Opens a privacy-specific support email directly. This button used to call
   // openTab('support'), which matched no dashboard tab and quietly dumped the
   // user on the chat list. Contacting support about privacy shouldn't detour
   // through the whole help screen either - the subject is pre-filled so the
   // question lands in the right place.
-  const openSupport = () => {
-    const subject = encodeURIComponent('Privacy question - Humaeli');
+  const openSupport = (subjectText = 'Privacy question - Humaeli') => {
+    const subject = encodeURIComponent(subjectText);
     const body = encodeURIComponent(
       'Please describe your privacy or data question below:\n\n',
     );
@@ -288,7 +404,14 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
         <Text style={s.sectionTitle}>{t('YOUR RIGHTS')}</Text>
         <View style={s.card}>
           {RIGHTS.map((r, idx) => (
-            <View key={r.title} style={[s.actionRow, idx === RIGHTS.length - 1 && s.rowLast]}>
+            <View key={r.title} style={[s.rightItem, idx === RIGHTS.length - 1 && s.rowLast]}>
+              <TouchableOpacity
+                style={s.actionRow}
+                activeOpacity={0.7}
+                onPress={() => openRight(r)}
+                accessibilityRole="button"
+                accessibilityLabel={t(r.title)}
+              >
               <View style={[s.rowIcon, { backgroundColor: C.secondaryTint }]}>
                 <Ionicons name={r.icon} size={19} color={C.primary} />
               </View>
@@ -296,6 +419,9 @@ const PrivacyPolicy = ({ onClose, onOpenTab }) => {
                 <Text style={s.rowTitle}>{t(r.title)}</Text>
                 <Text style={s.rowSub}>{t(r.desc)}</Text>
               </View>
+              <Ionicons name={expandedRight === r.id ? 'chevron-up' : 'chevron-forward'} size={18} color="#CBD5E1" />
+              </TouchableOpacity>
+              {expandedRight === r.id && renderRightDetails(r.id)}
             </View>
           ))}
         </View>
@@ -426,6 +552,21 @@ const s = StyleSheet.create({
     gap: 12,
     paddingVertical: 13,
   },
+  rightItem: { borderBottomColor: '#F1F5F9', borderBottomWidth: 1 },
+  rightDetails: { paddingBottom: 16, paddingHorizontal: 14 },
+  rightDetailText: { color: '#64748B', fontSize: 13, lineHeight: 19, marginBottom: 9 },
+  rightSteps: { marginBottom: 5, marginTop: 2 },
+  rightStep: { alignItems: 'flex-start', flexDirection: 'row', gap: 9, marginBottom: 8 },
+  stepNumber: { alignItems: 'center', borderRadius: 10, height: 20, justifyContent: 'center', width: 20 },
+  stepNumberText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  rightWarning: { alignItems: 'flex-start', backgroundColor: '#FFF7ED', borderColor: '#FED7AA', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, marginBottom: 10, padding: 11 },
+  rightWarningText: { color: '#92400E', flex: 1, fontSize: 12, lineHeight: 18 },
+  rightFlow: { fontSize: 12, fontWeight: '800', lineHeight: 18, marginBottom: 10 },
+  rightActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 3 },
+  rightPrimaryAction: { alignItems: 'center', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 },
+  rightPrimaryActionText: { color: '#fff', fontSize: 12.5, fontWeight: '800' },
+  rightSecondaryAction: { alignItems: 'center', borderColor: '#D8E8DE', borderRadius: 10, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10 },
+  rightSecondaryActionText: { fontSize: 12.5, fontWeight: '800' },
   rowLast: { borderBottomWidth: 0 },
   rowIcon: {
     alignItems: 'center',
