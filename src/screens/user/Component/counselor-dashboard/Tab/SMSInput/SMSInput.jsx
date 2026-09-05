@@ -56,6 +56,10 @@ import PsychiatristDirectory from '../../../../../../components/common/Psychiatr
 import {
   describeCall,
 } from '../../../../../../utils/chatCallHistory';
+import {
+  getNotificationOnlyCallMessage,
+  isNotificationOnlyCallResponse,
+} from '../../../../../../utils/callRequestStatus';
 import { useSpeechToText } from '../../../../../../hooks/useSpeechToText';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -1306,6 +1310,13 @@ const SMSInput = ({ navigation, route }) => {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
       if (response.data && response.data.success) {
+        if (isNotificationOnlyCallResponse(response.data)) {
+          const notificationMessage = getNotificationOnlyCallMessage(response.data, USER_NAME || "User");
+          setCallError(null);
+          Alert.alert("Call request sent", notificationMessage);
+          return;
+        }
+
         const streamRoomId = getStreamRoomId(response.data, response.data.callData);
         const callData = {
           callId: response.data.callId || response.data.callData?._id,
@@ -1350,6 +1361,13 @@ const SMSInput = ({ navigation, route }) => {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
       if (response.data && response.data.success) {
+        if (isNotificationOnlyCallResponse(response.data)) {
+          const notificationMessage = getNotificationOnlyCallMessage(response.data, USER_NAME || "User");
+          setCallError(null);
+          Alert.alert("Call request sent", notificationMessage);
+          return;
+        }
+
         const streamRoomId = getStreamRoomId(response.data, response.data.callData);
         const callData = {
           callId: response.data.callId || response.data.callData?._id,
@@ -1529,10 +1547,34 @@ const SMSInput = ({ navigation, route }) => {
         const socket = await socketService.connect();
         chatSocketRef.current = socket;
         setIsSocketConnected(true);
+        const currentChatIds = [
+          apiChatId,
+          selectedUser?.chatId,
+          selectedUser?.id,
+          selectedUser?._id,
+        ]
+          .filter(Boolean)
+          .map((id) => String(id));
+
+        const isCurrentChatEvent = (payload = {}) => {
+          const payloadChatIds = [
+            payload.publicChatId,
+            payload.chatId,
+            payload._id,
+            payload.id,
+          ]
+            .filter(Boolean)
+            .map((id) => String(id));
+
+          return payloadChatIds.some((id) => currentChatIds.includes(id));
+        };
+
         const onConnect = () => {
+          setIsSocketConnected(true);
           socket.emit('join-chat', { chatId: apiChatId });
         };
         unsubscribers.push(await socketService.on('connect', onConnect));
+        if (socket.connected) onConnect();
         unsubscribers.push(await socketService.on('disconnect', () => setIsSocketConnected(false)));
         unsubscribers.push(await socketService.on('presence-update', ({ userId, isOnline, lastSeen }) => {
           if (String(userId) === String(USER_ID)) {
@@ -1540,6 +1582,7 @@ const SMSInput = ({ navigation, route }) => {
           }
         }));
         unsubscribers.push(await socketService.on('new-message', (messageData) => {
+          if (!isCurrentChatEvent(messageData)) return;
           shouldAutoScrollRef.current = true;
           // Skip if this message was deleted locally
           if (deletedMessageIdsRef.current.has(String(messageData.messageId || messageData.id || messageData._id))) return;

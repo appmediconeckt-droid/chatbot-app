@@ -71,6 +71,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   describeCall,
 } from "../../../../../../utils/chatCallHistory";
+import {
+  getNotificationOnlyCallMessage,
+  isNotificationOnlyCallResponse,
+} from "../../../../../../utils/callRequestStatus";
 
 // Professional Incoming Call Modal Component with Serenity design
 const IncomingCallModal = ({
@@ -1243,6 +1247,13 @@ const ChatBox = () => {
       }, { headers: { "Content-Type": "application/json", Authorization: token ? `Bearer ${token}` : "" } });
 
       if (response.data && response.data.success) {
+        if (isNotificationOnlyCallResponse(response.data)) {
+          const message = getNotificationOnlyCallMessage(response.data, currentCounselor?.name || "Consultant");
+          setCallError(null);
+          Alert.alert("Call request sent", message);
+          return;
+        }
+
         const receiverProfilePhoto = response.data.callData?.receiver?.profilePhoto || getProfilePhotoUrl(currentCounselor) || currentCounselor?.avatar || currentCounselor?.name?.charAt(0) || "👤";
         const streamRoomId = getStreamRoomId(response.data, response.data.callData);
         const callData = {
@@ -1301,6 +1312,13 @@ const ChatBox = () => {
       }, { headers: { "Content-Type": "application/json", Authorization: token ? `Bearer ${token}` : "" } });
 
       if (response.data && response.data.success) {
+        if (isNotificationOnlyCallResponse(response.data)) {
+          const message = getNotificationOnlyCallMessage(response.data, currentCounselor?.name || "Consultant");
+          setCallError(null);
+          Alert.alert("Call request sent", message);
+          return;
+        }
+
         const receiverProfilePhoto = response.data.callData?.receiver?.profilePhoto || getProfilePhotoUrl(currentCounselor) || currentCounselor?.avatar || currentCounselor?.name?.charAt(0) || "👤";
         const streamRoomId = getStreamRoomId(response.data, response.data.callData);
         const callData = {
@@ -1462,6 +1480,27 @@ const ChatBox = () => {
         const socket = await socketService.connect();
         chatSocketRef.current = socket;
         setIsSocketConnected(!!socket?.connected);
+        const currentChatIds = [
+          apiChatId,
+          currentChat?.chatId,
+          currentChat?.id,
+          currentChat?._id,
+        ]
+          .filter(Boolean)
+          .map((id) => String(id));
+
+        const isCurrentChatEvent = (payload = {}) => {
+          const payloadChatIds = [
+            payload.publicChatId,
+            payload.chatId,
+            payload._id,
+            payload.id,
+          ]
+            .filter(Boolean)
+            .map((id) => String(id));
+
+          return payloadChatIds.some((id) => currentChatIds.includes(id));
+        };
 
         const onConnect = () => {
           setIsSocketConnected(true);
@@ -1469,6 +1508,7 @@ const ChatBox = () => {
         };
 
         unsubscribers.push(await socketService.on('connect', onConnect));
+        if (socket.connected) onConnect();
         unsubscribers.push(await socketService.on('disconnect', () => setIsSocketConnected(false)));
 
         unsubscribers.push(await socketService.on('presence-update', ({ userId, isOnline, lastSeen }) => {
@@ -1478,6 +1518,7 @@ const ChatBox = () => {
         }));
 
         unsubscribers.push(await socketService.on('new-message', (messageData) => {
+          if (!isCurrentChatEvent(messageData)) return;
           const userId = resolveCurrentUserId();
           const isOwn = messageData.senderRole === 'user' && String(messageData.senderId) === String(userId);
           const transformedMessage = {
@@ -1521,12 +1562,14 @@ const ChatBox = () => {
           if (userRole !== 'user') setRemoteIsTyping(typing);
         }));
 
-        unsubscribers.push(await socketService.on('messages-read', () => {
+        unsubscribers.push(await socketService.on('messages-read', (payload) => {
+          if (!isCurrentChatEvent(payload)) return;
           setMessages(prev => prev.map(msg => msg.sender === 'user' ? { ...msg, isRead: true } : msg));
         }));
 
-        unsubscribers.push(await socketService.on('chat-status-update', ({ status, chatId: updatedChatId }) => {
-          if (updatedChatId === apiChatId) {
+        unsubscribers.push(await socketService.on('chat-status-update', (payload) => {
+          const { status } = payload || {};
+          if (isCurrentChatEvent(payload)) {
             setChatStatus(status);
             setCurrentChat(prev => prev ? { ...prev, status } : prev);
           }
@@ -1553,7 +1596,7 @@ const ChatBox = () => {
       chatSocketRef.current = null;
       setIsSocketConnected(false);
     };
-  }, [chatId, currentChat?.chatId, getAuthToken, scrollToBottom, resolveCurrentUserId, resolveCounselorId]);
+  }, [chatId, currentChat?.chatId, currentChat?.id, currentChat?._id, getAuthToken, scrollToBottom, resolveCurrentUserId, resolveCounselorId]);
 
   const handleTypingIndicator = useCallback(() => {
     const apiChatId = chatId || currentChat?.chatId;
