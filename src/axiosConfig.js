@@ -1,7 +1,6 @@
 // screens/auth/axiosConfig.js
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { forceSignOut } from './utils/authSession';
 
 // API endpoints for different environments
 // NOTE: no trailing slash — callers append `/api/...`, so a trailing slash here
@@ -137,12 +136,8 @@ axiosInstance.interceptors.response.use(
       // "No refresh token available" message.
       const refreshToken = await AsyncStorage.getItem('refreshToken');
       if (!refreshToken) {
-        // No refresh token but we still hold an access token means this device
-        // thought it was logged in and the server disagrees — another device
-        // signed in and took the session. Bounce to login instead of leaving
-        // the user on a dashboard that 401s on every request.
-        const hadSession = await AsyncStorage.getItem('accessToken');
-        if (hadSession) await forceSignOut();
+        // Keep the local session intact. The app should only clear login data
+        // from an explicit logout/delete-account action, not from a failing API.
         return Promise.reject(error);
       }
 
@@ -200,10 +195,8 @@ axiosInstance.interceptors.response.use(
         // Process queue with error
         processQueue(refreshError, null);
 
-        // Clears the stored session AND resets navigation to Login. Clearing
-        // alone was the old behaviour, and it left the app sitting on a
-        // dashboard it could no longer load.
-        await forceSignOut();
+        // Keep the stored session. A refresh failure should surface to the
+        // calling screen, while app restart still restores the saved login.
 
         return Promise.reject(refreshError);
       } finally {

@@ -18,6 +18,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_BASE_URL } from '../../axiosConfig';
 import GoogleAuthButton from './components/GoogleAuthButton';
+import GoogleProfileCompletionModal, {
+  needsGoogleUserProfileCompletion,
+} from './components/GoogleProfileCompletionModal';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import socketService from '../../services/socketService';
 import { paletteForRole } from '../../theme/palette';
@@ -51,6 +54,11 @@ const Login = ({ navigation, route }) => {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [googleProfileCompletion, setGoogleProfileCompletion] = useState({
+    visible: false,
+    isCounselor: false,
+    user: null,
+  });
   
   // Conflict modal states - MATCHING WEB VERSION EXACTLY
   const [showConflictModal, setShowConflictModal] = useState(false);
@@ -195,6 +203,55 @@ const Login = ({ navigation, route }) => {
         setErrorMessage((current) => (current === safeMessage ? '' : current));
       }, duration);
     }
+  };
+
+  const continueAfterAuth = async (isCounselor, delay = 800) => {
+    const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
+    const existingPin = await AsyncStorage.getItem('appLockPin');
+
+    setTimeout(() => {
+      if (!existingPin) {
+        navigation.replace('PinSetup', {
+          forced: true,
+          destination: 'LocationGate',
+          destinationParams: { destination },
+        });
+      } else {
+        navigation.replace('LocationGate', { destination });
+      }
+    }, delay);
+  };
+
+  const handleGoogleSuccess = ({ isCounselor, user }) => {
+    setSuccessMessage(t('auth:login') + ' ' + t('common:success'));
+
+    if (needsGoogleUserProfileCompletion(user, isCounselor)) {
+      setGoogleProfileCompletion({
+        visible: true,
+        isCounselor,
+        user,
+      });
+      return;
+    }
+
+    continueAfterAuth(isCounselor).catch((error) => {
+      showLoginError(error?.message || 'Login failed');
+    });
+  };
+
+  const handleGoogleProfileComplete = (updatedUser) => {
+    const isCounselor = googleProfileCompletion.isCounselor;
+    setGoogleProfileCompletion({
+      visible: false,
+      isCounselor: false,
+      user: null,
+    });
+    if (updatedUser?.email) {
+      AsyncStorage.setItem('userEmail', updatedUser.email).catch(() => {});
+    }
+    continueAfterAuth(isCounselor, 350).catch((error) => {
+      showLoginError(error?.message || 'Login failed');
+    });
   };
 
   const loadRememberedUser = async () => {
@@ -351,21 +408,9 @@ const Login = ({ navigation, route }) => {
         console.warn('[Push] Token sync after login failed:', error?.message || error);
       });
 
-      const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
       // The PIN is device-local, so a new phone has none. Require setup before
       // entering the app, otherwise this first session would be unlocked.
-      const existingPin = await AsyncStorage.getItem('appLockPin');
-      setTimeout(() => {
-        if (!existingPin) {
-          navigation.replace('PinSetup', {
-            forced: true,
-            destination: 'LocationGate',
-            destinationParams: { destination },
-          });
-        } else {
-          navigation.replace('LocationGate', { destination });
-        }
-      }, 800);
+      await continueAfterAuth(isCounselor);
     } catch (err) {
       // CRITICAL: Check for both conditions exactly like web version
       if (
@@ -863,13 +908,7 @@ const Login = ({ navigation, route }) => {
               mode="signin"
               disabled={isLoading}
               locationEvent="login"
-              onSuccess={({ isCounselor }) => {
-                setSuccessMessage(t('auth:login') + ' ' + t('common:success'));
-                const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
-                setTimeout(() => {
-                  navigation.replace('LocationGate', { destination });
-                }, 800);
-              }}
+              onSuccess={handleGoogleSuccess}
               onConflict={({ email: conflictEmail }) => {
                 if (conflictEmail) setEmail(conflictEmail);
                 setShowConflictModal(true);
@@ -1016,6 +1055,13 @@ const Login = ({ navigation, route }) => {
             </View>
           </View>
         </Modal>
+
+        <GoogleProfileCompletionModal
+          visible={googleProfileCompletion.visible}
+          user={googleProfileCompletion.user}
+          accentColor={C.primary}
+          onComplete={handleGoogleProfileComplete}
+        />
 
         {/* ========== FORGOT PASSWORD MODAL ========== */}
         <Modal

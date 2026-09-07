@@ -36,6 +36,46 @@ const BRAND_GRADIENT = [PATIENT.gradientFrom, PATIENT.gradientTo];
 const GRADIENT_START = { x: 0, y: 0 };
 const GRADIENT_END = { x: 1, y: 1 };
 
+const normalizePhotoUrl = (photo) => {
+  const raw = typeof photo === 'object' && photo
+    ? photo.secure_url || photo.url || photo.path || null
+    : photo;
+  if (!raw || typeof raw !== 'string') return null;
+  if (raw.includes('ui-avatars.com') || raw.includes('dicebear') || raw.includes('gravatar.com')) {
+    return null;
+  }
+  if (/^(https?:|data:|file:|content:)/i.test(raw)) return raw;
+  if (raw.startsWith('/')) return `${API_BASE_URL}${raw}`;
+  return `${API_BASE_URL}/${raw}`;
+};
+
+const normalizeCounselorForChat = (raw = {}) => {
+  if (!raw) return null;
+  const id = raw.id || raw._id || raw.counselorId || raw.userId || null;
+  const name = raw.name || raw.fullName || raw.displayName || raw.counselorName || '';
+  const photo = normalizePhotoUrl(
+    raw.profilePhoto || raw.avatar || raw.avatarUrl || raw.profilePic || raw.photo || raw.counselorPhoto,
+  );
+
+  if (!id && !name && !photo) return null;
+
+  return {
+    ...raw,
+    id,
+    _id: raw._id || id,
+    name: name || 'Consultant',
+    fullName: raw.fullName || name || 'Consultant',
+    specialization: raw.specialization || raw.specializations || '',
+    online: Boolean(raw.isOnline ?? raw.online ?? false),
+    isOnline: Boolean(raw.isOnline ?? raw.online ?? false),
+    avatar: photo,
+    avatarUrl: photo,
+    avatarType: photo ? 'image' : 'text',
+    profilePhoto: photo,
+    phoneNumber: raw.phoneNumber || raw.phone || null,
+  };
+};
+
 const getStreamRoomId = (...sources) => {
   for (const source of sources) {
     const roomId =
@@ -254,18 +294,9 @@ const ChatBox = () => {
 
   const [currentCounselor, setCurrentCounselor] = useState(() => {
     if (initialCounselor) {
-      return initialCounselor;
+      return normalizeCounselorForChat(initialCounselor) || initialCounselor;
     }
-    return {
-      id: counselorId || null,
-      name: "Dr. Sarah Mitchell",
-      specialization: "Cognitive Behavioral Therapist",
-      online: false,
-      avatar: null,
-      avatarType: "text",
-      profilePhoto: null,
-      phoneNumber: "+91 98765 43215",
-    };
+    return counselorId ? normalizeCounselorForChat({ id: counselorId }) : null;
   });
 
   const handleMentionPress = useCallback((name) => {
@@ -759,6 +790,31 @@ const ChatBox = () => {
       const response = await axios.get(`${API_BASE_URL}/api/chat/chat/${apiChatId}/messages`, {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
+
+      const responseChat =
+        response.data?.chat ||
+        response.data?.data?.chat ||
+        null;
+      if (responseChat) {
+        setCurrentChat((prev) => ({
+          ...(prev || {}),
+          id: responseChat.id || responseChat._id || prev?.id,
+          _id: responseChat._id || responseChat.id || prev?._id,
+          chatId: responseChat.chatId || apiChatId,
+          status: responseChat.status || prev?.status,
+          counselorId:
+            responseChat.counselorId ||
+            responseChat.counselor?.id ||
+            responseChat.counselor?._id ||
+            prev?.counselorId,
+          counselor: responseChat.counselor || prev?.counselor,
+          user: responseChat.user || prev?.user,
+        }));
+        const serverCounselor = normalizeCounselorForChat(responseChat.counselor);
+        if (serverCounselor) {
+          setCurrentCounselor(serverCounselor);
+        }
+      }
 
       const messagesArray =
         response.data?.messages ||
@@ -1379,11 +1435,15 @@ const ChatBox = () => {
     const initializeChat = async () => {
       try {
         const savedChats = JSON.parse(await AsyncStorage.getItem("activeChats") || "[]");
-        let chat = savedChats.find(c => c.chatId === chatId) || savedChats.find(c => c.counselorId === counselorId);
+        let chat = savedChats.find(c => c.chatId === chatId) ||
+          savedChats.find(c => c.id === chatMongoId || c._id === chatMongoId) ||
+          savedChats.find(c => c.counselorId === counselorId);
 
         if (chat) {
           setCurrentChat(chat);
-          if (chat.counselor) setCurrentCounselor(chat.counselor);
+          if (chat.counselor) {
+            setCurrentCounselor(normalizeCounselorForChat(chat.counselor) || chat.counselor);
+          }
           if (chat.messages && chat.messages.length > 0) {
             initialLoadDoneRef.current = false;
             shouldAutoScrollRef.current = true;
@@ -1399,8 +1459,8 @@ const ChatBox = () => {
           const newChat = {
             id: Date.now(),
             chatId: chatId || `chat_${Date.now()}`,
-            counselorId: counselorId,
-            counselor: initialCounselor,
+            counselorId: counselorId || initialCounselor?.id || initialCounselor?._id || null,
+            counselor: normalizeCounselorForChat(initialCounselor) || initialCounselor,
             user: initialUser || { name: "User", email: "user@example.com" },
             messages: [],
             unread: false,
@@ -1436,7 +1496,7 @@ const ChatBox = () => {
     // finished). The web ChatBox depends only on these four values too.
     return () => clearTimeout(readyGuard);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [counselorId, chatId, initialCounselor, initialUser]);
+  }, [counselorId, chatId, chatMongoId, initialCounselor, initialUser]);
 
   // Save messages to AsyncStorage
   useEffect(() => {

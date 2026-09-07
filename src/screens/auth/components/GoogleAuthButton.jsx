@@ -202,7 +202,12 @@ const GoogleAuthButton = ({
     }
     socketService.connect().catch(() => {});
 
-    onSuccess?.({ isCounselor, user });
+    onSuccess?.({
+      isCounselor,
+      user,
+      profileCompleted: data.profileCompleted,
+      isNewUser: data.isNewUser,
+    });
   };
 
   const handlePress = async () => {
