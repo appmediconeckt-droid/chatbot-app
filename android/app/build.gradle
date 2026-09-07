@@ -10,7 +10,7 @@ react {
 /**
  * Set true if you want Proguard/R8 minification for release.
  */
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
 
 /**
  * Release Keystore Configuration
@@ -47,8 +47,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
 
         // Google Play update version
-        versionCode 6
-        versionName "1.0.5"
+        versionCode 7
+        versionName "1.0.6"
 
         manifestPlaceholders = [usesCleartextTraffic: "false"]
     }
