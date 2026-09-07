@@ -61,6 +61,8 @@ import {
   isNotificationOnlyCallResponse,
 } from '../../../../../../utils/callRequestStatus';
 import { useSpeechToText } from '../../../../../../hooks/useSpeechToText';
+import { DEFAULT_PRESCRIPTION_THEME_ID } from '../../../../../../utils/prescriptionFestivalThemes';
+import { DEFAULT_PRESCRIPTION_VALID_DAYS } from '../../../../../../utils/prescriptionValidity';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -1083,10 +1085,16 @@ const SMSInput = ({ navigation, route }) => {
         instructions: prescriptionInstructions.trim(),
         medicines: medicinesForApi,
       });
+      const validUntil = new Date(
+        Date.now() + DEFAULT_PRESCRIPTION_VALID_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString();
       const formData = new FormData();
       formData.append('problem', prescriptionProblem.trim());
       formData.append('instructions', prescriptionInstructions.trim());
       formData.append('medicines', JSON.stringify(medicinesForApi));
+      formData.append('festivalTheme', DEFAULT_PRESCRIPTION_THEME_ID);
+      formData.append('validityDays', String(DEFAULT_PRESCRIPTION_VALID_DAYS));
+      formData.append('validUntil', validUntil);
       formData.append('attachment', prescriptionPdf);
 
       const token = await getAuthToken();

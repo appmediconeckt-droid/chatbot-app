@@ -18,9 +18,11 @@ import Text from '../../../../../../components/TranslatedText';
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
 import {
+  DEFAULT_PRESCRIPTION_THEME_ID,
   getPrescriptionFestivalTheme,
   PRESCRIPTION_FESTIVAL_THEMES,
 } from '../../../../../../utils/prescriptionFestivalThemes';
+import { getPrescriptionValidity } from '../../../../../../utils/prescriptionValidity';
 
 const statusColors = {
   verified: ['#DCFCE7', '#166534'],
@@ -32,6 +34,62 @@ const idOf = item => item?.id || item?._id;
 const authToken = async () =>
   (await AsyncStorage.getItem('accessToken')) || AsyncStorage.getItem('token');
 
+const cleanText = value => String(value || '').trim();
+
+const joinList = value => {
+  if (Array.isArray(value)) return value.filter(Boolean).join(', ');
+  return cleanText(value);
+};
+
+const getPractitioner = item => {
+  const source = item?.psychiatrist || item?.consultant || item?.doctor || {};
+  const name =
+    cleanText(source.fullName) ||
+    cleanText(source.name) ||
+    cleanText(item?.psychiatristName) ||
+    cleanText(item?.doctorName) ||
+    'Doctor';
+  const type =
+    joinList(source.specialization) ||
+    joinList(source.specializations) ||
+    cleanText(source.doctorType) ||
+    cleanText(source.profession) ||
+    cleanText(source.category) ||
+    cleanText(item?.doctorType) ||
+    'Psychiatrist';
+
+  return {
+    id: source.id || source._id || item?.psychiatristId || item?.doctorId,
+    name: /^(dr\.?|doctor)\s/i.test(name) ? name : `Dr. ${name}`,
+    type,
+  };
+};
+
+const formatPractitionerId = id => {
+  const value = cleanText(id);
+  if (!value) return '';
+  return value.length > 8 ? `...${value.slice(-4)}` : value;
+};
+
+const getThemeId = item =>
+  item?.festivalTheme ||
+  item?.prescriptionTheme ||
+  item?.theme ||
+  item?.selectedTheme ||
+  DEFAULT_PRESCRIPTION_THEME_ID;
+
+const getMedicineTimeLabel = medicine => {
+  const time = medicine?.timeOfDay || medicine?.time;
+  if (Array.isArray(time)) return time.filter(Boolean).join(', ');
+  if (time && typeof time === 'object') {
+    return Object.entries(time)
+      .filter(([, selected]) => selected)
+      .map(([slot]) => slot)
+      .join(', ');
+  }
+  return cleanText(time);
+};
+
 export const PrescriptionPreview = ({
   item,
   photoUri,
@@ -41,10 +99,11 @@ export const PrescriptionPreview = ({
   showThemePicker = true,
 }) => {
   const [paperSize, setPaperSize] = useState({ width: 0, height: 0 });
-  const theme = getPrescriptionFestivalTheme(item?.festivalTheme);
-  const specialization = Array.isArray(item?.psychiatrist?.specialization)
-    ? item.psychiatrist.specialization.join(', ')
-    : item?.psychiatrist?.specialization;
+  const theme = getPrescriptionFestivalTheme(getThemeId(item));
+  const practitioner = getPractitioner(item);
+  const validity = getPrescriptionValidity(item);
+  const isIdentityVerified = item?.verificationStatus === 'verified';
+  const practitionerId = formatPractitionerId(practitioner.id);
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <View style={s.modalHeader}>
@@ -112,38 +171,86 @@ export const PrescriptionPreview = ({
               resizeMode="stretch"
             />
           )}
+          <View style={s.themeBadge}>
+            <Ionicons name="color-palette-outline" size={12} color="#1D4ED8" />
+            <Text style={s.themeBadgeText}>{theme.label}</Text>
+          </View>
           <View style={s.docHeader}>
             <Image
               source={require('../../../../../../image/HumaeliIcon.png')}
               style={s.logo}
             />
             <View style={s.doctor}>
-              <Text style={s.doctorName}>
-                {item?.psychiatrist?.name || 'Psychiatrist'}
+              <Text style={s.doctorName}>{practitioner.name}</Text>
+              <Text style={s.doctorType}>{practitioner.type}</Text>
+              {!!practitionerId && (
+                <Text style={s.practitionerId}>ID: {practitionerId}</Text>
+              )}
+              {!!validity.issuedLabel && (
+                <Text style={s.tiny}>Issued: {validity.issuedLabel}</Text>
+              )}
+            </View>
+          </View>
+          {/* <Text style={s.digital}>DIGITAL PRESCRIPTION</Text> */}
+          {/* <View style={s.validityBox}>
+            <View style={s.validityItem}>
+              <Text style={s.validityLabel}>Valid until</Text>
+              <Text
+                style={[
+                  s.validityValue,
+                  validity.isExpired && s.validityExpired,
+                ]}
+              >
+                {validity.validUntilLabel}
               </Text>
-              <Text style={s.muted}>{specialization || 'Psychiatrist'}</Text>
-              <Text style={s.tiny}>
-                Practitioner ID: {item?.psychiatrist?.id}
+            </View>
+            <Text
+              style={[
+                s.validityPill,
+                validity.isExpired ? s.expiredPill : s.activePill,
+              ]}
+            >
+              {validity.isExpired ? 'Expired' : `${validity.validDays} days`}
+            </Text>
+          </View> */}
+          <View
+            style={[
+              s.identityCard,
+              isIdentityVerified ? s.identityVerified : s.identityUnverified,
+            ]}
+          >
+            <View
+              style={[
+                s.identityIcon,
+                isIdentityVerified
+                  ? s.identityIconVerified
+                  : s.identityIconUnverified,
+              ]}
+            >
+              <Ionicons
+                name={isIdentityVerified ? 'checkmark' : 'close'}
+                size={18}
+                color="#FFFFFF"
+              />
+            </View>
+            <View style={s.identityTextWrap}>
+              <Text
+                style={[
+                  s.identityTitle,
+                  isIdentityVerified
+                    ? s.identityTitleVerified
+                    : s.identityTitleUnverified,
+                ]}
+              >
+                Identity {isIdentityVerified ? 'verified' : 'not verified'}
               </Text>
-              <Text style={s.tiny}>
-                {new Date(item?.issuedAt).toLocaleDateString('en-IN')}
+              <Text style={s.identitySubtitle}>
+                {isIdentityVerified
+                  ? 'Patient photo confirmed'
+                  : 'Patient photo pending verification'}
               </Text>
             </View>
           </View>
-          <Text style={s.digital}>DIGITAL PRESCRIPTION</Text>
-          <Text
-            style={[
-              s.identity,
-              item?.verificationStatus === 'verified'
-                ? s.verified
-                : s.unverified,
-            ]}
-          >
-            Identity:{' '}
-            {item?.verificationStatus === 'verified'
-              ? 'Verified'
-              : 'Not verified'}
-          </Text>
           <View style={s.patient}>
             <View style={s.patientAvatar}>
               {photoUri ? (
@@ -187,7 +294,7 @@ export const PrescriptionPreview = ({
           )}
           <Text style={s.signature}>
             Digitally prescribed by{`\n`}
-            {item?.psychiatrist?.name || 'Psychiatrist'}
+            {practitioner.name}
           </Text>
           <Text style={s.footer}>
             Issued through Humaeli · www.humaeli.com · support@humaeli.com
@@ -350,8 +457,12 @@ export default function PrescriptionReviews() {
               const colors =
                 statusColors[item.verificationStatus] ||
                 statusColors.photo_required;
+              const theme = getPrescriptionFestivalTheme(getThemeId(item));
+              const practitioner = getPractitioner(item);
+              const validity = getPrescriptionValidity(item);
               return (
                 <View key={id} style={s.card}>
+                  <View style={s.cardAccent} />
                   <View style={s.cardTop}>
                     <View style={s.photo}>
                       {photos[id] ? (
@@ -373,16 +484,38 @@ export default function PrescriptionReviews() {
                           item.verificationStatus || 'photo_required',
                         ).replace('_', ' ')}
                       </Text>
+                      <Text style={s.cardTheme} numberOfLines={1}>
+                        {theme.label} theme
+                      </Text>
                       <Text style={s.cardTitle}>
                         {item.patient?.name || 'Anonymous patient'}
+                      </Text>
+                      <Text style={s.cardDoctor} numberOfLines={1}>
+                        {practitioner.name} · {practitioner.type}
                       </Text>
                       <Text style={s.problem}>
                         <Text style={s.bold}>Problem: </Text>
                         {item.problem}
                       </Text>
+                      {!!item.medicines?.[0] && (
+                        <Text style={s.cardMedicine} numberOfLines={1}>
+                          {item.medicines[0].name || item.medicines[0].medicine}
+                          {getMedicineTimeLabel(item.medicines[0])
+                            ? ` · ${getMedicineTimeLabel(item.medicines[0])}`
+                            : ''}
+                        </Text>
+                      )}
                       <Text style={s.tiny}>
                         {new Date(item.issuedAt).toLocaleDateString('en-IN')} ·{' '}
                         {item.medicines?.length || 0} medicine(s)
+                      </Text>
+                      <Text
+                        style={[
+                          s.cardValidUntil,
+                          validity.isExpired && s.cardValidExpired,
+                        ]}
+                      >
+                        Valid until: {validity.validUntilLabel}
                       </Text>
                       {!!item.rejectionReason && (
                         <Text style={s.rejectReason}>
@@ -529,6 +662,21 @@ const s = StyleSheet.create({
     borderRadius: 16,
     padding: 14,
     elevation: 2,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+  },
+  cardAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 5,
+    backgroundColor: '#2563EB',
   },
   cardTop: { flexDirection: 'row', gap: 12 },
   photo: {
@@ -557,6 +705,36 @@ const s = StyleSheet.create({
     color: '#0F172A',
     marginTop: 5,
   },
+  cardTheme: {
+    alignSelf: 'flex-start',
+    marginTop: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: '#EFF6FF',
+    color: '#1D4ED8',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  cardDoctor: {
+    color: '#0F766E',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  cardMedicine: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  cardValidUntil: {
+    color: '#166534',
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  cardValidExpired: { color: '#B91C1C' },
   problem: { fontSize: 13, color: '#334155', marginTop: 3 },
   bold: { fontWeight: '700', color: '#0F172A' },
   tiny: { fontSize: 10, color: '#64748B', marginTop: 4 },
@@ -627,6 +805,14 @@ const s = StyleSheet.create({
     backgroundColor: '#FFF',
     padding: 22,
     overflow: 'hidden',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 3,
   },
   watermark: {
     position: 'absolute',
@@ -634,6 +820,20 @@ const s = StyleSheet.create({
     top: 0,
     opacity: 0.18,
   },
+  themeBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(239,246,255,.9)',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    marginBottom: 10,
+  },
+  themeBadgeText: { color: '#1D4ED8', fontSize: 10, fontWeight: '800' },
   docHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -644,18 +844,100 @@ const s = StyleSheet.create({
   logo: { width: 65, height: 65, resizeMode: 'contain' },
   doctor: { alignItems: 'flex-end', flex: 1 },
   doctorName: { fontSize: 19, fontWeight: '800', color: '#172033' },
+  doctorType: {
+    color: '#0F766E',
+    fontSize: 13,
+    fontWeight: '800',
+    marginTop: 3,
+    textTransform: 'capitalize',
+  },
+  practitionerId: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 5,
+    letterSpacing: 0.2,
+  },
   muted: { fontSize: 12, color: '#64748B', marginTop: 3 },
   digital: { fontSize: 10, fontWeight: '800', color: '#2563EB', marginTop: 10 },
-  identity: {
-    alignSelf: 'flex-start',
-    padding: 6,
+  validityBox: {
+    marginTop: 10,
+    padding: 10,
     borderRadius: 10,
-    fontSize: 9,
-    fontWeight: '800',
-    marginTop: 8,
+    backgroundColor: 'rgba(240,253,244,.94)',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
   },
-  verified: { color: '#166534', backgroundColor: '#DCFCE7' },
-  unverified: { color: '#B42318', backgroundColor: '#FEE2E2' },
+  validityItem: { flex: 1 },
+  validityLabel: {
+    color: '#475569',
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  validityValue: {
+    color: '#166534',
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  validityExpired: { color: '#B91C1C' },
+  validityPill: {
+    overflow: 'hidden',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  activePill: { color: '#166534', backgroundColor: '#DCFCE7' },
+  expiredPill: { color: '#B91C1C', backgroundColor: '#FEE2E2' },
+  identityCard: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 12,
+    width: '100%',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  identityVerified: { backgroundColor: '#ECFDF5', borderColor: '#86EFAC' },
+  identityUnverified: { backgroundColor: '#FEF2F2', borderColor: '#FCA5A5' },
+  identityIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  identityIconVerified: { backgroundColor: '#16A34A' },
+  identityIconUnverified: { backgroundColor: '#DC2626' },
+  identityTextWrap: { flexShrink: 1 },
+  identityTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  identityTitleVerified: { color: '#166534' },
+  identityTitleUnverified: { color: '#B91C1C' },
+  identitySubtitle: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 2,
+  },
   patient: {
     flexDirection: 'row',
     gap: 12,

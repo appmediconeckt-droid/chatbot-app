@@ -16,6 +16,8 @@ export const PRESCRIPTION_FESTIVAL_THEMES = [
   ['republic_day', 'Republic Day', require('../image/prescription-themes/republic_day.png')],
 ].map(([id, label, image]) => ({ id, label, image }));
 
+export const DEFAULT_PRESCRIPTION_THEME_ID = 'default_general';
+
 export const getPrescriptionFestivalTheme = id =>
-  PRESCRIPTION_FESTIVAL_THEMES.find(theme => theme.id === id) ||
+  PRESCRIPTION_FESTIVAL_THEMES.find(theme => theme.id === (id || DEFAULT_PRESCRIPTION_THEME_ID)) ||
   PRESCRIPTION_FESTIVAL_THEMES[0];

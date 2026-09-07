@@ -21,6 +21,7 @@ import axiosInstance, {
 } from '../../../../../../axiosConfig';
 import { PATIENT_GRADIENT } from '../../../../../../theme/palette';
 import { PrescriptionPreview } from '../../../counselor-dashboard/Tab/Prescriptions/PrescriptionReviews';
+import { getPrescriptionValidity } from '../../../../../../utils/prescriptionValidity';
 
 const normalizeList = payload => {
   const list =
@@ -201,6 +202,7 @@ const PrescriptionScreen = () => {
       item?.verificationStatus ||
       (item?.hasPatientPhoto ? 'pending' : 'photo_required');
     const isVerified = verificationStatus === 'verified';
+    const validity = getPrescriptionValidity(item);
     const doctorName =
       item?.psychiatrist?.fullName ||
       item?.psychiatrist?.name ||
@@ -261,6 +263,24 @@ const PrescriptionScreen = () => {
         <Text style={styles.fileMeta}>
           {item?.fileName || 'Prescription.pdf'} • {formatSize(item?.fileSize)}
         </Text>
+        <View style={styles.validityCard}>
+          <Ionicons
+            name={validity.isExpired ? 'alert-circle-outline' : 'time-outline'}
+            size={18}
+            color={validity.isExpired ? '#B91C1C' : '#166534'}
+          />
+          {/* <View style={styles.validityTextWrap}>
+            <Text style={styles.validityLabel}>Prescription validity</Text>
+            <Text
+              style={[
+                styles.validityValue,
+                validity.isExpired && styles.validityExpired,
+              ]}
+            >
+              Valid until {validity.validUntilLabel}
+            </Text>
+          </View> */}
+        </View>
         {verificationStatus === 'rejected' && !!item?.rejectionReason && (
           <Text style={styles.rejectionText}>
             Photo rejected: {item.rejectionReason}
@@ -523,6 +543,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   fileMeta: { color: '#64748B', fontSize: 11, fontWeight: '600', marginTop: 9 },
+  validityCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  validityTextWrap: { flex: 1 },
+  validityLabel: {
+    color: '#475569',
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  validityValue: {
+    color: '#166534',
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  validityExpired: { color: '#B91C1C' },
   rejectionText: {
     color: '#B91C1C',
     backgroundColor: '#FEF2F2',
