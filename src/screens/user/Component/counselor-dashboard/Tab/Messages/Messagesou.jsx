@@ -150,12 +150,9 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
   }, [navigation, onCompleteProfile]);
 
   const handleSessionExpired = useCallback(() => {
-    AsyncStorage.multiRemove(['token', 'accessToken', 'userData']);
-    navigation.replace('RoleSelector', {
-      reason: 'session-expired',
-      message: 'Your session has expired. Please log in again.',
-    });
-  }, [navigation]);
+    setLoading(false);
+    setError('Session needs attention. Please try again.');
+  }, []);
 
   const formatTime = (timeString) => {
     if (!timeString) return '';
@@ -204,6 +201,7 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
     if (!token) return handleSessionExpired();
     try {
       setLoading(true);
+      setError(null);
       const response = await fetch(`${API_BASE_URL}/api/chat/chats`, {
         headers: { Authorization: `Bearer ${token}` },
       });

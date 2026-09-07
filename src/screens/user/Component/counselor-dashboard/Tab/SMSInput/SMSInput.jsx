@@ -257,6 +257,46 @@ const ChatAvatar = ({ avatarUrl, avatar, name, size = 40, style }) => {
   );
 };
 
+const normalizeSelectedUserForChat = (raw, chatId) => {
+  if (!raw && !chatId) return null;
+  const source = raw || {};
+  const display = getAnonymousUserDisplay(source);
+  const id =
+    getAnonymousParticipantId(source) ||
+    source.userId ||
+    source.receiverId ||
+    source.senderId ||
+    source.id ||
+    source._id ||
+    null;
+  const name =
+    source.name ||
+    source.fullName ||
+    source.displayName ||
+    source.anonymous ||
+    display.name ||
+    "User";
+
+  if (!id && !name && !chatId) return null;
+
+  return {
+    ...source,
+    id: source.id || chatId || id,
+    _id: source._id || id,
+    userId: id,
+    receiverId: id,
+    chatId: chatId || source.chatId || source.chat_id || source.publicChatId,
+    name,
+    anonymous: source.anonymous || name,
+    gender: source.gender || display.gender,
+    avatar: source.avatar || display.avatar,
+    avatarUrl: source.avatarUrl || display.avatarUrl || source.profilePhoto || null,
+    online: Boolean(source.isOnline ?? source.online ?? false),
+    isOnline: Boolean(source.isOnline ?? source.online ?? false),
+    lastSeen: source.lastSeen || null,
+  };
+};
+
 // ─── Incoming Call Modal Component ─────────────────────────────────────────
 const IncomingCallModal = ({
   isOpen,
@@ -488,7 +528,6 @@ const SMSInput = ({ navigation, route }) => {
   const [hiddenCallIds, setHiddenCallIds] = useState([]);
   // Track deleted message IDs persistently so they stay deleted across navigation/refresh
   const [deletedMessageIds, setDeletedMessageIds] = useState(new Set());
-  const getDeletedMessagesStorageKey = useCallback(() => `deletedMessages_${getChatIdForAPI()}`, [chatId, USER_ID, counselorId, selectedUser]);
   // iOS uses padding; Android uses height to remain visible even where an OEM
   // ignores adjustResize, without retaining stale keyboard padding.
 
@@ -497,7 +536,9 @@ const SMSInput = ({ navigation, route }) => {
   const [counselorId, setCounselorId] = useState(null);
 
   // Selected user from navigation (already contains avatarUrl + avatar from SMSList)
-  const [selectedUser, setSelectedUser] = useState(location?.selectedUser || null);
+  const [selectedUser, setSelectedUser] = useState(
+    () => normalizeSelectedUserForChat(location?.selectedUser, location?.chatId),
+  );
   const chatId = location?.chatId;
 
   // ===================== Use same utilities as SMSList =====================
@@ -609,6 +650,8 @@ const SMSInput = ({ navigation, route }) => {
     }
     return fallbackChatIdRef.current;
   };
+
+  const getDeletedMessagesStorageKey = useCallback(() => `deletedMessages_${getChatIdForAPI()}`, [chatId, USER_ID, counselorId, selectedUser]);
 
   // Prescriptions must always target an existing server-side consultation.
   // Unlike normal chat recovery, never invent a fallback ID for this endpoint.
@@ -725,7 +768,7 @@ const SMSInput = ({ navigation, route }) => {
   };
 
   const fetchMessagesFromAPI = async () => {
-    if (!selectedUser || !counselorId) return;
+    if ((!selectedUser && !chatId) || !counselorId) return;
     try {
       const apiChatId = getChatIdForAPI();
       const token = await getAuthToken();
@@ -735,6 +778,15 @@ const SMSInput = ({ navigation, route }) => {
         headers: { Authorization: token ? `Bearer ${token}` : "" },
       });
       if (response.data && response.data.messages) {
+        const responseChat = response.data.chat || response.data?.data?.chat || null;
+        const responseUser = responseChat?.user || responseChat?.otherParty || null;
+        if (responseUser) {
+          setSelectedUser((prev) => (
+            prev?.userId || prev?.receiverId
+              ? prev
+              : normalizeSelectedUserForChat(responseUser, responseChat.chatId || apiChatId)
+          ));
+        }
         if (response.data.chatStatus) setChatStatus(response.data.chatStatus);
 
         // Deduplicate system messages (e.g., "Sending a new request" that appears 6-7 times)
@@ -1501,7 +1553,7 @@ const SMSInput = ({ navigation, route }) => {
   // ─── Effects ─────────────────────────────────────────────────────────────
   useEffect(() => { loadCounselorData(); }, []);
   useEffect(() => {
-    if (!selectedUser || !counselorId) return undefined;
+    if ((!selectedUser && !chatId) || !counselorId) return undefined;
     let alive = true;
     (async () => {
       // Paint from cache first when we have it, so the thread appears complete

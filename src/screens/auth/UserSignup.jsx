@@ -606,6 +606,9 @@ import AuthBackground from '../../theme/AuthBackground';
 // Import logo
 import logo from '../../image/HumaeliIcon.png';
 import GoogleAuthButton from './components/GoogleAuthButton';
+import GoogleProfileCompletionModal, {
+  needsGoogleUserProfileCompletion,
+} from './components/GoogleProfileCompletionModal';
 import ForgotPasswordModal from './components/ForgotPasswordModal';
 import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 import { sendLocationSilently } from '../../utils/locationHelper';
@@ -684,6 +687,11 @@ const UserSignup = ({ navigation, route }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [notification, setNotification] = useState({ show: false, message: '', type: '' });
   const [showDateOfBirthPicker, setShowDateOfBirthPicker] = useState(false);
+  const [googleProfileCompletion, setGoogleProfileCompletion] = useState({
+    visible: false,
+    isCounselor: false,
+    user: null,
+  });
 
   // Verification states
   const [emailVerified, setEmailVerified] = useState(false);
@@ -1146,6 +1154,38 @@ const UserSignup = ({ navigation, route }) => {
     setTimeout(() => setNotification({ show: false, message: '', type: '' }), displayDuration);
   };
 
+  const continueAfterGoogleAuth = (isCounselor, delay = 600) => {
+    sendLocationSilently(isLogin ? 'login' : 'signup');
+    const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
+    setTimeout(() => {
+      navigation.replace('LocationGate', { destination });
+    }, delay);
+  };
+
+  const handleGoogleSuccess = ({ isCounselor, user }) => {
+    if (needsGoogleUserProfileCompletion(user, isCounselor)) {
+      setGoogleProfileCompletion({
+        visible: true,
+        isCounselor,
+        user,
+      });
+      return;
+    }
+
+    continueAfterGoogleAuth(isCounselor);
+  };
+
+  const handleGoogleProfileComplete = () => {
+    const isCounselor = googleProfileCompletion.isCounselor;
+    setGoogleProfileCompletion({
+      visible: false,
+      isCounselor: false,
+      user: null,
+    });
+    showNotification('Anonymous profile saved!');
+    continueAfterGoogleAuth(isCounselor, 350);
+  };
+
   const handleChange = useCallback((name, value) => {
     setFormData(prev => ({ ...prev, [name]: value }));
     if (name === 'email') {
@@ -1453,14 +1493,7 @@ const UserSignup = ({ navigation, route }) => {
                       mode={isLogin ? 'signin' : 'signup'}
                       disabled={isLoading}
                       locationEvent={isLogin ? 'login' : 'signup'}
-                      onSuccess={({ isCounselor }) => {
-                        sendLocationSilently(isLogin ? 'login' : 'signup');
-                        setTimeout(() => {
-                          navigation.replace(
-                            isCounselor ? 'CounselorDashboard' : 'UserDashboard',
-                          );
-                        }, 600);
-                      }}
+                      onSuccess={handleGoogleSuccess}
                       onError={(msg) => {
                         showNotification(msg || 'Google sign-in failed', 'error');
                         setOtpError(msg);
@@ -1614,6 +1647,12 @@ const UserSignup = ({ navigation, route }) => {
           onClose={() => setShowForgotPassword(false)}
           accentColor="#00652C"
           initialEmail={formData.email}
+        />
+        <GoogleProfileCompletionModal
+          visible={googleProfileCompletion.visible}
+          user={googleProfileCompletion.user}
+          accentColor="#00652C"
+          onComplete={handleGoogleProfileComplete}
         />
       </AuthBackground>
     </View>

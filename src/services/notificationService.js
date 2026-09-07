@@ -23,8 +23,56 @@ let backgroundHandlersRegistered = false;
 let foregroundPressNavigation;
 
 const getNotificationChatId = data =>
-  data?.chatId || data?.chatID || data?.chat_id || data?.conversationId ||
-  data?.conversation_id || data?.roomId || data?.room_id || '';
+  data?.publicChatId || data?.public_chat_id || data?.chatId || data?.chatID ||
+  data?.chat_id || data?.conversationId || data?.conversation_id ||
+  data?.roomId || data?.room_id || '';
+
+const firstString = (...values) => {
+  for (const value of values) {
+    const normalized = String(value ?? '').trim();
+    if (normalized && normalized !== 'undefined' && normalized !== 'null') {
+      return normalized;
+    }
+  }
+  return '';
+};
+
+const getNotificationDbChatId = data =>
+  firstString(data?.mongoChatId, data?.chatMongoId, data?.chatDbId, data?.chatId);
+
+const getNotificationPerson = (data, role) => {
+  const isCounselor = /counsell?or/i.test(role);
+  const senderIsRole = isCounselor
+    ? /counsell?or/i.test(String(data?.senderRole || ''))
+    : String(data?.senderRole || '').toLowerCase() === 'user';
+  const id = firstString(
+    isCounselor ? data?.counselorId : data?.userId,
+    senderIsRole ? data?.senderId : null,
+    data?.senderId,
+  );
+  const name = firstString(
+    isCounselor ? data?.counselorName : data?.userName,
+    senderIsRole ? data?.senderName : null,
+    data?.senderName,
+  );
+  const avatar = firstString(
+    isCounselor ? data?.counselorPhoto : data?.userPhoto,
+    isCounselor ? data?.counselorAvatar : data?.userAvatar,
+    data?.senderPhoto,
+    data?.senderAvatar,
+  );
+
+  return {
+    id: id || null,
+    _id: id || null,
+    name: name || (isCounselor ? 'Consultant' : 'User'),
+    fullName: name || undefined,
+    anonymous: !isCounselor ? name || undefined : undefined,
+    avatar: avatar || null,
+    avatarUrl: avatar || null,
+    profilePhoto: avatar || null,
+  };
+};
 
 const isChatNotification = data => {
   const type = String(
@@ -755,17 +803,25 @@ export const handleNotificationNavigation = async (
       '',
     ).toLowerCase();
     const chatId = getNotificationChatId(data);
+    const chatMongoId = getNotificationDbChatId(data);
     if (/counsell?or/.test(role)) {
+      const selectedUser = getNotificationPerson(data, 'user');
       navigation?.navigate('SMSInput', {
         chatId,
+        chatMongoId,
         selectedUser: {
-          id: data?.senderId || data?.userId,
-          name: data?.senderName || data?.title || 'User',
+          ...selectedUser,
+          userId: selectedUser.id,
+          receiverId: selectedUser.id,
           chatId,
         },
       });
     } else {
-      navigation?.navigate('ChatBox', { chatId });
+      navigation?.navigate('ChatBox', {
+        chatId,
+        chatMongoId,
+        counselor: getNotificationPerson(data, 'counsellor'),
+      });
     }
     return;
   }

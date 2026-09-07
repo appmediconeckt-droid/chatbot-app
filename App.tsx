@@ -90,14 +90,14 @@ export type RootStackParamList = {
   OTPVerification: undefined;
   LocationGate: { destination: keyof RootStackParamList; destinationParams?: object };
   UserDashboard: undefined;
-  ChatBox: { chatId?: string } | undefined;
+  ChatBox: { chatId?: string; chatMongoId?: string; counselor?: object; user?: object } | undefined;
   CounselorTable: undefined;
   CounselorDashboard: {
     initialTab?: 'profile';
     profileStartEditing?: boolean;
     profileIntentAt?: number;
   } | undefined;
-  SMSInput: undefined;
+  SMSInput: { chatId?: string; chatMongoId?: string; selectedUser?: object; chatData?: object } | undefined;
   ChangePassword: undefined;
   SetPassword: undefined;
   SetPasswordByOtp: undefined;
@@ -171,7 +171,7 @@ const hasFreshPendingIncomingCall = async () => {
       await clearPendingIncomingCallStorage();
     }
     return isFresh;
-  } catch (_) {
+  } catch {
     await clearPendingIncomingCallStorage();
     return false;
   }

@@ -6,8 +6,11 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.view.Surface
 import android.view.TextureView
+import android.view.View
 import android.widget.FrameLayout
+import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
+import com.facebook.react.uimanager.events.RCTEventEmitter
 import com.facebook.react.uimanager.ThemedReactContext
 
 class HumaeliHeroVideoView(private val reactContext: ThemedReactContext) :
@@ -17,8 +20,6 @@ class HumaeliHeroVideoView(private val reactContext: ThemedReactContext) :
   private val textureView = TextureView(reactContext)
   private var mediaPlayer: MediaPlayer? = null
   private var surface: Surface? = null
-  // Wait for React Native to provide the requested source. Starting the landing
-  // video by default can briefly show the wrong clip in reused video cards.
   private var sourceName: String = ""
   private var muted: Boolean = false
   private var resizeMode: String = "cover"
@@ -26,6 +27,8 @@ class HumaeliHeroVideoView(private val reactContext: ThemedReactContext) :
   private var focusY: Float = 0.5f
   private var zoomScale: Float = 1f
   private var shouldPlay: Boolean = true
+  private var isPrepared: Boolean = false
+  private var playerGeneration: Int = 0
 
   init {
     addView(textureView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -86,42 +89,80 @@ class HumaeliHeroVideoView(private val reactContext: ThemedReactContext) :
     releasePlayer()
 
     val resourceId = resources.getIdentifier(sourceName, "raw", reactContext.packageName)
-    if (resourceId == 0) return
+    if (resourceId == 0) {
+      notifyPlaybackError("missing_resource")
+      return
+    }
 
-    val assetFileDescriptor = resources.openRawResourceFd(resourceId) ?: return
-    surface = Surface(surfaceTexture)
+    val assetFileDescriptor = runCatching { resources.openRawResourceFd(resourceId) }.getOrNull()
+    if (assetFileDescriptor == null) {
+      notifyPlaybackError("open_resource_failed")
+      return
+    }
 
-    mediaPlayer = MediaPlayer().apply {
-      setAudioAttributes(
+    val currentSurface = Surface(surfaceTexture)
+    surface = currentSurface
+
+    val player = MediaPlayer()
+    val generation = ++playerGeneration
+    mediaPlayer = player
+    isPrepared = false
+
+    try {
+      player.setAudioAttributes(
         AudioAttributes.Builder()
           .setUsage(AudioAttributes.USAGE_MEDIA)
           .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
           .build()
       )
-      setSurface(surface)
-      setDataSource(
+      player.setSurface(currentSurface)
+      player.setDataSource(
         assetFileDescriptor.fileDescriptor,
         assetFileDescriptor.startOffset,
         assetFileDescriptor.length
       )
-      isLooping = true
-      setVolume(if (muted) 0f else 1f, if (muted) 0f else 1f)
-      setOnPreparedListener {
-        applyResizeMode()
-        if (shouldPlay) it.start()
-      }
-      setOnVideoSizeChangedListener { _, _, _ -> applyResizeMode() }
-      setOnErrorListener { _, _, _ -> true }
-      prepareAsync()
-    }
+      player.isLooping = true
+      player.setVolume(if (muted) 0f else 1f, if (muted) 0f else 1f)
+      player.setOnPreparedListener { preparedPlayer ->
+        if (generation != playerGeneration || mediaPlayer !== preparedPlayer) return@setOnPreparedListener
 
-    assetFileDescriptor.close()
+        isPrepared = true
+        applyResizeMode()
+        if (shouldPlay) {
+          runCatching { preparedPlayer.start() }
+            .onFailure {
+              notifyPlaybackError("start_failed")
+              releasePlayer()
+            }
+        }
+      }
+      player.setOnVideoSizeChangedListener { changedPlayer, _, _ ->
+        if (generation == playerGeneration && mediaPlayer === changedPlayer) applyResizeMode()
+      }
+      player.setOnErrorListener { failedPlayer, what, extra ->
+        if (generation == playerGeneration && mediaPlayer === failedPlayer) {
+          notifyPlaybackError("media_player_error:$what:$extra")
+          releasePlayer()
+        }
+        true
+      }
+      player.prepareAsync()
+    } catch (_: Throwable) {
+      notifyPlaybackError("prepare_failed")
+      if (mediaPlayer === player) {
+        releasePlayer()
+      } else {
+        runCatching { player.release() }
+      }
+    } finally {
+      runCatching { assetFileDescriptor.close() }
+    }
   }
 
   private fun applyResizeMode() {
     val player = mediaPlayer ?: return
-    val videoWidth = player.videoWidth
-    val videoHeight = player.videoHeight
+    val videoWidth = runCatching { player.videoWidth }.getOrDefault(0)
+    val videoHeight = runCatching { player.videoHeight }.getOrDefault(0)
     val viewWidth = textureView.width
     val viewHeight = textureView.height
 
@@ -151,29 +192,53 @@ class HumaeliHeroVideoView(private val reactContext: ThemedReactContext) :
 
   private fun pauseVideo() {
     shouldPlay = false
-    if (mediaPlayer?.isPlaying == true) {
-      mediaPlayer?.pause()
+    val player = mediaPlayer ?: return
+    if (isPrepared && runCatching { player.isPlaying }.getOrDefault(false)) {
+      runCatching { player.pause() }
     }
   }
 
   private fun resumeVideo() {
     shouldPlay = true
-    mediaPlayer?.let {
-      if (!it.isPlaying) it.start()
+    mediaPlayer?.let { player ->
+      if (isPrepared && !runCatching { player.isPlaying }.getOrDefault(false)) {
+        runCatching { player.start() }
+          .onFailure {
+            notifyPlaybackError("resume_failed")
+            releasePlayer()
+          }
+      }
     } ?: textureView.surfaceTexture?.let { startVideo(it) }
   }
 
   private fun releasePlayer() {
+    playerGeneration += 1
+    isPrepared = false
     mediaPlayer?.let { player ->
       runCatching {
-        if (player.isPlaying) player.stop()
-        player.reset()
+        player.setOnPreparedListener(null)
+        player.setOnVideoSizeChangedListener(null)
+        player.setOnErrorListener(null)
+        if (runCatching { player.isPlaying }.getOrDefault(false)) player.stop()
         player.release()
       }
     }
     mediaPlayer = null
     surface?.release()
     surface = null
+  }
+
+  private fun notifyPlaybackError(reason: String) {
+    if (id == View.NO_ID) return
+    runCatching {
+      val event = Arguments.createMap().apply {
+        putString("reason", reason)
+        putString("sourceName", sourceName)
+      }
+      reactContext
+        .getJSModule(RCTEventEmitter::class.java)
+        .receiveEvent(id, "topPlaybackError", event)
+    }
   }
 
   override fun onAttachedToWindow() {
