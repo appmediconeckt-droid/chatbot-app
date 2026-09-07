@@ -66,6 +66,14 @@ import { DEFAULT_PRESCRIPTION_VALID_DAYS } from '../../../../../../utils/prescri
 
 const { width: screenWidth } = Dimensions.get('window');
 
+const getPrescriptionAssetUri = (source, keys) => {
+  for (const key of keys) {
+    const uri = toImageUri(source?.[key]);
+    if (uri) return uri;
+  }
+  return '';
+};
+
 // ─── Sent-bubble gradient ─────────────────────────────────────────────────
 // EXACT same gradient as the counselor Earnings "Available Balance" box
 // (DOCTOR.gradientFrom → gradientTo, horizontal). Pulled from the shared
@@ -1088,6 +1096,20 @@ const SMSInput = ({ navigation, route }) => {
       const validUntil = new Date(
         Date.now() + DEFAULT_PRESCRIPTION_VALID_DAYS * 24 * 60 * 60 * 1000,
       ).toISOString();
+      const signatureUrl = getPrescriptionAssetUri(currentCounselor, [
+        'prescriptionSignature',
+        'prescriptionSignatureUrl',
+        'signature',
+        'signatureImage',
+        'doctorSignature',
+      ]);
+      const sealUrl = getPrescriptionAssetUri(currentCounselor, [
+        'prescriptionSeal',
+        'prescriptionSealUrl',
+        'seal',
+        'stamp',
+        'clinicSeal',
+      ]);
       const formData = new FormData();
       formData.append('problem', prescriptionProblem.trim());
       formData.append('instructions', prescriptionInstructions.trim());
@@ -1095,6 +1117,14 @@ const SMSInput = ({ navigation, route }) => {
       formData.append('festivalTheme', DEFAULT_PRESCRIPTION_THEME_ID);
       formData.append('validityDays', String(DEFAULT_PRESCRIPTION_VALID_DAYS));
       formData.append('validUntil', validUntil);
+      if (signatureUrl) {
+        formData.append('prescriptionSignatureUrl', signatureUrl);
+        formData.append('signatureUrl', signatureUrl);
+      }
+      if (sealUrl) {
+        formData.append('prescriptionSealUrl', sealUrl);
+        formData.append('sealUrl', sealUrl);
+      }
       formData.append('attachment', prescriptionPdf);
 
       const token = await getAuthToken();

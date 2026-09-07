@@ -23,6 +23,7 @@ import {
   PRESCRIPTION_FESTIVAL_THEMES,
 } from '../../../../../../utils/prescriptionFestivalThemes';
 import { getPrescriptionValidity } from '../../../../../../utils/prescriptionValidity';
+import toImageUri from '../../../../../../utils/imageUri';
 
 const statusColors = {
   verified: ['#DCFCE7', '#166534'],
@@ -90,6 +91,32 @@ const getMedicineTimeLabel = medicine => {
   return cleanText(time);
 };
 
+const getPrescriptionSignatureAssets = item => {
+  const source = item?.psychiatrist || item?.consultant || item?.doctor || {};
+  const signatureUri =
+    toImageUri(item?.prescriptionSignature) ||
+    toImageUri(item?.prescriptionSignatureUrl) ||
+    toImageUri(item?.signatureUrl) ||
+    toImageUri(item?.signature) ||
+    toImageUri(source.prescriptionSignature) ||
+    toImageUri(source.prescriptionSignatureUrl) ||
+    toImageUri(source.signature) ||
+    toImageUri(source.signatureImage) ||
+    toImageUri(source.doctorSignature);
+  const sealUri =
+    toImageUri(item?.prescriptionSeal) ||
+    toImageUri(item?.prescriptionSealUrl) ||
+    toImageUri(item?.sealUrl) ||
+    toImageUri(item?.seal) ||
+    toImageUri(source.prescriptionSeal) ||
+    toImageUri(source.prescriptionSealUrl) ||
+    toImageUri(source.seal) ||
+    toImageUri(source.stamp) ||
+    toImageUri(source.clinicSeal);
+
+  return { signatureUri, sealUri };
+};
+
 export const PrescriptionPreview = ({
   item,
   photoUri,
@@ -104,6 +131,7 @@ export const PrescriptionPreview = ({
   const validity = getPrescriptionValidity(item);
   const isIdentityVerified = item?.verificationStatus === 'verified';
   const practitionerId = formatPractitionerId(practitioner.id);
+  const { signatureUri, sealUri } = getPrescriptionSignatureAssets(item);
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <View style={s.modalHeader}>
@@ -171,10 +199,6 @@ export const PrescriptionPreview = ({
               resizeMode="stretch"
             />
           )}
-          <View style={s.themeBadge}>
-            <Ionicons name="color-palette-outline" size={12} color="#1D4ED8" />
-            <Text style={s.themeBadgeText}>{theme.label}</Text>
-          </View>
           <View style={s.docHeader}>
             <Image
               source={require('../../../../../../image/HumaeliIcon.png')}
@@ -292,10 +316,28 @@ export const PrescriptionPreview = ({
               <Text style={s.muted}>{item.instructions}</Text>
             </View>
           )}
-          <Text style={s.signature}>
-            Digitally prescribed by{`\n`}
-            {practitioner.name}
-          </Text>
+          <View style={s.signatureBlock}>
+            {!!sealUri && (
+              <Image
+                source={{ uri: sealUri }}
+                style={s.sealImage}
+                resizeMode="contain"
+              />
+            )}
+            <View style={s.signaturePanel}>
+              {!!signatureUri && (
+                <Image
+                  source={{ uri: signatureUri }}
+                  style={s.signatureImage}
+                  resizeMode="contain"
+                />
+              )}
+              <View style={s.signatureLine} />
+              <Text style={s.signatureLabel}>Digitally prescribed by</Text>
+              <Text style={s.signatureName}>{practitioner.name}</Text>
+              <Text style={s.signatureType}>{practitioner.type}</Text>
+            </View>
+          </View>
           <Text style={s.footer}>
             Issued through Humaeli · www.humaeli.com · support@humaeli.com
           </Text>
@@ -457,7 +499,6 @@ export default function PrescriptionReviews() {
               const colors =
                 statusColors[item.verificationStatus] ||
                 statusColors.photo_required;
-              const theme = getPrescriptionFestivalTheme(getThemeId(item));
               const practitioner = getPractitioner(item);
               const validity = getPrescriptionValidity(item);
               return (
@@ -483,9 +524,6 @@ export default function PrescriptionReviews() {
                         {String(
                           item.verificationStatus || 'photo_required',
                         ).replace('_', ' ')}
-                      </Text>
-                      <Text style={s.cardTheme} numberOfLines={1}>
-                        {theme.label} theme
                       </Text>
                       <Text style={s.cardTitle}>
                         {item.patient?.name || 'Anonymous patient'}
@@ -705,17 +743,6 @@ const s = StyleSheet.create({
     color: '#0F172A',
     marginTop: 5,
   },
-  cardTheme: {
-    alignSelf: 'flex-start',
-    marginTop: 7,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: '#EFF6FF',
-    color: '#1D4ED8',
-    fontSize: 10,
-    fontWeight: '800',
-  },
   cardDoctor: {
     color: '#0F766E',
     fontSize: 12,
@@ -820,20 +847,6 @@ const s = StyleSheet.create({
     top: 0,
     opacity: 0.18,
   },
-  themeBadge: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: 'rgba(239,246,255,.9)',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    marginBottom: 10,
-  },
-  themeBadgeText: { color: '#1D4ED8', fontSize: 10, fontWeight: '800' },
   docHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -987,11 +1000,53 @@ const s = StyleSheet.create({
     borderColor: '#2563EB',
     backgroundColor: 'rgba(239,246,255,.94)',
   },
-  signature: {
-    textAlign: 'right',
-    marginTop: 38,
-    fontSize: 11,
-    color: '#475569',
+  signatureBlock: {
+    marginTop: 34,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'flex-end',
+    gap: 16,
+  },
+  sealImage: {
+    width: 82,
+    height: 82,
+    opacity: 0.9,
+  },
+  signaturePanel: {
+    minWidth: 170,
+    maxWidth: '68%',
+    alignItems: 'center',
+  },
+  signatureImage: {
+    width: '100%',
+    height: 54,
+    marginBottom: 2,
+  },
+  signatureLine: {
+    width: '100%',
+    height: 1,
+    backgroundColor: '#CBD5E1',
+    marginTop: 2,
+  },
+  signatureLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 6,
+  },
+  signatureName: {
+    color: '#172033',
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  signatureType: {
+    color: '#0F766E',
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 1,
+    textAlign: 'center',
   },
   footer: {
     fontSize: 8,

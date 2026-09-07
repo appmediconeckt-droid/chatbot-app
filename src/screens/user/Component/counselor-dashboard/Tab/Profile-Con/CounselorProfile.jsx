@@ -31,6 +31,7 @@ import { API_BASE_URL } from '../../../../../../axiosConfig';
 import CountryPhoneInput from '../../../../../../components/common/CountryPhoneInput';
 import { useToast } from '../../../../../../components/common/ToastProvider';
 import { DOCTOR } from '../../../../../../theme/palette';
+import toImageUri from '../../../../../../utils/imageUri';
 import {
   getPhoneLengthLabel,
   isValidLocalPhoneNumber,
@@ -105,6 +106,10 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     languages: [],
     profilePhoto: null,
     profilePhotoUrl: '',
+    prescriptionSignature: null,
+    prescriptionSignatureUrl: '',
+    prescriptionSeal: null,
+    prescriptionSealUrl: '',
     certifications: [],
     aboutMe: '',
     rating: 0,
@@ -300,6 +305,18 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
             profilePhotoUrl = userData.profilePhoto.url;
           }
         }
+        const prescriptionSignatureUrl = toImageUri(
+          userData.prescriptionSignature ||
+            userData.signature ||
+            userData.signatureImage ||
+            userData.doctorSignature,
+        ) || '';
+        const prescriptionSealUrl = toImageUri(
+          userData.prescriptionSeal ||
+            userData.seal ||
+            userData.stamp ||
+            userData.clinicSeal,
+        ) || '';
 
         const phone = splitInternationalPhoneNumber(
           userData.phoneNumber || userData.phone || '',
@@ -324,6 +341,10 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
           languages: Array.isArray(userData.languages) ? userData.languages : [],
           profilePhoto: null,
           profilePhotoUrl: profilePhotoUrl,
+          prescriptionSignature: null,
+          prescriptionSignatureUrl,
+          prescriptionSeal: null,
+          prescriptionSealUrl,
           certifications: Array.isArray(userData.certifications) ? userData.certifications : [],
           aboutMe: userData.aboutMe || userData.bio || '',
           rating: userData.rating || 0,
@@ -661,6 +682,55 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     });
   };
 
+  const handlePrescriptionAssetUpload = (kind) => {
+    const isSignature = kind === 'signature';
+    const options = {
+      mediaType: 'photo',
+      includeBase64: false,
+      quality: 0.9,
+      selectionLimit: 1,
+      storageOptions: { skipBackup: true, path: 'images' }
+    };
+
+    launchImageLibrary(options, (response) => {
+      if (response.didCancel) return;
+
+      if (response.errorCode) {
+        Alert.alert('Error', 'Failed to pick image. Please try again.');
+        return;
+      }
+
+      const asset = response.assets?.[0];
+      if (!asset?.uri) {
+        Alert.alert('Error', 'Unable to read selected image.');
+        return;
+      }
+
+      if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+        Alert.alert('File Too Large', 'Signature or seal image must be less than 5MB.');
+        return;
+      }
+
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      if (!allowedTypes.includes(asset.type)) {
+        Alert.alert('Invalid Format', 'Only JPG, PNG, and WEBP images are allowed.');
+        return;
+      }
+
+      const file = {
+        uri: asset.uri,
+        type: asset.type || 'image/png',
+        name: asset.fileName || `${isSignature ? 'signature' : 'seal'}.png`,
+      };
+
+      setEditedData(prev => ({
+        ...prev,
+        [isSignature ? 'prescriptionSignature' : 'prescriptionSeal']: file,
+        [isSignature ? 'prescriptionSignatureUrl' : 'prescriptionSealUrl']: asset.uri,
+      }));
+    });
+  };
+
   const handleAddLanguage = () => {
     if (newLanguage.trim() && !editedData.languages.includes(newLanguage.trim())) {
       setEditedData(prev => ({ ...prev, languages: [...prev.languages, newLanguage.trim()] }));
@@ -895,6 +965,26 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       }
       if (editedData.consultationMode && editedData.consultationMode.length > 0) {
         editedData.consultationMode.forEach((mode, index) => formData.append(`consultationMode[${index}]`, mode));
+      }
+      if (editedData.prescriptionSignatureUrl && !editedData.prescriptionSignature?.uri) {
+        formData.append('prescriptionSignatureUrl', editedData.prescriptionSignatureUrl);
+      }
+      if (editedData.prescriptionSealUrl && !editedData.prescriptionSeal?.uri) {
+        formData.append('prescriptionSealUrl', editedData.prescriptionSealUrl);
+      }
+      if (editedData.prescriptionSignature?.uri) {
+        formData.append('prescriptionSignature', {
+          uri: editedData.prescriptionSignature.uri,
+          type: editedData.prescriptionSignature.type || 'image/png',
+          name: editedData.prescriptionSignature.name || 'prescription-signature.png'
+        });
+      }
+      if (editedData.prescriptionSeal?.uri) {
+        formData.append('prescriptionSeal', {
+          uri: editedData.prescriptionSeal.uri,
+          type: editedData.prescriptionSeal.type || 'image/png',
+          name: editedData.prescriptionSeal.name || 'prescription-seal.png'
+        });
       }
 
       // Upload photo separately if it exists
@@ -1495,6 +1585,65 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
                   <Text style={styles.detailValue}>{counselor.experience} {t('profile:years')}</Text>
                 )}
               </View>
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.sectionHead}>
+              <Icon name="draw" size={18} color="#004AC6" />
+              <Text style={styles.cardTitle}>{t('Prescription Signature & Seal')}</Text>
+            </View>
+            <Text style={styles.signatureHelpText}>
+              {t('Upload your signature and clinic seal to show them on patient prescriptions.')}
+            </Text>
+            <View style={styles.prescriptionAssetGrid}>
+              {[
+                {
+                  key: 'signature',
+                  title: 'Signature',
+                  icon: 'gesture',
+                  uri: isEditing
+                    ? editedData.prescriptionSignatureUrl
+                    : counselor.prescriptionSignatureUrl,
+                },
+                {
+                  key: 'seal',
+                  title: 'Seal / Stamp',
+                  icon: 'verified',
+                  uri: isEditing
+                    ? editedData.prescriptionSealUrl
+                    : counselor.prescriptionSealUrl,
+                },
+              ].map(asset => (
+                <TouchableOpacity
+                  key={asset.key}
+                  style={styles.prescriptionAssetTile}
+                  onPress={
+                    isEditing
+                      ? () => handlePrescriptionAssetUpload(asset.key)
+                      : undefined
+                  }
+                  activeOpacity={isEditing ? 0.85 : 1}
+                >
+                  {asset.uri ? (
+                    <Image
+                      source={{ uri: String(asset.uri) }}
+                      style={styles.prescriptionAssetImage}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <View style={styles.prescriptionAssetPlaceholder}>
+                      <Icon name={asset.icon} size={24} color="#2563EB" />
+                    </View>
+                  )}
+                  <Text style={styles.prescriptionAssetTitle}>{asset.title}</Text>
+                  {isEditing && (
+                    <Text style={styles.prescriptionAssetAction}>
+                      {asset.uri ? 'Change image' : 'Upload image'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
 
@@ -2412,6 +2561,55 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     lineHeight: 22,
+  },
+  signatureHelpText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  prescriptionAssetGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  prescriptionAssetTile: {
+    flex: 1,
+    minHeight: 126,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 14,
+    backgroundColor: '#F8FBFF',
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  prescriptionAssetImage: {
+    width: '100%',
+    height: 56,
+    marginBottom: 8,
+  },
+  prescriptionAssetPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  prescriptionAssetTitle: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  prescriptionAssetAction: {
+    color: '#2563EB',
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 4,
+    textAlign: 'center',
   },
 
   // Inputs
