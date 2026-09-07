@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import {
   Image,
   Platform,
@@ -22,40 +22,18 @@ const HumaeliHeroVideo = ({
   focusY = 0.5,
   zoomScale = 1,
 }) => {
-  const nativeSourceName = useMemo(
-    () => String(sourceName || '').trim() || 'mobile_hero_section_video',
-    [sourceName],
-  );
-  const [playbackFailed, setPlaybackFailed] = useState(false);
-
-  useEffect(() => {
-    setPlaybackFailed(false);
-  }, [nativeSourceName]);
-
   if (Platform.OS === 'android' && NativeHumaeliHeroVideo) {
     return (
-      <View style={[style, styles.fallback]}>
-        {fallbackSource ? (
-          <Image
-            source={fallbackSource}
-            style={[StyleSheet.absoluteFill, { transform: [{ scale: zoomScale }] }]}
-            resizeMode={resizeMode === 'fitwidth' ? 'cover' : resizeMode}
-          />
-        ) : null}
-        {!playbackFailed ? (
-          <NativeHumaeliHeroVideo
-            key={nativeSourceName}
-            style={StyleSheet.absoluteFill}
-            sourceName={nativeSourceName}
-            muted={muted}
-            resizeMode={resizeMode}
-            focusX={focusX}
-            focusY={focusY}
-            zoomScale={zoomScale}
-            onPlaybackError={() => setPlaybackFailed(true)}
-          />
-        ) : null}
-      </View>
+      <NativeHumaeliHeroVideo
+        key={sourceName}
+        style={style}
+        sourceName={sourceName}
+        muted={muted}
+        resizeMode={resizeMode}
+        focusX={focusX}
+        focusY={focusY}
+        zoomScale={zoomScale}
+      />
     );
   }
 

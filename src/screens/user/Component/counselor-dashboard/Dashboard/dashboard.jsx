@@ -68,7 +68,6 @@ import {
   getNotificationOnlyCallMessage,
   isNotificationOnlyCallResponse,
 } from "../../../../../utils/callRequestStatus";
-import { clearAccountLocalData } from "../../../../../utils/authSession";
 
 const normalizeCallType = (value) => {
   const type = String(value || '').trim().toLowerCase();
@@ -1984,12 +1983,12 @@ export default function CounselorDashboard() {
           }
         );
       }
-      await clearAccountLocalData();
+      await AsyncStorage.clear();
       setShowLogoutConfirm(false);
       navigation.replace("RoleSelector");
     } catch (error) {
       console.error("Logout Error:", error);
-      await clearAccountLocalData();
+      await AsyncStorage.clear();
       setShowLogoutConfirm(false);
       navigation.replace("RoleSelector");
     }
