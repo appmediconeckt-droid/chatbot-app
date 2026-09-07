@@ -2,7 +2,6 @@ package com.chatbots
 
 import android.os.Bundle
 import android.view.WindowManager
-import androidx.core.view.WindowCompat
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -16,7 +15,6 @@ class MainActivity : ReactActivity() {
     // an input to rise above the keyboard handle it locally with
     // KeyboardAvoidingView; resizing the whole activity makes absolute bottom
     // tabs jump above the IME.
-    WindowCompat.setDecorFitsSystemWindows(window, true)
     window.setSoftInputMode(
       WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
         WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
