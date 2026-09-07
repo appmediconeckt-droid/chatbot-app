@@ -17,6 +17,7 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import axiosInstance from '../../../../../../axiosConfig';
 import socketService from '../../../../../../services/socketService';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import { respondToChatRequest } from '../../../../../../utils/chatRequestActions';
 
 // Counselor-side palette (blue).
 const C = {
@@ -96,8 +97,8 @@ const normalizeNotification = (n) => {
 
 const normalizeRequest = (r) => ({
   kind: 'request',
-  id: String(r.id || r.chatId),
-  chatId: r.chatId,
+  id: String(r.id || r._id || r.chatId || Math.random()),
+  chatId: r.chatId || r.id || r._id,
   type: 'request',
   user: r.user,
   message: r.requestMessage || '',
@@ -115,7 +116,7 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) =>
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [busyId, setBusyId] = useState(null);
+  const [busyAction, setBusyAction] = useState(null);
 
   const fetchAll = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -188,7 +189,12 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) =>
     if (filter === 'requests') list = [...requests];
     else if (filter === 'all') list = [...requests, ...notifications];
     else list = notifications.filter((n) => n.type === filter);
-    return list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    return list.sort((a, b) => {
+      if (filter === 'all' && a.kind !== b.kind) {
+        return a.kind === 'request' ? -1 : 1;
+      }
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
   }, [filter, requests, notifications]);
 
   const countFor = (id) => {
@@ -199,18 +205,18 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) =>
 
   // ── Actions ──
   const respond = async (item, action) => {
-    if (!item.chatId) return;
-    setBusyId(item.id);
+    setBusyAction({ id: item.id, action });
     const prev = requests;
     setRequests((cur) => cur.filter((r) => r.id !== item.id));
     try {
-      await axiosInstance.patch(`/api/chat/${action}/${item.chatId}`);
+      await respondToChatRequest(item, action);
       onChanged?.();
       if (action === 'accept') onOpenChat?.(item);
     } catch (e) {
+      console.warn('Chat request action failed', action, e?.response?.data || e?.message);
       setRequests(prev);
     } finally {
-      setBusyId(null);
+      setBusyAction(null);
     }
   };
 
@@ -245,7 +251,7 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) =>
     const photo = resolvePhoto(item.user);
     const name = item.user?.anonymous || item.user?.name || 'Anonymous User';
     const isPaid = item.paymentStatus === 'paid';
-    const busy = busyId === item.id;
+    const busy = busyAction?.id === item.id;
     return (
       <View key={`req-${item.id}`} style={s.card}>
         <View style={[s.rail, { backgroundColor: C.primary }]} />
@@ -283,12 +289,12 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) =>
 
         <View style={s.actions}>
           <TouchableOpacity style={s.declineBtn} onPress={() => respond(item, 'reject')} disabled={busy} activeOpacity={0.85}>
-            {busy ? <ActivityIndicator size="small" color={C.danger} /> : (
-              <><Ionicons name="close" size={16} color={C.danger} /><Text style={s.declineText}>{t('Decline')}</Text></>
+            {busy && busyAction?.action === 'reject' ? <ActivityIndicator size="small" color={C.danger} /> : (
+              <><Ionicons name="close-circle-outline" size={18} color={C.danger} /><Text style={s.declineText}>{t('Decline')}</Text></>
             )}
           </TouchableOpacity>
           <TouchableOpacity style={s.acceptBtn} onPress={() => respond(item, 'accept')} disabled={busy} activeOpacity={0.9}>
-            {busy ? <ActivityIndicator size="small" color="#fff" /> : (
+            {busy && busyAction?.action === 'accept' ? <ActivityIndicator size="small" color="#fff" /> : (
               <><Ionicons name="checkmark" size={16} color="#fff" /><Text style={s.acceptText}>{t('Accept')}</Text></>
             )}
           </TouchableOpacity>
