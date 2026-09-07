@@ -3,10 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Linking,
-  NativeModules,
-  Platform,
-  Share,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -19,15 +15,12 @@ import RNFS from 'react-native-fs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../../../../components/TranslatedText';
-import { useToast } from '../../../../../../components/common/ToastProvider';
 import axiosInstance, {
   API_BASE_URL,
   TUNNEL_HEADERS,
 } from '../../../../../../axiosConfig';
 import { PATIENT_GRADIENT } from '../../../../../../theme/palette';
 import { PrescriptionPreview } from '../../../counselor-dashboard/Tab/Prescriptions/PrescriptionReviews';
-
-const { PdfFileOpener } = NativeModules;
 
 const normalizeList = payload => {
   const list =
@@ -72,173 +65,6 @@ const getMedicines = item => {
   return Array.isArray(medicines) ? medicines : [];
 };
 
-const getMedicineTime = medicine => {
-  if (Array.isArray(medicine?.timeOfDay)) return medicine.timeOfDay.join(', ');
-  return medicine?.timeOfDay || medicine?.time || '';
-};
-
-const escapePdfValue = value =>
-  String(value || '')
-    .replace(/\\/g, '\\\\')
-    .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)')
-    .replace(/\r?\n/g, ' ');
-
-const buildFallbackPdf = item => {
-  const medicines = getMedicines(item);
-  const doctorName =
-    item?.psychiatrist?.fullName ||
-    item?.psychiatrist?.name ||
-    item?.consultant?.fullName ||
-    item?.consultant?.name ||
-    item?.doctorName ||
-    'Psychiatrist';
-  const patientName = item?.patient?.name || item?.patientName || 'Patient';
-  const problem =
-    item?.patientProblem || item?.problem || item?.diagnosis || 'Not specified';
-  const commands = [];
-  const rect = (x, y, w, h, color) =>
-    commands.push(`${color} rg ${x} ${y} ${w} ${h} re f`);
-  const text = (
-    value,
-    x,
-    y,
-    size = 11,
-    color = '0.10 0.14 0.22',
-    font = 'F1',
-  ) => {
-    commands.push(
-      `${color} rg BT /${font} ${size} Tf ${x} ${y} Td (${escapePdfValue(
-        value,
-      )}) Tj ET`,
-    );
-  };
-  const line = (x1, y1, x2, y2, color = '0.82 0.88 0.95', width = 1) => {
-    commands.push(`${color} RG ${width} w ${x1} ${y1} m ${x2} ${y2} l S`);
-  };
-
-  rect(0, 0, 612, 792, '0.98 0.99 1');
-  rect(36, 704, 540, 54, '0.10 0.32 0.74');
-  text('HUMAELI', 56, 734, 20, '1 1 1', 'F2');
-  text('DIGITAL PRESCRIPTION', 56, 716, 10, '0.86 0.93 1', 'F2');
-  text(
-    `Date: ${formatDate(item?.createdAt || item?.issuedAt)}`,
-    430,
-    733,
-    10,
-    '1 1 1',
-  );
-  text(`Practitioner: ${doctorName}`, 430, 716, 10, '1 1 1');
-
-  rect(36, 628, 540, 54, '0.94 0.97 1');
-  text('PATIENT', 56, 662, 9, '0.39 0.45 0.55', 'F2');
-  text(patientName, 56, 643, 15, '0.08 0.13 0.22', 'F2');
-  text(`Problem: ${problem}`, 255, 650, 11);
-
-  text('Medicines', 36, 596, 15, '0.08 0.13 0.22', 'F2');
-  rect(36, 566, 540, 24, '0.12 0.29 0.62');
-  text('#', 48, 574, 9, '1 1 1', 'F2');
-  text('Medicine', 78, 574, 9, '1 1 1', 'F2');
-  text('Dosage', 222, 574, 9, '1 1 1', 'F2');
-  text('Time', 316, 574, 9, '1 1 1', 'F2');
-  text('How to take', 424, 574, 9, '1 1 1', 'F2');
-
-  let y = 540;
-  medicines.slice(0, 9).forEach((medicine, index) => {
-    if (index % 2 === 0) rect(36, y - 7, 540, 28, '1 1 1');
-    else rect(36, y - 7, 540, 28, '0.96 0.98 1');
-    text(String(index + 1), 50, y + 3, 9);
-    text(
-      medicine.name || medicine.medicineName || medicine.medicine || 'Medicine',
-      78,
-      y + 3,
-      9,
-      '0.08 0.13 0.22',
-      'F2',
-    );
-    text(medicine.dosage || '', 222, y + 3, 9);
-    text(getMedicineTime(medicine), 316, y + 3, 9);
-    text(medicine.timing || medicine.whenToTake || '', 424, y + 3, 9);
-    if (medicine.duration)
-      text(`Duration: ${medicine.duration}`, 78, y - 10, 8, '0.39 0.45 0.55');
-    line(36, y - 9, 576, y - 9);
-    y -= 30;
-  });
-
-  if (item?.instructions) {
-    rect(36, Math.max(118, y - 52), 540, 46, '0.92 0.96 1');
-    text(
-      'Additional instructions',
-      52,
-      Math.max(145, y - 24),
-      10,
-      '0.10 0.32 0.74',
-      'F2',
-    );
-    text(item.instructions, 52, Math.max(128, y - 42), 10);
-  }
-
-  line(390, 92, 556, 92, '0.58 0.64 0.72');
-  text('Digitally prescribed by', 410, 74, 9, '0.39 0.45 0.55');
-  text(doctorName, 410, 58, 11, '0.08 0.13 0.22', 'F2');
-  line(36, 40, 576, 40);
-  text(
-    'This prescription was issued through Humaeli - www.humaeli.com - support@humaeli.com',
-    92,
-    24,
-    8,
-    '0.39 0.45 0.55',
-  );
-
-  const stream = commands.join('\n');
-  const objects = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources 4 0 R /Contents 5 0 R >>',
-    '<< /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> /F2 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> >> >>',
-    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
-  ];
-  let pdf = '%PDF-1.4\n';
-  const offsets = [0];
-  objects.forEach((object, index) => {
-    offsets.push(pdf.length);
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  });
-  const xrefOffset = pdf.length;
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  offsets.slice(1).forEach(offset => {
-    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
-  });
-  pdf += `trailer\n<< /Size ${
-    objects.length + 1
-  } /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-  return pdf;
-};
-
-const openLocalPdf = async filePath => {
-  if (Platform.OS === 'android' && PdfFileOpener?.open) {
-    await PdfFileOpener.open(filePath);
-    return;
-  }
-  await Linking.openURL(
-    filePath.startsWith('file://') ? filePath : `file://${filePath}`,
-  );
-};
-
-const openBlobInBrowser = blob => {
-  const pdfBlob =
-    blob?.type === 'application/pdf'
-      ? blob
-      : new Blob([blob], { type: 'application/pdf' });
-  const objectUrl = window.URL.createObjectURL(pdfBlob);
-  const previewWindow = window.open(objectUrl, '_blank');
-  if (!previewWindow) {
-    window.URL.revokeObjectURL(objectUrl);
-    throw new Error('Please allow pop-ups to view this prescription.');
-  }
-  window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 30000);
-};
-
 const getAuthHeaders = async () => {
   const token =
     (await AsyncStorage.getItem('accessToken')) ||
@@ -250,7 +76,6 @@ const getAuthHeaders = async () => {
 };
 
 const PrescriptionScreen = () => {
-  const { showToast } = useToast();
   const [prescriptions, setPrescriptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -258,8 +83,6 @@ const PrescriptionScreen = () => {
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
   const [viewingId, setViewingId] = useState(null);
-  const [downloadingId, setDownloadingId] = useState(null);
-  const [printingId, setPrintingId] = useState(null);
   const [previewItem, setPreviewItem] = useState(null);
   const [previewPhotoUri, setPreviewPhotoUri] = useState('');
 
@@ -289,68 +112,6 @@ const PrescriptionScreen = () => {
     fetchPrescriptions(true);
   }, [fetchPrescriptions]);
 
-  const openPrescriptionFile = async item => {
-    const id = getId(item);
-    if (!id) return;
-    const path = `/api/prescriptions/${id}/file`;
-    try {
-      if (
-        Platform.OS === 'web' &&
-        typeof window !== 'undefined' &&
-        typeof document !== 'undefined'
-      ) {
-        const response = await axiosInstance.get(path, {
-          responseType: 'blob',
-        });
-        openBlobInBrowser(response.data);
-        return;
-      }
-
-      const headers = await getAuthHeaders();
-      const filename = item?.fileName || `prescription-${id}.pdf`;
-      const destPath = `${RNFS.CachesDirectoryPath}/${filename}`;
-      const result = await RNFS.downloadFile({
-        fromUrl: `${API_BASE_URL}${path}`,
-        toFile: destPath,
-        headers,
-      }).promise;
-
-      if (result.statusCode < 200 || result.statusCode >= 300) {
-        if (result.statusCode === 404 && getMedicines(item).length > 0) {
-          await RNFS.writeFile(destPath, buildFallbackPdf(item), 'utf8');
-        } else {
-          throw new Error(
-            `Prescription file failed (${result.statusCode || 'unknown'})`,
-          );
-        }
-      }
-
-      await openLocalPdf(destPath);
-    } catch (error) {
-      if (getMedicines(item).length > 0) {
-        try {
-          if (Platform.OS === 'web' && typeof window !== 'undefined') {
-            openBlobInBrowser(
-              new Blob([buildFallbackPdf(item)], { type: 'application/pdf' }),
-            );
-            return;
-          }
-          const filename = item?.fileName || `prescription-${id}.pdf`;
-          const destPath = `${RNFS.CachesDirectoryPath}/${filename}`;
-          await RNFS.writeFile(destPath, buildFallbackPdf(item), 'utf8');
-          await openLocalPdf(destPath);
-          return;
-        } catch (_) {
-          // Surface the original prescription error below.
-        }
-      }
-      Alert.alert(
-        'Prescription',
-        error?.response?.data?.message || 'Unable to open this prescription.',
-      );
-    }
-  };
-
   const viewPrescription = async item => {
     const id = getId(item);
     if (!item?.hasPatientPhoto) {
@@ -379,67 +140,6 @@ const PrescriptionScreen = () => {
       setActionError(error?.message || 'Unable to open prescription.');
     } finally {
       setViewingId(null);
-    }
-  };
-
-  const downloadPrescription = async (item, forPrint = false) => {
-    const id = getId(item);
-    if (!id) {
-      setActionError('Prescription information is unavailable.');
-      return;
-    }
-    if (item?.verificationStatus !== 'verified') {
-      showToast({
-        title: 'Prescription not verified',
-        message:
-          'Your prescription is not verified yet. You can print or download it after verification.',
-        type: 'warning',
-        translate: false,
-        duration: 4000,
-      });
-      return;
-    }
-    const setBusy = forPrint ? setPrintingId : setDownloadingId;
-    try {
-      setBusy(id);
-      setActionError('');
-      const headers = await getAuthHeaders();
-      const safeName = String(
-        item?.fileName || `Prescription-${id}.pdf`,
-      ).replace(/[^a-zA-Z0-9._-]/g, '-');
-      const destination =
-        forPrint || Platform.OS === 'ios'
-          ? `${RNFS.CachesDirectoryPath}/${safeName}`
-          : `${RNFS.DownloadDirectoryPath}/${safeName}`;
-      const result = await RNFS.downloadFile({
-        fromUrl: `${API_BASE_URL}/api/prescriptions/${id}/file`,
-        toFile: destination,
-        headers,
-      }).promise;
-      if (result.statusCode < 200 || result.statusCode >= 300) {
-        throw new Error(`Download failed (${result.statusCode || 'unknown'})`);
-      }
-      if (forPrint) {
-        if (Platform.OS === 'ios') {
-          await Share.share({ url: `file://${destination}`, title: safeName });
-        } else {
-          await openLocalPdf(destination);
-        }
-      } else if (Platform.OS === 'android') {
-        await RNFS.scanFile(destination);
-        Alert.alert(
-          'Downloaded',
-          `Prescription saved to Downloads/${safeName}`,
-        );
-      } else {
-        await Share.share({ url: `file://${destination}`, title: safeName });
-      }
-    } catch (error) {
-      setActionError(
-        error?.message || 'Unable to download prescription. Please try again.',
-      );
-    } finally {
-      setBusy(null);
     }
   };
 
@@ -622,32 +322,6 @@ const PrescriptionScreen = () => {
               <Ionicons name="eye-outline" size={17} color="#006B2C" />
             )}
             <Text style={styles.secondaryBtnText}>View</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.secondaryBtn, !isVerified && styles.disabledBtn]}
-            onPress={() => downloadPrescription(item, true)}
-            disabled={printingId === id}
-          >
-            {printingId === id ? (
-              <ActivityIndicator size="small" color="#006B2C" />
-            ) : (
-              <Ionicons name="print-outline" size={17} color="#006B2C" />
-            )}
-            <Text style={styles.secondaryBtnText}>Print</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.secondaryBtn, !isVerified && styles.disabledBtn]}
-            onPress={() => downloadPrescription(item, false)}
-            disabled={downloadingId === id}
-          >
-            {downloadingId === id ? (
-              <ActivityIndicator size="small" color="#006B2C" />
-            ) : (
-              <Ionicons name="download-outline" size={17} color="#006B2C" />
-            )}
-            <Text style={styles.secondaryBtnText}>
-              {downloadingId === id ? 'Downloading...' : 'Download'}
-            </Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -874,7 +548,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   secondaryBtnText: { color: '#006B2C', fontSize: 12.5, fontWeight: '800' },
-  disabledBtn: { opacity: 0.4 },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',

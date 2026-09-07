@@ -2490,7 +2490,7 @@ export default function UserDashboard() {
 
   const handleLogout = async () => {
     // The logout request is a network round-trip; without this guard a second
-    // tap fires it again and can race the local session cleanup below.
+    // tap fires it again and can race the AsyncStorage.clear() below.
     if (loggingOut) return;
     setLoggingOut(true);
     try {
@@ -2501,12 +2501,12 @@ export default function UserDashboard() {
         console.error("Backend logout error:", apiError);
       }
 
-      await clearAccountLocalData();
+      await AsyncStorage.clear();
       setShowLogoutConfirm(false);
       navigation.replace("RoleSelector");
     } catch (error) {
       console.error("Logout error:", error);
-      await clearAccountLocalData();
+      await AsyncStorage.clear();
       setShowLogoutConfirm(false);
       navigation.replace("RoleSelector");
     } finally {

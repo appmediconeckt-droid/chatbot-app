@@ -5,9 +5,10 @@ export { API_BASE_URL };
 
 export const clearApiCache = () => {};
 
-export const handleSessionExpired = async () => {
-  // Never clear credentials from an automatic 401 helper. Explicit logout and
-  // delete-account flows own session cleanup.
+export const handleSessionExpired = async (navigation) => {
+  const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+  await AsyncStorage.multiRemove(['accessToken', 'token', 'refreshToken', 'userData', 'userId', 'userRole']);
+  navigation?.replace?.('RoleSelector');
 };
 
 export default axiosInstance;

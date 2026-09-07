@@ -10,11 +10,6 @@ class HumaeliHeroVideoViewManager : SimpleViewManager<HumaeliHeroVideoView>() {
   override fun createViewInstance(reactContext: ThemedReactContext): HumaeliHeroVideoView =
     HumaeliHeroVideoView(reactContext)
 
-  override fun getExportedCustomDirectEventTypeConstants(): MutableMap<String, Any> =
-    mutableMapOf(
-      "topPlaybackError" to mutableMapOf("registrationName" to "onPlaybackError")
-    )
-
   @ReactProp(name = "sourceName")
   fun setSourceName(view: HumaeliHeroVideoView, sourceName: String?) {
     view.setSourceName(sourceName)
