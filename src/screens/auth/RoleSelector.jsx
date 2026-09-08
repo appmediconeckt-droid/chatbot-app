@@ -238,11 +238,7 @@ const RoleSelector = () => {
                   </LinearGradient>
                   <View style={styles.roleTextWrap}>
                     <Text style={[styles.roleName, { fontSize: R.roleName }]}>{t('User')}</Text>
-<<<<<<< HEAD
-                    <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>{t('Find trusted consultant')}</Text>
-=======
                     <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>{t('Find trusted consultants')}</Text>
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
                   </View>
                   {selectedRole === 'user' && isLoading ? (
                     <ActivityIndicator size="small" color={PATIENT.primary} />

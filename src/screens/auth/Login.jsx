@@ -18,7 +18,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_BASE_URL } from '../../axiosConfig';
 import GoogleAuthButton from './components/GoogleAuthButton';
-<<<<<<< HEAD
 import {
   getApiErrorMessage,
   isOtpRequestSuccessful,
@@ -26,9 +25,7 @@ import {
   postPublicAuthEndpoint,
 } from './authUtils';
 import { sendLocationSilently } from '../../utils/locationHelper';
-=======
 import Ionicons from 'react-native-vector-icons/Ionicons';
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 import socketService from '../../services/socketService';
 import { paletteForRole } from '../../theme/palette';
 import AuthBackground from '../../theme/AuthBackground';

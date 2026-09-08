@@ -43,12 +43,6 @@ const OnboardingPage2 = () => {
   const { t } = useLanguageRender();
   return (
     <View style={s.page}>
-<<<<<<< HEAD
-      <OnboardingHero source={require('../../public/user2.png')} />
-      <Text style={s.title}>{t('Find the Right consultant')}</Text>
-      <Text style={s.description}>
-        Browse experienced consultant based on specialty, language, availability, consultation type, and reviews.
-=======
       <View style={[s.onboardingVideoCard, s.secondOnboardingVideoCard]}>
         <HumaeliHeroVideo
           style={StyleSheet.absoluteFill}
@@ -62,7 +56,6 @@ const OnboardingPage2 = () => {
       <Text style={s.title}>{t('Find the Right Consultant')}</Text>
       <Text style={s.description}>
         Browse experienced consultants based on specialty, language, availability, consultation type, and reviews.
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       </Text>
     </View>
 );
@@ -91,12 +84,6 @@ const OnboardingPage3 = () => {
         <Text style={s.aiMessage}>{t('Hello 👋 How are you feeling today?')}</Text>
       </View>
       <View style={s.responseButtons}>
-<<<<<<< HEAD
-        {['😊 Happy', '😐 Okay', '😟 Stress'].map((btn, idx) => (
-          <TouchableOpacity key={idx} style={s.responseBtn}>
-            <Text style={s.responseBtnText}>{btn}</Text>
-          </TouchableOpacity>
-=======
         {['😊 Happy', '😐 Okay', '😟 Stressed'].map((btn, idx) => (
           <View key={idx} style={s.responseOption}>
             <Text
@@ -109,7 +96,6 @@ const OnboardingPage3 = () => {
               {btn}
             </Text>
           </View>
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
         ))}
       </View>
     </View>

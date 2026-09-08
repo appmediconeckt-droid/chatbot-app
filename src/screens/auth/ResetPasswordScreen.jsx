@@ -13,12 +13,9 @@ import Text from '../../components/TranslatedText';
 import { useNavigation, useRoute } from "@react-navigation/native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import useLanguageRender from '../../hooks/useLanguageRender';
-<<<<<<< HEAD
 import { getApiErrorMessage, postPublicAuthEndpoint } from "./authUtils";
-=======
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from "../../utils/passwordPolicy";
 import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 
 export default function ResetPasswordScreen() {
   const { t } = useLanguageRender();

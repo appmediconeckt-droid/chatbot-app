@@ -18,17 +18,14 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-<<<<<<< HEAD
-=======
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import Text from '../../../../../../components/TranslatedText';
 import axios from 'axios';
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Feather from 'react-native-vector-icons/Feather';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
-import axiosInstance from '../../../../../../axiosConfig';
+import { API_BASE_URL } from '../../../../../../axiosConfig';
 import CounselorHelpSupport from './CounselorHelpSupport';
 import GradientFill from '../../../../../../components/common/GradientFill';
 import { useToast } from '../../../../../../components/common/ToastProvider';
@@ -43,6 +40,7 @@ import {
   validateStrongPassword,
 } from '../../../../../../utils/passwordPolicy';
 import PasswordRequirementChecklist from '../../../../../../components/common/PasswordRequirementChecklist';
+import PsychiatristDirectory from '../../../../../../components/common/PsychiatristDirectory';
 
 const TERMS_URL = 'https://humaeli.com/terms-of-use/';
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -148,6 +146,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   const [showHelp, setShowHelp] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showWallet, setShowWallet] = useState(false);
+  const [showPsychiatrists, setShowPsychiatrists] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
   const showLanguageComingSoon = () => {
@@ -179,10 +178,14 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     setFeedbackLoading(true);
     setFeedbackNotice({ type: '', msg: '' });
     try {
-      const res = await axiosInstance.post('/api/feedback', {
-        category: feedbackCategory,
-        message: feedbackMessage.trim(),
-      });
+      const token =
+        (await AsyncStorage.getItem('token')) ||
+        (await AsyncStorage.getItem('accessToken'));
+      const res = await axios.post(
+        `${API_BASE_URL}/api/feedback`,
+        { category: feedbackCategory, message: feedbackMessage.trim() },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
       if (res.data?.success) {
         setFeedbackNotice({ type: 'success', msg: res.data.message || 'Thank you for your feedback!' });
         setFeedbackMessage('');
@@ -262,27 +265,13 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   const setPw = (key, val) =>
     setPwForm((prev) => ({ ...prev, [key]: key === 'otp' ? val.replace(/\D/g, '') : val }));
 
-  // The profile request may still be in flight when this sheet is opened. The
-  // login email is persisted, so use it as a reliable fallback for OTP calls.
-  const getCounselorEmail = async () => {
-    const profileEmail = counselor?.email?.trim().toLowerCase();
-    if (profileEmail) return profileEmail;
-
-    const [storedEmail, rawUserData] = await Promise.all([
-      AsyncStorage.getItem('userEmail'),
-      AsyncStorage.getItem('userData'),
-    ]);
-    const savedEmail = rawUserData ? JSON.parse(rawUserData)?.email : '';
-    return (storedEmail || savedEmail || '').trim().toLowerCase();
-  };
-
   const handleSendOtp = async () => {
     setPwNotice({ type: '', msg: '' });
-    const email = await getCounselorEmail();
+    const email = counselor?.email?.trim().toLowerCase();
     if (!email) { setPwNotice({ type: 'error', msg: 'Email not found.' }); return; }
     setPwLoading(true);
     try {
-      const res = await axiosInstance.post('/api/auth/generateOtp', { email });
+      const res = await axios.post(`${API_BASE_URL}/api/auth/generateOtp`, { email });
       if (res.data?.success) {
         setOtpSent(true);
         setOtpVerified(false);
@@ -305,21 +294,12 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
       setPwNotice({ type: 'error', msg: 'Enter the 6-digit OTP.' });
       return;
     }
-    const email = await getCounselorEmail();
-    if (!email) {
-      setPwNotice({ type: 'error', msg: 'Email not found.' });
-      return;
-    }
     setOtpVerifying(true);
     try {
-<<<<<<< HEAD
-      const res = await axiosInstance.post('/api/auth/verifyOtp', { email, otp: pwForm.otp });
-=======
       const res = await axios.post(`${API_BASE_URL}/api/auth/verify-password-otp`, {
         email: counselor?.email?.trim().toLowerCase(),
         otp: pwForm.otp,
       });
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       if (res.data?.success) {
         setOtpVerified(true);
       } else {
@@ -356,12 +336,10 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     const passwordCheck = validateStrongPassword(pwForm.password);
     if (!passwordCheck.isValid) { setPwNotice({ type: 'error', msg: passwordCheck.message }); return; }
     if (pwForm.password !== pwForm.confirmPassword) { setPwNotice({ type: 'error', msg: 'Passwords do not match.' }); return; }
-    const email = await getCounselorEmail();
-    if (!email) { setPwNotice({ type: 'error', msg: 'Email not found.' }); return; }
     setPwLoading(true);
     try {
-      const res = await axiosInstance.post('/api/auth/set-password-by-otp', {
-        email,
+      const res = await axios.post(`${API_BASE_URL}/api/auth/set-password-by-otp`, {
+        email: counselor?.email?.trim().toLowerCase(),
         otp: pwForm.otp,
         password: pwForm.password,
       });
@@ -388,10 +366,11 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     if (pwForm.oldPassword === pwForm.newPassword) { setPwNotice({ type: 'error', msg: 'New password must differ from current.' }); return; }
     setPwLoading(true);
     try {
-      const res = await axiosInstance.post('/api/auth/changePassword', {
-        oldPassword: pwForm.oldPassword,
-        newPassword: pwForm.newPassword,
-      });
+      const token = await AsyncStorage.getItem('token') || await AsyncStorage.getItem('accessToken');
+      const res = await axios.post(`${API_BASE_URL}/api/auth/changePassword`,
+        { oldPassword: pwForm.oldPassword, newPassword: pwForm.newPassword },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
       if (res.data?.success) {
         setPwNotice({ type: 'success', msg: res.data.message || 'Password changed successfully.' });
         setPwForm(INITIAL_PW_FORM);
@@ -408,26 +387,6 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   const fetchCounselor = async () => {
     try {
       setLoading(true);
-<<<<<<< HEAD
-      const [counsellorId, alternateCounselorId, storedEmail, rawUserData] = await Promise.all([
-        AsyncStorage.getItem('counsellorId'),
-        AsyncStorage.getItem('counselorId'),
-        AsyncStorage.getItem('userEmail'),
-        AsyncStorage.getItem('userData'),
-      ]);
-      const fallbackEmail = storedEmail || (rawUserData ? JSON.parse(rawUserData)?.email : '');
-      const counselorId = counsellorId || alternateCounselorId;
-      if (!counselorId) {
-        if (fallbackEmail) setCounselor({ email: fallbackEmail });
-        setLoading(false);
-        return;
-      }
-      const res = await axiosInstance.get(`/api/auth/counsellors/${counselorId}`);
-      if (res.data?.success && res.data.counsellor) {
-        setCounselor(res.data.counsellor);
-      } else if (fallbackEmail) {
-        setCounselor({ email: fallbackEmail });
-=======
       const counsellorId = await AsyncStorage.getItem('counsellorId');
       const token = await AsyncStorage.getItem('accessToken') || await AsyncStorage.getItem('token');
       if (!counsellorId) {
@@ -441,12 +400,9 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
       const counselorData = res.data?.user || res.data?.counsellor;
       if (res.data?.success && counselorData) {
         setCounselor(counselorData);
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       }
     } catch (err) {
       console.error('Settings: failed to load counselor', err);
-      const storedEmail = await AsyncStorage.getItem('userEmail');
-      if (storedEmail) setCounselor({ email: storedEmail });
     } finally {
       setLoading(false);
     }
@@ -462,6 +418,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     if (id === 'contact')
       return Linking.openURL('mailto:support@humaeli.com');
     if (id === 'help') return setShowHelp(true);
+    if (id === 'psychiatrists') return setShowPsychiatrists(true);
     if (id === 'privacy') return setShowPrivacy(true);
     if (id === 'terms') return Linking.openURL(TERMS_URL);
     if (id === 'delete_account') return confirmDeleteAccount();
@@ -506,6 +463,15 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
           iconColor: '#2563EB',
           label: t('settings:language', 'Language'),
           type: 'language',
+        },
+        {
+          id: 'psychiatrists',
+          icon: 'users',
+          iconBg: '#EFF6FF',
+          iconColor: '#2563EB',
+          label: t('Psychiatrists'),
+          subtitle: t('View psychiatrists for patient referrals'),
+          type: 'nav',
         },
       ],
     },
@@ -880,6 +846,11 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     {/* Earnings & Payouts */}
     <Modal statusBarTranslucent navigationBarTranslucent visible={showWallet} animationType="slide" transparent={false} onRequestClose={() => setShowWallet(false)}>
       <CounselorWallet onClose={() => setShowWallet(false)} />
+    </Modal>
+
+    {/* Psychiatrists Directory */}
+    <Modal statusBarTranslucent navigationBarTranslucent visible={showPsychiatrists} animationType="slide" transparent={false} onRequestClose={() => setShowPsychiatrists(false)}>
+      <PsychiatristDirectory onClose={() => setShowPsychiatrists(false)} />
     </Modal>
 
     {/* Password Modal */}

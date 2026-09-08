@@ -18,10 +18,6 @@ import OtpCodeInput from './components/OtpCodeInput';
 import {
   getApiErrorMessage,
   isOtpRequestSuccessful,
-<<<<<<< HEAD
-  isOtpVerificationSuccessful,
-=======
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
   postPublicAuthEndpoint,
   setAccessToken,
   setUserEmail,
@@ -107,17 +103,8 @@ const OTPVerification = ({ navigation, route }) => {
 
   // ✅ SEND OTP
   const handleSendCode = async () => {
-<<<<<<< HEAD
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail) {
-      setError('Enter valid email');
-      return;
-    }
-    if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) {
-=======
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       setError('Enter valid email');
       return;
     }
@@ -128,30 +115,17 @@ const OTPVerification = ({ navigation, route }) => {
 
     try {
       const res = await postPublicAuthEndpoint('generateOtp', {
-<<<<<<< HEAD
-        email: cleanEmail,
-      });
-
-      if (isOtpRequestSuccessful(res)) {
-        setEmail(cleanEmail);
-=======
         email: normalizedEmail,
       });
 
       if (isOtpRequestSuccessful(res)) {
         setEmail(normalizedEmail);
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
         setStep('otp');
         setOtp('');
         setTimer(120);
         setCanResend(false);
-<<<<<<< HEAD
-        await setUserEmail(cleanEmail);
-        setSuccess('OTP sent successfully');
-=======
         await setUserEmail(normalizedEmail);
         setSuccess(res.data?.message || 'OTP sent successfully');
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       } else {
         setError(res.data?.message || 'Failed to send OTP');
       }
@@ -183,14 +157,6 @@ const OTPVerification = ({ navigation, route }) => {
 
     try {
       const res = await postPublicAuthEndpoint('verifyOtp', {
-<<<<<<< HEAD
-        email: email.trim().toLowerCase(),
-        otp
-      });
-
-      if (isOtpVerificationSuccessful(res)) {
-        const token = res.data?.token || res.data?.accessToken;
-=======
         email: normalizedEmail,
         otp: normalizedOtp,
       });
@@ -200,7 +166,6 @@ const OTPVerification = ({ navigation, route }) => {
         const token = payload?.accessToken || payload?.token || res.data?.accessToken || res.data?.token;
         const refreshToken = payload?.refreshToken || res.data?.refreshToken;
         const user = payload?.user || res.data?.user;
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
         const resolvedRole = normalizeRole(
           user?.role || payload?.role || res.data?.role || authRole
         );
@@ -267,14 +232,6 @@ const OTPVerification = ({ navigation, route }) => {
     setSuccess('');
 
     try {
-<<<<<<< HEAD
-      const res = await postPublicAuthEndpoint('resendOtp', {
-        email: email.trim().toLowerCase(),
-      });
-
-      if (isOtpRequestSuccessful(res)) {
-        setSuccess('OTP resent successfully');
-=======
       const normalizedEmail = normalizeEmail(email);
       const res = await postPublicAuthEndpoint('resendOtp', {
         email: normalizedEmail,
@@ -283,7 +240,6 @@ const OTPVerification = ({ navigation, route }) => {
       if (isOtpRequestSuccessful(res)) {
         setEmail(normalizedEmail);
         setSuccess(res.data?.message || 'OTP resent successfully');
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
         setTimer(120);
         setCanResend(false);
 

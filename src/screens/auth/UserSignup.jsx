@@ -585,7 +585,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  KeyboardAvoidingView,
   Platform,
   Modal,
   ActivityIndicator,
@@ -607,16 +606,12 @@ import AuthBackground from '../../theme/AuthBackground';
 // Import logo
 import logo from '../../image/HumaeliIcon.png';
 import GoogleAuthButton from './components/GoogleAuthButton';
-import OtpCodeInput from './components/OtpCodeInput';
 import ForgotPasswordModal from './components/ForgotPasswordModal';
 import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
-<<<<<<< HEAD
-import { getApiErrorMessage, isOtpRequestSuccessful, isOtpSessionMissingMessage, isOtpVerificationSuccessful, postPublicAuthEndpoint } from './authUtils';
-=======
 import CountryPhoneInput from '../../components/common/CountryPhoneInput';
 import {
   getPhoneLengthLabel,
@@ -639,7 +634,6 @@ import {
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
 
 const OTP_RESEND_SECONDS = 60;
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 
 const UserSignup = ({ navigation, route }) => {
   const { t } = useLanguageRender();
@@ -648,10 +642,6 @@ const UserSignup = ({ navigation, route }) => {
   const isCompact = width < 360 || height < 700;
   const [isLogin, setIsLogin] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
-<<<<<<< HEAD
-  const { scrollRef, keyboardOpen, keyboardInset, scrollFocusedInputIntoView } = useKeyboardAwareScroll();
-  const modalKeyboardLift = keyboardOpen ? Math.min(56, Math.max(24, Math.round(keyboardInset * 0.12))) : 0;
-=======
   const {
     scrollRef,
     keyboardInset,
@@ -659,7 +649,6 @@ const UserSignup = ({ navigation, route }) => {
     handleKeyboardAwareScroll,
     handleKeyboardAwareScrollLayout,
   } = useKeyboardAwareScroll();
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -706,13 +695,9 @@ const UserSignup = ({ navigation, route }) => {
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const verifyingOtpRef = useRef(false);
   const [otpError, setOtpError] = useState('');
-<<<<<<< HEAD
-  const [isResendingVerification, setIsResendingVerification] = useState(false);
-=======
   const [otpResendTimer, setOtpResendTimer] = useState(0);
   const [isResendingOtp, setIsResendingOtp] = useState(false);
   const resendingOtpRef = useRef(false);
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 
   // Device Conflict States
   const [showDeviceConflict, setShowDeviceConflict] = useState(false);
@@ -998,47 +983,15 @@ const UserSignup = ({ navigation, route }) => {
   };
 
   const handleResendVerifyOtp = async () => {
-<<<<<<< HEAD
-    if (isResendingVerification || sendingVerificationRef.current) return;
-    const email = formData.email.trim().toLowerCase();
-    const type = 'email';
-    const value = email;
-
-    if (!value) {
-      showNotification(`Please enter ${type} first`, 'error');
-      return;
-    }
-    if (type === 'email' && !/^\S+@\S+\.\S+$/.test(value)) {
-      showNotification('Please enter a valid email address', 'error');
-=======
     if (resendingOtpRef.current || otpResendTimer > 0) return;
 
     const email = String(showOtpModal.value || formData.email).trim().toLowerCase();
     if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
       setOtpError('Enter valid email');
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       return;
     }
 
     try {
-<<<<<<< HEAD
-      setIsResendingVerification(true);
-      setOtpCode('');
-      setOtpError('');
-      const response = await postPublicAuthEndpoint('send-email-otp', { email: value });
-
-      if (isOtpRequestSuccessful(response)) {
-        setFormData(prev => ({ ...prev, email: value }));
-        setShowOtpModal({ show: true, type, value });
-        showNotification(response.data?.message || `OTP resent to ${type}`);
-      } else {
-        showNotification(response.data?.message || 'Failed to resend OTP', 'error');
-      }
-    } catch (err) {
-      showNotification(getApiErrorMessage(err, 'Failed to resend OTP'), 'error');
-    } finally {
-      setIsResendingVerification(false);
-=======
       resendingOtpRef.current = true;
       setIsResendingOtp(true);
       setOtpError('');
@@ -1058,7 +1011,6 @@ const UserSignup = ({ navigation, route }) => {
     } finally {
       resendingOtpRef.current = false;
       setIsResendingOtp(false);
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
     }
   };
 
@@ -1092,37 +1044,13 @@ const UserSignup = ({ navigation, route }) => {
         setOtpCode('');
         showNotification(`${type} verified successfully!`);
       } else {
-        const message = response.data?.message || 'Verification failed';
-        setOtpError(
-          isOtpSessionMissingMessage(message)
-            ? 'No OTP found. Please request a new OTP.'
-            : message
-        );
+        setOtpError(response.data?.message || 'Verification failed');
       }
     } catch (err) {
-<<<<<<< HEAD
-      if (!err?.response) {
-        setFormData(prev => ({ ...prev, email: otpEmail }));
-        setEmailVerified(true);
-        setEmailVerificationToken('');
-        setShowOtpModal({ show: false, type: '', value: '' });
-        setOtpCode('');
-        showNotification('Email verification submitted. Continue registration.');
-        return;
-      }
-      const message = getApiErrorMessage(err, 'Verification failed');
-      setOtpError(
-        isOtpSessionMissingMessage(message)
-          ? 'No OTP found. Please request a new OTP.'
-          : message
-      );
-=======
       setOtpError(getApiErrorMessage(err, 'Verification failed'));
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
     } finally {
       verifyingOtpRef.current = false;
       setIsVerifyingOtp(false);
-      verifyingOtpRef.current = false;
     }
   };
 
@@ -1143,20 +1071,13 @@ const UserSignup = ({ navigation, route }) => {
   const handleSendDeviceOtp = async () => {
     try {
       setIsSendingDeviceOtp(true);
-<<<<<<< HEAD
-      await postPublicAuthEndpoint('logout-other-devices', {
-        email: formData.email.trim().toLowerCase(),
-        role: 'user',
-      });
-=======
       setDeviceOtp('');
       await axiosInstance.post('/api/auth/logout-other-devices', { email: formData.email, role: 'user' });
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
       setDeviceOtpSent(true);
       setDeviceOtpResendTimer(OTP_RESEND_SECONDS);
       showNotification('OTP sent to your email');
     } catch (err) {
-      showNotification(getApiErrorMessage(err, 'Failed to send OTP'), 'error');
+      showNotification('Failed to send OTP', 'error');
     } finally {
       setIsSendingDeviceOtp(false);
     }
@@ -1188,15 +1109,9 @@ const UserSignup = ({ navigation, route }) => {
 
     try {
       setIsVerifyingDeviceOtp(true);
-<<<<<<< HEAD
-      const response = await postPublicAuthEndpoint('verify-login-otp', {
-        email: formData.email.trim().toLowerCase(),
-        otp: deviceOtp,
-=======
       const response = await axiosInstance.post('/api/auth/verify-login-otp', {
         email: formData.email,
         otp: deviceOtp.trim(),
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
         logoutOthers: true,
         role: 'user'
       });
@@ -1206,7 +1121,7 @@ const UserSignup = ({ navigation, route }) => {
         navigation.replace('LocationGate', { destination: 'UserDashboard' });
       }
     } catch (err) {
-      showNotification(getApiErrorMessage(err, 'Invalid OTP'), 'error');
+      showNotification('Invalid OTP', 'error');
     } finally {
       setIsVerifyingDeviceOtp(false);
     }
@@ -1280,12 +1195,12 @@ const UserSignup = ({ navigation, route }) => {
             <TouchableOpacity 
               onPress={handleSendVerifyOtp}
               disabled={isVerified || isSendingVerification}
-              style={[styles.verifyBtn, isVerified && styles.verifiedBtn]}
+              style={[styles.verifyBtn, (isVerified || isSendingVerification) && styles.verifiedBtn]}
             >
               {isVerified ? (
                 <Icon name="check-decagram" size={18} color="#10b981" />
               ) : isSendingVerification ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color="#00652C" />
               ) : (
                 <Text style={styles.verifyBtnText}>{t('Verify')}</Text>
               )}
@@ -1369,19 +1284,10 @@ const UserSignup = ({ navigation, route }) => {
 
   const scrollContainerStyle = {
     ...styles.scrollContent,
-<<<<<<< HEAD
-    justifyContent: isLogin && !keyboardOpen ? 'center' : 'flex-start',
-    paddingHorizontal: isCompact ? 14 : 20,
-    paddingTop: isLogin
-      ? (keyboardOpen ? (isCompact ? 48 : 60) : (isCompact ? 72 : 88))
-      : (isCompact ? 78 : 96),
-    paddingBottom: (isCompact ? 44 : 60) + keyboardInset + (keyboardOpen ? 120 : 0) + (!isLogin ? 24 : 0),
-=======
     justifyContent: isLogin ? 'center' : 'flex-start',
     paddingHorizontal: isCompact ? 12 : 16,
     paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 62 : 76),
     paddingBottom: (isLogin ? (isCompact ? 44 : 60) : (isCompact ? 14 : 20)) + keyboardInset,
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
   };
   const panelStyle = [
     styles.panel,
@@ -1391,7 +1297,6 @@ const UserSignup = ({ navigation, route }) => {
       paddingHorizontal: isCompact ? 16 : 22,
       paddingVertical: signupPanelPaddingY,
       borderRadius: isCompact ? 28 : 40,
-      marginBottom: isLogin ? 0 : (isCompact ? 18 : 24),
       opacity: isAnyModalVisible ? 0.2 : 1,
     },
   ];
@@ -1424,12 +1329,6 @@ const UserSignup = ({ navigation, route }) => {
               <Icon name="chevron-left" size={28} color="#0F172A" />
             </TouchableOpacity>
 
-<<<<<<< HEAD
-            <KeyboardAvoidingView
-              style={styles.flex}
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? 18 : 0}
-=======
             <ScrollView
               ref={isLogin ? scrollRef : null}
               contentContainerStyle={scrollContainerStyle}
@@ -1441,111 +1340,14 @@ const UserSignup = ({ navigation, route }) => {
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
               scrollEnabled={isLogin}
               pointerEvents={isAnyModalVisible ? 'none' : 'auto'}
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
             >
-              <ScrollView
-                ref={scrollRef}
-                contentContainerStyle={scrollContainerStyle}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                pointerEvents={isAnyModalVisible ? 'none' : 'auto'}
-              >
-                <Animated.View style={[panelStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-                  <View style={styles.header}>
-                    <Image source={logo} style={logoStyle} resizeMode="contain" />
-                    <View style={styles.brandContainer}><Text style={[styles.brandMain, { color: '#00652C' }]}>{t('Humaeli')}</Text></View>
-                    <Text style={styles.tagline}>{'Begin your journey'}</Text>
-                  </View>
+              <Animated.View style={[panelStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+                <View style={styles.header}>
+                  <Image source={logo} style={logoStyle} resizeMode="contain" />
+                  <View style={styles.brandContainer}><Text style={[styles.brandMain, { color: '#00652C' }]}>{t('Humaeli')}</Text></View>
+                  <Text style={styles.tagline}>{'Begin your journey'}</Text>
+                </View>
 
-<<<<<<< HEAD
-                  <View style={styles.formPanel}>
-                    {!isLogin && (
-                      <>{renderInput(0, 'fullName', 'account-outline', 'Full Name')}{renderInput(1, 'anonymous', 'incognito-circle', 'Anonymous Name')}</>
-                    )}
-                    {renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}
-                    {!isLogin && (
-                      <>{renderInput(3, 'phoneNumber', 'phone-outline', 'Phone Number', { keyboardType: 'phone-pad', maxLength: 10 })}{renderInput(4, 'age', 'calendar-account-outline', 'Age', { keyboardType: 'numeric' })}
-                        <Animated.View style={[styles.genderRow, { opacity: fieldAnims[5] }]}>
-                          {genderOptions.map(g => (
-                            <TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}>
-                              <Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </Animated.View>
-                      </>
-                    )}
-                    <Animated.View key="pwd-row" style={{ opacity: fieldAnims[6] }}>
-                      <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
-                        <Icon name="lock-outline" size={20} color={focusedField === 'password' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
-                        <TextInput style={styles.textInput} value={formData.password} onChangeText={(text) => handleChange('password', text)} onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} />
-                        <TouchableOpacity onPress={() => setShowPassword(!showPassword)}><Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
-                      </View>
-                    </Animated.View>
-                    {isLogin && (
-                      <TouchableOpacity onPress={handleForgotPassword} style={styles.forgotLink}>
-                        <Text style={styles.forgotText}>{t('Forgot password?')}</Text>
-                      </TouchableOpacity>
-                    )}
-                    {!isLogin && (
-                      <Animated.View key="cpwd-row" style={{ opacity: fieldAnims[7] }}>
-                        <View style={[styles.inputWrapper, focusedField === 'confirmPassword' && styles.inputWrapperFocused]}>
-                          <Icon name="lock-check-outline" size={20} color={focusedField === 'confirmPassword' ? '#00652C' : '#64748b'} style={styles.inputIcon} />
-                          <TextInput style={styles.textInput} value={formData.confirmPassword} onChangeText={(text) => handleChange('confirmPassword', text)} onFocus={(event) => { setFocusedField('confirmPassword'); scrollFocusedInputIntoView(event); }} onBlur={() => setFocusedField(null)} placeholder={t('Confirm Password')} placeholderTextColor="#94a3b8" secureTextEntry={!showConfirmPassword} />
-                          <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}><Icon name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748b" /></TouchableOpacity>
-                        </View>
-                      </Animated.View>
-                    )}
-                    <Animated.View key="submit-row" style={{ opacity: fieldAnims[8], marginTop: 10 }}>
-                      <TouchableOpacity activeOpacity={0.9} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
-                        <LinearGradient
-                          colors={['#006B2C', '#01CE54']}
-                          start={{ x: 0, y: 0.5 }}
-                          end={{ x: 1, y: 0.5 }}
-                          style={styles.submitBtn}
-                        >
-                          {isLoading ? (
-                            <ActivityIndicator color="#fff" />
-                          ) : (
-                            <Text style={styles.submitBtnText}>{isLogin ? 'Login' : 'Create Account'}</Text>
-                          )}
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    </Animated.View>
-                    <Animated.View key="google-row" style={{ opacity: fieldAnims[8], marginTop: 14 }}>
-                      <View style={styles.googleDividerRow}>
-                        <View style={styles.googleDividerLine} />
-                        <Text style={styles.googleDividerText}>or</Text>
-                        <View style={styles.googleDividerLine} />
-                      </View>
-                      <GoogleAuthButton
-                        role="user"
-                        mode={isLogin ? 'signin' : 'signup'}
-                        disabled={isLoading}
-                        locationEvent={isLogin ? 'login' : 'signup'}
-                        onSuccess={({ isCounselor }) => {
-                          sendLocationSilently(isLogin ? 'login' : 'signup');
-                          setTimeout(() => {
-                            navigation.replace(
-                              isCounselor ? 'CounselorDashboard' : 'UserDashboard',
-                            );
-                          }, 600);
-                        }}
-                        onError={(msg) => {
-                          setOtpError(msg);
-                          setTimeout(() => setOtpError(''), 4000);
-                        }}
-                      />
-                    </Animated.View>
-                    <Animated.View key="switch-row" style={[styles.switchRow, { opacity: fieldAnims[9] }]}>
-                      <Text style={styles.switchText}>{isLogin ? "New here?" : "Already joined?"}</Text>
-                      <TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={styles.switchLink}>{isLogin ? " Create Account" : " Login"}</Text></TouchableOpacity>
-                    </Animated.View>
-                  </View>
-                </Animated.View>
-              </ScrollView>
-            </KeyboardAvoidingView>
-=======
                 <ScrollView
                   ref={!isLogin ? scrollRef : null}
                   style={formScrollStyle}
@@ -1669,7 +1471,6 @@ const UserSignup = ({ navigation, route }) => {
                 </ScrollView>
               </Animated.View>
             </ScrollView>
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
           </View>
         </SafeAreaView>
 
@@ -1684,30 +1485,10 @@ const UserSignup = ({ navigation, route }) => {
           onRequestClose={closeOtpModal}
         >
           <View style={styles.modalOverlay}>
-            <View
-              style={[
-                styles.modalContent,
-                keyboardOpen && { transform: [{ translateY: -modalKeyboardLift }] },
-              ]}
-            >
+            <View style={styles.modalContent}>
               <View style={[styles.modalIcon, { backgroundColor: '#f5f7ff' }]}><Icon name="email-fast-outline" size={40} color="#00652C" /></View>
               <Text style={styles.modalTitle}>Verify Your Email</Text>
               <Text style={styles.modalSub}>Enter the code sent to {showOtpModal.value}</Text>
-<<<<<<< HEAD
-              <OtpCodeInput
-                key={`${showOtpModal.type}:${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`}
-                value={otpCode}
-                onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))}
-                autoFocus
-                containerStyle={styles.otpContainer}
-                boxStyle={styles.otpDigitBox}
-                focusedBoxStyle={[styles.otpDigitBoxFocused, { borderColor: '#00652C' }]}
-                textStyle={styles.otpDigitText}
-              />
-              {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
-              <TouchableOpacity
-                style={[styles.modalActionBtn, otpCode.length !== 6 && styles.modalActionBtnDisabled]}
-=======
               <TextInput key={`${showOtpModal.type}:${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`} style={styles.otpInput} value={otpCode} onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="number-pad" maxLength={6} autoFocus />
               <View style={styles.otpResendRow}>
                 {otpResendTimer > 0 ? (
@@ -1735,20 +1516,10 @@ const UserSignup = ({ navigation, route }) => {
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
               <TouchableOpacity
                 style={[styles.modalActionBtn, (isVerifyingOtp || otpCode.length !== 6) && styles.modalActionBtnDisabled]}
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
                 onPress={handleVerifyOtp}
                 disabled={isVerifyingOtp || otpCode.length !== 6}
               >
                 {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Now')}</Text>}
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleResendVerifyOtp}
-                disabled={isResendingVerification}
-                style={styles.resendOtpBtn}
-              >
-                <Text style={styles.resendOtpText}>
-                  {isResendingVerification ? 'Resending OTP...' : 'Resend OTP'}
-                </Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Go Back')}</Text></TouchableOpacity>
             </View>
@@ -1910,35 +1681,22 @@ const styles = StyleSheet.create({
   notification: { position: 'absolute', top: 50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 10, zIndex: 1000 },
   notificationText: { color: '#fff', fontSize: 14, fontWeight: '700', marginLeft: 8 },
   modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.64)', justifyContent: 'center', alignItems: 'center', padding: 22, zIndex: 30 },
-  modalContent: { backgroundColor: '#fff', borderRadius: 26, padding: 28, width: '100%', maxWidth: 390, maxHeight: '82%', alignItems: 'center', borderWidth: 1, borderColor: '#DDF4E6', shadowColor: '#052E16', shadowOpacity: 0.18, shadowRadius: 24, elevation: 14 },
+  modalContent: { backgroundColor: '#fff', borderRadius: 26, padding: 28, width: '100%', maxWidth: 390, alignItems: 'center', borderWidth: 1, borderColor: '#DDF4E6', shadowColor: '#052E16', shadowOpacity: 0.18, shadowRadius: 24, elevation: 14 },
   modalIcon: { width: 68, height: 68, borderRadius: 34, justifyContent: 'center', alignItems: 'center', marginBottom: 18 },
   modalTitle: { fontSize: 22, fontWeight: '900', color: '#0F172A', marginBottom: 8, textAlign: 'center' },
   modalSub: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 21, marginBottom: 22 },
   modalActionBtn: { width: '100%', height: 54, borderRadius: 16, backgroundColor: '#00652C', justifyContent: 'center', alignItems: 'center', shadowColor: '#00652C', shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
-<<<<<<< HEAD
-  modalActionBtnDisabled: { backgroundColor: '#CBD5E1', shadowOpacity: 0 },
-=======
   modalActionBtnDisabled: { backgroundColor: '#94A3B8', shadowOpacity: 0, elevation: 0 },
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
   modalActionText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   modalErrorText: { width: '100%', color: '#B91C1C', backgroundColor: '#FEF2F2', fontSize: 12, fontWeight: '700', textAlign: 'center', padding: 10, borderRadius: 10, marginTop: -6, marginBottom: 14 },
-  resendOtpBtn: { width: '100%', height: 44, justifyContent: 'center', alignItems: 'center' },
-  resendOtpText: { color: '#00652C', fontSize: 14, fontWeight: '800' },
   cancelBtn: { width: '100%', height: 44, marginTop: 10, justifyContent: 'center', alignItems: 'center' },
   cancelText: { fontSize: 14, fontWeight: '700', color: '#64748B' },
   otpWrapper: { width: '100%', gap: 16 },
-<<<<<<< HEAD
-  otpContainer: { width: '100%', marginBottom: 16 },
-  otpDigitBox: { minHeight: 56, borderRadius: 16, borderColor: '#B7DFC7', backgroundColor: '#F8FAFC' },
-  otpDigitBoxFocused: { borderColor: '#00652C', borderWidth: 2 },
-  otpDigitText: { fontSize: 22, fontWeight: '800', color: '#0F172A' },
-=======
   otpInput: { width: '100%', height: 56, borderRadius: 16, backgroundColor: '#F8FAFC', borderWidth: 1.5, borderColor: '#B7DFC7', textAlign: 'center', fontSize: 22, letterSpacing: 8, fontWeight: '800', color: '#0F172A', marginBottom: 16 },
   otpResendRow: { width: '100%', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: -6, marginBottom: 16, flexWrap: 'wrap' },
   otpTimerText: { color: '#64748B', fontSize: 13, fontWeight: '700', textAlign: 'center' },
   otpResendText: { color: '#00652C', fontSize: 13, fontWeight: '900' },
   otpResendTextDisabled: { color: '#94A3B8' },
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 });
 
 export default UserSignup;

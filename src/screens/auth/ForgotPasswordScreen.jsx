@@ -9,14 +9,10 @@ import {
 import TextInput from '../../components/TranslatedTextInput';
 import Text from '../../components/TranslatedText';
 import { useNavigation } from "@react-navigation/native";
-<<<<<<< HEAD
-=======
 import Ionicons from "react-native-vector-icons/Ionicons";
 import axios from "axios";
 import { API_BASE_URL } from "../../axiosConfig";
->>>>>>> ca2caa7fb8c888e1c42693ec07c016896d795dd0
 import useLanguageRender from '../../hooks/useLanguageRender';
-import { getApiErrorMessage, isOtpRequestSuccessful, postPublicAuthEndpoint } from "./authUtils";
 
 const ForgotPasswordScreen = () => {
   const { t } = useLanguageRender();
@@ -28,28 +24,24 @@ const ForgotPasswordScreen = () => {
   const handleSendOTP = async () => {
     setError("");
 
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail) {
+    if (!email.trim()) {
       setError("Please enter email");
-      return;
-    }
-    if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) {
-      setError("Please enter a valid email");
       return;
     }
 
     try {
       setLoading(true);
-      const response = await postPublicAuthEndpoint("send-forgot-password-otp", {
-        email: cleanEmail,
-      });
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/send-forgot-password-otp`,
+        { email }
+      );
 
-      if (isOtpRequestSuccessful(response)) {
+      if (response.data.success) {
         Alert.alert("Success", "OTP sent to email", [
           {
             text: "OK",
             onPress: () => {
-              navigation.navigate("ForgotPasswordOTP", { email: cleanEmail });
+              navigation.navigate("ForgotPasswordOTP", { email });
             },
           },
         ]);
@@ -57,7 +49,7 @@ const ForgotPasswordScreen = () => {
         setError("Failed to send OTP");
       }
     } catch (err) {
-      setError("Error: " + getApiErrorMessage(err, "Failed to send OTP"));
+      setError("Error: " + (err.response?.data?.message || err.message));
     } finally {
       setLoading(false);
     }
