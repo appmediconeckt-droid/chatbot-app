@@ -13,6 +13,7 @@ import {
 import RNFS from 'react-native-fs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { launchImageLibrary } from 'react-native-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../../../../../../components/TranslatedText';
 import TextInput from '../../../../../../components/TranslatedTextInput';
@@ -89,6 +90,14 @@ const getMedicineTimeLabel = medicine => {
       .join(', ');
   }
   return cleanText(time);
+};
+
+const getPrescriptionAssetUri = (source, keys) => {
+  for (const key of keys) {
+    const uri = toImageUri(source?.[key]);
+    if (uri) return uri;
+  }
+  return '';
 };
 
 const getPrescriptionSignatureAssets = item => {
@@ -356,8 +365,11 @@ export default function PrescriptionReviews() {
   const [photos, setPhotos] = useState({});
   const [preview, setPreview] = useState(null);
   const [rejecting, setRejecting] = useState(null);
+  const [approving, setApproving] = useState(null);
   const [reason, setReason] = useState('');
   const [savingThemeId, setSavingThemeId] = useState(null);
+  const [approvalSignatureFile, setApprovalSignatureFile] = useState(null);
+  const [approvalSealFile, setApprovalSealFile] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -398,29 +410,155 @@ export default function PrescriptionReviews() {
     };
   }, [items, photos]);
 
-  const review = async (item, action, rejectionReason = '') => {
+  const pickApprovalAsset = (type) => new Promise((resolve) => {
+    launchImageLibrary(
+      {
+        mediaType: 'photo',
+        includeBase64: false,
+        quality: 0.9,
+        selectionLimit: 1,
+      },
+      (response) => {
+        if (response.didCancel) return resolve(null);
+        const asset = response.assets?.[0];
+        if (!asset?.uri) {
+          Alert.alert('Image required', 'Unable to read selected image.');
+          return resolve(null);
+        }
+        if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+          Alert.alert('File too large', 'Signature or seal image must be less than 5MB.');
+          return resolve(null);
+        }
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+        if (asset.type && !allowedTypes.includes(String(asset.type).toLowerCase())) {
+          Alert.alert('Invalid format', 'Only JPG, PNG, and WEBP images are allowed.');
+          return resolve(null);
+        }
+        const file = {
+          uri: asset.uri,
+          type: asset.type || 'image/png',
+          name: asset.fileName || `prescription-${type}-${Date.now()}.png`,
+        };
+        if (type === 'signature') setApprovalSignatureFile(file);
+        else setApprovalSealFile(file);
+        resolve(file);
+      },
+    );
+  });
+
+  const openApprove = (item) => {
+    setApprovalSignatureFile(null);
+    setApprovalSealFile(null);
+    setApproving(item);
+  };
+
+  const saveApprovalAssets = async (item, signatureFile = approvalSignatureFile, sealFile = approvalSealFile) => {
+    if (!signatureFile && !sealFile) {
+      return getPrescriptionSignatureAssets(item);
+    }
+    const practitioner = getPractitioner(item);
+    if (!practitioner.id) throw new Error('Consultant profile not found.');
+    const formData = new FormData();
+    if (signatureFile) formData.append('prescriptionSignature', signatureFile);
+    if (sealFile) formData.append('prescriptionSeal', sealFile);
+    const token = await authToken();
+    const response = await axios.patch(
+      `${API_BASE_URL}/api/auth/update/${encodeURIComponent(practitioner.id)}`,
+      formData,
+      {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+    const updated = response.data?.user;
+    return {
+      signatureUri:
+        getPrescriptionAssetUri(updated, ['prescriptionSignature', 'prescriptionSignatureUrl']) ||
+        signatureFile?.uri ||
+        getPrescriptionSignatureAssets(item).signatureUri,
+      sealUri:
+        getPrescriptionAssetUri(updated, ['prescriptionSeal', 'prescriptionSealUrl']) ||
+        sealFile?.uri ||
+        getPrescriptionSignatureAssets(item).sealUri,
+    };
+  };
+
+  const confirmApproval = async () => {
+    if (!approving) return;
+    try {
+      let signatureFile = approvalSignatureFile;
+      let sealFile = approvalSealFile;
+      const existingAssets = getPrescriptionSignatureAssets(approving);
+      if (!existingAssets.signatureUri && !signatureFile) {
+        signatureFile = await pickApprovalAsset('signature');
+        if (!signatureFile) {
+          Alert.alert('Signature required', 'Please add consultant signature before approving.');
+          return;
+        }
+      }
+      if (!existingAssets.sealUri && !sealFile) {
+        sealFile = await pickApprovalAsset('seal');
+        if (!sealFile) {
+          Alert.alert('Humaeli seal required', 'Please add Humaeli seal before approving.');
+          return;
+        }
+      }
+      const assets = await saveApprovalAssets(approving, signatureFile, sealFile);
+      await review(approving, 'approve', '', assets);
+    } catch (e) {
+      Alert.alert(
+        'Approval failed',
+        e?.response?.data?.message ||
+          e?.response?.data?.error ||
+          e?.message ||
+          'Unable to approve prescription.',
+      );
+    }
+  };
+
+  const review = async (item, action, rejectionReason = '', assets = {}) => {
     const id = idOf(item);
     try {
       setWorkingId(id);
       setError('');
-      await axios.patch(`/api/prescriptions/${id}/verification`, {
+      const response = await axios.patch(`/api/prescriptions/${id}/verification`, {
         action,
         reason: rejectionReason,
+        prescriptionSignatureUrl: assets.signatureUri,
+        signatureUrl: assets.signatureUri,
+        prescriptionSealUrl: assets.sealUri,
+        sealUrl: assets.sealUri,
       });
       const status = action === 'approve' ? 'verified' : 'rejected';
+      const updatedPrescription = response.data?.prescription;
       setItems(current =>
         current.map(entry =>
           idOf(entry) === id
-            ? { ...entry, verificationStatus: status, rejectionReason }
+            ? {
+                ...entry,
+                ...(updatedPrescription || {}),
+                verificationStatus: status,
+                rejectionReason,
+              }
             : entry,
         ),
       );
       setPreview(current =>
         idOf(current) === id
-          ? { ...current, verificationStatus: status, rejectionReason }
+          ? {
+              ...current,
+              ...(updatedPrescription || {}),
+              verificationStatus: status,
+              rejectionReason,
+            }
           : current,
       );
       setRejecting(null);
+      setApproving(null);
+      setApprovalSignatureFile(null);
+      setApprovalSealFile(null);
       setReason('');
     } catch (e) {
       Alert.alert(
@@ -583,7 +721,7 @@ export default function PrescriptionReviews() {
                           item.verificationStatus === 'verified') &&
                           s.disabled,
                       ]}
-                      onPress={() => review(item, 'approve')}
+                      onPress={() => openApprove(item)}
                     >
                       <Ionicons name="checkmark" size={18} color="#166534" />
                       <Text style={s.approveText}>Approve</Text>
@@ -616,6 +754,89 @@ export default function PrescriptionReviews() {
           saving={savingThemeId === idOf(preview)}
         />
       )}
+      {!!approving && (() => {
+        const assets = getPrescriptionSignatureAssets(approving);
+        const signatureUri = approvalSignatureFile?.uri || assets.signatureUri;
+        const sealUri = approvalSealFile?.uri || assets.sealUri;
+        const isWorking = workingId === idOf(approving);
+        return (
+          <Modal
+            transparent
+            visible
+            animationType="fade"
+            onRequestClose={() => !isWorking && setApproving(null)}
+          >
+            <View style={s.overlay}>
+              <View style={s.dialog}>
+                <Text style={s.dialogTitle}>Approve prescription</Text>
+                <Text style={s.muted}>
+                  Confirm consultant signature and Humaeli seal before approval.
+                </Text>
+                <View style={s.approvalAssetRow}>
+                  {[
+                    {
+                      key: 'signature',
+                      title: 'Signature',
+                      icon: 'create-outline',
+                      uri: signatureUri,
+                    },
+                    {
+                      key: 'seal',
+                      title: 'Humaeli seal',
+                      icon: 'ribbon-outline',
+                      uri: sealUri,
+                    },
+                  ].map(asset => (
+                    <TouchableOpacity
+                      key={asset.key}
+                      style={s.approvalAssetTile}
+                      onPress={() => pickApprovalAsset(asset.key)}
+                      disabled={isWorking}
+                      activeOpacity={0.82}
+                    >
+                      {asset.uri ? (
+                        <Image
+                          source={{ uri: asset.uri }}
+                          style={s.approvalAssetImage}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <View style={s.approvalAssetEmpty}>
+                          <Ionicons name={asset.icon} size={23} color="#2563EB" />
+                        </View>
+                      )}
+                      <Text style={s.approvalAssetTitle}>{asset.title}</Text>
+                      <Text style={s.approvalAssetAction}>
+                        {asset.uri ? 'Change' : 'Add image'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View style={s.dialogActions}>
+                  <TouchableOpacity
+                    onPress={() => setApproving(null)}
+                    style={s.cancel}
+                    disabled={isWorking}
+                  >
+                    <Text>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    disabled={isWorking}
+                    onPress={confirmApproval}
+                    style={[s.confirmApprove, isWorking && s.disabled]}
+                  >
+                    {isWorking ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={s.confirmText}>Approve</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        );
+      })()}
       <Modal
         transparent
         visible={!!rejecting}
@@ -1072,6 +1293,49 @@ const s = StyleSheet.create({
     padding: 18,
   },
   dialogTitle: { fontSize: 19, fontWeight: '800', color: '#0F172A' },
+  approvalAssetRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  approvalAssetTile: {
+    flex: 1,
+    minHeight: 122,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+  },
+  approvalAssetImage: {
+    width: '100%',
+    height: 54,
+    marginBottom: 8,
+  },
+  approvalAssetEmpty: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  approvalAssetTitle: {
+    color: '#0F172A',
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  approvalAssetAction: {
+    color: '#2563EB',
+    fontSize: 11,
+    fontWeight: '900',
+    marginTop: 3,
+    textAlign: 'center',
+  },
   reasonInput: {
     minHeight: 100,
     borderWidth: 1,
@@ -1093,6 +1357,14 @@ const s = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 9,
     backgroundColor: '#DC2626',
+  },
+  confirmApprove: {
+    minWidth: 104,
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 9,
+    backgroundColor: '#16A34A',
   },
   confirmText: { color: '#FFF', fontWeight: '700' },
 });

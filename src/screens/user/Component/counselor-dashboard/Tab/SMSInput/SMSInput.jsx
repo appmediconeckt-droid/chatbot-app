@@ -31,6 +31,7 @@ import MicButton from '../../../../../../components/MicButton';
 import LinearGradient from 'react-native-linear-gradient';
 import RNFS from 'react-native-fs';
 import { pick } from '@react-native-documents/picker';
+import { launchImageLibrary } from 'react-native-image-picker';
 import { DOCTOR } from '../../../../../../theme/palette';
 
 import socketService from '../../../../../../services/socketService';
@@ -504,6 +505,8 @@ const SMSInput = ({ navigation, route }) => {
   const [prescriptionProblem, setPrescriptionProblem] = useState('');
   const [prescriptionInstructions, setPrescriptionInstructions] = useState('');
   const [prescriptionMedicines, setPrescriptionMedicines] = useState([createBlankMedicine()]);
+  const [prescriptionSignatureFile, setPrescriptionSignatureFile] = useState(null);
+  const [prescriptionSealFile, setPrescriptionSealFile] = useState(null);
 
   // Receiving Call States
   const [showIncomingModal, setShowIncomingModal] = useState(false);
@@ -581,6 +584,20 @@ const SMSInput = ({ navigation, route }) => {
   const canIssuePrescription = isPsychiatristSpecialization(
     currentCounselor?.specialization || currentCounselor?.specializations,
   );
+  const currentPrescriptionSignatureUri = prescriptionSignatureFile?.uri || getPrescriptionAssetUri(currentCounselor, [
+    'prescriptionSignature',
+    'prescriptionSignatureUrl',
+    'signature',
+    'signatureImage',
+    'doctorSignature',
+  ]);
+  const currentPrescriptionSealUri = prescriptionSealFile?.uri || getPrescriptionAssetUri(currentCounselor, [
+    'prescriptionSeal',
+    'prescriptionSealUrl',
+    'seal',
+    'stamp',
+    'clinicSeal',
+  ]);
 
   const resolveOnlineStatus = (person) => {
     const v = person?.isOnline ?? person?.online;
@@ -1010,6 +1027,83 @@ const SMSInput = ({ navigation, route }) => {
     setPrescriptionProblem('');
     setPrescriptionInstructions('');
     setPrescriptionMedicines([createBlankMedicine()]);
+    setPrescriptionSignatureFile(null);
+    setPrescriptionSealFile(null);
+  };
+
+  const pickPrescriptionAsset = (type) => new Promise((resolve) => {
+    launchImageLibrary(
+      {
+        mediaType: 'photo',
+        includeBase64: false,
+        quality: 0.9,
+        selectionLimit: 1,
+      },
+      (response) => {
+        if (response.didCancel) return resolve(null);
+        const asset = response.assets?.[0];
+        if (!asset?.uri) {
+          Alert.alert('Image required', 'Unable to read selected image.');
+          return resolve(null);
+        }
+        if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+          Alert.alert('File too large', 'Signature or seal image must be less than 5MB.');
+          return resolve(null);
+        }
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+        if (asset.type && !allowedTypes.includes(String(asset.type).toLowerCase())) {
+          Alert.alert('Invalid format', 'Only JPG, PNG, and WEBP images are allowed.');
+          return resolve(null);
+        }
+        const file = {
+          uri: asset.uri,
+          type: asset.type || 'image/png',
+          name: asset.fileName || `prescription-${type}-${Date.now()}.png`,
+        };
+        if (type === 'signature') setPrescriptionSignatureFile(file);
+        else setPrescriptionSealFile(file);
+        resolve(file);
+      },
+    );
+  });
+
+  const savePrescriptionAssetsToProfile = async ({ signatureFile, sealFile }) => {
+    if (!signatureFile && !sealFile) {
+      return {
+        signatureUrl: currentPrescriptionSignatureUri,
+        sealUrl: currentPrescriptionSealUri,
+      };
+    }
+    const profileId = currentCounselor?._id || currentCounselor?.id || counselorId;
+    if (!profileId) throw new Error('Consultant profile not found. Please reopen the chat and try again.');
+    const formData = new FormData();
+    if (signatureFile) {
+      formData.append('prescriptionSignature', signatureFile);
+    } else if (currentPrescriptionSignatureUri) {
+      formData.append('prescriptionSignatureUrl', currentPrescriptionSignatureUri);
+    }
+    if (sealFile) {
+      formData.append('prescriptionSeal', sealFile);
+    } else if (currentPrescriptionSealUri) {
+      formData.append('prescriptionSealUrl', currentPrescriptionSealUri);
+    }
+    const token = await getAuthToken();
+    const response = await axios.patch(`${API_BASE_URL}/api/auth/update/${encodeURIComponent(profileId)}`, formData, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    const updatedProfile = response.data?.user;
+    if (updatedProfile) {
+      setCurrentCounselor(updatedProfile);
+      AsyncStorage.setItem('userData', JSON.stringify(updatedProfile)).catch(() => {});
+      AsyncStorage.setItem('counselor', JSON.stringify(updatedProfile)).catch(() => {});
+    }
+    return {
+      signatureUrl: getPrescriptionAssetUri(updatedProfile, ['prescriptionSignature', 'prescriptionSignatureUrl']) || currentPrescriptionSignatureUri,
+      sealUrl: getPrescriptionAssetUri(updatedProfile, ['prescriptionSeal', 'prescriptionSealUrl']) || currentPrescriptionSealUri,
+    };
   };
 
   const handleOpenPrescription = () => {
@@ -1071,6 +1165,22 @@ const SMSInput = ({ navigation, route }) => {
       Alert.alert('Medicine details required', 'Please fill medicine name, dosage, time of day, and when to take.');
       return;
     }
+    let signatureFile = prescriptionSignatureFile;
+    let sealFile = prescriptionSealFile;
+    if (!currentPrescriptionSignatureUri && !signatureFile) {
+      signatureFile = await pickPrescriptionAsset('signature');
+      if (!signatureFile) {
+        Alert.alert('Signature required', 'Please add consultant signature before sending this prescription.');
+        return;
+      }
+    }
+    if (!currentPrescriptionSealUri && !sealFile) {
+      sealFile = await pickPrescriptionAsset('seal');
+      if (!sealFile) {
+        Alert.alert('Humaeli seal required', 'Please add Humaeli seal before sending this prescription.');
+        return;
+      }
+    }
 
     try {
       setIssuingPrescription(true);
@@ -1096,20 +1206,7 @@ const SMSInput = ({ navigation, route }) => {
       const validUntil = new Date(
         Date.now() + DEFAULT_PRESCRIPTION_VALID_DAYS * 24 * 60 * 60 * 1000,
       ).toISOString();
-      const signatureUrl = getPrescriptionAssetUri(currentCounselor, [
-        'prescriptionSignature',
-        'prescriptionSignatureUrl',
-        'signature',
-        'signatureImage',
-        'doctorSignature',
-      ]);
-      const sealUrl = getPrescriptionAssetUri(currentCounselor, [
-        'prescriptionSeal',
-        'prescriptionSealUrl',
-        'seal',
-        'stamp',
-        'clinicSeal',
-      ]);
+      const { signatureUrl, sealUrl } = await savePrescriptionAssetsToProfile({ signatureFile, sealFile });
       const formData = new FormData();
       formData.append('problem', prescriptionProblem.trim());
       formData.append('instructions', prescriptionInstructions.trim());
@@ -2342,6 +2439,53 @@ const SMSInput = ({ navigation, route }) => {
                     multiline
                   />
 
+                  <View style={styles.prescriptionAssetSection}>
+                    <Text style={styles.prescriptionAssetTitle}>Prescription authorization *</Text>
+                    <Text style={styles.prescriptionAssetHelp}>
+                      Add consultant signature and Humaeli seal before sending.
+                    </Text>
+                    <View style={styles.prescriptionAssetRow}>
+                      {[
+                        {
+                          key: 'signature',
+                          title: 'Signature',
+                          icon: 'create-outline',
+                          uri: currentPrescriptionSignatureUri,
+                        },
+                        {
+                          key: 'seal',
+                          title: 'Humaeli seal',
+                          icon: 'ribbon-outline',
+                          uri: currentPrescriptionSealUri,
+                        },
+                      ].map((asset) => (
+                        <TouchableOpacity
+                          key={asset.key}
+                          style={styles.prescriptionAssetTile}
+                          onPress={() => pickPrescriptionAsset(asset.key)}
+                          activeOpacity={0.82}
+                          disabled={issuingPrescription}
+                        >
+                          {asset.uri ? (
+                            <Image
+                              source={{ uri: asset.uri }}
+                              style={styles.prescriptionAssetPreview}
+                              resizeMode="contain"
+                            />
+                          ) : (
+                            <View style={styles.prescriptionAssetEmpty}>
+                              <Ionicons name={asset.icon} size={24} color={DOCTOR.primary} />
+                            </View>
+                          )}
+                          <Text style={styles.prescriptionAssetName}>{asset.title}</Text>
+                          <Text style={styles.prescriptionAssetActionText}>
+                            {asset.uri ? 'Change' : 'Add image'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
                   <View style={styles.prescriptionActions}>
                     <TouchableOpacity style={styles.rxCancelBtn} onPress={() => setShowPrescriptionModal(false)} disabled={issuingPrescription}>
                       <Text style={styles.rxCancelText}>Cancel</Text>
@@ -3021,6 +3165,68 @@ const styles = StyleSheet.create({
     color: DOCTOR.primary,
     fontSize: 13,
     fontWeight: '900',
+  },
+  prescriptionAssetSection: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  prescriptionAssetTitle: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  prescriptionAssetHelp: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  prescriptionAssetRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  prescriptionAssetTile: {
+    flex: 1,
+    minHeight: 124,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+  },
+  prescriptionAssetPreview: {
+    width: '100%',
+    height: 54,
+    marginBottom: 8,
+  },
+  prescriptionAssetEmpty: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#EAF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  prescriptionAssetName: {
+    color: '#0F172A',
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  prescriptionAssetActionText: {
+    color: DOCTOR.primary,
+    fontSize: 11,
+    fontWeight: '900',
+    marginTop: 3,
+    textAlign: 'center',
   },
   prescriptionActions: {
     flexDirection: 'row',

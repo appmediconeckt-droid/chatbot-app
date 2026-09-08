@@ -865,8 +865,9 @@ export default function CounselorDashboard() {
   const insets = useSafeAreaInsets();
   const MOBILE_HEADER_BAR_HEIGHT = 60;
   const MOBILE_BOTTOM_NAV_BAR_HEIGHT = 66;
+  const androidStatusBarInset = StatusBar.currentHeight || 24;
   const topInset = Platform.OS === "android"
-    ? Math.min(Math.max(insets.top, 8), 16)
+    ? Math.max(insets.top, androidStatusBarInset)
     : insets.top;
   const mobileHeaderHeight = topInset + MOBILE_HEADER_BAR_HEIGHT;
   const dashboardBottomInset = Math.max(insets.bottom, 0);
