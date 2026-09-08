@@ -1,7 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import { Text, View } from 'react-native';
+import { Text } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { translationService } from '../i18n/translationService';
+
+const mentionRegex = /@([^.,\n]+?)(?=\s+for\b|$|[.,])/gi;
+const mentionLinkStyle = { fontWeight: '900', textDecorationLine: 'underline' };
+
+const splitMentions = (value) => {
+  const source = String(value || '');
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  mentionRegex.lastIndex = 0;
+  while ((match = mentionRegex.exec(source)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', value: source.slice(lastIndex, match.index) });
+    }
+    parts.push({ type: 'mention', value: match[0], name: match[1].trim() });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < source.length) {
+    parts.push({ type: 'text', value: source.slice(lastIndex) });
+  }
+  return parts.length ? parts : [{ type: 'text', value: source }];
+};
 
 /**
  * Auto-translating message bubble for chat
@@ -12,6 +36,7 @@ export const TranslatedMessageBubble = ({
   isUser,
   style,
   numberOfLines,
+  onMentionPress,
 }) => {
   const { i18n } = useTranslation();
   const [translatedText, setTranslatedText] = useState(text);
@@ -51,9 +76,25 @@ export const TranslatedMessageBubble = ({
     translate();
   }, [text, i18n.language]);
 
+  const mentionParts = onMentionPress ? splitMentions(translatedText) : null;
+
   return (
     <Text style={style} numberOfLines={numberOfLines}>
-      {translatedText}
+      {mentionParts
+        ? mentionParts.map((part, index) => (
+            part.type === 'mention' ? (
+              <Text
+                key={`${part.value}-${index}`}
+                style={[style, mentionLinkStyle]}
+                onPress={() => onMentionPress(part.name)}
+              >
+                {part.value}
+              </Text>
+            ) : (
+              <Text key={`${part.value}-${index}`}>{part.value}</Text>
+            )
+          ))
+        : translatedText}
     </Text>
   );
 };

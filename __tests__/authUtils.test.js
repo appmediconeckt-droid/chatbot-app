@@ -61,6 +61,7 @@ describe('postPublicAuthEndpoint', () => {
   });
 
 <<<<<<< HEAD
+<<<<<<< HEAD
   it('keeps non-OTP public auth endpoints on the normal timeout', async () => {
     axios.post.mockResolvedValue({
       status: 200,
@@ -107,6 +108,8 @@ describe('postPublicAuthEndpoint', () => {
     expect(axios.post.mock.calls[1][0]).toContain('devtunnels.ms/api/auth/send-email-otp');
 =======
 <<<<<<< HEAD
+=======
+>>>>>>> a9bdbfda84b78e1a5d64df19c7404ceb2913c903
   it('does not repeat an OTP POST after a network failure', async () => {
     const networkError = new Error('Network Error');
     networkError.code = 'ERR_NETWORK';
@@ -119,7 +122,8 @@ describe('postPublicAuthEndpoint', () => {
     });
 
     expect(axios.post).toHaveBeenCalledTimes(1);
-=======
+  });
+
   it('retries verify-email-otp when the live backend briefly reports no OTP store', async () => {
     axios.post
       .mockResolvedValueOnce({
@@ -139,7 +143,6 @@ describe('postPublicAuthEndpoint', () => {
 
     expect(response.data.success).toBe(true);
     expect(axios.post).toHaveBeenCalledTimes(2);
->>>>>>> b3fce7d1132e69c969e7635c631705bab3f7da0c
   });
 });
 

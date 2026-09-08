@@ -376,11 +376,11 @@ const PatientProfile = ({ onProfileUpdate }) => {
     setIsEditing(true);
   };
 
-  const showNotificationMessage = (message, type) => {
+  const showNotificationMessage = (message, type, duration = 3000) => {
     setShowNotification({ show: true, message, type });
     setTimeout(() => {
       setShowNotification({ show: false, message: "", type: "" });
-    }, 3000);
+    }, duration);
   };
 
   // Upload a generated avatar URL immediately.
@@ -586,52 +586,260 @@ const PatientProfile = ({ onProfileUpdate }) => {
     }
   };
 
-  const handleSaveProfile = async () => {
-    if (!emailReady) {
-      showNotificationMessage("Verify your new email via OTP first", "error");
-      return;
-    }
-    const dateOfBirth = toDateOnlyString(editFormData.dateOfBirth);
-    const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
-    if (!dateOfBirth || calculatedAge === null) {
-      showNotificationMessage("Select a valid date of birth", "error");
-      return;
-    }
+  const showValidationWarning = (title, message) => {
+    showNotificationMessage(`${title}: ${message}`, "warning", 4500);
+  };
+
+  const validateProfileBeforeSave = () => {
+    const fullName = String(editFormData.name || "").trim();
+    const email = String(editFormData.email || "").trim();
+    const primaryPhone = String(editFormData.phone || "").trim();
     const normalizedPhone = normalizeLocalPhoneNumber(
-      editFormData.phone || "",
+      primaryPhone,
       editFormData.phoneCountryCode,
     );
-    if (!isValidLocalPhoneNumber(normalizedPhone, editFormData.phoneCountryCode)) {
-      showNotificationMessage(`Phone number must be ${getPhoneLengthLabel(editFormData.phoneCountryCode)} digits`, "error");
-      return;
-    }
+    const dateOfBirth = toDateOnlyString(editFormData.dateOfBirth);
+    const calculatedAge = calculateAgeFromDateOfBirth(dateOfBirth);
+    const emergency = editFormData.emergencyContact || {};
+    const emergencyName = String(emergency.name || "").trim();
+    const emergencyRelation = String(emergency.relation || "").trim();
+    const emergencyRawPhone = String(emergency.phone || "").trim();
     const emergencyPhone = normalizeLocalPhoneNumber(
-      editFormData.emergencyContact.phone || "",
-      editFormData.emergencyContact.phoneCountryCode,
+      emergencyRawPhone,
+      emergency.phoneCountryCode,
     );
-    if (
-      emergencyPhone &&
-      !isValidLocalPhoneNumber(emergencyPhone, editFormData.emergencyContact.phoneCountryCode)
-    ) {
-      showNotificationMessage(
-        `Emergency contact phone must be ${getPhoneLengthLabel(editFormData.emergencyContact.phoneCountryCode)} digits`,
-        "error",
+
+    if (!fullName) {
+      return {
+        valid: false,
+        title: "Name required",
+        message: "Please enter your full name before saving your profile.",
+      };
+    }
+
+    if (!dateOfBirth || calculatedAge === null) {
+      return {
+        valid: false,
+        title: "Date of birth required",
+        message: "Please select a valid date of birth before saving your profile.",
+      };
+    }
+
+    if (calculatedAge < 13 || calculatedAge > 120) {
+      return {
+        valid: false,
+        title: "Check date of birth",
+        message: "Please enter a valid date of birth. Age must be between 13 and 120.",
+      };
+    }
+
+    if (!email) {
+      return {
+        valid: false,
+        title: "Email required",
+        message: "Please enter your email address before saving your profile.",
+      };
+    }
+
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      return {
+        valid: false,
+        title: "Invalid email",
+        message: "Please enter a valid email address.",
+      };
+    }
+
+    if (!primaryPhone) {
+      return {
+        valid: false,
+        title: "Phone number required",
+        message: `Please enter your ${getPhoneLengthLabel(editFormData.phoneCountryCode)} digit phone number.`,
+      };
+    }
+
+    if (!isValidLocalPhoneNumber(normalizedPhone, editFormData.phoneCountryCode)) {
+      return {
+        valid: false,
+        title: "Invalid phone number",
+        message: `Please enter a valid ${getPhoneLengthLabel(editFormData.phoneCountryCode)} digit phone number.`,
+      };
+    }
+
+    if (!emergencyName) {
+      return {
+        valid: false,
+        title: "Emergency contact required",
+        message: "Please enter emergency contact name before saving your profile.",
+      };
+    }
+
+    if (!emergencyRelation) {
+      return {
+        valid: false,
+        title: "Emergency relation required",
+        message: "Please enter your relation with the emergency contact.",
+      };
+    }
+
+    if (!emergencyRawPhone) {
+      return {
+        valid: false,
+        title: "Emergency phone required",
+        message: `Please enter emergency contact ${getPhoneLengthLabel(emergency.phoneCountryCode)} digit phone number.`,
+      };
+    }
+
+    if (!isValidLocalPhoneNumber(emergencyPhone, emergency.phoneCountryCode)) {
+      return {
+        valid: false,
+        title: "Invalid emergency phone",
+        message: `Emergency contact phone must be ${getPhoneLengthLabel(emergency.phoneCountryCode)} digits.`,
+      };
+    }
+
+    return {
+      valid: true,
+      dateOfBirth,
+      calculatedAge,
+      normalizedPhone,
+      emergencyPhone,
+    };
+  };
+
+  const normalizeProfileText = (value) => String(value || "").trim();
+  const normalizeProfileListText = (value) =>
+    String(value || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .join(", ");
+
+  const hasProfileChanges = (validation) => {
+    const savedPrimaryPhone = splitInternationalPhoneNumber(
+      patientData.personalInfo.phone || "",
+      patientData.personalInfo.phoneCountryCode || "+91",
+    );
+    const savedEmergencyPhone = splitInternationalPhoneNumber(
+      patientData.personalInfo.emergencyContact?.phone || "",
+      patientData.personalInfo.emergencyContact?.phoneCountryCode || "+91",
+    );
+    const savedDateOfBirth = toDateOnlyString(patientData.personalInfo.dateOfBirth);
+    const savedAge =
+      calculateAgeFromDateOfBirth(savedDateOfBirth) ??
+      patientData.personalInfo.age ??
+      "";
+    const saved = {
+      name: normalizeProfileText(patientData.personalInfo.name),
+      anonymous: normalizeProfileText(patientData.personalInfo.anonymous),
+      email: normalizeProfileText(patientData.personalInfo.email).toLowerCase(),
+      phone: normalizeLocalPhoneNumber(savedPrimaryPhone.phoneNumber, savedPrimaryPhone.countryCode),
+      phoneCountryCode: savedPrimaryPhone.countryCode,
+      age: String(savedAge),
+      gender: normalizeGender(patientData.personalInfo.gender),
+      dateOfBirth: savedDateOfBirth || "",
+      bloodGroup: normalizeBloodGroup(patientData.personalInfo.bloodGroup),
+      address: {
+        line1: normalizeProfileText(patientData.personalInfo.address?.line1),
+        line2: normalizeProfileText(patientData.personalInfo.address?.line2),
+        city: normalizeProfileText(patientData.personalInfo.address?.city),
+        state: normalizeProfileText(patientData.personalInfo.address?.state),
+        pincode: normalizeProfileText(patientData.personalInfo.address?.pincode),
+        country: normalizeProfileText(patientData.personalInfo.address?.country || "India"),
+      },
+      emergencyContact: {
+        name: normalizeProfileText(patientData.personalInfo.emergencyContact?.name),
+        relation: normalizeProfileText(patientData.personalInfo.emergencyContact?.relation),
+        phone: normalizeLocalPhoneNumber(savedEmergencyPhone.phoneNumber, savedEmergencyPhone.countryCode),
+        phoneCountryCode: savedEmergencyPhone.countryCode,
+      },
+      height: normalizeProfileText(patientData.medicalInfo.height),
+      weight: normalizeProfileText(patientData.medicalInfo.weight),
+      allergies: Array.isArray(patientData.medicalInfo.allergies)
+        ? patientData.medicalInfo.allergies.map((item) => normalizeProfileText(item)).filter(Boolean).join(", ")
+        : normalizeProfileListText(patientData.medicalInfo.allergies),
+      chronicConditions: Array.isArray(patientData.medicalInfo.chronicConditions)
+        ? patientData.medicalInfo.chronicConditions.map((item) => normalizeProfileText(item)).filter(Boolean).join(", ")
+        : normalizeProfileListText(patientData.medicalInfo.chronicConditions),
+      currentMedications: Array.isArray(patientData.medicalInfo.currentMedications)
+        ? patientData.medicalInfo.currentMedications.map((item) => normalizeProfileText(item)).filter(Boolean).join(", ")
+        : normalizeProfileListText(patientData.medicalInfo.currentMedications),
+    };
+
+    const current = {
+      name: normalizeProfileText(editFormData.name),
+      anonymous: normalizeProfileText(editFormData.anonymous),
+      email: normalizeProfileText(editFormData.email).toLowerCase(),
+      phone: validation.normalizedPhone,
+      phoneCountryCode: editFormData.phoneCountryCode,
+      age: validation.calculatedAge.toString(),
+      gender: normalizeGender(editFormData.gender),
+      dateOfBirth: validation.dateOfBirth,
+      bloodGroup: normalizeBloodGroup(editFormData.bloodGroup),
+      address: {
+        line1: normalizeProfileText(editFormData.address.line1),
+        line2: normalizeProfileText(editFormData.address.line2),
+        city: normalizeProfileText(editFormData.address.city),
+        state: normalizeProfileText(editFormData.address.state),
+        pincode: normalizeProfileText(editFormData.address.pincode),
+        country: normalizeProfileText(editFormData.address.country || "India"),
+      },
+      emergencyContact: {
+        name: normalizeProfileText(editFormData.emergencyContact.name),
+        relation: normalizeProfileText(editFormData.emergencyContact.relation),
+        phone: validation.emergencyPhone,
+        phoneCountryCode: editFormData.emergencyContact.phoneCountryCode,
+      },
+      height: normalizeProfileText(editFormData.height),
+      weight: normalizeProfileText(editFormData.weight),
+      allergies: normalizeProfileListText(editFormData.allergies),
+      chronicConditions: normalizeProfileListText(editFormData.chronicConditions),
+      currentMedications: normalizeProfileListText(editFormData.currentMedications),
+    };
+
+    const avatarChanged =
+      Boolean(profileImage) &&
+      typeof profileImage === "string" &&
+      toImageUri(profileImage) !== toImageUri(patientData.personalInfo.profilePhoto);
+
+    return avatarChanged || JSON.stringify(current) !== JSON.stringify(saved);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!emailReady) {
+      showValidationWarning(
+        "Email verification required",
+        "Please verify your new email with OTP before saving your profile.",
       );
       return;
     }
+
+    const validation = validateProfileBeforeSave();
+    if (!validation.valid) {
+      showValidationWarning(validation.title, validation.message);
+      return;
+    }
+
+    if (!hasProfileChanges(validation)) {
+      showValidationWarning(
+        "No changes to save",
+        "Please update any profile detail before tapping Save Changes.",
+      );
+      return;
+    }
+
     try {
       setLoading(true);
       const formData = new FormData();
 
       formData.append("fullName", editFormData.name);
       formData.append("anonymous", editFormData.anonymous || "");
-      formData.append("email", editFormData.email);
-      formData.append("phoneNumber", normalizedPhone);
+      formData.append("email", String(editFormData.email || "").trim());
+      formData.append("phoneNumber", validation.normalizedPhone);
       formData.append("phoneCountryCode", editFormData.phoneCountryCode);
-      formData.append("age", calculatedAge.toString());
+      formData.append("age", validation.calculatedAge.toString());
       formData.append("gender", editFormData.gender);
       formData.append("bloodGroup", editFormData.bloodGroup);
-      formData.append("dateOfBirth", dateOfBirth);
+      formData.append("dateOfBirth", validation.dateOfBirth);
 
       const addressObj = {
         ...editFormData.address,
@@ -642,7 +850,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
         "emergencyContact",
         JSON.stringify({
           ...editFormData.emergencyContact,
-          phone: emergencyPhone,
+          phone: validation.emergencyPhone,
         })
       );
 
@@ -756,6 +964,12 @@ const PatientProfile = ({ onProfileUpdate }) => {
     return (
       <View style={styles.notification}>
         {showNotification.type === "success" ? (
+          <LinearGradient
+            colors={PATIENT_GRADIENT}
+            {...GRADIENT_DIRECTION}
+            style={styles.notificationFill}
+          />
+        ) : showNotification.type === "warning" ? (
           <LinearGradient
             colors={PATIENT_GRADIENT}
             {...GRADIENT_DIRECTION}
@@ -1302,7 +1516,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                 <Text style={styles.sectionTitle}>{t('profile:emergencyContact')}</Text>
                 <View style={styles.formRow}>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('auth:name')}</Text>
+                    <Text style={styles.formLabel}>{t('auth:name')} *</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.emergencyContact.name}
@@ -1310,7 +1524,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                     />
                   </View>
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('profile:relation')}</Text>
+                    <Text style={styles.formLabel}>{t('profile:relation')} *</Text>
                     <TextInput
                       style={styles.input}
                       value={editFormData.emergencyContact.relation}
@@ -1319,7 +1533,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
                   </View>
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>{t('auth:phone')}</Text>
+                  <Text style={styles.formLabel}>{t('auth:phone')} *</Text>
                   <CountryPhoneInput
                     value={editFormData.emergencyContact.phone}
                     countryCode={editFormData.emergencyContact.phoneCountryCode}
@@ -1361,6 +1575,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
             </TouchableOpacity>
           </View>
         </View>
+        {renderNotification()}
       </View>
     </Modal>
   );

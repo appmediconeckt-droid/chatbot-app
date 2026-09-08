@@ -19,14 +19,16 @@ import {
   SUPPORT_PHONE_DISPLAY,
   SUPPORT_PHONE_TEL,
 } from '../../../../../../config';
+import {
+  APP_VERSION,
+  LAST_UPDATED,
+  PLAY_STORE_ID,
+  PLAY_STORE_URL,
+} from '../../../../../../constants/appInfo';
 
 // India's unified emergency number (police / ambulance / fire). Was '911',
 // which simply does not connect from an Indian network.
 const EMERGENCY_PHONE = '112';
-const APP_VERSION = '2.1.6';
-const LAST_UPDATED = 'July 2026';
-const PLAY_STORE_ID = 'com.mindcrawller.humaeli';
-const PLAY_STORE_URL = `https://play.google.com/store/apps/details?id=com.mindcrawller.humaeli`;
 // Real, region-aware directory of verified crisis lines. Deliberately not a
 // hardcoded list of numbers - a wrong helpline number is worse than none.
 const HELPLINE_DIRECTORY = 'https://findahelpline.com';
@@ -161,7 +163,7 @@ const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
   const handleCheckForUpdates = () => {
     // market:// opens the Play Store app directly; the https URL is the fallback
     // when the store app isn't installed.
-    Linking.openURL(`https://play.google.com/store/apps/details?id=com.mindcrawller.humaeli`).catch(() => {
+    Linking.openURL(`market://details?id=${PLAY_STORE_ID}`).catch(() => {
       Linking.openURL(PLAY_STORE_URL).catch(() => {
         Alert.alert('Check for Updates', `You are on version ${APP_VERSION}. Unable to open the store.`);
       });

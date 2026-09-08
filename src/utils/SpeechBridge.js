@@ -1,4 +1,4 @@
-import { NativeModules, NativeEventEmitter, Platform } from 'react-native';
+import { NativeModules, NativeEventEmitter } from 'react-native';
 
 const { SpeechModule } = NativeModules;
 
@@ -55,8 +55,22 @@ export async function destroyRecognizer() {
   return SpeechModule.destroyRecognizer();
 }
 
+export function isSpeechModuleAvailable() {
+  return !!SpeechModule;
+}
+
+export async function isRecognitionAvailable() {
+  if (!SpeechModule?.isRecognitionAvailable) return false;
+  return SpeechModule.isRecognitionAvailable();
+}
+
 export function onSttResult(cb) {
   const sub = getEmitter()?.addListener('stt-result', cb);
+  return () => sub?.remove();
+}
+
+export function onSttPartialResult(cb) {
+  const sub = getEmitter()?.addListener('stt-partial-result', cb);
   return () => sub?.remove();
 }
 

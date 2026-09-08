@@ -58,6 +58,7 @@ const UserAccountSettings = ({ onDeleteAccount }) => {
   const [newPasswordAdd, setNewPasswordAdd] = useState('');
   const [confirmPasswordAdd, setConfirmPasswordAdd] = useState('');
   const [showNewPasswordAdd, setShowNewPasswordAdd] = useState(false);
+  const [showConfirmPasswordAdd, setShowConfirmPasswordAdd] = useState(false);
 
   // Change password
   const [currentPassword, setCurrentPassword] = useState('');
@@ -519,10 +520,17 @@ const UserAccountSettings = ({ onDeleteAccount }) => {
                         style={s.input}
                         placeholder="••••••••••••"
                         placeholderTextColor="#cbd5e1"
-                        secureTextEntry
+                        secureTextEntry={!showConfirmPasswordAdd}
                         value={confirmPasswordAdd}
                         onChangeText={setConfirmPasswordAdd}
                       />
+                      <TouchableOpacity onPress={() => setShowConfirmPasswordAdd(!showConfirmPasswordAdd)}>
+                        <Ionicons
+                          name={showConfirmPasswordAdd ? 'eye' : 'eye-off'}
+                          size={16}
+                          color="#94a3b8"
+                        />
+                      </TouchableOpacity>
                     </View>
                   </View>
 

@@ -28,11 +28,73 @@ import LinearGradient from "react-native-linear-gradient";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import PATIENT from "../../../../../../theme/palette";
 import ZoomableImageViewer from "../../../../../../components/common/ZoomableImageViewer";
+import MicButton from "../../../../../../components/MicButton";
+import { useSpeechToText } from "../../../../../../hooks/useSpeechToText";
 
 // Patient green theme (from Figma).
 const BRAND_GRADIENT = [PATIENT.gradientFrom, PATIENT.gradientTo];
 const GRADIENT_START = { x: 0, y: 0 };
 const GRADIENT_END = { x: 1, y: 1 };
+
+const normalizePhotoUrl = (photo) => {
+  const raw = typeof photo === 'object' && photo
+    ? photo.secure_url || photo.url || photo.path || null
+    : photo;
+  if (!raw || typeof raw !== 'string') return null;
+  if (raw.includes('ui-avatars.com') || raw.includes('dicebear') || raw.includes('gravatar.com')) {
+    return null;
+  }
+  if (/^(https?:|data:|file:|content:)/i.test(raw)) return raw;
+  if (raw.startsWith('/')) return `${API_BASE_URL}${raw}`;
+  return `${API_BASE_URL}/${raw}`;
+};
+
+const normalizeCounselorForChat = (raw = {}) => {
+  if (!raw) return null;
+  const id = raw.id || raw._id || raw.counselorId || raw.userId || null;
+  const name = raw.name || raw.fullName || raw.displayName || raw.counselorName || '';
+  const photo = normalizePhotoUrl(
+    raw.profilePhoto || raw.avatar || raw.avatarUrl || raw.profilePic || raw.photo || raw.counselorPhoto,
+  );
+
+  if (!id && !name && !photo) return null;
+
+  return {
+    ...raw,
+    id,
+    _id: raw._id || id,
+    name: name || 'Consultant',
+    fullName: raw.fullName || name || 'Consultant',
+    specialization: raw.specialization || raw.specializations || '',
+    online: Boolean(raw.isOnline ?? raw.online ?? false),
+    isOnline: Boolean(raw.isOnline ?? raw.online ?? false),
+    avatar: photo,
+    avatarUrl: photo,
+    avatarType: photo ? 'image' : 'text',
+    profilePhoto: photo,
+    phoneNumber: raw.phoneNumber || raw.phone || null,
+  };
+};
+
+const getStreamRoomId = (...sources) => {
+  for (const source of sources) {
+    const roomId =
+      source?.streamCallId ||
+      source?.stream_call_id ||
+      source?.streamId ||
+      source?.roomId ||
+      source?.room_id ||
+      source?.channelId ||
+      source?.call?.streamCallId ||
+      source?.call?.roomId ||
+      source?.data?.streamCallId ||
+      source?.data?.roomId ||
+      source?.callData?.streamCallId ||
+      source?.callData?.roomId;
+    if (roomId) return roomId;
+  }
+  return '';
+};
 // Conditionally import RNFS only on native platforms
 let RNFS;
 if (Platform.OS !== 'web') {
@@ -49,6 +111,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   describeCall,
 } from "../../../../../../utils/chatCallHistory";
+import {
+  getNotificationOnlyCallMessage,
+  isNotificationOnlyCallResponse,
+} from "../../../../../../utils/callRequestStatus";
 
 // Professional Incoming Call Modal Component with Serenity design
 const IncomingCallModal = ({
@@ -72,7 +138,6 @@ const IncomingCallModal = ({
     if (onAcceptCall && callData) {
       try {
         await onAcceptCall(callData.callId);
-        onClose();
       } catch (error) {
         console.error("Error accepting call:", error);
       } finally {
@@ -229,19 +294,20 @@ const ChatBox = () => {
 
   const [currentCounselor, setCurrentCounselor] = useState(() => {
     if (initialCounselor) {
-      return initialCounselor;
+      return normalizeCounselorForChat(initialCounselor) || initialCounselor;
     }
-    return {
-      id: counselorId || null,
-      name: "Dr. Sarah Mitchell",
-      specialization: "Cognitive Behavioral Therapist",
-      online: false,
-      avatar: null,
-      avatarType: "text",
-      profilePhoto: null,
-      phoneNumber: "+91 98765 43215",
-    };
+    return counselorId ? normalizeCounselorForChat({ id: counselorId }) : null;
   });
+
+  const handleMentionPress = useCallback((name) => {
+    const cleanName = String(name || '').replace(/^@/, '').trim();
+    if (!cleanName) return;
+    navigation.navigate('UserDashboard', {
+      openTab: 'Counselor',
+      targetCounselor: cleanName,
+      openCounselorRequest: true,
+    });
+  }, [navigation]);
 
   // Launched from the appointment tab: the call already exists server-side, so
   // just open the matching modal. Guarded by a ref so a re-render can't reopen a
@@ -257,11 +323,13 @@ const ChatBox = () => {
       getProfilePhotoUrl(receiver) ||
       getProfilePhotoUrl(currentCounselor) ||
       null;
+    const streamRoomId = getStreamRoomId(launchCallData);
 
     setSelectedCall({
       id: launchCallData?.id || launchCallData?._id,
       callId: launchCallData?.callId || launchCallData?.id || launchCallData?._id,
-      roomId: launchCallData?.roomId,
+      roomId: streamRoomId,
+      streamCallId: streamRoomId,
       name: receiver?.name || currentCounselor?.name || "Consultant",
       type: launchCallType,
       callType: launchCallType,
@@ -308,6 +376,15 @@ const ChatBox = () => {
   }, [showIncomingModal, startIncomingRing, stopIncomingRing]);
 
   const [newMessage, setNewMessage] = useState("");
+  const {
+    isListening: isVoiceTyping,
+    transcript: voiceTranscript,
+    error: voiceTypingError,
+    isAvailable: voiceTypingAvailable,
+    startListening: startVoiceTyping,
+    stopListening: stopVoiceTyping,
+    clearTranscript: clearVoiceTranscript,
+  } = useSpeechToText();
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [showOptions, setShowOptions] = useState(false);
   const [confirmState, setConfirmState] = useState({ visible: false, title: '', message: '', onConfirm: null, onCancel: null, destructive: false });
@@ -334,6 +411,7 @@ const ChatBox = () => {
 
   const flatListRef = useRef(null);
   const messageInputRef = useRef(null);
+  const voiceTypingBaseRef = useRef("");
   const keyboardVisibleRef = useRef(false);
   const sendFocusGuardRef = useRef(false);
   const focusRestoreTimersRef = useRef([]);
@@ -625,34 +703,33 @@ const ChatBox = () => {
 
       if (!response.data?.success) throw new Error(response.data?.error || "Failed to accept call");
 
-      let detailedCall = null;
-      try {
-        const detailsResponse = await axios.get(`${API_BASE_URL}/api/video/calls/${callId}/details`, {
-          params: { userId, userType: "user" },
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        detailedCall = detailsResponse.data?.call || null;
-      } catch (detailsError) {
-        console.warn("Could not fetch accepted call details:", detailsError);
-      }
+      const acceptedPayload =
+        response.data?.call ||
+        response.data?.callData ||
+        response.data?.data?.call ||
+        response.data?.data?.callData ||
+        null;
 
       const incomingType = String(incomingCallData.callType || "video").toLowerCase();
       const modalType = incomingType === "audio" ? "voice" : incomingType;
 
+      const streamRoomId = getStreamRoomId(response.data, acceptedPayload, incomingCallData);
+      const initiator = acceptedPayload?.initiator || incomingCallData?.from || {};
       const acceptedCallData = {
-        id: detailedCall?.id || callId,
+        id: acceptedPayload?.id || acceptedPayload?._id || callId,
         callId,
-        roomId: response.data.roomId || detailedCall?.roomId || incomingCallData.roomId,
-        name: detailedCall?.initiator?.displayName || detailedCall?.initiator?.fullName || incomingCallData.name || "Consultant",
-        displayName: detailedCall?.initiator?.displayName || detailedCall?.initiator?.fullName || incomingCallData.name || "Consultant",
+        roomId: streamRoomId,
+        streamCallId: streamRoomId,
+        name: initiator?.displayName || initiator?.fullName || incomingCallData.name || "Consultant",
+        displayName: initiator?.displayName || initiator?.fullName || incomingCallData.name || "Consultant",
         type: modalType,
         callType: modalType,
-        profilePic: detailedCall?.initiator?.profilePhoto || incomingCallData.image || null,
-        phoneNumber: detailedCall?.initiator?.phoneNumber || "",
-        status: response.data.status || detailedCall?.status || "active",
-        apiCallData: detailedCall,
-        initiator: detailedCall?.initiator,
-        receiver: detailedCall?.receiver,
+        profilePic: initiator?.profilePhoto || incomingCallData.image || null,
+        phoneNumber: initiator?.phoneNumber || "",
+        status: response.data.status || acceptedPayload?.status || "active",
+        apiCallData: acceptedPayload,
+        initiator: acceptedPayload?.initiator || incomingCallData?.from,
+        receiver: acceptedPayload?.receiver,
         currentUserId: userId,
         currentUserType: "user",
         isIncoming: true,
@@ -713,6 +790,31 @@ const ChatBox = () => {
       const response = await axios.get(`${API_BASE_URL}/api/chat/chat/${apiChatId}/messages`, {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
+
+      const responseChat =
+        response.data?.chat ||
+        response.data?.data?.chat ||
+        null;
+      if (responseChat) {
+        setCurrentChat((prev) => ({
+          ...(prev || {}),
+          id: responseChat.id || responseChat._id || prev?.id,
+          _id: responseChat._id || responseChat.id || prev?._id,
+          chatId: responseChat.chatId || apiChatId,
+          status: responseChat.status || prev?.status,
+          counselorId:
+            responseChat.counselorId ||
+            responseChat.counselor?.id ||
+            responseChat.counselor?._id ||
+            prev?.counselorId,
+          counselor: responseChat.counselor || prev?.counselor,
+          user: responseChat.user || prev?.user,
+        }));
+        const serverCounselor = normalizeCounselorForChat(responseChat.counselor);
+        if (serverCounselor) {
+          setCurrentCounselor(serverCounselor);
+        }
+      }
 
       const messagesArray =
         response.data?.messages ||
@@ -1201,11 +1303,20 @@ const ChatBox = () => {
       }, { headers: { "Content-Type": "application/json", Authorization: token ? `Bearer ${token}` : "" } });
 
       if (response.data && response.data.success) {
+        if (isNotificationOnlyCallResponse(response.data)) {
+          const message = getNotificationOnlyCallMessage(response.data, currentCounselor?.name || "Consultant");
+          setCallError(null);
+          Alert.alert("Call request sent", message);
+          return;
+        }
+
         const receiverProfilePhoto = response.data.callData?.receiver?.profilePhoto || getProfilePhotoUrl(currentCounselor) || currentCounselor?.avatar || currentCounselor?.name?.charAt(0) || "👤";
+        const streamRoomId = getStreamRoomId(response.data, response.data.callData);
         const callData = {
           id: response.data.callData?.id,
           callId: response.data.callId,
-          roomId: response.data.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: response.data.callData?.receiver?.name || currentCounselor.name || "Consultant",
           type: "video",
           callType: "video",
@@ -1257,11 +1368,20 @@ const ChatBox = () => {
       }, { headers: { "Content-Type": "application/json", Authorization: token ? `Bearer ${token}` : "" } });
 
       if (response.data && response.data.success) {
+        if (isNotificationOnlyCallResponse(response.data)) {
+          const message = getNotificationOnlyCallMessage(response.data, currentCounselor?.name || "Consultant");
+          setCallError(null);
+          Alert.alert("Call request sent", message);
+          return;
+        }
+
         const receiverProfilePhoto = response.data.callData?.receiver?.profilePhoto || getProfilePhotoUrl(currentCounselor) || currentCounselor?.avatar || currentCounselor?.name?.charAt(0) || "👤";
+        const streamRoomId = getStreamRoomId(response.data, response.data.callData);
         const callData = {
           id: response.data.callData?.id,
           callId: response.data.callId,
-          roomId: response.data.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: response.data.callData?.receiver?.name || currentCounselor.name || "Consultant",
           type: "voice",
           callType: "audio",
@@ -1315,11 +1435,15 @@ const ChatBox = () => {
     const initializeChat = async () => {
       try {
         const savedChats = JSON.parse(await AsyncStorage.getItem("activeChats") || "[]");
-        let chat = savedChats.find(c => c.chatId === chatId) || savedChats.find(c => c.counselorId === counselorId);
+        let chat = savedChats.find(c => c.chatId === chatId) ||
+          savedChats.find(c => c.id === chatMongoId || c._id === chatMongoId) ||
+          savedChats.find(c => c.counselorId === counselorId);
 
         if (chat) {
           setCurrentChat(chat);
-          if (chat.counselor) setCurrentCounselor(chat.counselor);
+          if (chat.counselor) {
+            setCurrentCounselor(normalizeCounselorForChat(chat.counselor) || chat.counselor);
+          }
           if (chat.messages && chat.messages.length > 0) {
             initialLoadDoneRef.current = false;
             shouldAutoScrollRef.current = true;
@@ -1335,8 +1459,8 @@ const ChatBox = () => {
           const newChat = {
             id: Date.now(),
             chatId: chatId || `chat_${Date.now()}`,
-            counselorId: counselorId,
-            counselor: initialCounselor,
+            counselorId: counselorId || initialCounselor?.id || initialCounselor?._id || null,
+            counselor: normalizeCounselorForChat(initialCounselor) || initialCounselor,
             user: initialUser || { name: "User", email: "user@example.com" },
             messages: [],
             unread: false,
@@ -1372,7 +1496,7 @@ const ChatBox = () => {
     // finished). The web ChatBox depends only on these four values too.
     return () => clearTimeout(readyGuard);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [counselorId, chatId, initialCounselor, initialUser]);
+  }, [counselorId, chatId, chatMongoId, initialCounselor, initialUser]);
 
   // Save messages to AsyncStorage
   useEffect(() => {
@@ -1416,6 +1540,27 @@ const ChatBox = () => {
         const socket = await socketService.connect();
         chatSocketRef.current = socket;
         setIsSocketConnected(!!socket?.connected);
+        const currentChatIds = [
+          apiChatId,
+          currentChat?.chatId,
+          currentChat?.id,
+          currentChat?._id,
+        ]
+          .filter(Boolean)
+          .map((id) => String(id));
+
+        const isCurrentChatEvent = (payload = {}) => {
+          const payloadChatIds = [
+            payload.publicChatId,
+            payload.chatId,
+            payload._id,
+            payload.id,
+          ]
+            .filter(Boolean)
+            .map((id) => String(id));
+
+          return payloadChatIds.some((id) => currentChatIds.includes(id));
+        };
 
         const onConnect = () => {
           setIsSocketConnected(true);
@@ -1423,6 +1568,7 @@ const ChatBox = () => {
         };
 
         unsubscribers.push(await socketService.on('connect', onConnect));
+        if (socket.connected) onConnect();
         unsubscribers.push(await socketService.on('disconnect', () => setIsSocketConnected(false)));
 
         unsubscribers.push(await socketService.on('presence-update', ({ userId, isOnline, lastSeen }) => {
@@ -1432,6 +1578,7 @@ const ChatBox = () => {
         }));
 
         unsubscribers.push(await socketService.on('new-message', (messageData) => {
+          if (!isCurrentChatEvent(messageData)) return;
           const userId = resolveCurrentUserId();
           const isOwn = messageData.senderRole === 'user' && String(messageData.senderId) === String(userId);
           const transformedMessage = {
@@ -1475,12 +1622,14 @@ const ChatBox = () => {
           if (userRole !== 'user') setRemoteIsTyping(typing);
         }));
 
-        unsubscribers.push(await socketService.on('messages-read', () => {
+        unsubscribers.push(await socketService.on('messages-read', (payload) => {
+          if (!isCurrentChatEvent(payload)) return;
           setMessages(prev => prev.map(msg => msg.sender === 'user' ? { ...msg, isRead: true } : msg));
         }));
 
-        unsubscribers.push(await socketService.on('chat-status-update', ({ status, chatId: updatedChatId }) => {
-          if (updatedChatId === apiChatId) {
+        unsubscribers.push(await socketService.on('chat-status-update', (payload) => {
+          const { status } = payload || {};
+          if (isCurrentChatEvent(payload)) {
             setChatStatus(status);
             setCurrentChat(prev => prev ? { ...prev, status } : prev);
           }
@@ -1507,7 +1656,7 @@ const ChatBox = () => {
       chatSocketRef.current = null;
       setIsSocketConnected(false);
     };
-  }, [chatId, currentChat?.chatId, getAuthToken, scrollToBottom, resolveCurrentUserId, resolveCounselorId]);
+  }, [chatId, currentChat?.chatId, currentChat?.id, currentChat?._id, getAuthToken, scrollToBottom, resolveCurrentUserId, resolveCounselorId]);
 
   const handleTypingIndicator = useCallback(() => {
     const apiChatId = chatId || currentChat?.chatId;
@@ -1549,6 +1698,34 @@ const ChatBox = () => {
     setNewMessage(text);
     if (text.trim() !== "") handleTypingIndicator();
   };
+
+  useEffect(() => {
+    const spokenText = String(voiceTranscript || "").trim();
+    if (!spokenText) return;
+
+    const baseText = voiceTypingBaseRef.current;
+    const spacer = baseText && !/\s$/.test(baseText) ? " " : "";
+    setNewMessage(`${baseText}${spacer}${spokenText}`);
+    handleTypingIndicator();
+  }, [voiceTranscript, handleTypingIndicator]);
+
+  useEffect(() => {
+    if (voiceTypingError) {
+      console.warn("[Chat Speech-to-Text] error:", voiceTypingError);
+    }
+  }, [voiceTypingError]);
+
+  const handleVoiceTypingPress = useCallback(() => {
+    if (isVoiceTyping) {
+      stopVoiceTyping();
+      return;
+    }
+
+    voiceTypingBaseRef.current = newMessage || "";
+    clearVoiceTranscript();
+    messageInputRef.current?.focus();
+    startVoiceTyping();
+  }, [clearVoiceTranscript, isVoiceTyping, newMessage, startVoiceTyping, stopVoiceTyping]);
 
   const confirmDeleteCall = useCallback((item) => {
     setConfirmState({
@@ -1699,6 +1876,7 @@ const ChatBox = () => {
             text={item.text}
             isUser={isUser}
             style={[styles.messageText, isUser ? styles.userMessageText : styles.counselorMessageText]}
+            onMentionPress={handleMentionPress}
           />
         )}
         {(item.attachmentName || item.attachmentUrl) && (() => {
@@ -2042,6 +2220,16 @@ const ChatBox = () => {
                       requestAnimationFrame(() => messageInputRef.current?.focus());
                     }
                   }}
+                />
+                <MicButton
+                  isListening={isVoiceTyping}
+                  onPress={handleVoiceTypingPress}
+                  disabled={isSending || !voiceTypingAvailable}
+                  color={PATIENT.primary}
+                  backgroundColor="#E8F8EE"
+                  size={34}
+                  iconSize={18}
+                  style={styles.inputMicBtn}
                 />
               </View>
               <TouchableOpacity
@@ -2779,7 +2967,7 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     gap: 6,
     backgroundColor: "#EEF1FA",
     borderRadius: 999,
@@ -2798,18 +2986,27 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flex: 1,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     position: "relative",
+    minHeight: 40,
   },
   textInput: {
     flex: 1,
-    paddingVertical: 2,
-    paddingRight: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingRight: 42,
     paddingLeft: 6,
     fontSize: 15,
+    lineHeight: 20,
     color: "#081625",
-    maxHeight: 100,
-    minHeight: 32,
+    maxHeight: 120,
+    minHeight: 40,
+    textAlignVertical: "top",
+  },
+  inputMicBtn: {
+    position: "absolute",
+    right: 2,
+    bottom: 3,
   },
   emojiBtn: {
     position: "absolute",
@@ -2826,6 +3023,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
+    alignSelf: "flex-end",
     shadowColor: PATIENT.primary,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,

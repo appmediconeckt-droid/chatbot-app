@@ -5,7 +5,6 @@
     <color name="ic_launcher_background">#FFFFFF</color>
 
     <!-- Splash plate. Fixed light value on purpose: AppTheme is a DayNight
-         theme, so an unset splash background resolved to dark grey in dark
-         mode and the boot screen showed the logo on near-black. -->
+         theme, so an unset splash background can resolve dark in dark mode. -->
     <color name="splash_background">#FFFFFF</color>
 </resources>

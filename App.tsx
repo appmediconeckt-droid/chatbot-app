@@ -6,13 +6,24 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, Modal, StatusBar, StyleSheet, Text as RNText, TextInput, useColorScheme, View } from 'react-native';
-import Text from './src/components/TranslatedText';
+import {
+  ActivityIndicator,
+  AppState,
+  Modal,
+  StatusBar,
+  StyleSheet,
+  Text as RNText,
+  TextInput,
+  useColorScheme,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import {
   SafeAreaProvider,
   initialWindowMetrics,
 } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
+import LinearGradient from 'react-native-linear-gradient';
 import { navigationRef } from './src/navigationRef';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import UserSignup from './src/screens/auth/UserSignup';
@@ -45,10 +56,25 @@ import SetPasswordByOtp from './src/screens/account/SetPasswordByOtp';
 import safeVibrate from './src/utils/safeVibrate';
 import socketService from './src/services/socketService';
 import { CallProvider } from './src/screens/user/VideoCall/CallProvider';
+import GlobalIncomingCallController from './src/screens/user/VideoCall/GlobalIncomingCallController';
+import HumaeliHeroVideo from './src/components/common/HumaeliHeroVideo';
 import AppLockScreen, { PIN_STORAGE_KEY } from './src/screens/auth/AppLockScreen';
 import PinSetupScreen from './src/screens/auth/PinSetupScreen';
 import './src/i18n';
 import { LanguageProvider } from './src/contexts/LanguageContext';
+import {
+  listenForTokenRefresh,
+  listenForForegroundNotifications,
+  listenForNotificationOpen,
+  checkInitialNotification,
+  PENDING_INCOMING_CALL_PUSH_KEY,
+  requestNotificationPermission,
+  syncPushNotificationToken,
+} from './src/services/notificationService';
+import {
+  clearPendingIncomingCallStorage,
+  isFreshIncomingCallPayload,
+} from './src/services/callNotificationBridge';
 // Define your navigation param list
 // import { LogBox } from 'react-native';
 // LogBox.ignoreAllLogs(true);
@@ -64,14 +90,14 @@ export type RootStackParamList = {
   OTPVerification: undefined;
   LocationGate: { destination: keyof RootStackParamList; destinationParams?: object };
   UserDashboard: undefined;
-  ChatBox: undefined;
+  ChatBox: { chatId?: string; chatMongoId?: string; counselor?: object; user?: object } | undefined;
   CounselorTable: undefined;
   CounselorDashboard: {
     initialTab?: 'profile';
     profileStartEditing?: boolean;
     profileIntentAt?: number;
   } | undefined;
-  SMSInput: undefined;
+  SMSInput: { chatId?: string; chatMongoId?: string; selectedUser?: object; chatData?: object } | undefined;
   ChangePassword: undefined;
   SetPassword: undefined;
   SetPasswordByOtp: undefined;
@@ -88,6 +114,8 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 // Lock as soon as the user leaves the app and opens it again.
 const LOCK_TIMEOUT_MS = 0;
+const MIN_BOOT_SPLASH_MS = 1000;
+const VIDEO_BACKGROUND_COLOR = '#04181B';
 
 // ─── Popups must reach the bottom of the screen ──────────────────────────────
 // An Android Modal window stops above the navigation bar by default. This app
@@ -119,6 +147,113 @@ const withFontCap = (Component: any) => {
 withFontCap(RNText);
 withFontCap(TextInput);
 
+const normalizeStoredRole = (role: string | null | undefined) => {
+  const value = String(role || '').trim().toLowerCase();
+  if (!value) return '';
+  return value === 'counsellor' ? 'counselor' : value;
+};
+
+const routeForStoredRole = (role: string | null | undefined): keyof RootStackParamList | null => {
+  const normalizedRole = normalizeStoredRole(role);
+  if (normalizedRole === 'counselor') return 'CounselorDashboard';
+  if (normalizedRole === 'user') return 'UserDashboard';
+  return null;
+};
+
+const hasFreshPendingIncomingCall = async () => {
+  const pendingCallRaw = await AsyncStorage.getItem(PENDING_INCOMING_CALL_PUSH_KEY);
+  if (!pendingCallRaw) return false;
+
+  try {
+    const pendingCall = JSON.parse(pendingCallRaw);
+    const isFresh = isFreshIncomingCallPayload(pendingCall);
+    if (!isFresh) {
+      await clearPendingIncomingCallStorage();
+    }
+    return isFresh;
+  } catch {
+    await clearPendingIncomingCallStorage();
+    return false;
+  }
+};
+
+const BootSplash = () => {
+  const { width, height } = useWindowDimensions();
+  const isTinyPhone = height < 650 || width < 360;
+  const isCompactPhone = height < 760;
+  const heroTextWidth = Math.min(width - 44, 360);
+
+  return (
+    <View style={styles.bootScreen}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <View style={styles.bootHeroMedia}>
+        <HumaeliHeroVideo
+          style={StyleSheet.absoluteFill}
+          sourceName="mobile_hero_section_video"
+          muted
+          resizeMode="cover"
+          focusX={0.5}
+          focusY={0}
+          zoomScale={1}
+        />
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(0, 0, 0, 0.26)', 'rgba(4, 24, 27, 0.08)', VIDEO_BACKGROUND_COLOR]}
+          locations={[0, 0.72, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+      </View>
+
+      <View style={styles.bootHeroPanel}>
+        <View style={[styles.bootHeroContent, { width: heroTextWidth }]}>
+          <RNText
+            maxFontSizeMultiplier={1}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            style={[styles.bootHeroKicker, isTinyPhone ? styles.bootHeroKickerTiny : styles.bootHeroKickerRegular]}
+          >
+            HUMAELI - YOUR MENTAL WELLNESS
+          </RNText>
+          <RNText
+            maxFontSizeMultiplier={1}
+            style={[
+              styles.bootHeroTitle,
+              isTinyPhone
+                ? styles.bootHeroTitleTiny
+                : isCompactPhone
+                  ? styles.bootHeroTitleCompact
+                  : styles.bootHeroTitleRegular,
+            ]}
+          >
+            Human Empowered{'\n'}Mental Wellness{'\n'}Support
+          </RNText>
+          <View style={styles.bootHeroDivider} />
+          <RNText
+            maxFontSizeMultiplier={1}
+            style={[
+              styles.bootHeroDescription,
+              isTinyPhone
+                ? styles.bootHeroDescriptionTiny
+                : isCompactPhone
+                  ? styles.bootHeroDescriptionCompact
+                  : styles.bootHeroDescriptionRegular,
+            ]}
+          >
+            In your difficult time of mental health to connect with consultants, psychologists,
+            psychological wellness practitioners & psychiatrists
+          </RNText>
+          <View style={styles.bootLoaderRow}>
+            <ActivityIndicator color="#24C184" size="small" />
+            <RNText maxFontSizeMultiplier={1} style={styles.bootLoaderText}>Loading your dashboard</RNText>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+};
+
+
+
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
   const [bootRoute, setBootRoute] = useState<keyof RootStackParamList>('Landing');
@@ -129,24 +264,38 @@ function App() {
   const routeNameRef = useRef<string | undefined>(undefined);
   const backgroundedAt = useRef<number | null>(null);
 
-  useEffect(() => {
-    const normalizeRole = (role: string | null) => {
-      const value = String(role || '').trim().toLowerCase();
-      if (!value) return '';
-      return value === 'counsellor' ? 'counselor' : value;
-    };
 
+
+
+  useEffect(() => {
     const bootstrapSessionRoute = async () => {
+      const startedAt = Date.now();
+      let hasFreshIncomingCall = false;
+      let shouldHoldBootSplash = false;
       try {
-        const [accessToken, token, storedUserRole, userDataRaw, counsellorId, counselorId, storedPin] = await Promise.all([
+        const [
+          accessToken,
+          token,
+          storedUserRole,
+          storedUserType,
+          isAuthenticated,
+          userDataRaw,
+          counsellorId,
+          counselorId,
+          storedPin,
+        ] = await Promise.all([
           AsyncStorage.getItem('accessToken'),
           AsyncStorage.getItem('token'),
           AsyncStorage.getItem('userRole'),
+          AsyncStorage.getItem('userType'),
+          AsyncStorage.getItem('isAuthenticated'),
           AsyncStorage.getItem('userData'),
           AsyncStorage.getItem('counsellorId'),
           AsyncStorage.getItem('counselorId'),
           AsyncStorage.getItem(PIN_STORAGE_KEY),
         ]);
+
+        hasFreshIncomingCall = await hasFreshPendingIncomingCall();
 
         const hasToken = Boolean(accessToken || token);
         if (!hasToken) {
@@ -155,7 +304,7 @@ function App() {
         }
 
         // Show lock screen if the user has set up a PIN
-        if (storedPin) {
+        if (storedPin && !hasFreshIncomingCall) {
           setIsLocked(true);
         }
 
@@ -166,12 +315,19 @@ function App() {
           console.warn('[App] socket connect failed at bootstrap:', err?.message);
         });
 
-        let role = normalizeRole(storedUserRole);
+        let role = normalizeStoredRole(storedUserRole) || normalizeStoredRole(storedUserType);
 
         if (!role && userDataRaw) {
           try {
             const userData = JSON.parse(userDataRaw);
-            role = normalizeRole(userData?.role || '');
+            role =
+              normalizeStoredRole(userData?.role) ||
+              normalizeStoredRole(userData?.userRole) ||
+              normalizeStoredRole(userData?.userType) ||
+              normalizeStoredRole(userData?.accountType) ||
+              normalizeStoredRole(userData?.user?.role) ||
+              normalizeStoredRole(userData?.data?.role) ||
+              normalizeStoredRole(userData?.data?.user?.role);
           } catch (error) {
             console.warn('Failed to parse userData for startup role restore', error);
           }
@@ -181,14 +337,21 @@ function App() {
           role = 'counselor';
         }
 
-        if (role === 'counselor' || role === 'user') {
-          const destination = role === 'counselor' ? 'CounselorDashboard' : 'UserDashboard';
+        const destination = routeForStoredRole(role);
+        if (destination) {
 
           // Location is requested ONLY during login/registration — never on a
           // plain app reload. A returning session goes straight to its
           // dashboard (App Lock, if a PIN exists, is handled above via
           // setIsLocked). This stops the location page re-appearing every boot.
+          shouldHoldBootSplash = true;
           setBootRoute(destination);
+        } else if (String(isAuthenticated).toLowerCase() === 'true' || userDataRaw) {
+          // Older builds could persist a token without userRole/userType. Treat
+          // that as a returning session so the public Get Started page never
+          // flashes for an already logged-in user.
+          shouldHoldBootSplash = true;
+          setBootRoute('UserDashboard');
         } else {
           setBootRoute('Landing');
         }
@@ -196,6 +359,11 @@ function App() {
         console.warn('Session bootstrap failed, opening Landing', error);
         setBootRoute('Landing');
       } finally {
+        const elapsed = Date.now() - startedAt;
+        const minSplashMs = shouldHoldBootSplash && !hasFreshIncomingCall ? MIN_BOOT_SPLASH_MS : 0;
+        if (elapsed < minSplashMs) {
+          await new Promise<void>((resolve) => setTimeout(resolve, minSplashMs - elapsed));
+        }
         setIsBootstrapping(false);
       }
     };
@@ -203,6 +371,8 @@ function App() {
     bootstrapSessionRoute();
   }, []);
 
+
+  
 
   // Re-lock when app returns from background after LOCK_TIMEOUT_MS
   useEffect(() => {
@@ -213,6 +383,19 @@ function App() {
         const elapsed = Date.now() - backgroundedAt.current;
         backgroundedAt.current = null;
         if (elapsed >= LOCK_TIMEOUT_MS) {
+          const hasFreshIncomingCall = await hasFreshPendingIncomingCall();
+
+          if (hasFreshIncomingCall) {
+            setIsLocked(false);
+            const storedRole = String(
+              (await AsyncStorage.getItem('userRole')) || '',
+            ).toLowerCase();
+            const callDashboard = routeForStoredRole(storedRole) || 'UserDashboard';
+            if (navigationRef.isReady()) {
+              navigationRef.navigate(callDashboard as never);
+            }
+            return;
+          }
           const storedPin = await AsyncStorage.getItem(PIN_STORAGE_KEY);
           if (storedPin) {
             setIsLocked(true);
@@ -223,41 +406,44 @@ function App() {
     return () => sub.remove();
   }, []);
 
-  if (isBootstrapping) {
-    return (
-      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <View style={styles.bootScreen}>
-          <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-          <View style={styles.bootGlowTop} />
-          <View style={styles.bootGlowBottom} />
-          <View style={styles.bootCard}>
-            <View style={styles.bootLogoWrap}>
-              <Image
-                source={require('./src/image/Humaeli-original-backup.png')}
-                style={styles.bootLogoImage}
-                resizeMode="cover"
-              />
-            </View>
-            <View style={styles.bootLoaderRow}>
-              <ActivityIndicator size="small" color="#2563eb" />
-              <Text style={styles.bootLoaderText}>Preparing dashboard</Text>
-            </View>
-          </View>
-        </View>
-      </SafeAreaProvider>
-    );
-  }
+useEffect(() => {
+  let mounted = true;
+  const unsubscribeForeground = listenForForegroundNotifications();
+  const unsubscribeTokenRefresh = listenForTokenRefresh(null, null);
+  const unsubscribeNotificationOpen = listenForNotificationOpen(navigationRef);
+
+  (async () => {
+    await requestNotificationPermission();
+    if (mounted) {
+      await syncPushNotificationToken();
+    }
+  })().catch(error => {
+    console.warn('[Push] initialization failed:', error?.message || error);
+  });
+
+  return () => {
+    mounted = false;
+    unsubscribeForeground();
+    unsubscribeTokenRefresh();
+    unsubscribeNotificationOpen();
+  };
+}, []);
+
 
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       <LanguageProvider>
         <CallProvider>
+          {isBootstrapping ? (
+            <BootSplash />
+          ) : (
           <ToastProvider>
         <NavigationContainer
           ref={navigationRef}
           onReady={() => {
             routeNameRef.current = navigationRef.current?.getCurrentRoute()?.name;
+            void checkInitialNotification(navigationRef);
           }}
           onStateChange={() => {
             const previousRouteName = routeNameRef.current;
@@ -268,6 +454,14 @@ function App() {
             }
 
             routeNameRef.current = currentRouteName;
+
+            if (
+              currentRouteName === 'LocationGate' ||
+              currentRouteName === 'UserDashboard' ||
+              currentRouteName === 'CounselorDashboard'
+            ) {
+              void syncPushNotificationToken();
+            }
           }}
         >
           <Stack.Navigator
@@ -322,7 +516,9 @@ function App() {
         {isLocked && !isBootstrapping && (
           <AppLockScreen onSuccess={() => setIsLocked(false)} />
         )}
+        <GlobalIncomingCallController />
           </ToastProvider>
+          )}
         </CallProvider>
       </LanguageProvider>
     </SafeAreaProvider>
@@ -332,77 +528,101 @@ function App() {
 const styles = StyleSheet.create({
   bootScreen: {
     flex: 1,
-    backgroundColor: '#f8fafc',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: VIDEO_BACKGROUND_COLOR,
     overflow: 'hidden',
   },
-  bootGlowTop: {
-    position: 'absolute',
-    top: -120,
-    right: -80,
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    backgroundColor: '#dbeafe',
+  bootHeroMedia: {
+    flex: 0.58,
+    minHeight: 330,
+    overflow: 'hidden',
+    backgroundColor: VIDEO_BACKGROUND_COLOR,
   },
-  bootGlowBottom: {
-    position: 'absolute',
-    bottom: -140,
-    left: -100,
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    backgroundColor: '#e0e7ff',
-  },
-  bootCard: {
-    width: '82%',
-    maxWidth: 340,
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    paddingVertical: 26,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    shadowColor: '#1e3a8a',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
-    shadowRadius: 22,
-    elevation: 6,
-  },
-  bootLogoWrap: {
-    width: '100%',
-    maxWidth: 240,
-    height: 150,
+  bootHeroPanel: {
+    flex: 0.42,
+    minHeight: 300,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
-    overflow: 'hidden',
+    paddingHorizontal: 22,
+    paddingBottom: 28,
+    backgroundColor: VIDEO_BACKGROUND_COLOR,
   },
-  bootLogoImage: {
-    width: '100%',
-    height: '100%',
+  bootHeroContent: {
+    alignItems: 'center',
+    maxWidth: 360,
   },
-  bootTitle: {
-    color: '#0f172a',
-    fontSize: 22,
+  bootHeroKicker: {
+    color: '#F4FFF9',
     fontWeight: '800',
-    letterSpacing: 0.2,
+    letterSpacing: 0,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.34)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
-  bootSubtitle: {
-    marginTop: 6,
-    color: '#64748b',
-    fontSize: 13,
+  bootHeroKickerTiny: {
+    fontSize: 9,
+    lineHeight: 13,
+    marginBottom: 8,
+  },
+  bootHeroKickerRegular: {
+    fontSize: 10,
+    lineHeight: 14,
+    marginBottom: 10,
+  },
+  bootHeroTitle: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.38)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+  bootHeroTitleTiny: {
+    fontSize: 30,
+    lineHeight: 34,
+  },
+  bootHeroTitleCompact: {
+    fontSize: 34,
+    lineHeight: 39,
+  },
+  bootHeroTitleRegular: {
+    fontSize: 38,
+    lineHeight: 43,
+  },
+  bootHeroDivider: {
+    width: 54,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#24C184',
+    marginBottom: 18,
+    marginTop: 17,
+  },
+  bootHeroDescription: {
+    color: '#E6F5F0',
+    fontWeight: '500',
     textAlign: 'center',
   },
+  bootHeroDescriptionTiny: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  bootHeroDescriptionCompact: {
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  bootHeroDescriptionRegular: {
+    fontSize: 15,
+    lineHeight: 23,
+  },
   bootLoaderRow: {
-    marginTop: 4,
+    marginTop: 22,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
   bootLoaderText: {
-    color: '#334155',
-    fontSize: 13,
+    color: '#DDF7EF',
+    fontSize: 12,
     fontWeight: '600',
   },
 });

@@ -1,6 +1,7 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "com.google.gms.google-services"
 
 react {
     autolinkLibrariesWithApp()
@@ -9,7 +10,7 @@ react {
 /**
  * Set true if you want Proguard/R8 minification for release.
  */
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
 
 /**
  * Release Keystore Configuration
@@ -45,9 +46,9 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
 
-        // Google Play update version
-        versionCode 5
-        versionName "1.0.4"
+        // Google Play update version. Must be higher than the live Play release.
+        versionCode 10
+        versionName "1.0.9"
 
         manifestPlaceholders = [usesCleartextTraffic: "false"]
     }
@@ -83,9 +84,12 @@ android {
             manifestPlaceholders = [usesCleartextTraffic: "false"]
 
             minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
+            debuggable false
+            jniDebuggable false
 
             proguardFiles(
-                getDefaultProguardFile("proguard-android.txt"),
+                getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
@@ -120,6 +124,9 @@ dependencies {
 
     // InCall Manager
     implementation project(":react-native-incall-manager")
+
+    // Notifee notifications
+    implementation project(":notifee_react-native")
 
     // Hermes / JSC
     if (hermesEnabled.toBoolean()) {

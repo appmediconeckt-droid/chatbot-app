@@ -18,13 +18,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_BASE_URL } from '../../axiosConfig';
 import GoogleAuthButton from './components/GoogleAuthButton';
-import {
-  getApiErrorMessage,
-  isOtpRequestSuccessful,
-  isOtpVerificationSuccessful,
-  postPublicAuthEndpoint,
-} from './authUtils';
-import { sendLocationSilently } from '../../utils/locationHelper';
+import GoogleProfileCompletionModal, {
+  needsGoogleUserProfileCompletion,
+} from './components/GoogleProfileCompletionModal';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import socketService from '../../services/socketService';
 import { paletteForRole } from '../../theme/palette';
@@ -35,6 +31,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useToast } from '../../components/common/ToastProvider';
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
 import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
+import { syncPushNotificationToken } from '../../services/notificationService';
 
 // Vertical inset of the login scroll content.
 const SCROLL_PAD_V = 24;
@@ -57,6 +54,11 @@ const Login = ({ navigation, route }) => {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [googleProfileCompletion, setGoogleProfileCompletion] = useState({
+    visible: false,
+    isCounselor: false,
+    user: null,
+  });
   
   // Conflict modal states - MATCHING WEB VERSION EXACTLY
   const [showConflictModal, setShowConflictModal] = useState(false);
@@ -209,6 +211,55 @@ const Login = ({ navigation, route }) => {
     }
   };
 
+  const continueAfterAuth = async (isCounselor, delay = 800) => {
+    const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
+    const existingPin = await AsyncStorage.getItem('appLockPin');
+
+    setTimeout(() => {
+      if (!existingPin) {
+        navigation.replace('PinSetup', {
+          forced: true,
+          destination: 'LocationGate',
+          destinationParams: { destination },
+        });
+      } else {
+        navigation.replace('LocationGate', { destination });
+      }
+    }, delay);
+  };
+
+  const handleGoogleSuccess = ({ isCounselor, user }) => {
+    setSuccessMessage(t('auth:login') + ' ' + t('common:success'));
+
+    if (needsGoogleUserProfileCompletion(user, isCounselor)) {
+      setGoogleProfileCompletion({
+        visible: true,
+        isCounselor,
+        user,
+      });
+      return;
+    }
+
+    continueAfterAuth(isCounselor).catch((error) => {
+      showLoginError(error?.message || 'Login failed');
+    });
+  };
+
+  const handleGoogleProfileComplete = (updatedUser) => {
+    const isCounselor = googleProfileCompletion.isCounselor;
+    setGoogleProfileCompletion({
+      visible: false,
+      isCounselor: false,
+      user: null,
+    });
+    if (updatedUser?.email) {
+      AsyncStorage.setItem('userEmail', updatedUser.email).catch(() => {});
+    }
+    continueAfterAuth(isCounselor, 350).catch((error) => {
+      showLoginError(error?.message || 'Login failed');
+    });
+  };
+
   const loadRememberedUser = async () => {
     try {
       const rememberedUserId = await AsyncStorage.getItem('rememberedUserId');
@@ -327,8 +378,12 @@ const Login = ({ navigation, route }) => {
       }
 
       await AsyncStorage.setItem('userRole', normalizedUserRole);
+      await AsyncStorage.setItem('userType', isCounselor ? 'counselor' : 'user');
       await AsyncStorage.setItem('isAuthenticated', 'true');
       await AsyncStorage.setItem('userEmail', email);
+      if (!isCounselor) {
+        await AsyncStorage.multiRemove(['counsellorId', 'counselorId']);
+      }
 
       const user = response.data?.user || response.data;
       if (user) {
@@ -355,22 +410,13 @@ const Login = ({ navigation, route }) => {
       setSuccessMessage(t('auth:login') + ' ' + t('common:success'));
 
       socketService.connect().catch(() => {});
+      syncPushNotificationToken().catch(error => {
+        console.warn('[Push] Token sync after login failed:', error?.message || error);
+      });
 
-      const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
       // The PIN is device-local, so a new phone has none. Require setup before
       // entering the app, otherwise this first session would be unlocked.
-      const existingPin = await AsyncStorage.getItem('appLockPin');
-      setTimeout(() => {
-        if (!existingPin) {
-          navigation.replace('PinSetup', {
-            forced: true,
-            destination: 'LocationGate',
-            destinationParams: { destination },
-          });
-        } else {
-          navigation.replace('LocationGate', { destination });
-        }
-      }, 800);
+      await continueAfterAuth(isCounselor);
     } catch (err) {
       // CRITICAL: Check for both conditions exactly like web version
       if (
@@ -497,9 +543,14 @@ const Login = ({ navigation, route }) => {
       const resolvedRole =
         normalizeRole(response.data?.role || response.data?.user?.role) ||
         selectedRole;
+      const otpIsCounselor = resolvedRole === 'counselor';
       await AsyncStorage.setItem('userRole', resolvedRole);
+      await AsyncStorage.setItem('userType', otpIsCounselor ? 'counselor' : 'user');
       await AsyncStorage.setItem('isAuthenticated', 'true');
       await AsyncStorage.setItem('userEmail', email);
+      if (!otpIsCounselor) {
+        await AsyncStorage.multiRemove(['counsellorId', 'counselorId']);
+      }
 
       const user = response.data?.user || response.data;
       if (user) {
@@ -507,7 +558,7 @@ const Login = ({ navigation, route }) => {
         const id = user._id || user.id;
         if (id) {
           await AsyncStorage.setItem('userId', id);
-          if (resolvedRole === 'counselor') {
+          if (otpIsCounselor) {
             await AsyncStorage.setItem('counsellorId', id);
             await AsyncStorage.setItem('counselorId', id);
           }
@@ -520,6 +571,9 @@ const Login = ({ navigation, route }) => {
       setSuccessMessage('OTP verified! Redirecting...');
 
       socketService.connect().catch(() => {});
+      syncPushNotificationToken().catch(error => {
+        console.warn('[Push] Token sync after OTP login failed:', error?.message || error);
+      });
 
       const destination = resolvedRole === 'counselor' ? 'CounselorDashboard' : 'UserDashboard';
       setTimeout(() => {
@@ -855,13 +909,7 @@ const Login = ({ navigation, route }) => {
               mode="signin"
               disabled={isLoading}
               locationEvent="login"
-              onSuccess={({ isCounselor }) => {
-                setSuccessMessage(t('auth:login') + ' ' + t('common:success'));
-                const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
-                setTimeout(() => {
-                  navigation.replace('LocationGate', { destination });
-                }, 800);
-              }}
+              onSuccess={handleGoogleSuccess}
               onConflict={({ email: conflictEmail }) => {
                 if (conflictEmail) setEmail(conflictEmail);
                 setShowConflictModal(true);
@@ -1008,6 +1056,13 @@ const Login = ({ navigation, route }) => {
             </View>
           </View>
         </Modal>
+
+        <GoogleProfileCompletionModal
+          visible={googleProfileCompletion.visible}
+          user={googleProfileCompletion.user}
+          accentColor={C.primary}
+          onComplete={handleGoogleProfileComplete}
+        />
 
         {/* ========== FORGOT PASSWORD MODAL ========== */}
         <Modal

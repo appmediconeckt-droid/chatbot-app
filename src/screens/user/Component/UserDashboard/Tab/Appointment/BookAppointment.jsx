@@ -111,7 +111,11 @@ const resolveOnlineStatus = (person) => {
   return false;
 };
 
-const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
+const CounselorRequestChat = ({
+  initialSearchQuery = '',
+  initialOpenRequestName = '',
+  onInitialOpenHandled,
+}) => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { t } = useLanguageRender();
@@ -147,6 +151,36 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
     durationMinutes: 30,
     requestExpiryHours: 24,
   });
+  const handledInitialOpenRef = useRef('');
+
+  useEffect(() => {
+    const nextSearch = String(initialSearchQuery || '').trim();
+    if (nextSearch) {
+      setSearchQuery(nextSearch);
+      setActiveFilter('all');
+    }
+  }, [initialSearchQuery]);
+
+  useEffect(() => {
+    const target = String(initialOpenRequestName || '').trim().toLowerCase();
+    if (!target) {
+      handledInitialOpenRef.current = '';
+      return;
+    }
+    if (counselors.length === 0) return;
+    if (handledInitialOpenRef.current === target) return;
+
+    const match = counselors.find((counselor) => {
+      const name = String(counselor.name || '').toLowerCase();
+      return name === target || name.includes(target) || target.includes(name);
+    });
+
+    if (!match) return;
+    handledInitialOpenRef.current = target;
+    setSelectedCounselorForRequest(match);
+    setShowUserModal(true);
+    onInitialOpenHandled?.();
+  }, [counselors, initialOpenRequestName, onInitialOpenHandled]);
   const [walletBalance, setWalletBalance] = useState(null);
 
   // Get user ID and token from AsyncStorage
@@ -504,13 +538,16 @@ const CounselorRequestChat = ({ initialSearchQuery = '' }) => {
       const authToken = await getAuthToken();
 
       if (paymentConfig.enabled) {
-        const amount = Number(paymentConfig.fees?.chat || 100);
+        const chatFee = Number(paymentConfig.fees?.chat || 100);
+        const durationMinutes = Number(paymentConfig.durationMinutes || 30);
+        const amount = Number((chatFee / Math.max(1, durationMinutes)).toFixed(2));
         const currentBalance = Number(walletBalance || 0);
 
         if (currentBalance < amount) {
+          const shortfall = Number((amount - currentBalance).toFixed(2));
           Alert.alert(
             'Insufficient wallet balance',
-            `Please add ₹${amount - currentBalance} to continue.`
+            `Please add ₹${shortfall} to continue.`
           );
           return;
         }

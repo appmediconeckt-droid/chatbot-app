@@ -4,6 +4,7 @@ import InCallManager from "react-native-incall-manager";
 
 const VIBRATION_PATTERN = [0, 400, 200, 400, 1000];
 const MAX_RING_DURATION_MS = 60000;
+export const INCOMING_RING_TIMEOUT_MS = MAX_RING_DURATION_MS;
 
 // Singleton — one shared state across all hook instances so any component
 // can stop the ringtone and it stops everywhere immediately.
@@ -71,8 +72,9 @@ const startRingingGlobal = (incoming = true) => {
     if (InCallManager) {
       try { InCallManager.setForceSpeakerphoneOn(true); } catch (_) {}
       try { InCallManager.setKeepScreenOn(true); } catch (_) {}
-      // startRingtone loops natively — call once, no JS timer needed.
-      try { InCallManager.startRingtone("_BUNDLE_"); } catch (_) {}
+      // Use the user's selected phone ringtone. "_BUNDLE_" plays the app asset;
+      // "_DEFAULT_" maps to Android/iOS default ringtone through InCallManager.
+      try { InCallManager.startRingtone("_DEFAULT_"); } catch (_) {}
     }
     // Repeat vibration + interval fallback (some Android builds ignore repeat).
     try { Vibration.vibrate(VIBRATION_PATTERN, true); } catch (_) {}

@@ -52,6 +52,7 @@ describe('useRingtone', () => {
     });
 
     expect(InCallManager.startRingtone).toHaveBeenCalledTimes(1);
+    expect(InCallManager.startRingtone).toHaveBeenCalledWith("_DEFAULT_");
     expect(Vibration.vibrate).toHaveBeenCalled();
 
     act(() => {

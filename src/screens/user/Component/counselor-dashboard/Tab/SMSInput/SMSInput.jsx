@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
+  ScrollView,
   StyleSheet,
   TouchableOpacity,
   FlatList,
@@ -18,6 +19,7 @@ import {
   Image,
   Linking,
   Pressable,
+  BackHandler,
 } from 'react-native';
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import Text from '../../../../../../components/TranslatedText';
@@ -25,15 +27,19 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useIsFocused } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import ZoomableImageViewer from '../../../../../../components/common/ZoomableImageViewer';
+import MicButton from '../../../../../../components/MicButton';
 import LinearGradient from 'react-native-linear-gradient';
 import RNFS from 'react-native-fs';
 import { pick } from '@react-native-documents/picker';
+import { launchImageLibrary } from 'react-native-image-picker';
 import { DOCTOR } from '../../../../../../theme/palette';
 
 import socketService from '../../../../../../services/socketService';
 import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
-import useRingtone from '../../../../../../hooks/useRingtone';
+import useRingtone, { INCOMING_RING_TIMEOUT_MS } from '../../../../../../hooks/useRingtone';
+import { isGlobalCallUiActive } from '../../../../../../services/callNotificationBridge';
+import { displayMissedCallNotification } from '../../../../../../services/notificationService';
 import useScreenshotPrevent from '../../../../../../utils/useScreenshotPrevent';
 import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
 import VideoCallModal from '../../../UserDashboard/Tab/CallModal/VideoCallModal';
@@ -47,11 +53,27 @@ import toImageUri from '../../../../../../utils/imageUri';
 import GradientFill from '../../../../../../components/common/GradientFill';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import ChatSkeleton from "../../../../../../components/common/ChatSkeleton";
+import PsychiatristDirectory from '../../../../../../components/common/PsychiatristDirectory';
 import {
   describeCall,
 } from '../../../../../../utils/chatCallHistory';
+import {
+  getNotificationOnlyCallMessage,
+  isNotificationOnlyCallResponse,
+} from '../../../../../../utils/callRequestStatus';
+import { useSpeechToText } from '../../../../../../hooks/useSpeechToText';
+import { DEFAULT_PRESCRIPTION_THEME_ID } from '../../../../../../utils/prescriptionFestivalThemes';
+import { DEFAULT_PRESCRIPTION_VALID_DAYS } from '../../../../../../utils/prescriptionValidity';
 
 const { width: screenWidth } = Dimensions.get('window');
+
+const getPrescriptionAssetUri = (source, keys) => {
+  for (const key of keys) {
+    const uri = toImageUri(source?.[key]);
+    if (uri) return uri;
+  }
+  return '';
+};
 
 // ─── Sent-bubble gradient ─────────────────────────────────────────────────
 // EXACT same gradient as the counselor Earnings "Available Balance" box
@@ -78,7 +100,146 @@ const normalizeIncomingCallType = (value) => {
   return 'video';
 };
 
+const getStreamRoomId = (...sources) => {
+  for (const source of sources) {
+    const roomId =
+      source?.streamCallId ||
+      source?.stream_call_id ||
+      source?.streamId ||
+      source?.roomId ||
+      source?.room_id ||
+      source?.channelId ||
+      source?.call?.streamCallId ||
+      source?.call?.roomId ||
+      source?.data?.streamCallId ||
+      source?.data?.roomId ||
+      source?.callData?.streamCallId ||
+      source?.callData?.roomId;
+    if (roomId) return roomId;
+  }
+  return '';
+};
+
+const isPsychiatristSpecialization = (value) => {
+  const text = Array.isArray(value) ? value.join(' ') : String(value || '');
+  return /\bpsychiatrist\b|\bpsychiatry\b/i.test(text);
+};
+
+const createBlankMedicine = () => ({
+  medicineName: '',
+  dosage: '',
+  timeOfDay: {
+    Morning: false,
+    Afternoon: false,
+    Evening: false,
+    Night: false,
+  },
+  whenToTake: '',
+  duration: '',
+});
+
 // ─── Avatar Component (identical to ChatListAvatar) ───────────────────────
+const escapePdfValue = (value) => String(value || '')
+  // The lightweight PDF uses built-in Helvetica and byte offsets. Keep the
+  // stream single-byte so names/instructions cannot corrupt the generated PDF.
+  .replace(/[^\x20-\x7E]/g, '?')
+  .replace(/\\/g, '\\\\')
+  .replace(/\(/g, '\\(')
+  .replace(/\)/g, '\\)')
+  .replace(/\r?\n/g, ' ');
+
+const buildSimplePrescriptionPdf = ({ patientName, psychiatristName, psychiatristId, problem, instructions, medicines }) => {
+  const commands = [];
+  const rect = (x, y, w, h, color) => commands.push(`${color} rg ${x} ${y} ${w} ${h} re f`);
+  const text = (value, x, y, size = 11, color = '0.10 0.14 0.22', font = 'F1') => {
+    commands.push(`${color} rg BT /${font} ${size} Tf ${x} ${y} Td (${escapePdfValue(value)}) Tj ET`);
+  };
+  const line = (x1, y1, x2, y2, color = '0.82 0.88 0.95', width = 1) => {
+    commands.push(`${color} RG ${width} w ${x1} ${y1} m ${x2} ${y2} l S`);
+  };
+
+  rect(0, 0, 612, 792, '0.98 0.99 1');
+  rect(36, 704, 540, 54, '0.10 0.32 0.74');
+  text('HUMAELI', 56, 734, 20, '1 1 1', 'F2');
+  text('DIGITAL PRESCRIPTION', 56, 716, 10, '0.86 0.93 1', 'F2');
+  text(`Date: ${new Date().toLocaleDateString('en-IN')}`, 430, 733, 10, '1 1 1');
+  text(`Practitioner: ${psychiatristName || 'Psychiatrist'}`, 430, 716, 10, '1 1 1');
+  if (psychiatristId) text(`ID: ${psychiatristId}`, 430, 702, 8, '0.86 0.93 1');
+
+  rect(36, 628, 540, 54, '0.94 0.97 1');
+  text('PATIENT', 56, 662, 9, '0.39 0.45 0.55', 'F2');
+  text(patientName || 'Patient', 56, 643, 15, '0.08 0.13 0.22', 'F2');
+  text(`Problem: ${problem}`, 255, 650, 11);
+
+  text('Medicines', 36, 596, 15, '0.08 0.13 0.22', 'F2');
+  rect(36, 566, 540, 24, '0.12 0.29 0.62');
+  text('#', 48, 574, 9, '1 1 1', 'F2');
+  text('Medicine', 78, 574, 9, '1 1 1', 'F2');
+  text('Dosage', 222, 574, 9, '1 1 1', 'F2');
+  text('Time', 316, 574, 9, '1 1 1', 'F2');
+  text('How to take', 424, 574, 9, '1 1 1', 'F2');
+
+  let y = 540;
+  medicines.slice(0, 9).forEach((medicine, index) => {
+    rect(36, y - 7, 540, 28, index % 2 === 0 ? '1 1 1' : '0.96 0.98 1');
+    text(String(index + 1), 50, y + 3, 9);
+    text(medicine.name || 'Medicine', 78, y + 3, 9, '0.08 0.13 0.22', 'F2');
+    text(medicine.dosage || '', 222, y + 3, 9);
+    text((medicine.timeOfDay || []).join(', '), 316, y + 3, 9);
+    text(medicine.timing || '', 424, y + 3, 9);
+    if (medicine.duration) text(`Duration: ${medicine.duration}`, 78, y - 10, 8, '0.39 0.45 0.55');
+    line(36, y - 9, 576, y - 9);
+    y -= 30;
+  });
+
+  if (instructions) {
+    rect(36, Math.max(118, y - 52), 540, 46, '0.92 0.96 1');
+    text('Additional instructions', 52, Math.max(145, y - 24), 10, '0.10 0.32 0.74', 'F2');
+    text(instructions, 52, Math.max(128, y - 42), 10);
+  }
+
+  line(390, 92, 556, 92, '0.58 0.64 0.72');
+  text('Digitally prescribed by', 410, 74, 9, '0.39 0.45 0.55');
+  text(psychiatristName || 'Psychiatrist', 410, 58, 11, '0.08 0.13 0.22', 'F2');
+  line(36, 40, 576, 40);
+  text('This prescription was issued through Humaeli - www.humaeli.com - support@humaeli.com', 92, 24, 8, '0.39 0.45 0.55');
+
+  const stream = commands.join('\n');
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources 4 0 R /Contents 5 0 R >>',
+    '<< /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> /F2 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> >> >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return pdf;
+};
+
+const createPrescriptionAttachment = async ({ patientName, psychiatristName, psychiatristId, problem, instructions, medicines }) => {
+  const safeName = String(patientName || 'Patient').replace(/[^\w.-]+/g, '-');
+  const filename = `Prescription-${safeName}-${new Date().toISOString().slice(0, 10)}.pdf`;
+  const filePath = `${RNFS.CachesDirectoryPath}/${filename}`;
+  const pdf = buildSimplePrescriptionPdf({ patientName, psychiatristName, psychiatristId, problem, instructions, medicines });
+  await RNFS.writeFile(filePath, pdf, 'utf8');
+  return {
+    uri: `file://${filePath}`,
+    type: 'application/pdf',
+    name: filename,
+  };
+};
+
 const ChatAvatar = ({ avatarUrl, avatar, name, size = 40, style }) => {
   const [failed, setFailed] = useState(false);
 
@@ -105,6 +266,46 @@ const ChatAvatar = ({ avatarUrl, avatar, name, size = 40, style }) => {
       </Text>
     </View>
   );
+};
+
+const normalizeSelectedUserForChat = (raw, chatId) => {
+  if (!raw && !chatId) return null;
+  const source = raw || {};
+  const display = getAnonymousUserDisplay(source);
+  const id =
+    getAnonymousParticipantId(source) ||
+    source.userId ||
+    source.receiverId ||
+    source.senderId ||
+    source.id ||
+    source._id ||
+    null;
+  const name =
+    source.name ||
+    source.fullName ||
+    source.displayName ||
+    source.anonymous ||
+    display.name ||
+    "User";
+
+  if (!id && !name && !chatId) return null;
+
+  return {
+    ...source,
+    id: source.id || chatId || id,
+    _id: source._id || id,
+    userId: id,
+    receiverId: id,
+    chatId: chatId || source.chatId || source.chat_id || source.publicChatId,
+    name,
+    anonymous: source.anonymous || name,
+    gender: source.gender || display.gender,
+    avatar: source.avatar || display.avatar,
+    avatarUrl: source.avatarUrl || display.avatarUrl || source.profilePhoto || null,
+    online: Boolean(source.isOnline ?? source.online ?? false),
+    isOnline: Boolean(source.isOnline ?? source.online ?? false),
+    lastSeen: source.lastSeen || null,
+  };
 };
 
 // ─── Incoming Call Modal Component ─────────────────────────────────────────
@@ -135,7 +336,6 @@ const IncomingCallModal = ({
         console.error("Error joining call:", error);
       } finally {
         setIsJoining(false);
-        onClose();
       }
     } else {
       setIsJoining(false);
@@ -264,8 +464,18 @@ const SMSInput = ({ navigation, route }) => {
   useScreenshotPrevent();
   const location = route.params || {};
   const [message, setMessage] = useState("");
+  const {
+    isListening: isVoiceTyping,
+    transcript: voiceTranscript,
+    error: voiceTypingError,
+    isAvailable: voiceTypingAvailable,
+    startListening: startVoiceTyping,
+    stopListening: stopVoiceTyping,
+    clearTranscript: clearVoiceTranscript,
+  } = useSpeechToText();
   const [keyboardInset, setKeyboardInset] = useState(0);
   const messageInputRef = useRef(null);
+  const voiceTypingBaseRef = useRef("");
   const keyboardVisibleRef = useRef(false);
   const sendFocusGuardRef = useRef(false);
   const focusRestoreTimersRef = useRef([]);
@@ -288,9 +498,19 @@ const SMSInput = ({ navigation, route }) => {
   const [isInitiatingCall, setIsInitiatingCall] = useState(false);
   const [callError, setCallError] = useState(null);
   const [showOptions, setShowOptions] = useState(false);
+  const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
+  const [showPsychiatristPicker, setShowPsychiatristPicker] = useState(false);
+  const [recommendingPsychiatrist, setRecommendingPsychiatrist] = useState(false);
+  const [issuingPrescription, setIssuingPrescription] = useState(false);
+  const [prescriptionProblem, setPrescriptionProblem] = useState('');
+  const [prescriptionInstructions, setPrescriptionInstructions] = useState('');
+  const [prescriptionMedicines, setPrescriptionMedicines] = useState([createBlankMedicine()]);
+  const [prescriptionSignatureFile, setPrescriptionSignatureFile] = useState(null);
+  const [prescriptionSealFile, setPrescriptionSealFile] = useState(null);
 
   // Receiving Call States
   const [showIncomingModal, setShowIncomingModal] = useState(false);
+  const launchedFromCallPushRef = useRef(false);
   const [incomingCallData, setIncomingCallData] = useState({
     name: "",
     avatar: "👤",
@@ -321,7 +541,6 @@ const SMSInput = ({ navigation, route }) => {
   const [hiddenCallIds, setHiddenCallIds] = useState([]);
   // Track deleted message IDs persistently so they stay deleted across navigation/refresh
   const [deletedMessageIds, setDeletedMessageIds] = useState(new Set());
-  const getDeletedMessagesStorageKey = useCallback(() => `deletedMessages_${getChatIdForAPI()}`, [chatId, USER_ID, counselorId, selectedUser]);
   // iOS uses padding; Android uses height to remain visible even where an OEM
   // ignores adjustResize, without retaining stale keyboard padding.
 
@@ -330,7 +549,9 @@ const SMSInput = ({ navigation, route }) => {
   const [counselorId, setCounselorId] = useState(null);
 
   // Selected user from navigation (already contains avatarUrl + avatar from SMSList)
-  const [selectedUser, setSelectedUser] = useState(location?.selectedUser || null);
+  const [selectedUser, setSelectedUser] = useState(
+    () => normalizeSelectedUserForChat(location?.selectedUser, location?.chatId),
+  );
   const chatId = location?.chatId;
 
   // ===================== Use same utilities as SMSList =====================
@@ -360,6 +581,23 @@ const SMSInput = ({ navigation, route }) => {
   const userDetails = getUserDetailsFromSelected();
   const USER_ID = userDetails.id;
   const USER_NAME = userDetails.name;
+  const canIssuePrescription = isPsychiatristSpecialization(
+    currentCounselor?.specialization || currentCounselor?.specializations,
+  );
+  const currentPrescriptionSignatureUri = prescriptionSignatureFile?.uri || getPrescriptionAssetUri(currentCounselor, [
+    'prescriptionSignature',
+    'prescriptionSignatureUrl',
+    'signature',
+    'signatureImage',
+    'doctorSignature',
+  ]);
+  const currentPrescriptionSealUri = prescriptionSealFile?.uri || getPrescriptionAssetUri(currentCounselor, [
+    'prescriptionSeal',
+    'prescriptionSealUrl',
+    'seal',
+    'stamp',
+    'clinicSeal',
+  ]);
 
   const resolveOnlineStatus = (person) => {
     const v = person?.isOnline ?? person?.online;
@@ -387,10 +625,26 @@ const SMSInput = ({ navigation, route }) => {
       let counselorIdValue = null;
       if (counselorData) {
         counselorIdValue = counselorData._id || counselorData.id;
+        setCurrentCounselor(counselorData);
       }
       if (!counselorIdValue) {
         counselorIdValue = await AsyncStorage.getItem("counsellorId") ||
           await AsyncStorage.getItem("counselorId");
+      }
+      try {
+        const token = await getAuthToken();
+        if (token) {
+          const me = await axios.get(`${API_BASE_URL}/api/auth/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const freshCounselor = me.data?.counsellor || me.data?.counselor || me.data?.user;
+          if (freshCounselor) {
+            setCurrentCounselor(freshCounselor);
+            counselorIdValue = counselorIdValue || freshCounselor._id || freshCounselor.id;
+          }
+        }
+      } catch (_) {
+        // Stored counselor data is enough for chat; fresh profile only improves role gating.
       }
       setCounselorId(counselorIdValue);
       return counselorIdValue;
@@ -422,6 +676,27 @@ const SMSInput = ({ navigation, route }) => {
       fallbackChatIdRef.current = `chat_${stableUserId}_${stableCounselorId}`;
     }
     return fallbackChatIdRef.current;
+  };
+
+  const getDeletedMessagesStorageKey = useCallback(() => `deletedMessages_${getChatIdForAPI()}`, [chatId, USER_ID, counselorId, selectedUser]);
+
+  // Prescriptions must always target an existing server-side consultation.
+  // Unlike normal chat recovery, never invent a fallback ID for this endpoint.
+  const getPrescriptionChatId = () => {
+    const candidateChatId =
+      chatId ||
+      selectedUser?.chatId ||
+      selectedUser?.chat_id ||
+      selectedUser?.chat?.chatId ||
+      selectedUser?.chat?._id ||
+      selectedUser?.chat?.id;
+    if (candidateChatId) return candidateChatId;
+
+    const possibleId = selectedUser?.id || selectedUser?._id;
+    if (typeof possibleId === 'string' && possibleId.startsWith('chat_')) {
+      return possibleId;
+    }
+    return null;
   };
 
   const getAttachmentUrl = (item) => {
@@ -520,7 +795,7 @@ const SMSInput = ({ navigation, route }) => {
   };
 
   const fetchMessagesFromAPI = async () => {
-    if (!selectedUser || !counselorId) return;
+    if ((!selectedUser && !chatId) || !counselorId) return;
     try {
       const apiChatId = getChatIdForAPI();
       const token = await getAuthToken();
@@ -530,6 +805,15 @@ const SMSInput = ({ navigation, route }) => {
         headers: { Authorization: token ? `Bearer ${token}` : "" },
       });
       if (response.data && response.data.messages) {
+        const responseChat = response.data.chat || response.data?.data?.chat || null;
+        const responseUser = responseChat?.user || responseChat?.otherParty || null;
+        if (responseUser) {
+          setSelectedUser((prev) => (
+            prev?.userId || prev?.receiverId
+              ? prev
+              : normalizeSelectedUserForChat(responseUser, responseChat.chatId || apiChatId)
+          ));
+        }
         if (response.data.chatStatus) setChatStatus(response.data.chatStatus);
 
         // Deduplicate system messages (e.g., "Sending a new request" that appears 6-7 times)
@@ -725,6 +1009,259 @@ const SMSInput = ({ navigation, route }) => {
     }
   };
 
+  const updatePrescriptionMedicine = (index, field, value) => {
+    setPrescriptionMedicines(prev => prev.map((medicine, i) => (
+      i === index ? { ...medicine, [field]: value } : medicine
+    )));
+  };
+
+  const toggleMedicineTime = (index, slot) => {
+    setPrescriptionMedicines(prev => prev.map((medicine, i) => (
+      i === index
+        ? { ...medicine, timeOfDay: { ...medicine.timeOfDay, [slot]: !medicine.timeOfDay?.[slot] } }
+        : medicine
+    )));
+  };
+
+  const resetPrescriptionForm = () => {
+    setPrescriptionProblem('');
+    setPrescriptionInstructions('');
+    setPrescriptionMedicines([createBlankMedicine()]);
+    setPrescriptionSignatureFile(null);
+    setPrescriptionSealFile(null);
+  };
+
+  const pickPrescriptionAsset = (type) => new Promise((resolve) => {
+    launchImageLibrary(
+      {
+        mediaType: 'photo',
+        includeBase64: false,
+        quality: 0.9,
+        selectionLimit: 1,
+      },
+      (response) => {
+        if (response.didCancel) return resolve(null);
+        const asset = response.assets?.[0];
+        if (!asset?.uri) {
+          Alert.alert('Image required', 'Unable to read selected image.');
+          return resolve(null);
+        }
+        if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+          Alert.alert('File too large', 'Signature or seal image must be less than 5MB.');
+          return resolve(null);
+        }
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+        if (asset.type && !allowedTypes.includes(String(asset.type).toLowerCase())) {
+          Alert.alert('Invalid format', 'Only JPG, PNG, and WEBP images are allowed.');
+          return resolve(null);
+        }
+        const file = {
+          uri: asset.uri,
+          type: asset.type || 'image/png',
+          name: asset.fileName || `prescription-${type}-${Date.now()}.png`,
+        };
+        if (type === 'signature') setPrescriptionSignatureFile(file);
+        else setPrescriptionSealFile(file);
+        resolve(file);
+      },
+    );
+  });
+
+  const savePrescriptionAssetsToProfile = async ({ signatureFile, sealFile }) => {
+    if (!signatureFile && !sealFile) {
+      return {
+        signatureUrl: currentPrescriptionSignatureUri,
+        sealUrl: currentPrescriptionSealUri,
+      };
+    }
+    const profileId = currentCounselor?._id || currentCounselor?.id || counselorId;
+    if (!profileId) throw new Error('Consultant profile not found. Please reopen the chat and try again.');
+    const formData = new FormData();
+    if (signatureFile) {
+      formData.append('prescriptionSignature', signatureFile);
+    } else if (currentPrescriptionSignatureUri) {
+      formData.append('prescriptionSignatureUrl', currentPrescriptionSignatureUri);
+    }
+    if (sealFile) {
+      formData.append('prescriptionSeal', sealFile);
+    } else if (currentPrescriptionSealUri) {
+      formData.append('prescriptionSealUrl', currentPrescriptionSealUri);
+    }
+    const token = await getAuthToken();
+    const response = await axios.patch(`${API_BASE_URL}/api/auth/update/${encodeURIComponent(profileId)}`, formData, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    const updatedProfile = response.data?.user;
+    if (updatedProfile) {
+      setCurrentCounselor(updatedProfile);
+      AsyncStorage.setItem('userData', JSON.stringify(updatedProfile)).catch(() => {});
+      AsyncStorage.setItem('counselor', JSON.stringify(updatedProfile)).catch(() => {});
+    }
+    return {
+      signatureUrl: getPrescriptionAssetUri(updatedProfile, ['prescriptionSignature', 'prescriptionSignatureUrl']) || currentPrescriptionSignatureUri,
+      sealUrl: getPrescriptionAssetUri(updatedProfile, ['prescriptionSeal', 'prescriptionSealUrl']) || currentPrescriptionSealUri,
+    };
+  };
+
+  const handleOpenPrescription = () => {
+    setShowOptions(false);
+    if (!canIssuePrescription) {
+      Alert.alert('Prescription not allowed', 'Only psychiatrists can create prescriptions.');
+      return;
+    }
+    setShowPrescriptionModal(true);
+  };
+
+  const handleRecommendPsychiatrist = () => {
+    setShowOptions(false);
+    setShowPsychiatristPicker(true);
+  };
+
+  const handleSelectPsychiatrist = async (psychiatrist) => {
+    if (recommendingPsychiatrist) return;
+    const name = psychiatrist?.fullName || psychiatrist?.name || psychiatrist?.displayName || 'a psychiatrist';
+    const specialization = Array.isArray(psychiatrist?.specializations)
+      ? psychiatrist.specializations.filter(Boolean).join(', ')
+      : psychiatrist?.specialization || psychiatrist?.category || 'Psychiatry';
+    const note = `I recommend @${name} for ${specialization} support. Please open Consultants and search "${name}" to view their profile.`;
+   
+    try {
+      setRecommendingPsychiatrist(true);
+      await sendMessageToAPI({ messageContent: note });
+      setShowPsychiatristPicker(false);
+    } catch (error) {
+      Alert.alert('Recommendation failed', error?.response?.data?.message || 'Unable to send psychiatrist recommendation right now.');
+    } finally {
+      setRecommendingPsychiatrist(false);
+    }
+  };
+
+  const handleIssuePrescription = async () => {
+    const validMedicines = prescriptionMedicines
+      .map((medicine) => {
+        const slots = Object.entries(medicine.timeOfDay || {})
+          .filter(([, selected]) => selected)
+          .map(([slot]) => slot);
+        return {
+          medicineName: medicine.medicineName.trim(),
+          name: medicine.medicineName.trim(),
+          dosage: medicine.dosage.trim(),
+          timeOfDay: slots,
+          timing: medicine.whenToTake.trim(),
+          whenToTake: medicine.whenToTake.trim(),
+          duration: medicine.duration.trim(),
+        };
+      })
+      .filter((medicine) => medicine.medicineName || medicine.dosage || medicine.whenToTake);
+
+    if (!prescriptionProblem.trim()) {
+      Alert.alert('Patient problem required', 'Please describe the patient problem or diagnosis.');
+      return;
+    }
+    if (validMedicines.length === 0 || validMedicines.some((m) => !m.medicineName || !m.dosage || !m.whenToTake || m.timeOfDay.length === 0)) {
+      Alert.alert('Medicine details required', 'Please fill medicine name, dosage, time of day, and when to take.');
+      return;
+    }
+    let signatureFile = prescriptionSignatureFile;
+    let sealFile = prescriptionSealFile;
+    if (!currentPrescriptionSignatureUri && !signatureFile) {
+      signatureFile = await pickPrescriptionAsset('signature');
+      if (!signatureFile) {
+        Alert.alert('Signature required', 'Please add consultant signature before sending this prescription.');
+        return;
+      }
+    }
+    if (!currentPrescriptionSealUri && !sealFile) {
+      sealFile = await pickPrescriptionAsset('seal');
+      if (!sealFile) {
+        Alert.alert('Humaeli seal required', 'Please add Humaeli seal before sending this prescription.');
+        return;
+      }
+    }
+
+    try {
+      setIssuingPrescription(true);
+      const apiChatId = getPrescriptionChatId();
+      if (!apiChatId) {
+        throw new Error('Chat ID not found. Please reopen this conversation and try again.');
+      }
+      const medicinesForApi = validMedicines.map((medicine) => ({
+        name: medicine.name,
+        dosage: medicine.dosage,
+        timeOfDay: medicine.timeOfDay,
+        timing: medicine.timing,
+        duration: medicine.duration,
+      }));
+      const prescriptionPdf = await createPrescriptionAttachment({
+        patientName: USER_NAME,
+        psychiatristName: currentCounselor?.fullName || currentCounselor?.name || 'Psychiatrist',
+        psychiatristId: counselorId,
+        problem: prescriptionProblem.trim(),
+        instructions: prescriptionInstructions.trim(),
+        medicines: medicinesForApi,
+      });
+      const validUntil = new Date(
+        Date.now() + DEFAULT_PRESCRIPTION_VALID_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      const { signatureUrl, sealUrl } = await savePrescriptionAssetsToProfile({ signatureFile, sealFile });
+      const formData = new FormData();
+      formData.append('problem', prescriptionProblem.trim());
+      formData.append('instructions', prescriptionInstructions.trim());
+      formData.append('medicines', JSON.stringify(medicinesForApi));
+      formData.append('festivalTheme', DEFAULT_PRESCRIPTION_THEME_ID);
+      formData.append('validityDays', String(DEFAULT_PRESCRIPTION_VALID_DAYS));
+      formData.append('validUntil', validUntil);
+      if (signatureUrl) {
+        formData.append('prescriptionSignatureUrl', signatureUrl);
+        formData.append('signatureUrl', signatureUrl);
+      }
+      if (sealUrl) {
+        formData.append('prescriptionSealUrl', sealUrl);
+        formData.append('sealUrl', sealUrl);
+      }
+      formData.append('attachment', prescriptionPdf);
+
+      const token = await getAuthToken();
+      const response = await axios.post(`${API_BASE_URL}/api/prescriptions/chat/${encodeURIComponent(apiChatId)}`, formData, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      if (!response.data?.success) {
+        throw new Error(response.data?.error || response.data?.message || 'Unable to send prescription.');
+      }
+
+      const note = `Prescription created for ${USER_NAME}. Please check the Prescription tab.`;
+      await sendMessageToAPI({ messageContent: note }).catch(() => {});
+      setMessages(prev => [...prev, {
+        id: `temp_rx_${Date.now()}`,
+        text: note,
+        sender: 'me',
+        senderRole: 'counsellor',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        createdAt: new Date().toISOString(),
+        status: 'sent',
+      }]);
+      resetPrescriptionForm();
+      setShowPrescriptionModal(false);
+      Alert.alert('Prescription sent', 'Prescription has been sent to the patient.');
+    } catch (error) {
+      Alert.alert(
+        'Prescription failed',
+        error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Unable to send prescription.',
+      );
+    } finally {
+      setIssuingPrescription(false);
+    }
+  };
+
   const getMessageIdentifier = (msg) => msg?._id || msg?.id || msg?.messageId;
 
   const removeMessageFromState = async (messageToDelete) => {
@@ -883,6 +1420,33 @@ const SMSInput = ({ navigation, route }) => {
     }
   };
 
+  useEffect(() => {
+    const spokenText = String(voiceTranscript || "").trim();
+    if (!spokenText) return;
+
+    const baseText = voiceTypingBaseRef.current;
+    const spacer = baseText && !/\s$/.test(baseText) ? " " : "";
+    setMessage(`${baseText}${spacer}${spokenText}`);
+  }, [voiceTranscript]);
+
+  useEffect(() => {
+    if (voiceTypingError) {
+      console.warn("[Counselor Speech-to-Text] error:", voiceTypingError);
+    }
+  }, [voiceTypingError]);
+
+  const handleVoiceTypingPress = useCallback(() => {
+    if (isVoiceTyping) {
+      stopVoiceTyping();
+      return;
+    }
+
+    voiceTypingBaseRef.current = message || "";
+    clearVoiceTranscript();
+    messageInputRef.current?.focus();
+    startVoiceTyping();
+  }, [clearVoiceTranscript, isVoiceTyping, message, startVoiceTyping, stopVoiceTyping]);
+
   // ─── End session ─────────────────────────────────────────────────────────
   // Counselor ends the session. The backend should mark the chat "ended" and
   // emit the existing `chat-status-update` event so the user's app shows its
@@ -934,9 +1498,18 @@ const SMSInput = ({ navigation, route }) => {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
       if (response.data && response.data.success) {
+        if (isNotificationOnlyCallResponse(response.data)) {
+          const notificationMessage = getNotificationOnlyCallMessage(response.data, USER_NAME || "User");
+          setCallError(null);
+          Alert.alert("Call request sent", notificationMessage);
+          return;
+        }
+
+        const streamRoomId = getStreamRoomId(response.data, response.data.callData);
         const callData = {
           callId: response.data.callId || response.data.callData?._id,
-          roomId: response.data.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: USER_NAME,
           type: "video",
           callType: "video",
@@ -976,9 +1549,18 @@ const SMSInput = ({ navigation, route }) => {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
       if (response.data && response.data.success) {
+        if (isNotificationOnlyCallResponse(response.data)) {
+          const notificationMessage = getNotificationOnlyCallMessage(response.data, USER_NAME || "User");
+          setCallError(null);
+          Alert.alert("Call request sent", notificationMessage);
+          return;
+        }
+
+        const streamRoomId = getStreamRoomId(response.data, response.data.callData);
         const callData = {
           callId: response.data.callId || response.data.callData?._id,
-          roomId: response.data.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: USER_NAME,
           type: "voice",
           callType: "audio",
@@ -998,6 +1580,8 @@ const SMSInput = ({ navigation, route }) => {
   };
 
   const handleJoinIncomingCall = async (callId) => {
+    launchedFromCallPushRef.current = false;
+    await AsyncStorage.removeItem('pendingIncomingCallPush');
     try {
       const token = await getAuthToken();
       const response = await axios.put(`${API_BASE_URL}/api/video/calls/${callId}/accept`, {
@@ -1005,26 +1589,24 @@ const SMSInput = ({ navigation, route }) => {
         acceptorType: "counsellor",
       }, { headers: { Authorization: `Bearer ${token}` } });
       if (response.data?.success) {
-        let detailedCall = null;
-        try {
-          const details = await axios.get(`${API_BASE_URL}/api/video/calls/${callId}/details`, {
-            params: { userId: counselorId, userType: "counsellor" },
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          detailedCall = details.data?.call;
-        } catch(e) {}
+        const acceptedPayload =
+          response.data?.call ||
+          response.data?.callData ||
+          response.data?.data?.call ||
+          response.data?.data?.callData ||
+          null;
         const modalType = normalizeIncomingCallType(
           incomingCallData.callType ||
-          detailedCall?.callType ||
-          detailedCall?.type ||
+          acceptedPayload?.callType ||
+          acceptedPayload?.type ||
           response.data?.callType ||
           "video"
         );
-        const initiatorId = detailedCall?.initiator?.id || detailedCall?.initiator?._id;
+        const initiatorId = acceptedPayload?.initiator?.id || acceptedPayload?.initiator?._id;
         const remoteParticipant =
-          detailedCall && String(initiatorId) === String(counselorId)
-            ? detailedCall.receiver
-            : detailedCall?.initiator || incomingCallData?.from || {};
+          acceptedPayload && String(initiatorId) === String(counselorId)
+            ? acceptedPayload.receiver
+            : acceptedPayload?.initiator || incomingCallData?.from || {};
         const remoteName =
           remoteParticipant?.anonymous ||
           remoteParticipant?.anonName ||
@@ -1033,20 +1615,22 @@ const SMSInput = ({ navigation, route }) => {
           remoteParticipant?.fullName ||
           incomingCallData.name ||
           "Anonymous User";
+        const streamRoomId = getStreamRoomId(response.data, acceptedPayload, incomingCallData);
         const callDataForModal = {
-          id: detailedCall?.id || detailedCall?._id || callId,
+          id: acceptedPayload?.id || acceptedPayload?._id || callId,
           callId,
-          roomId: response.data.roomId || detailedCall?.roomId || incomingCallData.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: remoteName,
           type: modalType,
           callType: modalType,
-          status: response.data?.status || detailedCall?.status || "active",
+          status: response.data?.status || acceptedPayload?.status || "active",
           profilePic: remoteParticipant?.profilePhoto || remoteParticipant?.image || incomingCallData.image || null,
-          apiCallData: detailedCall,
-          initiator: detailedCall?.initiator || incomingCallData.initiator,
-          receiver: detailedCall?.receiver || incomingCallData.receiver,
-          initiatorId: detailedCall?.initiator?.id || detailedCall?.initiator?._id,
-          receiverId: detailedCall?.receiver?.id || detailedCall?.receiver?._id,
+          apiCallData: acceptedPayload,
+          initiator: acceptedPayload?.initiator || incomingCallData.initiator,
+          receiver: acceptedPayload?.receiver || incomingCallData.receiver,
+          initiatorId: acceptedPayload?.initiator?.id || acceptedPayload?.initiator?._id,
+          receiverId: acceptedPayload?.receiver?.id || acceptedPayload?.receiver?._id,
           currentUserId: counselorId,
           currentUserType: "counsellor",
           from: incomingCallData.from,
@@ -1059,21 +1643,30 @@ const SMSInput = ({ navigation, route }) => {
           setSelectedCall(callDataForModal);
           setIsVoiceModalOpen(true);
         }
+        setShowIncomingModal(false);
         return { success: true };
       }
       throw new Error("Failed to accept call");
     } catch (error) {
       console.error("Join call error:", error);
+      setShowIncomingModal(true);
+      startRinging(true);
       throw error;
     }
   };
 
   const handleRejectIncomingCall = async (callId) => {
+    const shouldExitAfterReject = launchedFromCallPushRef.current;
+    launchedFromCallPushRef.current = false;
     try {
       const token = await getAuthToken();
       await axios.put(`${API_BASE_URL}/api/video/calls/${callId}/reject`, { userId: counselorId, reason: "declined" }, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      await AsyncStorage.removeItem('pendingIncomingCallPush');
+      if (shouldExitAfterReject && Platform.OS === 'android') {
+        setTimeout(() => BackHandler.exitApp(), 100);
+      }
       return true;
     } catch (error) {
       return false;
@@ -1095,7 +1688,7 @@ const SMSInput = ({ navigation, route }) => {
   // ─── Effects ─────────────────────────────────────────────────────────────
   useEffect(() => { loadCounselorData(); }, []);
   useEffect(() => {
-    if (!selectedUser || !counselorId) return undefined;
+    if ((!selectedUser && !chatId) || !counselorId) return undefined;
     let alive = true;
     (async () => {
       // Paint from cache first when we have it, so the thread appears complete
@@ -1142,10 +1735,34 @@ const SMSInput = ({ navigation, route }) => {
         const socket = await socketService.connect();
         chatSocketRef.current = socket;
         setIsSocketConnected(true);
+        const currentChatIds = [
+          apiChatId,
+          selectedUser?.chatId,
+          selectedUser?.id,
+          selectedUser?._id,
+        ]
+          .filter(Boolean)
+          .map((id) => String(id));
+
+        const isCurrentChatEvent = (payload = {}) => {
+          const payloadChatIds = [
+            payload.publicChatId,
+            payload.chatId,
+            payload._id,
+            payload.id,
+          ]
+            .filter(Boolean)
+            .map((id) => String(id));
+
+          return payloadChatIds.some((id) => currentChatIds.includes(id));
+        };
+
         const onConnect = () => {
+          setIsSocketConnected(true);
           socket.emit('join-chat', { chatId: apiChatId });
         };
         unsubscribers.push(await socketService.on('connect', onConnect));
+        if (socket.connected) onConnect();
         unsubscribers.push(await socketService.on('disconnect', () => setIsSocketConnected(false)));
         unsubscribers.push(await socketService.on('presence-update', ({ userId, isOnline, lastSeen }) => {
           if (String(userId) === String(USER_ID)) {
@@ -1153,6 +1770,7 @@ const SMSInput = ({ navigation, route }) => {
           }
         }));
         unsubscribers.push(await socketService.on('new-message', (messageData) => {
+          if (!isCurrentChatEvent(messageData)) return;
           shouldAutoScrollRef.current = true;
           // Skip if this message was deleted locally
           if (deletedMessageIdsRef.current.has(String(messageData.messageId || messageData.id || messageData._id))) return;
@@ -1218,18 +1836,21 @@ const SMSInput = ({ navigation, route }) => {
     const fetchIncoming = async () => {
       try {
         const token = await getAuthToken();
-        if (!counselorId || !token || showIncomingModal || isVideoModalOpen || isVoiceModalOpen) return;
+        if (!counselorId || !token || showIncomingModal || isVideoModalOpen || isVoiceModalOpen || isGlobalCallUiActive()) return;
         const res = await axios.get(`${API_BASE_URL}/api/video/calls/pending/${counselorId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const calls = res.data.pendingRequests || [];
+        if (isGlobalCallUiActive()) return;
         if (calls.length > 0) {
           const call = calls[0];
           const from = call.from || call.initiator || {};
           const resolvedCallType = normalizeIncomingCallType(call.callType || call.type);
+          const streamRoomId = getStreamRoomId(call);
           setIncomingCallData({
             callId: call.callId || call.id || call._id,
-            roomId: call.roomId,
+            roomId: streamRoomId,
+            streamCallId: streamRoomId,
             name: from.anonymous || from.anonName || from.anonymousName || "Anonymous User",
             avatar: "👤",
             image:
@@ -1247,11 +1868,15 @@ const SMSInput = ({ navigation, route }) => {
             requestedAt: call.requestedAt,
             expiresAt: call.expiresAt,
           });
+          launchedFromCallPushRef.current = Boolean(
+            await AsyncStorage.getItem('pendingIncomingCallPush'),
+          );
           setShowIncomingModal(true);
         }
       } catch (err) {}
     };
     if (isFocused && counselorId) {
+      fetchIncoming();
       intervalId = setInterval(fetchIncoming, 5000);
     }
     return () => { if (intervalId) clearInterval(intervalId); };
@@ -1265,6 +1890,24 @@ const SMSInput = ({ navigation, route }) => {
     }
     return () => stopRinging();
   }, [showIncomingModal, isVideoModalOpen, isVoiceModalOpen, isFocused]);
+
+  useEffect(() => {
+    if (!showIncomingModal || !incomingCallData?.callId) return undefined;
+
+    const timeoutId = setTimeout(async () => {
+      const shouldExitAfterCall = launchedFromCallPushRef.current;
+      launchedFromCallPushRef.current = false;
+      stopRinging();
+      setShowIncomingModal(false);
+      await displayMissedCallNotification(incomingCallData, 'missed');
+      await AsyncStorage.removeItem('pendingIncomingCallPush');
+      if (shouldExitAfterCall && Platform.OS === 'android') {
+        setTimeout(() => BackHandler.exitApp(), 100);
+      }
+    }, INCOMING_RING_TIMEOUT_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [showIncomingModal, incomingCallData?.callId, stopRinging]);
 
   useEffect(() => {
     if (!isSocketConnected && selectedUser && counselorId) {
@@ -1634,6 +2277,9 @@ const SMSInput = ({ navigation, route }) => {
               <TouchableOpacity style={[styles.actionBtn, isInitiatingCall && styles.actionBtnDisabled]} onPress={initiateVoiceCall} disabled={isInitiatingCall}>
                 <Ionicons name="call-outline" size={22} color="#004AC6" />
               </TouchableOpacity>
+              <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(true)}>
+                <Ionicons name="ellipsis-vertical" size={22} color="#004AC6" />
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -1653,12 +2299,204 @@ const SMSInput = ({ navigation, route }) => {
                   <Ionicons name="refresh" size={18} color="#526071" />
                   <Text style={styles.optionText}>{t('Refresh Messages')}</Text>
                 </TouchableOpacity>
+                {canIssuePrescription ? (
+                  <TouchableOpacity style={styles.optionItem} onPress={handleOpenPrescription}>
+                    <Ionicons name="medical-outline" size={18} color="#004AC6" />
+                    <Text style={styles.optionText}>Prescription</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity style={styles.optionItem} onPress={handleRecommendPsychiatrist}>
+                    <Ionicons name="person-add-outline" size={18} color="#004AC6" />
+                    <Text style={styles.optionText}>Recommend Psychiatrist</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity style={[styles.optionItem, styles.optionItemLast]} onPress={() => { setShowOptions(false); clearChat(); }}>
                   <Ionicons name="trash-outline" size={18} color="#dc2626" />
                   <Text style={[styles.optionText, styles.optionTextDanger]}>{t('Clear Chat')}</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
+          </Modal>
+
+          <Modal transparent={false} visible={showPsychiatristPicker} animationType="slide" onRequestClose={() => setShowPsychiatristPicker(false)}>
+            <SafeAreaView style={styles.psychiatristModalSafe}>
+              <PsychiatristDirectory
+                title="Psychiatrists"
+                subtitle={`Choose psychiatrist for ${USER_NAME || 'this patient'}`}
+                selectLabel="Recommend"
+                selectDisabled={recommendingPsychiatrist}
+                onClose={() => setShowPsychiatristPicker(false)}
+                onSelect={handleSelectPsychiatrist}
+              />
+            </SafeAreaView>
+          </Modal>
+
+          <Modal transparent visible={showPrescriptionModal} animationType="slide" onRequestClose={() => !issuingPrescription && setShowPrescriptionModal(false)}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.prescriptionOverlay}>
+              <View style={[styles.prescriptionSheet, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+                <View style={styles.prescriptionHeader}>
+                  <View>
+                    <Text style={styles.prescriptionKicker}>Patient prescription</Text>
+                    <Text style={styles.prescriptionTitle}>Create Prescription</Text>
+                    <Text style={styles.prescriptionPatient}>For {USER_NAME}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setShowPrescriptionModal(false)} disabled={issuingPrescription} style={styles.prescriptionClose}>
+                    <Ionicons name="close" size={22} color="#475569" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  <Text style={styles.rxLabel}>Patient problem *</Text>
+                  <TextInput
+                    style={[styles.rxInput, styles.rxTextArea]}
+                    value={prescriptionProblem}
+                    onChangeText={setPrescriptionProblem}
+                    placeholder="Describe the patient's problem or diagnosis"
+                    placeholderTextColor="#94A3B8"
+                    multiline
+                  />
+
+                  {prescriptionMedicines.map((medicine, index) => (
+                    <View key={`medicine-${index}`} style={styles.medicineForm}>
+                      <View style={styles.medicineFormHeader}>
+                        <Text style={styles.medicineFormTitle}>Medicine {index + 1}</Text>
+                        {prescriptionMedicines.length > 1 && (
+                          <TouchableOpacity
+                            onPress={() => setPrescriptionMedicines(prev => prev.filter((_, i) => i !== index))}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Ionicons name="trash-outline" size={18} color="#DC2626" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+
+                      <Text style={styles.rxLabel}>Medicine name *</Text>
+                      <TextInput
+                        style={styles.rxInput}
+                        value={medicine.medicineName}
+                        onChangeText={(value) => updatePrescriptionMedicine(index, 'medicineName', value)}
+                        placeholder="Medicine name"
+                        placeholderTextColor="#94A3B8"
+                      />
+
+                      <Text style={styles.rxLabel}>Dosage *</Text>
+                      <TextInput
+                        style={styles.rxInput}
+                        value={medicine.dosage}
+                        onChangeText={(value) => updatePrescriptionMedicine(index, 'dosage', value)}
+                        placeholder="e.g. 10 mg"
+                        placeholderTextColor="#94A3B8"
+                      />
+
+                      <Text style={styles.rxLabel}>Time of day *</Text>
+                      <View style={styles.timeChipRow}>
+                        {['Morning', 'Afternoon', 'Evening', 'Night'].map((slot) => {
+                          const active = Boolean(medicine.timeOfDay?.[slot]);
+                          return (
+                            <TouchableOpacity
+                              key={slot}
+                              style={[styles.timeChip, active && styles.timeChipActive]}
+                              onPress={() => toggleMedicineTime(index, slot)}
+                            >
+                              <Text style={[styles.timeChipText, active && styles.timeChipTextActive]}>{slot}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      <Text style={styles.rxLabel}>When to take *</Text>
+                      <TextInput
+                        style={styles.rxInput}
+                        value={medicine.whenToTake}
+                        onChangeText={(value) => updatePrescriptionMedicine(index, 'whenToTake', value)}
+                        placeholder="e.g. After breakfast and dinner"
+                        placeholderTextColor="#94A3B8"
+                      />
+
+                      <Text style={styles.rxLabel}>Duration</Text>
+                      <TextInput
+                        style={styles.rxInput}
+                        value={medicine.duration}
+                        onChangeText={(value) => updatePrescriptionMedicine(index, 'duration', value)}
+                        placeholder="e.g. 14 days"
+                        placeholderTextColor="#94A3B8"
+                      />
+                    </View>
+                  ))}
+
+                  <TouchableOpacity style={styles.addMedicineBtn} onPress={() => setPrescriptionMedicines(prev => [...prev, createBlankMedicine()])}>
+                    <Ionicons name="add-circle-outline" size={18} color="#004AC6" />
+                    <Text style={styles.addMedicineText}>Add another medicine</Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.rxLabel}>Instructions</Text>
+                  <TextInput
+                    style={[styles.rxInput, styles.rxTextArea]}
+                    value={prescriptionInstructions}
+                    onChangeText={setPrescriptionInstructions}
+                    placeholder="Additional instructions for the patient"
+                    placeholderTextColor="#94A3B8"
+                    multiline
+                  />
+
+                  <View style={styles.prescriptionAssetSection}>
+                    <Text style={styles.prescriptionAssetTitle}>Prescription authorization *</Text>
+                    <Text style={styles.prescriptionAssetHelp}>
+                      Add consultant signature and Humaeli seal before sending.
+                    </Text>
+                    <View style={styles.prescriptionAssetRow}>
+                      {[
+                        {
+                          key: 'signature',
+                          title: 'Signature',
+                          icon: 'create-outline',
+                          uri: currentPrescriptionSignatureUri,
+                        },
+                        {
+                          key: 'seal',
+                          title: 'Humaeli seal',
+                          icon: 'ribbon-outline',
+                          uri: currentPrescriptionSealUri,
+                        },
+                      ].map((asset) => (
+                        <TouchableOpacity
+                          key={asset.key}
+                          style={styles.prescriptionAssetTile}
+                          onPress={() => pickPrescriptionAsset(asset.key)}
+                          activeOpacity={0.82}
+                          disabled={issuingPrescription}
+                        >
+                          {asset.uri ? (
+                            <Image
+                              source={{ uri: asset.uri }}
+                              style={styles.prescriptionAssetPreview}
+                              resizeMode="contain"
+                            />
+                          ) : (
+                            <View style={styles.prescriptionAssetEmpty}>
+                              <Ionicons name={asset.icon} size={24} color={DOCTOR.primary} />
+                            </View>
+                          )}
+                          <Text style={styles.prescriptionAssetName}>{asset.title}</Text>
+                          <Text style={styles.prescriptionAssetActionText}>
+                            {asset.uri ? 'Change' : 'Add image'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  <View style={styles.prescriptionActions}>
+                    <TouchableOpacity style={styles.rxCancelBtn} onPress={() => setShowPrescriptionModal(false)} disabled={issuingPrescription}>
+                      <Text style={styles.rxCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.rxSendBtn, issuingPrescription && styles.rxSendBtnDisabled]} onPress={handleIssuePrescription} disabled={issuingPrescription}>
+                      {issuingPrescription ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.rxSendText}>Send Prescription</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+              </View>
+            </KeyboardAvoidingView>
           </Modal>
 
           {/* Messages */}
@@ -1738,6 +2576,16 @@ const SMSInput = ({ navigation, route }) => {
                         requestAnimationFrame(() => messageInputRef.current?.focus());
                       }
                     }}
+                  />
+                  <MicButton
+                    isListening={isVoiceTyping}
+                    onPress={handleVoiceTypingPress}
+                    disabled={isSending || !voiceTypingAvailable}
+                    color="#2563EB"
+                    backgroundColor="#EFF6FF"
+                    size={34}
+                    iconSize={18}
+                    style={styles.inputMicBtn}
                   />
                 </View>
                 <TouchableOpacity
@@ -1982,21 +2830,40 @@ const styles = StyleSheet.create({
   attachmentPreview: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10, gap: 8 },
   attachmentPreviewText: { flex: 1, color: '#111827', fontSize: 12, fontWeight: '500' },
   inputGroupDisabled: { opacity: 0.7 },
-  inputGroup: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  inputGroup: { width: '100%', flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
   attachBtn: { width: 42, height: 42, borderRadius: 21, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E8EFFB' },
   inputWrapper: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: '#FFFFFF',
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 6,
     minHeight: 44,
+    position: 'relative',
   },
-  textInput: { flex: 1, fontSize: 14, lineHeight: 20, color: '#111827', paddingVertical: Platform.OS === 'ios' ? 6 : 4, paddingHorizontal: 8, maxHeight: 120, minHeight: 36, textAlignVertical: 'center' },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
+  textInput: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#111827',
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingLeft: 8,
+    paddingRight: 42,
+    maxHeight: 120,
+    minHeight: 40,
+    textAlignVertical: 'top',
+  },
+  inputMicBtn: {
+    position: 'absolute',
+    right: 5,
+    bottom: 4,
+  },
+  sendBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', alignSelf: 'flex-end' },
   sendBtnActive: { shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.35, shadowRadius: 5, elevation: 5 },
   sendBtnDisabled: { backgroundColor: '#CBD5E1', opacity: 0.7 },
   incomingCallScreen: {
@@ -2118,11 +2985,15 @@ const styles = StyleSheet.create({
     shadowRadius: 9,
     elevation: 7,
   },
-  acceptBtn: { backgroundColor: DOCTOR.primary },
+  acceptBtn: { backgroundColor: '#16A34A' },
   rejectBtn: { backgroundColor: '#DC2626' },
   callEndIcon: { transform: [{ rotate: '135deg' }] },
   incomingCallBtnLabel: { color: '#64748B', fontWeight: '700', fontSize: 13 },
   // Options Menu Styles
+  psychiatristModalSafe: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
   optionsOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
@@ -2161,6 +3032,236 @@ const styles = StyleSheet.create({
   },
   optionTextDanger: {
     color: '#dc2626',
+  },
+  prescriptionOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'flex-end',
+  },
+  prescriptionSheet: {
+    maxHeight: '92%',
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  prescriptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    marginBottom: 12,
+  },
+  prescriptionKicker: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: DOCTOR.primary,
+    textTransform: 'uppercase',
+  },
+  prescriptionTitle: {
+    fontSize: 21,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginTop: 2,
+  },
+  prescriptionPatient: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+    marginTop: 4,
+  },
+  prescriptionClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rxLabel: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#334155',
+    marginBottom: 7,
+    marginTop: 10,
+  },
+  rxInput: {
+    minHeight: 46,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#0F172A',
+  },
+  rxTextArea: {
+    minHeight: 88,
+    textAlignVertical: 'top',
+  },
+  medicineForm: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  medicineFormHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  medicineFormTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  timeChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  timeChip: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeChipActive: {
+    backgroundColor: '#EAF2FF',
+    borderColor: DOCTOR.primary,
+  },
+  timeChipText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  timeChipTextActive: {
+    color: DOCTOR.primary,
+  },
+  addMedicineBtn: {
+    marginTop: 12,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  addMedicineText: {
+    color: DOCTOR.primary,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  prescriptionAssetSection: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  prescriptionAssetTitle: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  prescriptionAssetHelp: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  prescriptionAssetRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  prescriptionAssetTile: {
+    flex: 1,
+    minHeight: 124,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+  },
+  prescriptionAssetPreview: {
+    width: '100%',
+    height: 54,
+    marginBottom: 8,
+  },
+  prescriptionAssetEmpty: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#EAF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  prescriptionAssetName: {
+    color: '#0F172A',
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  prescriptionAssetActionText: {
+    color: DOCTOR.primary,
+    fontSize: 11,
+    fontWeight: '900',
+    marginTop: 3,
+    textAlign: 'center',
+  },
+  prescriptionActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  rxCancelBtn: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rxCancelText: {
+    color: '#334155',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  rxSendBtn: {
+    flex: 1.4,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: DOCTOR.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rxSendBtnDisabled: {
+    opacity: 0.65,
+  },
+  rxSendText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
   },
   // Image Preview Modal Styles
 });

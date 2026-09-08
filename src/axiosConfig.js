@@ -18,8 +18,13 @@ const API_ENDPOINTS = {
   LOCAL_3000: 'http://localhost:3000',
 };
 
-export const API_BASE_URL = API_ENDPOINTS.RAILWAY;
-export const AI_REALTIME_BASE_URL = API_BASE_URL.RAILWAY.replace(/\/+$/, '');
+// Debug builds talk to the local backend through the dev tunnel. Signed
+// release APKs must use the live backend; otherwise an installed APK stops
+// working as soon as the temporary tunnel expires.
+export const API_BASE_URL = __DEV__
+  ? API_ENDPOINTS.RAILWAY
+  : API_ENDPOINTS.RAILWAY;
+export const AI_REALTIME_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
 export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
   ? { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' }
   : {};
@@ -117,43 +122,9 @@ axiosInstance.interceptors.response.use(
     const originalRequest = error.config;
     const url = originalRequest?.url || '';
     const isAuthRoute = NO_REFRESH_PATHS.some((p) => url.includes(p));
-
-    // Android can occasionally drop the first TLS connection after the app has
-    // been idle. Verifying an OTP is safe to repeat when no HTTP response was
-    // received, so retry it once instead of requiring the user to tap twice.
-  if (
-  !error.response &&
-  originalRequest &&
-  (
-    url.includes('/api/auth/verifyOtp') ||
-    url.includes('/api/auth/verify-email-otp') ||
-    url.includes('/api/auth/verify-login-otp') ||
-    url.includes('/api/auth/verify-forgot-password-otp')
-  ) &&
-  !originalRequest._otpNetworkRetry &&
-  error.code !== 'ERR_CANCELED'
-) {
-      originalRequest._otpNetworkRetry = true;
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      return axiosInstance(originalRequest);
-    }
-
-    // This backend returns 404 (instead of 401) when a session has been
-    // invalidated by a logout/sign-in on another device. If this device still
-    // has credentials, treat that response as an ended session and leave the
-    // protected screen immediately. Auth routes are excluded because a 404
-    // there is a genuine endpoint/account error and must remain visible.
-    if (error.response?.status === 404 && !isAuthRoute) {
-      const [accessToken, legacyToken] = await Promise.all([
-        AsyncStorage.getItem('accessToken'),
-        AsyncStorage.getItem('token'),
-      ]);
-
-      if (accessToken || legacyToken) {
-        await forceSignOut({ silent: true });
-        return Promise.reject(error);
-      }
-    }
+    // A 404 only means that a requested resource/optional endpoint was not
+    // found. It must never clear a valid login session. Authentication expiry
+    // is handled exclusively by the 401 + refresh-token flow below.
 
     // Handle 401 errors (unauthorized)
     if (

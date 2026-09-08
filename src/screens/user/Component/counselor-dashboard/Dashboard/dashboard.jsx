@@ -39,7 +39,13 @@ import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityI
 
 // Custom Hooks
 import useVibration from "../../../../../hooks/useVibration";
-import { forceStopRingtone, startIncomingRingtone } from "../../../../../hooks/useRingtone";
+import {
+  INCOMING_RING_TIMEOUT_MS,
+  forceStopRingtone,
+  startIncomingRingtone,
+} from "../../../../../hooks/useRingtone";
+import { isGlobalCallUiActive } from "../../../../../services/callNotificationBridge";
+import { displayMissedCallNotification } from "../../../../../services/notificationService";
 import Dashboard from "../Tab/CounselorDashboard/Dashboardcou";
 import Messagesou from "../Tab/Messages/Messagesou";
 import PatientRequests from "../Tab/PatientRequests/PatientRequests";
@@ -58,6 +64,11 @@ import CounselorGradientButton from '../../../../../components/common/CounselorG
 import { loadUserLanguage } from '../../../../../i18n';
 import { DOCTOR, DOCTOR_GRADIENT } from "../../../../../theme/palette";
 import { toImageUri } from "../../../../../utils/imageUri";
+import { getChatRequestId, respondToChatRequest } from "../../../../../utils/chatRequestActions";
+import {
+  getNotificationOnlyCallMessage,
+  isNotificationOnlyCallResponse,
+} from "../../../../../utils/callRequestStatus";
 
 const normalizeCallType = (value) => {
   const type = String(value || '').trim().toLowerCase();
@@ -66,6 +77,49 @@ const normalizeCallType = (value) => {
   }
   return 'video';
 };
+
+const TERMINAL_CALL_STATUSES = new Set([
+  'ended',
+  'rejected',
+  'missed',
+  'completed',
+  'cancelled',
+  'canceled',
+  'expired',
+  'timeout',
+  'timed_out',
+  'no_answer',
+]);
+
+const getCallStatus = (payload) => String(
+  payload?.call?.status ||
+  payload?.status ||
+  payload?.data?.status ||
+  ''
+).trim().toLowerCase();
+
+const getStreamRoomId = (...sources) => {
+  for (const source of sources) {
+    const roomId =
+      source?.streamCallId ||
+      source?.stream_call_id ||
+      source?.streamId ||
+      source?.roomId ||
+      source?.room_id ||
+      source?.channelId ||
+      source?.call?.streamCallId ||
+      source?.call?.roomId ||
+      source?.data?.streamCallId ||
+      source?.data?.roomId ||
+      source?.callData?.streamCallId ||
+      source?.callData?.roomId;
+    if (roomId) return roomId;
+  }
+  return '';
+};
+
+const CHAT_REQUEST_POPUP_MAX_SHOWS = 2;
+const CHAT_REQUEST_POPUP_SECONDS = 10;
 
 // â”€â”€â”€ Incoming Call Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const IncomingCallModal = ({
@@ -157,9 +211,13 @@ const IncomingCallModal = ({
   const handleAccept = async () => {
     setIsAccepting(true);
     forceStopRingtone();
-    onClose();
-    if (onAccept) await onAccept(callData);
-    setIsAccepting(false);
+    try {
+      if (onAccept) await onAccept(callData);
+    } catch (error) {
+      console.error("Error accepting call:", error);
+    } finally {
+      setIsAccepting(false);
+    }
   };
 
   const handleReject = async () => {
@@ -807,8 +865,9 @@ export default function CounselorDashboard() {
   const insets = useSafeAreaInsets();
   const MOBILE_HEADER_BAR_HEIGHT = 60;
   const MOBILE_BOTTOM_NAV_BAR_HEIGHT = 66;
+  const androidStatusBarInset = StatusBar.currentHeight || 24;
   const topInset = Platform.OS === "android"
-    ? Math.min(Math.max(insets.top, 8), 16)
+    ? Math.max(insets.top, androidStatusBarInset)
     : insets.top;
   const mobileHeaderHeight = topInset + MOBILE_HEADER_BAR_HEIGHT;
   const dashboardBottomInset = Math.max(insets.bottom, 0);
@@ -829,12 +888,11 @@ export default function CounselorDashboard() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [pendingRequests, setPendingRequests] = useState([]);
-  const [loadingRequests, setLoadingRequests] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [currentRequest, setCurrentRequest] = useState(null);
-  const [modalCountdown, setModalCountdown] = useState(10);
-  const [modalTimer, setModalTimer] = useState(null);
+  const [modalCountdown, setModalCountdown] = useState(CHAT_REQUEST_POPUP_SECONDS);
+  const [requestActionBusy, setRequestActionBusy] = useState(null);
   const [showIncomingCallModal, setShowIncomingCallModal] = useState(false);
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
@@ -851,6 +909,11 @@ export default function CounselorDashboard() {
   // Ref mirrors for modal states — lets polling interval use stable [] deps
   // without going stale on state changes.
   const showIncomingCallModalRef = useRef(false);
+  const showRequestModalRef = useRef(false);
+  const showNotificationsRef = useRef(false);
+  const requestPopupCountsRef = useRef({});
+  const requestModalTimerRef = useRef(null);
+  const launchedFromCallPushRef = useRef(false);
   const isVideoModalOpenRef = useRef(false);
   const isVoiceModalOpenRef = useRef(false);
   const isFocusedRef = useRef(false);
@@ -873,10 +936,14 @@ export default function CounselorDashboard() {
 
   const navigation = useNavigation();
   const { vibrate } = useVibration();
-  const { showToast: showAppToast } = useToast();
+  const { showToast: showAppToast, setToastRole } = useToast();
   // Tracks whether ring has been started so we don't call startIncomingRingtone
   // multiple times for the same modal session (prevents double ring).
   const ringingStartedRef = useRef(false);
+
+  useEffect(() => {
+    setToastRole('counselor');
+  }, [setToastRole]);
 
   useEffect(() => {
     if (!isFocused || !showIncomingCallModal) {
@@ -915,42 +982,71 @@ export default function CounselorDashboard() {
   useEffect(() => {
     if (!isFocused || !showIncomingCallModal || !incomingCallData?.callId) return;
 
+    const timeoutId = setTimeout(async () => {
+      const shouldExitAfterCall = launchedFromCallPushRef.current;
+      launchedFromCallPushRef.current = false;
+      forceStopRingtone();
+      ringingStartedRef.current = false;
+      setShowIncomingCallModal(false);
+      setIncomingCallData(null);
+      await displayMissedCallNotification(incomingCallData, 'missed');
+      await AsyncStorage.removeItem('pendingIncomingCallPush');
+      if (shouldExitAfterCall && Platform.OS === 'android') {
+        setTimeout(() => BackHandler.exitApp(), 100);
+      }
+    }, INCOMING_RING_TIMEOUT_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [isFocused, showIncomingCallModal, incomingCallData?.callId]);
+
+  useEffect(() => {
+    if (!isFocused || !showIncomingCallModal || !incomingCallData?.callId) return;
+
     let cancelled = false;
 
-    const checkStillPending = async () => {
+    const checkCallEnded = async () => {
       try {
         const token = await getAuthToken();
         const counsellorId = await getCounsellorId();
         if (cancelled || !token || !counsellorId) return;
 
         const response = await axios.get(
-          `${API_BASE_URL}/api/video/calls/pending/${counsellorId}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          `${API_BASE_URL}/api/video/calls/${incomingCallData.callId}/details`,
+          {
+            params: { userId: counsellorId, userType: "counsellor" },
+            headers: { Authorization: `Bearer ${token}` },
+          }
         );
 
-        const pending = response.data?.pendingRequests || [];
-        const stillThere = pending.some((c) => (c?.callId || c?.id || c?._id) === incomingCallData.callId);
-
-        if (!stillThere && !cancelled) {
+        const status = getCallStatus(response.data);
+        if (TERMINAL_CALL_STATUSES.has(status) && !cancelled) {
+          const shouldExitAfterCall = launchedFromCallPushRef.current;
+          launchedFromCallPushRef.current = false;
           forceStopRingtone();
           ringingStartedRef.current = false;
           setShowIncomingCallModal(false);
           setIncomingCallData(null);
+          await displayMissedCallNotification(
+            incomingCallData,
+            status === 'ended' ? 'ended' : 'missed',
+          );
+          await AsyncStorage.removeItem('pendingIncomingCallPush');
+          if (shouldExitAfterCall && Platform.OS === 'android') {
+            setTimeout(() => BackHandler.exitApp(), 100);
+          }
         }
       } catch (_) {
         // ignore transient polling errors
       }
     };
 
-    checkStillPending();
-    const intervalId = setInterval(checkStillPending, 2000);
+    const intervalId = setInterval(checkCallEnded, 2000);
 
     return () => {
       cancelled = true;
       clearInterval(intervalId);
     };
   }, [isFocused, showIncomingCallModal, incomingCallData?.callId]);
-
   const normalizeObjectId = (value) => {
     if (!value) return null;
 
@@ -1145,20 +1241,30 @@ export default function CounselorDashboard() {
         );
       }
 
+      const displayName =
+        patientInfo.anonymous ||
+        patientInfo.displayName ||
+        patientInfo.fullName ||
+        "User";
+
       if (response.data?.success) {
+        if (isNotificationOnlyCallResponse(response.data)) {
+          showToast(
+            getNotificationOnlyCallMessage(response.data, displayName),
+            "info",
+          );
+          return;
+        }
+
         const rawCall = response.data.callData || {};
+        const streamRoomId = getStreamRoomId(response.data, rawCall);
         // Match web: prefer anonymous handle, fall back to backend-provided
         // displayName/fullName, finally "User".
-        const displayName =
-          patientInfo.anonymous ||
-          patientInfo.displayName ||
-          patientInfo.fullName ||
-          "User";
-
         const callData = {
           id: rawCall?.id || rawCall?._id || response.data.callId,
           callId: response.data.callId,
-          roomId: response.data.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: displayName,
           profilePic: patientInfo.profilePhoto || patientInfo.image || null,
           isIncoming: false,
@@ -1391,48 +1497,48 @@ export default function CounselorDashboard() {
   };
 
   // â”€â”€ Handle Accept Incoming Call â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
- const handleAcceptIncomingCall = async (callData) => {
-  // Stop ringtone immediately
-  forceStopRingtone();
-  setShowIncomingCallModal(false);
-  setIncomingCallData(null);
-  const result = await acceptCall(callData.callId);
-  if (result?.success) {
-    const token = await getAuthToken();
-    const counsellorId = await getCounsellorId();
-    if (!token || !counsellorId) {
-      showToast("Session expired. Please login again.", "error");
+  const handleAcceptIncomingCall = async (callData) => {
+    launchedFromCallPushRef.current = false;
+    await AsyncStorage.removeItem('pendingIncomingCallPush');
+    forceStopRingtone();
+
+    const result = await acceptCall(callData.callId);
+    if (!result?.success) {
+      showToast("Failed to accept call. Please try again.", "error");
+      setShowIncomingCallModal(true);
+      startIncomingRingtone(true);
       return;
     }
-    let detailedCall = null;
-    try {
-      const detailsResponse = await axios.get(
-        `${API_BASE_URL}/api/video/calls/${callData.callId}/details`,
-        {
-          params: { userId: counsellorId, userType: "counsellor" },
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      detailedCall = detailsResponse.data?.call || null;
-    } catch (detailsError) {
-      console.warn("Could not fetch accepted call details:", detailsError);
+
+    const counsellorId = await getCounsellorId();
+    if (!counsellorId) {
+      showToast("Session expired. Please login again.", "error");
+      setShowIncomingCallModal(true);
+      startIncomingRingtone(true);
+      return;
     }
+
+    const acceptedPayload =
+      result.data?.call ||
+      result.data?.callData ||
+      result.data?.data?.call ||
+      result.data?.data?.callData ||
+      null;
 
     const modalType = normalizeCallType(
       callData.callType ||
-      detailedCall?.callType ||
-      detailedCall?.type ||
+      acceptedPayload?.callType ||
+      acceptedPayload?.type ||
       result.data?.callType ||
       "video"
     );
-    const initiatorIdStr = String(detailedCall?.initiator?.id || detailedCall?.initiator?._id || '');
-    const remoteParticipant = detailedCall
+    const initiatorIdStr = String(acceptedPayload?.initiator?.id || acceptedPayload?.initiator?._id || '');
+    const remoteParticipant = acceptedPayload
       ? initiatorIdStr === String(counsellorId)
-        ? detailedCall.receiver
-        : detailedCall.initiator
+        ? acceptedPayload.receiver
+        : acceptedPayload.initiator
       : callData?.from || null;
 
-    // ✅ IMPORTANT FIX: Match web logic - prioritize anonymous fields
     let displayName = "User";
     if (remoteParticipant?.anonymous) {
       displayName = remoteParticipant.anonymous;
@@ -1448,22 +1554,24 @@ export default function CounselorDashboard() {
       displayName = callData.name;
     }
 
+    const streamRoomId = getStreamRoomId(result.data, acceptedPayload, callData);
     const acceptedCallData = {
-      id: detailedCall?.id || detailedCall?._id || callData.callId,
+      id: acceptedPayload?.id || acceptedPayload?._id || callData.callId,
       callId: callData.callId,
-      roomId: result.data?.roomId || detailedCall?.roomId || callData.roomId,
-      name: displayName,  // Now uses anonymous name as priority
+      roomId: streamRoomId,
+      streamCallId: streamRoomId,
+      name: displayName,
       isIncoming: true,
-      status: result.data?.status || detailedCall?.status || "active",
+      status: result.data?.status || acceptedPayload?.status || "active",
       type: modalType,
       callType: modalType,
       profilePic: remoteParticipant?.profilePhoto || remoteParticipant?.image || callData.image || null,
       phoneNumber: remoteParticipant?.phoneNumber || remoteParticipant?.phone || "",
-      apiCallData: detailedCall,
-      initiator: detailedCall?.initiator || callData.initiator,
-      receiver: detailedCall?.receiver,
-      initiatorId: detailedCall?.initiator?.id || detailedCall?.initiator?._id,
-      receiverId: detailedCall?.receiver?.id || detailedCall?.receiver?._id,
+      apiCallData: acceptedPayload,
+      initiator: acceptedPayload?.initiator || callData.initiator,
+      receiver: acceptedPayload?.receiver || callData.receiver,
+      initiatorId: acceptedPayload?.initiator?.id || acceptedPayload?.initiator?._id,
+      receiverId: acceptedPayload?.receiver?.id || acceptedPayload?.receiver?._id,
       currentUserId: counsellorId,
       currentUserType: "counsellor",
       from: callData.from,
@@ -1472,16 +1580,22 @@ export default function CounselorDashboard() {
     setSelectedCall(acceptedCallData);
     if (modalType === "video") setIsVideoModalOpen(true);
     else setIsVoiceModalOpen(true);
-  } else {
-    showToast("Failed to accept call. Please try again.", "error");
-  }
-};
+    ringingStartedRef.current = false;
+    setShowIncomingCallModal(false);
+    setIncomingCallData(null);
+  };
 
   const handleRejectIncomingCall = async (callId) => {
+    const shouldExitAfterReject = launchedFromCallPushRef.current;
+    launchedFromCallPushRef.current = false;
     forceStopRingtone();
     setShowIncomingCallModal(false);
     setIncomingCallData(null);
     await rejectCall(callId);
+    await AsyncStorage.removeItem('pendingIncomingCallPush');
+    if (shouldExitAfterReject && Platform.OS === 'android') {
+      setTimeout(() => BackHandler.exitApp(), 100);
+    }
   };
 
   // â”€â”€ Fetch Waiting Calls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1585,6 +1699,7 @@ export default function CounselorDashboard() {
 
       if (
         waitingCall &&
+        !isGlobalCallUiActive() &&
         !showIncomingCallModalRef.current &&
         !isVideoModalOpenRef.current &&
         !isVoiceModalOpenRef.current
@@ -1614,10 +1729,12 @@ export default function CounselorDashboard() {
         }
 
         const resolvedCallType = normalizeCallType(waitingCall.callType || waitingCall.type);
+        const streamRoomId = getStreamRoomId(waitingCall);
 
         setIncomingCallData({
           callId: waitingCall.callId || waitingCall.id || waitingCall._id,
-          roomId: waitingCall.roomId,
+          roomId: streamRoomId,
+          streamCallId: streamRoomId,
           name: displayName,  // Now uses anonymous name as priority
           image:
             fromData.profilePhoto ||
@@ -1635,6 +1752,9 @@ export default function CounselorDashboard() {
 
         setShowIncomingCallModal(true);
         safeVibrate([320, 160, 320]);
+        launchedFromCallPushRef.current = Boolean(
+          await AsyncStorage.getItem('pendingIncomingCallPush'),
+        );
       }
     } else {
       setWaitingCalls([]);
@@ -1666,7 +1786,8 @@ export default function CounselorDashboard() {
         !isPollingRef.current ||
         showIncomingCallModalRef.current ||
         isVideoModalOpenRef.current ||
-        isVoiceModalOpenRef.current
+        isVoiceModalOpenRef.current ||
+        isGlobalCallUiActive()
       ) return;
       fetchWaitingCalls();
     };
@@ -1675,29 +1796,70 @@ export default function CounselorDashboard() {
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // â”€â”€ Fetch Pending Chat Requests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â”€â”€ Fetch Pending Chat Requests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const clearRequestModalTimer = useCallback(() => {
+    if (requestModalTimerRef.current) {
+      clearInterval(requestModalTimerRef.current);
+      requestModalTimerRef.current = null;
+    }
+  }, []);
+
+  const closeRequestModal = useCallback(() => {
+    clearRequestModalTimer();
+    showRequestModalRef.current = false;
+    setShowRequestModal(false);
+    setCurrentRequest(null);
+    setRequestActionBusy(null);
+  }, [clearRequestModalTimer]);
+
+  const startModalTimer = useCallback(() => {
+    clearRequestModalTimer();
+    setModalCountdown(CHAT_REQUEST_POPUP_SECONDS);
+    requestModalTimerRef.current = setInterval(() => {
+      setModalCountdown((prev) => {
+        if (prev <= 1) {
+          closeRequestModal();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [clearRequestModalTimer, closeRequestModal]);
+
+  const showNextRequestPopup = useCallback((requests = []) => {
+    if (showRequestModalRef.current || showNotificationsRef.current) return;
+
+    const nextRequest = requests.find((request) => {
+      const requestId = getChatRequestId(request);
+      if (!requestId) return false;
+      return (requestPopupCountsRef.current[requestId] || 0) < CHAT_REQUEST_POPUP_MAX_SHOWS;
+    });
+
+    if (!nextRequest) return;
+
+    const requestId = getChatRequestId(nextRequest);
+    requestPopupCountsRef.current[requestId] =
+      (requestPopupCountsRef.current[requestId] || 0) + 1;
+    setCurrentRequest(nextRequest);
+    showRequestModalRef.current = true;
+    setShowRequestModal(true);
+    startModalTimer();
+  }, [startModalTimer]);
+
   const fetchPendingRequests = async () => {
-    setLoadingRequests(true);
     try {
-      const token = await AsyncStorage.getItem("token");
       const response = await axios.get(
         `${API_BASE_URL}/api/chat/pending-requests`,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: token ? `Bearer ${token}` : "",
-          },
-          timeout: 30000,
-        }
+        { timeout: 30000 }
       );
 
-      const requests = response.data.requests || [];
-      if (requests.length > 0 && pendingRequests.length !== requests.length) {
-        setCurrentRequest(requests[0]);
-        setShowRequestModal(true);
-        startModalTimer();
-      }
+      const requests = Array.isArray(response.data?.requests) ? response.data.requests : [];
+      const activeIds = new Set(requests.map(getChatRequestId).filter(Boolean));
+      Object.keys(requestPopupCountsRef.current).forEach((id) => {
+        if (!activeIds.has(id)) delete requestPopupCountsRef.current[id];
+      });
       setPendingRequests(requests);
+      showNextRequestPopup(requests);
     } catch (error) {
       // Surface the backend's actual error so we can see WHY it 500s.
       console.error("Error fetching pending requests:", {
@@ -1706,99 +1868,50 @@ export default function CounselorDashboard() {
         message: error?.message,
         url: `${API_BASE_URL}/api/chat/pending-requests`,
       });
-    } finally {
-      setLoadingRequests(false);
     }
-  };
-
-  const startModalTimer = () => {
-    setModalCountdown(10);
-    const timer = setInterval(() => {
-      setModalCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          setShowRequestModal(false);
-          setCurrentRequest(null);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    setModalTimer(timer);
   };
 
   useEffect(() => {
-    if (showRequestModal) {
-      const timeout = setTimeout(() => {
-        setShowRequestModal(false);
-        setCurrentRequest(null);
-        if (modalTimer) clearInterval(modalTimer);
-      }, 10000);
-      return () => clearTimeout(timeout);
-    }
+    showRequestModalRef.current = showRequestModal;
   }, [showRequestModal]);
 
   useEffect(() => {
-    return () => {
-      if (modalTimer) clearInterval(modalTimer);
-    };
-  }, [modalTimer]);
+    showNotificationsRef.current = showNotifications;
+  }, [showNotifications]);
+
+  useEffect(() => {
+    return clearRequestModalTimer;
+  }, [clearRequestModalTimer]);
 
   const handleAcceptRequest = async () => {
-    if (!currentRequest) return;
+    if (!currentRequest || requestActionBusy) return;
     vibrate([120, 60, 120]);
+    setRequestActionBusy('accept');
     try {
-      const token = await AsyncStorage.getItem("token");
-      const chatId = currentRequest.chatId;
-      if (!chatId) {
-        showToast("Unable to accept request: missing chat ID", "error");
-        return;
-      }
-      await axios.patch(
-        `${API_BASE_URL}/api/chat/accept/${chatId}`,
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-      if (modalTimer) clearInterval(modalTimer);
-      setShowRequestModal(false);
-      setCurrentRequest(null);
+      await respondToChatRequest(currentRequest, 'accept');
+      closeRequestModal();
       showToast("Request accepted successfully!", "success");
       fetchPendingRequests();
     } catch (error) {
-      const errorMessage = error.response?.data?.message || error.message;
+      const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message;
       showToast(`Failed to accept request: ${errorMessage}`, "error");
+      setRequestActionBusy(null);
     }
   };
 
   const handleRejectRequest = async () => {
-    if (!currentRequest) return;
+    if (!currentRequest || requestActionBusy) return;
     vibrate([120]);
+    setRequestActionBusy('reject');
     try {
-      const token = await AsyncStorage.getItem("token");
-      const chatId = currentRequest.chatId;
-      await axios.patch(
-        `${API_BASE_URL}/api/chat/reject/${chatId}`,
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-      if (modalTimer) clearInterval(modalTimer);
-      setShowRequestModal(false);
-      setCurrentRequest(null);
+      await respondToChatRequest(currentRequest, 'reject');
+      closeRequestModal();
       fetchPendingRequests();
       showToast("Request rejected successfully", "info");
     } catch (error) {
-      const errorMessage = error.response?.data?.message || error.message;
+      const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message;
       showToast(`Failed to reject request: ${errorMessage}`, "error");
+      setRequestActionBusy(null);
     }
   };
 
@@ -1844,7 +1957,7 @@ export default function CounselorDashboard() {
   };
 
   const showToast = (message, type = "info") => {
-    showAppToast({ message, type, duration: 3200 });
+    showAppToast({ message, type, duration: 3200, role: 'counselor' });
   };
 
   useEffect(() => {
@@ -3102,15 +3215,19 @@ export default function CounselorDashboard() {
                 <TouchableOpacity
                   style={[styles.requestBtn, styles.requestReject]}
                   onPress={handleRejectRequest}
-                  disabled={loadingRequests}
+                  disabled={Boolean(requestActionBusy)}
                 >
-                  <Icon name="times" size={16} color="#ba1a1a" />
+                  {requestActionBusy === 'reject' ? (
+                    <ActivityIndicator size="small" color="#ba1a1a" />
+                  ) : (
+                    <Ionicons name="close-circle-outline" size={19} color="#ba1a1a" />
+                  )}
                   <Text style={styles.requestBtnText}>Reject</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.requestBtn, styles.requestAccept]}
                   onPress={handleAcceptRequest}
-                  disabled={loadingRequests}
+                  disabled={Boolean(requestActionBusy)}
                 >
                   <LinearGradient
                     colors={["#003A9B", "#1490FF"]}
@@ -3118,7 +3235,11 @@ export default function CounselorDashboard() {
                     end={{ x: 1, y: 0.5 }}
                     style={StyleSheet.absoluteFillObject}
                   />
-                  <Icon name="check" size={16} color="#ffffff" />
+                  {requestActionBusy === 'accept' ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Icon name="check" size={16} color="#ffffff" />
+                  )}
                   <Text
                     style={[
                       styles.requestBtnText,
@@ -3134,7 +3255,7 @@ export default function CounselorDashboard() {
                 <View
                   style={[
                     styles.requestProgressBar,
-                    { width: `${(modalCountdown / 10) * 100}%` },
+                    { width: `${(modalCountdown / CHAT_REQUEST_POPUP_SECONDS) * 100}%` },
                   ]}
                 />
               </View>
@@ -5566,8 +5687,8 @@ const styles = StyleSheet.create({
     elevation: 7,
   },
   incomingCallAccept: {
-    backgroundColor: DOCTOR.primary,
-    shadowColor: DOCTOR.primary,
+    backgroundColor: "#16A34A",
+    shadowColor: "#16A34A",
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.32,
     shadowRadius: 10,

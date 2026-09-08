@@ -26,7 +26,7 @@ import TextInput from '../../../../../components/TranslatedTextInput';
 import Text from '../../../../../components/TranslatedText';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useNavigation, useIsFocused } from "@react-navigation/native";
+import { useNavigation, useIsFocused, useRoute } from "@react-navigation/native";
 import axios from "axios";
 import axiosInstance, { API_BASE_URL } from "../../../../../axiosConfig";
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -37,7 +37,13 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import LinearGradient from 'react-native-linear-gradient';
 import { BlurView } from "@react-native-community/blur";
 import safeVibrate from "../../../../../utils/safeVibrate";
-import { forceStopRingtone, startIncomingRingtone } from "../../../../../hooks/useRingtone";
+import {
+  INCOMING_RING_TIMEOUT_MS,
+  forceStopRingtone,
+  startIncomingRingtone,
+} from "../../../../../hooks/useRingtone";
+import { isGlobalCallUiActive } from "../../../../../services/callNotificationBridge";
+import { displayMissedCallNotification } from "../../../../../services/notificationService";
 import { useToast } from "../../../../../components/common/ToastProvider";
 import ChatInterface from "../Tab/chatbot/ChatInterface";
 import CounselorTable from "../Tab/Appointment/BookAppointment";
@@ -56,12 +62,58 @@ import HelpSupport from "../Tab/HelpSupport/HelpSupport";
 import PrivacyPolicy from "../Tab/PrivacyPolicy/PrivacyPolicy";
 import NotificationScreen from "../Tab/Notifications/NotificationScreen";
 import UserAccountSettings from "../Tab/UserAccountSettings";
+import PrescriptionScreen from "../Tab/Prescription/PrescriptionScreen";
 import { toImageUri } from "../../../../../utils/imageUri";
 import { clearAccountLocalData } from "../../../../../utils/authSession";
+import AiMicButton from "../../../../../components/AiMicButton";
+import { useSpeechToText } from "../../../../../hooks/useSpeechToText";
+import {
+  getNotificationOnlyCallMessage,
+  isNotificationOnlyCallResponse,
+} from "../../../../../utils/callRequestStatus";
 
 // Time for a Modal to finish dismissing. RN can only transition one Modal at a
 // time, so opening the next one any sooner gets silently dropped.
 const MODAL_DISMISS_MS = 320;
+const TERMINAL_CALL_STATUSES = new Set([
+  'ended',
+  'rejected',
+  'missed',
+  'completed',
+  'cancelled',
+  'canceled',
+  'expired',
+  'timeout',
+  'timed_out',
+  'no_answer',
+]);
+
+const getCallStatus = (payload) => String(
+  payload?.call?.status ||
+  payload?.status ||
+  payload?.data?.status ||
+  ''
+).trim().toLowerCase();
+
+const getStreamRoomId = (...sources) => {
+  for (const source of sources) {
+    const roomId =
+      source?.streamCallId ||
+      source?.stream_call_id ||
+      source?.streamId ||
+      source?.roomId ||
+      source?.room_id ||
+      source?.channelId ||
+      source?.call?.streamCallId ||
+      source?.call?.roomId ||
+      source?.data?.streamCallId ||
+      source?.data?.roomId ||
+      source?.callData?.streamCallId ||
+      source?.callData?.roomId;
+    if (roomId) return roomId;
+  }
+  return '';
+};
 
 // The AI surface uses the same green pair as the wallet card, so the assistant
 // reads as part of the patient-side brand.
@@ -74,6 +126,7 @@ const AI_CHAT_TITLE_SUFFIX = 'AI Assistant';
 
 const AI_WELCOME_MESSAGE = "Hello, I'm Humaelio AI. How are you feeling today?";
 const AI_OPENING_EVENT = "__humaelio_ai_opening__";
+const INCOMING_CALL_POLL_TABS = new Set(["Chat", "Counselor", "Appointment"]);
 
 const isGeneratedUserAvatarUrl = (raw) => {
   const url = typeof raw === "string" ? raw : raw?.url || raw?.secure_url || "";
@@ -115,6 +168,18 @@ const ChatPopup = ({
   const { width, height } = useWindowDimensions();
   const [speakingId, setSpeakingId] = useState(null);
   const [aiInputPlaceholder, setAiInputPlaceholder] = useState('Type your question');
+  
+  // Speech-to-text hook
+  const {
+    isListening,
+    transcript,
+    error: speechError,
+    isAvailable: speechAvailable,
+    startListening,
+    stopListening,
+    clearTranscript,
+  } = useSpeechToText({ language: selectedLang });
+  const speechInputBaseRef = useRef('');
 
   const handleAiSend = useCallback(() => {
     const text = (newMessage || "").trim();
@@ -151,6 +216,33 @@ const ChatPopup = ({
       isMounted = false;
     };
   }, [selectedLang]);
+
+  useEffect(() => {
+    const spokenText = String(transcript || '').trim();
+    if (spokenText) {
+      const baseText = speechInputBaseRef.current;
+      const spacer = baseText && !/\s$/.test(baseText) ? ' ' : '';
+      setNewMessage(`${baseText}${spacer}${spokenText}`);
+    }
+  }, [transcript, setNewMessage]);
+
+  useEffect(() => {
+    if (speechError) {
+      console.warn('[AI Speech-to-Text] error:', speechError);
+    }
+  }, [speechError]);
+
+  const handleMicPress = useCallback(() => {
+    if (isListening) {
+      stopListening();
+    } else {
+      speechInputBaseRef.current = newMessage || '';
+      clearTranscript();
+      inputRef.current?.focus();
+      startListening(selectedLang);
+    }
+  }, [clearTranscript, isListening, newMessage, selectedLang, startListening, stopListening]);
+
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [keyboardScreenY, setKeyboardScreenY] = useState(null);
@@ -511,7 +603,14 @@ const ChatPopup = ({
               // Grows with the text, then scrolls - so a long question stays
               // readable instead of running off the end of one line.
               maxLength={2000}
-              textAlignVertical="center"
+              textAlignVertical="top"
+            />
+            <AiMicButton
+              isListening={isListening}
+              isLoading={false}
+              onPress={handleMicPress}
+              disabled={isLoading || !speechAvailable}
+              style={styles.chatInputMicBtn}
             />
           </View>
 
@@ -644,11 +743,15 @@ const CallModal = ({
   const handleAccept = async () => {
     if (isAccepting) return;
     setIsAccepting(true);
-    if (onAcceptCall && callData) {
-      await onAcceptCall(callData.callId);
-      onClose();
+    try {
+      if (onAcceptCall && callData) {
+        await onAcceptCall(callData.callId);
+      }
+    } catch (error) {
+      console.error("Error accepting call:", error);
+    } finally {
+      setIsAccepting(false);
     }
-    setIsAccepting(false);
   };
 
   const handleReject = async () => {
@@ -1538,13 +1641,20 @@ export default function UserDashboard() {
   const aiButtonBottom = (Platform.OS === "ios" ? 42 : 28) + dashboardBottomInset;
   const { i18n } = useTranslation();
   const { t } = useLanguageRender();
-  const { showToast } = useToast();
+  const { showToast, setToastRole } = useToast();
   const navigation = useNavigation();
+  const route = useRoute();
   const isFocused = useIsFocused();
+
+  useEffect(() => {
+    setToastRole('user');
+  }, [setToastRole]);
+
   const [active, setActive] = useState("Chat");
   const [chatOpen, setChatOpen] = useState(false);
   const [newMessage, setNewMessage] = useState("");
   const [targetCounselor, setTargetCounselor] = useState("");
+  const [openCounselorRequestTarget, setOpenCounselorRequestTarget] = useState("");
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -1567,6 +1677,7 @@ export default function UserDashboard() {
   // so the next back must skip past it instead of landing on it again.
   const sidebarViaBackRef = useRef(false);
   const [showHelpSupport, setShowHelpSupport] = useState(false);
+  const [walletInitialTab, setWalletInitialTab] = useState('add-money');
   const [showNotifications, setShowNotifications] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -1636,9 +1747,21 @@ export default function UserDashboard() {
 
   const handleAIContactClick = (name) => {
     setTargetCounselor(name);
+    setOpenCounselorRequestTarget("");
     switchDashboardTab("Counselor");
     setChatOpen(false);
   };
+
+  useEffect(() => {
+    const params = route?.params || {};
+    if (params.openTab !== 'Counselor' || !params.targetCounselor) return;
+
+    const target = String(params.targetCounselor).trim();
+    if (!target) return;
+    setTargetCounselor(target);
+    setOpenCounselorRequestTarget(params.openCounselorRequest ? target : "");
+    switchDashboardTab("Counselor");
+  }, [route?.params?.openTab, route?.params?.targetCounselor, route?.params?.openCounselorRequest]);
 
   useEffect(() => {
     fetchUserData();
@@ -1823,12 +1946,15 @@ export default function UserDashboard() {
 
   // Track call IDs already handled so the same call never rings twice
   const handledCallIdsRef = useRef(new Set());
+  const launchedFromCallPushRef = useRef(false);
   // After a call ends, block polling for 6s so the backend clears the call first
   const pollBlockedUntilRef = useRef(0);
   // Refs so the polling interval never needs to restart when modal state changes
   const showCallModalRef = useRef(false);
   const isVideoModalOpenRef = useRef(false);
   const isVoiceModalOpenRef = useRef(false);
+  const activeRef = useRef(active);
+  const isFocusedRef = useRef(isFocused);
   // Ref mirror for callerInfo so "still pending" check has stable access
   const callerInfoRef = useRef({ callId: '' });
 
@@ -1836,6 +1962,8 @@ export default function UserDashboard() {
   useEffect(() => { showCallModalRef.current = showCallModal; }, [showCallModal]);
   useEffect(() => { isVideoModalOpenRef.current = isVideoModalOpen; }, [isVideoModalOpen]);
   useEffect(() => { isVoiceModalOpenRef.current = isVoiceModalOpen; }, [isVoiceModalOpen]);
+  useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { isFocusedRef.current = isFocused; }, [isFocused]);
   useEffect(() => { callerInfoRef.current = callerInfo; }, [callerInfo]);
 
   // Poll for incoming calls from counselor — single stable interval, never restarts
@@ -1844,14 +1972,18 @@ export default function UserDashboard() {
 
     const fetchIncomingCalls = async () => {
       try {
+        if (!isFocusedRef.current) return;
+        if (!INCOMING_CALL_POLL_TABS.has(activeRef.current)) return;
         if (Date.now() < pollBlockedUntilRef.current) return;
         if (showCallModalRef.current || isVideoModalOpenRef.current || isVoiceModalOpenRef.current) return;
+        if (isGlobalCallUiActive()) return;
 
         const storedUserId = await AsyncStorage.getItem('userId');
         if (!storedUserId) return;
 
         const response = await axiosInstance.get(`/api/video/calls/pending/${storedUserId}`);
         if (!isMounted) return;
+        if (isGlobalCallUiActive()) return;
 
         const callsList = response.data.pendingRequests || [];
         if (response.data.success && callsList.length > 0) {
@@ -1879,7 +2011,8 @@ export default function UserDashboard() {
 
           setCallerInfo({
             callId,
-            roomId: waitingCall.roomId,
+        roomId: getStreamRoomId(waitingCall),
+        streamCallId: getStreamRoomId(waitingCall),
             name: counselorName,
             userName: counselorName,
             image: fromData.profilePhoto || fromData.image || null,
@@ -1890,10 +2023,16 @@ export default function UserDashboard() {
           setCallType(resolvedCallType);
           startIncomingRingtone(true);
           setShowCallModal(true);
+          launchedFromCallPushRef.current = Boolean(
+            await AsyncStorage.getItem('pendingIncomingCallPush'),
+          );
         }
       } catch (_) {}
     };
 
+    // A full-screen push may have just launched the app; show the incoming
+    // call modal immediately instead of waiting for the first 5-second tick.
+    fetchIncomingCalls();
     const intervalId = setInterval(fetchIncomingCalls, 5000);
 
     return () => {
@@ -1907,33 +2046,60 @@ export default function UserDashboard() {
   useEffect(() => {
     if (!showCallModal || !callerInfo.callId) return;
 
+    const timeoutId = setTimeout(async () => {
+      const shouldExitAfterCall = launchedFromCallPushRef.current;
+      launchedFromCallPushRef.current = false;
+      forceStopRingtone();
+      pollBlockedUntilRef.current = Date.now() + 6000;
+      setShowCallModal(false);
+      setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+      await displayMissedCallNotification(callerInfo, 'missed');
+      await AsyncStorage.removeItem('pendingIncomingCallPush');
+      if (shouldExitAfterCall && Platform.OS === 'android') {
+        setTimeout(() => BackHandler.exitApp(), 100);
+      }
+    }, INCOMING_RING_TIMEOUT_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [showCallModal, callerInfo.callId]);
+
+  useEffect(() => {
+    if (!showCallModal || !callerInfo.callId) return;
+
     let cancelled = false;
 
-    const checkStillPending = async () => {
+    const checkCallEnded = async () => {
       try {
         const storedUserId = await AsyncStorage.getItem('userId');
         if (!storedUserId || cancelled) return;
 
-        const response = await axiosInstance.get(`/api/video/calls/pending/${storedUserId}`);
+        const response = await axiosInstance.get(
+          `/api/video/calls/${callerInfoRef.current.callId}/details`,
+          { params: { userId: storedUserId, userType: 'user' } },
+        );
         if (cancelled) return;
 
-        const callsList = response.data.pendingRequests || [];
-        const currentCallId = callerInfoRef.current.callId;
-        const stillThere = callsList.some(
-          (c) => (c?.callId || c?.id || c?._id) === currentCallId
-        );
-
-        if (!stillThere) {
+        const status = getCallStatus(response.data);
+        if (TERMINAL_CALL_STATUSES.has(status)) {
+          const shouldExitAfterCall = launchedFromCallPushRef.current;
+          launchedFromCallPushRef.current = false;
           forceStopRingtone();
           pollBlockedUntilRef.current = Date.now() + 6000;
           setShowCallModal(false);
           setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
+          await displayMissedCallNotification(
+            callerInfoRef.current,
+            status === 'ended' ? 'ended' : 'missed',
+          );
+          await AsyncStorage.removeItem('pendingIncomingCallPush');
+          if (shouldExitAfterCall && Platform.OS === 'android') {
+            setTimeout(() => BackHandler.exitApp(), 100);
+          }
         }
       } catch (_) {}
     };
 
-    checkStillPending();
-    const intervalId = setInterval(checkStillPending, 2000);
+    const intervalId = setInterval(checkCallEnded, 2000);
 
     return () => {
       cancelled = true;
@@ -2017,12 +2183,24 @@ export default function UserDashboard() {
       // Backends vary: some return { success, callData }, others return the
       // call object directly. Treat any 2xx with call data as success.
       const callData = response.data?.callData || response.data?.call || response.data;
+      if (isNotificationOnlyCallResponse(response.data)) {
+        Alert.alert(
+          "Call request sent",
+          getNotificationOnlyCallMessage(response.data, counselor?.name || "Consultant"),
+        );
+        return;
+      }
+
       if (response.data?.success !== false && callData) {
         navigation.navigate("ChatBox", {
           chatId: null,
           counselor,
           callType: callType === "audio" ? "voice" : "video",
-          callData,
+          callData: {
+            ...callData,
+            roomId: getStreamRoomId(response.data, callData),
+            streamCallId: getStreamRoomId(response.data, callData),
+          },
         });
       } else {
         Alert.alert("Error", response.data?.message || `${failLabel} failed. Please try again.`);
@@ -2360,48 +2538,49 @@ export default function UserDashboard() {
   };
 
   const handleAcceptCall = async (callId) => {
+    launchedFromCallPushRef.current = false;
+    await AsyncStorage.removeItem('pendingIncomingCallPush');
     forceStopRingtone();
-    setShowCallModal(false);
-    setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
     pollBlockedUntilRef.current = Date.now() + 6000;
     try {
       const storedUserId = await AsyncStorage.getItem('userId');
-      if (!storedUserId) return;
+      if (!storedUserId) throw new Error('User ID missing');
 
       const acceptRes = await axiosInstance.put(
         '/api/video/calls/' + callId + '/accept',
         { acceptorId: storedUserId, acceptorType: 'user' }
       );
-      if (!acceptRes.data?.success) return;
+      if (!acceptRes.data?.success) {
+        throw new Error(acceptRes.data?.error || acceptRes.data?.message || 'Failed to accept call');
+      }
 
-      let detailedCall = null;
-      try {
-        const detailsRes = await axiosInstance.get(
-          '/api/video/calls/' + callId + '/details',
-          { params: { userId: storedUserId, userType: 'user' } }
-        );
-        detailedCall = detailsRes.data?.call || null;
-      } catch (_) {}
+      const acceptedPayload =
+        acceptRes.data?.call ||
+        acceptRes.data?.callData ||
+        acceptRes.data?.data?.call ||
+        acceptRes.data?.data?.callData ||
+        null;
 
       const incomingType = String(callerInfo.callType || callType || 'video').toLowerCase();
       const modalType = incomingType === 'audio' ? 'voice' : incomingType;
-      const remoteParticipant = detailedCall?.initiator || callerInfo?.from || {};
+      const remoteParticipant = acceptedPayload?.initiator || callerInfo?.from || {};
 
       const acceptedCallData = {
-        id: detailedCall?.id || detailedCall?._id || callId,
+        id: acceptedPayload?.id || acceptedPayload?._id || callId,
         callId,
-        roomId: acceptRes.data?.roomId || detailedCall?.roomId || callerInfo.roomId,
+        roomId: getStreamRoomId(acceptRes.data, acceptedPayload, callerInfo),
+        streamCallId: getStreamRoomId(acceptRes.data, acceptedPayload, callerInfo),
         name: remoteParticipant?.fullName || remoteParticipant?.displayName || callerInfo.name || 'Counselor',
         type: modalType,
         callType: modalType,
-        status: acceptRes.data?.status || detailedCall?.status || 'active',
+        status: acceptRes.data?.status || acceptedPayload?.status || 'active',
         profilePic: remoteParticipant?.profilePhoto || callerInfo.image || null,
         phoneNumber: remoteParticipant?.phoneNumber || '',
-        apiCallData: detailedCall,
-        initiator: detailedCall?.initiator,
-        receiver: detailedCall?.receiver,
-        initiatorId: detailedCall?.initiator?.id || detailedCall?.initiator?._id,
-        receiverId: detailedCall?.receiver?.id || detailedCall?.receiver?._id,
+        apiCallData: acceptedPayload,
+        initiator: acceptedPayload?.initiator || callerInfo?.from,
+        receiver: acceptedPayload?.receiver,
+        initiatorId: acceptedPayload?.initiator?.id || acceptedPayload?.initiator?._id,
+        receiverId: acceptedPayload?.receiver?.id || acceptedPayload?.receiver?._id,
         currentUserId: storedUserId,
         currentUserType: 'user',
         isIncoming: true,
@@ -2410,12 +2589,18 @@ export default function UserDashboard() {
       setSelectedCall(acceptedCallData);
       if (modalType === 'video') setIsVideoModalOpen(true);
       else setIsVoiceModalOpen(true);
+      setShowCallModal(false);
+      setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
     } catch (error) {
       console.error('Error accepting call:', error);
+      setShowCallModal(true);
+      startIncomingRingtone(true);
     }
   };
 
   const handleRejectCall = async (callId) => {
+    const shouldExitAfterReject = launchedFromCallPushRef.current;
+    launchedFromCallPushRef.current = false;
     forceStopRingtone();
     setShowCallModal(false);
     setCallerInfo({ name: '', image: null, userId: '', userName: '', callId: '', roomId: '', waitingDuration: 0 });
@@ -2430,12 +2615,17 @@ export default function UserDashboard() {
         ).catch(() => {});
       }
     } catch (_) {}
+    await AsyncStorage.removeItem('pendingIncomingCallPush');
+    if (shouldExitAfterReject && Platform.OS === 'android') {
+      setTimeout(() => BackHandler.exitApp(), 100);
+    }
   };
 
   const allMenuItems = [
     { id: "Chat", icon: "chat", label: t('dashboard:chat'), type: "material" },
     { id: "Counselor", icon: "psychology", label: t('dashboard:consultants', 'Consultants'), type: "material" },
     { id: "Appointment", icon: "event-available", label: t('dashboard:appointments', 'Appointments'), type: "material" },
+    { id: "Prescription", icon: "receipt-long", label: "Prescription", type: "material" },
     { id: "Wallet", icon: "account-balance-wallet", label: t('dashboard:wallet'), type: "material" },
     { id: "Video", icon: "history", label: t('dashboard:callHistory'), type: "material" },
   ];
@@ -2549,6 +2739,14 @@ export default function UserDashboard() {
       onPress: () => openTabFromSidebar('profile'),
     },
     {
+      id: 'Prescription',
+      icon: 'document-text-outline',
+      iconActive: 'document-text',
+      label: 'Prescription',
+      isActive: !sidebarSection && active === 'Prescription',
+      onPress: () => openTabFromSidebar('Prescription', handleMenuItemClick),
+    },
+    {
       id: 'Video',
       icon: 'call-outline',
       iconActive: 'call',
@@ -2592,9 +2790,15 @@ export default function UserDashboard() {
   const renderContent = () => {
     switch (active) {
       case "Chat":
-        return <ChatInterface setActiveTab={switchDashboardTab} />;
+        return <ChatInterface setActiveTab={switchDashboardTab} onOpenCounselor={handleAIContactClick} />;
       case "Counselor":
-        return <CounselorTable initialSearchQuery={targetCounselor} />;
+        return (
+          <CounselorTable
+            initialSearchQuery={targetCounselor}
+            initialOpenRequestName={openCounselorRequestTarget}
+            onInitialOpenHandled={() => setOpenCounselorRequestTarget("")}
+          />
+        );
       case "Appointment":
         return (
           <MyAppointmentsPanel
@@ -2612,8 +2816,10 @@ export default function UserDashboard() {
             onChat={handleAptChat}
           />
         );
+      case "Prescription":
+        return <PrescriptionScreen />;
       case "Wallet":
-        return <WalletDashboard userData={userData} navigation={navigation} />;
+        return <WalletDashboard userData={userData} navigation={navigation} initialTab={walletInitialTab} />;
       case "Video":
         return <CallHistory />;
       case "profile":
@@ -3013,6 +3219,14 @@ export default function UserDashboard() {
         <PrivacyPolicy
           onClose={() => closeSidebarChild(() => setShowPrivacyPolicy(false))}
           onOpenTab={switchDashboardTab}
+          onOpenHelpSupport={() => {
+            setSidebarSection('help');
+            setShowHelpSupport(true);
+          }}
+          onOpenRefund={() => {
+            setWalletInitialTab('refund');
+            switchDashboardTab('Wallet');
+          }}
         />
       </Modal>
 
@@ -4593,31 +4807,43 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#eaeaea",
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     gap: 8,
   },
   chatInputPill: {
     flex: 1,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     backgroundColor: "#F1F5F9",
     borderRadius: 22,
-    paddingHorizontal: 12,
+    paddingLeft: 12,
+    paddingRight: 48,
     // minHeight rather than height, so the pill expands as the input wraps.
     minHeight: 44,
     paddingVertical: 4,
+    position: "relative",
   },
   chatInputLead: {
     marginRight: 6,
+    marginBottom: 9,
   },
   chatInput: {
     flex: 1,
-    paddingVertical: 0,
+    paddingTop: 8,
+    paddingBottom: 8,
     paddingHorizontal: 0,
     fontSize: 14,
+    lineHeight: 20,
     color: "#0f172a",
     // ~4 lines before it starts scrolling internally.
     maxHeight: 96,
+    minHeight: 36,
+  },
+  chatInputMicBtn: {
+    position: "absolute",
+    right: 5,
+    bottom: 4,
+    marginLeft: 0,
   },
   sendBtn: {
     width: 44,
@@ -4626,6 +4852,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
+    alignSelf: "flex-end",
     shadowColor: "#006B2C",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,

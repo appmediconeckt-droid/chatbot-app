@@ -2,23 +2,22 @@ package com.chatbots
 
 import android.os.Bundle
 import android.view.WindowManager
-import androidx.core.view.WindowCompat
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
+import io.invertase.notifee.NotifeeApiModule
 
 class MainActivity : ReactActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
-    // Keep the React root fixed while the keyboard is open. Screens that need
-    // an input to rise above the keyboard handle it locally with
-    // KeyboardAvoidingView; resizing the whole activity makes absolute bottom
-    // tabs jump above the IME.
-    WindowCompat.setDecorFitsSystemWindows(window, true)
+    // Let Android resize the React window when the keyboard opens. The chat
+    // composers still measure any remaining overlay on devices that ignore
+    // adjustResize, but this keeps inputs above the IME on devices where
+    // React Native keyboard events are limited under adjustNothing.
     window.setSoftInputMode(
       WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
-        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
     )
     super.onCreate(savedInstanceState)
     if (!BuildConfig.DEBUG) {
@@ -29,7 +28,8 @@ class MainActivity : ReactActivity() {
     }
   }
 
-  override fun getMainComponentName(): String = "chatbots"
+  override fun getMainComponentName(): String =
+    NotifeeApiModule.getMainComponent("chatbots")
 
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)

@@ -94,6 +94,13 @@ class SpeechModule(private val reactContext: ReactApplicationContext) :
     // ── STT ──────────────────────────────────────────────────────────────────
 
     @ReactMethod
+    fun isRecognitionAvailable(promise: Promise) {
+        mainHandler.post {
+            promise.resolve(SpeechRecognizer.isRecognitionAvailable(reactContext))
+        }
+    }
+
+    @ReactMethod
     fun startListening(lang: String, promise: Promise) {
         mainHandler.post {
             if (!SpeechRecognizer.isRecognitionAvailable(reactContext)) {
@@ -124,7 +131,13 @@ class SpeechModule(private val reactContext: ReactApplicationContext) :
                     val transcript = matches?.firstOrNull() ?: ""
                     sendEvent("stt-result", transcript)
                 }
-                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val transcript = matches?.firstOrNull() ?: ""
+                    if (transcript.isNotBlank()) {
+                        sendEvent("stt-partial-result", transcript)
+                    }
+                }
                 override fun onEvent(eventType: Int, params: Bundle?) {}
             })
 
@@ -132,7 +145,10 @@ class SpeechModule(private val reactContext: ReactApplicationContext) :
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang.replace('_', '-'))
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 60000L)
             }
             speechRecognizer?.startListening(intent)
             promise.resolve(true)
