@@ -46,9 +46,9 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
 
-        // Google Play update version
-        versionCode 7
-        versionName "1.0.6"
+        // Google Play update version. Must be higher than the live Play release.
+        versionCode 10
+        versionName "1.0.9"
 
         manifestPlaceholders = [usesCleartextTraffic: "false"]
     }
@@ -84,9 +84,12 @@ android {
             manifestPlaceholders = [usesCleartextTraffic: "false"]
 
             minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
+            debuggable false
+            jniDebuggable false
 
             proguardFiles(
-                getDefaultProguardFile("proguard-android.txt"),
+                getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }

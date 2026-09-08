@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
+  Easing,
   Linking,
   ScrollView,
   StatusBar,
@@ -23,6 +25,8 @@ import {
 import {
   APP_VERSION,
   LAST_UPDATED,
+  PLAY_STORE_ID,
+  PLAY_STORE_URL,
 } from '../../../../../../constants/appInfo';
 
 // India's unified emergency number (police / ambulance / fire).
@@ -50,6 +54,28 @@ const HELPLINE_DIRECTORY = 'https://findahelpline.com';
 const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
   const { t } = useLanguageRender();
   const [openFaq, setOpenFaq] = useState(null);
+  const updatePulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(updatePulse, {
+          toValue: 1,
+          duration: 850,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(updatePulse, {
+          toValue: 0,
+          duration: 850,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [updatePulse]);
 
   const mailTo = (subject) => {
     const body = encodeURIComponent(
@@ -65,6 +91,17 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
   const dial = (number, fallbackDisplay = number) => {
     Linking.openURL(`tel:${number}`).catch(() => {
       Alert.alert(t('Call support'), `${t('Please call us at')} ${fallbackDisplay}`);
+    });
+  };
+
+  const handleCheckForUpdates = () => {
+    Linking.openURL(`market://details?id=${PLAY_STORE_ID}`).catch(() => {
+      Linking.openURL(PLAY_STORE_URL).catch(() => {
+        Alert.alert(
+          t('Check for Updates'),
+          `${t('You are on version')} ${APP_VERSION}. ${t('Unable to open the store.')}`,
+        );
+      });
     });
   };
 
@@ -299,14 +336,43 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
           </TouchableOpacity>
         </View>
 
-        <View style={s.versionBox}>
+        <TouchableOpacity
+          style={s.versionBox}
+          onPress={handleCheckForUpdates}
+          activeOpacity={0.82}
+        >
           <Text style={s.versionText}>
             {t('Humaeli Consultant')} · {t('Version')} {APP_VERSION}
           </Text>
           <Text style={s.versionSub}>
             {t('Last updated')}: {LAST_UPDATED}
           </Text>
-        </View>
+          <View style={s.updateRow}>
+            <Animated.View
+              style={[
+                s.newBadge,
+                {
+                  opacity: updatePulse.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.72, 1],
+                  }),
+                  transform: [
+                    {
+                      scale: updatePulse.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 1.08],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <Text style={s.newBadgeText}>{t('NEW')}</Text>
+            </Animated.View>
+            <Text style={s.updateLink}>{t('Check for Updates')}</Text>
+            <MaterialCommunityIcons name="open-in-new" size={14} color={DOCTOR.primary} />
+          </View>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -429,9 +495,25 @@ const s = StyleSheet.create({
   },
   reportBtnText: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
 
-  versionBox: { alignItems: 'center', marginTop: 26 },
+  versionBox: { alignItems: 'center', marginTop: 26, paddingBottom: 4 },
   versionText: { fontSize: 12.5, fontWeight: '700', color: '#64748B' },
   versionSub: { fontSize: 11.5, color: '#94A3B8', marginTop: 3 },
+  updateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 9,
+  },
+  newBadge: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#86EFAC',
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  newBadgeText: { fontSize: 9.5, fontWeight: '900', color: '#15803D' },
+  updateLink: { fontSize: 12.5, fontWeight: '800', color: DOCTOR.primary },
 });
 
 export default CounselorHelpSupport;

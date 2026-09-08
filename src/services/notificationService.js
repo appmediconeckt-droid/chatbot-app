@@ -353,7 +353,7 @@ export const displaySystemNotification = async remoteMessage => {
       await notifee.createChannel({
         id: INCOMING_CALL_CHANNEL_ID,
         name: 'Incoming calls',
-        description: 'Full-screen incoming call alerts; ringtone is played by the app',
+        description: 'Incoming call alerts; ringtone is played by the app',
         importance: AndroidImportance.HIGH,
         vibration: false,
         lights: true,
@@ -392,9 +392,6 @@ export const displaySystemNotification = async remoteMessage => {
         ? incomingCallPressAction
         : { id: 'default' },
       category: isIncomingCall ? AndroidCategory.CALL : undefined,
-      fullScreenAction: isIncomingCall
-        ? incomingCallPressAction
-        : undefined,
       ongoing: isIncomingCall || undefined,
       autoCancel: !isIncomingCall,
       loopSound: false,
@@ -445,7 +442,7 @@ export const requestNotificationPermission = async () => {
       await notifee.createChannel({
         id: INCOMING_CALL_CHANNEL_ID,
         name: 'Incoming calls',
-        description: 'Full-screen incoming call alerts; ringtone is played by the app',
+        description: 'Incoming call alerts; ringtone is played by the app',
         importance: AndroidImportance.HIGH,
         vibration: false,
         lights: true,
