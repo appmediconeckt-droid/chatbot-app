@@ -40,6 +40,25 @@ const firstString = (...values) => {
 const getNotificationDbChatId = data =>
   firstString(data?.mongoChatId, data?.chatMongoId, data?.chatDbId, data?.chatId);
 
+const getAnonymousUserNotificationName = data => firstString(
+  data?.anonymous,
+  data?.anonName,
+  data?.anonymousName,
+  data?.senderAnonymousName,
+  data?.senderDisplayName,
+  data?.userName,
+  data?.from?.anonymous,
+  data?.from?.anonName,
+  data?.from?.anonymousName,
+  data?.from?.displayName,
+  data?.initiator?.anonymous,
+  data?.initiator?.anonName,
+  data?.initiator?.anonymousName,
+  data?.initiator?.displayName,
+  data?.callerAnonymousName,
+  data?.callerName,
+);
+
 const getNotificationPerson = (data, role) => {
   const isCounselor = /counsell?or/i.test(role);
   const senderIsRole = isCounselor
@@ -51,6 +70,7 @@ const getNotificationPerson = (data, role) => {
     data?.senderId,
   );
   const name = firstString(
+    !isCounselor ? getAnonymousUserNotificationName(data) : null,
     isCounselor ? data?.counselorName : data?.userName,
     senderIsRole ? data?.senderName : null,
     data?.senderName,
@@ -126,20 +146,14 @@ const getCallNotificationId = data => (
 );
 
 const getCallNotificationName = data => (
-  data?.name ||
-  data?.callerName ||
-  data?.senderName ||
-  data?.title ||
-  data?.from?.anonymous ||
-  data?.from?.anonName ||
-  data?.from?.anonymousName ||
-  data?.from?.displayName ||
-  data?.from?.fullName ||
-  data?.initiator?.anonymous ||
-  data?.initiator?.anonName ||
-  data?.initiator?.anonymousName ||
-  data?.initiator?.displayName ||
-  data?.initiator?.fullName ||
+  getAnonymousUserNotificationName(data) ||
+  firstString(
+    data?.name,
+    data?.senderName,
+    data?.title,
+    data?.from?.fullName,
+    data?.initiator?.fullName,
+  ) ||
   'Caller'
 );
 
@@ -315,7 +329,7 @@ export const displaySystemNotification = async remoteMessage => {
   const AndroidLaunchActivityFlag = notificationApi?.AndroidLaunchActivityFlag || {};
   if (!notifee?.displayNotification) return;
 
-  const title =
+  let title =
     remoteMessage?.notification?.title ||
     remoteMessage?.data?.title ||
     'Humaeli';
@@ -335,6 +349,13 @@ export const displaySystemNotification = async remoteMessage => {
   const canReply = Platform.OS === 'android' && isChatNotification(data);
   const isIncomingCall =
     Platform.OS === 'android' && isIncomingCallNotification(data);
+  if (
+    canReply &&
+    String(data.senderRole || '').toLowerCase() === 'user' &&
+    /counsell?or/i.test(String(data.recipientRole || ''))
+  ) {
+    title = firstString(getAnonymousUserNotificationName(data), title);
+  }
   if (isIncomingCall && !data.receivedAt) {
     data.receivedAt = String(Date.now());
   }
