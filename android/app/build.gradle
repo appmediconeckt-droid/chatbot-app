@@ -47,8 +47,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
 
         // Google Play update version. Must be higher than the live Play release.
-        versionCode 12
-        versionName "1.0.11"
+        versionCode 13
+        versionName "1.0.12"
 
         manifestPlaceholders = [usesCleartextTraffic: "false"]
     }
