@@ -265,17 +265,15 @@ const ChatPopup = ({
   );
   const popupTopGap = topSafeInset + 8;
   const availHeight = Math.max(0, overlayHeight - popupTopGap);
-  // Compensate only for the keyboard area that overlaps this Modal. Android
-  // models differ: some resize the Modal window, others keep it full height and
-  // float the keyboard over it. screenY is the reliable "keyboard starts here"
-  // line, so it avoids both under-lifting and double-lifting.
-  const nativeKeyboardResize = Math.max(0, height - overlayHeight);
+  // MainActivity uses adjustNothing on Android, so the IME overlays the Modal.
+  // Prefer the keyboard top edge so the assistant sits attached to the keyboard
+  // without a visible gap; fall back to height on devices that omit screenY.
   const hasKeyboardTop = Number.isFinite(keyboardScreenY) && keyboardScreenY > 0;
-  const keyboardOverlapFromTop = hasKeyboardTop
+  const keyboardLiftFromTop = hasKeyboardTop
     ? Math.max(0, overlayHeight - keyboardScreenY)
     : 0;
-  const keyboardOverlap = keyboardVisible
-    ? (hasKeyboardTop ? keyboardOverlapFromTop : Math.max(0, keyboardHeight - nativeKeyboardResize))
+  const keyboardLift = Platform.OS === 'android' && keyboardVisible
+    ? (keyboardLiftFromTop || Math.max(0, keyboardHeight))
     : 0;
   const screenHeight = Dimensions.get('screen').height;
   const androidBottomInsetFallback = Platform.OS === 'android' && !keyboardVisible
@@ -285,14 +283,20 @@ const ChatPopup = ({
   // The popup itself must also fit in the space left above the keyboard.
   // Otherwise its fixed 630dp height plus the keyboard inset pushes the header
   // off the top of smaller phones even though the input is technically visible.
+  const visibleHeightAboveKeyboard = Math.max(0, height - keyboardLift - popupTopGap - 12);
   const popupAvailableHeight = Math.max(
-    0,
-    availHeight - keyboardOverlap - (!keyboardVisible ? bottomSafeInset : 0) - 12,
+    keyboardVisible ? 520 : 0,
+    keyboardVisible
+      ? visibleHeightAboveKeyboard
+      : availHeight - bottomSafeInset - 12,
   );
 
   // Detect tablet: width >= 600 is typically tablet range
   const isTablet = width >= 600;
-  const popupBaseHeight = isTablet ? 750 : 630;
+  const popupBaseHeight = isTablet ? 750 : keyboardVisible ? 700 : 630;
+  const chatPopupFooterKeyboardStyle = {
+    paddingBottom: keyboardVisible ? 0 : bottomSafeInset + 8,
+  };
   const inputRef = useRef(null);
   const scrollViewRef = useRef(null);
 
@@ -325,7 +329,7 @@ const ChatPopup = ({
   useEffect(() => {
     const id = setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 60);
     return () => clearTimeout(id);
-  }, [messages, isLoading, keyboardVisible, keyboardOverlap]);
+  }, [messages, isLoading, keyboardVisible, keyboardLift]);
 
   useEffect(() => {
     const Speech = require('../../../../../utils/SpeechBridge');
@@ -382,7 +386,7 @@ const ChatPopup = ({
       style={[
         styles.chatPopupOverlay,
         { paddingTop: popupTopGap },
-        Platform.OS === 'android' && { paddingBottom: keyboardOverlap },
+        Platform.OS === 'android' && { paddingBottom: keyboardLift },
       ]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       enabled={Platform.OS === 'ios'}
@@ -579,11 +583,7 @@ const ChatPopup = ({
         <View
           style={[
             styles.chatPopupFooter,
-            {
-              paddingBottom: keyboardVisible
-                ? 12
-                : bottomSafeInset + 8,
-            },
+            chatPopupFooterKeyboardStyle,
           ]}
         >
           {/* Input pill: leading icon + text */}
