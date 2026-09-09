@@ -131,6 +131,24 @@ const isNotificationOnlyCallRequest = data => {
   );
 };
 
+const shouldDisplayForegroundNotification = data => {
+  const type = String(data?.type || data?.notificationType || data?.event || '')
+    .trim()
+    .toUpperCase();
+
+  if (isChatNotification(data) || isNotificationOnlyCallRequest(data)) {
+    return true;
+  }
+
+  return [
+    'SYSTEM',
+    'GREETING',
+    'APPOINTMENT',
+    'PAYMENT',
+    'WALLET',
+  ].includes(type);
+};
+
 const getCallNotificationId = data => (
   data?.callId ||
   data?.call_id ||
@@ -645,13 +663,14 @@ export const listenForForegroundNotifications = () => {
       return;
     }
 
-    // Keep chat actionable in every app state.
-    if (isChatNotification(data) || isNotificationOnlyCallRequest(data)) {
+    // Android/iOS do not automatically show FCM notification payloads while
+    // the app is foregrounded, so display normal user-facing pushes ourselves.
+    if (shouldDisplayForegroundNotification(data)) {
       await displaySystemNotification(remoteMessage);
       return;
     }
 
-    console.log('[Push] Foreground non-chat notification suppressed');
+    console.log('[Push] Foreground notification suppressed:', data?.type);
   });
 };
 
