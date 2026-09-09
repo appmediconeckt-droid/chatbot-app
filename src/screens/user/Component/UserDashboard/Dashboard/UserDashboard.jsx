@@ -274,17 +274,6 @@ const ChatPopup = ({
   );
   const popupTopGap = topSafeInset + 8;
   const availHeight = Math.max(0, overlayHeight - popupTopGap);
-<<<<<<< HEAD
-  // MainActivity uses adjustNothing on Android, so the IME overlays the Modal.
-  // Prefer the keyboard top edge so the assistant sits attached to the keyboard
-  // without a visible gap; fall back to height on devices that omit screenY.
-  const hasKeyboardTop = Number.isFinite(keyboardScreenY) && keyboardScreenY > 0;
-  const keyboardLiftFromTop = hasKeyboardTop
-    ? Math.max(0, overlayHeight - keyboardScreenY)
-    : 0;
-  const keyboardLift = Platform.OS === 'android' && keyboardVisible
-    ? (keyboardLiftFromTop || Math.max(0, keyboardHeight))
-=======
   // Compensate only for the keyboard area that overlaps this Modal. Android
   // models differ: some resize the Modal window, others keep it full height and
   // float the keyboard over it. screenY is the reliable "keyboard starts here"
@@ -312,7 +301,6 @@ const ChatPopup = ({
           Math.max(0, keyboardHeight - nativeKeyboardResize),
         ),
       )
->>>>>>> 8bb9ce4750773f6ad099593598b0244629530e58
     : 0;
   const androidBottomInsetFallback = Platform.OS === 'android' && !keyboardVisible
     ? Math.max(0, Math.min(80, screenHeight - height - topSafeInset))
