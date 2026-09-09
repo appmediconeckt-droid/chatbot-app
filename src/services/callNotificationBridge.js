@@ -179,6 +179,25 @@ const normalizeParty = (party, fallbackId, fallbackName, fallbackType, fallbackI
   };
 };
 
+const getAnonymousCallerName = (data = {}) => (
+  data.anonymous ||
+  data.anonName ||
+  data.anonymousName ||
+  data.senderAnonymousName ||
+  data.senderDisplayName ||
+  data.userName ||
+  data.callerAnonymousName ||
+  data.from?.anonymous ||
+  data.from?.anonName ||
+  data.from?.anonymousName ||
+  data.from?.displayName ||
+  data.initiator?.anonymous ||
+  data.initiator?.anonName ||
+  data.initiator?.anonymousName ||
+  data.initiator?.displayName ||
+  ''
+);
+
 export const isCallNotificationData = (data = {}) => {
   const presentation = String(data.presentation || data.presentAs || '').trim().toLowerCase();
   const notificationOnly =
@@ -226,7 +245,13 @@ export const buildCallIntentFromNotification = (remoteMessageOrData, source = 'n
       ? 'voice'
       : normalizeCallType(data.callType || data.call_type || data.mode || data.type);
 
-  const callerName = data.callerName || data.name || data.title || data.senderName || null;
+  const callerName =
+    getAnonymousCallerName(data) ||
+    data.callerName ||
+    data.name ||
+    data.title ||
+    data.senderName ||
+    null;
   const callerImage = data.callerImage || data.profilePhoto || data.image || data.avatar || null;
   const callerId = data.callerId || data.fromId || data.senderId || null;
   const callerType = data.callerRole || data.fromType || data.senderRole || null;

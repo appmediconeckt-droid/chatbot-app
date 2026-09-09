@@ -249,11 +249,20 @@ const ChatPopup = ({
   // The KeyboardAvoidingView reports the actual space available to the popup.
   // This avoids device-specific keyboard/status/navigation-bar calculations.
   const [overlayHeight, setOverlayHeight] = useState(height);
+  const syncKeyboardMetrics = useCallback(() => {
+    if (Platform.OS !== 'android') return;
+    const metrics = Keyboard.metrics?.();
+    if (!metrics?.height) return;
+    setKeyboardVisible(true);
+    setKeyboardHeight(metrics.height);
+    setKeyboardScreenY(metrics.screenY ?? null);
+  }, []);
   const handleOverlayLayout = useCallback((e) => {
     const h = e?.nativeEvent?.layout?.height || 0;
     if (!h) return;
     setOverlayHeight(h);
-  }, []);
+    requestAnimationFrame(syncKeyboardMetrics);
+  }, [syncKeyboardMetrics]);
   // Keep the popup clear of the status bar / notch.
   const insets = useSafeAreaInsets();
   // Translucent Android modals can report a zero top inset even though the
@@ -265,6 +274,7 @@ const ChatPopup = ({
   );
   const popupTopGap = topSafeInset + 8;
   const availHeight = Math.max(0, overlayHeight - popupTopGap);
+<<<<<<< HEAD
   // MainActivity uses adjustNothing on Android, so the IME overlays the Modal.
   // Prefer the keyboard top edge so the assistant sits attached to the keyboard
   // without a visible gap; fall back to height on devices that omit screenY.
@@ -274,8 +284,36 @@ const ChatPopup = ({
     : 0;
   const keyboardLift = Platform.OS === 'android' && keyboardVisible
     ? (keyboardLiftFromTop || Math.max(0, keyboardHeight))
-    : 0;
+=======
+  // Compensate only for the keyboard area that overlaps this Modal. Android
+  // models differ: some resize the Modal window, others keep it full height and
+  // float the keyboard over it. screenY is the reliable "keyboard starts here"
+  // line, so it avoids both under-lifting and double-lifting.
   const screenHeight = Dimensions.get('screen').height;
+  const nativeKeyboardResize = keyboardVisible
+    ? Math.max(
+        0,
+        Math.min(
+          keyboardHeight,
+          Math.max(0, screenHeight - height - topSafeInset),
+        ),
+      )
+    : 0;
+  const hasKeyboardTop = Number.isFinite(keyboardScreenY) && keyboardScreenY > 0;
+  const modalBottomScreenY = screenHeight - nativeKeyboardResize;
+  const keyboardOverlapFromTop = hasKeyboardTop
+    ? Math.max(0, modalBottomScreenY - keyboardScreenY)
+    : 0;
+  const keyboardOverlap = keyboardVisible
+    ? Math.min(
+        Math.round(overlayHeight * 0.75),
+        Math.max(
+          hasKeyboardTop ? keyboardOverlapFromTop : 0,
+          Math.max(0, keyboardHeight - nativeKeyboardResize),
+        ),
+      )
+>>>>>>> 8bb9ce4750773f6ad099593598b0244629530e58
+    : 0;
   const androidBottomInsetFallback = Platform.OS === 'android' && !keyboardVisible
     ? Math.max(0, Math.min(80, screenHeight - height - topSafeInset))
     : 0;
@@ -604,6 +642,7 @@ const ChatPopup = ({
               // readable instead of running off the end of one line.
               maxLength={2000}
               textAlignVertical="top"
+              onFocus={syncKeyboardMetrics}
             />
             <AiMicButton
               isListening={isListening}
