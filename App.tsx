@@ -39,17 +39,17 @@ import ForgotPasswordScreen from "./src/screens/auth/ForgotPasswordScreen";
 import ForgotPasswordOTPScreen from "./src/screens/auth/ForgotPasswordOTPScreen";
 import ResetPasswordScreen from "./src/screens/auth/ResetPasswordScreen";
 
-import UserDashboard from './src/screens/user/Component/UserDashboard/Dashboard/UserDashboard';
-import ChatBox from './src/screens/user/Component/UserDashboard/Tab/ChatBox/ChatBox';
-import CounselorTable from './src/screens/user/Component/UserDashboard/Tab/Counselor/CounselorDirectory';
-import CheckoutPage from './src/screens/user/Component/UserDashboard/Tab/Wallet/CheckoutPage';
-import TransactionsHistory from './src/screens/user/Component/UserDashboard/Tab/Wallet/TransactionsHistory';
-import AppLockSettings from './src/screens/user/Component/UserDashboard/Tab/AppLockSettings';
+import UserDashboard from './src/features/patient/screens/UserDashboard';
+import ChatBox from './src/features/patient/screens/ChatBox';
+import CounselorTable from './src/features/patient/screens/CounselorDirectory';
+import CheckoutPage from './src/features/patient/screens/CheckoutPage';
+import TransactionsHistory from './src/features/patient/screens/TransactionsHistory';
+import AppLockSettings from './src/features/patient/screens/AppLockSettings';
 import { ToastProvider } from './src/components/common/ToastProvider';
 
 // Counselor Dashboard Screens
-import CounselorDashboard from './src/screens/user/Component/counselor-dashboard/Dashboard/dashboard';
-import SMSInput from './src/screens/user/Component/counselor-dashboard/Tab/SMSInput/SMSInput';
+import CounselorDashboard from './src/features/counselor/screens/CounselorDashboard';
+import SMSInput from './src/features/counselor/screens/SMSInput';
 import ChangePassword from './src/screens/account/ChangePassword';
 import SetPassword from './src/screens/account/SetPassword';
 import SetPasswordByOtp from './src/screens/account/SetPasswordByOtp';
@@ -75,6 +75,7 @@ import {
   clearPendingIncomingCallStorage,
   isFreshIncomingCallPayload,
 } from './src/services/callNotificationBridge';
+import { normalizeRole, routeForRole } from './src/features/roles';
 // Define your navigation param list
 // import { LogBox } from 'react-native';
 // LogBox.ignoreAllLogs(true);
@@ -148,16 +149,11 @@ withFontCap(RNText);
 withFontCap(TextInput);
 
 const normalizeStoredRole = (role: string | null | undefined) => {
-  const value = String(role || '').trim().toLowerCase();
-  if (!value) return '';
-  return value === 'counsellor' ? 'counselor' : value;
+  return normalizeRole(role);
 };
 
 const routeForStoredRole = (role: string | null | undefined): keyof RootStackParamList | null => {
-  const normalizedRole = normalizeStoredRole(role);
-  if (normalizedRole === 'counselor') return 'CounselorDashboard';
-  if (normalizedRole === 'user') return 'UserDashboard';
-  return null;
+  return routeForRole(role) as keyof RootStackParamList | null;
 };
 
 const hasFreshPendingIncomingCall = async () => {
