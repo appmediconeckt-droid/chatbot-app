@@ -49,6 +49,7 @@ const Login = ({ navigation, route }) => {
   // Space to reserve below the card. Measured, not assumed - see the effect.
   const [kbPad, setKbPad] = useState(0);
   const scrollRef = useRef(null);
+  const fpModalScrollRef = useRef(null);
   // Window height with the keyboard closed, to detect whether it shrinks.
   const baseHeightRef = useRef(Dimensions.get('window').height);
   const [rememberMe, setRememberMe] = useState(false);
@@ -145,6 +146,12 @@ const Login = ({ navigation, route }) => {
       hideSub.remove();
     };
   }, []);
+
+  const scrollForgotPasswordModalToEnd = () => {
+    requestAnimationFrame(() => {
+      fpModalScrollRef.current?.scrollToEnd({ animated: true });
+    });
+  };
 
   // Forgot Password OTP resend countdown timer (matches web — 60s)
   useEffect(() => {
@@ -1072,7 +1079,11 @@ const Login = ({ navigation, route }) => {
         >
           <View style={styles.fpModalOverlay}>
             <ScrollView
-              contentContainerStyle={styles.fpModalScroll}
+              ref={fpModalScrollRef}
+              contentContainerStyle={[
+                styles.fpModalScroll,
+                kbPad > 0 && { paddingBottom: kbPad },
+              ]}
               keyboardShouldPersistTaps="handled"
             >
               <View style={[styles.fpModalContent, { paddingBottom: Math.max(insets.bottom, 36) }]}>
@@ -1110,6 +1121,7 @@ const Login = ({ navigation, route }) => {
                       keyboardType="email-address"
                       autoCapitalize="none"
                       editable={!fpLoading}
+                      onFocus={scrollForgotPasswordModalToEnd}
                     />
 
                     <TouchableOpacity
@@ -1157,6 +1169,7 @@ const Login = ({ navigation, route }) => {
                       keyboardType="number-pad"
                       maxLength={6}
                       editable={!fpLoading && !fpSuccess}
+                      onFocus={scrollForgotPasswordModalToEnd}
                     />
 
                     <TouchableOpacity
@@ -1226,6 +1239,7 @@ const Login = ({ navigation, route }) => {
                         }}
                         secureTextEntry={!fpShowPassword}
                         editable={!fpLoading && !fpSuccess}
+                        onFocus={scrollForgotPasswordModalToEnd}
                       />
                       <TouchableOpacity
                         style={styles.fpEyeBtn}
@@ -1257,6 +1271,7 @@ const Login = ({ navigation, route }) => {
                         }}
                         secureTextEntry={!fpShowConfirmPassword}
                         editable={!fpLoading && !fpSuccess}
+                        onFocus={scrollForgotPasswordModalToEnd}
                       />
                       <TouchableOpacity
                         style={styles.fpEyeBtn}
