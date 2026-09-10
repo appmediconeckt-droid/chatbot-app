@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
-import { API_BASE_URL } from '../../../../../../axiosConfig';
+import api, { API_BASE_URL } from '../../../../../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -31,6 +31,7 @@ import PatientGradientButton from '../../../../../../components/common/PatientGr
 import { toImageUri } from '../../../../../../utils/imageUri';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import socketService from '../../../../../../services/socketService';
+import useLiveRefresh from '../../../../../../hooks/useLiveRefresh';
 import { getAvailabilitySubscription, setAvailabilitySubscription } from '../../../../../../services/availabilitySubscriptions';
 
 // Same gradient and direction as the wallet balance card.
@@ -319,12 +320,11 @@ const CounselorRequestChat = ({
   };
 
   // Fetch counselors from API
-  const fetchCounselors = async () => {
+  const fetchCounselors = async (silent = false) => {
     try {
-      setRefreshing(true);
-      const authToken = await getAuthToken();
-      const response = await axios.get(`${API_BASE_URL}/api/chat/counselors`, {
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      if (!silent) setRefreshing(true);
+      const response = await api.get('/api/chat/counselors', {
+        headers: { 'Cache-Control': 'no-cache' },
       });
 
       const list = response.data?.counselors || response.data?.counsellors || [];
@@ -354,13 +354,13 @@ const CounselorRequestChat = ({
     } catch (error) {
       console.error("Error fetching counselors:", error);
     } finally {
-      setRefreshing(false);
+      if (!silent) setRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    fetchCounselors();
-  }, []);
+  useLiveRefresh(() => fetchCounselors(true), [
+    'presence-update', 'chat-list-update', 'chat-status-update',
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -1148,7 +1148,7 @@ const CounselorRequestChat = ({
         ListFooterComponent={<View style={{ height: listBottomSpace }} />}
         showsVerticalScrollIndicator={false}
         refreshing={refreshing}
-        onRefresh={fetchCounselors}
+        onRefresh={() => fetchCounselors()}
         // `data` is restCounselors, i.e. the matches *minus* the recommended
         // one, so it empties both when a filter matches nothing AND when it
         // matches exactly one (already shown above). Only the first case is
