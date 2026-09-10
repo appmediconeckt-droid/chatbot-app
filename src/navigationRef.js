@@ -15,22 +15,13 @@ export const resetToLogin = (role) => {
   if (!navigationRef.isReady() || resetting) return false;
   resetting = true;
 
-  // Send the user to the SAME login screen RoleSelector uses, not the standalone
-  // 'Login' route. UserSignup / CounselorSignup host the login form the app
-  // normally shows; landing on 'Login' instead looked like a different, larger
-  // page because it is a different component.
-  // counsell?or matches BOTH spellings the app stores: counselor / counsellor.
   const isCounselor = /counsell?or/i.test(String(role || ''));
   const screen = isCounselor ? 'CounselorSignup' : 'UserSignup';
   const params = { role: isCounselor ? 'counselor' : 'user' };
 
   navigationRef.dispatch(
     CommonActions.reset({
-      // RoleSelector sits underneath so back from the login screen returns
-      // there instead of closing the app. index 1 = the login screen is shown.
       index: 1,
-      // reset, not navigate: the dashboard must not stay on the back stack for
-      // a session that no longer exists.
       routes: [{ name: 'RoleSelector' }, { name: screen, params }],
     }),
   );

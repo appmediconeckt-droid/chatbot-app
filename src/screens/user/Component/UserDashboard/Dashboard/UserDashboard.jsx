@@ -67,6 +67,7 @@ import { toImageUri } from "../../../../../utils/imageUri";
 import { clearAccountLocalData } from "../../../../../utils/authSession";
 import AiMicButton from "../../../../../components/AiMicButton";
 import { useSpeechToText } from "../../../../../hooks/useSpeechToText";
+import useLiveRefresh from '../../../../../hooks/useLiveRefresh';
 import {
   getNotificationOnlyCallMessage,
   isNotificationOnlyCallResponse,
@@ -390,6 +391,7 @@ const ChatPopup = ({
     } catch (err) {
       console.warn('[TTS] error:', err?.message ?? err);
       setSpeakingId(null);
+      Alert.alert('Voice unavailable', err?.message || 'Unable to play this response. Please try again.');
     }
   }, [selectedLang, speakingId, stopSpeaking]);
 
@@ -1095,9 +1097,9 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const sheetMaxHeight = Math.min(screenHeight * (isTablet ? 0.82 : 0.86), isTablet ? 720 : 680);
   const sheetScrollMaxHeight = Math.max(360, sheetMaxHeight - 90);
 
-  const fetchAppointments = useCallback(async () => {
+  const fetchAppointments = useCallback(async (silent = false) => {
     try {
-      setLoadingAppointments(true);
+      if (!silent) setLoadingAppointments(true);
       const response = await axiosInstance.get('/api/appointments');
       const apts = Array.isArray(response.data) ? response.data : [];
       if (apts.length > 0) {
@@ -1106,15 +1108,15 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
       setAppointments(apts);
     } catch (err) {
       console.error("Error fetching appointments:", err);
-      setAppointments([]);
+      if (!silent) setAppointments([]);
     } finally {
       setLoadingAppointments(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchAppointments();
+  useLiveRefresh(() => fetchAppointments(true));
 
+  useEffect(() => {
     const connectSocket = async () => {
       const token = (await AsyncStorage.getItem("token")) || (await AsyncStorage.getItem("accessToken"));
       const userId = await AsyncStorage.getItem("userId");

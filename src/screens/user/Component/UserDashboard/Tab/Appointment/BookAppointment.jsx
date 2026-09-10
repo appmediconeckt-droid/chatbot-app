@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
-import { API_BASE_URL } from '../../../../../../axiosConfig';
+import api, { API_BASE_URL } from '../../../../../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -30,6 +30,9 @@ import PATIENT from '../../../../../../theme/palette';
 import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
 import { toImageUri } from '../../../../../../utils/imageUri';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import socketService from '../../../../../../services/socketService';
+import useLiveRefresh from '../../../../../../hooks/useLiveRefresh';
+import { getAvailabilitySubscription, setAvailabilitySubscription } from '../../../../../../services/availabilitySubscriptions';
 
 // Same gradient and direction as the wallet balance card.
 const WALLET_GRADIENT = ['#006B2C', '#01CE54'];
@@ -127,6 +130,10 @@ const CounselorRequestChat = ({
   const [counselors, setCounselors] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [acceptedChatsByCounselorId, setAcceptedChatsByCounselorId] = useState({});
+  const [availabilitySubscriptions, setAvailabilitySubscriptions] = useState({});
+  const [availabilityUpdating, setAvailabilityUpdating] = useState({});
+  const availabilityRequestsRef = useRef(new Set());
+  const availabilityVersionsRef = useRef({});
   const [userAnonymous, setUserAnonymous] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
@@ -313,17 +320,17 @@ const CounselorRequestChat = ({
   };
 
   // Fetch counselors from API
-  const fetchCounselors = async () => {
+  const fetchCounselors = async (silent = false) => {
     try {
-      setRefreshing(true);
-      const authToken = await getAuthToken();
-      const response = await axios.get(`${API_BASE_URL}/api/chat/counselors`, {
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      if (!silent) setRefreshing(true);
+      const response = await api.get('/api/chat/counselors', {
+        headers: { 'Cache-Control': 'no-cache' },
       });
 
       const list = response.data?.counselors || response.data?.counsellors || [];
       const formattedCounselors = list.map((c) => ({
         id: c._id,
+        _id: c._id,
         name: c.fullName,
         specialization: Array.isArray(c.specialization) ? c.specialization.join(' , ') : (c.specialization || 'General'),
         experience: `${c.experience || 0} years`,
@@ -347,13 +354,95 @@ const CounselorRequestChat = ({
     } catch (error) {
       console.error("Error fetching counselors:", error);
     } finally {
-      setRefreshing(false);
+      if (!silent) setRefreshing(false);
     }
   };
 
+  useLiveRefresh(() => fetchCounselors(true), [
+    'presence-update', 'chat-list-update', 'chat-status-update',
+  ]);
+
   useEffect(() => {
-    fetchCounselors();
+    let active = true;
+    let unsubscribePresence;
+
+    const setupPresence = async () => {
+      try {
+        await socketService.connect();
+        if (!active) return;
+        unsubscribePresence = await socketService.on('presence-update', ({ userId: counselorId, isOnline, lastSeen }) => {
+          setCounselors((previous) => previous.map((counselor) => (
+            String(counselor.id) === String(counselorId)
+              ? { ...counselor, online: !!isOnline, available: !!isOnline, lastSeen }
+              : counselor
+          )));
+        });
+      } catch (error) {
+        console.warn('Consultant presence unavailable:', error?.message || error);
+      }
+    };
+
+    setupPresence();
+    return () => {
+      active = false;
+      unsubscribePresence?.();
+    };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    counselors.forEach((counselor) => {
+      const key = String(counselor._id);
+      if (!counselor._id || availabilityRequestsRef.current.has(key)) return;
+      const version = availabilityVersionsRef.current[key] || 0;
+      getAvailabilitySubscription(counselor._id)
+        .then((subscribed) => {
+          if (!active || availabilityRequestsRef.current.has(key) ||
+              (availabilityVersionsRef.current[key] || 0) !== version) return;
+          setAvailabilitySubscriptions((previous) => ({ ...previous, [key]: subscribed }));
+        })
+        .catch((error) => {
+          console.warn('Could not load availability notification:', error?.message);
+        });
+    });
+    return () => { active = false; };
+  }, [counselors]);
+
+  const toggleAvailabilityNotification = async (counselor) => {
+    const counselorId = counselor?._id;
+    if (!counselorId) return;
+    const key = String(counselorId);
+    if (availabilityRequestsRef.current.has(key)) return;
+    availabilityRequestsRef.current.add(key);
+    availabilityVersionsRef.current[key] = (availabilityVersionsRef.current[key] || 0) + 1;
+    setAvailabilityUpdating((previous) => ({ ...previous, [key]: true }));
+
+    try {
+      // Resolve unknown/stale local state before choosing POST versus DELETE.
+      // The shared API client supplies and refreshes the logged-in user's token.
+      const current = await getAvailabilitySubscription(counselorId);
+      setAvailabilitySubscriptions((previous) => ({ ...previous, [key]: current }));
+      const requested = !current;
+      const saved = await setAvailabilitySubscription(counselorId, requested);
+      setAvailabilitySubscriptions((previous) => ({ ...previous, [key]: saved }));
+      if (saved !== requested) {
+        throw new Error('The server did not save the requested notification status');
+      }
+    } catch (error) {
+      console.warn('Availability notification update failed:', error?.response?.status, error?.message);
+      Alert.alert(
+        t('common:error'),
+        t('appointment:availabilityNotificationFailed', 'Could not update the availability notification. Please try again.')
+      );
+    } finally {
+      availabilityRequestsRef.current.delete(key);
+      setAvailabilityUpdating((previous) => {
+        const next = { ...previous };
+        delete next[key];
+        return next;
+      });
+    }
+  };
 
   // Fetch user data when modal opens
   const fetchUserData = async () => {
@@ -748,11 +837,38 @@ const CounselorRequestChat = ({
             </View>
           </View>
 
-          <View style={[styles.statusPill, online ? styles.statusPillOn : styles.statusPillOff]}>
-            <View style={[styles.statusPillDot, { backgroundColor: online ? PATIENT.online : '#9CA3AF' }]} />
-            <Text style={[styles.statusPillText, { color: online ? PATIENT.primary : '#6B7280' }]}>
-              {online ? t('counselor:available', 'AVAILABLE') : t('common:offline', 'OFFLINE')}
-            </Text>
+          <View style={styles.cardStatusActions}>
+            <View style={[styles.statusPill, online ? styles.statusPillOn : styles.statusPillOff]}>
+              <View style={[styles.statusPillDot, { backgroundColor: online ? PATIENT.online : '#9CA3AF' }]} />
+              <Text style={[styles.statusPillText, { color: online ? PATIENT.primary : '#6B7280' }]}>
+                {online ? t('counselor:available', 'AVAILABLE') : t('common:offline', 'OFFLINE')}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.btnBellSm, availabilitySubscriptions[String(item.id)] && styles.btnBellSmActive]}
+              onPress={() => toggleAvailabilityNotification(item)}
+              disabled={!!availabilityUpdating[String(item.id)]}
+              activeOpacity={0.8}
+              accessibilityRole="switch"
+              accessibilityState={{
+                checked: !!availabilitySubscriptions[String(item.id)],
+                disabled: !!availabilityUpdating[String(item.id)],
+                busy: !!availabilityUpdating[String(item.id)],
+              }}
+              accessibilityLabel={`${item.name}: ${availabilitySubscriptions[String(item.id)]
+                ? t('appointment:disableAvailabilityNotification', 'Turn off online notification')
+                : t('appointment:enableAvailabilityNotification', 'Notify me when consultant is online')}`}
+            >
+              {availabilityUpdating[String(item.id)] ? (
+                <ActivityIndicator size="small" color={availabilitySubscriptions[String(item.id)] ? '#ffffff' : PATIENT.primary} />
+              ) : (
+                <Ionicons
+                  name={availabilitySubscriptions[String(item.id)] ? 'notifications' : 'notifications-outline'}
+                  size={20}
+                  color={availabilitySubscriptions[String(item.id)] ? '#ffffff' : PATIENT.primary}
+                />
+              )}
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -775,7 +891,7 @@ const CounselorRequestChat = ({
                 ? `${t('appointment:nextAvailable', 'Next Available')} ${item.nextAvailable}`
                 : t('appointment:currentlyUnavailable', 'Currently unavailable')}
             </Text>
-            {isAccepted ? (
+            {isAccepted && (
               <TouchableOpacity
                 style={styles.btnOutlineSm}
                 onPress={() => handleBookAppointment(item)}
@@ -783,12 +899,6 @@ const CounselorRequestChat = ({
               >
                 <Text style={styles.btnOutlineText}>{t('appointment:schedule')}</Text>
               </TouchableOpacity>
-            ) : (
-              <View style={styles.btnDisabledSm}>
-                <Text style={styles.btnDisabledSmText}>
-                  {t('appointment:sendRequest', 'Send Request')}
-                </Text>
-              </View>
             )}
           </View>
         ) : isAccepted ? (
@@ -1038,7 +1148,7 @@ const CounselorRequestChat = ({
         ListFooterComponent={<View style={{ height: listBottomSpace }} />}
         showsVerticalScrollIndicator={false}
         refreshing={refreshing}
-        onRefresh={fetchCounselors}
+        onRefresh={() => fetchCounselors()}
         // `data` is restCounselors, i.e. the matches *minus* the recommended
         // one, so it empties both when a filter matches nothing AND when it
         // matches exactly one (already shown above). Only the first case is
@@ -1613,6 +1723,10 @@ const styles = {
     height: 24,
     borderRadius: 999,
   },
+  cardStatusActions: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
   statusPillOn: {
     backgroundColor: '#E6F6EC',
   },
@@ -1850,6 +1964,20 @@ const styles = {
     color: '#9CA3AF',
     fontSize: 13,
     fontWeight: '700',
+  },
+  btnBellSm: {
+    width: 44,
+    height: 44,
+    borderWidth: 1.4,
+    borderColor: PATIENT.primary,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: PATIENT.surface,
+  },
+  btnBellSmActive: {
+    backgroundColor: PATIENT.gradientTo,
+    borderColor: PATIENT.gradientTo,
   },
   btnOutlineText: {
     color: PATIENT.primary,

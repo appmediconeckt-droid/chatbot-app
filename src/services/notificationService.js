@@ -142,6 +142,8 @@ const shouldDisplayForegroundNotification = data => {
 
   return [
     'SYSTEM',
+    'AVAILABLE',
+    'CONSULTANT_AVAILABLE',
     'GREETING',
     'APPOINTMENT',
     'PAYMENT',
