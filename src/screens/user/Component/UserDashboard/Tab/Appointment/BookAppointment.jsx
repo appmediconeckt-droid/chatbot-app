@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
-import api, { API_BASE_URL } from '../../../../../../axiosConfig';
+import { API_BASE_URL } from '../../../../../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -31,6 +31,7 @@ import PatientGradientButton from '../../../../../../components/common/PatientGr
 import { toImageUri } from '../../../../../../utils/imageUri';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import socketService from '../../../../../../services/socketService';
+import { getAvailabilitySubscription, setAvailabilitySubscription } from '../../../../../../services/availabilitySubscriptions';
 
 // Same gradient and direction as the wallet balance card.
 const WALLET_GRADIENT = ['#006B2C', '#01CE54'];
@@ -131,7 +132,7 @@ const CounselorRequestChat = ({
   const [availabilitySubscriptions, setAvailabilitySubscriptions] = useState({});
   const [availabilityUpdating, setAvailabilityUpdating] = useState({});
   const availabilityRequestsRef = useRef(new Set());
-  const availabilityTouchedRef = useRef(new Set());
+  const availabilityVersionsRef = useRef({});
   const [userAnonymous, setUserAnonymous] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
@@ -329,6 +330,7 @@ const CounselorRequestChat = ({
       const list = response.data?.counselors || response.data?.counsellors || [];
       const formattedCounselors = list.map((c) => ({
         id: c._id,
+        _id: c._id,
         name: c.fullName,
         specialization: Array.isArray(c.specialization) ? c.specialization.join(' , ') : (c.specialization || 'General'),
         experience: `${c.experience || 0} years`,
@@ -388,75 +390,46 @@ const CounselorRequestChat = ({
   }, []);
 
   useEffect(() => {
-    const loadAvailabilitySubscriptions = async () => {
-      try {
-        const authToken = await getAuthToken();
-        if (!authToken) return;
-        const response = await api.get(
-          '/api/notifications/availability-subscriptions',
-          { headers: { Authorization: `Bearer ${authToken}` } },
-        );
-        const subscriptions = response?.data?.subscriptions || [];
-        const loadedSubscriptions = subscriptions.reduce((result, subscription) => {
-            const counselorId = subscription?.counselorId || subscription?.consultantId;
-            if (counselorId) result[String(counselorId)] = true;
-            return result;
-          }, {});
-        setAvailabilitySubscriptions((previous) => {
-          // A slow initial fetch must not overwrite a bell the user just tapped.
-          availabilityTouchedRef.current.forEach((key) => {
-            if (previous[key]) loadedSubscriptions[key] = true;
-            else delete loadedSubscriptions[key];
-          });
-          return loadedSubscriptions;
+    let active = true;
+    counselors.forEach((counselor) => {
+      const key = String(counselor._id);
+      if (!counselor._id || availabilityRequestsRef.current.has(key)) return;
+      const version = availabilityVersionsRef.current[key] || 0;
+      getAvailabilitySubscription(counselor._id)
+        .then((subscribed) => {
+          if (!active || availabilityRequestsRef.current.has(key) ||
+              (availabilityVersionsRef.current[key] || 0) !== version) return;
+          setAvailabilitySubscriptions((previous) => ({ ...previous, [key]: subscribed }));
+        })
+        .catch((error) => {
+          console.warn('Could not load availability notification:', error?.message);
         });
-      } catch (error) {
-        console.warn('Could not load availability notifications:', error?.message || error);
-      }
-    };
-
-    loadAvailabilitySubscriptions();
-  }, []);
+    });
+    return () => { active = false; };
+  }, [counselors]);
 
   const toggleAvailabilityNotification = async (counselor) => {
-    const counselorId = counselor?.id;
+    const counselorId = counselor?._id;
     if (!counselorId) return;
     const key = String(counselorId);
     if (availabilityRequestsRef.current.has(key)) return;
     availabilityRequestsRef.current.add(key);
+    availabilityVersionsRef.current[key] = (availabilityVersionsRef.current[key] || 0) + 1;
     setAvailabilityUpdating((previous) => ({ ...previous, [key]: true }));
 
-    const isSubscribed = !!availabilitySubscriptions[String(counselorId)];
-    availabilityTouchedRef.current.add(key);
-    const updateBell = (enabled) => {
-      setAvailabilitySubscriptions((previous) => {
-        const next = { ...previous };
-        if (enabled) next[key] = true;
-        else delete next[key];
-        return next;
-      });
-    };
-    // Give immediate visual feedback while the subscription is being saved.
-    updateBell(!isSubscribed);
     try {
-      const authToken = await getAuthToken();
-      if (!authToken) {
-        updateBell(isSubscribed);
-        Alert.alert(t('common:error'), t('common:loginRequired', 'Please log in to enable notifications.'));
-        return;
-      }
-
-      const headers = { Authorization: `Bearer ${authToken}` };
-      const endpoint = `/api/notifications/availability-subscriptions/${counselorId}`;
-      const response = isSubscribed
-        ? await api.delete(endpoint, { headers })
-        : await api.post(endpoint, { counselorId }, { headers });
-      if (response?.data?.success === false) {
-        throw new Error('Availability subscription was not saved');
+      // Resolve unknown/stale local state before choosing POST versus DELETE.
+      // The shared API client supplies and refreshes the logged-in user's token.
+      const current = await getAvailabilitySubscription(counselorId);
+      setAvailabilitySubscriptions((previous) => ({ ...previous, [key]: current }));
+      const requested = !current;
+      const saved = await setAvailabilitySubscription(counselorId, requested);
+      setAvailabilitySubscriptions((previous) => ({ ...previous, [key]: saved }));
+      if (saved !== requested) {
+        throw new Error('The server did not save the requested notification status');
       }
     } catch (error) {
-      updateBell(isSubscribed);
-      console.warn('Availability notification update failed:', error?.response?.data || error?.message || error);
+      console.warn('Availability notification update failed:', error?.response?.status, error?.message);
       Alert.alert(
         t('common:error'),
         t('appointment:availabilityNotificationFailed', 'Could not update the availability notification. Please try again.')
