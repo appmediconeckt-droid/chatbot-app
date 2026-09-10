@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
-import { API_BASE_URL } from '../../../../../../axiosConfig';
+import api, { API_BASE_URL } from '../../../../../../axiosConfig';
 import LinearGradient from 'react-native-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -30,6 +30,7 @@ import PATIENT from '../../../../../../theme/palette';
 import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
 import { toImageUri } from '../../../../../../utils/imageUri';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import socketService from '../../../../../../services/socketService';
 
 // Same gradient and direction as the wallet balance card.
 const WALLET_GRADIENT = ['#006B2C', '#01CE54'];
@@ -127,6 +128,10 @@ const CounselorRequestChat = ({
   const [counselors, setCounselors] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [acceptedChatsByCounselorId, setAcceptedChatsByCounselorId] = useState({});
+  const [availabilitySubscriptions, setAvailabilitySubscriptions] = useState({});
+  const [availabilityUpdating, setAvailabilityUpdating] = useState({});
+  const availabilityRequestsRef = useRef(new Set());
+  const availabilityTouchedRef = useRef(new Set());
   const [userAnonymous, setUserAnonymous] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
@@ -354,6 +359,117 @@ const CounselorRequestChat = ({
   useEffect(() => {
     fetchCounselors();
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    let unsubscribePresence;
+
+    const setupPresence = async () => {
+      try {
+        await socketService.connect();
+        if (!active) return;
+        unsubscribePresence = await socketService.on('presence-update', ({ userId: counselorId, isOnline, lastSeen }) => {
+          setCounselors((previous) => previous.map((counselor) => (
+            String(counselor.id) === String(counselorId)
+              ? { ...counselor, online: !!isOnline, available: !!isOnline, lastSeen }
+              : counselor
+          )));
+        });
+      } catch (error) {
+        console.warn('Consultant presence unavailable:', error?.message || error);
+      }
+    };
+
+    setupPresence();
+    return () => {
+      active = false;
+      unsubscribePresence?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const loadAvailabilitySubscriptions = async () => {
+      try {
+        const authToken = await getAuthToken();
+        if (!authToken) return;
+        const response = await api.get(
+          '/api/notifications/availability-subscriptions',
+          { headers: { Authorization: `Bearer ${authToken}` } },
+        );
+        const subscriptions = response?.data?.subscriptions || [];
+        const loadedSubscriptions = subscriptions.reduce((result, subscription) => {
+            const counselorId = subscription?.counselorId || subscription?.consultantId;
+            if (counselorId) result[String(counselorId)] = true;
+            return result;
+          }, {});
+        setAvailabilitySubscriptions((previous) => {
+          // A slow initial fetch must not overwrite a bell the user just tapped.
+          availabilityTouchedRef.current.forEach((key) => {
+            if (previous[key]) loadedSubscriptions[key] = true;
+            else delete loadedSubscriptions[key];
+          });
+          return loadedSubscriptions;
+        });
+      } catch (error) {
+        console.warn('Could not load availability notifications:', error?.message || error);
+      }
+    };
+
+    loadAvailabilitySubscriptions();
+  }, []);
+
+  const toggleAvailabilityNotification = async (counselor) => {
+    const counselorId = counselor?.id;
+    if (!counselorId) return;
+    const key = String(counselorId);
+    if (availabilityRequestsRef.current.has(key)) return;
+    availabilityRequestsRef.current.add(key);
+    setAvailabilityUpdating((previous) => ({ ...previous, [key]: true }));
+
+    const isSubscribed = !!availabilitySubscriptions[String(counselorId)];
+    availabilityTouchedRef.current.add(key);
+    const updateBell = (enabled) => {
+      setAvailabilitySubscriptions((previous) => {
+        const next = { ...previous };
+        if (enabled) next[key] = true;
+        else delete next[key];
+        return next;
+      });
+    };
+    // Give immediate visual feedback while the subscription is being saved.
+    updateBell(!isSubscribed);
+    try {
+      const authToken = await getAuthToken();
+      if (!authToken) {
+        updateBell(isSubscribed);
+        Alert.alert(t('common:error'), t('common:loginRequired', 'Please log in to enable notifications.'));
+        return;
+      }
+
+      const headers = { Authorization: `Bearer ${authToken}` };
+      const endpoint = `/api/notifications/availability-subscriptions/${counselorId}`;
+      const response = isSubscribed
+        ? await api.delete(endpoint, { headers })
+        : await api.post(endpoint, { counselorId }, { headers });
+      if (response?.data?.success === false) {
+        throw new Error('Availability subscription was not saved');
+      }
+    } catch (error) {
+      updateBell(isSubscribed);
+      console.warn('Availability notification update failed:', error?.response?.data || error?.message || error);
+      Alert.alert(
+        t('common:error'),
+        t('appointment:availabilityNotificationFailed', 'Could not update the availability notification. Please try again.')
+      );
+    } finally {
+      availabilityRequestsRef.current.delete(key);
+      setAvailabilityUpdating((previous) => {
+        const next = { ...previous };
+        delete next[key];
+        return next;
+      });
+    }
+  };
 
   // Fetch user data when modal opens
   const fetchUserData = async () => {
@@ -748,11 +864,38 @@ const CounselorRequestChat = ({
             </View>
           </View>
 
-          <View style={[styles.statusPill, online ? styles.statusPillOn : styles.statusPillOff]}>
-            <View style={[styles.statusPillDot, { backgroundColor: online ? PATIENT.online : '#9CA3AF' }]} />
-            <Text style={[styles.statusPillText, { color: online ? PATIENT.primary : '#6B7280' }]}>
-              {online ? t('counselor:available', 'AVAILABLE') : t('common:offline', 'OFFLINE')}
-            </Text>
+          <View style={styles.cardStatusActions}>
+            <View style={[styles.statusPill, online ? styles.statusPillOn : styles.statusPillOff]}>
+              <View style={[styles.statusPillDot, { backgroundColor: online ? PATIENT.online : '#9CA3AF' }]} />
+              <Text style={[styles.statusPillText, { color: online ? PATIENT.primary : '#6B7280' }]}>
+                {online ? t('counselor:available', 'AVAILABLE') : t('common:offline', 'OFFLINE')}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.btnBellSm, availabilitySubscriptions[String(item.id)] && styles.btnBellSmActive]}
+              onPress={() => toggleAvailabilityNotification(item)}
+              disabled={!!availabilityUpdating[String(item.id)]}
+              activeOpacity={0.8}
+              accessibilityRole="switch"
+              accessibilityState={{
+                checked: !!availabilitySubscriptions[String(item.id)],
+                disabled: !!availabilityUpdating[String(item.id)],
+                busy: !!availabilityUpdating[String(item.id)],
+              }}
+              accessibilityLabel={`${item.name}: ${availabilitySubscriptions[String(item.id)]
+                ? t('appointment:disableAvailabilityNotification', 'Turn off online notification')
+                : t('appointment:enableAvailabilityNotification', 'Notify me when consultant is online')}`}
+            >
+              {availabilityUpdating[String(item.id)] ? (
+                <ActivityIndicator size="small" color={availabilitySubscriptions[String(item.id)] ? '#ffffff' : PATIENT.primary} />
+              ) : (
+                <Ionicons
+                  name={availabilitySubscriptions[String(item.id)] ? 'notifications' : 'notifications-outline'}
+                  size={20}
+                  color={availabilitySubscriptions[String(item.id)] ? '#ffffff' : PATIENT.primary}
+                />
+              )}
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -775,7 +918,7 @@ const CounselorRequestChat = ({
                 ? `${t('appointment:nextAvailable', 'Next Available')} ${item.nextAvailable}`
                 : t('appointment:currentlyUnavailable', 'Currently unavailable')}
             </Text>
-            {isAccepted ? (
+            {isAccepted && (
               <TouchableOpacity
                 style={styles.btnOutlineSm}
                 onPress={() => handleBookAppointment(item)}
@@ -783,12 +926,6 @@ const CounselorRequestChat = ({
               >
                 <Text style={styles.btnOutlineText}>{t('appointment:schedule')}</Text>
               </TouchableOpacity>
-            ) : (
-              <View style={styles.btnDisabledSm}>
-                <Text style={styles.btnDisabledSmText}>
-                  {t('appointment:sendRequest', 'Send Request')}
-                </Text>
-              </View>
             )}
           </View>
         ) : isAccepted ? (
@@ -1613,6 +1750,10 @@ const styles = {
     height: 24,
     borderRadius: 999,
   },
+  cardStatusActions: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
   statusPillOn: {
     backgroundColor: '#E6F6EC',
   },
@@ -1850,6 +1991,20 @@ const styles = {
     color: '#9CA3AF',
     fontSize: 13,
     fontWeight: '700',
+  },
+  btnBellSm: {
+    width: 44,
+    height: 44,
+    borderWidth: 1.4,
+    borderColor: PATIENT.primary,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: PATIENT.surface,
+  },
+  btnBellSmActive: {
+    backgroundColor: PATIENT.gradientTo,
+    borderColor: PATIENT.gradientTo,
   },
   btnOutlineText: {
     color: PATIENT.primary,
