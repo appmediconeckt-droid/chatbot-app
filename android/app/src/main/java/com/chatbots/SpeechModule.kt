@@ -9,6 +9,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.util.Locale
@@ -20,6 +21,24 @@ class SpeechModule(private val reactContext: ReactApplicationContext) :
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Android Voice has no gender field. Recognize explicit gender tokens and
+    // documented Google voice IDs, never a substring of "female".
+    // IDs: https://www.crosstales.com/media/data/assets/rtvoice/RTVoice-doc.pdf
+    private fun isMaleVoice(voice: Voice, engine: TextToSpeech): Boolean {
+        val name = voice.name.lowercase(Locale.ROOT)
+        if (Regex("(^|[^a-z])female([^a-z]|$)").containsMatchIn(name)) return false
+        if (Regex("(^|[^a-z])(male|m)([^a-z]|$)").containsMatchIn(name)) return true
+        if (engine.defaultEngine != "com.google.android.tts") return false
+        val googleMaleIds = setOf(
+            "en-in-x-end", "en-in-x-ene", "hi-in-x-hid", "hi-in-x-hie",
+            "en-us-x-iol", "en-us-x-iom", "en-us-x-tpd",
+            "en-gb-x-gbb", "en-gb-x-gbd", "en-gb-x-rjs",
+            "gu-in-x-gum", "kn-in-x-knm", "ml-in-x-mlm",
+            "ta-in-x-tag", "te-in-x-tem"
+        )
+        return name.removeSuffix("-local").removeSuffix("-network") in googleMaleIds
+    }
 
     override fun getName() = "SpeechModule"
 
@@ -46,27 +65,23 @@ class SpeechModule(private val reactContext: ReactApplicationContext) :
                 return@post
             }
             val locale = Locale.forLanguageTag(lang.replace('_', '-'))
-            val result = engine.setLanguage(locale)
-            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                engine.setLanguage(Locale("en", "IN"))
-            }
-            // Female voice: higher pitch (1.2), slightly slower rate (0.9)
-            engine.setPitch(1.2f)
-            engine.setSpeechRate(0.9f)
-            // Try to set a female voice if available on this device
-            val voices = engine.voices
-            if (voices != null) {
-                val femaleVoice = voices.firstOrNull { v ->
-                    v.locale.language == locale.language &&
-                    (v.name.contains("female", ignoreCase = true) ||
-                     v.name.contains("f-", ignoreCase = true) ||
-                     v.name.contains("#female", ignoreCase = true))
-                } ?: voices.firstOrNull { v ->
-                    v.locale == Locale("en", "IN") &&
-                    v.name.contains("female", ignoreCase = true)
+            val maleVoices = engine.voices.orEmpty()
+                .filter { voice ->
+                    voice.locale.language == locale.language &&
+                        !voice.features.orEmpty().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) &&
+                        isMaleVoice(voice, engine)
                 }
-                if (femaleVoice != null) engine.voice = femaleVoice
+                .sortedWith(compareBy<Voice> { it.locale.country != locale.country }
+                    .thenBy { it.isNetworkConnectionRequired }
+                    .thenByDescending { it.quality }
+                    .thenBy { it.name })
+            if (maleVoices.none { engine.setVoice(it) == TextToSpeech.SUCCESS }) {
+                promise.reject("TTS_MALE_VOICE_UNAVAILABLE",
+                    "A male voice is not available for this language. Install a male voice in your phone's Text-to-speech settings and try again.")
+                return@post
             }
+            engine.setPitch(1.0f)
+            engine.setSpeechRate(0.9f)
             engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(id: String?) {}
                 override fun onDone(id: String?) {
@@ -75,10 +90,12 @@ class SpeechModule(private val reactContext: ReactApplicationContext) :
                 }
                 override fun onError(id: String?) {
                     sendEvent("tts-done", null)
-                    promise.resolve(false)
+                    promise.reject("TTS_PLAYBACK_FAILED", "Unable to play this voice. Check your connection and installed voice data.")
                 }
             })
-            engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "rn-tts")
+            if (engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "rn-tts") == TextToSpeech.ERROR) {
+                promise.reject("TTS_PLAYBACK_FAILED", "Unable to start voice playback.")
+            }
         }
     }
 

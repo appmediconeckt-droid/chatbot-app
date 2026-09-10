@@ -384,6 +384,7 @@ const ChatPopup = ({
     } catch (err) {
       console.warn('[TTS] error:', err?.message ?? err);
       setSpeakingId(null);
+      Alert.alert('Voice unavailable', err?.message || 'Unable to play this response. Please try again.');
     }
   }, [selectedLang, speakingId, stopSpeaking]);
 
