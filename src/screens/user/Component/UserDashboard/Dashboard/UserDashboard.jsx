@@ -52,6 +52,7 @@ import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
 import AvatarPicker from "../../PatientProfile/AvatarPicker";
 import RatingPrompt from '../../../../../components/RatingPrompt';
+import UpdateReminderModal from '../../../../../components/UpdateReminderModal';
 import { loadUserLanguage } from '../../../../../i18n';
 import AutoTranslatedText from '../../../../../components/AutoTranslatedText';
 import { translationService } from '../../../../../i18n/translationService';
@@ -2877,6 +2878,7 @@ export default function UserDashboard() {
         translucent={false}
       />
       <RatingPrompt triggerKey={active} />
+      <UpdateReminderModal />
 
       <CallModal
         isOpen={showCallModal}

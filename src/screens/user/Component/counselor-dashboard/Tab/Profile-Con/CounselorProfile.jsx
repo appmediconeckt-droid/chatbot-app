@@ -28,6 +28,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import safeVibrate from '../../../../../../utils/safeVibrate';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
+import { isPsychiatristSpecialization } from '../../../../../../components/common/PsychiatristDirectory';
 import CountryPhoneInput from '../../../../../../components/common/CountryPhoneInput';
 import { useToast } from '../../../../../../components/common/ToastProvider';
 import { DOCTOR } from '../../../../../../theme/palette';
@@ -1588,64 +1589,70 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
             </View>
           </View>
 
-          <View style={styles.card}>
-            <View style={styles.sectionHead}>
-              <Icon name="draw" size={18} color="#004AC6" />
-              <Text style={styles.cardTitle}>{t('Prescription Signature & Seal')}</Text>
+          {/* Only psychiatrists issue prescriptions, so only they need a
+              signature/seal on file — everyone else never sees this card. */}
+          {isPsychiatristSpecialization(
+            isEditing ? editedData.specialization : counselor.specialization,
+          ) && (
+            <View style={styles.card}>
+              <View style={styles.sectionHead}>
+                <Icon name="draw" size={18} color="#004AC6" />
+                <Text style={styles.cardTitle}>{t('Prescription Signature & Seal')}</Text>
+              </View>
+              <Text style={styles.signatureHelpText}>
+                {t('Upload your signature and clinic seal to show them on patient prescriptions.')}
+              </Text>
+              <View style={styles.prescriptionAssetGrid}>
+                {[
+                  {
+                    key: 'signature',
+                    title: 'Signature',
+                    icon: 'gesture',
+                    uri: isEditing
+                      ? editedData.prescriptionSignatureUrl
+                      : counselor.prescriptionSignatureUrl,
+                  },
+                  {
+                    key: 'seal',
+                    title: 'Seal / Stamp',
+                    icon: 'verified',
+                    uri: isEditing
+                      ? editedData.prescriptionSealUrl
+                      : counselor.prescriptionSealUrl,
+                  },
+                ].map(asset => (
+                  <TouchableOpacity
+                    key={asset.key}
+                    style={styles.prescriptionAssetTile}
+                    onPress={
+                      isEditing
+                        ? () => handlePrescriptionAssetUpload(asset.key)
+                        : undefined
+                    }
+                    activeOpacity={isEditing ? 0.85 : 1}
+                  >
+                    {asset.uri ? (
+                      <Image
+                        source={{ uri: String(asset.uri) }}
+                        style={styles.prescriptionAssetImage}
+                        resizeMode="contain"
+                      />
+                    ) : (
+                      <View style={styles.prescriptionAssetPlaceholder}>
+                        <Icon name={asset.icon} size={24} color="#2563EB" />
+                      </View>
+                    )}
+                    <Text style={styles.prescriptionAssetTitle}>{asset.title}</Text>
+                    {isEditing && (
+                      <Text style={styles.prescriptionAssetAction}>
+                        {asset.uri ? 'Change image' : 'Upload image'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-            <Text style={styles.signatureHelpText}>
-              {t('Upload your signature and clinic seal to show them on patient prescriptions.')}
-            </Text>
-            <View style={styles.prescriptionAssetGrid}>
-              {[
-                {
-                  key: 'signature',
-                  title: 'Signature',
-                  icon: 'gesture',
-                  uri: isEditing
-                    ? editedData.prescriptionSignatureUrl
-                    : counselor.prescriptionSignatureUrl,
-                },
-                {
-                  key: 'seal',
-                  title: 'Seal / Stamp',
-                  icon: 'verified',
-                  uri: isEditing
-                    ? editedData.prescriptionSealUrl
-                    : counselor.prescriptionSealUrl,
-                },
-              ].map(asset => (
-                <TouchableOpacity
-                  key={asset.key}
-                  style={styles.prescriptionAssetTile}
-                  onPress={
-                    isEditing
-                      ? () => handlePrescriptionAssetUpload(asset.key)
-                      : undefined
-                  }
-                  activeOpacity={isEditing ? 0.85 : 1}
-                >
-                  {asset.uri ? (
-                    <Image
-                      source={{ uri: String(asset.uri) }}
-                      style={styles.prescriptionAssetImage}
-                      resizeMode="contain"
-                    />
-                  ) : (
-                    <View style={styles.prescriptionAssetPlaceholder}>
-                      <Icon name={asset.icon} size={24} color="#2563EB" />
-                    </View>
-                  )}
-                  <Text style={styles.prescriptionAssetTitle}>{asset.title}</Text>
-                  {isEditing && (
-                    <Text style={styles.prescriptionAssetAction}>
-                      {asset.uri ? 'Change image' : 'Upload image'}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
+          )}
 
           {/* Consultation Mode */}
           <View style={styles.card}>

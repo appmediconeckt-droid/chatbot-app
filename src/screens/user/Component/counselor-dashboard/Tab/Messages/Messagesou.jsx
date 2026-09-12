@@ -274,14 +274,19 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
   };
 });
 
-      transformed.sort((a, b) => new Date(b.lastActivityAt) - new Date(a.lastActivityAt));
-      setUsers(transformed);
-
       // The chat list's own `avatar`/`avatarUrl` field can be stale or empty
       // for a chat's other party. For any row missing one, fall back to the
       // exact same per-user lookup the patient's own profile screen uses
       // (GET /api/auth/getUser/:id) so the consultant side shows whatever
       // avatar that user's own profile currently has.
+      //
+      // This is resolved BEFORE the list is shown at all, never after —
+      // `setUsers` only ever runs once per fetch. The skeleton loader only
+      // covers the very first load (once `users` is non-empty it's skipped
+      // on refocus/reload so the list doesn't flash blank), so patching
+      // avatars in with a second `setUsers` after the list was already on
+      // screen was what caused the "fallback icon, then real photo a couple
+      // seconds later" pop-in on every reload.
       const rowsMissingAvatar = transformed.filter((item) => !item.avatarUrl && item.userId);
       if (rowsMissingAvatar.length > 0) {
         const liveAvatars = await Promise.all(
@@ -301,15 +306,16 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
         );
         const avatarByUserId = new Map(liveAvatars.filter(([, url]) => !!url));
         if (avatarByUserId.size > 0) {
-          setUsers((prev) =>
-            prev.map((item) =>
-              avatarByUserId.has(item.userId)
-                ? { ...item, avatarUrl: avatarByUserId.get(item.userId) }
-                : item
-            )
-          );
+          transformed.forEach((item) => {
+            if (avatarByUserId.has(item.userId)) {
+              item.avatarUrl = avatarByUserId.get(item.userId);
+            }
+          });
         }
       }
+
+      transformed.sort((a, b) => new Date(b.lastActivityAt) - new Date(a.lastActivityAt));
+      setUsers(transformed);
     } catch (err) {
       setError(err.message);
     } finally {
