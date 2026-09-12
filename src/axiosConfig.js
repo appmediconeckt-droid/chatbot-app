@@ -5,11 +5,6 @@ import { forceSignOut } from './utils/authSession';
 
 
 const API_ENDPOINTS = {
-<<<<<<< HEAD
-  DEV_TUNNEL: 'https://s5jl7g4z-5001.inc1.devtunnels.ms',
-=======
-
->>>>>>> 97e27960fdd47f3d181db1e2b185bb2ca67c8d79
   RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
   LOCAL_ADB_5002: 'http://127.0.0.1:5002',
   LOCAL_5001: 'http://localhost:5001',

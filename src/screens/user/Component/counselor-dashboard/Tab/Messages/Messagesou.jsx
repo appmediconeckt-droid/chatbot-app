@@ -276,6 +276,40 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
 
       transformed.sort((a, b) => new Date(b.lastActivityAt) - new Date(a.lastActivityAt));
       setUsers(transformed);
+
+      // The chat list's own `avatar`/`avatarUrl` field can be stale or empty
+      // for a chat's other party. For any row missing one, fall back to the
+      // exact same per-user lookup the patient's own profile screen uses
+      // (GET /api/auth/getUser/:id) so the consultant side shows whatever
+      // avatar that user's own profile currently has.
+      const rowsMissingAvatar = transformed.filter((item) => !item.avatarUrl && item.userId);
+      if (rowsMissingAvatar.length > 0) {
+        const liveAvatars = await Promise.all(
+          rowsMissingAvatar.map(async (item) => {
+            try {
+              const res = await fetch(`${API_BASE_URL}/api/auth/getUser/${item.userId}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (!res.ok) return [item.userId, ''];
+              const json = await res.json();
+              const live = getAnonymousUserDisplay(json?.user || {});
+              return [item.userId, live.avatarUrl || ''];
+            } catch {
+              return [item.userId, ''];
+            }
+          })
+        );
+        const avatarByUserId = new Map(liveAvatars.filter(([, url]) => !!url));
+        if (avatarByUserId.size > 0) {
+          setUsers((prev) =>
+            prev.map((item) =>
+              avatarByUserId.has(item.userId)
+                ? { ...item, avatarUrl: avatarByUserId.get(item.userId) }
+                : item
+            )
+          );
+        }
+      }
     } catch (err) {
       setError(err.message);
     } finally {
