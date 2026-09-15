@@ -5,13 +5,13 @@ import { forceSignOut } from './utils/authSession';
 
 
 const API_ENDPOINTS = {
-  RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
+  // RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
+  RAILWAY: 'https://humaeli-backend-update-production.up.railway.app',
   LOCAL_ADB_5002: 'http://127.0.0.1:5002',
   LOCAL_5001: 'http://localhost:5001',
   LOCAL_5000: 'http://localhost:5000',
   LOCAL_3000: 'http://localhost:3000',
 };
-
 export const API_BASE_URL = __DEV__
   ? API_ENDPOINTS.RAILWAY
   : API_ENDPOINTS.RAILWAY;
@@ -19,7 +19,6 @@ export const AI_REALTIME_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
 export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
   ? { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' }
   : {};
-
 Object.assign(axios.defaults.headers.common, TUNNEL_HEADERS);
 const PUBLIC_AUTH_PATHS = [
   '/api/auth/login',

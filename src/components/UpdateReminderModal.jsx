@@ -6,8 +6,8 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import SpInAppUpdates from 'sp-react-native-in-app-updates';
 import Text from './TranslatedText';
 import useLanguageRender from '../hooks/useLanguageRender';
-import { PATIENT_GRADIENT, GRADIENT_DIRECTION } from '../theme/palette';
-import { APP_VERSION, PLAY_STORE_URL } from '../constants/appInfo';
+import { PATIENT_GRADIENT, DOCTOR_GRADIENT, GRADIENT_DIRECTION } from '../theme/palette';
+import { APP_VERSION, PLAY_STORE_URL, DEV_SIMULATE_UPDATE_AVAILABLE } from '../constants/appInfo';
 
 // "Later" snoozes the reminder for a day rather than closing it for good —
 // nags again on the next app open only once a day has actually passed, same
@@ -18,16 +18,24 @@ const SNOOZE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Asks the Play Store (via Play Core) whether a newer version of the app is
- * live, and shows a dismissible reminder if so. Mount once, near the root of
- * the patient-side dashboard — it checks on mount and stays quiet otherwise.
+ * live, and shows a dismissible reminder if so — on both the patient and
+ * consultant dashboards, each mounting this with their own `variant` so the
+ * reminder always matches the brand colour of the screen it's on.
+ *
  * "Update now" opens the Play Store listing directly, same as tapping the
- * app's card in the store.
+ * app's card in the store. It only ever shows on a genuine version mismatch
+ * reported by the Play Store itself — never just because the app was opened.
+ *
+ * Props:
+ *   variant  'patient' | 'consultant'  (default 'patient') — which brand
+ *            gradient to use for the icon badge and CTA button.
  */
-const UpdateReminderModal = () => {
+const UpdateReminderModal = ({ variant = 'patient' }) => {
   const { t } = useLanguageRender();
   const [visible, setVisible] = useState(false);
   const checkedRef = useRef(false);
   const storeVersionRef = useRef('');
+  const gradient = variant === 'consultant' ? DOCTOR_GRADIENT : PATIENT_GRADIENT;
 
   useEffect(() => {
     // In-app updates are Android/Play Store only — there's no iOS release to
@@ -47,11 +55,12 @@ const UpdateReminderModal = () => {
       .catch(() => {
         // Play Core's real check needs a signed release build installed
         // from the Play Store, so it always fails on a debug/Metro build —
-        // that's expected, not a bug. In __DEV__ only, show the popup
-        // anyway so you can eyeball the UI without a full release cycle.
-        // __DEV__ is always false in a release/Play Store build, so real
-        // users never see this fallback.
-        if (__DEV__) setVisible(true);
+        // that's expected, not a bug, and NOT a real version comparison.
+        // Only show here if DEV_SIMULATE_UPDATE_AVAILABLE is deliberately
+        // turned on in constants/appInfo.js — otherwise this stays quiet in
+        // dev too, so the popup never appears "just because", only when an
+        // update is actually being simulated or genuinely available.
+        if (__DEV__ && DEV_SIMULATE_UPDATE_AVAILABLE) setVisible(true);
       });
   }, []);
 
@@ -102,7 +111,7 @@ const UpdateReminderModal = () => {
           </TouchableOpacity>
 
           <LinearGradient
-            colors={PATIENT_GRADIENT}
+            colors={gradient}
             {...GRADIENT_DIRECTION}
             style={styles.iconBadge}
           >
@@ -116,7 +125,7 @@ const UpdateReminderModal = () => {
 
           <TouchableOpacity style={styles.updateBtn} onPress={handleUpdate} activeOpacity={0.85}>
             <LinearGradient
-              colors={PATIENT_GRADIENT}
+              colors={gradient}
               {...GRADIENT_DIRECTION}
               style={styles.updateInner}
             >

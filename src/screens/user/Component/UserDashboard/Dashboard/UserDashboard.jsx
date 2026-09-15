@@ -2878,7 +2878,7 @@ export default function UserDashboard() {
         translucent={false}
       />
       <RatingPrompt triggerKey={active} />
-      <UpdateReminderModal />
+      <UpdateReminderModal variant="patient" />
 
       <CallModal
         isOpen={showCallModal}
