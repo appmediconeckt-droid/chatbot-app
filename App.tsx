@@ -33,6 +33,8 @@ import CounselorSignup from './src/screens/auth/CounselorSignup';
 import RoleSelector from "./src/screens/auth/RoleSelector";
 import UserOnboarding from './src/screens/auth/UserOnboarding';
 import CounselorOnboarding from './src/screens/auth/CounselorOnboarding';
+import DoctorOnboarding from './src/screens/auth/DoctorOnboarding';
+import DoctorSignup from './src/screens/auth/DoctorSignup';
 import OTPVerification from "./src/screens/auth/OTPVerification";
 import LocationGate from "./src/screens/auth/LocationGate";
 import ForgotPasswordScreen from "./src/screens/auth/ForgotPasswordScreen";
@@ -50,6 +52,10 @@ import { ToastProvider } from './src/components/common/ToastProvider';
 // Counselor Dashboard Screens
 import CounselorDashboard from './src/features/counselor/screens/CounselorDashboard';
 import SMSInput from './src/features/counselor/screens/SMSInput';
+
+// Doctor screens (frontend-only — no Doctor backend yet)
+import DoctorDashboard from './src/features/doctor/screens/DoctorDashboard';
+import DoctorProfile from './src/features/doctor/screens/DoctorProfile';
 import ChangePassword from './src/screens/account/ChangePassword';
 import SetPassword from './src/screens/account/SetPassword';
 import SetPasswordByOtp from './src/screens/account/SetPasswordByOtp';
@@ -84,10 +90,18 @@ export type RootStackParamList = {
   Landing: undefined;
   UserSignup: { role?: 'user' | 'counselor' } | undefined;
   RoleSelector: undefined;
-  UserOnboarding: { destination?: 'UserSignup'; destinationParams?: { role?: 'user' } } | undefined;
-  CounselorOnboarding: { destination?: 'CounselorSignup'; destinationParams?: { role?: 'counselor' } } | undefined;
+  // Onboarding now runs AFTER signup for every role (see RoleSelector /
+  // *Signup screens), so `destination` here points at what comes after the
+  // tour — typically LocationGate or (for Doctor) DoctorProfile — not back
+  // at the Signup screen itself.
+  UserOnboarding: { destination?: keyof RootStackParamList; destinationParams?: object } | undefined;
+  CounselorOnboarding: { destination?: keyof RootStackParamList; destinationParams?: object } | undefined;
+  DoctorOnboarding: { destination?: keyof RootStackParamList; destinationParams?: object; doctorProfileBase?: object } | undefined;
   Login: { role?: 'user' | 'counselor' } | undefined;
   CounselorSignup: { role?: 'user' | 'counselor' } | undefined;
+  DoctorSignup: { role?: 'doctor'; doctorProfileDraft?: object } | undefined;
+  DoctorProfile: { doctorProfile?: object } | undefined;
+  DoctorDashboard: undefined;
   OTPVerification: undefined;
   LocationGate: { destination: keyof RootStackParamList; destinationParams?: object };
   UserDashboard: undefined;
@@ -477,12 +491,16 @@ useEffect(() => {
             <Stack.Screen name="RoleSelector" component={RoleSelector} />
             <Stack.Screen name="UserOnboarding" component={UserOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />
             <Stack.Screen name="CounselorOnboarding" component={CounselorOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />
+            <Stack.Screen name="DoctorOnboarding" component={DoctorOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />
             <Stack.Screen name="UserSignup" component={UserSignup} />
             <Stack.Screen name="Login" component={Login} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
             <Stack.Screen name="ForgotPasswordOTP" component={ForgotPasswordOTPScreen} />
             <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
             <Stack.Screen name='CounselorSignup' component={CounselorSignup} />
+            <Stack.Screen name='DoctorSignup' component={DoctorSignup as React.ComponentType<any>} />
+            <Stack.Screen name='DoctorProfile' component={DoctorProfile as React.ComponentType<any>} />
+            <Stack.Screen name='DoctorDashboard' component={DoctorDashboard as React.ComponentType<any>} />
               <Stack.Screen name='OTPVerification' component={OTPVerification} />
             <Stack.Screen
               name="LocationGate"

@@ -359,7 +359,13 @@ const CounselorSignup = ({ navigation, route }) => {
         showNotification(response.data.message || 'Consultant registered!');
 
         if (hasSession) {
-          setTimeout(() => navigation.replace('LocationGate', { destination: 'CounselorDashboard' }), 1500);
+          // Brand-new account → onboarding tour first, then LocationGate → dashboard.
+          // (Logging into an existing account — handleLogin below — skips straight
+          // to LocationGate, no tour.)
+          setTimeout(() => navigation.replace('CounselorOnboarding', {
+            destination: 'LocationGate',
+            destinationParams: { destination: 'CounselorDashboard' },
+          }), 1500);
         } else if (response.data?.requiresLogin) {
           setFormData(prev => ({
             ...prev,
@@ -876,10 +882,18 @@ const CounselorSignup = ({ navigation, route }) => {
                       locationEvent={isLogin ? 'login' : 'signup'}
                       onSuccess={({ isCounselor }) => {
                         sendLocationSilently(isLogin ? 'login' : 'signup');
+                        const dashboardDestination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
                         setTimeout(() => {
-                          navigation.replace(
-                            isCounselor ? 'CounselorDashboard' : 'UserDashboard',
-                          );
+                          if (isLogin) {
+                            // Existing account signing in with Google — no tour.
+                            navigation.replace(dashboardDestination);
+                            return;
+                          }
+                          // Was on the "Create Account" tab — new Google signup,
+                          // same onboarding tour as an email/password signup.
+                          navigation.replace('CounselorOnboarding', {
+                            destination: dashboardDestination,
+                          });
                         }, 600);
                       }}
                       onError={(msg) => {

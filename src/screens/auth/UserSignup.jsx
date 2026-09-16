@@ -933,7 +933,13 @@ const UserSignup = ({ navigation, route }) => {
         showNotification(response.data.message || 'Account created successfully!');
 
         if (hasSession) {
-          setTimeout(() => navigation.replace('LocationGate', { destination: 'UserDashboard' }), 1500);
+          // Brand-new account → onboarding tour first, then LocationGate → dashboard.
+          // (Logging into an existing account — handleLogin below — skips straight
+          // to LocationGate, no tour.)
+          setTimeout(() => navigation.replace('UserOnboarding', {
+            destination: 'LocationGate',
+            destinationParams: { destination: 'UserDashboard' },
+          }), 1500);
         } else if (response.data?.requiresLogin) {
           setFormData(prev => ({
             ...prev,
@@ -1156,9 +1162,26 @@ const UserSignup = ({ navigation, route }) => {
 
   const continueAfterGoogleAuth = (isCounselor, delay = 600) => {
     sendLocationSilently(isLogin ? 'login' : 'signup');
-    const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
+    const dashboardDestination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
     setTimeout(() => {
-      navigation.replace('LocationGate', { destination });
+      if (isLogin) {
+        // Existing account signing in with Google — no tour.
+        navigation.replace('LocationGate', { destination: dashboardDestination });
+        return;
+      }
+      // Was on the "Create Account" tab — this is a new Google signup, so it
+      // gets the same onboarding tour as an email/password signup.
+      if (isCounselor) {
+        navigation.replace('CounselorOnboarding', {
+          destination: 'LocationGate',
+          destinationParams: { destination: dashboardDestination },
+        });
+      } else {
+        navigation.replace('UserOnboarding', {
+          destination: 'LocationGate',
+          destinationParams: { destination: dashboardDestination },
+        });
+      }
     }, delay);
   };
 

@@ -16,7 +16,7 @@ export const ROLE_MODULES = [
   {
     role: USER_ROLES.DOCTOR,
     label: 'Doctor / Specialist',
-    dashboardRoute: null,
+    dashboardRoute: 'DoctorDashboard',
     featurePath: 'src/features/doctor',
   },
   {

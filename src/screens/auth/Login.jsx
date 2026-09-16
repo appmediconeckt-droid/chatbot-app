@@ -11,6 +11,7 @@ import {
   Dimensions,
   useWindowDimensions,
   Image,
+  Animated,
 } from 'react-native';
 import TextInput from '../../components/TranslatedTextInput';
 import Text from '../../components/TranslatedText';
@@ -23,7 +24,7 @@ import GoogleProfileCompletionModal, {
 } from './components/GoogleProfileCompletionModal';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import socketService from '../../services/socketService';
-import { paletteForRole } from '../../theme/palette';
+import { paletteForRole, DOCTOR as HUMAELI_BLUE } from '../../theme/palette';
 import AuthBackground from '../../theme/AuthBackground';
 import logo from '../../image/Humaeli.png';
 import useLanguageRender from '../../hooks/useLanguageRender';
@@ -40,9 +41,11 @@ const Login = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   const { showToast } = useToast();
-  // Role decides the whole theme: patient → green, counselor → blue.
-  // Layout/animation stay identical; only the palette swaps.
-  const C = paletteForRole(route?.params?.role);
+  // Login is the single common entry point now (no role picked yet), so it
+  // always uses the Humaeli brand blue — matching the app icon — instead of
+  // defaulting to the green "patient" palette. A role-specific caller (rare)
+  // still gets its own palette.
+  const C = route?.params?.role ? paletteForRole(route.params.role) : HUMAELI_BLUE;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [keyboardOpen, setKeyboardOpen] = useState(false);
@@ -55,6 +58,9 @@ const Login = ({ navigation, route }) => {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // Presentation only — which input is focused, so its border can pick up
+  // the role color like every other auth screen already does.
+  const [focusedField, setFocusedField] = useState(null);
   const [googleProfileCompletion, setGoogleProfileCompletion] = useState({
     visible: false,
     isCounselor: false,
@@ -91,6 +97,20 @@ const Login = ({ navigation, route }) => {
   const isTablet = windowWidth >= 600;
   const isCompact = windowWidth < 360 || windowHeight < 700;
 
+  // Entrance polish only — same fade/slide/logo-scale pattern used on
+  // RoleSelector and the role Signup screens, so Login matches their feel.
+  // Colors are untouched; this is purely presentational.
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(22)).current;
+  const logoScale = useRef(new Animated.Value(0.9)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 420, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, tension: 60, friction: 10, useNativeDriver: true }),
+      Animated.spring(logoScale, { toValue: 1, tension: 60, friction: 9, useNativeDriver: true }),
+    ]).start();
+  }, []);
+
   const normalizeRole = (role) => {
     const value = String(role || '').trim().toLowerCase();
     if (!value) return '';
@@ -102,13 +122,13 @@ const Login = ({ navigation, route }) => {
   };
 
   const buildBackendRoleCandidates = (role) => {
-    // No role selected (e.g. came straight to Login without RoleSelector): send
-    // BOTH so the request never 400s with "role is required". The retry loop
-    // falls through to the next candidate on a role mismatch.
-    if (!role) return ['user', 'counsellor'];
-    return role === 'counselor'
-      ? ['counsellor', 'counselor']
-      : [mapRoleForBackend(role)];
+    // Always try BOTH candidates, regardless of any role hint (route param or
+    // a leftover AsyncStorage 'role' from a visit to RoleSelector that never
+    // finished signup) — a hint only decides which one is tried first. This
+    // is what makes login "auto-detect the account's real role by email":
+    // whichever candidate the backend accepts wins, and a stale/irrelevant
+    // hint can never make a real account fail to log in.
+    return role === 'counselor' ? ['counsellor', 'user'] : ['user', 'counsellor'];
   };
 
   useEffect(() => {
@@ -214,18 +234,12 @@ const Login = ({ navigation, route }) => {
 
   const continueAfterAuth = async (isCounselor, delay = 800) => {
     const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
-    const existingPin = await AsyncStorage.getItem('appLockPin');
 
+    // App Lock PIN is opt-in only — set up voluntarily from Settings
+    // (AppLockSettings already does `navigate('PinSetup', { forced: false })`).
+    // Login must never force it on someone who hasn't asked for it.
     setTimeout(() => {
-      if (!existingPin) {
-        navigation.replace('PinSetup', {
-          forced: true,
-          destination: 'LocationGate',
-          destinationParams: { destination },
-        });
-      } else {
-        navigation.replace('LocationGate', { destination });
-      }
+      navigation.replace('LocationGate', { destination });
     }, delay);
   };
 
@@ -339,35 +353,15 @@ const Login = ({ navigation, route }) => {
         }
       }
 
-      // FIRST: Get the role from response
+      // Trust whichever role the backend actually confirmed for this email —
+      // that's what "one login, auto-routed by account" means. There's no
+      // client-side check against `selectedRole` here on purpose: a leftover
+      // role hint (route param or stale AsyncStorage 'role') must never block
+      // or misreport a real login.
       const userRoleRaw =
         response.data?.role || response.data?.user?.role || 'user';
       const normalizedUserRole = normalizeRole(userRoleRaw) || 'user';
       const isCounselor = normalizedUserRole === 'counselor';
-
-      // SECOND: Read the role the user selected in RoleSelector.
-      const selectedAsCounselor = selectedRole === 'counselor';
-
-      // THIRD: Validate — if a role was explicitly selected, enforce it.
-      if (selectedRole) {
-        if (selectedAsCounselor && !isCounselor) {
-          showLoginError(
-            buildRoleMismatchMessage(normalizedUserRole, selectedRole),
-            'Role mismatch'
-          );
-          setIsLoading(false);
-          return;
-        }
-
-        if (!selectedAsCounselor && isCounselor) {
-          showLoginError(
-            buildRoleMismatchMessage(normalizedUserRole, selectedRole),
-            'Role mismatch'
-          );
-          setIsLoading(false);
-          return;
-        }
-      }
 
       const token = response.data?.accessToken || response.data?.token;
       if (token) {
@@ -764,25 +758,32 @@ const Login = ({ navigation, route }) => {
     paddingBottom: SCROLL_PAD_V + kbPad,
     paddingHorizontal: isCompact ? 14 : 20,
   };
+  // No boxed card anymore — everything floats directly on the AuthBackground
+  // mesh, matching the reference design. Only a max-width constraint remains
+  // (for tablets) plus a little side padding so pills don't touch the edges.
   const loginCardStyle = [
     styles.loginCard,
     {
-      maxWidth: isTablet ? 480 : 440,
-      padding: isCompact ? 20 : 28,
-      borderRadius: isCompact ? 16 : 20,
+      maxWidth: isTablet ? 440 : 400,
+      paddingHorizontal: isCompact ? 6 : 10,
     },
   ];
+  // Bigger than before (was 160-200 wide) for a more confident, premium logo
+  // presence — same wordmark, same colors, just larger.
   const logoStyle = [
     styles.logoImage,
     {
-      width: isCompact ? 160 : 200,
-      height: isCompact ? 54 : 68,
-      marginBottom: isCompact ? 14 : 20,
+      width: isCompact ? 190 : 236,
+      height: isCompact ? 65 : 81,
+      marginBottom: isCompact ? 16 : 22,
     },
   ];
 
+  // Blue mesh throughout (matches the Humaeli icon color) — no more "both"
+  // green/blue split, since the reference design is a clean single-color
+  // background with everything floating directly on it (no boxed card).
   return (
-    <AuthBackground role={route?.params?.role}>
+    <AuthBackground role={route?.params?.role ? route.params.role : 'counselor'}>
     {/* Plain View, not KeyboardAvoidingView: the measured kbPad above is the one
         and only place keyboard space is reserved. Keeping KAV as well meant two
         mechanisms compensating for the same keyboard, which is what buried the
@@ -796,65 +797,66 @@ const Login = ({ navigation, route }) => {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={loginCardStyle}>
+        <Animated.View style={[loginCardStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           {/* Header Section */}
           <View style={styles.headerSection}>
-            <Image source={logo} style={logoStyle} resizeMode="contain" />
+            <Animated.View style={{ transform: [{ scale: logoScale }] }}>
+              <Image source={logo} style={logoStyle} resizeMode="contain" />
+            </Animated.View>
             <Text style={styles.title}>{t('auth:welcomeBack')}</Text>
-            <Text style={styles.subtitle}>{t('auth:login')} {t('common:or')} {t('auth:email')}</Text>
+            <Text style={styles.subtitle}>{t('Enter your email and password to log in')}</Text>
           </View>
 
           {/* Form Section */}
           <View style={styles.formContainer}>
-            {/* Email Input */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>{t('auth:email')}</Text>
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('auth:enterEmail')}
-                  value={email}
-                  onChangeText={(text) => {
-                    setEmail(text);
-                    setErrorMessage('');
-                  }}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  editable={!isLoading}
-                />
-              </View>
+            {/* Email Input — plain floating pill, no label/icon, matching the
+                reference design's minimal look. */}
+            <View style={[styles.inputWrapper, focusedField === 'email' && { borderColor: C.primary }]}>
+              <TextInput
+                style={styles.input}
+                placeholder={t('auth:enterEmail')}
+                value={email}
+                onChangeText={(text) => {
+                  setEmail(text);
+                  setErrorMessage('');
+                }}
+                onFocus={() => setFocusedField('email')}
+                onBlur={() => setFocusedField(null)}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                editable={!isLoading}
+              />
             </View>
 
             {/* Password Input */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>{t('auth:password')}</Text>
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  style={[styles.input, styles.passwordInput]}
-                  placeholder={t('auth:enterPassword')}
-                  value={password}
-                  onChangeText={(text) => {
-                    setPassword(text);
-                    setErrorMessage('');
-                  }}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  editable={!isLoading}
+            <View style={[styles.inputWrapper, styles.inputWrapperSpaced, focusedField === 'password' && { borderColor: C.primary }]}>
+              <TextInput
+                style={[styles.input, styles.passwordInput]}
+                placeholder={t('auth:enterPassword')}
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  setErrorMessage('');
+                }}
+                onFocus={() => setFocusedField('password')}
+                onBlur={() => setFocusedField(null)}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                editable={!isLoading}
+              />
+              <TouchableOpacity
+                style={styles.eyeIcon}
+                onPress={() => setShowPassword(!showPassword)}
+                accessibilityRole="button"
+                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+              >
+                <Ionicons
+                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={20}
+                  color="#94a3b8"
                 />
-                <TouchableOpacity
-                  style={styles.eyeIcon}
-                  onPress={() => setShowPassword(!showPassword)}
-                  accessibilityRole="button"
-                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  <Ionicons
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={22}
-                    color="#64748b"
-                  />
-                </TouchableOpacity>
-              </View>
+              </TouchableOpacity>
             </View>
 
             {/* Options */}
@@ -938,7 +940,7 @@ const Login = ({ navigation, route }) => {
 
             {/* Error Message */}
             {errorMessage ? (
-              <View style={[styles.errorContainer, { marginTop: 16 }]}>
+              <View style={styles.errorContainer}>
                 <Text style={styles.errorText}>{errorMessage}</Text>
               </View>
             ) : null}
@@ -958,7 +960,7 @@ const Login = ({ navigation, route }) => {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Conflict Resolution Modal - EXACT MATCH TO WEB VERSION */}
         <Modal
@@ -1327,24 +1329,16 @@ const styles = StyleSheet.create({
     // it room to scroll instead of sitting flush against the top/bottom.
     paddingVertical: SCROLL_PAD_V,
   },
+  // No background/border/shadow of its own anymore — the pills and button
+  // each carry their own shadow, so the group floats on the mesh instead of
+  // sitting inside a boxed card.
   loginCard: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 25,
     width: '100%',
     alignSelf: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
   },
   headerSection: {
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 34,
   },
   logoImage: {
     // Logo is a 2.92:1 wordmark with transparent padding stripped, so the box
@@ -1354,50 +1348,56 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 30,
+    fontWeight: '800',
+    color: '#1e293b',
     marginBottom: 8,
+    letterSpacing: 0.2,
   },
   subtitle: {
     fontSize: 14,
-    color: '#666',
+    color: '#64748b',
     textAlign: 'center',
+    lineHeight: 20,
   },
   formContainer: {
-    marginTop: 10,
+    marginTop: 4,
   },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
+  // Plain floating white pill — no border by default (only on focus), no
+  // label above it, matching the reference design's minimal input style.
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: 56,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    backgroundColor: '#f9f9f9',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    borderRadius: 28,
+    backgroundColor: '#ffffff',
+    paddingLeft: 20,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  inputWrapperSpaced: {
+    marginTop: 14,
   },
   input: {
     flex: 1,
-    padding: 12,
-    fontSize: 16,
-    color: '#333',
+    paddingVertical: 12,
+    paddingRight: 20,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1e293b',
   },
   passwordInput: {
-    paddingRight: 40,
+    paddingRight: 44,
   },
   eyeIcon: {
     padding: 10,
     position: 'absolute',
-    right: 0,
+    right: 8,
   },
   optionsContainer: {
     flexDirection: 'row',
@@ -1413,8 +1413,10 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderWidth: 2,
-    borderColor: '#007AFF',
-    borderRadius: 4,
+    // Neutral by default (only the role color, via C.primary, when checked) —
+    // avoids a hardcoded blue clashing with a green/user-themed login.
+    borderColor: '#cbd5e1',
+    borderRadius: 5,
     marginRight: 8,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1429,33 +1431,43 @@ const styles = StyleSheet.create({
   },
   checkboxLabel: {
     fontSize: 14,
-    color: '#666',
+    color: '#64748b',
   },
   forgotPassword: {
     fontSize: 14,
+    fontWeight: '700',
     color: '#007AFF',
   },
   loginButton: {
     backgroundColor: '#007AFF',
     padding: 15,
-    minHeight: 56,
-    borderRadius: 10,
+    minHeight: 58,
+    borderRadius: 29,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 8,
     marginBottom: 20,
+    // Colored glow shadow (color set inline via C.primary) — matches the
+    // premium button treatment on RoleSelector/Signup screens.
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 6,
   },
   loginButtonDisabled: {
     backgroundColor: '#ccc',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   loginButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 16,
+    marginVertical: 22,
   },
   dividerLine: {
     flex: 1,
@@ -1471,9 +1483,9 @@ const styles = StyleSheet.create({
   },
   errorContainer: {
     backgroundColor: '#ffebee',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 15,
+    padding: 14,
+    borderRadius: 12,
+    marginTop: 18,
     borderWidth: 1,
     borderColor: '#ffcdd2',
   },
@@ -1484,9 +1496,9 @@ const styles = StyleSheet.create({
   },
   successContainer: {
     backgroundColor: '#e8f5e9',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 15,
+    padding: 14,
+    borderRadius: 12,
+    marginTop: 18,
     borderWidth: 1,
     borderColor: '#c8e6c9',
   },

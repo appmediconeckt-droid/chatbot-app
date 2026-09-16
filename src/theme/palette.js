@@ -35,10 +35,34 @@ export const DOCTOR = {
   danger: '#EF4444',
 };
 
-// Pick the palette for a role: 'counselor' / 'counsellor' → blue, else green.
+// Doctor (clinician-role) colour palette — teal/aqua, kept distinct from the
+// `DOCTOR` export above (which is actually the Counselor/consultant palette;
+// that name is historical and left unchanged so nothing that already imports
+// it breaks). This is the palette for the new, separate Doctor role.
+export const CLINICIAN = {
+  primary: '#0D9488',
+  gradientFrom: '#0F766E',
+  gradientTo: '#2DD4BF',
+  backgroundTint: '#F0FDFA',
+  secondaryTint: '#F0FDFA',
+
+  surface: '#FFFFFF',
+  border: '#ECECF3',
+  chipBorder: '#E2E2EC',
+  text: '#111827',
+  textSecondary: '#6B7280',
+  textMuted: '#9CA3AF',
+  online: '#22C55E',
+  danger: '#EF4444',
+};
+
+// Pick the palette for a role: 'counselor' / 'counsellor' → blue,
+// 'doctor' → teal (clinician), else green.
 export const paletteForRole = (role) => {
   const r = String(role || '').trim().toLowerCase();
-  return r === 'counselor' || r === 'counsellor' ? DOCTOR : PATIENT;
+  if (r === 'counselor' || r === 'counsellor') return DOCTOR;
+  if (r === 'doctor') return CLINICIAN;
+  return PATIENT;
 };
 
 /**
@@ -52,6 +76,7 @@ export const paletteForRole = (role) => {
  */
 export const PATIENT_GRADIENT = [PATIENT.gradientFrom, PATIENT.gradientTo];
 export const DOCTOR_GRADIENT = [DOCTOR.gradientFrom, DOCTOR.gradientTo];
+export const CLINICIAN_GRADIENT = [CLINICIAN.gradientFrom, CLINICIAN.gradientTo];
 
 // Horizontal, matching the wallet card.
 export const GRADIENT_DIRECTION = {
@@ -65,7 +90,9 @@ export const TRANSPARENT_GRADIENT = ['transparent', 'transparent'];
 
 export const gradientForRole = (role) => {
   const r = String(role || '').trim().toLowerCase();
-  return r === 'counselor' || r === 'counsellor' ? DOCTOR_GRADIENT : PATIENT_GRADIENT;
+  if (r === 'counselor' || r === 'counsellor') return DOCTOR_GRADIENT;
+  if (r === 'doctor') return CLINICIAN_GRADIENT;
+  return PATIENT_GRADIENT;
 };
 
 export default PATIENT;

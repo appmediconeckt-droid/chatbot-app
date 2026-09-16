@@ -4,6 +4,7 @@ import { normalizeRole } from '../utils/normalizeRole';
 export const ROLE_DASHBOARD_ROUTES = {
   [USER_ROLES.PATIENT]: 'UserDashboard',
   [USER_ROLES.COUNSELOR]: 'CounselorDashboard',
+  [USER_ROLES.DOCTOR]: 'DoctorDashboard',
 };
 
 export const routeForRole = (role) => {

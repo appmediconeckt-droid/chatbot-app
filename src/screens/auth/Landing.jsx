@@ -42,7 +42,10 @@ const Landing = ({ navigation }) => {
   }, [fadeAnim, slideAnim]);
 
   const handleGetStarted = () => {
-    navigation?.navigate?.('RoleSelector');
+    // Get Started now leads to the single common Login page (not straight to
+    // role selection) — Login's own "Sign Up" link is what takes a new user
+    // to RoleSelector. Existing/returning users log in directly from here.
+    navigation?.navigate?.('Login');
   };
 
   return (
