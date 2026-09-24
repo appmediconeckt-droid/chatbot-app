@@ -83,6 +83,153 @@ const normalizeGender = (value) => {
   return v;
 };
 
+const SESSION_VALIDATION_PATH = `${API_BASE_URL}/api/auth/me`;
+
+const parseStoredJson = async (key) => {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const readCounsellorId = (profile, allowDocumentId = true) =>
+  String(
+    profile?.counsellorId ||
+      profile?.counselorId ||
+      profile?.counsellorProfileId ||
+      profile?.counselorProfileId ||
+      (allowDocumentId ? profile?._id || profile?.id : '') ||
+      '',
+  ).trim();
+
+const getStoredCounsellorId = async () => {
+  const directId =
+    (await AsyncStorage.getItem('counsellorId')) ||
+    (await AsyncStorage.getItem('counselorId'));
+
+  if (directId) return directId;
+
+  const storedProfile =
+    (await parseStoredJson('counselor')) ||
+    (await parseStoredJson('counsellor'));
+  const storedProfileId = readCounsellorId(storedProfile);
+  if (storedProfileId) {
+    await Promise.all([
+      AsyncStorage.setItem('counsellorId', storedProfileId),
+      AsyncStorage.setItem('counselorId', storedProfileId),
+    ]);
+    return storedProfileId;
+  }
+
+  const storedUserProfile =
+    (await parseStoredJson('userData')) ||
+    (await parseStoredJson('user'));
+  const storedUserCounsellorId = readCounsellorId(storedUserProfile, false);
+  if (storedUserCounsellorId) {
+    await Promise.all([
+      AsyncStorage.setItem('counsellorId', storedUserCounsellorId),
+      AsyncStorage.setItem('counselorId', storedUserCounsellorId),
+    ]);
+    return storedUserCounsellorId;
+  }
+
+  return '';
+};
+
+const extractCounselorProfile = (raw = {}) => {
+  const candidates = [
+    raw?.counsellor,
+    raw?.counselor,
+    raw?.profile,
+    raw?.data?.counsellor,
+    raw?.data?.counselor,
+    raw?.data?.profile,
+    raw?.data?.user?.counsellor,
+    raw?.data?.user?.counselor,
+    raw?.user?.counsellor,
+    raw?.user?.counselor,
+    raw?.user,
+    raw?.data,
+    raw,
+  ];
+
+  return (
+    candidates.find(candidate => {
+      if (!candidate || typeof candidate !== 'object') return false;
+      return Boolean(
+        candidate.counsellorId ||
+          candidate.counselorId ||
+          candidate.counsellorProfileId ||
+          candidate.counselorProfileId ||
+          candidate.specialization ||
+          candidate.consultationMode ||
+          candidate.qualification ||
+          candidate.uniqueCode ||
+          candidate.experience ||
+          candidate.aboutMe ||
+          candidate.role === 'counsellor' ||
+          candidate.role === 'counselor',
+      );
+    }) || null
+  );
+};
+
+const extractCounselorList = (raw = {}) => {
+  const candidates = [
+    raw?.counsellors,
+    raw?.counselors,
+    raw?.data?.counsellors,
+    raw?.data?.counselors,
+    raw?.data,
+    raw,
+  ];
+
+  return candidates.find(Array.isArray) || [];
+};
+
+const normalizeArrayField = (value) => {
+  if (Array.isArray(value)) {
+    return value.map(item => String(item || '').trim()).filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return normalizeArrayField(parsed);
+    } catch {
+      return value
+        .split(',')
+        .map(item => item.trim())
+        .filter(Boolean);
+    }
+  }
+
+  return [];
+};
+
+const resolveAssetUrl = (asset) => {
+  const imageUri = toImageUri(asset);
+  const candidate =
+    imageUri ||
+    (typeof asset === 'string'
+      ? asset
+      : asset?.secure_url || asset?.url || asset?.uri || asset?.path || '');
+
+  if (!candidate) return '';
+  if (/^(https?:|file:|content:|data:)/i.test(candidate)) return candidate;
+
+  const baseUrl = API_BASE_URL.endsWith('/')
+    ? API_BASE_URL.slice(0, -1)
+    : API_BASE_URL;
+  const assetPath = candidate.startsWith('/') ? candidate : `/${candidate}`;
+  return `${baseUrl}${assetPath}`;
+};
+
+const getAuthResponseCounsellorId = (raw = {}) =>
+  readCounsellorId(raw?.counsellor || raw?.counselor || raw?.user || raw?.data || raw);
+
 const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   const navigation = useNavigation();
   const { t: tLanguage } = useTranslation();
@@ -278,46 +425,122 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     try {
       setLoading(true);
       setError('');
-      const counsellorId =
-        (await AsyncStorage.getItem('counsellorId')) ||
-        (await AsyncStorage.getItem('counselorId'));
       const token =
         (await AsyncStorage.getItem('accessToken')) ||
         (await AsyncStorage.getItem('token'));
+      let counsellorId = await getStoredCounsellorId();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      let response = null;
+      let userData = null;
+      let lastError = null;
 
-      if (!counsellorId) {
-        setError('Consultant ID not found. Please login again.');
-        setLoading(false);
-        return;
-      }
+      const fetchProfileFromPath = async (path) => {
+        const res = await axios.get(path, {
+          headers,
+          timeout: 15000,
+        });
+        if (res.data?.success === false) {
+          throw new Error(res.data?.message || 'Failed to load profile data');
+        }
+        return { res, profile: extractCounselorProfile(res.data) };
+      };
 
-      const response = await axios.get(`${API_BASE_URL}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const attempts = [
+        ...(counsellorId
+          ? [`${API_BASE_URL}/api/auth/counsellors/${encodeURIComponent(counsellorId)}`]
+          : []),
+        `${API_BASE_URL}/api/counsellor/profile`,
+        SESSION_VALIDATION_PATH,
+      ];
 
-      if (response.data.success && (response.data.user || response.data.counsellor)) {
-        const userData = response.data.user || response.data.counsellor;
-
-        let profilePhotoUrl = '';
-        if (userData.profilePhoto) {
-          if (typeof userData.profilePhoto === 'string') {
-            profilePhotoUrl = userData.profilePhoto;
-          } else if (userData.profilePhoto.url) {
-            profilePhotoUrl = userData.profilePhoto.url;
+      for (const path of attempts) {
+        try {
+          const result = await fetchProfileFromPath(path);
+          if (result.profile) {
+            response = result.res;
+            userData = result.profile;
+            break;
+          }
+        } catch (requestError) {
+          lastError = requestError;
+          if (
+            path.includes('/api/auth/counsellors/') &&
+            requestError?.response?.status === 404
+          ) {
+            await Promise.all([
+              AsyncStorage.removeItem('counsellorId'),
+              AsyncStorage.removeItem('counselorId'),
+            ]);
+            counsellorId = '';
           }
         }
-        const prescriptionSignatureUrl = toImageUri(
+      }
+
+      if (!userData) {
+        const storedEmail =
+          (await AsyncStorage.getItem('userEmail')) ||
+          (await parseStoredJson('counselor'))?.email ||
+          (await parseStoredJson('counsellor'))?.email ||
+          (await parseStoredJson('userData'))?.email ||
+          (await parseStoredJson('user'))?.email ||
+          '';
+
+        if (storedEmail) {
+          try {
+            const directoryResponse = await axios.get(
+              `${API_BASE_URL}/api/auth/counsellors`,
+              { timeout: 15000 },
+            );
+            const match = extractCounselorList(directoryResponse.data).find(
+              item =>
+                String(item?.email || '').toLowerCase() ===
+                String(storedEmail).toLowerCase(),
+            );
+            if (match) {
+              response = directoryResponse;
+              userData = match;
+            }
+          } catch (directoryError) {
+            lastError = directoryError;
+          }
+        }
+      }
+
+      if (!userData) {
+        const storedProfile =
+          (await parseStoredJson('counselor')) ||
+          (await parseStoredJson('counsellor')) ||
+          extractCounselorProfile(await parseStoredJson('userData')) ||
+          extractCounselorProfile(await parseStoredJson('user'));
+        if (storedProfile) {
+          userData = storedProfile;
+        }
+      }
+
+      if (userData) {
+        const resolvedId =
+          readCounsellorId(userData) ||
+          getAuthResponseCounsellorId(response?.data) ||
+          counsellorId;
+
+        const profilePhotoUrl = resolveAssetUrl(
+          userData.profilePhoto ||
+            userData.profilePhotoUrl ||
+            userData.avatar ||
+            userData.image,
+        );
+        const prescriptionSignatureUrl = resolveAssetUrl(
           userData.prescriptionSignature ||
             userData.signature ||
             userData.signatureImage ||
             userData.doctorSignature,
-        ) || '';
-        const prescriptionSealUrl = toImageUri(
+        );
+        const prescriptionSealUrl = resolveAssetUrl(
           userData.prescriptionSeal ||
             userData.seal ||
             userData.stamp ||
             userData.clinicSeal,
-        ) || '';
+        );
 
         const phone = splitInternationalPhoneNumber(
           userData.phoneNumber || userData.phone || '',
@@ -329,17 +552,17 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         const ageFromDateOfBirth = calculateAgeFromDateOfBirth(dateOfBirth);
 
         const formattedData = {
-          _id: userData._id,
+          _id: resolvedId || userData._id || userData.id || '',
           uniqueCode: userData.uniqueCode || `CNS-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
           fullName: userData.fullName || userData.name || '',
-          specialization: Array.isArray(userData.specialization) ? userData.specialization : [],
+          specialization: normalizeArrayField(userData.specialization),
           experience: userData.experience || 0,
           education: userData.education || '',
           email: userData.email || '',
           phoneNumber: phone.phoneNumber,
           phoneCountryCode: phone.countryCode,
           location: userData.location || '',
-          languages: Array.isArray(userData.languages) ? userData.languages : [],
+          languages: normalizeArrayField(userData.languages),
           profilePhoto: null,
           profilePhotoUrl: profilePhotoUrl,
           prescriptionSignature: null,
@@ -352,7 +575,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
           totalSessions: userData.totalSessions || 0,
           activeClients: userData.activeClients || 0,
           qualification: userData.qualification || '',
-          consultationMode: Array.isArray(userData.consultationMode) ? userData.consultationMode : [],
+          consultationMode: normalizeArrayField(userData.consultationMode),
           isActive:
             userData.isActive === true ||
             userData.isOnline === true ||
@@ -373,6 +596,15 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
 
         setCounselor(formattedData);
         setEditedData(formattedData);
+        await Promise.all([
+          AsyncStorage.setItem('counselor', JSON.stringify(userData)),
+          resolvedId
+            ? AsyncStorage.setItem('counsellorId', String(resolvedId))
+            : Promise.resolve(),
+          resolvedId
+            ? AsyncStorage.setItem('counselorId', String(resolvedId))
+            : Promise.resolve(),
+        ]);
         const pct = calcProfileCompletion(formattedData);
         Animated.timing(progressAnim, {
           toValue: pct / 100,
@@ -380,11 +612,20 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
           useNativeDriver: false,
         }).start();
       } else {
-        setError(response.data.message || 'Failed to load profile data');
+        setError(
+          lastError?.response?.data?.message ||
+            lastError?.response?.data?.error ||
+            lastError?.message ||
+            'Failed to load profile data',
+        );
       }
     } catch (err) {
       console.error('Error fetching profile:', err);
-      setError('Failed to load profile data. Please try again.');
+      setError(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          'Failed to load profile data. Please try again.',
+      );
     } finally {
       setLoading(false);
     }

@@ -20,10 +20,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { useFocusEffect } from '@react-navigation/native';
 import { API_BASE_URL } from '../../axiosConfig';
-import GoogleAuthButton from './components/GoogleAuthButton';
-import GoogleProfileCompletionModal, {
-  needsGoogleUserProfileCompletion,
-} from './components/GoogleProfileCompletionModal';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import socketService from '../../services/socketService';
@@ -37,8 +33,8 @@ import { useToast } from '../../components/common/ToastProvider';
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
 import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 import { syncPushNotificationToken } from '../../services/notificationService';
-import { sendLocationSilently } from '../../utils/locationHelper';
 import { enterAuthenticatedRoute } from '../../utils/authSession';
+import { isCounselorLikeRole, resolveAuthRole, routeForAuthRole } from './resolveAuthRole';
 
 // Vertical inset of the login scroll content.
 const SCROLL_PAD_V = 24;
@@ -81,11 +77,6 @@ const Login = ({ navigation, route }) => {
   // Presentation only — which input is focused, so its border can pick up
   // the role color like every other auth screen already does.
   const [focusedField, setFocusedField] = useState(null);
-  const [googleProfileCompletion, setGoogleProfileCompletion] = useState({
-    visible: false,
-    isCounselor: false,
-    user: null,
-  });
   
   // Conflict modal states - MATCHING WEB VERSION EXACTLY
   const [showConflictModal, setShowConflictModal] = useState(false);
@@ -137,10 +128,6 @@ const Login = ({ navigation, route }) => {
     return value === 'counsellor' ? 'counselor' : value;
   };
 
-  const mapRoleForBackend = (role) => {
-    return role === 'counselor' ? 'counsellor' : role;
-  };
-
   const buildBackendRoleCandidates = (role) => {
     // Always try BOTH candidates, regardless of any role hint (route param or
     // a leftover AsyncStorage 'role' from a visit to RoleSelector that never
@@ -148,7 +135,7 @@ const Login = ({ navigation, route }) => {
     // is what makes login "auto-detect the account's real role by email":
     // whichever candidate the backend accepts wins, and a stale/irrelevant
     // hint can never make a real account fail to log in.
-    return role === 'counselor' ? ['counsellor', 'user'] : ['user', 'counsellor'];
+    return role === 'counselor' || role === 'doctor' ? ['counsellor', 'user'] : ['user', 'counsellor'];
   };
 
   useEffect(() => {
@@ -195,6 +182,7 @@ const Login = ({ navigation, route }) => {
 
   const getRoleLabel = (role) => {
     const normalized = normalizeRole(role);
+    if (normalized === 'doctor') return 'Doctor';
     return normalized === 'counselor' ? 'Consultant' : 'User';
   };
 
@@ -220,8 +208,8 @@ const Login = ({ navigation, route }) => {
     }
   };
 
-  const continueAfterAuth = async (isCounselor, delay = 800) => {
-    const destination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
+  const continueAfterAuth = async (role, delay = 800) => {
+    const destination = routeForAuthRole(role);
 
     // App Lock PIN is opt-in only — set up voluntarily from Settings
     // (AppLockSettings already does `navigate('PinSetup', { forced: false })`).
@@ -248,44 +236,6 @@ const Login = ({ navigation, route }) => {
       return () => sub.remove();
     }, [navigation]),
   );
-
-  const handleGoogleSuccess = ({ isCounselor, user }) => {
-    // Google here is sent with role 'auto': the backend resolves the
-    // account's real role from the DB and never creates a new account
-    // (an unregistered Google account comes back via onNotRegistered).
-    // Capture location here rather than in GoogleAuthButton (gateDriven).
-    sendLocationSilently('login').catch(() => {});
-
-    showToast({ type: 'success', title: t('auth:login'), message: t('common:success') });
-
-    if (needsGoogleUserProfileCompletion(user, isCounselor)) {
-      setGoogleProfileCompletion({
-        visible: true,
-        isCounselor,
-        user,
-      });
-      return;
-    }
-
-    continueAfterAuth(isCounselor).catch((error) => {
-      showLoginError(error?.message || 'Login failed');
-    });
-  };
-
-  const handleGoogleProfileComplete = (updatedUser) => {
-    const isCounselor = googleProfileCompletion.isCounselor;
-    setGoogleProfileCompletion({
-      visible: false,
-      isCounselor: false,
-      user: null,
-    });
-    if (updatedUser?.email) {
-      AsyncStorage.setItem('userEmail', updatedUser.email).catch(() => {});
-    }
-    continueAfterAuth(isCounselor, 350).catch((error) => {
-      showLoginError(error?.message || 'Login failed');
-    });
-  };
 
   const loadRememberedUser = async () => {
     try {
@@ -370,10 +320,8 @@ const Login = ({ navigation, route }) => {
       // client-side check against `selectedRole` here on purpose: a leftover
       // role hint (route param or stale AsyncStorage 'role') must never block
       // or misreport a real login.
-      const userRoleRaw =
-        response.data?.role || response.data?.user?.role || 'user';
-      const normalizedUserRole = normalizeRole(userRoleRaw) || 'user';
-      const isCounselor = normalizedUserRole === 'counselor';
+      const normalizedUserRole = resolveAuthRole(response.data, 'user');
+      const isCounselorAccount = isCounselorLikeRole(normalizedUserRole);
 
       const token = response.data?.accessToken || response.data?.token;
       if (token) {
@@ -385,10 +333,10 @@ const Login = ({ navigation, route }) => {
       }
 
       await AsyncStorage.setItem('userRole', normalizedUserRole);
-      await AsyncStorage.setItem('userType', isCounselor ? 'counselor' : 'user');
+      await AsyncStorage.setItem('userType', normalizedUserRole);
       await AsyncStorage.setItem('isAuthenticated', 'true');
       await AsyncStorage.setItem('userEmail', email);
-      if (!isCounselor) {
+      if (!isCounselorAccount) {
         await AsyncStorage.multiRemove(['counsellorId', 'counselorId']);
       }
 
@@ -398,7 +346,7 @@ const Login = ({ navigation, route }) => {
         const id = user._id || user.id;
         if (id) {
           await AsyncStorage.setItem('userId', id);
-          if (isCounselor) {
+          if (isCounselorAccount) {
             await AsyncStorage.setItem('counsellorId', id);
             await AsyncStorage.setItem('counselorId', id);
           }
@@ -423,7 +371,7 @@ const Login = ({ navigation, route }) => {
 
       // The PIN is device-local, so a new phone has none. Require setup before
       // entering the app, otherwise this first session would be unlocked.
-      await continueAfterAuth(isCounselor);
+      await continueAfterAuth(normalizedUserRole);
     } catch (err) {
       // CRITICAL: Check for both conditions exactly like web version
       if (
@@ -549,12 +497,10 @@ const Login = ({ navigation, route }) => {
         await AsyncStorage.setItem('refreshToken', response.data.refreshToken);
       }
 
-      const resolvedRole =
-        normalizeRole(response.data?.role || response.data?.user?.role) ||
-        selectedRole;
-      const otpIsCounselor = resolvedRole === 'counselor';
+      const resolvedRole = resolveAuthRole(response.data, selectedRole);
+      const otpIsCounselor = isCounselorLikeRole(resolvedRole);
       await AsyncStorage.setItem('userRole', resolvedRole);
-      await AsyncStorage.setItem('userType', otpIsCounselor ? 'counselor' : 'user');
+      await AsyncStorage.setItem('userType', resolvedRole);
       await AsyncStorage.setItem('isAuthenticated', 'true');
       await AsyncStorage.setItem('userEmail', email);
       if (!otpIsCounselor) {
@@ -584,7 +530,7 @@ const Login = ({ navigation, route }) => {
         console.warn('[Push] Token sync after OTP login failed:', error?.message || error);
       });
 
-      const destination = resolvedRole === 'counselor' ? 'CounselorDashboard' : 'UserDashboard';
+      const destination = routeForAuthRole(resolvedRole);
       setTimeout(() => {
         enterAuthenticatedRoute(navigation, 'LocationGate', { destination });
       }, 800);
@@ -773,7 +719,7 @@ const Login = ({ navigation, route }) => {
     ...styles.scrollContainer,
     justifyContent: 'flex-start',
     paddingTop: Math.max(insets.top, 12) + (isCompact ? 88 : 108),
-    // Pushes the card's bottom (Login / Continue with Google / Create account)
+    // Pushes the card's bottom (Login / Create account)
     // clear of the keyboard on devices where the window doesn't resize for it.
     paddingBottom: SCROLL_PAD_V + keyboardInset,
     paddingHorizontal: isCompact ? 14 : 20,
@@ -820,7 +766,7 @@ const Login = ({ navigation, route }) => {
         onScroll={handleKeyboardAwareScroll}
         scrollEventThrottle={16}
         // Without this the first tap while the keyboard is open only dismisses
-        // it, so "Continue with Google" and Login needed two taps.
+        // it, so Login and the footer actions needed two taps.
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -966,45 +912,6 @@ const Login = ({ navigation, route }) => {
                 )}
               </LinearGradient>
             </TouchableOpacity>
-
-            {/* Divider + Google sign-in — always visible. */}
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-            </View>
-            <GoogleAuthButton
-              role="auto"
-              mode="signin"
-              disabled={isLoading}
-              locationEvent="login"
-              gateDriven
-              onSuccess={handleGoogleSuccess}
-              onNotRegistered={({ message }) => {
-                showToast({
-                  type: 'info',
-                  title: t('Account not found'),
-                  message: t(message),
-                });
-                navigation.navigate('RoleSelector');
-              }}
-              onConflict={({ email: conflictEmail }) => {
-                if (conflictEmail) setEmail(conflictEmail);
-                setShowConflictModal(true);
-                setOtpSent(false);
-                setOtp('');
-                setConflictOtpResendTimer(0);
-                setConflictOtpResending(false);
-                setErrorMessage('');
-              }}
-              onError={(msg) => {
-                console.warn('[Login] Google onError:', msg);
-                showLoginError(
-                  msg,
-                  String(msg || '').toLowerCase().includes('role')
-                    ? 'Role mismatch'
-                    : 'Google sign-in failed'
-                );
-              }}
-            />
 
             {/* Error Message */}
             {errorMessage ? (
@@ -1190,13 +1097,6 @@ const Login = ({ navigation, route }) => {
             </View>
           </KeyboardAvoidingView>
         </Modal>
-
-        <GoogleProfileCompletionModal
-          visible={googleProfileCompletion.visible}
-          user={googleProfileCompletion.user}
-          accentColor={C.primary}
-          onComplete={handleGoogleProfileComplete}
-        />
 
         {/* ========== FORGOT PASSWORD MODAL ========== */}
         <Modal
@@ -1618,23 +1518,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16.5,
     fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 14,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#e5e7eb',
-  },
-  dividerText: {
-    marginHorizontal: 12,
-    fontSize: 12,
-    color: '#9ca3af',
-    fontWeight: '600',
     letterSpacing: 0.3,
   },
   errorContainer: {

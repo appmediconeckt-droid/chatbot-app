@@ -25,6 +25,11 @@ import { GOOGLE_WEB_CLIENT_ID } from '../../../config';
 import { sendLocationSilently } from '../../../utils/locationHelper';
 import socketService from '../../../services/socketService';
 import { syncPushNotificationToken } from '../../../services/notificationService';
+import {
+  isCounselorLikeRole,
+  resolveAuthRole,
+  routeForAuthRole,
+} from '../resolveAuthRole';
 
 let GoogleSigninModule = null;
 let StatusCodesModule = null;
@@ -54,6 +59,7 @@ const mapRoleForBackend = (role) =>
 
 const getRoleLabel = (role) => {
   const normalized = normalizeRole(role);
+  if (normalized === 'doctor') return 'Doctor';
   return normalized === 'counselor' ? 'Consultant' : 'User';
 };
 
@@ -193,9 +199,30 @@ const GoogleAuthButton = ({
       }
     }
 
-    const userRole = normalizeRole(data.role || data.user?.role) ||
-      (isAuto ? 'user' : storedRole);
-    const isCounselor = userRole === 'counselor';
+    const requestedAppRole = normalizeRole(accountRole || storedRole);
+    const userRole = resolveAuthRole(
+      { ...data, accountRole: data.accountRole || accountRole },
+      isAuto ? 'user' : requestedAppRole,
+    );
+    if (!isAuto && requestedAppRole && requestedAppRole !== userRole) {
+      const err = new Error(
+        buildRoleMismatchMessage({
+          actualRole: userRole,
+          requestedRole: requestedAppRole,
+        }),
+      );
+      err.response = {
+        status: 403,
+        data: {
+          code: 'ROLE_MISMATCH',
+          roleMismatch: true,
+          actualRole: userRole,
+          requestedRole: requestedAppRole,
+        },
+      };
+      throw err;
+    }
+    const isCounselor = isCounselorLikeRole(userRole);
 
     const token = data.accessToken || data.token;
     if (token) {
@@ -207,6 +234,7 @@ const GoogleAuthButton = ({
     }
 
     await AsyncStorage.setItem('userRole', userRole);
+    await AsyncStorage.setItem('userType', userRole);
     await AsyncStorage.setItem('isAuthenticated', 'true');
 
     const user = sanitizeUserPhotoForRole(data.user || data, userRole);
@@ -221,6 +249,9 @@ const GoogleAuthButton = ({
           await AsyncStorage.setItem('counselorId', id);
         }
       }
+    }
+    if (!isCounselor) {
+      await AsyncStorage.multiRemove(['counsellorId', 'counselorId']);
     }
 
     await AsyncStorage.removeItem('role');
@@ -239,6 +270,8 @@ const GoogleAuthButton = ({
       user,
       profileCompleted: data.profileCompleted,
       isNewUser: data.isNewUser,
+      role: userRole,
+      destination: routeForAuthRole(userRole),
     });
   };
 

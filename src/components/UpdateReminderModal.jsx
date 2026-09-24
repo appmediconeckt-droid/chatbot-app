@@ -3,7 +3,6 @@ import { Modal, View, TouchableOpacity, StyleSheet, Linking, Platform } from 're
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import SpInAppUpdates from 'sp-react-native-in-app-updates';
 import Text from './TranslatedText';
 import useLanguageRender from '../hooks/useLanguageRender';
 import { PATIENT_GRADIENT, DOCTOR_GRADIENT, GRADIENT_DIRECTION } from '../theme/palette';
@@ -15,6 +14,16 @@ import { APP_VERSION, PLAY_STORE_URL, DEV_SIMULATE_UPDATE_AVAILABLE } from '../c
 // through immediately, so a fresh release is never held back by an old snooze.
 const SNOOZE_KEY = 'update_reminder_snoozed_until';
 const SNOOZE_MS = 24 * 60 * 60 * 1000;
+
+const getSpInAppUpdates = () => {
+  try {
+    const updatesModule = require('sp-react-native-in-app-updates');
+    return updatesModule?.default || updatesModule;
+  } catch (error) {
+    console.log('[UpdateReminder] In-app update module unavailable:', error?.message || error);
+    return null;
+  }
+};
 
 /**
  * Asks the Play Store (via Play Core) whether a newer version of the app is
@@ -43,25 +52,28 @@ const UpdateReminderModal = ({ variant = 'patient' }) => {
     if (checkedRef.current || Platform.OS !== 'android') return;
     checkedRef.current = true;
 
-    const inAppUpdates = new SpInAppUpdates(false);
-    inAppUpdates
-      .checkNeedsUpdate({ curVersion: APP_VERSION })
-      .then(async (result) => {
-        if (!result?.shouldUpdate) return;
-        storeVersionRef.current = result.storeVersion || '';
-        if (await isSnoozed(storeVersionRef.current)) return;
-        setVisible(true);
-      })
-      .catch(() => {
-        // Play Core's real check needs a signed release build installed
-        // from the Play Store, so it always fails on a debug/Metro build —
-        // that's expected, not a bug, and NOT a real version comparison.
-        // Only show here if DEV_SIMULATE_UPDATE_AVAILABLE is deliberately
-        // turned on in constants/appInfo.js — otherwise this stays quiet in
-        // dev too, so the popup never appears "just because", only when an
-        // update is actually being simulated or genuinely available.
-        if (__DEV__ && DEV_SIMULATE_UPDATE_AVAILABLE) setVisible(true);
-      });
+    const SpInAppUpdates = getSpInAppUpdates();
+    if (!SpInAppUpdates) return;
+
+    try {
+      const inAppUpdates = new SpInAppUpdates(false);
+      inAppUpdates
+        .checkNeedsUpdate({ curVersion: APP_VERSION })
+        .then(async (result) => {
+          if (!result?.shouldUpdate) return;
+          storeVersionRef.current = result.storeVersion || '';
+          if (await isSnoozed(storeVersionRef.current)) return;
+          setVisible(true);
+        })
+        .catch(() => {
+          // Play Core's real check needs a signed release build installed
+          // from the Play Store, so it always fails on a debug/Metro build.
+          if (__DEV__ && DEV_SIMULATE_UPDATE_AVAILABLE) setVisible(true);
+        });
+    } catch (error) {
+      console.log('[UpdateReminder] Update check failed:', error?.message || error);
+      if (__DEV__ && DEV_SIMULATE_UPDATE_AVAILABLE) setVisible(true);
+    }
   }, []);
 
   // Was this exact store version snoozed less than 24h ago? A snooze from an
