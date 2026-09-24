@@ -740,11 +740,13 @@ const CounselorRequestChat = ({
             <View style={styles.cardMetaRow}>
               <Ionicons name="briefcase-outline" size={12.5} color={PATIENT.textSecondary} />
               <Text style={styles.cardMetaText}>{item.experience}</Text>
-              <Ionicons name="star" size={12.5} color="#F5A623" style={{ marginLeft: 12 }} />
-              {/* "New" rather than 0.0 - an unrated counselor isn't a zero-star one. */}
-              <Text style={styles.cardMetaText}>
-                {Number(item.rating) > 0 ? Number(item.rating).toFixed(1) : 'New'}
-              </Text>
+              {/* Unrated counselors show no rating rather than 0.0. */}
+              {Number(item.rating) > 0 && (
+                <>
+                  <Ionicons name="star" size={12.5} color="#F5A623" style={{ marginLeft: 12 }} />
+                  <Text style={styles.cardMetaText}>{Number(item.rating).toFixed(1)}</Text>
+                </>
+              )}
             </View>
           </View>
 
@@ -870,7 +872,7 @@ const CounselorRequestChat = ({
       counselor.specialization,
       counselor.location,
       counselor.experience,
-      Number(counselor.rating) > 0 ? `${counselor.rating} rating` : 'new',
+      Number(counselor.rating) > 0 ? `${counselor.rating} rating` : '',
       Number(counselor.rating) >= 4.5 ? 'top rated' : '',
       counselor.location ? 'nearby' : '',
       counselor.available ? 'online available' : 'offline unavailable',

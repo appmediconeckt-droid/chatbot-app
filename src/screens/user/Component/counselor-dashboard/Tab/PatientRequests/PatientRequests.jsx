@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigation } from '@react-navigation/native';
-import Ionicons from 'react-native-vector-icons/Ionicons';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import {
@@ -91,30 +90,6 @@ const PatientRequests = () => {
       )
     );
     Alert.alert('Cancelled', `Patient ${patientId} has been cancelled.`);
-  };
-
-  // Handle video call
-  const handleVideoCall = (patient) => {
-    Alert.alert('Video Call', `Starting video call with ${patient.name}...`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Start Call', onPress: () => Alert.alert('Success', 'Video call initiated!') },
-    ]);
-  };
-
-  // Handle voice call
-  const handleVoiceCall = (patient) => {
-    Alert.alert('Voice Call', `Starting voice call with ${patient.name}...`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Start Call', onPress: () => Alert.alert('Success', 'Voice call initiated!') },
-    ]);
-  };
-
-  // Handle chat
-  const handleChat = (patient) => {
-    Alert.alert('Chat', `Opening chat with ${patient.name}...`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Open Chat', onPress: () => Alert.alert('Success', 'Chat opened!') },
-    ]);
   };
 
   // Filter patients based on status
@@ -323,45 +298,6 @@ const PatientRequests = () => {
                     onPress={() => handleCancel(patient.id)}
                   >
                     <Text style={styles.btnCancelText}>✕ Cancel Request</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* Action Buttons - Professional circular icons for confirmed/accepted */}
-              {(patient.status === 'accepted' || patient.status === 'confirmed') && (
-                <View style={styles.actionsRow}>
-                  <TouchableOpacity
-                    style={styles.actionButtonWithText}
-                    activeOpacity={0.65}
-                    onPress={() => handleVideoCall(patient)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <View style={[styles.actionIconBtn, styles.videoBtnBg]}>
-                      <Ionicons name="videocam" size={24} color="white" />
-                    </View>
-                    <Text style={styles.actionButtonText}>{t('Video')}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.actionButtonWithText}
-                    activeOpacity={0.65}
-                    onPress={() => handleVoiceCall(patient)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <View style={[styles.actionIconBtn, styles.voiceBtnBg]}>
-                      <Ionicons name="call" size={24} color="white" />
-                    </View>
-                    <Text style={styles.actionButtonText}>{t('Voice')}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.actionButtonWithText}
-                    activeOpacity={0.65}
-                    onPress={() => handleChat(patient)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <View style={[styles.actionIconBtn, styles.chatBtnBg]}>
-                      <Ionicons name="chatbubble-ellipses" size={24} color="white" />
-                    </View>
-                    <Text style={styles.actionButtonText}>{t('Chat')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -654,47 +590,6 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 14,
-  },
-  // Action Buttons for Confirmed Appointments
-  actionsRow: {
-    flexDirection: 'row',
-    gap: 20,
-    padding: 18,
-    backgroundColor: 'white',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  actionButtonWithText: {
-    alignItems: 'center',
-    gap: 10,
-  },
-  actionIconBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  videoBtnBg: {
-    backgroundColor: '#6366f1',
-  },
-  voiceBtnBg: {
-    backgroundColor: '#10b981',
-  },
-  chatBtnBg: {
-    backgroundColor: '#f59e0b',
-  },
-  actionButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#333',
   },
   // No Patients
   noPatients: {

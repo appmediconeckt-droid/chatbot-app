@@ -203,6 +203,7 @@ const Login = ({ navigation, route }) => {
       title,
       message: safeMessage,
       duration,
+      translate: false,
     });
     if (duration > 0) {
       setTimeout(() => {
@@ -933,7 +934,7 @@ const Login = ({ navigation, route }) => {
             {/* Error Message */}
             {errorMessage ? (
               <View style={[styles.errorContainer, { marginTop: 16 }]}>
-                <Text style={styles.errorText}>{errorMessage}</Text>
+                <Text translate={false} style={styles.errorText}>{errorMessage}</Text>
               </View>
             ) : null}
 
