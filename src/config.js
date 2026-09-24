@@ -4,14 +4,14 @@
 
 export { API_BASE_URL, default as axiosInstance } from './axiosConfig';
 
-// Google OAuth Web client ID — same one the backend verifies the idToken
-// against. For native Android sign-in we use this as `webClientId` (the
-// google-signin library exchanges it for an idToken the backend already
-// knows how to validate). Adding a separate Android OAuth client ID in
-// Google Cloud Console (matched to the app's SHA-1) is recommended for
-// production; until then, webClientId alone works for idToken-based flows.
+
 export const GOOGLE_WEB_CLIENT_ID =
   '704541656207-prln6ckc25sph827vat5cub6iu4fk6ft.apps.googleusercontent.com';
+
+// Public web app origin. The doctor QR code encodes
+// `${PUBLIC_WEB_APP_URL}/walk-in-appointment?doctorId=…&source=qr` — the same
+// link the web dashboard's QR page generates (web uses window.location.origin).
+export const PUBLIC_WEB_APP_URL = 'https://humaeli.com';
 
 export const SUPPORT_EMAIL = 'support@humaeli.com';
 export const SUPPORT_PHONE_DISPLAY = '+91 90095 55930';

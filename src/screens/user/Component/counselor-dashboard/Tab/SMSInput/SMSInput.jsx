@@ -1687,6 +1687,19 @@ const SMSInput = ({ navigation, route }) => {
 
   // ─── Effects ─────────────────────────────────────────────────────────────
   useEffect(() => { loadCounselorData(); }, []);
+
+  // Doctor dashboard "Video Call / Voice Call" opens this chat with
+  // route.params.autoStartCallType — start that call once, as soon as both
+  // participants are known (web parity: /patient-sms autoStartCallType).
+  const autoCallStartedRef = useRef(false);
+  useEffect(() => {
+    const autoType = location?.autoStartCallType;
+    if (!autoType || autoCallStartedRef.current || !counselorId || !USER_ID) return;
+    autoCallStartedRef.current = true;
+    if (autoType === 'video') initiateVideoCall();
+    else initiateVoiceCall();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [counselorId, USER_ID]);
   useEffect(() => {
     if ((!selectedUser && !chatId) || !counselorId) return undefined;
     let alive = true;

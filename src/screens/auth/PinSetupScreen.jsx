@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppLockScreen, { PIN_STORAGE_KEY } from './AppLockScreen';
 
+import { enterAuthenticatedRoute } from '../../utils/authSession';
 /**
  * Two-step PIN creation screen.
  * Step 1 (setup)   — user enters new PIN
@@ -32,7 +33,7 @@ const PinSetupScreen = ({ navigation, route }) => {
       // Enter the app; replace so PIN setup isn't in the back stack.
       // destinationParams keeps the onward flow intact (e.g. LocationGate
       // still needs to know which dashboard to open).
-      navigation.replace(destination || 'UserDashboard', destinationParams);
+      enterAuthenticatedRoute(navigation, destination || 'UserDashboard', destinationParams);
     } else {
       navigation.goBack();
     }

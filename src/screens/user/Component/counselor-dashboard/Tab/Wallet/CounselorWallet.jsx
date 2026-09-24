@@ -196,68 +196,76 @@ const PAGE_SIZE = 5;
 
 const pageCountOf = (total) => Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-// Numbers to draw. Long histories collapse to first / window / last with gaps,
-// so the row never wraps: 1 … 4 [5] 6 … 12
+// A fixed 3-number sliding window around the current page — never more, never
+// fewer (until there are fewer than 3 pages total). No ellipsis, no jump-to-
+// edge buttons. This is what keeps the bar's width constant and small enough
+// to always fit next to "Previous"/"Next" on any phone without scrolling.
+const PAGE_WINDOW = 3;
 const pageNumbers = (current, total) => {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  const out = [1];
-  const from = Math.max(2, current - 1);
-  const to = Math.min(total - 1, current + 1);
-  if (from > 2) out.push('gapL');
-  for (let i = from; i <= to; i += 1) out.push(i);
-  if (to < total - 1) out.push('gapR');
-  out.push(total);
-  return out;
+  if (total <= PAGE_WINDOW) return Array.from({ length: total }, (_, i) => i + 1);
+  const start = Math.max(1, Math.min(current - 1, total - PAGE_WINDOW + 1));
+  return Array.from({ length: PAGE_WINDOW }, (_, i) => start + i);
 };
 
+// Single rounded pill bar: Previous | 1 | 2 | 3 | Next, divided by thin
+// vertical rules, active page a solid blue chip — matches the reference design.
+// Fixed width by design (see pageNumbers above), so this never needs to
+// scroll or spill outside its card.
 const Pagination = ({ page, total, onChange }) => {
   const { t } = useLanguageRender();
   const pages = pageCountOf(total);
   if (pages <= 1) return null;
 
-  const first = (page - 1) * PAGE_SIZE + 1;
-  const last = Math.min(page * PAGE_SIZE, total);
-
-  const Arrow = ({ dir, disabled }) => (
-    <TouchableOpacity
-      style={[styles.pageBox, disabled && styles.pageBoxDisabled]}
-      disabled={disabled}
-      onPress={() => onChange(dir === 'prev' ? page - 1 : page + 1)}
-      activeOpacity={0.75}
-    >
-      <Feather
-        name={dir === 'prev' ? 'chevron-left' : 'chevron-right'}
-        size={16}
-        color={disabled ? '#9DB0CC' : '#004AC6'}
-      />
-    </TouchableOpacity>
-  );
+  const items = [
+    { key: 'prev', type: 'prev' },
+    ...pageNumbers(page, pages).map((n) => ({ key: String(n), type: 'num', n })),
+    { key: 'next', type: 'next' },
+  ];
 
   return (
     <View style={styles.pagination}>
-      <Text style={styles.pageSummary}>
-        {t('Showing')} {first}-{last} {t('of')} {total}
-      </Text>
-      <View style={styles.pageRow}>
-        <Arrow dir="prev" disabled={page <= 1} />
-        {pageNumbers(page, pages).map((n) =>
-          typeof n === 'string' ? (
-            <View key={n} style={styles.pageGap}>
-              <Text style={styles.pageGapText}>…</Text>
-            </View>
-          ) : (
+      {items.map((item, idx) => (
+        <React.Fragment key={item.key}>
+          {idx > 0 && <View style={styles.pagerDivider} />}
+          {item.type === 'prev' && (
             <TouchableOpacity
-              key={n}
-              style={[styles.pageBox, n === page && styles.pageBoxActive]}
-              onPress={() => onChange(n)}
-              activeOpacity={0.75}
+              style={styles.pagerItem}
+              disabled={page <= 1}
+              onPress={() => onChange(page - 1)}
+              activeOpacity={0.7}
             >
-              <Text style={[styles.pageBoxText, n === page && styles.pageBoxTextActive]}>{n}</Text>
+              <Text style={[styles.pagerText, page <= 1 && styles.pagerTextDisabled]}>
+                {t('Previous')}
+              </Text>
             </TouchableOpacity>
-          ),
-        )}
-        <Arrow dir="next" disabled={page >= pages} />
-      </View>
+          )}
+          {item.type === 'next' && (
+            <TouchableOpacity
+              style={styles.pagerItem}
+              disabled={page >= pages}
+              onPress={() => onChange(page + 1)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.pagerText, page >= pages && styles.pagerTextDisabled]}>
+                {t('Next')}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {item.type === 'num' && (
+            <TouchableOpacity
+              style={styles.pagerItem}
+              onPress={() => onChange(item.n)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.pagerNumBox, item.n === page && styles.pagerNumBoxActive]}>
+                <Text style={[styles.pagerNumText, item.n === page && styles.pagerNumTextActive]}>
+                  {item.n}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+        </React.Fragment>
+      ))}
     </View>
   );
 };
@@ -961,28 +969,41 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
 };
 
 const styles = StyleSheet.create({
-  pagination: { marginTop: 14, gap: 10 },
-  pageSummary: { fontSize: 12, color: '#6B7C99', fontWeight: '600' },
-  pageRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  pageBox: {
-    minWidth: 34,
-    height: 34,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: '#D6E0F5',
+  // Fixed-width pill (PAGE_WINDOW caps it at 3 number buttons) so it always
+  // fits inside the card and never needs to scroll or spill outside it.
+  pagination: {
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    alignSelf: 'center',
     backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  pagerDivider: { width: 1, backgroundColor: '#E2E8F0' },
+  pagerItem: {
+    minHeight: 38,
+    paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+  },
+  pagerText: { fontSize: 13, fontWeight: '700', color: '#004AC6' },
+  pagerTextDisabled: { color: '#B7C3DB' },
+  pagerNumBox: {
+    minWidth: 26,
+    height: 26,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
   },
   // Active page carries the counselor blue so it reads as the same family as
   // the earnings card.
-  pageBoxActive: { backgroundColor: '#004AC6', borderColor: '#004AC6' },
-  pageBoxDisabled: { backgroundColor: '#F1F5FC', borderColor: '#E4EAF6' },
-  pageBoxText: { fontSize: 13, fontWeight: '700', color: '#33456B' },
-  pageBoxTextActive: { color: '#FFFFFF' },
-  pageGap: { minWidth: 18, height: 34, alignItems: 'center', justifyContent: 'center' },
-  pageGapText: { fontSize: 13, color: '#9DB0CC', fontWeight: '700' },
+  pagerNumBoxActive: { backgroundColor: '#004AC6' },
+  pagerNumText: { fontSize: 13, fontWeight: '700', color: '#33456B' },
+  pagerNumTextActive: { color: '#FFFFFF' },
 
   safe: { flex: 1, backgroundColor: '#f4f7ff' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },

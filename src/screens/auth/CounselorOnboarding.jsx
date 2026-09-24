@@ -16,6 +16,7 @@ import { DOCTOR } from '../../theme/palette';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import HumaeliHeroVideo from '../../components/common/HumaeliHeroVideo';
 
+import { enterAuthenticatedRoute } from '../../utils/authSession';
 const { width } = Dimensions.get('window');
 const TOTAL_PAGES = 4;
 
@@ -143,7 +144,7 @@ const CounselorOnboarding = ({ navigation, route, previewMode = false, onPreview
     const destination = route?.params?.destination || 'CounselorSignup';
     const destinationParams = route?.params?.destinationParams || { role: 'counselor' };
 
-    navigation.replace(destination, destinationParams);
+    enterAuthenticatedRoute(navigation, destination, destinationParams);
   }, [
     navigation,
     onPreviewComplete,

@@ -32,6 +32,12 @@ const normalizeAvatarUrl = (value, allowAnyHttpUrl = false) => {
   if (typeof raw !== "string" || !raw.trim()) return "";
 
   const trimmed = raw.trim();
+
+  // AI-generated avatars are saved as inline base64 images (see
+  // authController.js updates.profilePhoto), not hosted files, so they never
+  // have an http(s) host to whitelist — pass them through as-is.
+  if (/^data:image\//i.test(trimmed)) return trimmed;
+
   if (!/^https?:\/\//i.test(trimmed)) return "";
 
   let parsed;
@@ -145,29 +151,33 @@ export const getAnonymousUserAvatarUrl = (source) => {
 
   if (explicitAvatarUrl) return explicitAvatarUrl;
 
-  return readFirstAvatarUrl(source, [
-    ["avatar"],
-    ["profilePhoto"],
-    ["profilePhoto", "url"],
-    ["profilePic"],
-    ["photoUrl"],
-    ["image"],
-    ["user", "avatar"],
-    ["user", "profilePhoto"],
-    ["user", "profilePhoto", "url"],
-    ["user", "profilePic"],
-    ["patient", "avatar"],
-    ["patient", "profilePhoto"],
-    ["patient", "profilePhoto", "url"],
-    ["patient", "profilePic"],
-    ["otherParty", "avatar"],
-    ["otherParty", "profilePhoto"],
-    ["otherParty", "profilePhoto", "url"],
-    ["otherParty", "profilePic"],
-    ["profile", "avatar"],
-    ["profile", "profilePhoto"],
-    ["profile", "profilePhoto", "url"],
-  ]);
+  return readFirstAvatarUrl(
+    source,
+    [
+      ["avatar"],
+      ["profilePhoto"],
+      ["profilePhoto", "url"],
+      ["profilePic"],
+      ["photoUrl"],
+      ["image"],
+      ["user", "avatar"],
+      ["user", "profilePhoto"],
+      ["user", "profilePhoto", "url"],
+      ["user", "profilePic"],
+      ["patient", "avatar"],
+      ["patient", "profilePhoto"],
+      ["patient", "profilePhoto", "url"],
+      ["patient", "profilePic"],
+      ["otherParty", "avatar"],
+      ["otherParty", "profilePhoto"],
+      ["otherParty", "profilePhoto", "url"],
+      ["otherParty", "profilePic"],
+      ["profile", "avatar"],
+      ["profile", "profilePhoto"],
+      ["profile", "profilePhoto", "url"],
+    ],
+    true,
+  );
 };
 
 export const getAnonymousUserDisplay = (source) => ({

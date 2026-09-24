@@ -61,6 +61,7 @@ import GradientFill from "../../../../../components/common/GradientFill";
 import { useToast } from "../../../../../components/common/ToastProvider";
 import LanguageSelector from '../../../../../components/common/LanguageSelector';
 import CounselorGradientButton from '../../../../../components/common/CounselorGradientButton';
+import UpdateReminderModal from '../../../../../components/UpdateReminderModal';
 import { loadUserLanguage } from '../../../../../i18n';
 import { DOCTOR, DOCTOR_GRADIENT } from "../../../../../theme/palette";
 import { toImageUri } from "../../../../../utils/imageUri";
@@ -2670,6 +2671,7 @@ export default function CounselorDashboard() {
   return (
     <SafeAreaView style={styles.screen} edges={isMobile ? [] : ["top"]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
+      <UpdateReminderModal variant="consultant" />
       <View style={styles.container}>
         {/* Session detail modal (View Details) */}
         <SessionDetailModal

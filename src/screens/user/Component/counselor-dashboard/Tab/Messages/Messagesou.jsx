@@ -274,6 +274,34 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
   };
 });
 
+      const rowsMissingAvatar = transformed.filter((item) => !item.avatarUrl && item.userId);
+      if (rowsMissingAvatar.length > 0) {
+        const liveAvatars = await Promise.all(
+          rowsMissingAvatar.map(async (item) => {
+            try {
+              const res = await fetch(`${API_BASE_URL}/api/auth/getUser/${item.userId}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (!res.ok) return [item.userId, ''];
+              const json = await res.json();
+              const live = getAnonymousUserDisplay(json?.user || {});
+              return [item.userId, live.avatarUrl || ''];
+            } catch {
+              return [item.userId, ''];
+            }
+          })
+        );
+
+        const avatarByUserId = new Map(liveAvatars.filter(([, url]) => !!url));
+        if (avatarByUserId.size > 0) {
+          transformed.forEach((item) => {
+            if (avatarByUserId.has(item.userId)) {
+              item.avatarUrl = avatarByUserId.get(item.userId);
+            }
+          });
+        }
+      }
+
       transformed.sort((a, b) => new Date(b.lastActivityAt) - new Date(a.lastActivityAt));
       setUsers(transformed);
     } catch (err) {
@@ -331,20 +359,7 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
     { id: 'recent', label: t('messages:recent', 'Recent') },
   ];
 
-  /**
-   * Badge derived from the chat's real state.
-   *
-   * The previous version labelled any chat with an unread message "URGENT" and
-   * everything else "NORMAL". Neither was true: an unread message is not a
-   * clinical urgency, and in a mental-health app that mislabel invites a
-   * counselor to deprioritise a genuinely serious case just because it has been
-   * read. "NORMAL" also tagged every ordinary row with a badge carrying no
-   * information. `pending` was shown as "FOLLOW UP" when it actually means the
-   * request has not been accepted yet.
-   *
-   * Returns null when there is nothing meaningful to say, so the badge only
-   * appears when it tells the counselor something actionable.
-   */
+
   const getCategory = (item) => {
     if (item.status === 'pending') {
       return { label: t('messages:newRequest', 'NEW REQUEST'), color: '#1D4ED8', bg: '#EFF6FF' };

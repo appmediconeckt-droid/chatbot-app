@@ -28,6 +28,7 @@ import AuthBackground from '../../theme/AuthBackground';
 import { GRADIENT_DIRECTION, gradientForRole, paletteForRole } from '../../theme/palette';
 import { sendLocationSilently } from '../../utils/locationHelper';
 import socketService from '../../services/socketService';
+import { enterAuthenticatedRoute } from '../../utils/authSession';
 
 const OTPVerification = ({ navigation, route }) => {
   const { t } = useLanguageRender();
@@ -210,9 +211,9 @@ const OTPVerification = ({ navigation, route }) => {
 
         setTimeout(() => {
           if (resolvedRole === 'counselor') {
-            navigation.replace('LocationGate', { destination: 'CounselorDashboard' });
+            enterAuthenticatedRoute(navigation, 'LocationGate', { destination: 'CounselorDashboard' });
           } else {
-            navigation.replace('LocationGate', { destination: 'UserDashboard' });
+            enterAuthenticatedRoute(navigation, 'LocationGate', { destination: 'UserDashboard' });
           }
         }, 1500);
       } else {

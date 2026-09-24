@@ -52,6 +52,7 @@ import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
 import AvatarPicker from "../../PatientProfile/AvatarPicker";
 import RatingPrompt from '../../../../../components/RatingPrompt';
+import UpdateReminderModal from '../../../../../components/UpdateReminderModal';
 import { loadUserLanguage } from '../../../../../i18n';
 import AutoTranslatedText from '../../../../../components/AutoTranslatedText';
 import { translationService } from '../../../../../i18n/translationService';
@@ -61,12 +62,17 @@ import RealVoiceCallModal from "../Tab/CallModal/VoiceCallModal";
 import HelpSupport from "../Tab/HelpSupport/HelpSupport";
 import PrivacyPolicy from "../Tab/PrivacyPolicy/PrivacyPolicy";
 import NotificationScreen from "../Tab/Notifications/NotificationScreen";
+import QrScannerScreen from "../Tab/QrScanner/QrScannerScreen";
 import UserAccountSettings from "../Tab/UserAccountSettings";
 import PrescriptionScreen from "../Tab/Prescription/PrescriptionScreen";
+import TokenStatusScreen from "../Tab/Token/TokenStatusScreen";
+import HealthVitalsCard from "../Tab/HealthVitals/HealthVitalsCard";
+import { isPsychiatristSpecialization } from "../../../../../components/common/PsychiatristDirectory";
 import { toImageUri } from "../../../../../utils/imageUri";
 import { clearAccountLocalData } from "../../../../../utils/authSession";
 import AiMicButton from "../../../../../components/AiMicButton";
 import { useSpeechToText } from "../../../../../hooks/useSpeechToText";
+import useLiveRefresh from '../../../../../hooks/useLiveRefresh';
 import {
   getNotificationOnlyCallMessage,
   isNotificationOnlyCallResponse,
@@ -244,11 +250,22 @@ const ChatPopup = ({
   }, [clearTranscript, isListening, newMessage, selectedLang, startListening, stopListening]);
 
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [keyboardScreenY, setKeyboardScreenY] = useState(null);
-  // The KeyboardAvoidingView reports the actual space available to the popup.
-  // This avoids device-specific keyboard/status/navigation-bar calculations.
+  // The KeyboardAvoidingView reports the actual space available to the popup
+  // via onLayout. On Android, KAV's own behavior is disabled (see below) and
+  // the AndroidManifest's windowSoftInputMode="adjustResize" already shrinks
+  // this area natively when the keyboard opens, so this single measurement
+  // covers both the "no keyboard" and "keyboard open" sizing cases without us
+  // re-deriving keyboard height ourselves — doing that too (on top of
+  // adjustResize, or on top of KAV's own compensation) double-counted the
+  // reserved space and left a visible gap above the keyboard.
   const [overlayHeight, setOverlayHeight] = useState(height);
+  const syncKeyboardMetrics = useCallback(() => {
+    // Android-only safety net: if the input gets focused while the keyboard
+    // was already open (e.g. re-focusing after a dismiss that didn't fully
+    // close it), keyboardDidShow may not refire — this catches that case.
+    if (Platform.OS !== 'android') return;
+    if (Keyboard.metrics?.()) setKeyboardVisible(true);
+  }, []);
   const handleOverlayLayout = useCallback((e) => {
     const h = e?.nativeEvent?.layout?.height || 0;
     if (!h) return;
@@ -265,58 +282,50 @@ const ChatPopup = ({
   );
   const popupTopGap = topSafeInset + 8;
   const availHeight = Math.max(0, overlayHeight - popupTopGap);
-  // Compensate only for the keyboard area that overlaps this Modal. Android
-  // models differ: some resize the Modal window, others keep it full height and
-  // float the keyboard over it. screenY is the reliable "keyboard starts here"
-  // line, so it avoids both under-lifting and double-lifting.
-  const nativeKeyboardResize = Math.max(0, height - overlayHeight);
-  const hasKeyboardTop = Number.isFinite(keyboardScreenY) && keyboardScreenY > 0;
-  const keyboardOverlapFromTop = hasKeyboardTop
-    ? Math.max(0, overlayHeight - keyboardScreenY)
-    : 0;
-  const keyboardOverlap = keyboardVisible
-    ? (hasKeyboardTop ? keyboardOverlapFromTop : Math.max(0, keyboardHeight - nativeKeyboardResize))
-    : 0;
   const screenHeight = Dimensions.get('screen').height;
   const androidBottomInsetFallback = Platform.OS === 'android' && !keyboardVisible
     ? Math.max(0, Math.min(80, screenHeight - height - topSafeInset))
     : 0;
   const bottomSafeInset = Math.max(insets.bottom, androidBottomInsetFallback, 12);
-  // The popup itself must also fit in the space left above the keyboard.
-  // Otherwise its fixed 630dp height plus the keyboard inset pushes the header
-  // off the top of smaller phones even though the input is technically visible.
+  // The nav bar (gesture pill or 3-button bar) stays put even once the
+  // keyboard opens — it doesn't get covered by the IME, the IME sits above
+  // it — so its height still has to be reserved even with the keyboard up.
+  // Skipping it there (an earlier version of this) left a visible white
+  // strip between the input and the keyboard, exactly the nav bar's height.
+  const bottomSafeInsetKeyboardOpen = Math.max(insets.bottom, 0);
+  // The popup itself must also fit in whatever room `overlayHeight` reports —
+  // that already shrank for the keyboard via the OS's own adjustResize, so no
+  // separate keyboard-height formula is needed here, just the nav bar
+  // reservation above.
   const popupAvailableHeight = Math.max(
-    0,
-    availHeight - keyboardOverlap - (!keyboardVisible ? bottomSafeInset : 0) - 12,
+    keyboardVisible ? 520 : 0,
+    availHeight - (keyboardVisible ? bottomSafeInsetKeyboardOpen + 12 : bottomSafeInset + 12),
   );
 
   // Detect tablet: width >= 600 is typically tablet range
   const isTablet = width >= 600;
+  // Same target height whether the keyboard is open or not — growing it while
+  // the keyboard is visible (this used to jump to 700) made the popup taller
+  // right when it should stay put, so the box appeared to jump up far more
+  // than the keyboard itself accounts for. popupAvailableHeight below still
+  // shrinks it to fit above the keyboard on smaller screens.
   const popupBaseHeight = isTablet ? 750 : 630;
+  const chatPopupFooterKeyboardStyle = {
+    paddingBottom: keyboardVisible ? bottomSafeInsetKeyboardOpen : bottomSafeInset + 8,
+  };
   const inputRef = useRef(null);
   const scrollViewRef = useRef(null);
 
-  // Track how much the keyboard OVERLAPS the app window (not the full keyboard
-  // height) so the popup sits right above the keyboard on every device. On
-  // tablets where Android resizes the window for the keyboard, the overlap is
-  // ~0 (the window already shrank) — using the full height there double-lifted
-  // the popup and left a big empty gap. On devices where the keyboard floats
-  // over the app, the overlap equals the keyboard height.
+  // Just track visibility now — on Android the OS's own adjustResize handles
+  // the actual resize/positioning (KeyboardAvoidingView stays iOS-only, see
+  // above), so we no longer need to independently measure and re-apply the
+  // keyboard height ourselves.
   useEffect(() => {
     // iOS fires keyboardWillShow; Android only reliably fires keyboardDidShow.
-    // Listen to both so the popup resizes above the keyboard on every device.
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvt, (e) => {
-      setKeyboardVisible(true);
-      setKeyboardHeight(e?.endCoordinates?.height || 0);
-      setKeyboardScreenY(e?.endCoordinates?.screenY ?? null);
-    });
-    const hide = Keyboard.addListener(hideEvt, () => {
-      setKeyboardVisible(false);
-      setKeyboardHeight(0);
-      setKeyboardScreenY(null);
-    });
+    const show = Keyboard.addListener(showEvt, () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener(hideEvt, () => setKeyboardVisible(false));
     return () => { show.remove(); hide.remove(); };
   }, []);
 
@@ -325,7 +334,7 @@ const ChatPopup = ({
   useEffect(() => {
     const id = setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 60);
     return () => clearTimeout(id);
-  }, [messages, isLoading, keyboardVisible, keyboardOverlap]);
+  }, [messages, isLoading, keyboardVisible]);
 
   useEffect(() => {
     const Speech = require('../../../../../utils/SpeechBridge');
@@ -360,11 +369,12 @@ const ChatPopup = ({
     } catch (err) {
       console.warn('[TTS] error:', err?.message ?? err);
       setSpeakingId(null);
+      Alert.alert('Voice unavailable', err?.message || 'Unable to play this response. Please try again.');
     }
   }, [selectedLang, speakingId, stopSpeaking]);
 
   return (
-  <Modal statusBarTranslucent
+  <Modal statusBarTranslucent navigationBarTranslucent
     animationType="slide"
     transparent={true}
     visible={true}
@@ -382,8 +392,17 @@ const ChatPopup = ({
       style={[
         styles.chatPopupOverlay,
         { paddingTop: popupTopGap },
-        Platform.OS === 'android' && { paddingBottom: keyboardOverlap },
       ]}
+      // The app's AndroidManifest already sets windowSoftInputMode
+      // "adjustResize" — the Activity window (and this Modal's content area
+      // with it) shrinks by the keyboard's height on its own. Also enabling
+      // KeyboardAvoidingView's own compensation on Android (behavior="height")
+      // made it shrink AGAIN on top of that already-shrunk area — a known
+      // RN/Android clash between adjustResize and KeyboardAvoidingView — and
+      // that double-shrink is exactly the gap that showed up above the
+      // keyboard. So KAV stays iOS-only; on Android, `overlayHeight` (via
+      // onLayout below) already reflects the adjustResize-shrunk area with no
+      // extra compensation needed.
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       enabled={Platform.OS === 'ios'}
       keyboardVerticalOffset={0}
@@ -395,6 +414,7 @@ const ChatPopup = ({
       <View style={[styles.chatPopup, {
         height: Math.min(popupBaseHeight, popupAvailableHeight),
       }]}>
+      <View style={styles.chatPopupClip}>
         <LinearGradient
           colors={AI_GRADIENT}
           start={{ x: 0, y: 0.5 }}
@@ -579,11 +599,7 @@ const ChatPopup = ({
         <View
           style={[
             styles.chatPopupFooter,
-            {
-              paddingBottom: keyboardVisible
-                ? 12
-                : bottomSafeInset + 8,
-            },
+            chatPopupFooterKeyboardStyle,
           ]}
         >
           {/* Input pill: leading icon + text */}
@@ -604,6 +620,7 @@ const ChatPopup = ({
               // readable instead of running off the end of one line.
               maxLength={2000}
               textAlignVertical="top"
+              onFocus={syncKeyboardMetrics}
             />
             <AiMicButton
               isListening={isListening}
@@ -672,6 +689,7 @@ const ChatPopup = ({
             </View>
           </View>
         )}
+      </View>
       </View>
     </KeyboardAvoidingView>
   </Modal>
@@ -1068,9 +1086,9 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const sheetMaxHeight = Math.min(screenHeight * (isTablet ? 0.82 : 0.86), isTablet ? 720 : 680);
   const sheetScrollMaxHeight = Math.max(360, sheetMaxHeight - 90);
 
-  const fetchAppointments = useCallback(async () => {
+  const fetchAppointments = useCallback(async (silent = false) => {
     try {
-      setLoadingAppointments(true);
+      if (!silent) setLoadingAppointments(true);
       const response = await axiosInstance.get('/api/appointments');
       const apts = Array.isArray(response.data) ? response.data : [];
       if (apts.length > 0) {
@@ -1079,15 +1097,15 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
       setAppointments(apts);
     } catch (err) {
       console.error("Error fetching appointments:", err);
-      setAppointments([]);
+      if (!silent) setAppointments([]);
     } finally {
       setLoadingAppointments(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchAppointments();
+  useLiveRefresh(() => fetchAppointments(true));
 
+  useEffect(() => {
     const connectSocket = async () => {
       const token = (await AsyncStorage.getItem("token")) || (await AsyncStorage.getItem("accessToken"));
       const userId = await AsyncStorage.getItem("userId");
@@ -1135,6 +1153,14 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     const aptDate = new Date(apt.date);
     return aptDate <= now || apt.status === "canceled";
   });
+
+  // Vitals tracking only makes sense once a Doctor (psychiatrist — medical,
+  // can prescribe) has actually seen the patient, not a talk-therapy
+  // Consultant. Same classifier used for the "Doctor"/"Consultant" badge in
+  // the counselor directory.
+  const hasCompletedDoctorVisit = appointments.some(
+    (apt) => apt.status === "completed" && isPsychiatristSpecialization(apt?.counselor?.specialization)
+  );
 
   let displayApts = activeTab === "Upcoming" ? upcomingApts : pastApts;
 
@@ -1279,6 +1305,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
       </View>
 
       <ScrollView contentContainerStyle={styles.appointmentsList} showsVerticalScrollIndicator={false}>
+        {hasCompletedDoctorVisit && <HealthVitalsCard />}
         {loadingAppointments ? (
           <AppointmentsSkeleton />
         ) : displayApts.length === 0 ? (
@@ -1679,6 +1706,7 @@ export default function UserDashboard() {
   const [showHelpSupport, setShowHelpSupport] = useState(false);
   const [walletInitialTab, setWalletInitialTab] = useState('add-money');
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showQrScanner, setShowQrScanner] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   // Unread NOTIFICATION count for the header bell (separate from AI-chat unread).
@@ -2686,13 +2714,6 @@ export default function UserDashboard() {
     }
   };
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return t('dashboard:goodMorning', 'Good Morning');
-    if (hour < 17) return t('dashboard:goodAfternoon', 'Good Afternoon');
-    return t('dashboard:goodEvening', 'Good Evening');
-  };
-
   // Profile / Call history / Settings only flip `active`, so they work straight
   // away. Help & Support and Privacy Policy are separate <Modal statusBarTranslucent navigationBarTranslucent>s, and React
   // Native will not mount a second Modal while the sidebar Modal is still
@@ -2753,6 +2774,14 @@ export default function UserDashboard() {
       label: t('dashboard:callHistory'),
       isActive: !sidebarSection && active === 'Video',
       onPress: () => openTabFromSidebar('Video', handleMenuItemClick),
+    },
+    {
+      id: 'Token',
+      icon: 'ticket-outline',
+      iconActive: 'ticket',
+      label: t('dashboard:myToken', 'My Token'),
+      isActive: !sidebarSection && active === 'Token',
+      onPress: () => openTabFromSidebar('Token', handleMenuItemClick),
     },
     {
       id: 'settings',
@@ -2822,6 +2851,8 @@ export default function UserDashboard() {
         return <WalletDashboard userData={userData} navigation={navigation} initialTab={walletInitialTab} />;
       case "Video":
         return <CallHistory />;
+      case "Token":
+        return <TokenStatusScreen />;
       case "profile":
         // The dashboard reads userData once on mount, so a photo changed inside
         // the profile tab left the sidebar avatar (and the header) showing the
@@ -2848,6 +2879,7 @@ export default function UserDashboard() {
         translucent={false}
       />
       <RatingPrompt triggerKey={active} />
+      <UpdateReminderModal variant="patient" />
 
       <CallModal
         isOpen={showCallModal}
@@ -2930,9 +2962,16 @@ export default function UserDashboard() {
 
         <View style={styles.headerLeft}>
           <Text style={styles.headerName} numberOfLines={1}>
-            {getGreeting()}, {(userData.name || 'User').split(' ')[0]}
+            {(() => {
+              const firstName = (userData.name || 'User').split(' ')[0];
+              return firstName.charAt(0).toUpperCase() + firstName.slice(1);
+            })()}
           </Text>
         </View>
+
+        <TouchableOpacity style={styles.bellBtn} activeOpacity={0.7} onPress={() => setShowQrScanner(true)}>
+          <Ionicons name="qr-code-outline" size={22} color={PATIENT.primary} />
+        </TouchableOpacity>
 
         <TouchableOpacity style={styles.bellBtn} activeOpacity={0.7} onPress={() => setShowNotifications(true)}>
           <Ionicons name="notifications-outline" size={22} color={PATIENT.primary} />
@@ -2943,6 +2982,8 @@ export default function UserDashboard() {
           )}
         </TouchableOpacity>
       </View>
+
+      <QrScannerScreen visible={showQrScanner} onClose={() => setShowQrScanner(false)} />
 
       {/* MAIN CONTENT */}
       <View style={[styles.contentContainer, { marginBottom: bottomNavHeight }]}>
@@ -3105,7 +3146,12 @@ export default function UserDashboard() {
                   )}
                 </View>
                 <View style={styles.sbUserInfo}>
-                  <Text style={styles.sbUserName} numberOfLines={1}>{userData.name || 'User'}</Text>
+                  <Text style={styles.sbUserName} numberOfLines={1}>
+                    {(() => {
+                      const name = userData.name || 'User';
+                      return name.length > 15 ? `${name.slice(0, 15)}...` : name;
+                    })()}
+                  </Text>
                   <Text style={styles.sbUserRole} numberOfLines={1}>{t('auth:userRole', 'Patient')}</Text>
                 </View>
               </TouchableOpacity>
@@ -3703,12 +3749,6 @@ const styles = StyleSheet.create({
   headerLeft: {
     flex: 1,
     justifyContent: 'center',
-  },
-  headerWelcome: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: PATIENT.textSecondary,
-    marginBottom: 1,
   },
   headerName: {
     fontSize: 16.5,
@@ -4536,10 +4576,16 @@ const styles = StyleSheet.create({
   chatPopupOverlay: {
     flex: 1,
     justifyContent: "flex-end",
+    // Padding is applied on THIS view (to reserve room for the keyboard) and
+    // padding renders inside the element's own background, so putting the
+    // scrim color here (not just on chatPopupBackdrop) also dims that
+    // reserved strip below the popup card instead of leaving it a bare gap.
+    backgroundColor: "rgba(0,0,0,0.5)",
   },
   chatPopupBackdrop: {
     flex: 1,
     minHeight: 0,
+    backgroundColor: "rgba(0,0,0,0.5)",
   },
   chatPopup: {
     width: '100%',
@@ -4547,12 +4593,23 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    overflow: "hidden",
+    // NOT `overflow: 'hidden'` here — combining that with `elevation` on
+    // Android draws the elevation shadow as a plain rectangle instead of
+    // following the rounded corners, so a square outline pokes out past the
+    // rounded top edges. The rounded shadow itself doesn't need clipping;
+    // only the header/content inside does, so clipping moved to
+    // chatPopupClip below.
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,
     shadowRadius: 16,
     elevation: 12,
+  },
+  chatPopupClip: {
+    flex: 1,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: "hidden",
   },
   chatPopupHeader: {
     padding: 16,

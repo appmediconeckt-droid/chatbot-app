@@ -1,6 +1,6 @@
 {
   "name": "chatbots",
-  "version": "1.0.9",
+  "version": "1.0.13",
   "private": true,
   "scripts": {
     "android": "react-native run-android",
@@ -52,8 +52,10 @@
     "react-native-svg": "^15.15.4",
     "react-native-tts": "^4.1.1",
     "react-native-vector-icons": "^10.3.0",
+    "react-native-vision-camera": "^4.7.3",
     "socket.io-client": "^4.5.4",
-    "socket.io-parser": "^4.2.1"
+    "socket.io-parser": "^4.2.1",
+    "sp-react-native-in-app-updates": "^2.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

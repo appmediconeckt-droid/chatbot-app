@@ -1,5 +1,5 @@
 // RoleSelector.jsx - Masterpiece UI Version
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -15,11 +15,11 @@ import {
   Image,
 } from 'react-native';
 import Text from '../../components/TranslatedText';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { PATIENT, DOCTOR } from '../../theme/palette';
+import { PATIENT, DOCTOR, CLINICIAN } from '../../theme/palette';
 import AuthBackground from '../../theme/AuthBackground';
 import logo from '../../image/HumaeliIcon.png';
 import useLanguageRender from '../../hooks/useLanguageRender';
@@ -58,8 +58,10 @@ const RoleSelector = () => {
   const logoScale = useRef(new Animated.Value(0.97)).current;
   const userCardSlide = useRef(new Animated.Value(24)).current;
   const counselorCardSlide = useRef(new Animated.Value(24)).current;
+  const doctorCardSlide = useRef(new Animated.Value(24)).current;
   const scaleUser = useRef(new Animated.Value(1)).current;
   const scaleCounselor = useRef(new Animated.Value(1)).current;
+  const scaleDoctor = useRef(new Animated.Value(1)).current;
   const logoFloat = useRef(new Animated.Value(0)).current;
   
   // Background Animation Values
@@ -80,6 +82,7 @@ const RoleSelector = () => {
       Animated.stagger(70, [
         Animated.spring(userCardSlide, { toValue: 0, tension: 70, friction: 11, useNativeDriver: true }),
         Animated.spring(counselorCardSlide, { toValue: 0, tension: 70, friction: 11, useNativeDriver: true }),
+        Animated.spring(doctorCardSlide, { toValue: 0, tension: 70, friction: 11, useNativeDriver: true }),
       ]),
     ]).start();
 
@@ -104,13 +107,29 @@ const RoleSelector = () => {
     createOrbLoop(orb2Anim, -100).start();
     createOrbLoop(particle1, 200).start();
     createOrbLoop(particle2, -150).start();
-    
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => false);
-    return () => backHandler.remove();
   }, []);
+
+  // RoleSelector is often reached via replace() (logout, session expiry,
+  // onboarding), leaving nothing underneath — then Android back would exit
+  // the app. Rebuild Landing -> Login instead, so back lands on Login.
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (navigation.canGoBack()) return false;
+        navigation.reset({
+          index: 1,
+          routes: [{ name: 'Landing' }, { name: 'Login' }],
+        });
+        return true;
+      });
+      return () => sub.remove();
+    }, [navigation]),
+  );
   
+  const scaleForRole = (role) => (role === 'user' ? scaleUser : role === 'doctor' ? scaleDoctor : scaleCounselor);
+
   const handlePressIn = (role) => {
-    const scaleAnim = role === 'user' ? scaleUser : scaleCounselor;
+    const scaleAnim = scaleForRole(role);
     Animated.spring(scaleAnim, {
       toValue: 0.97,
       friction: 5,
@@ -118,9 +137,9 @@ const RoleSelector = () => {
       useNativeDriver: true,
     }).start();
   };
-  
+
   const handlePressOut = (role) => {
-    const scaleAnim = role === 'user' ? scaleUser : scaleCounselor;
+    const scaleAnim = scaleForRole(role);
     Animated.spring(scaleAnim, {
       toValue: 1,
       friction: 5,
@@ -141,16 +160,17 @@ const RoleSelector = () => {
       
       setTimeout(() => {
         setIsLoading(false);
+        // Signup/login comes first; the onboarding tour runs right after a
+        // brand-new account is created (each Signup screen now routes into
+        // its role's Onboarding on success — see UserSignup/CounselorSignup/
+        // DoctorSignup). Logging into an existing account skips the tour
+        // entirely and goes straight to that role's dashboard.
         if (normalizedRole === 'user') {
-          navigation.navigate('UserOnboarding', {
-            destination: 'UserSignup',
-            destinationParams: { role: 'user' },
-          });
+          navigation.navigate('UserSignup', { role: 'user' });
         } else if (normalizedRole === 'counselor') {
-          navigation.navigate('CounselorOnboarding', {
-            destination: 'CounselorSignup',
-            destinationParams: { role: 'counselor' },
-          });
+          navigation.navigate('CounselorSignup', { role: 'counselor' });
+        } else if (normalizedRole === 'doctor') {
+          navigation.navigate('DoctorSignup', { role: 'doctor' });
         }
       }, 600);
     } catch (error) {
@@ -197,8 +217,8 @@ const RoleSelector = () => {
               />
             </View>
 
-            <Text style={styles.brandTitle}>{t('Humaeli')}</Text>
-            <Text style={styles.tagline}>{t('Empowering People, Inspiring Mental Wellness')}</Text>
+            <Text style={styles.brandTitle}>{t('Create Your Account')}</Text>
+            <Text style={styles.tagline}>{t('Choose how you want to use Humaeli')}</Text>
 
             <View style={styles.portalRow}>
               <View style={styles.portalRule} />
@@ -287,6 +307,48 @@ const RoleSelector = () => {
                   ) : (
                     <View style={[styles.chevWrap, { backgroundColor: '#E8F0FE' }]}>
                       <Icon name="chevron-right" size={18} color={DOCTOR.primary} />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </Animated.View>
+
+              {/* Doctor → teal */}
+              <Animated.View style={{ transform: [{ translateY: doctorCardSlide }, { scale: scaleDoctor }] }}>
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPressIn={() => handlePressIn('doctor')}
+                  onPressOut={() => handlePressOut('doctor')}
+                  onPress={() => handleRoleSelect('doctor')}
+                  disabled={isLoading}
+                  style={[
+                    styles.roleCard,
+                    { paddingVertical: R.cardPadV },
+                    selectedRole === 'doctor' && {
+                      borderColor: CLINICIAN.primary,
+                      backgroundColor: '#F0FDFA',
+                    },
+                  ]}
+                >
+                  <LinearGradient
+                    colors={[CLINICIAN.gradientFrom, CLINICIAN.gradientTo]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[
+                      styles.roleIcon,
+                      { width: R.roleIcon, height: R.roleIcon, borderRadius: R.roleIcon / 2, shadowColor: CLINICIAN.primary },
+                    ]}
+                  >
+                    <Icon name="stethoscope" size={R.roleIconGlyph} color="#ffffff" />
+                  </LinearGradient>
+                  <View style={styles.roleTextWrap}>
+                    <Text style={[styles.roleName, { fontSize: R.roleName }]}>{t('Doctor')}</Text>
+                    <Text style={[styles.roleSub, { fontSize: R.roleSub }]}>{t('Provide professional care')}</Text>
+                  </View>
+                  {selectedRole === 'doctor' && isLoading ? (
+                    <ActivityIndicator size="small" color={CLINICIAN.primary} />
+                  ) : (
+                    <View style={[styles.chevWrap, { backgroundColor: '#E1F8F3' }]}>
+                      <Icon name="chevron-right" size={18} color={CLINICIAN.primary} />
                     </View>
                   )}
                 </TouchableOpacity>

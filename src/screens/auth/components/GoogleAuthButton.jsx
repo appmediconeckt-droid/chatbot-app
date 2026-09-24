@@ -25,6 +25,11 @@ import { GOOGLE_WEB_CLIENT_ID } from '../../../config';
 import { sendLocationSilently } from '../../../utils/locationHelper';
 import socketService from '../../../services/socketService';
 import { syncPushNotificationToken } from '../../../services/notificationService';
+import {
+  isCounselorLikeRole,
+  resolveAuthRole,
+  routeForAuthRole,
+} from '../resolveAuthRole';
 
 let GoogleSigninModule = null;
 let StatusCodesModule = null;
@@ -50,10 +55,11 @@ const normalizeRole = (role) => {
 };
 
 const mapRoleForBackend = (role) =>
-  role === 'counselor' ? 'counsellor' : role;
+  role === 'counselor' || role === 'doctor' ? 'counsellor' : role;
 
 const getRoleLabel = (role) => {
   const normalized = normalizeRole(role);
+  if (normalized === 'doctor') return 'Doctor';
   return normalized === 'counselor' ? 'Consultant' : 'User';
 };
 
@@ -96,10 +102,14 @@ const sanitizeUserPhotoForRole = (user, roleName) => {
 };
 
 const GoogleAuthButton = ({
+  // 'auto' = common Login screen: backend resolves the account's real role
+  // from the DB and refuses to create unregistered accounts.
   role,
+  accountRole, // 'doctor' | 'counselor' | 'user' — stored on Google signup
   mode = 'signin', // 'signin' | 'signup'
   onSuccess,
   onConflict,
+  onNotRegistered,
   onError,
   disabled = false,
   locationEvent = 'login',
@@ -122,22 +132,24 @@ const GoogleAuthButton = ({
     }
   }, []);
 
-  const exchangeWithBackend = async (idToken) => {
-    const storedRole =
-      normalizeRole(role) ||
-      normalizeRole(await AsyncStorage.getItem('role')) ||
-      'user';
-
+  // Backend sometimes returns 200 { success:false, message:"..." } for
+  // "user not registered" rather than a 4xx. Treat that as an error so the
+  // UI shows the message instead of half-logging-in.
+  const postGoogleAuth = async (idToken, roleToTry) => {
     console.log(
       '[GoogleAuthButton] POST /api/auth/google role=',
-      mapRoleForBackend(storedRole),
+      mapRoleForBackend(roleToTry),
     );
     const response = await axios.post(
       `${API_BASE_URL}/api/auth/google`,
-      { idToken, role: mapRoleForBackend(storedRole) },
+      {
+        idToken,
+        role: mapRoleForBackend(roleToTry),
+        accountRole: accountRole || roleToTry,
+        intent: mode === 'signup' ? 'signup' : 'login',
+      },
       { withCredentials: true, timeout: 20000 },
     );
-
     const data = response.data || {};
     console.log(
       '[GoogleAuthButton] backend response keys:',
@@ -147,10 +159,6 @@ const GoogleAuthButton = ({
       'hasToken=',
       Boolean(data.accessToken || data.token),
     );
-
-    // Backend sometimes returns 200 { success:false, message:"..." } for
-    // "user not registered" rather than a 4xx. Treat that as an error so the
-    // UI shows the message instead of half-logging-in.
     if (data.success === false || !(data.accessToken || data.token)) {
       const msg =
         data.message ||
@@ -159,11 +167,62 @@ const GoogleAuthButton = ({
       err.response = { status: 400, data };
       throw err;
     }
+    return data;
+  };
 
-    const userRole = normalizeRole(
-      data.role || data.user?.role || storedRole,
+  const isRoleMismatchError = (error) => {
+    const responseData = error?.response?.data || {};
+    return responseData?.code === 'ROLE_MISMATCH' || responseData?.roleMismatch === true;
+  };
+
+  const exchangeWithBackend = async (idToken) => {
+    const isAuto = normalizeRole(role) === 'auto';
+    const storedRole = isAuto
+      ? 'auto'
+      : normalizeRole(role) ||
+        normalizeRole(await AsyncStorage.getItem('role')) ||
+        'user';
+
+    let data;
+    try {
+      data = await postGoogleAuth(idToken, storedRole);
+    } catch (error) {
+      // 'auto' only: an older backend doesn't understand 'auto' and treats
+      // it as 'user', answering ROLE_MISMATCH with the account's real role.
+      // Retry once with that DB role (same idToken, no second Google prompt).
+      // Explicit roles are never retried — the mismatch must be shown.
+      const actualRole = normalizeRole(error?.response?.data?.actualRole);
+      if (isAuto && isRoleMismatchError(error) && actualRole) {
+        data = await postGoogleAuth(idToken, actualRole);
+      } else {
+        throw error;
+      }
+    }
+
+    const requestedAppRole = normalizeRole(accountRole || storedRole);
+    const userRole = resolveAuthRole(
+      { ...data, accountRole: data.accountRole || accountRole },
+      isAuto ? 'user' : requestedAppRole,
     );
-    const isCounselor = userRole === 'counselor';
+    if (!isAuto && requestedAppRole && requestedAppRole !== userRole) {
+      const err = new Error(
+        buildRoleMismatchMessage({
+          actualRole: userRole,
+          requestedRole: requestedAppRole,
+        }),
+      );
+      err.response = {
+        status: 403,
+        data: {
+          code: 'ROLE_MISMATCH',
+          roleMismatch: true,
+          actualRole: userRole,
+          requestedRole: requestedAppRole,
+        },
+      };
+      throw err;
+    }
+    const isCounselor = isCounselorLikeRole(userRole);
 
     const token = data.accessToken || data.token;
     if (token) {
@@ -175,6 +234,7 @@ const GoogleAuthButton = ({
     }
 
     await AsyncStorage.setItem('userRole', userRole);
+    await AsyncStorage.setItem('userType', userRole);
     await AsyncStorage.setItem('isAuthenticated', 'true');
 
     const user = sanitizeUserPhotoForRole(data.user || data, userRole);
@@ -189,6 +249,9 @@ const GoogleAuthButton = ({
           await AsyncStorage.setItem('counselorId', id);
         }
       }
+    }
+    if (!isCounselor) {
+      await AsyncStorage.multiRemove(['counsellorId', 'counselorId']);
     }
 
     await AsyncStorage.removeItem('role');
@@ -207,6 +270,8 @@ const GoogleAuthButton = ({
       user,
       profileCompleted: data.profileCompleted,
       isNewUser: data.isNewUser,
+      role: userRole,
+      destination: routeForAuthRole(userRole),
     });
   };
 
@@ -294,6 +359,14 @@ const GoogleAuthButton = ({
             fallbackMessage: responseData.message,
           }),
         );
+        return;
+      }
+      if (responseData?.code === 'ACCOUNT_NOT_FOUND') {
+        const msg =
+          responseData.message ||
+          'No account found for this Google account. Please sign up first.';
+        if (onNotRegistered) onNotRegistered({ email: responseData.email, message: msg });
+        else onError?.(msg);
         return;
       }
       if (err?.response?.status === 409) {

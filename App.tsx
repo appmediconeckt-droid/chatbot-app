@@ -33,23 +33,28 @@ import CounselorSignup from './src/screens/auth/CounselorSignup';
 import RoleSelector from "./src/screens/auth/RoleSelector";
 import UserOnboarding from './src/screens/auth/UserOnboarding';
 import CounselorOnboarding from './src/screens/auth/CounselorOnboarding';
+import DoctorOnboarding from './src/screens/auth/DoctorOnboarding';
+import DoctorSignup from './src/screens/auth/DoctorSignup';
 import OTPVerification from "./src/screens/auth/OTPVerification";
 import LocationGate from "./src/screens/auth/LocationGate";
 import ForgotPasswordScreen from "./src/screens/auth/ForgotPasswordScreen";
 import ForgotPasswordOTPScreen from "./src/screens/auth/ForgotPasswordOTPScreen";
 import ResetPasswordScreen from "./src/screens/auth/ResetPasswordScreen";
 
-import UserDashboard from './src/screens/user/Component/UserDashboard/Dashboard/UserDashboard';
-import ChatBox from './src/screens/user/Component/UserDashboard/Tab/ChatBox/ChatBox';
-import CounselorTable from './src/screens/user/Component/UserDashboard/Tab/Counselor/CounselorDirectory';
-import CheckoutPage from './src/screens/user/Component/UserDashboard/Tab/Wallet/CheckoutPage';
-import TransactionsHistory from './src/screens/user/Component/UserDashboard/Tab/Wallet/TransactionsHistory';
-import AppLockSettings from './src/screens/user/Component/UserDashboard/Tab/AppLockSettings';
+import UserDashboard from './src/features/patient/screens/UserDashboard';
+import ChatBox from './src/features/patient/screens/ChatBox';
+import CounselorTable from './src/features/patient/screens/CounselorDirectory';
+import CheckoutPage from './src/features/patient/screens/CheckoutPage';
+import TransactionsHistory from './src/features/patient/screens/TransactionsHistory';
+import AppLockSettings from './src/features/patient/screens/AppLockSettings';
 import { ToastProvider } from './src/components/common/ToastProvider';
 
 // Counselor Dashboard Screens
-import CounselorDashboard from './src/screens/user/Component/counselor-dashboard/Dashboard/dashboard';
-import SMSInput from './src/screens/user/Component/counselor-dashboard/Tab/SMSInput/SMSInput';
+import CounselorDashboard from './src/features/counselor/screens/CounselorDashboard';
+import SMSInput from './src/features/counselor/screens/SMSInput';
+
+// Doctor screens (frontend-only — no Doctor backend yet)
+import DoctorDashboard from './src/features/doctor/screens/DoctorDashboard';
 import ChangePassword from './src/screens/account/ChangePassword';
 import SetPassword from './src/screens/account/SetPassword';
 import SetPasswordByOtp from './src/screens/account/SetPasswordByOtp';
@@ -75,6 +80,7 @@ import {
   clearPendingIncomingCallStorage,
   isFreshIncomingCallPayload,
 } from './src/services/callNotificationBridge';
+import { normalizeRole, routeForRole } from './src/features/roles';
 // Define your navigation param list
 // import { LogBox } from 'react-native';
 // LogBox.ignoreAllLogs(true);
@@ -83,10 +89,17 @@ export type RootStackParamList = {
   Landing: undefined;
   UserSignup: { role?: 'user' | 'counselor' } | undefined;
   RoleSelector: undefined;
-  UserOnboarding: { destination?: 'UserSignup'; destinationParams?: { role?: 'user' } } | undefined;
-  CounselorOnboarding: { destination?: 'CounselorSignup'; destinationParams?: { role?: 'counselor' } } | undefined;
+  // Onboarding now runs AFTER signup for every role (see RoleSelector /
+  // *Signup screens), so `destination` here points at what comes after the
+  // tour — typically LocationGate or DoctorDashboard — not back
+  // at the Signup screen itself.
+  UserOnboarding: { destination?: keyof RootStackParamList; destinationParams?: object } | undefined;
+  CounselorOnboarding: { destination?: keyof RootStackParamList; destinationParams?: object } | undefined;
+  DoctorOnboarding: { destination?: keyof RootStackParamList; destinationParams?: object; doctorProfileBase?: object } | undefined;
   Login: { role?: 'user' | 'counselor' } | undefined;
   CounselorSignup: { role?: 'user' | 'counselor' } | undefined;
+  DoctorSignup: { role?: 'doctor'; doctorProfileDraft?: object } | undefined;
+  DoctorDashboard: undefined;
   OTPVerification: undefined;
   LocationGate: { destination: keyof RootStackParamList; destinationParams?: object };
   UserDashboard: undefined;
@@ -148,16 +161,11 @@ withFontCap(RNText);
 withFontCap(TextInput);
 
 const normalizeStoredRole = (role: string | null | undefined) => {
-  const value = String(role || '').trim().toLowerCase();
-  if (!value) return '';
-  return value === 'counsellor' ? 'counselor' : value;
+  return normalizeRole(role);
 };
 
 const routeForStoredRole = (role: string | null | undefined): keyof RootStackParamList | null => {
-  const normalizedRole = normalizeStoredRole(role);
-  if (normalizedRole === 'counselor') return 'CounselorDashboard';
-  if (normalizedRole === 'user') return 'UserDashboard';
-  return null;
+  return routeForRole(role) as keyof RootStackParamList | null;
 };
 
 const hasFreshPendingIncomingCall = async () => {
@@ -481,12 +489,15 @@ useEffect(() => {
             <Stack.Screen name="RoleSelector" component={RoleSelector} />
             <Stack.Screen name="UserOnboarding" component={UserOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />
             <Stack.Screen name="CounselorOnboarding" component={CounselorOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />
+            <Stack.Screen name="DoctorOnboarding" component={DoctorOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />
             <Stack.Screen name="UserSignup" component={UserSignup} />
             <Stack.Screen name="Login" component={Login} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
             <Stack.Screen name="ForgotPasswordOTP" component={ForgotPasswordOTPScreen} />
             <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
             <Stack.Screen name='CounselorSignup' component={CounselorSignup} />
+            <Stack.Screen name='DoctorSignup' component={DoctorSignup as React.ComponentType<any>} />
+            <Stack.Screen name='DoctorDashboard' component={DoctorDashboard as React.ComponentType<any>} />
               <Stack.Screen name='OTPVerification' component={OTPVerification} />
             <Stack.Screen
               name="LocationGate"

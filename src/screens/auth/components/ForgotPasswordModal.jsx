@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -6,6 +6,9 @@ import {
   Modal,
   ScrollView,
   ActivityIndicator,
+  Dimensions,
+  Keyboard,
+  Platform,
 } from 'react-native';
 import TextInput from '../../../components/TranslatedTextInput';
 import Text from '../../../components/TranslatedText';
@@ -40,6 +43,8 @@ const ForgotPasswordModal = ({
 }) => {
   const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
+  const scrollRef = useRef(null);
+  const baseHeightRef = useRef(Dimensions.get('window').height);
   // Theme gradient — counselor blue vs user green (matches signup/onboarding).
   const gradientColors = /004AC6|003A9B|1490FF|2563EB|1D4ED8/i.test(String(accentColor))
     ? ['#003A9B', '#1490FF']
@@ -57,13 +62,48 @@ const ForgotPasswordModal = ({
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [resendTimer, setResendTimer] = useState(60);
+  const [keyboardPad, setKeyboardPad] = useState(0);
 
   // Sync prefilled email whenever the modal opens
   useEffect(() => {
     if (visible) {
       setEmail(initialEmail || '');
+      baseHeightRef.current = Dimensions.get('window').height;
     }
   }, [visible, initialEmail]);
+
+  useEffect(() => {
+    if (!visible) {
+      setKeyboardPad(0);
+      return undefined;
+    }
+
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      const keyboardHeight = event?.endCoordinates?.height || 0;
+      const resizedBy = Math.max(0, baseHeightRef.current - Dimensions.get('window').height);
+      setKeyboardPad(Math.max(0, keyboardHeight - resizedBy));
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      baseHeightRef.current = Dimensions.get('window').height;
+      setKeyboardPad(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [visible]);
+
+  const scrollModalToFocusedInput = () => {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    });
+  };
 
   // 60-second resend countdown on the OTP step (matches web)
   useEffect(() => {
@@ -229,7 +269,11 @@ const ForgotPasswordModal = ({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
       <View style={styles.overlay}>
         <ScrollView
-          contentContainerStyle={styles.scroll}
+          ref={scrollRef}
+          contentContainerStyle={[
+            styles.scroll,
+            keyboardPad > 0 && { paddingBottom: keyboardPad },
+          ]}
           keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.card, { paddingBottom: Math.max(insets.bottom, 36) }]}>
@@ -264,6 +308,7 @@ const ForgotPasswordModal = ({
                   keyboardType="email-address"
                   autoCapitalize="none"
                   editable={!loading}
+                  onFocus={scrollModalToFocusedInput}
                 />
 
                 <TouchableOpacity style={{ alignSelf: 'stretch' }} activeOpacity={0.9} onPress={handleSendOTP} disabled={loading}>
@@ -316,6 +361,7 @@ const ForgotPasswordModal = ({
                   keyboardType="number-pad"
                   maxLength={6}
                   editable={!loading && !success}
+                  onFocus={scrollModalToFocusedInput}
                 />
 
                 <TouchableOpacity style={{ alignSelf: 'stretch' }} activeOpacity={0.9} onPress={handleVerifyOTP} disabled={loading || !!success || !otp}>
@@ -389,6 +435,7 @@ const ForgotPasswordModal = ({
                     }}
                     secureTextEntry={!showPassword}
                     editable={!loading && !success}
+                    onFocus={scrollModalToFocusedInput}
                   />
                   <TouchableOpacity
                     style={styles.eyeBtn}
@@ -419,6 +466,7 @@ const ForgotPasswordModal = ({
                     }}
                     secureTextEntry={!showConfirmPassword}
                     editable={!loading && !success}
+                    onFocus={scrollModalToFocusedInput}
                   />
                   <TouchableOpacity
                     style={styles.eyeBtn}

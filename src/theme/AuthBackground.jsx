@@ -9,15 +9,17 @@ import LinearGradient from 'react-native-linear-gradient';
  * or tablet (blob size/position are derived from the live window size) with no
  * asset weight and no stretching.
  *
- * role: 'user' | 'counselor' | 'counsellor' | 'both'
+ * role: 'user' | 'counselor' | 'counsellor' | 'doctor' | 'both'
  *   user      → green mesh   (patient palette)
- *   counselor → blue mesh    (doctor palette)
+ *   counselor → blue mesh    (doctor/consultant palette)
+ *   doctor    → teal/aqua mesh (clinician palette — the new Doctor role)
  *   both      → green top-left → blue bottom-right (RoleSelector)
  */
 const AuthBackground = ({ role = 'user', style, children }) => {
   const { width, height } = useWindowDimensions();
   const r = String(role || '').trim().toLowerCase();
   const isDoctor = r === 'counselor' || r === 'counsellor';
+  const isClinician = r === 'doctor';
   const isBoth = r === 'both';
 
   // Blobs scale with the largest screen edge → same proportions on phone/tablet.
@@ -27,6 +29,8 @@ const AuthBackground = ({ role = 'user', style, children }) => {
     ? ['#EAF7F0', '#F5F7FC', '#DEE9FC']
     : isDoctor
     ? ['#FFFFFF', '#EFF4FE', '#DCE8FB']
+    : isClinician
+    ? ['#FFFFFF', '#EAFBF8', '#D3F4EF']
     : ['#FFFFFF', '#F0FBF5', '#DCF3E7'];
 
   return (
@@ -67,6 +71,24 @@ const AuthBackground = ({ role = 'user', style, children }) => {
           />
           <LinearGradient
             colors={['#C3D8FB', 'rgba(195,216,251,0)']}
+            style={[
+              styles.blob,
+              { width: blob * 0.9, height: blob * 0.9, borderRadius: blob * 0.45, left: -blob * 0.3, bottom: -blob * 0.1 },
+            ]}
+          />
+        </>
+      ) : isClinician ? (
+        <>
+          {/* Teal/aqua: strong wash top-right, soft pool bottom-left */}
+          <LinearGradient
+            colors={['#7DE0D3', 'rgba(125,224,211,0)']}
+            style={[
+              styles.blob,
+              { width: blob, height: blob, borderRadius: blob / 2, right: -blob * 0.3, top: height * 0.05 },
+            ]}
+          />
+          <LinearGradient
+            colors={['#B7EFE7', 'rgba(183,239,231,0)']}
             style={[
               styles.blob,
               { width: blob * 0.9, height: blob * 0.9, borderRadius: blob * 0.45, left: -blob * 0.3, bottom: -blob * 0.1 },

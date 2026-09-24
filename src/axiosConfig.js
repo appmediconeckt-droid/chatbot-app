@@ -3,9 +3,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { forceSignOut } from './utils/authSession';
 
-// API endpoints for different environments
-// NOTE: no trailing slash — callers append `/api/...`, so a trailing slash here
-// would produce a double slash (`...ms//api/...`) and break routing.
+
 const API_ENDPOINTS = {
   // Must match the SAME backend the web frontend uses (chatbot/.env.local)
   // so OTP / email / forgot-password behave identically to web.
@@ -17,10 +15,6 @@ const API_ENDPOINTS = {
   LOCAL_5000: 'http://localhost:5000',
   LOCAL_3000: 'http://localhost:3000',
 };
-
-// Debug builds talk to the local backend through the dev tunnel. Signed
-// release APKs must use the live backend; otherwise an installed APK stops
-// working as soon as the temporary tunnel expires.
 export const API_BASE_URL = __DEV__
   ? API_ENDPOINTS.DEV_TUNNEL
   : API_ENDPOINTS.DEV_TUNNEL;
@@ -28,15 +22,13 @@ export const AI_REALTIME_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
 export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
   ? { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' }
   : {};
-
 Object.assign(axios.defaults.headers.common, TUNNEL_HEADERS);
-
-// Public auth endpoints should not carry a stale mobile session token. Web can
-// often get away with this, but React Native/XHR can surface a closed/rejected
-// request as a generic "Network Error" with no response body.
 const PUBLIC_AUTH_PATHS = [
   '/api/auth/login',
-  '/api/auth/logout',
+  // NOT '/api/auth/logout': the backend route is behind authMiddleware, so it needs the
+  // Bearer token. Listing it here stripped the header and made every logout 401.
+  // logout-other-devices is public on the backend, so keep it listed explicitly.
+  '/api/auth/logout-other-devices',
   '/api/auth/refresh-token',
   '/api/auth/google',
   '/api/auth/verify-login-otp',
@@ -65,7 +57,6 @@ const axiosInstance = axios.create({
   withCredentials: true, 
 });
 
-// Request interceptor to add token to headers
 // sdjsdjsdjsdd
 axiosInstance.interceptors.request.use(
   async (config) => {
@@ -104,14 +95,9 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
-// Endpoints where a 401 means "wrong credentials / not logged in" rather than
-// "session expired" — refreshing for these would loop or surface confusing
-// errors during logout flows.
 const NO_REFRESH_PATHS = [
   ...PUBLIC_AUTH_PATHS,
-  // OTP + password routes: a 401 here means "wrong OTP / wrong password", not a
-  // dead session. Without them the interceptor would treat a mistyped OTP as an
-  // expired session and sign the user out mid-flow.
+ 
 ];
 
 axiosInstance.interceptors.response.use(
@@ -122,9 +108,7 @@ axiosInstance.interceptors.response.use(
     const originalRequest = error.config;
     const url = originalRequest?.url || '';
     const isAuthRoute = NO_REFRESH_PATHS.some((p) => url.includes(p));
-    // A 404 only means that a requested resource/optional endpoint was not
-    // found. It must never clear a valid login session. Authentication expiry
-    // is handled exclusively by the 401 + refresh-token flow below.
+    
 
     // Handle 401 errors (unauthorized)
     if (
@@ -132,15 +116,10 @@ axiosInstance.interceptors.response.use(
       !originalRequest._retry &&
       !isAuthRoute
     ) {
-      // Skip refresh entirely if no token exists — propagate the original 401
-      // so the caller sees "Unauthorized", not a fabricated
-      // "No refresh token available" message.
+     
       const refreshToken = await AsyncStorage.getItem('refreshToken');
       if (!refreshToken) {
-        // No refresh token but we still hold an access token means this device
-        // thought it was logged in and the server disagrees — another device
-        // signed in and took the session. Bounce to login instead of leaving
-        // the user on a dashboard that 401s on every request.
+       
         const hadSession = await AsyncStorage.getItem('accessToken');
         if (hadSession) await forceSignOut();
         return Promise.reject(error);
@@ -200,9 +179,7 @@ axiosInstance.interceptors.response.use(
         // Process queue with error
         processQueue(refreshError, null);
 
-        // Clears the stored session AND resets navigation to Login. Clearing
-        // alone was the old behaviour, and it left the app sitting on a
-        // dashboard it could no longer load.
+       
         await forceSignOut();
 
         return Promise.reject(refreshError);
@@ -214,7 +191,7 @@ axiosInstance.interceptors.response.use(
     // Handle network errors
     if (error.message === 'Network Error') {
       console.log('Network error occurred');
-      // You can show a network error message here
+      
     }
 
     return Promise.reject(error);

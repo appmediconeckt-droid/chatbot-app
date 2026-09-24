@@ -14,6 +14,7 @@ import {
   Dimensions,
   StyleSheet,
   Alert,
+  AppState,
   KeyboardAvoidingView,
 } from "react-native";
 import TextInput from '../../../../../../components/TranslatedTextInput';
@@ -28,6 +29,8 @@ import StarRating from "../../../../../../components/StarRating";
 import { useAutoTranslate } from "../../../../../../hooks/useAutoTranslate";
 import LinearGradient from "react-native-linear-gradient";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { DOCTOR, PATIENT } from '../../../../../../theme/palette';
+import { isPsychiatristSpecialization } from '../../../../../../components/common/PsychiatristDirectory';
 
 // Same gradient and direction as the wallet balance card.
 const WALLET_GRADIENT = ["#006B2C", "#01CE54"];
@@ -53,6 +56,27 @@ const FilterChip = ({ label, active, onPress }) => (
       <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{label}</Text>
     </LinearGradient>
   </TouchableOpacity>
+);
+
+// Psychiatrists are medical doctors (can prescribe); everyone else in this
+// directory is a non-medical counselor/therapist. Same classifier already
+// used by PsychiatristDirectory, surfaced here as a small badge so the two
+// read differently at a glance.
+// NOTE: the backend's `role` field is only ever "user" / "counsellor" / "admin"
+// — there is no "doctor" value in the DB (DoctorSignup stores a real
+// `counsellor`-role account; "Doctor" is a local-only label on that device).
+// So a Doctor account can only be told apart from a Consultant by its
+// specialization, which DoctorSignup enforces must contain "Psychiatrist" —
+// the same signal isPsychiatristSpecialization already uses.
+const isDoctorRole = (person) =>
+  isPsychiatristSpecialization(person?.specialization);
+
+const RoleBadge = ({ isDoctor }) => (
+  <View style={[styles.roleBadge, isDoctor ? styles.roleBadgeDoctor : styles.roleBadgeConsultant]}>
+    <Text style={[styles.roleBadgeText, isDoctor ? styles.roleBadgeTextDoctor : styles.roleBadgeTextConsultant]}>
+      {isDoctor ? 'Doctor' : 'Consultant'}
+    </Text>
+  </View>
 );
 
 const { width, height } = Dimensions.get("window");
@@ -179,12 +203,18 @@ const CounselorDirectoryScreen = ({ navigation }) => {
   }, []);
 
   // Fetch counselors using the api instance
-  const fetchCounselors = useCallback(async () => {
+  const fetchCounselors = useCallback(async (showLoader = true) => {
     try {
-      setError("");
-      setIsLoading(true);
-      
-      const response = await api.get("/api/chat/counselors");
+      if (showLoader) {
+        setError("");
+        setIsLoading(true);
+      }
+
+      // Same endpoint the web directory uses. It returns counsellors AND
+      // doctors (role === 'doctor') with live socket presence.
+      const response = await api.get("/api/auth/counsellors", {
+        headers: { 'Cache-Control': 'no-cache' },
+      });
 
       let counselors = [];
       if (response.data?.counselors) {
@@ -197,13 +227,19 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       
       console.log("Number of counselors fetched:", counselors.length);
       
-      const visibleCounselors = counselors.filter(isCompletedCounselorProfile);
+      // Doctors are listed as the backend returns them (same as web); the
+      // completed-profile rule only applies to counselors.
+      const visibleCounselors = counselors.filter(
+        (c) => isDoctorRole(c) || isCompletedCounselorProfile(c),
+      );
 
       const formattedCounselors = visibleCounselors.map((c, index) => {
         const profilePhotoUrl = getProfilePhotoUrl(c);
         
         return {
           id: c._id || c.id || index.toString(),
+          role: String(c.role || '').trim().toLowerCase(),
+          isDoctor: isDoctorRole(c),
           name: c.fullName || c.name || "Consultant",
           specialization: Array.isArray(c.specialization) ? c.specialization.join(", ") : (c.specialization || "General"),
           experience: c.experience || 0,
@@ -245,17 +281,31 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       // Use server-provided fields only: isOnline for live presence, isActive for availability setting.
       // Chat requires both. Scheduling remains available for later even when a consultant is offline.
       setUniqueLocations(locations);
-      
+      if (!showLoader) setError("");
+
     } catch (err) {
       console.error("Failed to fetch counselors:", err);
-      setError(err.response?.data?.message || "Unable to load consultants right now. Please check your connection.");
+      if (showLoader) {
+        setError(err.response?.data?.message || "Unable to load consultants right now. Please check your connection.");
+      }
     } finally {
-      setIsLoading(false);
+      if (showLoader) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchCounselors();
+    fetchCounselors(true);
+
+    // Real-time reconciliation, same as web: silent re-fetch every 15s so newly
+    // registered/updated doctors and counselors appear without a manual refresh.
+    const timer = setInterval(() => fetchCounselors(false), 15000);
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') fetchCounselors(false);
+    });
+    return () => {
+      clearInterval(timer);
+      appStateSub?.remove?.();
+    };
   }, [fetchCounselors]);
 
   // Socket connection for real-time updates
@@ -300,6 +350,10 @@ const CounselorDirectoryScreen = ({ navigation }) => {
           });
         }));
 
+        // Backend emits this when the directory changes (same event the web uses).
+        unsubscribers.push(await socketService.on('counselor-directory-updated', () => fetchCounselors(false)));
+        unsubscribers.push(await socketService.on('connect', () => fetchCounselors(false)));
+
         unsubscribers.push(await socketService.on('connect_error', (err) => console.error('Socket connection error:', err?.message || err)));
 
         socketRef.current._unsubscribers = unsubscribers;
@@ -314,7 +368,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       try { const unsub = socketRef.current?._unsubscribers || []; unsub.forEach(fn => { try { fn(); } catch {} }); } catch (e) {}
       if (socketRef.current) socketRef.current = null;
     };
-  }, []);
+  }, [fetchCounselors]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -326,6 +380,8 @@ const CounselorDirectoryScreen = ({ navigation }) => {
     { id: 'all', label: t('common:all', 'All') },
     { id: 'online', label: t('common:online', 'Online') },
     { id: 'offline', label: t('common:offline', 'Offline') },
+    { id: 'doctor', label: t('common:doctor', 'Doctor') },
+    { id: 'consultant', label: t('common:consultant', 'Consultant') },
   ]), [t]);
 
   const filteredAndSortedCounselors = useMemo(() => {
@@ -347,7 +403,9 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       const matchesCategory =
         selectedCategory === "all" ||
         (selectedCategory === "online" && counselor.online) ||
-        (selectedCategory === "offline" && !counselor.online);
+        (selectedCategory === "offline" && !counselor.online) ||
+        (selectedCategory === "doctor" && counselor.isDoctor) ||
+        (selectedCategory === "consultant" && !counselor.isDoctor);
 
       return matchesSearch && matchesLocation && matchesCategory;
     });
@@ -615,7 +673,10 @@ const CounselorDirectoryScreen = ({ navigation }) => {
           </View>
           
           <View style={styles.counselorInfo}>
-            <Text style={styles.counselorName}>{name}</Text>
+            <View style={styles.nameRow}>
+              <Text style={styles.counselorName}>{name}</Text>
+              <RoleBadge isDoctor={counselor.isDoctor} />
+            </View>
             <Text style={styles.specialization} numberOfLines={1}>
               {counselor.specialization}
             </Text>
@@ -668,6 +729,21 @@ const CounselorDirectoryScreen = ({ navigation }) => {
             ))}
           </View>
           <View style={styles.actionButtons}>
+            {counselor.isDoctor ? (
+              // Doctors: no chat (same as web). Clinic/slot booking is not in the app yet.
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.bookBtn]}
+                onPress={() =>
+                  Alert.alert(
+                    "Doctor appointment",
+                    "Booking an appointment with a doctor will be available in the app soon."
+                  )
+                }
+              >
+                <Text style={styles.actionBtnText}>📅 Book</Text>
+              </TouchableOpacity>
+            ) : (
+              <>
             <TouchableOpacity
               style={[styles.actionBtn, styles.chatBtn, !canChatNow && styles.disabledBtn]}
               onPress={() => {
@@ -690,6 +766,8 @@ const CounselorDirectoryScreen = ({ navigation }) => {
             >
               <Text style={styles.actionBtnText}>Schedule</Text>
             </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
       </View>
@@ -988,7 +1066,10 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                       )}
                     </View>
                     <View style={styles.counselorPreviewInfo}>
-                      <Text style={styles.counselorPreviewName}>{t(selectedCounselor.name)}</Text>
+                      <View style={styles.nameRow}>
+                        <Text style={styles.counselorPreviewName}>{t(selectedCounselor.name)}</Text>
+                        <RoleBadge isDoctor={selectedCounselor.isDoctor} />
+                      </View>
                       <Text style={styles.counselorPreviewSpecialization}>{selectedCounselor.specialization}</Text>
                       {selectedCounselor.ratingCount > 0 && (
                         <StarRating
@@ -1275,11 +1356,39 @@ const styles = StyleSheet.create({
   counselorInfo: {
     flex: 1,
   },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
   counselorName: {
     fontSize: 18,
     fontWeight: "bold",
     color: "#0F172A",
     marginBottom: 2,
+  },
+  roleBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    marginBottom: 2,
+  },
+  roleBadgeDoctor: {
+    backgroundColor: "#E5EDFF",
+  },
+  roleBadgeConsultant: {
+    backgroundColor: "#E1F5EA",
+  },
+  roleBadgeText: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  roleBadgeTextDoctor: {
+    color: DOCTOR.primary,
+  },
+  roleBadgeTextConsultant: {
+    color: PATIENT.primary,
   },
   specialization: {
     fontSize: 13,

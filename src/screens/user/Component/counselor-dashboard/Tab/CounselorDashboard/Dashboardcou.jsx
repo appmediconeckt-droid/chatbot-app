@@ -45,8 +45,13 @@ const Dashboard = () => {
 
       if (counsellorId) {
         try {
-          const profileRes = await axiosInstance.get(`${API_BASE_URL}/api/auth/getCounsellor/${counsellorId}`);
-          const name = profileRes.data?.counsellor?.fullName || profileRes.data?.fullName || '';
+          // /api/auth/getCounsellor/:id doesn't exist (was a typo'd route — the
+          // real path is /api/auth/counsellors/:id, and that one is filtered to
+          // only return directory-complete profiles). This is the counselor
+          // fetching their own name, so /api/auth/me is both correct and works
+          // regardless of profile-completeness.
+          const profileRes = await axiosInstance.get(`${API_BASE_URL}/api/auth/me`);
+          const name = profileRes.data?.user?.fullName || '';
           setCounselorName(name);
         } catch (_) {}
       }

@@ -15,6 +15,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import PATIENT from '../../theme/palette';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import HumaeliHeroVideo from '../../components/common/HumaeliHeroVideo';
+import { enterAuthenticatedRoute } from '../../utils/authSession';
 
 const { width } = Dimensions.get('window');
 
@@ -165,7 +166,8 @@ const UserOnboarding = ({ navigation, route, previewMode = false, onPreviewCompl
       onPreviewComplete();
       return;
     }
-    navigation.replace(
+    enterAuthenticatedRoute(
+      navigation,
       route?.params?.destination || 'UserDashboard',
       route?.params?.destinationParams,
     );
