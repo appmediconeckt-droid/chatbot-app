@@ -24,13 +24,11 @@ import WalkInAppointmentsScreen from '../dashboard/components/WalkInAppointments
 import PatientsScreen from '../dashboard/components/PatientsScreen';
 import PatientDetailScreen from '../dashboard/components/PatientDetailScreen';
 import VisitDetailScreen from '../dashboard/components/VisitDetailScreen';
-import PrescriptionScreen from '../dashboard/components/PrescriptionScreen';
 import CalendarAvailabilityScreen from '../dashboard/components/CalendarAvailabilityScreen';
 import AppointmentsListScreen from '../dashboard/components/AppointmentsListScreen';
 import DoctorProfileQrScreen from '../dashboard/components/DoctorProfileQrScreen';
 import FollowUpsScreen from '../dashboard/components/FollowUpsScreen';
 import ClinicPageScreen from '../dashboard/components/ClinicPageScreen';
-import PatientCommunicationsScreen from '../dashboard/components/PatientCommunicationsScreen';
 import StaffManagementScreen from '../dashboard/components/StaffManagementScreen';
 import NotificationsScreen from '../dashboard/components/NotificationsScreen';
 import DoctorSettingsScreen from '../dashboard/components/DoctorSettingsScreen';
@@ -42,7 +40,6 @@ import {
   formatAppointment,
   formatLocalDateKey,
   getDoctorIdFromUser,
-  getDoctorName,
   getStatusUpdatePayload,
   getStoredDoctorUser,
   getTokenLabel,
@@ -55,6 +52,7 @@ import {
   pickFirst,
   startBreak,
 } from '../dashboard/api/doctorAppointments';
+import { openChatForPatientId } from '../dashboard/api/doctorChat';
 import axiosInstance from '../../../axiosConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import socketService from '../../../services/socketService';
@@ -446,16 +444,15 @@ export default function DoctorDashboard({ navigation }) {
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [activeScreen, setActiveScreen] = useState('dashboard');
   const [selectedListPatient, setSelectedListPatient] = useState(null);
+  const [selectedRecord, setSelectedRecord] = useState(null);
   const [patientDetailOrigin, setPatientDetailOrigin] = useState('patients');
   const [selectedPatient, setSelectedPatient] = useState(null);
-  const [isPatientChatOpen, setIsPatientChatOpen] = useState(false);
   const [isCreateStaffOpen, setIsCreateStaffOpen] = useState(false);
   const [notificationsOrigin, setNotificationsOrigin] = useState('dashboard');
   const [isStaffProfileOpen, setIsStaffProfileOpen] = useState(false);
 
   // ---- web-parity dashboard state -------------------------------------
   const [doctorId, setDoctorId] = useState(null);
-  const [doctorName, setDoctorName] = useState('Doctor');
   const [appointments, setAppointments] = useState([]); // today's pending/confirmed/in-progress
   const [completed, setCompleted] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -475,7 +472,6 @@ export default function DoctorDashboard({ navigation }) {
   useEffect(() => {
     getStoredDoctorUser().then((user) => {
       const id = getDoctorIdFromUser(user);
-      setDoctorName(getDoctorName(user));
       if (id) {
         setDoctorId(String(id));
       } else {
@@ -729,11 +725,15 @@ export default function DoctorDashboard({ navigation }) {
     }
   };
 
-  const handleCall = () => {
-    Alert.alert(
-      'Call not available',
-      'Starting video / voice calls from the doctor dashboard is not available in the app yet. Please use the web dashboard for remote consultations.',
-    );
+  // Web: navigate('/patient-sms', { callTargetId, autoStartCallType }).
+  const handleCall = async (appt, mode) => {
+    if (!appt?.patientId) return Alert.alert('Call', 'Patient account not found for this appointment.');
+    try {
+      const opened = await openChatForPatientId(navigation, appt.patientId, mode === 'video' ? 'video' : 'voice');
+      if (!opened) Alert.alert('Call', `No active chat found for ${appt.name}. The patient needs to start a chat first.`);
+    } catch (err) {
+      showError(err, 'Could not open the patient chat.');
+    }
   };
 
   // ---- breaks ---------------------------------------------------------
@@ -849,7 +849,6 @@ export default function DoctorDashboard({ navigation }) {
       if (activeScreen === 'dashboard') return false;
       if (activeScreen === 'patientDetail') setActiveScreen(patientDetailOrigin);
       else if (activeScreen === 'visitDetail') setActiveScreen('patientDetail');
-      else if (activeScreen === 'prescription') setActiveScreen('visitDetail');
       else setActiveScreen('dashboard');
       return true;
     });
@@ -920,23 +919,20 @@ export default function DoctorDashboard({ navigation }) {
   if (activeScreen === 'patientDetail' && selectedListPatient) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <PatientDetailScreen patient={selectedListPatient} onBack={() => setActiveScreen(patientDetailOrigin)} onVisitPress={() => setActiveScreen('visitDetail')} />
+        <PatientDetailScreen
+          patient={selectedListPatient}
+          navigation={navigation}
+          onBack={() => setActiveScreen(patientDetailOrigin)}
+          onVisitPress={(record) => { setSelectedRecord(record); setActiveScreen('visitDetail'); }}
+        />
       </SafeAreaView>
     );
   }
 
-  if (activeScreen === 'visitDetail' && selectedListPatient) {
+  if (activeScreen === 'visitDetail' && selectedListPatient && selectedRecord) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <VisitDetailScreen patient={selectedListPatient} onBack={() => setActiveScreen('patientDetail')} onDownload={() => setActiveScreen('prescription')} />
-      </SafeAreaView>
-    );
-  }
-
-  if (activeScreen === 'prescription' && selectedListPatient) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <PrescriptionScreen patient={selectedListPatient} onBack={() => setActiveScreen('visitDetail')} />
+        <VisitDetailScreen patient={selectedListPatient} record={selectedRecord} onBack={() => setActiveScreen('patientDetail')} />
       </SafeAreaView>
     );
   }
@@ -951,7 +947,6 @@ export default function DoctorDashboard({ navigation }) {
           onChange={(label) => {
             if (label === 'Home') setActiveScreen('dashboard');
             if (label === 'Calendar') setActiveScreen('calendar');
-            if (label === 'Messages') setActiveScreen('messages');
             if (label === 'Staff') setActiveScreen('staffManagement');
           }}
         />
@@ -970,7 +965,6 @@ export default function DoctorDashboard({ navigation }) {
           onChange={(label) => {
             if (label === 'Home') setActiveScreen('dashboard');
             if (label === 'Patients') setActiveScreen('patients');
-            if (label === 'Messages') setActiveScreen('messages');
             if (label === 'Staff') setActiveScreen('staffManagement');
           }}
         />
@@ -1020,28 +1014,6 @@ export default function DoctorDashboard({ navigation }) {
     );
   }
 
-  if (activeScreen === 'messages') {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        {!isPatientChatOpen && <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} onSettingsPress={() => setActiveScreen('settings')} />}
-        <PatientCommunicationsScreen onChatOpenChange={setIsPatientChatOpen} />
-        {!isPatientChatOpen && (
-          <DoctorBottomNavigation
-            active="Messages"
-            onChange={(label) => {
-              setIsPatientChatOpen(false);
-              if (label === 'Home') setActiveScreen('dashboard');
-              if (label === 'Calendar') setActiveScreen('calendar');
-              if (label === 'Patients') setActiveScreen('patients');
-              if (label === 'Staff') setActiveScreen('staffManagement');
-            }}
-          />
-        )}
-        {!isPatientChatOpen && renderSidebar()}
-      </SafeAreaView>
-    );
-  }
-
   if (activeScreen === 'staffManagement') {
     const staffSubscreenOpen = isCreateStaffOpen || isStaffProfileOpen;
     return (
@@ -1055,7 +1027,6 @@ export default function DoctorDashboard({ navigation }) {
               if (label === 'Home') setActiveScreen('dashboard');
               if (label === 'Calendar') setActiveScreen('calendar');
               if (label === 'Patients') setActiveScreen('patients');
-              if (label === 'Messages') setActiveScreen('messages');
             }}
           />
         )}
@@ -1064,9 +1035,6 @@ export default function DoctorDashboard({ navigation }) {
     );
   }
 
-  const hour = new Date(now).getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const todayLabel = new Date(now).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
   const renderHomeBody = () => {
     if (loading) {
@@ -1103,15 +1071,6 @@ export default function DoctorDashboard({ navigation }) {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.blue]} />}
       >
-        <View style={styles.hero}>
-          <Text style={styles.heroTitle}>{greeting}, Dr. {doctorName.replace(/^Dr\.?\s*/i, '')}</Text>
-          <Text style={styles.heroSub}>
-            You have {pendingAppointments.length} appointments today.
-            {nextPatient ? ` Next appointment at ${nextPatient.scheduledTime}.` : ' No pending appointment right now.'}
-          </Text>
-          <Text style={styles.heroDate}>{todayLabel}</Text>
-        </View>
-
         <View style={styles.sectionHeader}>
           <Text style={styles.eyebrow}>OVERVIEW</Text>
           <Pressable onPress={() => setBreakModalVisible(true)} style={styles.breakButton}>
@@ -1228,7 +1187,6 @@ export default function DoctorDashboard({ navigation }) {
         onChange={(label) => {
           if (label === 'Patients') setActiveScreen('patients');
           if (label === 'Calendar') setActiveScreen('calendar');
-          if (label === 'Messages') setActiveScreen('messages');
           if (label === 'Staff') setActiveScreen('staffManagement');
         }}
       />
@@ -1241,10 +1199,6 @@ const styles = createDoctorStyles({
   safeArea: { flex: 1, backgroundColor: colors.background },
   completeAppointmentOverlay: { position: 'absolute', top: 58, right: 0, bottom: 65, left: 0, zIndex: 20 },
   content: { paddingHorizontal: 12, paddingTop: 13, paddingBottom: 18 },
-  hero: { marginBottom: 14 },
-  heroTitle: { ...typography.title, fontSize: 20, color: colors.ink },
-  heroSub: { ...typography.body, fontSize: 13.5, lineHeight: 19, color: colors.muted, marginTop: 4 },
-  heroDate: { ...typography.caption, fontSize: 12.5, color: colors.blue, marginTop: 4 },
   sectionHeader: { minHeight: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
   breakButton: { height: 28, paddingHorizontal: 11, borderRadius: 15, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: colors.surface },
   breakText: { ...typography.caption, fontSize: 15, color: colors.ink },

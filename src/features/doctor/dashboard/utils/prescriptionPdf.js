@@ -53,6 +53,70 @@ function buildSimplePdf(lines) {
   return header + objects.join('') + xref + trailer;
 }
 
+// Wrap long text into lines that fit the page (the simple PDF has no auto-wrap).
+const wrapText = (text, width = 80) => {
+  const out = [];
+  String(text ?? '').split('\n').forEach((paragraph) => {
+    let line = '';
+    paragraph.split(' ').forEach((word) => {
+      if ((line + ' ' + word).trim().length > width) {
+        if (line) out.push(line);
+        line = word;
+      } else {
+        line = `${line} ${word}`.trim();
+      }
+    });
+    out.push(line);
+  });
+  return out;
+};
+
+// Real prescription for one visit record — same sections as the web
+// PatientAppointmentDetails/pdfGenerator.js (patient info, visit details,
+// medical information, vital signs, prescription, instructions).
+export async function downloadVisitPrescriptionPdf(patient, record) {
+  if (isGeneratingPdf) return;
+  isGeneratingPdf = true;
+  try {
+    const name = isAscii(patient?.name) && patient?.name ? patient.name : 'Patient';
+    const fileName = `Prescription_${fileSafeName(name)}_${fileSafeName(record?.date)}`;
+    const pdfPath = `${RNFS.DocumentDirectoryPath}/${fileName}.pdf`;
+    const lines = [
+      'MEDICAL PRESCRIPTION',
+      `Prescription ID: RX-${record?.id ?? ''}    Generated: ${new Date().toLocaleDateString()}`,
+      '',
+      'PATIENT INFORMATION',
+      `Name: ${name}    Age/Gender: ${patient?.age} years, ${patient?.gender}`,
+      `Phone: ${patient?.phone}    Blood Group: ${patient?.bloodGroup}`,
+      '',
+      'VISIT DETAILS',
+      `Date: ${record?.date}    Time: ${record?.time}`,
+      `Doctor: ${record?.doctor}    Follow-up: ${record?.followUp}`,
+      '',
+      'MEDICAL INFORMATION',
+      ...wrapText(`Problem: ${record?.problem}`),
+      ...wrapText(`Diagnosis: ${record?.diagnosis}`),
+      '',
+      'VITAL SIGNS',
+      `Blood Pressure: ${record?.bp} mmHg    Pulse Rate: ${record?.pulse} bpm    Temperature: ${record?.temperature}`,
+      '',
+      'PRESCRIPTION',
+      ...wrapText(`Medication: ${record?.tablets}`),
+      `Duration: ${record?.days}`,
+      '',
+      "DOCTOR'S INSTRUCTIONS",
+      ...wrapText(record?.prescription),
+    ].slice(0, 38); // one A4 page
+    await RNFS.writeFile(pdfPath, buildSimplePdf(lines), 'utf8');
+    Alert.alert('Prescription downloaded', `Saved to ${pdfPath}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    Alert.alert('PDF failed', message || 'Unable to generate the prescription PDF. Please try again.');
+  } finally {
+    isGeneratingPdf = false;
+  }
+}
+
 export async function downloadPrescriptionPdf(patientName) {
   if (isGeneratingPdf) return;
   isGeneratingPdf = true;

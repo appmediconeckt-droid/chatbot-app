@@ -8,6 +8,7 @@ import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { API_BASE_URL } from '../../../../axiosConfig';
 import { launchImageLibrary } from 'react-native-image-picker';
+import LocationPicker from './LocationPicker';
 
 function toInitial(profile) {
   return {
@@ -145,10 +146,7 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
         </Section>
 
         <Section icon="pin" label="Location">
-          <Field label="Location / Address" value={form.location} onChangeText={set('location')} />
-          <View style={s.mapPreview}>
-            <AppIcon name="pin" size={22} color="#0D9488" strokeWidth={2} />
-          </View>
+          <LocationPicker value={form.location} onChange={set('location')} />
         </Section>
       </ScrollView>
     </View>
@@ -282,7 +280,6 @@ const s = createDoctorStyles({
   addInput: { flex: 1, height: 38, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 9, paddingHorizontal: 10, fontSize: 13, color: '#17243A' },
   addConfirm: { width: 38, height: 38, borderRadius: 9, backgroundColor: '#0D9488', alignItems: 'center', justifyContent: 'center' },
 
-  mapPreview: { height: 110, borderRadius: 10, backgroundColor: '#E7EEF5', alignItems: 'center', justifyContent: 'center', marginTop: 2 },
 
   feeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EEF1F5', gap: 10 },
   feeInfo: { flex: 1 },

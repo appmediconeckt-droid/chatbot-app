@@ -1,121 +1,159 @@
-// Ported from MediconecktApp's src/doctor/dashboard/components/VisitDetailScreen.tsx.
-import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+// Visit details — port of the web Patient Details "Visit Details" view
+// (PatientAppointmentDetails/PatientDetailsPage.jsx): patient banner, Visit
+// Information, Vital Signs, Medical Information, Prescription + Doctor's
+// Instructions, and Download Prescription (PDF with the web's sections).
+import React, { useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
+import { downloadVisitPrescriptionPdf } from '../utils/prescriptionPdf';
 
-export default function VisitDetailScreen({ patient, onBack, onDownload }) {
+export default function VisitDetailScreen({ patient, record, onBack }) {
+  const [downloading, setDownloading] = useState(false);
+
+  const download = async () => {
+    setDownloading(true);
+    try {
+      await downloadVisitPrescriptionPdf(patient, record);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <View style={s.screen}>
-      <Pressable onPress={onBack} style={s.header} hitSlop={8}>
-        <AppIcon name="chevron-left" size={16} color="#0D9488" strokeWidth={2.4} />
-        <Text style={s.headerText}>Back to Visit History</Text>
-      </Pressable>
+      <View style={s.header}>
+        <Pressable onPress={onBack} style={s.backButton} hitSlop={8}>
+          <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
+        </Pressable>
+        <Text style={s.title}>Visit Details</Text>
+      </View>
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        <View style={s.patient}>
-          <View style={s.initial}><Text style={s.initialText}>{patient.name[0]}</Text></View>
-          <View>
+        <View style={s.banner}>
+          <View style={s.avatar}><Text style={s.avatarText}>{patient.name.charAt(0).toUpperCase()}</Text></View>
+          <View style={s.flex}>
             <Text style={s.name}>{patient.name}</Text>
-            <Text style={s.id}>Patient ID: #MK-2894</Text>
+            <Text style={s.meta}>
+              {[patient.age !== 'N/A' ? `${patient.age} yrs` : null, patient.gender, patient.bloodGroup, patient.phone].filter(Boolean).join(' • ')}
+            </Text>
           </View>
         </View>
-        <View style={s.card}>
-          <View style={s.top}>
-            <View>
-              <Text style={s.label}>DATE & TIME</Text>
-              <Meta icon="calendar" text="2026-01-08" />
-              <Meta icon="clock" text="11:15 AM" />
-            </View>
-            <View style={s.doctor}>
-              <Text style={s.label}>DOCTOR</Text>
-              <Text style={s.doctorName}>Dr. A. Sharma</Text>
-            </View>
+
+        <Card title="Visit Information" icon="calendar">
+          <Row label="Date" value={record.date} />
+          <Row label="Time" value={record.time} />
+          <Row label="Consulting Doctor" value={record.doctor} highlight />
+          <Row label="Follow-up Date" value={record.followUp} warn={record.followUp !== 'Not required'} last />
+        </Card>
+
+        <Card title="Vital Signs" icon="pulse">
+          <View style={s.vitals}>
+            <Vital label="Blood Pressure" value={`${record.bp}${record.bp !== 'N/A' ? ' mmHg' : ''}`} icon="❤" tone="rose" />
+            <Vital label="Pulse Rate" value={`${record.pulse}${record.pulse !== 'N/A' ? ' bpm' : ''}`} icon="〰" tone="teal" />
+            <Vital label="Temperature" value={String(record.temperature)} icon="🌡" tone="amber" />
           </View>
-          <View style={s.rule} />
-          <Row label="Primary Problem"><Chip text="Migraine Headache" red /></Row>
-          <Row label="Follow-up"><Chip text="2026-01-12" /></Row>
-        </View>
-        <View style={s.card}>
-          <Title icon="file" text="Clinical Notes" />
-          <Text style={s.notes}>Patient reports severe throbbing pain on the right side of the head, accompanied by nausea and sensitivity to light. Symptoms started 48 hours ago. No visual aura reported. Previous episodes treated effectively with Sumatriptan.</Text>
-        </View>
-        <View style={s.card}>
-          <Title icon="folder" text="Prescribed Actions" />
-          <Action icon="pill" title="Sumatriptan 50mg" text="Take 1 tablet at onset of headache. Max 2 doses per 24 hours." />
-          <Action icon="bed" title="Rest & Hydration" text="Rest in a dark, quiet room. Maintain fluid intake." />
-        </View>
-        <Pressable style={s.downloadWrap} onPress={onDownload}>
+        </Card>
+
+        <Card title="Medical Information" icon="note">
+          <Text style={s.label}>Presenting Problem</Text>
+          <Text style={s.problem}>{record.problem}</Text>
+          <Text style={[s.label, s.labelSpaced]}>Diagnosis</Text>
+          <Text style={s.body}>{record.diagnosis}</Text>
+        </Card>
+
+        <Card title="Prescription" icon="pill">
+          <View style={s.rxBox}>
+            <Text style={s.label}>Medication</Text>
+            <Text style={s.body}>{record.tablets}</Text>
+            <Text style={[s.label, s.labelSpaced]}>Duration</Text>
+            <Text style={s.body}>{record.days}</Text>
+          </View>
+          <Text style={[s.label, s.labelSpaced]}>Doctor's Instructions</Text>
+          <Text style={s.body}>{record.prescription}</Text>
+        </Card>
+      </ScrollView>
+      <View style={s.footer}>
+        <Pressable onPress={download} disabled={downloading} style={s.downloadWrap}>
           <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.download}>
-            <Text style={s.downloadText}>⇩  Download Prescription</Text>
+            {downloading ? <ActivityIndicator color="#FFF" /> : <AppIcon name="download" size={16} color="#FFF" />}
+            <Text style={s.downloadText}>{downloading ? 'Downloading...' : 'Download Prescription'}</Text>
           </LinearGradient>
         </Pressable>
-      </ScrollView>
-    </View>
-  );
-}
-function Meta({ icon, text }) {
-  return <View style={s.meta}><AppIcon name={icon} size={14} color="#385273" /><Text style={s.metaText}>{text}</Text></View>;
-}
-function Row({ label, children }) {
-  return <View style={s.row}><Text style={s.rowLabel}>{label}</Text>{children}</View>;
-}
-function Chip({ text, red }) {
-  return <View style={[s.chip, red && s.redChip]}><Text style={[s.chipText, red && s.redText]}>{text}</Text></View>;
-}
-function Title({ icon, text }) {
-  return (
-    <>
-      <View style={s.titleRow}><AppIcon name={icon} size={18} color="#385273" strokeWidth={2} /><Text style={s.title}>{text}</Text></View>
-      <View style={s.rule} />
-    </>
-  );
-}
-function Action({ icon, title, text }) {
-  return (
-    <View style={s.action}>
-      <View style={s.actionIcon}><AppIcon name={icon} size={17} color="#0D9488" strokeWidth={2} /></View>
-      <View style={s.grow}>
-        <Text style={s.actionTitle}>{title}</Text>
-        <Text style={s.actionText}>{text}</Text>
       </View>
     </View>
   );
 }
+
+function Card({ title, icon, children }) {
+  return (
+    <View style={s.card}>
+      <View style={s.cardHead}>
+        <View style={s.cardIcon}><AppIcon name={icon} size={14} color="#0D9488" /></View>
+        <Text style={s.cardTitle}>{title}</Text>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function Row({ label, value, highlight, warn, last }) {
+  return (
+    <View style={[s.row, last && s.rowLast]}>
+      <Text style={s.rowLabel}>{label}</Text>
+      <Text style={[s.rowValue, highlight && s.rowHighlight, warn && s.rowWarn]} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+}
+
+function Vital({ label, value, icon, tone }) {
+  return (
+    <View style={[s.vital, s[`vital_${tone}`]]}>
+      <Text style={s.vitalIcon}>{icon}</Text>
+      <Text style={s.vitalValue}>{value}</Text>
+      <Text style={s.vitalLabel}>{label}</Text>
+    </View>
+  );
+}
+
 const s = createDoctorStyles({
   screen: { flex: 1, backgroundColor: '#F0FDFA' },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 15, paddingTop: 15, paddingBottom: 6 },
-  headerText: { fontSize: 14, fontWeight: '600', color: '#0D9488' },
-  content: { padding: 15, paddingTop: 6, paddingBottom: 28 },
-  patient: { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
-  initial: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#0D9488', alignItems: 'center', justifyContent: 'center', marginRight: 12, shadowColor: '#0D9488', shadowOpacity: 0.18, shadowRadius: 5, elevation: 2 },
-  initialText: { fontSize: 17, fontWeight: '600', color: '#FFF' },
-  name: { fontSize: 21, lineHeight: 27, fontWeight: '700', color: '#17243A' },
-  id: { fontSize: 14, lineHeight: 19, color: '#667085', marginTop: 1 },
-  card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CCD5E2', borderRadius: 10, padding: 14, marginBottom: 16, shadowColor: '#17243A', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-  top: { flexDirection: 'row', justifyContent: 'space-between' },
-  label: { fontSize: 13, lineHeight: 17, fontWeight: '700', letterSpacing: 0.3, color: '#526078' },
-  meta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  metaText: { fontSize: 14, lineHeight: 19, fontWeight: '500', color: '#344054' },
-  doctor: { alignItems: 'flex-end' },
-  doctorName: { fontSize: 15, lineHeight: 20, fontWeight: '600', color: '#0D9488', marginTop: 10 },
-  rule: { height: 1, backgroundColor: '#E0E5EC', marginVertical: 14 },
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
-  rowLabel: { fontSize: 14, lineHeight: 19, fontWeight: '500', color: '#667085' },
-  chip: { backgroundColor: '#DFF5F3', borderWidth: 1, borderColor: '#B9E7E2', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 },
-  chipText: { fontSize: 13, fontWeight: '600', color: '#13756E' },
-  redChip: { backgroundColor: '#FDF1F1', borderColor: '#F5DADA' },
-  redText: { color: '#C0463F' },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  title: { fontSize: 17, lineHeight: 22, fontWeight: '600', color: '#25344A' },
-  notes: { fontSize: 14, lineHeight: 21, color: '#536174' },
-  action: { minHeight: 76, backgroundColor: '#F6F8FB', borderWidth: 1, borderColor: '#DCE2EA', borderRadius: 8, padding: 12, flexDirection: 'row', marginBottom: 11 },
-  actionIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#D8FEFF', alignItems: 'center', justifyContent: 'center', marginRight: 11 },
-  grow: { flex: 1 },
-  actionTitle: { fontSize: 14, lineHeight: 19, fontWeight: '600', color: '#273449' },
-  actionText: { fontSize: 13, lineHeight: 18, color: '#667085', marginTop: 3 },
-  downloadWrap: { marginHorizontal: 4, marginTop: 2, borderRadius: 8, shadowColor: '#0D9488', shadowOpacity: 0.22, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
-  download: { height: 48, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  downloadText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+  flex: { flex: 1 },
+  header: { height: 60, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D7E7E4', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },
+  backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F0FDFA', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  title: { fontSize: 18, fontWeight: '800', color: '#0D9488' },
+  content: { padding: 14, paddingBottom: 20 },
+  banner: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFF', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#E3EEEC' },
+  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#CCFBF1', alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 20, fontWeight: '800', color: '#0F766E' },
+  name: { fontSize: 17, fontWeight: '800', color: '#17243A' },
+  meta: { fontSize: 12.5, color: '#667085', marginTop: 3 },
+  card: { backgroundColor: '#FFF', borderRadius: 16, padding: 14, marginTop: 12, borderWidth: 1, borderColor: '#E3EEEC' },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  cardIcon: { width: 28, height: 28, borderRadius: 9, backgroundColor: '#E6FBF8', alignItems: 'center', justifyContent: 'center' },
+  cardTitle: { fontSize: 15, fontWeight: '800', color: '#17243A' },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#EEF3F2' },
+  rowLast: { borderBottomWidth: 0 },
+  rowLabel: { fontSize: 13, color: '#667085' },
+  rowValue: { flexShrink: 1, fontSize: 13.5, fontWeight: '700', color: '#17243A', textAlign: 'right' },
+  rowHighlight: { color: '#0F766E' },
+  rowWarn: { color: '#B45309' },
+  vitals: { flexDirection: 'row', gap: 8 },
+  vital: { flex: 1, borderRadius: 14, padding: 10, alignItems: 'center' },
+  vital_rose: { backgroundColor: '#FFF1F2' },
+  vital_teal: { backgroundColor: '#F0FDFA' },
+  vital_amber: { backgroundColor: '#FFFBEB' },
+  vitalIcon: { fontSize: 18 },
+  vitalValue: { fontSize: 14, fontWeight: '800', color: '#17243A', marginTop: 4, textAlign: 'center' },
+  vitalLabel: { fontSize: 11, color: '#667085', marginTop: 2, textAlign: 'center' },
+  label: { fontSize: 12, fontWeight: '800', letterSpacing: 0.3, color: '#667085', textTransform: 'uppercase' },
+  labelSpaced: { marginTop: 12 },
+  problem: { fontSize: 14, fontWeight: '700', color: '#0F766E', marginTop: 4 },
+  body: { fontSize: 14, lineHeight: 20, color: '#344054', marginTop: 4 },
+  rxBox: { backgroundColor: '#F8FFFE', borderWidth: 1, borderColor: '#CCFBF1', borderRadius: 12, padding: 12 },
+  footer: { padding: 12, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#D7E7E4' },
+  downloadWrap: {},
+  download: { height: 50, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  downloadText: { fontSize: 15, fontWeight: '800', color: '#FFF' },
 });

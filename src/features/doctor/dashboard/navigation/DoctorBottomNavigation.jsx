@@ -8,7 +8,6 @@ const routes = [
   ['home', 'Home'],
   ['calendar', 'Calendar'],
   ['user', 'Patients'],
-  ['message', 'Messages'],
   ['users', 'Staff'],
 ];
 

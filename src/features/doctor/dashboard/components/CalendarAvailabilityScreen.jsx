@@ -14,11 +14,11 @@
 // Availability is also cached per doctor+clinic (web: localStorage,
 // app: AsyncStorage `doctorAvailability:<doctorId>:<clinicId>`).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LinearGradient from 'react-native-linear-gradient';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import AppIcon from '../icons/AppIcon';
+import TimePickerSheet from './TimePickerSheet';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles, doctorGradient, gradientDirection } from '../theme';
 import axiosInstance from '../../../../axiosConfig';
@@ -209,18 +209,24 @@ const isPastDate = (year, month, day) => {
 
 const isPastDateTime = (year, month, day, hour, minute) => new Date(year, month, day, hour, minute) < new Date();
 
-const timeToDate = (hhmm) => {
-  const d = new Date();
-  if (hhmm) {
-    const [h, m] = hhmm.split(':').map(Number);
-    d.setHours(h, m, 0, 0);
-  } else {
-    d.setHours(9, 0, 0, 0);
-  }
-  return d;
+// Quick presets shown above the time fields.
+const TIME_PRESETS = [
+  { label: 'Morning', icon: '☀', start: '09:00', end: '13:00' },
+  { label: 'Afternoon', icon: '◐', start: '14:00', end: '17:00' },
+  { label: 'Evening', icon: '☾', start: '18:00', end: '21:00' },
+];
+
+const addMinutes = (hhmm, mins) => {
+  const total = Math.min(toMinutes(hhmm) + mins, 23 * 60 + 59);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 };
 
-const dateToTime = (date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+// How many bookable slots a range produces (same maths as slot generation).
+const countSlots = (range) => {
+  if (!isUsableTimeRange(range)) return 0;
+  const duration = Number(range.duration || 15);
+  return Math.floor((toMinutes(range.end) - toMinutes(range.start)) / duration);
+};
 
 const formatTime12h = (hhmm) => {
   if (!hhmm) return '--:--';
@@ -533,19 +539,33 @@ export default function CalendarAvailabilityScreen() {
     }
   };
 
-  const removeRange = async (index) => {
-    if (!editingTarget) return;
-    if (editingTarget.type === 'date') {
-      if (isPastDate(editingTarget.year, editingTarget.month, editingTarget.day)) return Alert.alert('Calendar', 'Cannot modify past dates');
-      const key = editingTarget.key;
-      const range = (availabilityDateMap[key]?.ranges || [])[index];
-      if (range?.id && !String(range.id).startsWith('local-')) {
-        try {
-          await axiosInstance.delete(`/api/availability/ranges/${range.id}`);
-        } catch (error) {
-          return Alert.alert('Calendar', apiMessage(error, 'Failed to delete range'));
-        }
+  const isLocalId = (id) => !id || String(id).startsWith('local-');
+
+  const dateKeyParts = (key) => {
+    const [y, m, d] = String(key).split('-').map(Number);
+    return { y, m: m - 1, d };
+  };
+
+  // Delete one saved range — type 'date' (key = YYYY-MM-DD) or 'weekday' (key = 0-6).
+  const deleteSavedRange = async (type, key, index) => {
+    if (type === 'date') {
+      const { y, m, d } = dateKeyParts(key);
+      if (isPastDate(y, m, d)) return Alert.alert('Calendar', 'Cannot modify past dates');
+    }
+    const list = type === 'date' ? availabilityDateMap[key]?.ranges || [] : availabilityWeekdayMap[key] || [];
+    const range = list[index];
+    if (!range) return;
+    if (!isLocalId(range.id)) {
+      try {
+        setBusy(true);
+        await axiosInstance.delete(`/api/availability/ranges/${range.id}`);
+      } catch (error) {
+        return Alert.alert('Calendar', apiMessage(error, 'Failed to delete range'));
+      } finally {
+        setBusy(false);
       }
+    }
+    if (type === 'date') {
       setAvailabilityDateMap((prev) => {
         const info = prev[key] || { ranges: [], blocked: false };
         const next = { ...prev, [key]: { ...info, ranges: (info.ranges || []).filter((_, i) => i !== index), blocked: info.blocked || false } };
@@ -553,38 +573,103 @@ export default function CalendarAvailabilityScreen() {
         return next;
       });
     } else {
-      const w = editingTarget.key;
-      const range = (availabilityWeekdayMap[w] || [])[index];
-      if (range?.id && !String(range.id).startsWith('local-')) {
-        try {
-          await axiosInstance.delete(`/api/availability/ranges/${range.id}`);
-        } catch (error) {
-          return Alert.alert('Calendar', apiMessage(error, 'Failed to delete range'));
-        }
-      }
       setAvailabilityWeekdayMap((prev) => {
-        const next = { ...prev, [w]: (prev[w] || []).filter((_, i) => i !== index) };
+        const next = { ...prev, [key]: (prev[key] || []).filter((_, i) => i !== index) };
         saveLocalAvailability(getAllLocalRanges(availabilityDateMap, next), availabilityDateMap);
         return next;
       });
     }
+    showToast('Time range deleted');
   };
 
-  // Recurring card trash icon: delete one weekday range (web weekday editor).
-  const removeRangeForWeekday = async (w, index) => {
-    const range = (availabilityWeekdayMap[w] || [])[index];
-    if (range?.id && !String(range.id).startsWith('local-')) {
-      try {
-        await axiosInstance.delete(`/api/availability/ranges/${range.id}`);
-      } catch (error) {
-        return Alert.alert('Calendar', apiMessage(error, 'Failed to delete range'));
-      }
+  const confirmDeleteSavedRange = (type, key, index) => {
+    const list = type === 'date' ? availabilityDateMap[key]?.ranges || [] : availabilityWeekdayMap[key] || [];
+    const range = list[index];
+    if (!range) return;
+    Alert.alert(
+      'Delete time range',
+      `Delete ${formatTime12h(range.start)} – ${formatTime12h(range.end)} for ${type === 'date' ? key : `every ${DAYS[key]}`}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => deleteSavedRange(type, key, index) },
+      ],
+    );
+  };
+
+  // ---- edit a saved range -------------------------------------------------
+  // The API has no update route, so an edit = delete the old range + create
+  // the new one (the old one is restored if creating the new one fails).
+  const [rangeEdit, setRangeEdit] = useState(null); // { type, key, index, start, end, duration }
+
+  const openRangeEdit = (type, key, index) => {
+    const list = type === 'date' ? availabilityDateMap[key]?.ranges || [] : availabilityWeekdayMap[key] || [];
+    const range = list[index];
+    if (!range) return;
+    if (type === 'date') {
+      const { y, m, d } = dateKeyParts(key);
+      if (isPastDate(y, m, d)) return Alert.alert('Calendar', 'Cannot modify past dates');
     }
-    setAvailabilityWeekdayMap((prev) => {
-      const next = { ...prev, [w]: (prev[w] || []).filter((_, i) => i !== index) };
-      saveLocalAvailability(getAllLocalRanges(availabilityDateMap, next), availabilityDateMap);
-      return next;
-    });
+    setRangeEdit({ type, key, index, start: range.start, end: range.end, duration: Number(range.duration || 15) });
+  };
+
+  const saveRangeEdit = async () => {
+    if (!rangeEdit) return;
+    const { type, key, index } = rangeEdit;
+    const candidate = { start: rangeEdit.start, end: rangeEdit.end, duration: rangeEdit.duration };
+    if (!isUsableTimeRange(candidate)) return Alert.alert('Calendar', 'End time must be after Start time');
+    if (type === 'date') {
+      const { y, m, d } = dateKeyParts(key);
+      const [h, mi] = candidate.start.split(':').map(Number);
+      if (isPastDateTime(y, m, d, h, mi)) return Alert.alert('Calendar', 'Cannot add time in the past');
+    }
+    const list = type === 'date' ? availabilityDateMap[key]?.ranges || [] : availabilityWeekdayMap[key] || [];
+    const old = list[index];
+    if (!old) return setRangeEdit(null);
+    if (old.start === candidate.start && old.end === candidate.end && Number(old.duration) === candidate.duration) {
+      return setRangeEdit(null);
+    }
+    const conflict = getRangeConflict(candidate, list.filter((_, i) => i !== index));
+    if (conflict) return Alert.alert('Calendar', conflict);
+
+    const target = { type, key };
+    setBusy(true);
+    try {
+      if (!isLocalId(old.id)) {
+        await axiosInstance.delete(`/api/availability/ranges/${old.id}`);
+      }
+      let saved;
+      try {
+        saved = await persistRange(candidate, target);
+      } catch (error) {
+        // Put the original range back so nothing is lost.
+        let restored = old;
+        try { restored = await persistRange(old, target); } catch { /* keep local copy */ }
+        const rollback = list.map((r, i) => (i === index ? restored : r));
+        if (type === 'date') setAvailabilityDateMap((prev) => ({ ...prev, [key]: { ...(prev[key] || {}), ranges: rollback } }));
+        else setAvailabilityWeekdayMap((prev) => ({ ...prev, [key]: rollback }));
+        return Alert.alert('Calendar', apiMessage(error, error?.message || 'Failed to update time range'));
+      }
+      const updated = sortAvailabilityRanges(list.map((r, i) => (i === index ? saved : r)));
+      if (type === 'date') {
+        setAvailabilityDateMap((prev) => {
+          const next = { ...prev, [key]: { ...(prev[key] || { blocked: false }), ranges: updated } };
+          saveLocalAvailability(getAllLocalRanges(next, availabilityWeekdayMap), next);
+          return next;
+        });
+      } else {
+        setAvailabilityWeekdayMap((prev) => {
+          const next = { ...prev, [key]: updated };
+          saveLocalAvailability(getAllLocalRanges(availabilityDateMap, next), availabilityDateMap);
+          return next;
+        });
+      }
+      setRangeEdit(null);
+      showToast('Time range updated');
+    } catch (error) {
+      Alert.alert('Calendar', apiMessage(error, 'Failed to update time range'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const toggleBlockDate = async (dateKey, y, m, day) => {
@@ -812,31 +897,145 @@ export default function CalendarAvailabilityScreen() {
   const updateAdditionalTimeRow = (index, field, value) =>
     setAdditionalTimeRows((rows) => rows.map((r, i) => (i === index ? { ...r, [field]: field === 'duration' ? Number(value) : value } : r)));
   const addAdditionalTimeRow = () => setAdditionalTimeRows((rows) => [...rows, createEmptyTimeRange()]);
-  const removeAdditionalTimeRow = (index) => setAdditionalTimeRows((rows) => (rows.length === 1 ? rows : rows.filter((_, i) => i !== index)));
+  // Trash always works: the last remaining card is cleared instead of removed.
+  const removeAdditionalTimeRow = (index) =>
+    setAdditionalTimeRows((rows) => (rows.length === 1 ? [createEmptyTimeRange()] : rows.filter((_, i) => i !== index)));
 
-  const onPickTime = (event, selected) => {
+  const isPresetInRows = (preset) => additionalTimeRows.some((r) => r.start === preset.start && r.end === preset.end);
+
+  // Quick-add chips: tap Morning / Afternoon / Evening to add that window as
+  // its own range (fills an empty card first), tap again to remove it.
+  const toggleAdditionalPreset = (preset) => {
+    setAdditionalTimeRows((rows) => {
+      const existing = rows.findIndex((r) => r.start === preset.start && r.end === preset.end);
+      if (existing !== -1) {
+        const remaining = rows.filter((_, i) => i !== existing);
+        return remaining.length ? remaining : [createEmptyTimeRange()];
+      }
+      const emptyIndex = rows.findIndex((r) => !r.start && !r.end);
+      const filled = { start: preset.start, end: preset.end, duration: 15 };
+      if (emptyIndex !== -1) return rows.map((r, i) => (i === emptyIndex ? { ...r, start: preset.start, end: preset.end } : r));
+      return sortAvailabilityRanges([...rows, filled]);
+    });
+  };
+
+  // Apply a picked time. Picking a start time with no (or an earlier) end
+  // time pre-fills the end one hour later, so the common case is 2 taps.
+  const applyPickedTime = (value) => {
     const current = picker;
-    if (Platform.OS === 'android') setPicker(null);
-    if (!current || event?.type === 'dismissed' || !selected) return;
-    const value = dateToTime(selected);
-    if (current.context === 'row') updateAdditionalTimeRow(current.index, current.field, value);
-    else setNewRange((prev) => ({ ...prev, [current.field]: value }));
+    setPicker(null);
+    if (!current) return;
+    const patch = (range) => {
+      const next = { ...range, [current.field]: value };
+      if (current.field === 'start' && (!next.end || toMinutes(next.end) <= toMinutes(value))) {
+        next.end = addMinutes(value, 60);
+      }
+      return next;
+    };
+    if (current.context === 'row') {
+      setAdditionalTimeRows((rows) => rows.map((r, i) => (i === current.index ? patch(r) : r)));
+    } else if (current.context === 'edit') {
+      setRangeEdit((prev) => (prev ? patch(prev) : prev));
+    } else {
+      setNewRange((prev) => patch(prev));
+    }
   };
 
-  const pickerValue = () => {
-    if (!picker) return new Date();
-    const raw = picker.context === 'row' ? additionalTimeRows[picker.index]?.[picker.field] : newRange[picker.field];
-    return timeToDate(raw);
-  };
+  const pickerRange = (ctx, index) =>
+    (ctx === 'row' ? additionalTimeRows[index] : ctx === 'edit' ? rangeEdit : newRange) || {};
 
-  const renderTimePicker = () => (picker ? (
-    <View>
-      <DateTimePicker value={pickerValue()} mode="time" is24Hour={false} display={Platform.OS === 'ios' ? 'spinner' : 'default'} onChange={onPickTime} />
-      {Platform.OS === 'ios' && (
-        <Pressable style={s.pickerDone} onPress={() => setPicker(null)}><Text style={s.pickerDoneText}>Done</Text></Pressable>
-      )}
+  const pickerCurrentValue = picker ? pickerRange(picker.context, picker.index)[picker.field] : '';
+  const pickerFallback = picker?.field === 'end' ? pickerRange(picker.context, picker.index).start : '09:00';
+
+  const renderTimePicker = (context) => (
+    <TimePickerSheet
+      visible={picker?.context === context}
+      title={picker?.field === 'end' ? 'End time' : 'Start time'}
+      value={pickerCurrentValue}
+      fallback={pickerFallback ? addMinutes(pickerFallback, picker?.field === 'end' ? 60 : 0) : '09:00'}
+      onCancel={() => setPicker(null)}
+      onConfirm={applyPickedTime}
+    />
+  );
+
+  // "Edit time range" card — an overlay inside whichever modal opened it.
+  const renderRangeEditor = () => (rangeEdit ? (
+    <View style={s.editOverlay}>
+      <Pressable style={s.editBackdrop} onPress={() => setRangeEdit(null)} />
+      <View style={s.editCard}>
+        <View style={s.modalHeader}>
+          <View style={s.flex}>
+            <Text style={s.modalTitle}>Edit time range</Text>
+            <Text style={s.cardSub}>{rangeEdit.type === 'date' ? rangeEdit.key : `Every ${DAYS[rangeEdit.key]}`}</Text>
+          </View>
+          <Pressable onPress={() => setRangeEdit(null)} hitSlop={8}><AppIcon name="x" size={18} color="#667085" /></Pressable>
+        </View>
+        <PresetRow
+          activeRange={rangeEdit}
+          onPick={(preset) => setRangeEdit((p) => ({ ...p, start: preset.start, end: preset.end }))}
+        />
+        <View style={s.timeFields}>
+          <TimeField label="Start Time" value={rangeEdit.start} onPress={() => setPicker({ context: 'edit', field: 'start' })} />
+          <Text style={s.timeArrow}>→</Text>
+          <TimeField
+            label="End Time"
+            value={rangeEdit.end}
+            invalid={Boolean(rangeEdit.start && rangeEdit.end && !isUsableTimeRange(rangeEdit))}
+            onPress={() => setPicker({ context: 'edit', field: 'end' })}
+          />
+        </View>
+        <RangeHint range={rangeEdit} />
+        <Text style={s.fieldLabel}>Slot Duration</Text>
+        <View style={s.durationRow}>
+          {[5, 10, 15, 20, 30, 45].map((mins) => (
+            <Pressable key={mins} onPress={() => setRangeEdit((p) => ({ ...p, duration: mins }))} style={[s.durationChip, rangeEdit.duration === mins && s.durationChipActive]}>
+              <Text style={[s.durationChipText, rangeEdit.duration === mins && s.durationChipTextActive]}>{mins} min</Text>
+            </Pressable>
+          ))}
+        </View>
+        <View style={s.modalActions}>
+          <Pressable style={s.outlineBtnFlex} onPress={() => setRangeEdit(null)}><Text style={s.outlineBtnText}>Cancel</Text></Pressable>
+          <Pressable
+            style={[s.solidBtn, s.solidBtnWide, (!isUsableTimeRange(rangeEdit) || busy) && s.disabled]}
+            disabled={!isUsableTimeRange(rangeEdit) || busy}
+            onPress={saveRangeEdit}
+          >
+            <Text style={s.solidBtnText}>{busy ? 'Saving…' : 'Update Range'}</Text>
+          </Pressable>
+        </View>
+      </View>
     </View>
   ) : null);
+
+  // Saved ranges row with Edit + Delete.
+  const renderSavedRangeRow = (type, key, range, index) => (
+    <View key={`${type}-${key}-${range.start}-${range.end}-${index}`} style={s.rangeRow}>
+      <AppIcon name="clock" size={13} color="#667085" />
+      <Text style={s.rangeText}>{formatTime12h(range.start)}</Text>
+      <Text style={s.rangeArrow}>→</Text>
+      <Text style={s.rangeText}>{formatTime12h(range.end)}</Text>
+      <Text style={s.rangeDuration}>{range.duration}m</Text>
+      <View style={s.rangeActions}>
+        <Pressable onPress={() => openRangeEdit(type, key, index)} hitSlop={8} style={s.iconBtn}>
+          <AppIcon name="edit" size={14} color={colors.blue} />
+        </Pressable>
+        <Pressable onPress={() => confirmDeleteSavedRange(type, key, index)} hitSlop={8} style={[s.iconBtn, s.iconBtnDanger]}>
+          <AppIcon name="trash" size={14} color="#DC2626" />
+        </Pressable>
+      </View>
+    </View>
+  );
+
+  // Already-saved ranges for the dates / weekdays the modal will save to.
+  const savedTargets = activeCalendarTab === 'recurring'
+    ? recurringWeekdays.map((w) => ({ type: 'weekday', key: w, label: `Every ${DAYS[w]}`, ranges: availabilityWeekdayMap[w] || [] }))
+    : selectedDays
+      .filter((day) => !isPastDate(year, month, day))
+      .map((day) => {
+        const key = formatDateKey(year, month, day);
+        return { type: 'date', key, label: `${MONTH_NAMES[month].slice(0, 3)} ${day}, ${year}`, ranges: availabilityDateMap[key]?.ranges || [] };
+      })
+      .filter((t) => t.ranges.length);
 
   // ---- derived view state -------------------------------------------------
   const monthName = MONTH_NAMES[month];
@@ -850,14 +1049,15 @@ export default function CalendarAvailabilityScreen() {
   while (calendarCells.length % 7 !== 0) {
     calendarCells.push({ day: calendarCells.length - firstDayIndex - monthDays + 1, muted: true });
   }
+  const now = new Date();
+  const todayKey = formatDateKey(now.getFullYear(), now.getMonth(), now.getDate());
+  const isViewingCurrentMonth = month === now.getMonth() && year === now.getFullYear();
   const weeks = [];
   for (let i = 0; i < calendarCells.length; i += 7) weeks.push(calendarCells.slice(i, i + 7));
 
   const selectedDateLabel = selectedDays.length
     ? `${monthName} ${selectedDays[0]}, ${year}`
     : `${monthName} ${new Date().getDate()}, ${year}`;
-  const configuredDatesCount = Object.values(availabilityDateMap).filter((item) => item?.ranges?.length).length;
-  const recurringConfiguredCount = Object.values(availabilityWeekdayMap).filter((r) => r?.length).length;
   const blockedCount = Object.values(availabilityDateMap).filter((item) => item?.blocked).length;
   const visibleSlotPreview = slotPreview.filter((entry) => {
     const info = availabilityDateMap[entry.date] || {};
@@ -913,24 +1113,33 @@ export default function CalendarAvailabilityScreen() {
         {!!apiError && <Text style={s.apiNote}>{apiError}</Text>}
 
         {/* Month card */}
-        <View style={s.card}>
-          <View style={s.monthRow}>
-            <Text style={s.month}>{monthName} {year}</Text>
-            <Pressable onPress={() => changeMonth(-1)} hitSlop={8} style={s.monthBtn}>
-              <AppIcon name="chevron-left" size={16} color="#344054" strokeWidth={2.2} />
+        <View style={s.monthCard}>
+          <LinearGradient colors={doctorGradient} {...gradientDirection} style={s.monthHeader}>
+            <Pressable onPress={() => changeMonth(-1)} hitSlop={8} style={s.monthNavBtn}>
+              <AppIcon name="chevron-left" size={18} color="#FFF" strokeWidth={2.4} />
             </Pressable>
-            <Pressable onPress={() => changeMonth(1)} hitSlop={8} style={s.monthBtn}>
-              <AppIcon name="chevron-right" size={16} color="#344054" strokeWidth={2.2} />
+            <View style={s.monthTitleWrap}>
+              <Text style={s.monthTitle}>{monthName}</Text>
+              <Text style={s.monthYear}>{year}</Text>
+            </View>
+            <Pressable onPress={() => changeMonth(1)} hitSlop={8} style={s.monthNavBtn}>
+              <AppIcon name="chevron-right" size={18} color="#FFF" strokeWidth={2.4} />
             </Pressable>
+          </LinearGradient>
+
+          {!isViewingCurrentMonth && (
+            <Pressable style={s.todayPill} onPress={() => setCurrentDate(new Date())}>
+              <AppIcon name="calendar" size={12} color={colors.blue} />
+              <Text style={s.todayPillText}>Back to today</Text>
+            </Pressable>
+          )}
+
+          <View style={s.weekHeader}>
+            {DAYS.map((d, i) => (
+              <Text key={d} style={[s.dayHead, (i === 0 || i === 6) && s.dayHeadWeekend]}>{d.slice(0, 3).toUpperCase()}</Text>
+            ))}
           </View>
-          <View style={s.legend}>
-            <View style={[s.legendDot, s.legendConfigured]} /><Text style={s.legendText}>Configured</Text>
-            <View style={[s.legendDot, s.legendSelected]} /><Text style={s.legendText}>Selected</Text>
-            <View style={[s.legendDot, s.legendEmpty]} /><Text style={s.legendText}>Empty</Text>
-          </View>
-          <View style={s.week}>
-            {DAYS.map((d) => <Text key={d} style={s.dayHead}>{d.toUpperCase()}</Text>)}
-          </View>
+
           {weeks.map((week, row) => (
             <View key={row} style={s.week}>
               {week.map((cell, col) => {
@@ -939,7 +1148,6 @@ export default function CalendarAvailabilityScreen() {
                 const info = !cell.muted ? availabilityDateMap[dateKey] || {} : {};
                 const recurringRanges = !cell.muted ? availabilityWeekdayMap[weekday] || [] : [];
                 const isBlocked = Boolean(info.blocked);
-                const isRecurring = !cell.muted && (recurringWeekdays.includes(weekday) || recurringRanges.length > 0);
                 const specificCount = (info.ranges || []).length;
                 const recurringCount = recurringRanges.length;
                 const isConfigured = !cell.muted && (activeCalendarTab === 'specific'
@@ -947,7 +1155,9 @@ export default function CalendarAvailabilityScreen() {
                   : activeCalendarTab === 'recurring' ? recurringCount > 0 : isBlocked);
                 const isPast = !cell.muted && isPastDate(year, month, cell.day);
                 const rangeCount = activeCalendarTab === 'specific' ? specificCount : activeCalendarTab === 'recurring' ? recurringCount : 0;
-                const tabSelected = activeCalendarTab === 'recurring' ? recurringWeekdays.includes(weekday) : !cell.muted && selectedDays.includes(cell.day);
+                const tabSelected = activeCalendarTab === 'recurring' ? !cell.muted && recurringWeekdays.includes(weekday) : !cell.muted && selectedDays.includes(cell.day);
+                const isToday = !cell.muted && dateKey === todayKey;
+                const blockedHere = activeCalendarTab === 'unavailable' && isBlocked;
                 return (
                   <Pressable
                     key={`${cell.day}-${col}`}
@@ -956,31 +1166,53 @@ export default function CalendarAvailabilityScreen() {
                       if (activeCalendarTab === 'recurring') toggleRecurringWeekday(weekday);
                       else openEditorForDate(year, month, cell.day);
                     }}
-                    style={[
+                    style={({ pressed }) => [
                       s.cell,
-                      isConfigured && s.cellConfigured,
-                      activeCalendarTab === 'recurring' && isRecurring && s.cellRecurring,
-                      activeCalendarTab === 'unavailable' && isBlocked && s.cellUnavailable,
-                      tabSelected && s.cellSelected,
+                      isConfigured && !blockedHere && s.cellConfigured,
+                      blockedHere && s.cellUnavailable,
+                      isToday && s.cellToday,
+                      tabSelected && !blockedHere && s.cellSelected,
                       (cell.muted || isPast) && s.cellDisabled,
+                      pressed && s.cellPressed,
                     ]}
                   >
-                    <Text style={[s.cellDay, cell.muted && s.cellDayMuted, tabSelected && s.cellDaySelected]}>{cell.day}</Text>
-                    {!cell.muted && activeCalendarTab === 'unavailable' && isBlocked && <Text style={s.cellUnavailableLabel} numberOfLines={1}>Unavail.</Text>}
-                    {!cell.muted && activeCalendarTab !== 'unavailable' && rangeCount > 0 && (
-                      <Text style={s.cellRanges} numberOfLines={1}>{rangeCount} {rangeCount === 1 ? 'range' : 'ranges'}</Text>
-                    )}
+                    <Text
+                      style={[
+                        s.cellDay,
+                        (col === 0 || col === 6) && !cell.muted && s.cellDayWeekend,
+                        cell.muted && s.cellDayMuted,
+                        isToday && s.cellDayToday,
+                        tabSelected && !blockedHere && s.cellDaySelected,
+                        blockedHere && s.cellDayBlocked,
+                      ]}
+                    >
+                      {cell.day}
+                    </Text>
+                    {!cell.muted && blockedHere && <Text style={s.badgeOff}>OFF</Text>}
                     {!cell.muted && activeCalendarTab === 'recurring' && tabSelected && rangeCount === 0 && (
-                      <Text style={s.cellRanges} numberOfLines={1}>Weekly</Text>
+                      <View style={[s.dotMark, s.dotMarkOnSelected]} />
                     )}
-                    {!cell.muted && !isPast && !tabSelected && !isConfigured && (
-                      <Text style={s.cellEmpty} numberOfLines={1}>{activeCalendarTab === 'unavailable' ? 'Avail.' : '—'}</Text>
-                    )}
+                    {isToday && !tabSelected && !blockedHere && rangeCount === 0 && <View style={s.dotMark} />}
                   </Pressable>
                 );
               })}
             </View>
           ))}
+
+          <View style={s.legend}>
+            {activeCalendarTab === 'unavailable' ? (
+              <>
+                <LegendItem swatch={s.swatchBlocked} label="Unavailable" />
+                <LegendItem swatch={s.swatchToday} label="Today" />
+              </>
+            ) : (
+              <>
+                <LegendItem swatch={s.swatchConfigured} label={activeCalendarTab === 'recurring' ? 'Weekly slots' : 'Has slots'} />
+                <LegendItem swatch={s.swatchSelected} label="Selected" />
+                <LegendItem swatch={s.swatchToday} label="Today" />
+              </>
+            )}
+          </View>
         </View>
 
         {/* Side panel (below the calendar on mobile) */}
@@ -1003,15 +1235,19 @@ export default function CalendarAvailabilityScreen() {
                 <Text style={s.sectionLabel}>Time Ranges</Text>
                 {selectedDays.length ? (
                   getRangesForDateOrWeek(year, month, selectedDays[0]).length ? (
-                    getRangesForDateOrWeek(year, month, selectedDays[0]).map((range, index) => (
-                      <View key={`${range.start}-${index}`} style={s.rangeRow}>
-                        <AppIcon name="clock" size={13} color="#667085" />
-                        <Text style={s.rangeText}>{formatTime12h(range.start)}</Text>
-                        <Text style={s.rangeArrow}>→</Text>
-                        <Text style={s.rangeText}>{formatTime12h(range.end)}</Text>
-                        <Text style={s.rangeDuration}>{range.duration}m</Text>
-                      </View>
-                    ))
+                    getRangesForDateOrWeek(year, month, selectedDays[0]).map((range, index) => {
+                      const key = formatDateKey(year, month, selectedDays[0]);
+                      const isDateRange = (availabilityDateMap[key]?.ranges || []).length > 0;
+                      return isDateRange ? renderSavedRangeRow('date', key, range, index) : (
+                        <View key={`${range.start}-${index}`} style={s.rangeRow}>
+                          <AppIcon name="clock" size={13} color="#667085" />
+                          <Text style={s.rangeText}>{formatTime12h(range.start)}</Text>
+                          <Text style={s.rangeArrow}>→</Text>
+                          <Text style={s.rangeText}>{formatTime12h(range.end)}</Text>
+                          <Text style={s.rangeDuration}>{range.duration}m · weekly</Text>
+                        </View>
+                      );
+                    })
                   ) : (
                     <Text style={s.emptyNote}>No saved ranges for selected date.</Text>
                   )
@@ -1048,18 +1284,7 @@ export default function CalendarAvailabilityScreen() {
             {recurringWeekdays.map((w) => (availabilityWeekdayMap[w] || []).length > 0 && (
               <View key={w} style={s.weekdayRanges}>
                 <Text style={s.weekdayRangesTitle}>{DAYS[w]}</Text>
-                {(availabilityWeekdayMap[w] || []).map((range, index) => (
-                  <View key={`${w}-${range.start}-${index}`} style={s.rangeRow}>
-                    <AppIcon name="clock" size={13} color="#667085" />
-                    <Text style={s.rangeText}>{formatTime12h(range.start)}</Text>
-                    <Text style={s.rangeArrow}>→</Text>
-                    <Text style={s.rangeText}>{formatTime12h(range.end)}</Text>
-                    <Text style={s.rangeDuration}>{range.duration}m</Text>
-                    <Pressable hitSlop={8} style={s.rangeDelete} onPress={() => removeRangeForWeekday(w, index)}>
-                      <AppIcon name="trash" size={13} color="#DC2626" />
-                    </Pressable>
-                  </View>
-                ))}
+                {(availabilityWeekdayMap[w] || []).map((range, index) => renderSavedRangeRow('weekday', w, range, index))}
               </View>
             ))}
             <Pressable style={s.secondary} onPress={() => setShowAddTimeModal(true)}>
@@ -1102,12 +1327,6 @@ export default function CalendarAvailabilityScreen() {
 
       {/* Bottom bar */}
       <View style={s.bottomBar}>
-        <View style={s.statusMeta}>
-          <Text style={s.statusText}>● Selected dates: {selectedDays.length}</Text>
-          <Text style={s.statusText}>● Configured dates: {configuredDatesCount}</Text>
-          <Text style={s.statusText}>● Weekly days: {recurringConfiguredCount}</Text>
-          <Text style={[s.statusText, s.statusPending]}>● Pending changes: {selectedDays.length}</Text>
-        </View>
         <View style={s.bottomActions}>
           <Pressable style={s.outlineBtn} onPress={() => setSlotPreview([])}><Text style={s.outlineBtnText}>Clear Preview</Text></Pressable>
           <Pressable style={s.outlineBtn} onPress={saveDraft}><Text style={s.outlineBtnText}>Save Draft</Text></Pressable>
@@ -1120,6 +1339,22 @@ export default function CalendarAvailabilityScreen() {
       </View>
 
       {busy && <View style={s.busyOverlay}><ActivityIndicator size="large" color={colors.blue} /></View>}
+
+      {/* Edit panel opened from the main screen (Time Ranges card / Recurring
+          Rules card). Inside the Add Time Ranges popup and the date editor
+          the same panel is drawn as an overlay of that popup instead, so we
+          never stack two Modals (iOS can't show a second one). */}
+      <Modal
+        visible={Boolean(rangeEdit) && !showAddTimeModal && editingTarget?.type !== 'date'}
+        transparent
+        animationType="slide"
+        onRequestClose={() => (picker ? setPicker(null) : setRangeEdit(null))}
+      >
+        <View style={s.modalOverlay}>
+          {renderRangeEditor()}
+          {renderTimePicker('edit')}
+        </View>
+      </Modal>
 
       {/* Clinic dropdown */}
       <Modal visible={showClinicDropdown} transparent animationType="slide" onRequestClose={() => setShowClinicDropdown(false)}>
@@ -1168,7 +1403,7 @@ export default function CalendarAvailabilityScreen() {
       </Modal>
 
       {/* Add Time Ranges (multi-range) */}
-      <Modal visible={showAddTimeModal} transparent animationType="slide" onRequestClose={() => setShowAddTimeModal(false)}>
+      <Modal visible={showAddTimeModal} transparent animationType="slide" onRequestClose={() => (picker ? setPicker(null) : rangeEdit ? setRangeEdit(null) : setShowAddTimeModal(false))}>
         <View style={s.modalOverlay}>
           <View style={s.modalSheet}>
             <View style={s.modalHeader}>
@@ -1179,23 +1414,42 @@ export default function CalendarAvailabilityScreen() {
               <Pressable onPress={() => setShowAddTimeModal(false)} hitSlop={8}><AppIcon name="x" size={18} color="#667085" /></Pressable>
             </View>
             <ScrollView style={s.modalScroll} keyboardShouldPersistTaps="handled">
+              {savedTargets.length > 0 && (
+                <View style={s.savedBox}>
+                  <Text style={s.savedTitle}>Already saved</Text>
+                  {savedTargets.map((t) => (
+                    <View key={`${t.type}-${t.key}`} style={s.savedGroup}>
+                      <Text style={s.savedGroupLabel}>{t.label}</Text>
+                      {t.ranges.map((range, i) => renderSavedRangeRow(t.type, t.key, range, i))}
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <Text style={s.sectionLabel}>Quick add</Text>
+              <PresetRow isActive={isPresetInRows} onPick={toggleAdditionalPreset} />
+              <Text style={s.quickHint}>Tap to add a window as its own range · tap again to remove it</Text>
+
+              <Text style={[s.sectionLabel, s.sectionSpaced]}>New time ranges</Text>
               {additionalTimeRows.map((range, index) => (
                 <View key={index} style={s.multiRow}>
                   <View style={s.multiRowHead}>
                     <Text style={s.rangeNumber}>Range {index + 1}</Text>
-                    <Pressable
-                      onPress={() => removeAdditionalTimeRow(index)}
-                      disabled={additionalTimeRows.length === 1}
-                      hitSlop={8}
-                      style={additionalTimeRows.length === 1 && s.disabled}
-                    >
+                    <Pressable onPress={() => removeAdditionalTimeRow(index)} hitSlop={10} style={[s.iconBtn, s.iconBtnDanger]}>
                       <AppIcon name="trash" size={15} color="#DC2626" />
                     </Pressable>
                   </View>
                   <View style={s.timeFields}>
                     <TimeField label="Start Time" value={range.start} onPress={() => setPicker({ context: 'row', index, field: 'start' })} />
-                    <TimeField label="End Time" value={range.end} onPress={() => setPicker({ context: 'row', index, field: 'end' })} />
+                    <Text style={s.timeArrow}>→</Text>
+                    <TimeField
+                      label="End Time"
+                      value={range.end}
+                      invalid={Boolean(range.start && range.end && !isUsableTimeRange(range))}
+                      onPress={() => setPicker({ context: 'row', index, field: 'end' })}
+                    />
                   </View>
+                  <RangeHint range={range} />
                   <Text style={s.fieldLabel}>Slot Duration</Text>
                   <View style={s.durationRow}>
                     {MULTI_RANGE_DURATIONS.map((mins) => (
@@ -1206,8 +1460,10 @@ export default function CalendarAvailabilityScreen() {
                   </View>
                 </View>
               ))}
-              <Pressable onPress={addAdditionalTimeRow}><Text style={s.addLink}>＋ Add another time range</Text></Pressable>
-              {picker?.context === 'row' && renderTimePicker()}
+              <Pressable style={s.addRowBtn} onPress={addAdditionalTimeRow}>
+                <AppIcon name="plus" size={14} color={colors.blue} strokeWidth={2.4} />
+                <Text style={s.addRowText}>Add another time range</Text>
+              </Pressable>
             </ScrollView>
             <View style={s.modalActions}>
               <Pressable style={s.outlineBtnFlex} onPress={() => setShowAddTimeModal(false)}><Text style={s.outlineBtnText}>Done</Text></Pressable>
@@ -1224,11 +1480,14 @@ export default function CalendarAvailabilityScreen() {
               </Pressable>
             </View>
           </View>
+          {renderRangeEditor()}
+          {renderTimePicker('row')}
+          {renderTimePicker('edit')}
         </View>
       </Modal>
 
       {/* Date editor: Saved Slots + Add Slot + Save Slot / unavailable */}
-      <Modal visible={editingTarget?.type === 'date'} transparent animationType="slide" onRequestClose={() => setEditingTarget(null)}>
+      <Modal visible={editingTarget?.type === 'date'} transparent animationType="slide" onRequestClose={() => (picker ? setPicker(null) : rangeEdit ? setRangeEdit(null) : setEditingTarget(null))}>
         <View style={s.modalOverlay}>
           <View style={s.modalSheet}>
             {editingTarget?.type === 'date' && (
@@ -1270,18 +1529,7 @@ export default function CalendarAvailabilityScreen() {
                     <>
                       <Text style={s.sectionLabel}>Saved Slots</Text>
                       {(editingInfo?.ranges || []).length ? (
-                        editingInfo.ranges.map((range, index) => (
-                          <View key={`${range.start}-${range.end}-${index}`} style={s.rangeRow}>
-                            <AppIcon name="clock" size={13} color="#667085" />
-                            <Text style={s.rangeText}>{formatTime12h(range.start)}</Text>
-                            <Text style={s.rangeArrow}>→</Text>
-                            <Text style={s.rangeText}>{formatTime12h(range.end)}</Text>
-                            <Text style={s.rangeDuration}>{range.duration}m</Text>
-                            <Pressable onPress={() => removeRange(index)} hitSlop={8} style={s.rangeDelete}>
-                              <AppIcon name="trash" size={13} color="#DC2626" />
-                            </Pressable>
-                          </View>
-                        ))
+                        editingInfo.ranges.map((range, index) => renderSavedRangeRow('date', editingTarget.key, range, index))
                       ) : (
                         <Text style={s.emptyNote}>No date-specific slots. Weekly slots may still apply unless this date is unavailable.</Text>
                       )}
@@ -1289,9 +1537,16 @@ export default function CalendarAvailabilityScreen() {
                       {!editingInfo?.blocked ? (
                         <>
                           <Text style={[s.sectionLabel, s.sectionSpaced]}>Add Slot for This Date</Text>
+                          <PresetRow activeRange={newRange} onPick={(preset) => setNewRange((p) => ({ ...p, start: preset.start, end: preset.end }))} />
                           <View style={s.timeFields}>
                             <TimeField label="Start Time" value={newRange.start} onPress={() => setPicker({ context: 'newRange', field: 'start' })} />
-                            <TimeField label="End Time" value={newRange.end} onPress={() => setPicker({ context: 'newRange', field: 'end' })} />
+                            <Text style={s.timeArrow}>→</Text>
+                            <TimeField
+                              label="End Time"
+                              value={newRange.end}
+                              invalid={Boolean(newRange.start && newRange.end && !isUsableTimeRange(newRange))}
+                              onPress={() => setPicker({ context: 'newRange', field: 'end' })}
+                            />
                           </View>
                           <Text style={s.fieldLabel}>Slot Duration</Text>
                           <View style={s.durationRow}>
@@ -1301,7 +1556,7 @@ export default function CalendarAvailabilityScreen() {
                               </Pressable>
                             ))}
                           </View>
-                          {picker?.context === 'newRange' && renderTimePicker()}
+                          <RangeHint range={newRange} />
                         </>
                       ) : (
                         <Text style={s.blockedText}>This date is marked unavailable. Use the Exceptions / Unavailable tab to make it available again.</Text>
@@ -1313,8 +1568,8 @@ export default function CalendarAvailabilityScreen() {
                   <Pressable style={s.outlineBtnFlex} onPress={() => setEditingTarget(null)}><Text style={s.outlineBtnText}>Close</Text></Pressable>
                   {activeCalendarTab === 'specific' && !editingInfo?.blocked && (
                     <Pressable
-                      style={[s.solidBtn, s.solidBtnWide, (!newRange.start || !newRange.end || busy) && s.disabled]}
-                      disabled={!newRange.start || !newRange.end || busy}
+                      style={[s.solidBtn, s.solidBtnWide, (!isUsableTimeRange(newRange) || busy) && s.disabled]}
+                      disabled={!isUsableTimeRange(newRange) || busy}
                       onPress={saveRange}
                     >
                       <Text style={s.solidBtnText}>Save Slot</Text>
@@ -1324,21 +1579,74 @@ export default function CalendarAvailabilityScreen() {
               </>
             )}
           </View>
+          {renderRangeEditor()}
+          {renderTimePicker('newRange')}
+          {renderTimePicker('edit')}
         </View>
       </Modal>
     </View>
   );
 }
 
-function TimeField({ label, value, onPress }) {
+function LegendItem({ swatch, label }) {
+  return (
+    <View style={s.legendItem}>
+      <View style={[s.swatch, swatch]} />
+      <Text style={s.legendText}>{label}</Text>
+    </View>
+  );
+}
+
+function TimeField({ label, value, onPress, invalid }) {
   return (
     <View style={s.timeField}>
       <Text style={s.fieldLabel}>{label}</Text>
-      <Pressable style={s.timeButton} onPress={onPress}>
-        <AppIcon name="clock" size={13} color="#667085" />
-        <Text style={[s.timeButtonText, !value && s.placeholder]}>{value ? formatTime12h(value) : '--:--'}</Text>
+      <Pressable style={[s.timeButton, !!value && s.timeButtonFilled, invalid && s.timeButtonInvalid]} onPress={onPress}>
+        <AppIcon name="clock" size={14} color={invalid ? '#DC2626' : value ? colors.blue : '#98A2B3'} />
+        <Text style={[s.timeButtonText, !value && s.placeholder, invalid && s.invalidText]}>{value ? formatTime12h(value) : 'Tap to set'}</Text>
       </Pressable>
     </View>
+  );
+}
+
+// Morning / Afternoon / Evening chips. Active when the preset is applied
+// (activeRange matches it, or isActive(preset) says so).
+function PresetRow({ onPick, activeRange, isActive }) {
+  return (
+    <View style={s.presetRow}>
+      {TIME_PRESETS.map((preset) => {
+        const active = isActive
+          ? isActive(preset)
+          : Boolean(activeRange && activeRange.start === preset.start && activeRange.end === preset.end);
+        return (
+          <Pressable
+            key={preset.label}
+            style={({ pressed }) => [s.presetChip, active && s.presetChipActive, pressed && s.presetChipPressed]}
+            onPress={() => onPick(preset)}
+          >
+            <Text style={[s.presetIcon, active && s.presetTextActive]}>{active ? '✓' : preset.icon}</Text>
+            <View style={s.flex}>
+              <Text style={[s.presetLabel, active && s.presetTextActive]}>{preset.label}</Text>
+              <Text style={[s.presetTime, active && s.presetTextActive]}>
+                {formatTime12h(preset.start).replace(':00', '')} – {formatTime12h(preset.end).replace(':00', '')}
+              </Text>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// Live feedback under the time fields.
+function RangeHint({ range }) {
+  if (!range.start || !range.end) return <Text style={s.hintMuted}>Pick a start and end time, or use a quick preset.</Text>;
+  if (!isUsableTimeRange(range)) return <Text style={s.hintError}>⚠ End time must be after start time.</Text>;
+  const slots = countSlots(range);
+  return (
+    <Text style={s.hintOk}>
+      ✓ {formatTime12h(range.start)} – {formatTime12h(range.end)} · {slots} slot{slots === 1 ? '' : 's'} of {range.duration} min
+    </Text>
   );
 }
 
@@ -1353,49 +1661,61 @@ const s = createDoctorStyles({
   clinicBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D7DEE9', paddingHorizontal: 14, height: 42 },
   clinicDot: { width: 10, height: 10, borderRadius: 5 },
   clinicBarText: { flex: 1, fontSize: 13.5, fontWeight: '700', color: '#17243A' },
-  tabs: { flexDirection: 'row', backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D7DEE9' },
-  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent', paddingHorizontal: 4 },
-  tabActive: { borderBottomColor: colors.blue },
+  tabs: { flexDirection: 'row', backgroundColor: '#E6F4F1', margin: 10, marginBottom: 0, padding: 4, borderRadius: 14, gap: 4 },
+  tab: { flex: 1, paddingVertical: 9, alignItems: 'center', justifyContent: 'center', borderRadius: 11, paddingHorizontal: 4 },
+  tabActive: { backgroundColor: '#FFF', shadowColor: '#0F766E', shadowOpacity: 0.15, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
   tabText: { fontSize: 12, fontWeight: '600', color: '#667085', textAlign: 'center' },
   tabTextActive: { color: colors.blue, fontWeight: '800' },
   content: { padding: 10, paddingBottom: 16 },
   tabHelp: { fontSize: 12.5, color: '#475467', marginBottom: 8, marginHorizontal: 2 },
   apiNote: { fontSize: 12.5, color: '#B45309', backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 8, padding: 8, marginBottom: 8 },
   card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CAD3E1', borderRadius: 10, padding: 12, marginBottom: 12 },
-  monthRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  month: { flex: 1, fontSize: 18, fontWeight: '700', color: '#17243A' },
-  monthBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center' },
-  legend: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 10, marginBottom: 6, gap: 5 },
-  legendDot: { width: 10, height: 10, borderRadius: 3, borderWidth: 1 },
-  legendConfigured: { backgroundColor: '#CCFBF1', borderColor: colors.brightBlue },
-  legendSelected: { backgroundColor: colors.blue, borderColor: colors.blue },
-  legendEmpty: { backgroundColor: '#FFF', borderColor: '#CAD3E1' },
-  legendText: { fontSize: 12, color: '#667085', marginRight: 10 },
-  week: { flexDirection: 'row' },
-  dayHead: { width: '14.285%', textAlign: 'center', fontSize: 10.5, fontWeight: '700', color: '#667085', paddingVertical: 6 },
-  cell: { width: '14.285%', minHeight: 54, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 5, borderWidth: 1, borderColor: '#EEF1F5', borderRadius: 7 },
-  cellConfigured: { backgroundColor: '#CCFBF1', borderColor: colors.brightBlue },
-  cellRecurring: { backgroundColor: '#E6FBF8' },
-  cellUnavailable: { backgroundColor: '#FEE2E2', borderColor: '#EF4444' },
-  cellSelected: { backgroundColor: colors.blue, borderColor: colors.blue },
-  cellDisabled: { opacity: 0.4 },
-  cellDay: { fontSize: 14, fontWeight: '600', color: '#25344A' },
-  cellDayMuted: { color: '#C5CBD5' },
+  monthCard: { backgroundColor: '#FFF', borderRadius: 18, marginBottom: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#D5E7E4', shadowColor: '#0F766E', shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  monthHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 14 },
+  monthNavBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' },
+  monthTitleWrap: { flex: 1, alignItems: 'center' },
+  monthTitle: { fontSize: 20, fontWeight: '800', color: '#FFF', letterSpacing: 0.3 },
+  monthYear: { fontSize: 12.5, fontWeight: '600', color: 'rgba(255,255,255,0.85)', marginTop: 1 },
+  todayPill: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 10, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 14, backgroundColor: colors.paleBlue },
+  todayPillText: { fontSize: 12, fontWeight: '700', color: colors.blue },
+  weekHeader: { flexDirection: 'row', paddingHorizontal: 6, paddingTop: 10, paddingBottom: 4 },
+  week: { flexDirection: 'row', paddingHorizontal: 6 },
+  dayHead: { flex: 1, textAlign: 'center', fontSize: 10.5, fontWeight: '800', letterSpacing: 0.5, color: '#667085' },
+  dayHeadWeekend: { color: '#E11D48' },
+  cell: { flex: 1, aspectRatio: 0.9, margin: 2.5, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#F8FAFC' },
+  cellConfigured: { backgroundColor: '#CCFBF1' },
+  cellUnavailable: { backgroundColor: '#FEE2E2' },
+  cellToday: { borderWidth: 2, borderColor: colors.blue },
+  cellSelected: { backgroundColor: colors.blue },
+  cellDisabled: { opacity: 0.35 },
+  cellPressed: { transform: [{ scale: 0.94 }] },
+  cellDay: { fontSize: 15, fontWeight: '700', color: '#25344A' },
+  cellDayWeekend: { color: '#BE123C' },
+  cellDayMuted: { color: '#C5CBD5', fontWeight: '500' },
+  cellDayToday: { color: colors.blue },
   cellDaySelected: { color: '#FFF' },
-  cellRanges: { fontSize: 9, fontWeight: '700', color: '#0F766E', marginTop: 2 },
-  cellUnavailableLabel: { fontSize: 9, fontWeight: '700', color: '#DC2626', marginTop: 2 },
-  cellEmpty: { fontSize: 9, color: '#98A2B3', marginTop: 2 },
+  cellDayBlocked: { color: '#B91C1C' },
+  badgeOff: { fontSize: 8.5, fontWeight: '800', color: '#FFF', backgroundColor: '#EF4444', paddingHorizontal: 4, borderRadius: 4, marginTop: 2, overflow: 'hidden' },
+  dotMark: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: colors.blue, marginTop: 3 },
+  dotMarkOnSelected: { backgroundColor: '#FFF' },
+  legend: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 14, paddingVertical: 12, marginTop: 6, borderTopWidth: 1, borderTopColor: '#EEF1F5' },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  swatch: { width: 12, height: 12, borderRadius: 4 },
+  swatchConfigured: { backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4' },
+  swatchSelected: { backgroundColor: colors.blue },
+  swatchToday: { borderWidth: 2, borderColor: colors.blue, backgroundColor: '#FFF' },
+  swatchBlocked: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5' },
+  legendText: { fontSize: 12, fontWeight: '600', color: '#475467' },
   sideTitle: { flexDirection: 'row', alignItems: 'center' },
   cardTitle: { fontSize: 17, fontWeight: '700', color: '#17243A' },
   cardSub: { fontSize: 12.5, color: colors.blue, marginTop: 3 },
   divider: { height: 1, backgroundColor: '#EEF1F5', marginVertical: 10 },
   sectionLabel: { fontSize: 14, fontWeight: '700', color: '#344054', marginBottom: 8 },
   sectionSpaced: { marginTop: 14 },
-  rangeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: '#D7DEE9', borderRadius: 8, paddingHorizontal: 10, height: 40, marginBottom: 7, backgroundColor: '#FAFBFD' },
+  rangeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: '#D7DEE9', borderRadius: 10, paddingHorizontal: 10, minHeight: 44, marginBottom: 7, backgroundColor: '#FFF' },
   rangeText: { fontSize: 13.5, fontWeight: '600', color: '#344054' },
   rangeArrow: { fontSize: 13, color: '#98A2B3' },
   rangeDuration: { fontSize: 12, color: colors.blue, marginLeft: 6 },
-  rangeDelete: { marginLeft: 'auto' },
   emptyNote: { fontSize: 12.5, color: '#667085', lineHeight: 18, textAlign: 'center', marginVertical: 4 },
   addLink: { fontSize: 14, fontWeight: '700', color: colors.blue, marginVertical: 8 },
   primaryWrap: {},
@@ -1421,10 +1741,7 @@ const s = createDoctorStyles({
   previewChip: { paddingHorizontal: 9, height: 26, borderRadius: 13, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
   previewChipText: { fontSize: 12, fontWeight: '600', color: colors.blue },
   blockedText: { fontSize: 13, fontWeight: '600', color: '#EF4444', marginTop: 6 },
-  bottomBar: { backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#D7DEE9', paddingHorizontal: 10, paddingTop: 6, paddingBottom: 8 },
-  statusMeta: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 2, marginBottom: 6 },
-  statusText: { fontSize: 11, color: '#475467' },
-  statusPending: { color: '#B45309' },
+  bottomBar: { backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#D7DEE9', paddingHorizontal: 10, paddingVertical: 10 },
   bottomActions: { flexDirection: 'row', gap: 7 },
   outlineBtn: { paddingHorizontal: 10, height: 42, borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   outlineBtnFlex: { flex: 1, height: 44, borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
@@ -1447,23 +1764,49 @@ const s = createDoctorStyles({
   fullBtn: { flex: 0, width: '100%', marginVertical: 10 },
   dangerBtn: { backgroundColor: '#DC2626' },
   disabled: { opacity: 0.45 },
-  multiRow: { borderWidth: 1, borderColor: '#D7DEE9', borderRadius: 10, padding: 10, marginBottom: 10 },
+  multiRow: { borderWidth: 1, borderColor: '#D7DEE9', borderRadius: 14, padding: 12, marginBottom: 12, backgroundColor: '#FCFDFE' },
   multiRowHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
-  rangeNumber: { fontSize: 13, fontWeight: '800', color: colors.blue },
-  timeFields: { flexDirection: 'row', gap: 10 },
+  rangeNumber: { fontSize: 12, fontWeight: '800', color: '#FFF', backgroundColor: colors.blue, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
+  timeFields: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
   timeField: { flex: 1 },
+  timeArrow: { fontSize: 18, color: '#98A2B3', paddingBottom: 12 },
   fieldLabel: { fontSize: 12.5, fontWeight: '700', color: '#344054', marginBottom: 5, marginTop: 6 },
-  timeButton: { height: 42, borderWidth: 1, borderColor: '#C7D0DF', borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10 },
-  timeButtonText: { fontSize: 14, color: '#17243A' },
+  timeButton: { height: 48, borderWidth: 1.5, borderColor: '#D5DAE3', borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, backgroundColor: '#F8FAFC' },
+  timeButtonFilled: { borderColor: colors.blue, backgroundColor: colors.paleBlue },
+  timeButtonInvalid: { borderColor: '#DC2626', backgroundColor: '#FEF2F2' },
+  timeButtonText: { fontSize: 15, fontWeight: '700', color: '#17243A' },
+  invalidText: { color: '#DC2626' },
+  presetRow: { flexDirection: 'row', gap: 6, marginTop: 4, marginBottom: 2 },
+  presetChip: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: '#99F6E4', backgroundColor: '#F0FDFA', borderRadius: 12, paddingVertical: 7, paddingHorizontal: 8 },
+  presetIcon: { fontSize: 15, color: colors.blue },
+  presetChipActive: { backgroundColor: colors.blue, borderColor: colors.blue },
+  presetChipPressed: { opacity: 0.75 },
+  presetTextActive: { color: '#FFF' },
+  quickHint: { fontSize: 11.5, color: '#98A2B3', marginTop: 6 },
+  savedBox: { borderWidth: 1, borderColor: '#D1FAE5', backgroundColor: '#F0FDF9', borderRadius: 14, padding: 10, marginBottom: 14 },
+  savedTitle: { fontSize: 13, fontWeight: '800', color: '#0F766E', marginBottom: 6 },
+  savedGroup: { marginBottom: 4 },
+  savedGroupLabel: { fontSize: 12, fontWeight: '700', color: '#475467', marginBottom: 5 },
+  rangeActions: { flexDirection: 'row', gap: 6, marginLeft: 'auto' },
+  iconBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
+  iconBtnDanger: { backgroundColor: '#FEE2E2' },
+  editOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, justifyContent: 'flex-end', zIndex: 40, elevation: 40 },
+  editBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(15,23,42,0.4)' },
+  editCard: { backgroundColor: '#FFF', borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16 },
+  presetLabel: { fontSize: 11.5, fontWeight: '800', color: '#17243A' },
+  presetTime: { fontSize: 10, color: '#667085' },
+  hintMuted: { fontSize: 12, color: '#98A2B3', marginTop: 8 },
+  hintError: { fontSize: 12.5, fontWeight: '700', color: '#DC2626', marginTop: 8 },
+  hintOk: { fontSize: 12.5, fontWeight: '700', color: '#0F766E', marginTop: 8 },
+  addRowBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44, borderRadius: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#5EEAD4', backgroundColor: '#F0FDFA', marginBottom: 6 },
+  addRowText: { fontSize: 14, fontWeight: '700', color: colors.blue },
   placeholder: { color: '#94A3B8' },
   durationRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  durationChip: { paddingHorizontal: 11, height: 32, borderRadius: 16, borderWidth: 1, borderColor: '#C7D0DF', alignItems: 'center', justifyContent: 'center' },
-  durationChipActive: { backgroundColor: colors.paleBlue, borderColor: colors.blue },
+  durationChip: { paddingHorizontal: 12, height: 34, borderRadius: 17, borderWidth: 1, borderColor: '#D5DAE3', backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
+  durationChipActive: { backgroundColor: colors.blue, borderColor: colors.blue },
   durationChipText: { fontSize: 12.5, fontWeight: '600', color: '#667085' },
-  durationChipTextActive: { color: colors.blue },
+  durationChipTextActive: { color: '#FFF' },
   textArea: { minHeight: 80, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, padding: 10, fontSize: 13.5, color: '#17243A' },
-  pickerDone: { alignSelf: 'flex-end', paddingVertical: 6, paddingHorizontal: 12 },
-  pickerDoneText: { fontSize: 14, fontWeight: '700', color: colors.blue },
   clinicList: { maxHeight: 280 },
   clinicRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#EEF1F5', borderRadius: 8 },
   clinicRowActive: { backgroundColor: '#F0FDFA' },

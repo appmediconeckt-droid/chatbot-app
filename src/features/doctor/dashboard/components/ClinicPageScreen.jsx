@@ -185,9 +185,14 @@ export default function ClinicPageScreen({ onBack }) {
     }
     let cancelled = false;
     const params = { clinic_id: clinic.id, doctor_id: clinic.doctorId || doctorId };
-    Promise.allSettled([
-      axiosInstance.get('/api/auth/me', { params }),
-      axiosInstance.get('/api/appointments', { params }),
+    // Promise.allSettled without relying on the JS engine having it.
+    const settle = (promise) => promise.then(
+      (value) => ({ status: 'fulfilled', value }),
+      (reason) => ({ status: 'rejected', reason }),
+    );
+    Promise.all([
+      settle(axiosInstance.get('/api/auth/me', { params })),
+      settle(axiosInstance.get('/api/appointments', { params })),
     ]).then(([doctorResult, appointmentResult]) => {
       if (cancelled) return;
       const matchesClinic = (item) => {
