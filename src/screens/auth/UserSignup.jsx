@@ -635,6 +635,7 @@ import {
   postPublicAuthEndpointWithOtpRetry,
 } from './authUtils';
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
+import { enterAuthenticatedRoute } from '../../utils/authSession';
 
 const OTP_RESEND_SECONDS = 60;
 
@@ -643,7 +644,7 @@ const UserSignup = ({ navigation, route }) => {
   const { width, height } = useWindowDimensions();
   const isTablet = width >= 600;
   const isCompact = width < 360 || height < 700;
-  const [isLogin, setIsLogin] = useState(true);
+  const [isLogin, setIsLogin] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
   const {
     scrollRef,
@@ -883,7 +884,7 @@ const UserSignup = ({ navigation, route }) => {
         // Onboarding is for NEW accounts only - logging back in went through the
         // whole 4-page tour every time, which is what made it look like the tour
         // belonged to login. Signup below still routes to it.
-        setTimeout(() => navigation.replace('LocationGate', { destination: 'UserDashboard' }), 1000);
+        setTimeout(() => enterAuthenticatedRoute(navigation, 'LocationGate', { destination: 'UserDashboard' }), 1000);
       }
     } catch (err) {
       if (err?.response?.status === 409) {
@@ -1136,7 +1137,7 @@ const UserSignup = ({ navigation, route }) => {
       if (await persistUserSession(response.data)) {
         closeDeviceConflictModal();
         // Still a login, just via the device-conflict OTP - not a new account.
-        navigation.replace('LocationGate', { destination: 'UserDashboard' });
+        enterAuthenticatedRoute(navigation, 'LocationGate', { destination: 'UserDashboard' });
       }
     } catch (err) {
       showNotification('Invalid OTP', 'error');
@@ -1166,7 +1167,7 @@ const UserSignup = ({ navigation, route }) => {
     setTimeout(() => {
       if (isLogin) {
         // Existing account signing in with Google — no tour.
-        navigation.replace('LocationGate', { destination: dashboardDestination });
+        enterAuthenticatedRoute(navigation, 'LocationGate', { destination: dashboardDestination });
         return;
       }
       // Was on the "Create Account" tab — this is a new Google signup, so it
@@ -1360,7 +1361,7 @@ const UserSignup = ({ navigation, route }) => {
     styles.panel,
     {
       maxWidth: isTablet ? 480 : 440,
-      height: isLogin ? undefined : signupPanelHeight,
+      height: undefined,
       paddingHorizontal: isCompact ? 16 : 22,
       paddingVertical: signupPanelPaddingY,
       borderRadius: isCompact ? 28 : 40,
@@ -1376,13 +1377,9 @@ const UserSignup = ({ navigation, route }) => {
   ];
   const formScrollStyle = [
     styles.formScroll,
-    !isLogin && styles.signupFormScroll,
-    !isLogin && { height: signupFormHeight },
   ];
   const formContentStyle = [
     styles.formPanel,
-    !isLogin && styles.signupFormPanel,
-    !isLogin && { paddingBottom: (isCompact ? 18 : 24) + keyboardInset },
   ];
 
   return (
@@ -1397,15 +1394,15 @@ const UserSignup = ({ navigation, route }) => {
             </TouchableOpacity>
 
             <ScrollView
-              ref={isLogin ? scrollRef : null}
+              ref={scrollRef}
               contentContainerStyle={scrollContainerStyle}
               showsVerticalScrollIndicator={false}
-              onLayout={isLogin ? handleKeyboardAwareScrollLayout : undefined}
-              onScroll={isLogin ? handleKeyboardAwareScroll : undefined}
+              onLayout={handleKeyboardAwareScrollLayout}
+              onScroll={handleKeyboardAwareScroll}
               scrollEventThrottle={16}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              scrollEnabled={isLogin}
+              scrollEnabled
               pointerEvents={isAnyModalVisible ? 'none' : 'auto'}
             >
               <Animated.View style={[panelStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -1416,16 +1413,11 @@ const UserSignup = ({ navigation, route }) => {
                 </View>
 
                 <ScrollView
-                  ref={!isLogin ? scrollRef : null}
                   style={formScrollStyle}
                   contentContainerStyle={formContentStyle}
-                  showsVerticalScrollIndicator={!isLogin}
-                  onLayout={!isLogin ? handleKeyboardAwareScrollLayout : undefined}
-                  onScroll={!isLogin ? handleKeyboardAwareScroll : undefined}
-                  scrollEventThrottle={16}
+                  showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
-                  nestedScrollEnabled
-                  scrollEnabled={!isLogin}
+                  scrollEnabled={false}
                 >
                   {!isLogin && (
                     <>{renderInput(0, 'fullName', 'account-outline', 'Full Name')}{renderInput(1, 'anonymous', 'incognito-circle', 'Anonymous Name')}</>
@@ -1526,7 +1518,11 @@ const UserSignup = ({ navigation, route }) => {
                   </Animated.View>
                   <Animated.View key="switch-row" style={[styles.switchRow, { opacity: fieldAnims[9] }]}>
                     <Text style={styles.switchText}>{isLogin ? "New here?" : "Already joined?"}</Text>
-                    <TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={styles.switchLink}>{isLogin ? " Create Account" : " Login"}</Text></TouchableOpacity>
+                    {/* One shared Login screen for every role — tapping this always
+                        goes to the common front Login, never a per-screen login form. */}
+                    <TouchableOpacity onPress={() => (isLogin ? setIsLogin(false) : navigation.navigate('Login'))}>
+                      <Text style={styles.switchLink}>{isLogin ? " Create Account" : " Login"}</Text>
+                    </TouchableOpacity>
                   </Animated.View>
                 </ScrollView>
               </Animated.View>

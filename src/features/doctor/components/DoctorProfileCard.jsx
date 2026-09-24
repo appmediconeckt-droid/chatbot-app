@@ -6,12 +6,13 @@
 // features/doctor/data/mockDoctorData.js, so it is not coupled to the
 // Doctor auth flow.
 import React from 'react';
-import { View, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, TouchableOpacity, Image } from 'react-native';
 import Text from '../../../components/TranslatedText';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { CLINICIAN } from '../../../theme/palette';
 import useLanguageRender from '../../../hooks/useLanguageRender';
+import { createDoctorStyles } from '../dashboard/theme';
 
 const DoctorProfileCard = ({ doctor, onViewProfile, style }) => {
   const { t } = useLanguageRender();
@@ -72,7 +73,7 @@ const DoctorProfileCard = ({ doctor, onViewProfile, style }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const styles = createDoctorStyles({
   card: {
     width: '100%',
     backgroundColor: '#ffffff',
@@ -101,15 +102,15 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   photo: { width: '100%', height: '100%', borderRadius: 42 },
-  name: { fontSize: 17, fontWeight: '800', color: '#0f172a' },
-  specialization: { fontSize: 13, color: '#64748b', fontWeight: '600', marginTop: 2 },
+  name: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
+  specialization: { fontSize: 14, color: '#64748b', fontWeight: '600', marginTop: 2 },
   metaRow: { flexDirection: 'row', gap: 16, marginTop: 10 },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  metaText: { fontSize: 12.5, fontWeight: '700', color: '#475569' },
+  metaText: { fontSize: 14.5, fontWeight: '700', color: '#475569' },
   consultBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#F0FDFA', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, marginTop: 12 },
-  consultBadgeText: { fontSize: 11.5, fontWeight: '700', color: CLINICIAN.primary },
+  consultBadgeText: { fontSize: 13.5, fontWeight: '700', color: CLINICIAN.primary },
   viewBtn: { width: '100%', height: 46, borderRadius: 14, backgroundColor: CLINICIAN.primary, alignItems: 'center', justifyContent: 'center', marginTop: 16 },
-  viewBtnText: { color: '#ffffff', fontSize: 14, fontWeight: '800' },
+  viewBtnText: { color: '#ffffff', fontSize: 15, fontWeight: '800' },
 });
 
 export default DoctorProfileCard;

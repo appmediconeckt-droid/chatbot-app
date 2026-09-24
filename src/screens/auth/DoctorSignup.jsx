@@ -1,24 +1,24 @@
 // DoctorSignup — Login / Create Account for the new Doctor role.
 //
-// IMPORTANT: There is no Doctor backend yet. Every "auth" action below is a
-// local mock — clearly isolated in the MOCK AUTH section — so it can be
-// swapped for real `axiosInstance` calls (mirroring CounselorSignup.jsx) the
-// moment `/api/auth/*` supports the doctor role. Nothing here talks to the
-// network or writes a real session token.
+// Real auth, mirroring CounselorSignup.jsx: login hits POST /api/auth/login
+// and signup hits POST /api/auth/complete-registration. There is still no
+// distinct "doctor" role on the backend (User.role is only
+// user/counsellor/admin), so a Doctor account is a real `counsellor`-role
+// account whose specialization must contain "Psychiatrist" — see the AUTH
+// section below for the full reasoning. Google sign-in uses the shared native
+// Google flow and the backend's counsellor role.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  View,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Platform,
-  ActivityIndicator,
-  Image,
-  StatusBar,
-  useWindowDimensions,
-  Animated,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, TouchableOpacity, ScrollView, Platform, ActivityIndicator, Image, StatusBar, SafeAreaView, useWindowDimensions, Animated, findNodeHandle, Modal } from 'react-native';
+// SafeAreaView is deliberately the plain react-native one here (a no-op on
+// Android — it only does anything on iOS), matching what CounselorSignup.jsx
+// and UserSignup.jsx already use. This screen was the only one of the three
+// importing react-native-safe-area-context's SafeAreaView instead, which
+// DOES apply real Android inset padding on top of — not instead of — this
+// screen's own hand-tuned paddingTop/backBtn offsets (which were already
+// sized assuming no automatic inset, same as the other two screens). That
+// stacked padding was the one concrete difference between this screen and
+// its two siblings, and lines up with this being the only one where the
+// panel could scroll past the back button.
 import TextInput from '../../components/TranslatedTextInput';
 import Text from '../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -44,59 +44,66 @@ import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
 import { CLINICIAN } from '../../theme/palette';
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
-import MockGoogleAuthButton from './components/MockGoogleAuthButton';
+import GoogleAuthButton from './components/GoogleAuthButton';
+import { createDoctorStyles } from '../../features/doctor/dashboard/theme';
+import axiosInstance from '../../axiosConfig';
+import socketService from '../../services/socketService';
+import {
+  getApiErrorMessage,
+  isOtpRequestSuccessful,
+  isOtpVerificationSuccessful,
+  postPublicAuthEndpoint,
+  postPublicAuthEndpointWithOtpRetry,
+} from './authUtils';
 
+import { enterAuthenticatedRoute } from '../../utils/authSession';
 const genderOptions = ['Male', 'Female', 'Other'];
 const consultationModes = ['Online', 'Offline', 'Both'];
 const languageOptions = ['Hindi', 'English', 'Gujarati', 'Marathi', 'Tamil', 'Telugu', 'Bengali', 'Punjabi'];
+const OTP_RESEND_SECONDS = 60;
 
-// ─────────────────────────── MOCK AUTH (frontend-only) ───────────────────────────
-// Replace with real endpoints once the Doctor backend exists, e.g.
-//   axiosInstance.post('/api/auth/login', { ...values, role: 'doctor' })
-//   axiosInstance.post('/api/auth/doctor/complete-registration', payload)
-const MOCK_NETWORK_DELAY_MS = 900;
+// ─────────────────────────── AUTH ───────────────────────────
+// Doctor = Psychiatrist. The backend's User.role enum only has
+// user/counsellor/admin — there is no separate "doctor" role — so a Doctor
+// account is a real `counsellor`-role account whose specialization contains
+// "Psychiatrist" (see isPsychiatristSpecialization in PsychiatristDirectory,
+// also used for the Doctor/Consultant badge and the Health Vitals gate).
+// `userRole` is stored as 'doctor' LOCALLY ONLY, purely so this app's own
+// routeForRole() sends the session to DoctorDashboard instead of
+// CounselorDashboard on login/reload — the backend never sees that value.
+//
+const persistDoctorSession = async (data, email) => {
+  const token = data?.token || data?.accessToken || data?.data?.token;
+  if (!token) return false;
+  const user = data?.user || data?.data?.user || null;
 
-const mockDoctorLogin = (email, password) =>
-  new Promise((resolve, reject) => {
-    setTimeout(() => {
-      if (!email || !password) {
-        reject(new Error('Enter your email and password'));
-        return;
-      }
-      resolve({
-        mock: true,
-        doctor: { fullName: 'Dr. ' + email.split('@')[0], email },
-      });
-    }, MOCK_NETWORK_DELAY_MS);
-  });
+  await AsyncStorage.setItem('token', token);
+  await AsyncStorage.setItem('accessToken', token);
+  if (data?.refreshToken || data?.data?.refreshToken) {
+    await AsyncStorage.setItem('refreshToken', data?.refreshToken || data?.data?.refreshToken);
+  }
+  await AsyncStorage.setItem('isAuthenticated', 'true');
+  // Real backend role stays 'counsellor' — only the local routing hint says 'doctor'.
+  await AsyncStorage.setItem('userType', 'doctor');
+  await AsyncStorage.setItem('userRole', 'doctor');
+  if (email) await AsyncStorage.setItem('userEmail', email);
 
-const mockDoctorSignup = (doctorProfile) =>
-  new Promise((resolve) => {
-    setTimeout(() => resolve({ mock: true, doctor: doctorProfile }), MOCK_NETWORK_DELAY_MS);
-  });
-
-// Stands in for a real Google OAuth exchange (see MockGoogleAuthButton.jsx
-// for why). Produces a plausible doctor profile so the rest of the flow
-// (onboarding merge, dashboard greeting) has something real to render.
-const mockGoogleDoctorAuth = () =>
-  new Promise((resolve) => {
-    setTimeout(() => {
-      const stamp = Date.now().toString().slice(-5);
-      resolve({
-        mock: true,
-        doctor: {
-          fullName: 'Dr. Google User',
-          email: `doctor.google.${stamp}@gmail.com`,
-        },
-      });
-    }, MOCK_NETWORK_DELAY_MS);
-  });
-
-const persistMockDoctorSession = async (doctorProfile) => {
-  // Namespaced under `doctorMock*` (not `userRole`/`accessToken`) so this can
-  // never be mistaken for a real session by the User/Consultant auth code.
-  await AsyncStorage.setItem('doctorMockProfile', JSON.stringify(doctorProfile));
+  if (user) {
+    await AsyncStorage.setItem('userData', JSON.stringify(user));
+    const id = user._id || user.id;
+    if (id) {
+      await AsyncStorage.setItem('counsellorId', String(id));
+      await AsyncStorage.setItem('counselorId', String(id));
+      await AsyncStorage.setItem('userId', String(id));
+    }
+    // Kept for the existing doctor screens (DoctorHeader, DoctorSidebar,
+    // NewFollowUpScreen) that already read the doctor's display name from
+    // this key — now populated with the real registered/logged-in name.
+    await AsyncStorage.setItem('doctorMockProfile', JSON.stringify(user));
+  }
   await AsyncStorage.setItem('doctorMockSession', 'true');
+  socketService.connect().catch(() => {});
+  return true;
 };
 // ───────────────────────────────────────────────────────────────────────────────
 
@@ -105,7 +112,7 @@ const DoctorSignup = ({ navigation, route }) => {
   const { width, height } = useWindowDimensions();
   const isTablet = width >= 600;
   const isCompact = width < 360 || height < 700;
-  const [isLogin, setIsLogin] = useState(true);
+  const [isLogin, setIsLogin] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
   const {
     scrollRef,
@@ -114,6 +121,11 @@ const DoctorSignup = ({ navigation, route }) => {
     handleKeyboardAwareScroll,
     handleKeyboardAwareScrollLayout,
   } = useKeyboardAwareScroll();
+  // In login mode, password is the last field before the submit button —
+  // scrolling to the password field alone left the button under the
+  // keyboard. Focusing password scrolls to this ref instead (see its
+  // onFocus below), bringing both into view together.
+  const loginSubmitBtnRef = useRef(null);
 
   const [formData, setFormData] = useState({
     email: '',
@@ -143,9 +155,34 @@ const DoctorSignup = ({ navigation, route }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [notification, setNotification] = useState({ show: false, message: '', type: '' });
   const [showDateOfBirthPicker, setShowDateOfBirthPicker] = useState(false);
+
+  // Email verification — the backend's complete-registration endpoint rejects
+  // signup unless it receives a valid emailVerificationToken from
+  // verify-email-otp first (see completeRegistration in authController.js).
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [emailVerificationToken, setEmailVerificationToken] = useState('');
+  const [showOtpModal, setShowOtpModal] = useState({ show: false, value: '' });
+  const [otpCode, setOtpCode] = useState('');
+  const [isSendingVerification, setIsSendingVerification] = useState(false);
+  const sendingVerificationRef = useRef(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const verifyingOtpRef = useRef(false);
+  const [otpError, setOtpError] = useState('');
+  const [otpResendTimer, setOtpResendTimer] = useState(0);
+  const [isResendingOtp, setIsResendingOtp] = useState(false);
+  const resendingOtpRef = useRef(false);
+
+  useEffect(() => {
+    if (!showOtpModal.show || otpResendTimer <= 0) return undefined;
+    const interval = setInterval(() => {
+      setOtpResendTimer((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [showOtpModal.show, otpResendTimer]);
+
+  const formatOtpTimer = (seconds) => `00:${String(seconds).padStart(2, '0')}`;
 
   useEffect(() => {
     const showImmediately = () => {
@@ -176,6 +213,10 @@ const DoctorSignup = ({ navigation, route }) => {
 
   const handleChange = useCallback((name, value) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
+    if (name === 'email') {
+      setEmailVerified(false);
+      setEmailVerificationToken('');
+    }
   }, []);
 
   const toggleListItem = useCallback((name, value) => {
@@ -201,6 +242,7 @@ const DoctorSignup = ({ navigation, route }) => {
     if (!formData.fullName) next.fullName = 'Full name is required';
     if (!formData.email) next.email = 'Email is required';
     else if (!/\S+@\S+\.\S+/.test(formData.email)) next.email = 'Email is invalid';
+    else if (!emailVerified) next.email = 'Please verify your email first';
 
     if (!formData.phoneNumber) next.phoneNumber = 'Phone is required';
     else if (!isValidLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode)) {
@@ -214,6 +256,12 @@ const DoctorSignup = ({ navigation, route }) => {
     if (!formData.gender) next.gender = 'Gender is required';
     if (!formData.qualification) next.qualification = 'Qualification required';
     if (!formData.specialization) next.specialization = 'Specialization required';
+    // Doctor accounts are Psychiatrists on this backend (see AUTH comment
+    // above) — the Doctor/Consultant badge and Health Vitals gate elsewhere
+    // in the app only recognize "psychiatrist" in the specialization text.
+    else if (!/psychiatr/i.test(formData.specialization)) {
+      next.specialization = 'Must include "Psychiatrist" (e.g. Child & Adolescent Psychiatrist)';
+    }
     if (!formData.experience) next.experience = 'Experience required';
     if (formData.consultationMode.length === 0) next.consultationMode = 'Select mode';
     if (!formData.aboutMe) next.aboutMe = 'About me required';
@@ -230,14 +278,26 @@ const DoctorSignup = ({ navigation, route }) => {
   };
 
   const handleLogin = async () => {
+    if (!formData.email || !formData.password) {
+      showNotification(t('Enter your email and password'), 'error');
+      return;
+    }
     try {
       setIsLoading(true);
-      const result = await mockDoctorLogin(formData.email, formData.password);
-      await persistMockDoctorSession(result.doctor);
-      showNotification(t('Welcome back, Doctor!'));
-      setTimeout(() => navigation.replace('DoctorDashboard'), 900);
+      const response = await axiosInstance.post('/api/auth/login', {
+        email: formData.email.trim().toLowerCase(),
+        password: formData.password,
+        role: 'counsellor',
+      });
+      const ok = await persistDoctorSession(response.data, formData.email.trim().toLowerCase());
+      if (ok) {
+        showNotification(t('Welcome back, Doctor!'));
+        setTimeout(() => enterAuthenticatedRoute(navigation, 'DoctorDashboard'), 900);
+      } else {
+        showNotification(t('Login failed'), 'error');
+      }
     } catch (err) {
-      showNotification(err?.message || t('Login failed'), 'error');
+      showNotification(err?.response?.data?.message || t('Login failed'), 'error');
     } finally {
       setIsLoading(false);
     }
@@ -252,10 +312,12 @@ const DoctorSignup = ({ navigation, route }) => {
       setIsLoading(true);
       const phoneNumber = normalizeLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode);
       const dateOfBirth = toDateOnlyString(formData.dateOfBirth);
-      const doctorProfile = {
+      const email = formData.email.trim().toLowerCase();
+      const payload = {
         fullName: formData.fullName.trim(),
-        email: formData.email.trim().toLowerCase(),
+        email,
         phoneNumber,
+        phoneNum: phoneNumber,
         phoneCountryCode: formData.phoneCountryCode,
         dateOfBirth,
         age: calculateAgeFromDateOfBirth(dateOfBirth),
@@ -264,54 +326,174 @@ const DoctorSignup = ({ navigation, route }) => {
         specialization: formData.specialization.trim(),
         experience: formData.experience,
         location: formData.location.trim(),
+        aboutMe: formData.aboutMe.trim(),
+        password: formData.password,
+        confirmPassword: formData.confirmPassword,
+        // Real backend role — see the AUTH comment above for why this isn't 'doctor'.
+        role: 'counselor',
+        isEmailVerified: true,
+        isPhoneVerified: true,
+        emailVerificationToken,
         consultationMode: formData.consultationMode.map((m) => m.toLowerCase()),
         languages: formData.languages,
-        aboutMe: formData.aboutMe.trim(),
-        role: 'doctor',
       };
 
-      const response = await mockDoctorSignup(doctorProfile);
-      // Persist the account-level profile now; DoctorOnboarding (next) fills
-      // in credentialing/practice details and merges them into this same
-      // mock session before handing off to DoctorProfile.
-      await persistMockDoctorSession(response.doctor);
-      showNotification(t('Account created! Let’s finish your professional profile.'));
-      setTimeout(() => navigation.replace('DoctorOnboarding', {
-        destination: 'DoctorProfile',
-        doctorProfileBase: response.doctor,
-      }), 1000);
+      const response = await postPublicAuthEndpoint('complete-registration', payload);
+      const doctorProfile = response.data?.user || response.data?.data?.user || payload;
+
+      if (response.data?.success !== false) {
+        const hasSession = await persistDoctorSession(response.data, email);
+        showNotification(response.data?.message || t('Account created! Let’s finish your professional profile.'));
+        setTimeout(() => navigation.replace('DoctorOnboarding', {
+          destination: 'DoctorDashboard',
+          doctorProfileBase: doctorProfile,
+        }), hasSession ? 1000 : 1500);
+      } else {
+        showNotification(response.data?.message || t('Signup failed'), 'error');
+      }
     } catch (error) {
-      showNotification(t('Signup failed'), 'error');
+      showNotification(getApiErrorMessage(error, t('Signup failed')), 'error');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleGoogleMockAuth = async () => {
+  const handleSendVerifyOtp = async () => {
+    if (sendingVerificationRef.current) return;
+    const email = formData.email.trim().toLowerCase();
+    if (!email) return showNotification(t('Enter your email first'), 'error');
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      return showNotification(t('Please enter a valid email address'), 'error');
+    }
+    sendingVerificationRef.current = true;
+    setOtpCode('');
+    setOtpError('');
     try {
-      setIsGoogleLoading(true);
-      const result = await mockGoogleDoctorAuth();
-      await persistMockDoctorSession(result.doctor);
-      if (isLogin) {
-        showNotification(t('Welcome back, Doctor!'));
-        setTimeout(() => navigation.replace('DoctorDashboard'), 700);
+      setIsSendingVerification(true);
+      const response = await postPublicAuthEndpoint('send-email-otp', { email });
+      if (isOtpRequestSuccessful(response)) {
+        setFormData((prev) => ({ ...prev, email }));
+        setShowOtpModal({ show: true, value: email });
+        setOtpResendTimer(OTP_RESEND_SECONDS);
+        showNotification(response.data?.message || t('OTP sent to your email'));
       } else {
-        showNotification(t('Account created with Google (mock)!'));
-        setTimeout(() => navigation.replace('DoctorOnboarding', {
-          destination: 'DoctorProfile',
-          doctorProfileBase: result.doctor,
-        }), 900);
+        showNotification(response.data?.message || t('Failed to send OTP'), 'error');
       }
-    } catch (error) {
-      showNotification(t('Google sign-in failed'), 'error');
+    } catch (err) {
+      showNotification(getApiErrorMessage(err, t('Failed to send OTP')), 'error');
     } finally {
-      setIsGoogleLoading(false);
+      sendingVerificationRef.current = false;
+      setIsSendingVerification(false);
     }
   };
 
-  const renderInput = (index, name, icon, placeholder, options = {}) => {
+  const handleResendVerifyOtp = async () => {
+    if (resendingOtpRef.current || otpResendTimer > 0) return;
+    const email = String(showOtpModal.value || formData.email).trim().toLowerCase();
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+      setOtpError(t('Enter valid email'));
+      return;
+    }
+    try {
+      resendingOtpRef.current = true;
+      setIsResendingOtp(true);
+      setOtpError('');
+      setOtpCode('');
+      const response = await postPublicAuthEndpoint('send-email-otp', { email });
+      if (isOtpRequestSuccessful(response)) {
+        setShowOtpModal({ show: true, value: email });
+        setOtpResendTimer(OTP_RESEND_SECONDS);
+        showNotification(response.data?.message || t('OTP resent successfully'));
+      } else {
+        setOtpError(response.data?.message || t('Failed to resend OTP'));
+      }
+    } catch (err) {
+      setOtpError(getApiErrorMessage(err, t('Failed to resend OTP')));
+    } finally {
+      resendingOtpRef.current = false;
+      setIsResendingOtp(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (verifyingOtpRef.current) return;
+    const normalizedOtp = otpCode.trim();
+    if (normalizedOtp.length !== 6) return setOtpError(t('Enter 6 digits'));
+    const otpEmail = String(showOtpModal.value || formData.email).trim().toLowerCase();
+    try {
+      verifyingOtpRef.current = true;
+      setIsVerifyingOtp(true);
+      setOtpError('');
+      const response = await postPublicAuthEndpointWithOtpRetry('verify-email-otp', {
+        email: otpEmail,
+        otp: normalizedOtp,
+      });
+      if (isOtpVerificationSuccessful(response)) {
+        setFormData((prev) => ({ ...prev, email: otpEmail }));
+        setEmailVerified(true);
+        setEmailVerificationToken(
+          response.data?.emailVerificationToken ||
+          response.data?.data?.emailVerificationToken ||
+          response.data?.result?.emailVerificationToken ||
+          ''
+        );
+        setShowOtpModal({ show: false, value: '' });
+        setOtpCode('');
+        setErrors((prev) => ({ ...prev, email: undefined }));
+        showNotification(t('Email verified!'));
+      } else {
+        setOtpError(response.data?.message || t('Failed'));
+      }
+    } catch (err) {
+      setOtpError(getApiErrorMessage(err, t('Verification failed')));
+    } finally {
+      verifyingOtpRef.current = false;
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  const closeOtpModal = () => {
+    setShowOtpModal({ show: false, value: '' });
+    setOtpCode('');
+    setOtpError('');
+    setOtpResendTimer(0);
+    setIsResendingOtp(false);
+    resendingOtpRef.current = false;
+  };
+
+  const handleGoogleSuccess = async ({ isCounselor, user, isNewUser }) => {
+    if (!isCounselor) {
+      showNotification(t('This Google account is not registered as a doctor or consultant'), 'error');
+      return;
+    }
+
+    const email = user?.email || '';
+    const hasSession = await persistDoctorSession({
+      user,
+      accessToken: await AsyncStorage.getItem('accessToken'),
+    }, email);
+    if (!hasSession) {
+      showNotification(t('Google sign-in did not create a session'), 'error');
+      return;
+    }
+
+    if (isLogin && !isNewUser) {
+      showNotification(t('Welcome back, Doctor!'));
+      setTimeout(() => enterAuthenticatedRoute(navigation, 'DoctorDashboard'), 700);
+      return;
+    }
+
+    showNotification(t('Account created with Google!'));
+    setTimeout(() => navigation.replace('DoctorOnboarding', {
+      destination: 'DoctorDashboard',
+      doctorProfileBase: user,
+    }), 900);
+  };
+
+  const renderInput = (index, name, icon, placeholder, options = {}, verifyType = null) => {
     const isFocused = focusedField === name;
     const isMultiline = options.multiline;
+    const isVerified = verifyType === 'email' && emailVerified;
     return (
       <Animated.View key={`doctor-input-${name}`} style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
         <View style={[styles.inputWrapper, isFocused && styles.inputWrapperFocused, isMultiline && { height: 'auto', minHeight: 70, alignItems: 'flex-start', paddingTop: 10 }]}>
@@ -326,6 +508,21 @@ const DoctorSignup = ({ navigation, route }) => {
             placeholderTextColor="#94a3b8"
             {...options}
           />
+          {verifyType && !isLogin && (
+            <TouchableOpacity
+              onPress={handleSendVerifyOtp}
+              disabled={isVerified || isSendingVerification}
+              style={[styles.verifyBtn, (isVerified || isSendingVerification) && styles.verifiedBtn]}
+            >
+              {isVerified ? (
+                <Icon name="check-decagram" size={18} color={CLINICIAN.primary} />
+              ) : isSendingVerification ? (
+                <ActivityIndicator size="small" color={CLINICIAN.primary} />
+              ) : (
+                <Text style={styles.verifyBtnText}>{t('Verify')}</Text>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
         {errors[name] && <Text style={styles.errorText}>{errors[name]}</Text>}
       </Animated.View>
@@ -372,9 +569,15 @@ const DoctorSignup = ({ navigation, route }) => {
     </Animated.View>
   );
 
+  // justifyContent is always 'flex-start' now, even in login mode — centering
+  // the panel meant its "resting" scroll position shifted with content size,
+  // and combined with the keyboard-open scroll this is what could send the
+  // whole panel (and its back button clearance) further up than intended.
+  // Top-anchoring keeps that clearance fixed and predictable, same as the
+  // shared Login screen.
   const scrollContainerStyle = {
     ...styles.scrollContent,
-    justifyContent: isLogin ? 'center' : 'flex-start',
+    justifyContent: 'flex-start',
     paddingHorizontal: isCompact ? 12 : 16,
     paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 62 : 76),
     paddingBottom: (isLogin ? (isCompact ? 44 : 60) : (isCompact ? 14 : 20)) + keyboardInset,
@@ -441,7 +644,7 @@ const DoctorSignup = ({ navigation, route }) => {
                   {!isLogin ? (
                     <>
                       {renderInput(1, 'fullName', 'account-outline', t('Full Name'))}
-                      {renderInput(2, 'email', 'email-outline', t('Email Address'), { keyboardType: 'email-address', autoCapitalize: 'none' })}
+                      {renderInput(2, 'email', 'email-outline', t('Email Address'), { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}
                       {renderPhoneInput(3)}
                       {renderDateOfBirthInput(4)}
                       {renderInput(5, 'age', 'calendar-account-outline', t('Age'), { editable: false, placeholder: t('Age will be calculated') })}
@@ -495,7 +698,16 @@ const DoctorSignup = ({ navigation, route }) => {
                         style={styles.textInput}
                         value={formData.password}
                         onChangeText={(text) => handleChange('password', text)}
-                        onFocus={(event) => { setFocusedField('password'); scrollFocusedInputIntoView(event); }}
+                        onFocus={(event) => {
+                          setFocusedField('password');
+                          // In login mode, bring the submit button into view
+                          // along with this field (see loginSubmitBtnRef).
+                          // In signup mode there's a confirmPassword field
+                          // right after this one, so the normal per-field
+                          // behavior is what's wanted.
+                          const btnHandle = isLogin ? findNodeHandle(loginSubmitBtnRef.current) : null;
+                          scrollFocusedInputIntoView(btnHandle ? { target: btnHandle } : event);
+                        }}
                         onBlur={() => setFocusedField(null)}
                         placeholder={t('Password')}
                         placeholderTextColor="#94a3b8"
@@ -539,7 +751,7 @@ const DoctorSignup = ({ navigation, route }) => {
                   )}
 
                   <Animated.View key="btn-section" style={{ opacity: fieldAnims[16], marginTop: 10 }}>
-                    <TouchableOpacity activeOpacity={0.9} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
+                    <TouchableOpacity ref={loginSubmitBtnRef} activeOpacity={0.9} onPress={isLogin ? handleLogin : handleSignup} disabled={isLoading}>
                       <LinearGradient colors={[CLINICIAN.gradientFrom, CLINICIAN.gradientTo]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.submitBtn}>
                         {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>{isLogin ? t('Login') : t('Create Account')}</Text>}
                       </LinearGradient>
@@ -552,17 +764,22 @@ const DoctorSignup = ({ navigation, route }) => {
                       <Text style={styles.googleDividerText}>{t('or')}</Text>
                       <View style={styles.googleDividerLine} />
                     </View>
-                    <MockGoogleAuthButton
+                    <GoogleAuthButton
+                      role="counselor"
                       mode={isLogin ? 'signin' : 'signup'}
                       disabled={isLoading}
-                      loading={isGoogleLoading}
-                      onPress={handleGoogleMockAuth}
+                      accountRole="doctor"
+                      locationEvent={isLogin ? 'login' : 'signup'}
+                      onSuccess={handleGoogleSuccess}
+                      onError={(message) => showNotification(message || t('Google sign-in failed'), 'error')}
                     />
                   </Animated.View>
 
+                  {/* One shared Login screen for every role — tapping this always
+                      goes to the common front Login, never a per-screen login form. */}
                   <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[17] }]}>
                     <Text style={styles.switchText}>{isLogin ? t("Don't have an account?") : t('Already a member?')}</Text>
-                    <TouchableOpacity onPress={() => setIsLogin(!isLogin)}>
+                    <TouchableOpacity onPress={() => (isLogin ? setIsLogin(false) : navigation.navigate('Login'))}>
                       <Text style={[styles.switchLink, { color: CLINICIAN.primary }]}>{isLogin ? t(' Create Account') : t(' Login')}</Text>
                     </TouchableOpacity>
                   </Animated.View>
@@ -571,6 +788,60 @@ const DoctorSignup = ({ navigation, route }) => {
             </ScrollView>
           </View>
         </SafeAreaView>
+
+        <Modal
+          visible={showOtpModal.show}
+          transparent
+          animationType="slide"
+          presentationStyle="overFullScreen"
+          statusBarTranslucent
+          navigationBarTranslucent
+          onRequestClose={closeOtpModal}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalIcon}>
+                <Icon name="email-fast-outline" size={40} color={CLINICIAN.primary} />
+              </View>
+              <Text style={styles.modalTitle}>{t('Verify Your Email')}</Text>
+              <Text style={styles.modalSub}>{t('Enter code sent to')} {showOtpModal.value}</Text>
+              <TextInput
+                key={`${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`}
+                style={styles.otpInput}
+                value={otpCode}
+                onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))}
+                placeholder={t('000000')}
+                placeholderTextColor="#94a3b8"
+                keyboardType="number-pad"
+                maxLength={6}
+                autoFocus
+              />
+              <View style={styles.otpResendRow}>
+                {otpResendTimer > 0 ? (
+                  <Text style={styles.otpTimerText}>{t('Resend OTP in')} {formatOtpTimer(otpResendTimer)}</Text>
+                ) : (
+                  <Text style={styles.otpTimerText}>{t("Didn't receive code?")}</Text>
+                )}
+                <TouchableOpacity onPress={handleResendVerifyOtp} disabled={otpResendTimer > 0 || isResendingOtp} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={[styles.otpResendText, (otpResendTimer > 0 || isResendingOtp) && styles.otpResendTextDisabled]}>
+                    {isResendingOtp ? t('Sending...') : t('Resend')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
+              <TouchableOpacity
+                style={[styles.modalActionBtn, (isVerifyingOtp || otpCode.length !== 6) && styles.modalActionBtnDisabled]}
+                onPress={handleVerifyOtp}
+                disabled={isVerifyingOtp || otpCode.length !== 6}
+              >
+                {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Email')}</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}>
+                <Text style={styles.cancelText}>{t('Cancel')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
 
         {notification.show && (
           <Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : CLINICIAN.primary }]}>
@@ -583,7 +854,7 @@ const DoctorSignup = ({ navigation, route }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const styles = createDoctorStyles({
   container: { flex: 1 },
   flex: { flex: 1 },
   gradient: { flex: 1, overflow: 'hidden' },
@@ -636,6 +907,27 @@ const styles = StyleSheet.create({
   genderTextSelected: { color: CLINICIAN.primary },
   notification: { position: 'absolute', top: 50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 10, zIndex: 1000 },
   notificationText: { color: '#fff', fontSize: 14, fontWeight: '700', marginLeft: 8 },
+
+  verifyBtn: { minWidth: 68, minHeight: 34, backgroundColor: CLINICIAN.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  verifiedBtn: { backgroundColor: 'transparent' },
+  verifyBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+
+  modalOverlay: { flex: 1, width: '100%', minHeight: '100%', backgroundColor: 'rgba(15,23,42,0.64)', justifyContent: 'center', alignItems: 'center', padding: 22 },
+  modalContent: { backgroundColor: '#fff', borderRadius: 26, padding: 28, width: '100%', maxWidth: 390, alignItems: 'center', borderWidth: 1, borderColor: '#DBEAFE', shadowColor: '#0B2F6B', shadowOpacity: 0.18, shadowRadius: 24, elevation: 14 },
+  modalIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: '#F0FDFA', justifyContent: 'center', alignItems: 'center', marginBottom: 18 },
+  modalTitle: { fontSize: 22, fontWeight: '900', color: '#0F172A', marginBottom: 8, textAlign: 'center' },
+  modalSub: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 21, marginBottom: 22 },
+  modalActionBtn: { width: '100%', height: 54, borderRadius: 16, backgroundColor: CLINICIAN.primary, justifyContent: 'center', alignItems: 'center', shadowColor: CLINICIAN.primary, shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
+  modalActionBtnDisabled: { backgroundColor: '#94A3B8', shadowOpacity: 0, elevation: 0 },
+  modalActionText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  modalErrorText: { width: '100%', color: '#B91C1C', backgroundColor: '#FEF2F2', fontSize: 12, fontWeight: '700', textAlign: 'center', padding: 10, borderRadius: 10, marginTop: -6, marginBottom: 14 },
+  cancelBtn: { width: '100%', height: 44, marginTop: 10, justifyContent: 'center', alignItems: 'center' },
+  cancelText: { fontSize: 14, fontWeight: '700', color: '#64748B' },
+  otpInput: { width: '100%', height: 56, borderRadius: 16, backgroundColor: '#F8FAFC', borderWidth: 1.5, borderColor: '#BFD7FF', textAlign: 'center', fontSize: 22, letterSpacing: 8, fontWeight: '800', color: '#0F172A', marginBottom: 16 },
+  otpResendRow: { width: '100%', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: -6, marginBottom: 16, flexWrap: 'wrap' },
+  otpTimerText: { color: '#64748B', fontSize: 13, fontWeight: '700', textAlign: 'center' },
+  otpResendText: { color: CLINICIAN.primary, fontSize: 13, fontWeight: '900' },
+  otpResendTextDisabled: { color: '#94A3B8' },
 });
 
 export default DoctorSignup;

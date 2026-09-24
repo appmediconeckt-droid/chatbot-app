@@ -1,150 +1,344 @@
-// Ported from MediconecktApp's src/doctor/dashboard/components/AppointmentsListScreen.tsx.
-import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+// Ported from MediconecktApp's AppointmentsListScreen. Same data + actions as
+// the web AppointmentList: GET /api/appointments?doctor_id=<id> (rows filtered
+// to this doctor), DELETE /api/appointments/:id, tap-to-call, and status /
+// date / search / hide-visited filters.
+import React, { useCallback, useEffect, useState } from 'react';
+import { Alert, Linking, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import AppIcon from '../icons/AppIcon';
+import { useToast } from '../../../../components/common/ToastProvider';
+import { createDoctorStyles } from '../theme';
+import axiosInstance from '../../../../axiosConfig';
+import {
+  formatAppointment,
+  formatLocalDateKey,
+  getDoctorIdFromUser,
+  getStoredDoctorUser,
+  normalizeApiList,
+  pickFirst,
+} from '../api/doctorAppointments';
 
-const items = [
-  { name: 'Marvin McKinney', time: '17:00 - 17:30', status: 'Scheduled', problem: 'Brain, Spinal Cord, and Nerve Disorders', clinician: 'Cristien (Technician)', address: '2972 Westheimer Rd. Santa Ana...', color: 'green' },
-  { name: 'Dianne Russell', time: '18:15 - 19:00', status: 'Scheduled', problem: 'Upper Abdomen General - Test Code 2705', clinician: 'Kristin (Technician)', address: '4517 Washington Ave. Manchester...', color: 'green' },
-  { name: 'Bessie Cooper', time: '17:45 - 18:00', status: 'Not confirmed', problem: 'Gynaecologic Disorders', clinician: 'Kristin (Technician)', address: '2715 Ash Dr. San Jose...', color: 'red' },
-  { name: 'Annette Black', time: '12:00 - 12:30', status: 'Visited', problem: 'Digestive Disorders', clinician: 'Collen (Technician)', address: '2715 Ash Dr. San Jose...', color: 'gray' },
-];
+const STATUS_META = {
+  Confirmed: { icon: 'check-mark', color: '#168A4A', border: '#78D69D', bg: '#ECFAF1' },
+  Pending: { icon: 'clock', color: '#B7791F', border: '#FBD38D', bg: '#FFFBEB' },
+  Cancelled: { icon: 'x', color: '#D92D20', border: '#FFB4AD', bg: '#FFF1F0' },
+  Visited: { icon: 'check-mark', color: '#667085', border: '#C8D1DF', bg: '#F5F6F8' },
+};
 
-export default function AppointmentsListScreen({ onBack, onMenuPress }) {
-  const [filter, setFilter] = useState('All');
+const STATUS_LABEL = {
+  pending: 'Pending',
+  confirmed: 'Confirmed',
+  'in-progress': 'Confirmed',
+  completed: 'Visited',
+  cancelled: 'Cancelled',
+};
+
+const mapAppointment = (raw) => {
+  const appt = formatAppointment(raw);
+  const mode = appt.consultationMode;
+  return {
+    id: appt.apiId,
+    doctorId: pickFirst(raw?.doctor_id, raw?.doctorId, raw?.doctor?.id, raw?.doctor?._id),
+    name: appt.name,
+    phone: appt.phone,
+    time: appt.scheduledTime,
+    rawDate: formatLocalDateKey(appt.appointmentDate),
+    status: STATUS_LABEL[appt.status] || 'Pending',
+    reason: appt.issue,
+    visitType: mode.includes('video') ? 'Video Consultation'
+      : mode.includes('voice') || mode.includes('phone') ? 'Voice Consultation'
+        : 'In Person Visit',
+    place: pickFirst(raw?.clinic_name, raw?.clinic?.name, raw?.clinic?.clinic_name),
+  };
+};
+
+const shiftDateKey = (key, days) => {
+  const d = key ? new Date(`${key}T00:00:00`) : new Date();
+  d.setDate(d.getDate() + days);
+  return formatLocalDateKey(d);
+};
+
+const formatDateLabel = (key) =>
+  new Date(`${key}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+
+const STATUS_FILTERS = ['All', 'Pending', 'Confirmed', 'Visited', 'Cancelled'];
+
+export default function AppointmentsListScreen({ onBack }) {
+  const { showToast } = useToast();
   const [query, setQuery] = useState('');
-  const visible = items.filter((item) => item.name.toLowerCase().includes(query.toLowerCase()));
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [selectedDate, setSelectedDate] = useState(''); // '' = all dates (web default)
+  const [hideVisited, setHideVisited] = useState(false);
+  const [appointments, setAppointments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
+
+  const fetchAppointments = useCallback(async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
+      setLoadError('');
+      const doctorId = getDoctorIdFromUser(await getStoredDoctorUser());
+      if (!doctorId) {
+        setLoadError('Doctor id not found. Please login again.');
+        return;
+      }
+      const response = await axiosInstance.get('/api/appointments', { params: { doctor_id: doctorId } });
+      setAppointments(
+        normalizeApiList(response.data)
+          .map(mapAppointment)
+          .filter((apt) => !apt.doctorId || String(apt.doctorId) === String(doctorId)),
+      );
+    } catch (err) {
+      console.error('Error fetching doctor appointments:', err?.message);
+      setLoadError(err?.response?.data?.message || err?.response?.data?.error || 'Failed to load appointments');
+      if (!silent) setAppointments([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchAppointments(); }, [fetchAppointments]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchAppointments(true);
+  };
+
+  // Same as web handleDeleteAppointment: DELETE /api/appointments/:id.
+  const deleteAppointment = useCallback((id, name) => {
+    Alert.alert('Delete Appointment', `Delete appointment for ${name}?`, [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          setAppointments((prev) => prev.filter((item) => item.id !== id));
+          try {
+            await axiosInstance.delete(`/api/appointments/${id}`);
+            showToast('Appointment deleted');
+          } catch (err) {
+            console.error('Error deleting appointment:', err?.message);
+            showToast('Delete failed');
+            fetchAppointments(true);
+          }
+        },
+      },
+    ]);
+  }, [fetchAppointments, showToast]);
+
+  const callPatient = useCallback((item) => {
+    const phone = String(item.phone || '').trim();
+    if (!phone || phone.toUpperCase() === 'N/A') {
+      showToast(`Phone number is not available for ${item.name}.`);
+      return;
+    }
+    Linking.openURL(`tel:${phone}`).catch(() => showToast('Could not start the call'));
+  }, [showToast]);
+
+  const visible = appointments.filter((item) => {
+    if (!item.name.toLowerCase().includes(query.toLowerCase())) return false;
+    if (hideVisited && item.status === 'Visited') return false;
+    if (statusFilter !== 'All' && item.status !== statusFilter) return false;
+    if (selectedDate && item.rawDate && item.rawDate !== selectedDate) return false;
+    return true;
+  });
+
+  const counts = appointments.reduce((acc, item) => {
+    acc[item.status] = (acc[item.status] || 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <View style={s.screen}>
       <View style={s.header}>
-        <Pressable onPress={onBack} style={s.back}><Text style={s.backText}>‹</Text></Pressable>
+        <Pressable onPress={onBack} style={s.backButton} hitSlop={8}>
+          <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
+        </Pressable>
         <Text style={s.title}>Appointments</Text>
-        {onMenuPress && (
-          <Pressable accessibilityLabel="Open navigation menu" onPress={onMenuPress} style={s.menuButton}>
-            <AppIcon name="menu" size={21} color="#26364D" strokeWidth={2} />
-          </Pressable>
-        )}
       </View>
-      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={s.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0D9488']} tintColor="#0D9488" />}
+      >
         <View style={s.datePicker}>
-          <Text style={s.dateArrow}>‹</Text>
-          <View style={s.dateCenter}>
-            <AppIcon name="calendar" size={14} color="#07BFBD" />
-            <Text style={s.dateText}>Jun 01, 2026</Text>
-          </View>
-          <Text style={s.dateArrow}>›</Text>
+          <Pressable hitSlop={8} style={s.dateArrowBtn} onPress={() => setSelectedDate((d) => shiftDateKey(d, -1))}>
+            <AppIcon name="chevron-left" size={16} color="#526078" strokeWidth={2.2} />
+          </Pressable>
+          <Pressable style={s.dateCenter} onPress={() => setSelectedDate((d) => (d ? '' : formatLocalDateKey()))}>
+            <View style={s.dateIconBadge}>
+              <AppIcon name="calendar" size={13} color="#0D9488" strokeWidth={2.1} />
+            </View>
+            <Text style={s.dateText}>{selectedDate ? formatDateLabel(selectedDate) : 'All Dates'}</Text>
+          </Pressable>
+          <Pressable hitSlop={8} style={s.dateArrowBtn} onPress={() => setSelectedDate((d) => shiftDateKey(d, 1))}>
+            <AppIcon name="chevron-right" size={16} color="#526078" strokeWidth={2.2} />
+          </Pressable>
         </View>
+
+        <View style={s.statsRow}>
+          {Object.entries(STATUS_META).map(([status, meta]) => (
+            <View key={status} style={[s.statPill, { backgroundColor: meta.bg, borderColor: meta.border }]}>
+              <Text style={[s.statPillValue, { color: meta.color }]}>{counts[status] || 0}</Text>
+              <Text style={[s.statPillLabel, { color: meta.color }]}>{status}</Text>
+            </View>
+          ))}
+        </View>
+
         <View style={s.search}>
           <AppIcon name="search" size={15} color="#7C8798" />
           <TextInput value={query} onChangeText={setQuery} placeholder="Search Patient..." placeholderTextColor="#8A94A4" style={s.searchInput} />
         </View>
+
         <View style={s.filters}>
-          {['✓ All', 'Life ×', 'Health ×', 'Helong-Te...'].map((label) => {
-            const key = (label ?? '').replace('✓ ', '').replace(' ×', '');
-            const active = filter === key;
-            return (
-              <Pressable key={label} onPress={() => setFilter(key)} style={[s.chip, active && s.chipActive]}>
-                <Text style={[s.chipText, active && s.chipTextActive]}>{label}</Text>
-              </Pressable>
-            );
-          })}
+          {STATUS_FILTERS.map((label) => (statusFilter === label ? (
+            <View key={label} style={s.chipActive}>
+              <AppIcon name="check-mark" size={11} color="#FFF" strokeWidth={3} />
+              <Text style={s.chipActiveText}>{label}</Text>
+            </View>
+          ) : (
+            <Pressable key={label} style={s.chip} onPress={() => setStatusFilter(label)}>
+              <Text style={s.chipText}>{label}</Text>
+            </Pressable>
+          )))}
         </View>
+
         <View style={s.summary}>
-          <Text style={s.showing}>Showing: 10 Appointments</Text>
-          <Pressable style={s.hide}>
-            <View style={s.checkbox} />
+          <Text style={s.showing}>Showing {visible.length} of {appointments.length} Appointments</Text>
+          <Pressable style={s.hide} onPress={() => setHideVisited((v) => !v)}>
+            <View style={[s.checkbox, hideVisited && s.checkboxOn]}>
+              {hideVisited && <AppIcon name="check-mark" size={9} color="#FFF" strokeWidth={3.4} />}
+            </View>
             <Text style={s.hideText}>Hide visited</Text>
           </Pressable>
         </View>
-        {visible.map((item, index) => (
-          <AppointmentListCard key={item.name} item={item} last={index === visible.length - 1} />
-        ))}
+
+        {!!loadError && !loading && (
+          <View style={s.empty}>
+            <Text style={s.emptyText}>{loadError}</Text>
+          </View>
+        )}
+        {loading ? (
+          <View style={s.empty}>
+            <AppIcon name="clock" size={26} color="#B7C0CE" strokeWidth={1.6} />
+            <Text style={s.emptyText}>Loading appointments...</Text>
+          </View>
+        ) : visible.length === 0 ? (
+          <View style={s.empty}>
+            <AppIcon name="calendar" size={26} color="#B7C0CE" strokeWidth={1.6} />
+            <Text style={s.emptyText}>
+              {appointments.length === 0 ? 'No appointments yet.' : 'No appointments match your search.'}
+            </Text>
+          </View>
+        ) : (
+          visible.map((item) => (
+            <AppointmentListCard key={item.id} item={item} onCall={callPatient} onDelete={deleteAppointment} />
+          ))
+        )}
       </ScrollView>
     </View>
   );
 }
 
-function AppointmentListCard({ item, last }) {
-  const statusStyle = item.color === 'green' ? s.green : item.color === 'red' ? s.red : s.gray;
+const getInitials = (name) => name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+
+function AppointmentListCard({ item, onCall, onDelete }) {
+  const meta = STATUS_META[item.status];
+  const isVisited = item.status === 'Visited';
+  const isCancelled = item.status === 'Cancelled';
+
   return (
-    <View style={[s.card, item.color === 'red' && s.cardRed, last && s.cardBlue]}>
+    <View style={[s.card, isVisited && s.cardHighlight, { borderLeftColor: meta.color }]}>
       <View style={s.cardTop}>
-        <View>
-          <Text style={[s.name, last && s.nameBlue]}>{item.name}</Text>
+        <View style={[s.avatar, { backgroundColor: meta.bg, borderColor: meta.border }]}>
+          <Text style={[s.avatarText, { color: meta.color }]}>{getInitials(item.name)}</Text>
+        </View>
+        <View style={s.grow}>
+          <Text style={[s.name, isVisited && s.nameHighlight]}>{item.name}</Text>
           <View style={s.timeRow}>
             <AppIcon name="clock" size={11} color="#526078" />
             <Text style={s.time}>{item.time}</Text>
           </View>
         </View>
-        <View style={[s.status, statusStyle]}>
-          <Text style={[s.statusText, statusStyle]}>
-            {item.color === 'green' ? '▣ ' : item.color === 'red' ? '☒ ' : '✓ '}
-            {item.status}
-          </Text>
+        <View style={[s.status, { borderColor: meta.border, backgroundColor: meta.bg }]}>
+          <AppIcon name={meta.icon} size={10} color={meta.color} strokeWidth={3} />
+          <Text style={[s.statusText, { color: meta.color }]}>{item.status}</Text>
         </View>
       </View>
-      <View style={s.problem}>
-        <Text style={s.problemText}>{item.problem}</Text>
-        <Text style={s.clinician}>♙ {item.clinician}</Text>
+
+      <View style={[s.reasonBox, { backgroundColor: meta.bg, borderColor: meta.border }]}>
+        <View style={[s.reasonIcon, { backgroundColor: '#FFF' }]}>
+          <AppIcon name={isCancelled ? 'warning' : 'pulse'} size={13} color={meta.color} strokeWidth={2} />
+        </View>
+        <View style={s.grow}>
+          <Text style={s.reasonText}>{item.reason}</Text>
+          {!!item.cancelNote && <Text style={s.cancelNote}>{item.cancelNote}</Text>}
+        </View>
       </View>
+
       <View style={s.cardBottom}>
-        <Text style={s.address}>{item.address}</Text>
-        <Pressable style={s.iconButton}>
-          <Text style={last ? s.editIcon : s.phoneIcon}>⌕</Text>
+        <Text style={s.visitType}>
+          {item.visitType}{item.place ? ` | ${item.place}` : ''}
+        </Text>
+        <Pressable style={s.iconButton} onPress={() => onCall(item)}>
+          <AppIcon name="phone" size={14} color="#0D9488" strokeWidth={1.9} />
         </Pressable>
-        <Pressable style={s.iconButton}>
-          <Text style={last ? s.trash : s.more}>{last ? '♜' : '⋮'}</Text>
+        <Pressable style={s.iconButton} onPress={() => onDelete(item.id, item.name)}>
+          <AppIcon name="trash" size={14} color="#D92D20" strokeWidth={1.9} />
         </Pressable>
       </View>
     </View>
   );
 }
 
-const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#F7F8FC' },
-  header: { height: 54, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 },
-  menuButton: { marginLeft: 'auto' },
-  back: { width: 30, height: 38, justifyContent: 'center' },
-  backText: { fontSize: 28, lineHeight: 30, color: '#26364D' },
-  title: { fontSize: 19, fontWeight: '700', color: '#07BFBD' },
-  content: { padding: 8, paddingBottom: 24 },
-  datePicker: { height: 43, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 7, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10 },
-  dateCenter: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  dateText: { fontSize: 13, fontWeight: '700', color: '#25344A' },
-  dateArrow: { fontSize: 18, color: '#526078' },
-  search: { height: 40, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 7, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, marginTop: 10 },
-  searchInput: { flex: 1, fontSize: 11, color: '#17243A', paddingVertical: 0, marginLeft: 8 },
-  filters: { flexDirection: 'row', gap: 7, marginVertical: 10 },
-  chip: { height: 34, borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 17, paddingHorizontal: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },
-  chipActive: { backgroundColor: '#08F9ED', borderColor: '#08F9ED' },
-  chipText: { fontSize: 10, color: '#526078' },
-  chipTextActive: { color: '#FFF', fontWeight: '700' },
-  summary: { flexDirection: 'row', alignItems: 'center', marginBottom: 9 },
-  showing: { fontSize: 9, color: '#526078' },
-  hide: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 5 },
-  checkbox: { width: 14, height: 14, borderWidth: 1, borderColor: '#AEB8C6', borderRadius: 3, backgroundColor: '#FFF' },
-  hideText: { fontSize: 9, color: '#526078' },
-  card: { minHeight: 160, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#C7D0DF', borderRadius: 9, padding: 12, marginBottom: 8, shadowColor: '#17243A', shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 },
-  cardRed: { borderLeftWidth: 3, borderLeftColor: '#F04438' },
-  cardBlue: { borderColor: '#23ECFF', borderLeftWidth: 3 },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between' },
-  name: { fontSize: 15, fontWeight: '700', color: '#17243A' },
-  nameBlue: { color: '#07BFBD' },
-  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  time: { fontSize: 9, color: '#526078' },
-  status: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 4 },
-  statusText: { fontSize: 8, fontWeight: '600' },
-  green: { color: '#168A4A', borderColor: '#78D69D', backgroundColor: '#ECFAF1' },
-  red: { color: '#D92D20', borderColor: '#FFB4AD', backgroundColor: '#FFF1F0' },
-  gray: { color: '#667085', borderColor: '#C8D1DF', backgroundColor: '#F5F6F8' },
-  problem: { backgroundColor: '#FAFAFD', borderWidth: 1, borderColor: '#D9DFE8', borderRadius: 6, padding: 9, marginTop: 10 },
-  problemText: { fontSize: 10, color: '#26364D' },
-  clinician: { fontSize: 9, color: '#526078', marginTop: 5 },
-  cardBottom: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
-  address: { flex: 1, fontSize: 8, color: '#667085' },
+const s = createDoctorStyles({
+  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  header: { height: 62, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },
+  backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  title: { fontSize: 22, fontWeight: '800', color: '#0D9488' },
+  content: { padding: 10, paddingBottom: 28 },
+  datePicker: { height: 46, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#D8DFE9', borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, shadowColor: '#17243A', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+  dateArrowBtn: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F7FA' },
+  dateCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dateIconBadge: { width: 24, height: 24, borderRadius: 7, backgroundColor: '#F0FDFA', alignItems: 'center', justifyContent: 'center' },
+  dateText: { fontSize: 14.5, fontWeight: '700', color: '#17243A' },
+  statsRow: { flexDirection: 'row', gap: 7, marginTop: 10 },
+  statPill: { flex: 1, alignItems: 'center', borderWidth: 1, borderRadius: 10, paddingVertical: 8 },
+  statPillValue: { fontSize: 16, fontWeight: '800' },
+  statPillLabel: { fontSize: 10, fontWeight: '700', marginTop: 1 },
+  search: { height: 42, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#D8DFE9', borderRadius: 10, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, marginTop: 12, shadowColor: '#17243A', shadowOpacity: 0.03, shadowRadius: 3, elevation: 1 },
+  searchInput: { flex: 1, fontSize: 13.5, color: '#17243A', paddingVertical: 0, marginLeft: 8 },
+  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginVertical: 12 },
+  chipActive: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, borderRadius: 16, paddingHorizontal: 13, backgroundColor: '#0D9488', shadowColor: '#0D9488', shadowOpacity: 0.25, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  chipActiveText: { fontSize: 13, color: '#FFF', fontWeight: '700' },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 32, borderWidth: 1, borderColor: '#D8DFE9', borderRadius: 16, paddingHorizontal: 12, backgroundColor: '#FFF' },
+  chipText: { fontSize: 13, color: '#526078' },
+  summary: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, paddingHorizontal: 2 },
+  showing: { fontSize: 12, fontWeight: '600', color: '#526078' },
+  hide: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 6 },
+  checkbox: { width: 15, height: 15, borderWidth: 1, borderColor: '#AEB8C6', borderRadius: 4, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
+  checkboxOn: { backgroundColor: '#0D9488', borderColor: '#0D9488' },
+  hideText: { fontSize: 12, color: '#526078' },
+  card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E1E6ED', borderLeftWidth: 4, borderRadius: 13, padding: 13, marginBottom: 11, shadowColor: '#17243A', shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  cardHighlight: { backgroundColor: '#F7FEFD' },
+  grow: { flex: 1 },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 13, fontWeight: '800' },
+  name: { fontSize: 15.5, fontWeight: '700', color: '#17243A' },
+  nameHighlight: { color: '#0D9488' },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+  time: { fontSize: 12, color: '#526078' },
+  status: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 5 },
+  statusText: { fontSize: 11, fontWeight: '700' },
+  reasonBox: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 9, padding: 9, marginTop: 11 },
+  reasonIcon: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  reasonText: { fontSize: 13, color: '#26364D', fontWeight: '600' },
+  cancelNote: { fontSize: 11.5, color: '#8A94A4', marginTop: 2 },
+  cardBottom: { flexDirection: 'row', alignItems: 'center', marginTop: 11, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F2F6' },
+  visitType: { flex: 1, fontSize: 11.5, color: '#667085' },
   iconButton: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, borderColor: '#D9DFE8', alignItems: 'center', justifyContent: 'center', marginLeft: 7 },
-  phoneIcon: { fontSize: 14, color: '#07BFBD' },
-  more: { fontSize: 17, color: '#667085' },
-  editIcon: { fontSize: 15, color: '#07BFBD' },
-  trash: { fontSize: 13, color: '#D92D20' },
+  empty: { alignItems: 'center', paddingVertical: 40, gap: 10 },
+  emptyText: { fontSize: 13, color: '#8A94A4' },
 });

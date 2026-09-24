@@ -50,7 +50,7 @@ const normalizeRole = (role) => {
 };
 
 const mapRoleForBackend = (role) =>
-  role === 'counselor' ? 'counsellor' : role;
+  role === 'counselor' || role === 'doctor' ? 'counsellor' : role;
 
 const getRoleLabel = (role) => {
   const normalized = normalizeRole(role);
@@ -96,10 +96,14 @@ const sanitizeUserPhotoForRole = (user, roleName) => {
 };
 
 const GoogleAuthButton = ({
+  // 'auto' = common Login screen: backend resolves the account's real role
+  // from the DB and refuses to create unregistered accounts.
   role,
+  accountRole, // 'doctor' | 'counselor' | 'user' — stored on Google signup
   mode = 'signin', // 'signin' | 'signup'
   onSuccess,
   onConflict,
+  onNotRegistered,
   onError,
   disabled = false,
   locationEvent = 'login',
@@ -132,7 +136,12 @@ const GoogleAuthButton = ({
     );
     const response = await axios.post(
       `${API_BASE_URL}/api/auth/google`,
-      { idToken, role: mapRoleForBackend(roleToTry) },
+      {
+        idToken,
+        role: mapRoleForBackend(roleToTry),
+        accountRole: accountRole || roleToTry,
+        intent: mode === 'signup' ? 'signup' : 'login',
+      },
       { withCredentials: true, timeout: 20000 },
     );
     const data = response.data || {};
@@ -161,31 +170,31 @@ const GoogleAuthButton = ({
   };
 
   const exchangeWithBackend = async (idToken) => {
-    const storedRole =
-      normalizeRole(role) ||
-      normalizeRole(await AsyncStorage.getItem('role')) ||
-      'user';
+    const isAuto = normalizeRole(role) === 'auto';
+    const storedRole = isAuto
+      ? 'auto'
+      : normalizeRole(role) ||
+        normalizeRole(await AsyncStorage.getItem('role')) ||
+        'user';
 
     let data;
     try {
       data = await postGoogleAuth(idToken, storedRole);
     } catch (error) {
-      // Sign-in only (never signup, which must keep respecting the role the
-      // user deliberately chose): the account's real role isn't known ahead
-      // of time, so retry once with the other candidate — reusing this same
-      // idToken, so there is no second native Google prompt — instead of
-      // surfacing a "role mismatch" the user never actually chose.
-      if (mode === 'signin' && isRoleMismatchError(error)) {
-        const otherRole = storedRole === 'counselor' ? 'user' : 'counselor';
-        data = await postGoogleAuth(idToken, otherRole);
+      // 'auto' only: an older backend doesn't understand 'auto' and treats
+      // it as 'user', answering ROLE_MISMATCH with the account's real role.
+      // Retry once with that DB role (same idToken, no second Google prompt).
+      // Explicit roles are never retried — the mismatch must be shown.
+      const actualRole = normalizeRole(error?.response?.data?.actualRole);
+      if (isAuto && isRoleMismatchError(error) && actualRole) {
+        data = await postGoogleAuth(idToken, actualRole);
       } else {
         throw error;
       }
     }
 
-    const userRole = normalizeRole(
-      data.role || data.user?.role || storedRole,
-    );
+    const userRole = normalizeRole(data.role || data.user?.role) ||
+      (isAuto ? 'user' : storedRole);
     const isCounselor = userRole === 'counselor';
 
     const token = data.accessToken || data.token;
@@ -317,6 +326,14 @@ const GoogleAuthButton = ({
             fallbackMessage: responseData.message,
           }),
         );
+        return;
+      }
+      if (responseData?.code === 'ACCOUNT_NOT_FOUND') {
+        const msg =
+          responseData.message ||
+          'No account found for this Google account. Please sign up first.';
+        if (onNotRegistered) onNotRegistered({ email: responseData.email, message: msg });
+        else onError?.(msg);
         return;
       }
       if (err?.response?.status === 409) {

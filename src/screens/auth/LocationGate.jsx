@@ -15,6 +15,7 @@ import { PermissionsAndroid } from 'react-native';
 import { captureAndSendLocation } from '../../utils/locationHelper';
 import useLanguageRender from '../../hooks/useLanguageRender';
 
+import { enterAuthenticatedRoute } from '../../utils/authSession';
 const checkLocationPermission = async () => {
   if (Platform.OS !== 'android') return 'granted';
   try {
@@ -147,7 +148,7 @@ const LocationGate = ({ navigation, route }) => {
     } catch (err) {
       console.warn('[LocationGate] location capture failed:', err?.message);
     }
-    navigation.replace(destination, destinationParams);
+    enterAuthenticatedRoute(navigation, destination, destinationParams);
   };
 
   const handleAllow = async () => {
@@ -167,7 +168,7 @@ const LocationGate = ({ navigation, route }) => {
   // User skips — go to dashboard WITHOUT location, but only after at least one attempt.
   // On the very first idle state we don't show skip yet (give 1 persuasion round).
   const handleSkip = () => {
-    navigation.replace(destination, destinationParams);
+    enterAuthenticatedRoute(navigation, destination, destinationParams);
   };
 
   const handleOpenSettings = () => {

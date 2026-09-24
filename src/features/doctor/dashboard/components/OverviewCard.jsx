@@ -1,7 +1,7 @@
 // Ported from MediconecktApp's src/doctor/dashboard/components/OverviewCard.tsx.
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, shadow } from '../theme';
+import { Pressable, Text, View } from 'react-native';
+import { colors, shadow, typography, createDoctorStyles } from '../theme';
 import AppIcon from '../icons/AppIcon';
 
 export default function OverviewCard({ title, value, suffix, icon, neutral, onPress }) {
@@ -21,13 +21,13 @@ export default function OverviewCard({ title, value, suffix, icon, neutral, onPr
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createDoctorStyles({
   card: { ...shadow, width: '48.5%', height: 100, borderRadius: 8, backgroundColor: colors.surface, padding: 13 },
   top: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
-  title: { fontSize: 10, lineHeight: 15, color: colors.muted },
+  title: { ...typography.caption, fontSize: 13.5, lineHeight: 18, color: colors.muted },
   iconCircle: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.paleBlue },
   neutral: { backgroundColor: '#E4E6EA' },
   valueRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 11 },
-  value: { fontSize: 19, lineHeight: 23, fontWeight: '700', color: colors.ink },
-  suffix: { fontSize: 9, color: colors.muted, marginLeft: 3 },
+  value: { ...typography.title, fontSize: 21, lineHeight: 25, color: colors.ink },
+  suffix: { ...typography.caption, fontSize: 13, color: colors.muted, marginLeft: 3 },
 });

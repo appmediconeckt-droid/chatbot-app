@@ -10,21 +10,17 @@
 // a single horizontal, paging ScrollView (real native swipe), dots at the
 // bottom just above the CTA button, header carries only "Skip".
 //
-// The base profile created at signup arrives via `route.params.doctorProfileBase`;
-// on completion it's merged with this wizard's draft into one profile object,
-// persisted to the mock session, and handed to DoctorProfile. There is still
-// no real backend — nothing here is sent over the network.
+// The base profile created at signup arrives via `route.params.doctorProfileBase`
+// — since DoctorSignup.jsx now does a real POST /api/auth/complete-registration,
+// this is the real backend user object, not mock data. On completion it's
+// merged with this wizard's draft into one profile object, written to
+// `doctorMockProfile` (still just a local display cache — see DoctorSignup.jsx
+// for why that key name stuck around), and handed to DoctorDashboard. This
+// wizard's OWN fields (registration number, institution, clinic, availability)
+// are still local-only: there is no backend endpoint for doctor credentialing
+// yet, so nothing on this screen itself is sent over the network.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  View,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  StatusBar,
-  Animated,
-  Easing,
-  Dimensions,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, StatusBar, Animated, Easing, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import TextInput from '../../components/TranslatedTextInput';
@@ -36,7 +32,9 @@ import { CLINICIAN } from '../../theme/palette';
 import AuthBackground from '../../theme/AuthBackground';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
+import { createDoctorStyles } from '../../features/doctor/dashboard/theme';
 
+import { enterAuthenticatedRoute } from '../../utils/authSession';
 const { width } = Dimensions.get('window');
 const TOTAL_PAGES = 3;
 
@@ -205,7 +203,7 @@ const QualificationsPage = ({ t, draft, errors, update, onUpload }) => {
       keyboardShouldPersistTaps="handled"
     >
       <View style={s.formStep}>
-        <Text style={s.stepTitle}>{t('Build Your Professional Profile')}</Text>
+        <Text style={s.stepTitle}>{t('Complete Your Doctor Details')}</Text>
 
         <FieldLabel>{t('Medical Registration Number')}</FieldLabel>
         <View style={[s.inputWrapper, errors.registrationNumber && s.inputWrapperError]}>
@@ -384,14 +382,14 @@ const DoctorOnboarding = ({ navigation, route }) => {
   }, [draft]);
 
   const finishOnboarding = useCallback(() => {
-    const destination = route?.params?.destination || 'DoctorProfile';
+    const destination = route?.params?.destination || 'DoctorDashboard';
     const destinationParams = route?.params?.destinationParams || {};
     // Merge the signup-created base profile with what this wizard collected
     // into one complete mock doctor profile, and keep the mock session (used
-    // by DoctorDashboard/DoctorProfile) in sync with it.
+    // by DoctorDashboard) in sync with it.
     const mergedProfile = { ...baseProfileRef.current, ...draft };
     AsyncStorage.setItem('doctorMockProfile', JSON.stringify(mergedProfile)).catch(() => {});
-    navigation.replace(destination, { ...destinationParams, doctorProfile: mergedProfile });
+    enterAuthenticatedRoute(navigation, destination, { ...destinationParams, doctorProfile: mergedProfile });
   }, [draft, navigation, route?.params?.destination, route?.params?.destinationParams]);
 
   const goToNextPage = useCallback(() => {
@@ -483,7 +481,7 @@ const DoctorOnboarding = ({ navigation, route }) => {
   );
 };
 
-const s = StyleSheet.create({
+const s = createDoctorStyles({
   container: { flex: 1, backgroundColor: CLINICIAN.backgroundTint },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
   skipText: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
@@ -510,7 +508,14 @@ const s = StyleSheet.create({
   welcomeFeatureText: { fontSize: 11.5, fontWeight: '700', color: CLINICIAN.primary },
 
   formScroll: { flex: 1 },
-  formScrollContent: { paddingHorizontal: 20, paddingTop: 6 },
+  // Centers short form content vertically (matching the Welcome page's
+  // justifyContent:'center'), instead of pinning it to the top with barely
+  // any margin. Safe to combine with scrolling/keyboard avoidance here
+  // because useKeyboardAwareScroll's scrollFocusedInputIntoView measures the
+  // focused field's actual position each time rather than assuming a fixed
+  // top-anchored layout, so it still brings the active input above the
+  // keyboard correctly regardless of this resting centered position.
+  formScrollContent: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 20, paddingVertical: 24 },
   formStep: { gap: 10 },
   stepTitle: { fontSize: 21, fontWeight: '800', color: '#0f172a', marginBottom: 6 },
   fieldLabel: { fontSize: 11.5, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginTop: 6, marginBottom: 2 },

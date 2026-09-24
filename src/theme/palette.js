@@ -56,6 +56,30 @@ export const CLINICIAN = {
   danger: '#EF4444',
 };
 
+// The Humaeli master brand colour — sampled directly from the app icon /
+// logo mark (a teal→green gradient), not any single role's colour. Screens
+// that represent the whole app rather than one role — the single shared
+// Login, for instance — should use this so they visually match the actual
+// icon instead of borrowing green (patient), blue (counsellor) or teal
+// (clinician), each of which is close but not the real logo colour.
+export const BRAND = {
+  primary: '#0F8A9D',
+  gradientFrom: '#0B7A8C',
+  gradientTo: '#2FAF8C',
+  backgroundTint: '#EAF7F5',
+  secondaryTint: '#EAF7F5',
+
+  surface: '#FFFFFF',
+  border: '#ECECF3',
+  chipBorder: '#E2E2EC',
+  text: '#111827',
+  textSecondary: '#6B7280',
+  textMuted: '#9CA3AF',
+  online: '#22C55E',
+  danger: '#EF4444',
+};
+export const BRAND_GRADIENT = [BRAND.gradientFrom, BRAND.gradientTo];
+
 // Pick the palette for a role: 'counselor' / 'counsellor' → blue,
 // 'doctor' → teal (clinician), else green.
 export const paletteForRole = (role) => {

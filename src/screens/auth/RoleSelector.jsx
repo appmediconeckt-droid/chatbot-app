@@ -1,5 +1,5 @@
 // RoleSelector.jsx - Masterpiece UI Version
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -15,7 +15,7 @@ import {
   Image,
 } from 'react-native';
 import Text from '../../components/TranslatedText';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -107,10 +107,24 @@ const RoleSelector = () => {
     createOrbLoop(orb2Anim, -100).start();
     createOrbLoop(particle1, 200).start();
     createOrbLoop(particle2, -150).start();
-    
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => false);
-    return () => backHandler.remove();
   }, []);
+
+  // RoleSelector is often reached via replace() (logout, session expiry,
+  // onboarding), leaving nothing underneath — then Android back would exit
+  // the app. Rebuild Landing -> Login instead, so back lands on Login.
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (navigation.canGoBack()) return false;
+        navigation.reset({
+          index: 1,
+          routes: [{ name: 'Landing' }, { name: 'Login' }],
+        });
+        return true;
+      });
+      return () => sub.remove();
+    }, [navigation]),
+  );
   
   const scaleForRole = (role) => (role === 'user' ? scaleUser : role === 'doctor' ? scaleDoctor : scaleCounselor);
 

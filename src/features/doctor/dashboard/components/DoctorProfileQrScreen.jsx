@@ -1,102 +1,197 @@
-// Ported from MediconecktApp's src/doctor/dashboard/components/DoctorProfileQrScreen.tsx.
-// Adaptations: ToastAndroid -> cross-platform useToast; share text no longer
-// references the source app's own domain.
-import React, { useState } from 'react';
-import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+// Ported from MediconecktApp's DoctorProfileQrScreen. Same data as the web
+// AppointmentQR/AllQRcode.jsx:
+//   GET /api/auth/doctor-qr/:doctorId        (doctor card)
+//   GET /api/auth/doctor-qr/:doctorId/stats  (todayScans, thisWeekScans, qrAppointments, profileViews)
+// The QR encodes the public walk-in booking link, rendered by api.qrserver.com
+// exactly like the web page.
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
+import RNFS from 'react-native-fs';
+import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
+import { createDoctorStyles } from '../theme';
+import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
+import axiosInstance from '../../../../axiosConfig';
+import { PUBLIC_WEB_APP_URL } from '../../../../config';
+import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
 
-const qr = [
-  '1111111001101111111',
-  '1000001010101000001',
-  '1011101011101011101',
-  '1011101000101011101',
-  '1011101011101011101',
-  '1000001010101000001',
-  '1111111010101111111',
-  '0000000011100000000',
-  '1101011110111010111',
-  '0011100011000111000',
-  '1110111010111011101',
-  '0101000111010001010',
-  '1111111010111010111',
-  '1000000011101001000',
-  '1111111010011110111',
-  '1000001011100010100',
-  '1011101010111111101',
-  '1000001001000010010',
-  '1111111011111011111',
-];
+const createQrImageUrl = (targetUrl) =>
+  `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(targetUrl)}`;
 
-export default function DoctorProfileQrScreen({ onBack, onMenuPress }) {
-  const [visible, setVisible] = useState(true);
+const formatUpdated = (date) =>
+  date
+    ? `Today, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : '—';
+
+export default function DoctorProfileQrScreen({ onBack }) {
   const { showToast } = useToast();
-  const notify = (text) => showToast(text);
-  const share = () => void Share.share({ message: 'Dr. Sarah Mitchell — Humaeli Provider Profile' });
+  const [doctorId, setDoctorId] = useState(null);
+  const [storedUser, setStoredUser] = useState({});
+  const [doctorData, setDoctorData] = useState(null);
+  const [quickStats, setQuickStats] = useState({ todayScans: 0, thisWeekScans: 0, qrAppointments: 0, profileViews: 0 });
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [updatedAt, setUpdatedAt] = useState(null);
+
+  useEffect(() => {
+    getStoredDoctorUser().then((user) => {
+      setStoredUser(user || {});
+      const id = pickFirst(user?.doctor_id, user?.doctorId, user?.user?.id, user?.id, user?._id, user?.user_id);
+      if (id) setDoctorId(String(id));
+      else {
+        setError('Doctor ID not found. Please login again.');
+        setIsLoading(false);
+      }
+    });
+  }, []);
+
+  const getDoctorQR = useCallback(async () => {
+    if (!doctorId) return;
+    try {
+      setIsLoading(true);
+      setError('');
+      const [doctorQrRes, statsRes] = await Promise.all([
+        axiosInstance.get(`/api/auth/doctor-qr/${doctorId}`),
+        axiosInstance.get(`/api/auth/doctor-qr/${doctorId}/stats`),
+      ]);
+      setDoctorData(doctorQrRes.data?.data || doctorQrRes.data || null);
+      setQuickStats(statsRes.data?.data || statsRes.data || {});
+      setUpdatedAt(new Date());
+    } catch (err) {
+      setError(err?.response?.data?.message || 'QR details could not be loaded');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [doctorId]);
+
+  useEffect(() => { getDoctorQR(); }, [getDoctorQR]);
+
+  const doctorRecord = doctorData?.doctor || doctorData?.user || doctorData || {};
+  const doctorName = pickFirst(
+    doctorRecord.full_name, doctorRecord.fullName, doctorRecord.name,
+    storedUser.full_name, storedUser.fullName, storedUser.name, 'Doctor',
+  );
+  const specialityRaw = pickFirst(doctorRecord.speciality, doctorRecord.specialization, 'Doctor');
+  const speciality = Array.isArray(specialityRaw) ? specialityRaw.join(' · ') : specialityRaw;
+  const profileImage = pickFirst(doctorData?.profile_image, doctorData?.profileImage, doctorRecord.profilePhoto?.url);
+  const appointmentUrl = doctorId
+    ? `${PUBLIC_WEB_APP_URL.replace(/\/+$/, '')}/walk-in-appointment?doctorId=${encodeURIComponent(doctorId)}&source=qr`
+    : '';
+  const qrImageUrl = appointmentUrl ? createQrImageUrl(appointmentUrl) : '';
+
+  const shareQr = () => {
+    if (!appointmentUrl) return;
+    Share.share({
+      title: `${doctorName} QR Code`,
+      message: `Scan this QR to view profile or book appointment.\n${appointmentUrl}`,
+      url: appointmentUrl,
+    }).catch(() => {});
+  };
+
+  // No clipboard module in this app — the share sheet offers "Copy".
+  const copyLink = () => {
+    if (!appointmentUrl) return;
+    Share.share({ message: appointmentUrl }).catch(() => {});
+  };
+
+  const downloadQr = async () => {
+    if (!qrImageUrl) return;
+    const safeName = String(doctorName).replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    const dir = Platform.OS === 'android' ? RNFS.DownloadDirectoryPath : RNFS.DocumentDirectoryPath;
+    const toFile = `${dir}/${safeName || 'doctor'}-appointment-qr.png`;
+    try {
+      const result = await RNFS.downloadFile({ fromUrl: qrImageUrl, toFile }).promise;
+      if (result.statusCode && result.statusCode >= 400) throw new Error(`HTTP ${result.statusCode}`);
+      showToast(Platform.OS === 'android' ? 'QR saved to Downloads' : 'QR saved');
+    } catch (err) {
+      console.warn('QR download error:', err?.message);
+      Linking.openURL(`${qrImageUrl}&download=1`).catch(() => showToast('Could not download QR'));
+    }
+  };
+
   return (
     <View style={s.screen}>
       <View style={s.header}>
-        <Pressable onPress={onBack}><Text style={s.back}>‹</Text></Pressable>
+        <Pressable onPress={onBack} style={s.backButton} hitSlop={8}>
+          <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
+        </Pressable>
         <Text style={s.title}>DR. Profile QR Code</Text>
-        {onMenuPress && (
-          <Pressable accessibilityLabel="Open navigation menu" onPress={onMenuPress} style={s.menuButton}>
-            <AppIcon name="menu" size={21} color="#26364D" strokeWidth={2} />
-          </Pressable>
-        )}
       </View>
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <Text style={s.intro}>Share your professional profile instantly with{`\n`}patients using a secure QR Code.</Text>
-        <View style={s.qrCard}>
-          <Text style={s.qrTitle}>Your Doctor QR Code</Text>
-          <View style={s.qrBox}>
-            {qr.flatMap((row, r) => [...row].map((cell, c) => <View key={`${r}-${c}`} style={[s.pixel, cell === '1' && s.pixelOn]} />))}
+        {isLoading && (
+          <View style={s.stateBox}><ActivityIndicator color="#0D9488" /><Text style={s.stateText}>QR Loading...</Text></View>
+        )}
+        {!!error && !isLoading && (
+          <View style={s.stateBox}>
+            <Text style={s.errorText}>{error}</Text>
+            <Outline text="↻  Retry" onPress={getDoctorQR} />
           </View>
-          <View style={s.doctorPill}>
-            <View style={s.avatar}><Text style={s.avatarText}>👩🏻‍⚕</Text></View>
-            <View>
-              <Text style={s.doctorName}>Dr. Sarah Mitchell</Text>
-              <Text style={s.speciality}>Cardiologist</Text>
+        )}
+        {!isLoading && !error && !!appointmentUrl && (
+          <>
+            <View style={s.qrCard}>
+              <Text style={s.qrTitle}>Your Doctor QR Code</Text>
+              <View style={s.qrBox}>
+                <Image source={{ uri: qrImageUrl }} style={s.qrImage} resizeMode="contain" />
+              </View>
+              <View style={s.doctorPill}>
+                {profileImage ? (
+                  <Image source={{ uri: profileImage }} style={s.avatar} />
+                ) : (
+                  <View style={s.avatar}><Text style={s.avatarInitial}>{String(doctorName).replace(/^Dr\.?\s*/i, '').charAt(0).toUpperCase()}</Text></View>
+                )}
+                <View>
+                  <Text style={s.doctorName}>{doctorName}</Text>
+                  {!!speciality && <Text style={s.speciality}>{speciality}</Text>}
+                </View>
+                <View style={s.verified}><Text style={s.check}>✓</Text></View>
+              </View>
             </View>
-            <View style={s.verified}><Text style={s.check}>✓</Text></View>
-          </View>
-        </View>
-        <Text style={s.scanTitle}>SCAN THIS QR CODE TO:</Text>
-        <View style={s.scanGrid}>
-          <Action icon="user" text="View Profile" />
-          <Action icon="calendar" text="Book Appt." />
-          <Action icon="message" text="Start Chat" />
-          <Action icon="phone" text="Contact Clinic" />
-        </View>
-        <View style={s.card}>
-          <Text style={s.section}>QR MANAGEMENT</Text>
-          <Pressable style={s.download} onPress={() => notify('QR downloaded')}><Text style={s.downloadText}>⇩ Download QR</Text></Pressable>
-          <View style={s.two}>
-            <Outline text="⌁  Share" onPress={share} />
-            <Outline text="▣  Print" onPress={() => notify('Print ready')} />
-          </View>
-          <View style={s.two}>
-            <Outline text="🔗  Copy Link" onPress={() => notify('Profile link copied')} />
-            <Outline text="↻  Refresh" onPress={() => notify('QR refreshed')} />
-          </View>
-        </View>
-        <View style={s.card}>
-          <Text style={s.section}>QUICK STATS</Text>
-          <View style={s.statRow}>
-            <Stat label="Today's Scans" value="42" />
-            <Stat label="This Week" value="186" />
-          </View>
-          <View style={s.statRow}>
-            <Stat label="Appointments" value="24" />
-            <Stat label="Profile Views" value="512" arrow="→" />
-          </View>
-        </View>
-        <View style={s.card}>
-          <Text style={s.section}>QR DETAILS</Text>
-          <Detail label="QR Status" value="Active" badge />
-          <Detail label="Last Updated" value="Today, 09:41 AM" />
-          <Detail label="Visibility" value={visible ? 'Public' : 'Private'} onPress={() => setVisible((x) => !x)} />
-          <Detail label="Expires" value="Never" last />
-        </View>
+            <Text style={s.scanTitle}>SCAN THIS QR CODE TO:</Text>
+            <View style={s.scanGrid}>
+              <Action icon="user" text="View Profile" />
+              <Action icon="calendar" text="Book Appt." />
+              <Action icon="message" text="Start Chat" />
+              <Action icon="phone" text="Contact Clinic" />
+            </View>
+            <View style={s.card}>
+              <Text style={s.section}>QR MANAGEMENT</Text>
+              <Pressable style={s.downloadWrap} onPress={downloadQr}>
+                <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.download}>
+                  <Text style={s.downloadText}>⇩ Download QR</Text>
+                </LinearGradient>
+              </Pressable>
+              <View style={s.two}>
+                <Outline text="⌁  Share" onPress={shareQr} />
+                <Outline text="▣  Print" onPress={() => Linking.openURL(qrImageUrl).catch(() => {})} />
+              </View>
+              <View style={s.two}>
+                <Outline text="🔗  Copy Link" onPress={copyLink} />
+                <Outline text="↻  Refresh" onPress={getDoctorQR} />
+              </View>
+            </View>
+            <View style={s.card}>
+              <Text style={s.section}>QUICK STATS</Text>
+              <View style={s.statRow}>
+                <Stat label="Today's Scans" value={String(quickStats.todayScans ?? 0)} />
+                <Stat label="This Week" value={String(quickStats.thisWeekScans ?? 0)} />
+              </View>
+              <View style={s.statRow}>
+                <Stat label="Appointments" value={String(quickStats.qrAppointments ?? 0)} />
+                <Stat label="Profile Views" value={String(quickStats.profileViews ?? 0)} arrow="→" />
+              </View>
+            </View>
+            <View style={s.card}>
+              <Text style={s.section}>QR DETAILS</Text>
+              <Detail label="QR Status" value="Active" badge />
+              <Detail label="Last Updated" value={formatUpdated(updatedAt)} />
+              <Detail label="Visibility" value="Public" />
+              <Detail label="Expires" value="Never" last />
+            </View>
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -125,46 +220,49 @@ function Detail({ label, value, badge, last, onPress }) {
   );
 }
 
-const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#F4F7FB' },
+const s = createDoctorStyles({
+  screen: { flex: 1, backgroundColor: '#F0FDFA' },
   header: { height: 62, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },
-  back: { fontSize: 32, lineHeight: 34, color: '#26364D', marginRight: 10 },
-  title: { fontSize: 20, fontWeight: '700', color: '#07BFBD' },
-  menuButton: { marginLeft: 'auto' },
+  backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  title: { fontSize: 22, fontWeight: '800', color: '#0D9488' },
   content: { padding: 12, paddingBottom: 36 },
-  intro: { fontSize: 13, lineHeight: 19, color: '#526078', marginHorizontal: 3, marginBottom: 16 },
+  intro: { fontSize: 14, lineHeight: 20, color: '#526078', marginHorizontal: 3, marginBottom: 16 },
   qrCard: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 12, alignItems: 'center', padding: 22, shadowColor: '#17243A', shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
-  qrTitle: { fontSize: 16, fontWeight: '700', color: '#17243A', marginBottom: 20 },
-  qrBox: { width: 198, height: 198, padding: 15, backgroundColor: '#EEF1F5', borderRadius: 10, flexDirection: 'row', flexWrap: 'wrap' },
-  pixel: { width: 8.84, height: 8.84, backgroundColor: 'transparent' },
-  pixelOn: { backgroundColor: '#05080D' },
+  qrTitle: { fontSize: 17, fontWeight: '700', color: '#17243A', marginBottom: 20 },
+  qrBox: { width: 198, height: 198, padding: 10, backgroundColor: '#EEF1F5', borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  qrImage: { width: 178, height: 178 },
+  avatarInitial: { fontSize: 17, fontWeight: '700', color: '#0D9488' },
+  stateBox: { alignItems: 'center', gap: 10, paddingVertical: 30 },
+  stateText: { fontSize: 14, color: '#526078' },
+  errorText: { fontSize: 14, color: '#D92D20', textAlign: 'center' },
   doctorPill: { height: 58, borderWidth: 1, borderColor: '#D4DBE5', borderRadius: 29, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 9, marginTop: 20, backgroundColor: '#FFF' },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F1E2D5', alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 21 },
-  doctorName: { fontSize: 13, fontWeight: '700', color: '#17243A', marginLeft: 9 },
-  speciality: { fontSize: 11, color: '#667085', marginLeft: 9, marginTop: 2 },
-  verified: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#08F9ED', alignItems: 'center', justifyContent: 'center', marginLeft: 9 },
-  check: { color: '#FFF', fontSize: 13, fontWeight: '700' },
-  scanTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 0.3, color: '#344054', marginTop: 22, marginBottom: 10 },
+  doctorName: { fontSize: 14, fontWeight: '700', color: '#17243A', marginLeft: 9 },
+  speciality: { fontSize: 13, color: '#667085', marginLeft: 9, marginTop: 2 },
+  verified: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#2DD4BF', alignItems: 'center', justifyContent: 'center', marginLeft: 9 },
+  check: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  scanTitle: { fontSize: 14, fontWeight: '700', letterSpacing: 0.3, color: '#344054', marginTop: 22, marginBottom: 10 },
   scanGrid: { flexDirection: 'row', flexWrap: 'wrap', borderBottomWidth: 1, borderBottomColor: '#DDE3EB', paddingBottom: 15 },
   action: { width: '50%', height: 42, flexDirection: 'row', alignItems: 'center', gap: 9, paddingLeft: 8 },
-  actionText: { fontSize: 13, color: '#526078' },
+  actionText: { fontSize: 14, color: '#526078' },
   card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 11, padding: 15, marginTop: 16, shadowColor: '#17243A', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
-  section: { fontSize: 12, fontWeight: '700', letterSpacing: 0.7, color: '#344054', marginBottom: 13 },
-  download: { height: 49, backgroundColor: '#08F9ED', borderRadius: 8, alignItems: 'center', justifyContent: 'center', shadowColor: '#08F9ED', shadowOpacity: 0.18, shadowRadius: 4, elevation: 2 },
-  downloadText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+  section: { fontSize: 14, fontWeight: '700', letterSpacing: 0.7, color: '#344054', marginBottom: 13 },
+  downloadWrap: { borderRadius: 8, shadowColor: '#2DD4BF', shadowOpacity: 0.18, shadowRadius: 4, elevation: 2 },
+  download: { height: 49, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  downloadText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
   two: { flexDirection: 'row', gap: 10, marginTop: 10 },
   outline: { flex: 1, height: 46, borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },
-  outlineText: { fontSize: 13, fontWeight: '500', color: '#344054' },
+  outlineText: { fontSize: 14, fontWeight: '500', color: '#344054' },
   statRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   stat: { flex: 1, height: 90, borderWidth: 1, borderColor: '#D3DAE5', borderRadius: 9, backgroundColor: '#F8FAFD', padding: 12 },
   statTop: { flexDirection: 'row' },
-  statLabel: { fontSize: 11, color: '#667085' },
-  statArrow: { marginLeft: 'auto', fontSize: 16, color: '#16A36A' },
+  statLabel: { fontSize: 13, color: '#667085' },
+  statArrow: { marginLeft: 'auto', fontSize: 17, color: '#16A36A' },
   statValue: { fontSize: 22, fontWeight: '700', color: '#17243A', marginTop: 12 },
   detail: { height: 52, borderBottomWidth: 1, borderBottomColor: '#E3E7EE', flexDirection: 'row', alignItems: 'center' },
   detailLast: { borderBottomWidth: 0 },
-  detailLabel: { fontSize: 13, color: '#667085' },
-  detailValue: { marginLeft: 'auto', fontSize: 13, fontWeight: '500', color: '#344054' },
+  detailLabel: { fontSize: 14, color: '#667085' },
+  detailValue: { marginLeft: 'auto', fontSize: 14, fontWeight: '500', color: '#344054' },
   badge: { backgroundColor: '#D9FAE8', color: '#139A5B', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, overflow: 'hidden' },
 });

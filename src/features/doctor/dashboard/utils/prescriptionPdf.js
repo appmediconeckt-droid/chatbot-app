@@ -1,13 +1,5 @@
-// Ported from MediconecktApp's src/doctor/dashboard/utils/prescriptionPdf.ts.
-//
-// Adaptation: the source relied on a custom native `Downloads` bridge module
-// (NativeModules.Downloads) that only exists in MediconecktApp's own native
-// project — it isn't present here, so it would always throw. This version
-// writes the PDF straight to a device path with react-native-fs (already a
-// chatbot-app dependency) instead, which actually works. Also: brand renamed
-// from "Mediconeckt" to "Humaeli", and ToastAndroid (Android-only) replaced
 // with a plain Alert so it works on iOS too.
-import { Alert, Platform } from 'react-native';
+import { Alert } from 'react-native';
 import RNFS from 'react-native-fs';
 
 const toSafeString = (value) => value ?? '';
@@ -67,8 +59,12 @@ export async function downloadPrescriptionPdf(patientName) {
   try {
     const displayName = isAscii(patientName) && patientName ? patientName : 'Patient';
     const fileName = `Prescription_${fileSafeName(displayName)}`;
-    const targetDir = Platform.OS === 'android' ? RNFS.DownloadDirectoryPath : RNFS.DocumentDirectoryPath;
-    const pdfPath = `${targetDir}/${fileName}.pdf`;
+    // The app's own sandboxed storage — writable on every Android version with
+    // no runtime permission needed. `RNFS.DownloadDirectoryPath` (the shared
+    // public Downloads folder) was used before, but Android 10+'s scoped
+    // storage blocks direct writes there without extra permission handling
+    // this app doesn't have, so every save silently failed.
+    const pdfPath = `${RNFS.DocumentDirectoryPath}/${fileName}.pdf`;
 
     const lines = [
       'Humaeli Provider Portal',

@@ -1,92 +1,194 @@
-// Ported from MediconecktApp's src/doctor/dashboard/components/AppointmentCard.tsx.
+// Queue row for the doctor dashboard — mirrors the web queue row
+// (Dashboard/DoctorDashboard.jsx `dd-queue-row`): initials avatar, token,
+// status label, type / mode / gender / issue / time meta, delay, follow-up,
+// BP / BG chips, and the same action rules (call / View / Start / Continue).
 import React from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, shadow } from '../theme';
+import { Pressable, Text, View } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
+import { colors, shadow, typography, createDoctorStyles, doctorGradient, gradientDirection } from '../theme';
 import AppIcon from '../icons/AppIcon';
+import { getRemoteConsultationMode, getTokenLabel, isAppointmentCallWindowOpen } from '../api/doctorAppointments';
 
-export default function AppointmentCard({ item, onStartConsultation }) {
+const getInitials = (name = '') =>
+  name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || 'NA';
+
+const STATUS_STYLES = {
+  Pending: { bg: '#FFF5E5', dot: colors.amber, text: '#A65F00' },
+  Confirmed: { bg: '#E8F1FF', dot: '#2563EB', text: '#1D4ED8' },
+  'In Progress': { bg: '#E6FAF6', dot: colors.blue, text: colors.blue },
+  Completed: { bg: '#E7F8EE', dot: '#16A34A', text: '#15803D' },
+  Cancelled: { bg: '#F1F4F8', dot: colors.muted, text: colors.muted },
+};
+
+export const getQueueStatusLabel = (appt, isActive) => {
+  if (appt.status === 'completed') return 'Completed';
+  if (appt.status === 'in-progress' || isActive) return 'In Progress';
+  if (appt.status === 'confirmed') return 'Confirmed';
+  if (appt.status === 'cancelled') return 'Cancelled';
+  return 'Pending';
+};
+
+const formatFollowUpDate = (value) => {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime())
+    ? 'Date not available'
+    : d.toLocaleDateString('en-US', { day: '2-digit', month: 'long', year: 'numeric' });
+};
+
+export default function AppointmentCard({
+  item,
+  isActive,
+  highlight,
+  primary, // first pending row → "Start Consultation"
+  sessionBusy, // another consultation running
+  onBreak,
+  onStartConsultation,
+  onContinue,
+  onView,
+  onCall,
+}) {
+  const statusLabel = getQueueStatusLabel(item, isActive);
+  const statusStyle = STATUS_STYLES[statusLabel] || STATUS_STYLES.Pending;
+  const remoteMode = getRemoteConsultationMode(item);
+  const isCompleted = item.status === 'completed';
+  const callDisabled = !isAppointmentCallWindowOpen(item) || !item.patientId;
+
+  let action = null;
+  if (isCompleted) {
+    action = { label: 'View', ghost: true, onPress: () => onView?.(item) };
+  } else if (!remoteMode && isActive) {
+    action = { label: 'Continue', ghost: false, onPress: () => onContinue?.(item), disabled: onBreak };
+  } else if (!remoteMode) {
+    action = {
+      label: primary ? 'Start Consultation' : 'View',
+      ghost: !primary,
+      onPress: () => onStartConsultation?.(item),
+      disabled: sessionBusy || onBreak,
+    };
+  }
+
   return (
-    <View style={[styles.card, item.primary && styles.priorityCard]}>
+    <View style={[styles.card, (highlight || isActive) && styles.cardHighlight]}>
       <View style={styles.header}>
-        <Image source={{ uri: item.image }} style={styles.avatar} />
+        <View style={styles.avatar}><Text style={styles.avatarText}>{getInitials(item.name)}</Text></View>
         <View style={styles.patientInfo}>
           <View style={styles.nameRow}>
             <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-            <View style={styles.statusBadge}>
-              <View style={styles.statusDot} />
-              <Text style={styles.statusText}>Pending</Text>
+            <View style={styles.idPill}><Text style={styles.idText}>{getTokenLabel(item)}</Text></View>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+            <View style={[styles.statusDot, { backgroundColor: statusStyle.dot }]} />
+            <Text style={[styles.statusText, { color: statusStyle.text }]}>{statusLabel}</Text>
+          </View>
+          <View style={styles.metaRow}>
+            <Text style={styles.meta}>{item.appointmentType}</Text>
+            {!!remoteMode && (
+              <>
+                <Text style={styles.dot}>•</Text>
+                <AppIcon name={remoteMode === 'video' ? 'video' : 'phone'} size={12} strokeWidth={2} color={colors.muted} />
+                <Text style={styles.meta}>{remoteMode === 'video' ? 'Video' : 'Voice'}</Text>
+              </>
+            )}
+            <Text style={styles.dot}>•</Text>
+            <Text style={styles.meta}>{item.gender}</Text>
+          </View>
+          <View style={styles.metaRow}>
+            <Text style={styles.complaint} numberOfLines={1}>{item.issue}</Text>
+            <View style={styles.timeChip}>
+              <AppIcon name="clock" size={13} strokeWidth={2} color={colors.muted} />
+              <Text style={styles.timeText}>{item.scheduledTime || 'Today'}</Text>
             </View>
           </View>
-          <View style={styles.idRow}>
-            <Text style={styles.patientId}>{item.id}</Text>
-            <Text style={styles.gender}>{item.gender}</Text>
-          </View>
+          {item.delayMinutes > 0 && (
+            <Text style={styles.delay}>
+              Delayed {item.delayMinutes} min{item.delayReason ? ` - ${item.delayReason}` : ''}
+            </Text>
+          )}
+          {isCompleted && item.followUpRequired && (
+            <Text style={styles.followUp}>
+              Follow-up: {item.followUpDate ? formatFollowUpDate(item.followUpDate) : 'Date not available'}
+            </Text>
+          )}
         </View>
       </View>
 
-      <View style={styles.complaintRow}>
-        <View style={[styles.complaintIcon, item.primary && styles.priorityIcon]}>
-          <AppIcon name="user" size={15} strokeWidth={1.9} color={item.primary ? colors.red : colors.blue} />
+      <View style={styles.footerRow}>
+        <View style={styles.vitals}>
+          <View style={styles.vitalChip}><Text style={styles.vital}>BP: {item.bp || 'N/A'}</Text></View>
+          <View style={styles.vitalChip}><Text style={styles.vital}>BG: {item.bloodGroup || 'N/A'}</Text></View>
         </View>
-        <Text style={[styles.complaint, item.primary && styles.priorityText]} numberOfLines={2}>{item.complaint}</Text>
-      </View>
 
-      <View style={styles.metaRow}>
-        <View style={styles.timeChip}>
-          <AppIcon name="clock" size={14} strokeWidth={2} color={colors.blue} />
-          <Text style={styles.timeText}>{item.time}</Text>
+        <View style={styles.actions}>
+          {!!remoteMode && !isCompleted && (
+            <Pressable
+              onPress={() => onCall?.(item, remoteMode)}
+              disabled={callDisabled}
+              style={[styles.button, styles.secondaryButton, callDisabled && styles.disabled]}
+            >
+              <AppIcon name={remoteMode === 'video' ? 'video' : 'phone'} size={13} strokeWidth={2} color={colors.navy} />
+              <Text style={[styles.buttonText, styles.secondaryButtonText]}>{remoteMode === 'video' ? ' Video Call' : ' Voice Call'}</Text>
+            </Pressable>
+          )}
+          {action && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={action.onPress}
+              disabled={action.disabled}
+              style={({ pressed }) => [
+                styles.button,
+                action.ghost && styles.secondaryButton,
+                pressed && styles.buttonPressed,
+                action.disabled && styles.disabled,
+              ]}
+            >
+              {action.ghost ? (
+                <Text style={[styles.buttonText, styles.secondaryButtonText]}>{action.label}</Text>
+              ) : (
+                <LinearGradient colors={doctorGradient} {...gradientDirection} style={styles.primaryButtonFill}>
+                  <Text style={[styles.buttonText, styles.primaryButtonText]}>{action.label}</Text>
+                </LinearGradient>
+              )}
+            </Pressable>
+          )}
         </View>
-        <Text style={styles.vital}>BP {item.bloodPressure}</Text>
-        <Text style={styles.vital}>BG {item.bloodGroup}</Text>
       </View>
-
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={item.primary ? `Start consultation with ${item.name}` : `View ${item.name}`}
-        onPress={item.primary ? () => onStartConsultation?.(item) : undefined}
-        style={({ pressed }) => [
-          styles.button,
-          item.primary ? styles.primaryButton : styles.secondaryButton,
-          pressed && styles.buttonPressed,
-        ]}
-      >
-        {item.primary && <AppIcon name="video" size={16} strokeWidth={2.2} color="#FFFFFF" />}
-        <Text style={[styles.buttonText, item.primary ? styles.primaryButtonText : styles.secondaryButtonText]}>
-          {item.primary ? 'Start Consultation' : 'View Details'}
-        </Text>
-      </Pressable>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createDoctorStyles({
   card: { ...shadow, backgroundColor: colors.surface, borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#EEF1F6' },
-  priorityCard: { borderColor: '#D7FBFF', shadowOpacity: 0.1 },
-  header: { flexDirection: 'row', alignItems: 'center' },
-  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#E8ECF2', borderWidth: 2, borderColor: '#FFFFFF' },
+  cardHighlight: { borderColor: '#9AE8F8', backgroundColor: '#F7FEFD' },
+  header: { flexDirection: 'row', alignItems: 'flex-start' },
+  avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { ...typography.subtitle, fontSize: 15, color: colors.blue },
   patientInfo: { flex: 1, marginLeft: 12 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  name: { flex: 1, fontSize: 17, lineHeight: 22, fontWeight: '800', color: colors.ink },
-  statusBadge: { height: 23, paddingHorizontal: 8, borderRadius: 12, backgroundColor: '#FFF5E5', flexDirection: 'row', alignItems: 'center' },
-  statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.amber, marginRight: 5 },
-  statusText: { fontSize: 11, lineHeight: 14, fontWeight: '700', color: '#A65F00' },
-  idRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 5 },
-  patientId: { fontSize: 12, lineHeight: 16, fontWeight: '700', color: '#536176', backgroundColor: '#F1F4F8', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 2 },
-  gender: { fontSize: 13, lineHeight: 17, fontWeight: '600', color: colors.muted },
-  complaintRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 13, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEF1F6' },
-  complaintIcon: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F2F7FF', marginRight: 10 },
-  priorityIcon: { backgroundColor: '#FFF1F2' },
-  complaint: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: '600', color: '#394457' },
-  priorityText: { color: colors.red },
-  metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 13 },
-  timeChip: { height: 32, paddingHorizontal: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#EEF6FF' },
-  timeText: { fontSize: 13, lineHeight: 17, fontWeight: '800', color: colors.blue },
-  vital: { height: 32, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: colors.line, backgroundColor: '#FAFBFD', color: '#536176', fontSize: 12, lineHeight: 30, fontWeight: '700' },
-  button: { height: 42, borderRadius: 9, marginTop: 14, paddingHorizontal: 14, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  primaryButton: { borderColor: colors.blue, backgroundColor: colors.blue },
-  secondaryButton: { borderColor: '#BCC6D6', backgroundColor: '#FFFFFF' },
+  name: { ...typography.title, flexShrink: 1, fontSize: 17, lineHeight: 22, color: colors.ink },
+  idPill: { height: 21, paddingHorizontal: 7, borderRadius: 5, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center' },
+  idText: { ...typography.label, fontSize: 12, lineHeight: 16, color: '#536176' },
+  statusBadge: { alignSelf: 'flex-start', height: 21, marginTop: 5, paddingHorizontal: 8, borderRadius: 11, flexDirection: 'row', alignItems: 'center' },
+  statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 5 },
+  statusText: { ...typography.label, fontSize: 12, lineHeight: 16 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 },
+  meta: { ...typography.caption, fontSize: 13, lineHeight: 18, color: colors.muted },
+  dot: { fontSize: 13, color: colors.muted },
+  complaint: { ...typography.caption, flexShrink: 1, fontSize: 13.5, lineHeight: 18, color: '#394457' },
+  timeChip: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 4 },
+  timeText: { ...typography.body, fontSize: 12.5, lineHeight: 16, color: colors.muted },
+  delay: { ...typography.caption, fontSize: 12.5, color: colors.red, marginTop: 4 },
+  followUp: { ...typography.caption, fontSize: 12.5, color: '#15803D', marginTop: 4 },
+  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginTop: 13, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEF1F6' },
+  vitals: { flexDirection: 'row', gap: 8 },
+  vitalChip: { height: 30, paddingHorizontal: 10, borderRadius: 7, borderWidth: 1, borderColor: colors.line, backgroundColor: '#FAFBFD', alignItems: 'center', justifyContent: 'center' },
+  vital: { ...typography.label, color: '#536176', fontSize: 12, lineHeight: 16 },
+  actions: { flexDirection: 'row', gap: 8, marginLeft: 'auto' },
+  button: { height: 38, borderRadius: 8, flexShrink: 0, overflow: 'hidden' },
+  primaryButtonFill: { height: 38, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  secondaryButton: { borderWidth: 1, borderColor: '#BCC6D6', backgroundColor: '#FFFFFF', paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   buttonPressed: { opacity: 0.86, transform: [{ scale: 0.99 }] },
-  buttonText: { fontSize: 14, lineHeight: 18, fontWeight: '800' },
+  disabled: { opacity: 0.45 },
+  buttonText: { ...typography.button, fontSize: 14, lineHeight: 18 },
   primaryButtonText: { color: '#FFFFFF' },
   secondaryButtonText: { color: colors.navy },
 });

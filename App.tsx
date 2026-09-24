@@ -55,7 +55,6 @@ import SMSInput from './src/features/counselor/screens/SMSInput';
 
 // Doctor screens (frontend-only — no Doctor backend yet)
 import DoctorDashboard from './src/features/doctor/screens/DoctorDashboard';
-import DoctorProfile from './src/features/doctor/screens/DoctorProfile';
 import ChangePassword from './src/screens/account/ChangePassword';
 import SetPassword from './src/screens/account/SetPassword';
 import SetPasswordByOtp from './src/screens/account/SetPasswordByOtp';
@@ -92,7 +91,7 @@ export type RootStackParamList = {
   RoleSelector: undefined;
   // Onboarding now runs AFTER signup for every role (see RoleSelector /
   // *Signup screens), so `destination` here points at what comes after the
-  // tour — typically LocationGate or (for Doctor) DoctorProfile — not back
+  // tour — typically LocationGate or DoctorDashboard — not back
   // at the Signup screen itself.
   UserOnboarding: { destination?: keyof RootStackParamList; destinationParams?: object } | undefined;
   CounselorOnboarding: { destination?: keyof RootStackParamList; destinationParams?: object } | undefined;
@@ -100,7 +99,6 @@ export type RootStackParamList = {
   Login: { role?: 'user' | 'counselor' } | undefined;
   CounselorSignup: { role?: 'user' | 'counselor' } | undefined;
   DoctorSignup: { role?: 'doctor'; doctorProfileDraft?: object } | undefined;
-  DoctorProfile: { doctorProfile?: object } | undefined;
   DoctorDashboard: undefined;
   OTPVerification: undefined;
   LocationGate: { destination: keyof RootStackParamList; destinationParams?: object };
@@ -499,7 +497,6 @@ useEffect(() => {
             <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
             <Stack.Screen name='CounselorSignup' component={CounselorSignup} />
             <Stack.Screen name='DoctorSignup' component={DoctorSignup as React.ComponentType<any>} />
-            <Stack.Screen name='DoctorProfile' component={DoctorProfile as React.ComponentType<any>} />
             <Stack.Screen name='DoctorDashboard' component={DoctorDashboard as React.ComponentType<any>} />
               <Stack.Screen name='OTPVerification' component={OTPVerification} />
             <Stack.Screen

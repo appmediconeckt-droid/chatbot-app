@@ -51,6 +51,24 @@ export const resetToRoleSelector = (navigation) => {
   navigation?.replace?.('RoleSelector');
 };
 
+// Post-login routes. Entering one of these wipes the back stack, so Android
+// back from the dashboard never returns to Login / RoleSelector / Signup.
+const POST_AUTH_ROUTES = new Set([
+  'UserDashboard',
+  'CounselorDashboard',
+  'DoctorDashboard',
+  'LocationGate',
+  'PinSetup',
+]);
+
+export const enterAuthenticatedRoute = (navigation, name, params) => {
+  if (POST_AUTH_ROUTES.has(name)) {
+    navigation.reset({ index: 0, routes: [{ name, params }] });
+  } else {
+    navigation.replace(name, params);
+  }
+};
+
 // Guards against a burst of failing requests each firing their own sign-out.
 let signingOut = false;
 

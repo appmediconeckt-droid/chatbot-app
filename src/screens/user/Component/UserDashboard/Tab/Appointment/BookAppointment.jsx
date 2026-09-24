@@ -323,7 +323,8 @@ const CounselorRequestChat = ({
   const fetchCounselors = async (silent = false) => {
     try {
       if (!silent) setRefreshing(true);
-      const response = await api.get('/api/chat/counselors', {
+      // Same endpoint the web appointment tab uses: counsellors AND doctors.
+      const response = await api.get('/api/auth/counsellors', {
         headers: { 'Cache-Control': 'no-cache' },
       });
 
@@ -331,6 +332,7 @@ const CounselorRequestChat = ({
       const formattedCounselors = list.map((c) => ({
         id: c._id,
         _id: c._id,
+        role: String(c.role || '').trim().toLowerCase(),
         name: c.fullName,
         specialization: Array.isArray(c.specialization) ? c.specialization.join(' , ') : (c.specialization || 'General'),
         experience: `${c.experience || 0} years`,
@@ -359,7 +361,7 @@ const CounselorRequestChat = ({
   };
 
   useLiveRefresh(() => fetchCounselors(true), [
-    'presence-update', 'chat-list-update', 'chat-status-update',
+    'presence-update', 'chat-list-update', 'chat-status-update', 'counselor-directory-updated',
   ]);
 
   useEffect(() => {
@@ -823,7 +825,12 @@ const CounselorRequestChat = ({
 
           <View style={styles.cardInfo}>
             <View style={styles.cardNameRow}>
-              <Text style={styles.cardName} numberOfLines={1}>{t(item.name)}</Text>
+              <Text style={[styles.cardName, { flexShrink: 1 }]} numberOfLines={1}>{t(item.name)}</Text>
+              <View style={[styles.roleBadge, item.role === 'doctor' ? styles.roleBadgeDoctor : styles.roleBadgeConsultant]}>
+                <Text style={[styles.roleBadgeText, item.role === 'doctor' ? styles.roleBadgeTextDoctor : styles.roleBadgeTextConsultant]}>
+                  {item.role === 'doctor' ? 'Doctor' : 'Consultant'}
+                </Text>
+              </View>
             </View>
             <Text style={styles.cardSpec} numberOfLines={1}>{item.specialization}</Text>
             <View style={styles.cardMetaRow}>
@@ -872,7 +879,14 @@ const CounselorRequestChat = ({
           </View>
         </View>
 
-        {isPending ? (
+        {item.role === 'doctor' ? (
+          // Doctors: chat is not allowed (same as web). Clinic/slot booking is not in the app yet.
+          <View style={styles.cardOfflineRow}>
+            <Text style={styles.nextAvailText} numberOfLines={2}>
+              {t('appointment:doctorBookingSoon', 'Appointment booking with doctors is coming soon')}
+            </Text>
+          </View>
+        ) : isPending ? (
           // Request sent, counselor hasn't accepted yet — nothing to do but wait.
           <View style={styles.btnPendingRow}>
             <Ionicons name="time-outline" size={15} color="#B45309" />
@@ -881,25 +895,16 @@ const CounselorRequestChat = ({
             </Text>
           </View>
         ) : !online ? (
-          // Offline is checked before `isAccepted` so "Chat Now" can never
-          // render for a counselor who isn't there to answer. An accepted
-          // counselor can still be booked for a later slot; an unconnected one
-          // can't even be sent a request.
+          // Offline is checked before `isAccepted` so neither "Chat Now" nor
+          // "Schedule" can render for a counselor who isn't there right now —
+          // "Currently unavailable" means no action is offered, connected or
+          // not.
           <View style={styles.cardOfflineRow}>
             <Text style={styles.nextAvailText} numberOfLines={1}>
               {item.nextAvailable
                 ? `${t('appointment:nextAvailable', 'Next Available')} ${item.nextAvailable}`
                 : t('appointment:currentlyUnavailable', 'Currently unavailable')}
             </Text>
-            {isAccepted && (
-              <TouchableOpacity
-                style={styles.btnOutlineSm}
-                onPress={() => handleBookAppointment(item)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.btnOutlineText}>{t('appointment:schedule')}</Text>
-              </TouchableOpacity>
-            )}
           </View>
         ) : isAccepted ? (
           // Connected and online: scheduling and chat are both unlocked.
@@ -1699,6 +1704,12 @@ const styles = {
     color: PATIENT.text,
     flexShrink: 1,
   },
+  roleBadge: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
+  roleBadgeDoctor: { backgroundColor: '#E5EDFF' },
+  roleBadgeConsultant: { backgroundColor: '#E1F5EA' },
+  roleBadgeText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.3 },
+  roleBadgeTextDoctor: { color: '#2F54EB' },
+  roleBadgeTextConsultant: { color: '#0A8A43' },
   cardSpec: {
     fontSize: 12,
     color: PATIENT.textSecondary,

@@ -1,38 +1,44 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
   ScrollView,
-  Keyboard,
   Platform,
   Modal,
-  Dimensions,
+  KeyboardAvoidingView,
   useWindowDimensions,
   Image,
   Animated,
+  findNodeHandle,
+  BackHandler,
 } from 'react-native';
 import TextInput from '../../components/TranslatedTextInput';
 import Text from '../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { useFocusEffect } from '@react-navigation/native';
 import { API_BASE_URL } from '../../axiosConfig';
 import GoogleAuthButton from './components/GoogleAuthButton';
 import GoogleProfileCompletionModal, {
   needsGoogleUserProfileCompletion,
 } from './components/GoogleProfileCompletionModal';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import LinearGradient from 'react-native-linear-gradient';
 import socketService from '../../services/socketService';
-import { paletteForRole, DOCTOR as HUMAELI_BLUE } from '../../theme/palette';
+import { BRAND, BRAND_GRADIENT } from '../../theme/palette';
 import AuthBackground from '../../theme/AuthBackground';
-import logo from '../../image/Humaeli.png';
+import logo from '../../image/HumaeliIcon.png';
 import useLanguageRender from '../../hooks/useLanguageRender';
+import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useToast } from '../../components/common/ToastProvider';
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
 import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 import { syncPushNotificationToken } from '../../services/notificationService';
+import { sendLocationSilently } from '../../utils/locationHelper';
+import { enterAuthenticatedRoute } from '../../utils/authSession';
 
 // Vertical inset of the login scroll content.
 const SCROLL_PAD_V = 24;
@@ -41,20 +47,34 @@ const Login = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   const { showToast } = useToast();
-  // Login is the single common entry point now (no role picked yet), so it
-  // always uses the Humaeli brand blue — matching the app icon — instead of
-  // defaulting to the green "patient" palette. A role-specific caller (rare)
-  // still gets its own palette.
-  const C = route?.params?.role ? paletteForRole(route.params.role) : HUMAELI_BLUE;
+  // Login is the single common entry point for every role now, so it always
+  // uses the real Humaeli brand colour (sampled from the app icon/logo)
+  // rather than any one role's palette — a role param, if one is ever
+  // passed, no longer changes how this screen looks.
+  const C = BRAND;
+  const buttonGradient = BRAND_GRADIENT;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-  // Space to reserve below the card. Measured, not assumed - see the effect.
-  const [kbPad, setKbPad] = useState(0);
-  const scrollRef = useRef(null);
+  // Same keyboard-avoidance the role Signup screens already use: scrolls
+  // only the focused input into view (plus a small gap) instead of
+  // reserving the keyboard's full height and revealing everything below —
+  // which is what previously dragged the whole card (and its logo) up past
+  // the fixed back button. The header and every section below it can now
+  // stay full-size and visible at all times.
+  const {
+    scrollRef,
+    keyboardInset,
+    scrollFocusedInputIntoView,
+    handleKeyboardAwareScroll,
+    handleKeyboardAwareScrollLayout,
+  } = useKeyboardAwareScroll();
   const fpModalScrollRef = useRef(null);
-  // Window height with the keyboard closed, to detect whether it shrinks.
-  const baseHeightRef = useRef(Dimensions.get('window').height);
+  // Password is the last field before the Login button — bringing only the
+  // password field into view left the button itself sitting under the
+  // keyboard. Focusing password scrolls to this ref instead (see its
+  // onFocus below), which brings both into view together since the button
+  // sits immediately below the field.
+  const loginButtonRef = useRef(null);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -135,38 +155,6 @@ const Login = ({ navigation, route }) => {
     loadRememberedUser();
   }, []);
 
-  // Whether the Android window actually shrinks for the keyboard depends on
-  // things we can't read from here reliably (targetSdk 36 forces edge-to-edge on
-  // Android 15+, which disables the manifest's adjustResize, but older versions
-  // still resize). Assuming either way is what left the card under the keyboard,
-  // so measure instead: reserve only the part of the keyboard the window did NOT
-  // already give up. That is correct in both cases and never double-counts.
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvent, (e) => {
-      const keyboardHeight = e?.endCoordinates?.height || 0;
-      // Read live rather than from state - a closure would capture a stale value.
-      const shrunkBy = Math.max(0, baseHeightRef.current - Dimensions.get('window').height);
-      setKbPad(Math.max(0, keyboardHeight - shrunkBy));
-      setKeyboardOpen(true);
-      // After the relayout, so the scroll offset reflects the new padding.
-      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
-    });
-
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      baseHeightRef.current = Dimensions.get('window').height;
-      setKbPad(0);
-      setKeyboardOpen(false);
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-
   const scrollForgotPasswordModalToEnd = () => {
     requestAnimationFrame(() => {
       fpModalScrollRef.current?.scrollToEnd({ animated: true });
@@ -239,12 +227,36 @@ const Login = ({ navigation, route }) => {
     // (AppLockSettings already does `navigate('PinSetup', { forced: false })`).
     // Login must never force it on someone who hasn't asked for it.
     setTimeout(() => {
-      navigation.replace('LocationGate', { destination });
+      enterAuthenticatedRoute(navigation, 'LocationGate', { destination });
     }, delay);
   };
 
+  // Login can be the only screen in the stack (reached via replace/reset);
+  // then back should go to Landing, not exit the app.
+  const goBackOrLanding = useCallback(() => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.replace('Landing');
+  }, [navigation]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (navigation.canGoBack()) return false;
+        navigation.replace('Landing');
+        return true;
+      });
+      return () => sub.remove();
+    }, [navigation]),
+  );
+
   const handleGoogleSuccess = ({ isCounselor, user }) => {
-    setSuccessMessage(t('auth:login') + ' ' + t('common:success'));
+    // Google here is sent with role 'auto': the backend resolves the
+    // account's real role from the DB and never creates a new account
+    // (an unregistered Google account comes back via onNotRegistered).
+    // Capture location here rather than in GoogleAuthButton (gateDriven).
+    sendLocationSilently('login').catch(() => {});
+
+    showToast({ type: 'success', title: t('auth:login'), message: t('common:success') });
 
     if (needsGoogleUserProfileCompletion(user, isCounselor)) {
       setGoogleProfileCompletion({
@@ -402,7 +414,7 @@ const Login = ({ navigation, route }) => {
         await AsyncStorage.removeItem('rememberedUserId');
       }
 
-      setSuccessMessage(t('auth:login') + ' ' + t('common:success'));
+      showToast({ type: 'success', title: t('auth:login'), message: t('common:success') });
 
       socketService.connect().catch(() => {});
       syncPushNotificationToken().catch(error => {
@@ -574,7 +586,7 @@ const Login = ({ navigation, route }) => {
 
       const destination = resolvedRole === 'counselor' ? 'CounselorDashboard' : 'UserDashboard';
       setTimeout(() => {
-        navigation.replace('LocationGate', { destination });
+        enterAuthenticatedRoute(navigation, 'LocationGate', { destination });
       }, 800);
     } catch (err) {
       const msg = err?.response?.data?.message || err?.message || 'OTP verification failed';
@@ -746,81 +758,110 @@ const Login = ({ navigation, route }) => {
     setFpResendTimer(60);
   };
 
-  // Centring the card looks right when the keyboard is closed, but once it opens
-  // the card is taller than what's left of the viewport - and centring overflow
-  // content keeps its bottom (Login / Continue with Google / Create account) out
-  // of reach. Top-align while typing and lift the card so those stay visible.
+  // Top-anchored rather than dead-centered (centering left equally large,
+  // unfinished-looking dead zones above the logo and below the card on a
+  // tall phone) but pulled down a bit further than a bare "clear the back
+  // button" offset would, so the card reads as sitting comfortably in the
+  // upper-middle of the screen rather than pinned to the top.
+  //
+  // This no longer shrinks while the keyboard is open. The header used to
+  // hide then so the whole (shorter) card could be scrolled into view above
+  // the keyboard — but useKeyboardAwareScroll only ever scrolls the
+  // currently focused input into view, never the whole card, so the back
+  // button's clearance here is never touched regardless of keyboard state.
   const scrollContainerStyle = {
     ...styles.scrollContainer,
-    justifyContent: keyboardOpen ? 'flex-start' : 'center',
+    justifyContent: 'flex-start',
+    paddingTop: Math.max(insets.top, 12) + (isCompact ? 88 : 108),
     // Pushes the card's bottom (Login / Continue with Google / Create account)
-    // clear of the keyboard; scrollToEnd above then brings it into view.
-    paddingBottom: SCROLL_PAD_V + kbPad,
+    // clear of the keyboard on devices where the window doesn't resize for it.
+    paddingBottom: SCROLL_PAD_V + keyboardInset,
     paddingHorizontal: isCompact ? 14 : 20,
   };
   // No boxed card anymore — everything floats directly on the AuthBackground
-  // mesh, matching the reference design. Only a max-width constraint remains
-  // (for tablets) plus a little side padding so pills don't touch the edges.
+  // mesh, matching the reference design. Wider than before (was 400/440) for
+  // a more confident, professional presence — still capped so it doesn't
+  // stretch absurdly wide on a tablet.
   const loginCardStyle = [
     styles.loginCard,
     {
-      maxWidth: isTablet ? 440 : 400,
-      paddingHorizontal: isCompact ? 6 : 10,
+      maxWidth: isTablet ? 480 : 430,
+      paddingHorizontal: isCompact ? 2 : 4,
     },
   ];
-  // Bigger than before (was 160-200 wide) for a more confident, premium logo
-  // presence — same wordmark, same colors, just larger.
+  // Icon-only mark (square), not the full wordmark — matches the layout the
+  // per-role signup screens already use for their inline login view.
   const logoStyle = [
     styles.logoImage,
     {
-      width: isCompact ? 190 : 236,
-      height: isCompact ? 65 : 81,
-      marginBottom: isCompact ? 16 : 22,
+      width: isCompact ? 62 : 72,
+      height: isCompact ? 62 : 72,
+      marginBottom: isCompact ? 8 : 10,
     },
   ];
 
-  // Blue mesh throughout (matches the Humaeli icon color) — no more "both"
-  // green/blue split, since the reference design is a clean single-color
-  // background with everything floating directly on it (no boxed card).
+  // Teal/aqua mesh throughout — the closest existing AuthBackground mode to
+  // the real logo gradient, and used unconditionally now that Login is one
+  // common brand-colored screen rather than something styled per role.
   return (
-    <AuthBackground role={route?.params?.role ? route.params.role : 'counselor'}>
-    {/* Plain View, not KeyboardAvoidingView: the measured kbPad above is the one
-        and only place keyboard space is reserved. Keeping KAV as well meant two
-        mechanisms compensating for the same keyboard, which is what buried the
-        card's buttons no matter which behavior was set. */}
+    <AuthBackground role="doctor">
     <View style={[styles.container, { backgroundColor: 'transparent' }]}>
+      <TouchableOpacity
+        style={[styles.backBtn, { top: Math.max(insets.top, 12) + 6 }]}
+        onPress={goBackOrLanding}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Ionicons name="chevron-back" size={24} color="#0F172A" />
+      </TouchableOpacity>
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={scrollContainerStyle}
+        onLayout={handleKeyboardAwareScrollLayout}
+        onScroll={handleKeyboardAwareScroll}
+        scrollEventThrottle={16}
         // Without this the first tap while the keyboard is open only dismisses
         // it, so "Continue with Google" and Login needed two taps.
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         <Animated.View style={[loginCardStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-          {/* Header Section */}
-          <View style={styles.headerSection}>
-            <Animated.View style={{ transform: [{ scale: logoScale }] }}>
-              <Image source={logo} style={logoStyle} resizeMode="contain" />
-            </Animated.View>
-            <Text style={styles.title}>{t('auth:welcomeBack')}</Text>
-            <Text style={styles.subtitle}>{t('Enter your email and password to log in')}</Text>
-          </View>
-
-          {/* Form Section */}
-          <View style={styles.formContainer}>
-            {/* Email Input — plain floating pill, no label/icon, matching the
-                reference design's minimal look. */}
-            <View style={[styles.inputWrapper, focusedField === 'email' && { borderColor: C.primary }]}>
+          {/* Form Section — floating white card holding the brand header and
+              the whole form, so the inputs stay crisp and readable against
+              the colored mesh background. */}
+          <View style={styles.formCard}>
+            {/* Header — logo, brand name and tagline, always full-size and
+                visible. Keyboard avoidance below only ever scrolls the
+                focused input into view, so this never needs to shrink or
+                hide to make room, and the back button is never at risk of
+                being scrolled past. */}
+            <View style={styles.headerSection}>
+              <Animated.View style={{ transform: [{ scale: logoScale }] }}>
+                <Image source={logo} style={logoStyle} resizeMode="contain" />
+              </Animated.View>
+              <Text style={[styles.brandName, { color: C.primary }]}>{t('Humaeli')}</Text>
+              <Text style={styles.subtitle}>{t('Sign in to continue')}</Text>
+            </View>
+            {/* Email Input */}
+            <View style={[styles.inputWrapper, focusedField === 'email' && { borderColor: C.primary, shadowColor: C.primary, shadowOpacity: 0.16 }]}>
+              <Ionicons
+                name="mail-outline"
+                size={19}
+                color={focusedField === 'email' ? C.primary : '#94a3b8'}
+                style={styles.inputIcon}
+              />
               <TextInput
                 style={styles.input}
                 placeholder={t('auth:enterEmail')}
+                placeholderTextColor="#a1a9b8"
                 value={email}
                 onChangeText={(text) => {
                   setEmail(text);
                   setErrorMessage('');
                 }}
-                onFocus={() => setFocusedField('email')}
+                onFocus={(event) => {
+                  setFocusedField('email');
+                  scrollFocusedInputIntoView(event);
+                }}
                 onBlur={() => setFocusedField(null)}
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -830,16 +871,29 @@ const Login = ({ navigation, route }) => {
             </View>
 
             {/* Password Input */}
-            <View style={[styles.inputWrapper, styles.inputWrapperSpaced, focusedField === 'password' && { borderColor: C.primary }]}>
+            <View style={[styles.inputWrapper, styles.inputWrapperSpaced, focusedField === 'password' && { borderColor: C.primary, shadowColor: C.primary, shadowOpacity: 0.16 }]}>
+              <Ionicons
+                name="lock-closed-outline"
+                size={19}
+                color={focusedField === 'password' ? C.primary : '#94a3b8'}
+                style={styles.inputIcon}
+              />
               <TextInput
                 style={[styles.input, styles.passwordInput]}
                 placeholder={t('auth:enterPassword')}
+                placeholderTextColor="#a1a9b8"
                 value={password}
                 onChangeText={(text) => {
                   setPassword(text);
                   setErrorMessage('');
                 }}
-                onFocus={() => setFocusedField('password')}
+                onFocus={() => {
+                  setFocusedField('password');
+                  // Target the Login button, not this field itself — see
+                  // the loginButtonRef comment above.
+                  const handle = findNodeHandle(loginButtonRef.current);
+                  if (handle) scrollFocusedInputIntoView({ target: handle });
+                }}
                 onBlur={() => setFocusedField(null)}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
@@ -872,7 +926,7 @@ const Login = ({ navigation, route }) => {
                 ]}>
                   {rememberMe && <Text style={styles.checkmark}>✓</Text>}
                 </View>
-                <Text style={styles.checkboxLabel}>{t('common:confirm')}</Text>
+                <Text style={styles.checkboxLabel}>{t('Remember me')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -887,37 +941,51 @@ const Login = ({ navigation, route }) => {
               </TouchableOpacity>
             </View>
 
-            {/* Login Button */}
+            {/* Login Button — brand gradient, matching the Humaeli icon's blue. */}
             <TouchableOpacity
+              ref={loginButtonRef}
               style={[
-                styles.loginButton,
-                { backgroundColor: C.primary, shadowColor: C.primary },
+                styles.loginButtonWrap,
+                { shadowColor: C.primary },
                 (!email || !password || isLoading) && styles.loginButtonDisabled,
               ]}
               onPress={handleLogin}
               disabled={!email || !password || isLoading}
+              activeOpacity={0.88}
             >
-              {isLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.loginButtonText}>{t('auth:login')}</Text>
-              )}
+              <LinearGradient
+                colors={(!email || !password || isLoading) ? ['#cbd1dc', '#b7bfcc'] : buttonGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.loginButton}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.loginButtonText}>{t('auth:login')}</Text>
+                )}
+              </LinearGradient>
             </TouchableOpacity>
 
-            {/* Divider */}
+            {/* Divider + Google sign-in — always visible. */}
             <View style={styles.dividerRow}>
               <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>{t('auth:orContinueWith')}</Text>
-              <View style={styles.dividerLine} />
             </View>
-
-            {/* Google Sign-In */}
             <GoogleAuthButton
-              role={normalizeRole(route?.params?.role) || 'user'}
+              role="auto"
               mode="signin"
               disabled={isLoading}
               locationEvent="login"
+              gateDriven
               onSuccess={handleGoogleSuccess}
+              onNotRegistered={({ message }) => {
+                showToast({
+                  type: 'info',
+                  title: t('Account not found'),
+                  message: t(message),
+                });
+                navigation.navigate('RoleSelector');
+              }}
               onConflict={({ email: conflictEmail }) => {
                 if (conflictEmail) setEmail(conflictEmail);
                 setShowConflictModal(true);
@@ -969,69 +1037,126 @@ const Login = ({ navigation, route }) => {
           animationType="slide"
           onRequestClose={closeConflictModal}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContainer}>
-              <Text style={styles.modalTitle}>{t('Session Conflict Detected')}</Text>
-              <Text style={styles.modalText}>
-                You are already logged in on another device.
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <View style={styles.cfCard}>
+              <View style={[styles.cfIconWrap, { backgroundColor: C.backgroundTint }]}>
+                <Ionicons
+                  name={otpSent ? 'mail-open-outline' : 'phone-portrait-outline'}
+                  size={28}
+                  color={C.primary}
+                />
+              </View>
+
+              <Text style={styles.cfTitle}>
+                {otpSent ? t('Verify it is you') : t('Session Conflict Detected')}
+              </Text>
+              <Text style={styles.cfText}>
+                {otpSent
+                  ? 'We sent a 6-digit code to your registered email. Enter it below to sign out your other devices and continue.'
+                  : 'You are already logged in on another device. Sign it out to continue on this one.'}
               </Text>
 
-              {/* Logout Other Devices Button */}
-              <TouchableOpacity
-                style={[
-                  styles.modalButton,
-                  { backgroundColor: C.primary, shadowColor: C.primary },
-                  logoutLoading && styles.modalButtonDisabled,
-                ]}
-                onPress={handleLogoutOtherDevices}
-                disabled={logoutLoading}
-              >
-                {logoutLoading ? (
-                  <View style={styles.buttonLoadingContainer}>
-                    <ActivityIndicator color="#fff" size="small" />
-                    <Text style={styles.modalButtonText}> Sending OTP...</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.modalButtonText}>
-                    Logout Other Devices & Send OTP
-                  </Text>
-                )}
-              </TouchableOpacity>
-
-              {/* OTP Section - Only shows after OTP is sent */}
-              {otpSent && (
-                <View style={styles.otpSection}>
-                  <Text style={styles.otpLabel}>{t('Enter OTP:')}</Text>
-                  <TextInput
-                    style={styles.otpInput}
-                    value={otp}
-                    onChangeText={(text) => {
-                      const cleaned = text.replace(/\D/g, '').slice(0, 6);
-                      setOtp(cleaned);
-                      setErrorMessage(''); // Clear error when typing
-                    }}
-                    placeholder={t('6-digit code')}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                  />
-                  <TouchableOpacity
-                    style={[
-                      styles.modalButton,
-                      { backgroundColor: C.primary, shadowColor: C.primary },
-                      otpLoading && styles.modalButtonDisabled,
-                    ]}
-                    onPress={handleVerifyOtp}
-                    disabled={otpLoading}
+              {/* Step 1: send OTP */}
+              {!otpSent && (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={handleLogoutOtherDevices}
+                  disabled={logoutLoading}
+                  style={styles.cfBtnWrap}
+                >
+                  <LinearGradient
+                    colors={logoutLoading ? ['#94A3B8', '#94A3B8'] : BRAND_GRADIENT}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={styles.cfBtn}
                   >
-                    {otpLoading ? (
-                      <View style={styles.buttonLoadingContainer}>
+                    {logoutLoading ? (
+                      <>
                         <ActivityIndicator color="#fff" size="small" />
-                        <Text style={styles.modalButtonText}> Verifying...</Text>
-                      </View>
+                        <Text style={styles.cfBtnText}>Sending OTP...</Text>
+                      </>
                     ) : (
-                      <Text style={styles.modalButtonText}>{t('Verify OTP')}</Text>
+                      <>
+                        <Ionicons name="log-out-outline" size={19} color="#fff" />
+                        <Text style={styles.cfBtnText}>Logout other devices & send OTP</Text>
+                      </>
                     )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
+
+              {/* Step 2: enter OTP (6 boxes over one hidden input) */}
+              {otpSent && (
+                <View style={styles.cfOtpSection}>
+                  <View style={styles.cfOtpRow}>
+                    {[0, 1, 2, 3, 4, 5].map((i) => {
+                      const digit = otp[i] || '';
+                      const isActive = i === Math.min(otp.length, 5);
+                      return (
+                        <View
+                          key={i}
+                          style={[
+                            styles.cfOtpBox,
+                            digit ? { borderColor: C.primary, backgroundColor: C.backgroundTint } : null,
+                            isActive && { borderColor: C.primary, borderWidth: 2 },
+                            !!errorMessage && styles.cfOtpBoxError,
+                          ]}
+                        >
+                          <Text style={styles.cfOtpDigit}>{digit}</Text>
+                        </View>
+                      );
+                    })}
+                    <TextInput
+                      style={styles.cfHiddenInput}
+                      value={otp}
+                      onChangeText={(text) => {
+                        const cleaned = text.replace(/\D/g, '').slice(0, 6);
+                        setOtp(cleaned);
+                        setErrorMessage('');
+                      }}
+                      keyboardType="number-pad"
+                      maxLength={6}
+                      autoFocus
+                      caretHidden
+                      textContentType="oneTimeCode"
+                      autoComplete="sms-otp"
+                      accessibilityLabel="Enter the 6-digit OTP"
+                    />
+                  </View>
+
+                  {!!errorMessage && (
+                    <View style={styles.cfErrorRow}>
+                      <Ionicons name="alert-circle" size={15} color="#DC2626" />
+                      <Text style={styles.cfErrorText}>{errorMessage}</Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={handleVerifyOtp}
+                    disabled={otpLoading || otp.length < 6}
+                    style={styles.cfBtnWrap}
+                  >
+                    <LinearGradient
+                      colors={otpLoading || otp.length < 6 ? ['#94A3B8', '#94A3B8'] : BRAND_GRADIENT}
+                      start={{ x: 0, y: 0.5 }}
+                      end={{ x: 1, y: 0.5 }}
+                      style={styles.cfBtn}
+                    >
+                      {otpLoading ? (
+                        <>
+                          <ActivityIndicator color="#fff" size="small" />
+                          <Text style={styles.cfBtnText}>Verifying...</Text>
+                        </>
+                      ) : (
+                        <Text style={styles.cfBtnText}>{t('Verify OTP')}</Text>
+                      )}
+                    </LinearGradient>
                   </TouchableOpacity>
+
                   <View style={styles.otpResendRow}>
                     {conflictOtpResendTimer > 0 ? (
                       <Text style={styles.otpTimerText}>
@@ -1058,11 +1183,12 @@ const Login = ({ navigation, route }) => {
                   </View>
                 </View>
               )}
+
               <TouchableOpacity onPress={closeConflictModal} style={styles.modalCancelButton}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         <GoogleProfileCompletionModal
@@ -1084,7 +1210,7 @@ const Login = ({ navigation, route }) => {
               ref={fpModalScrollRef}
               contentContainerStyle={[
                 styles.fpModalScroll,
-                kbPad > 0 && { paddingBottom: kbPad },
+                keyboardInset > 0 && { paddingBottom: keyboardInset },
               ]}
               keyboardShouldPersistTaps="handled"
             >
@@ -1177,7 +1303,7 @@ const Login = ({ navigation, route }) => {
                     <TouchableOpacity
                       style={[styles.fpButton, { backgroundColor: C.primary, shadowColor: C.primary }, (fpLoading || !fpOtp) && styles.fpButtonDisabled]}
                       onPress={handleForgotPasswordVerifyOTP}
-                      disabled={fpLoading || fpSuccess || !fpOtp}
+                      disabled={!!(fpLoading || fpSuccess || !fpOtp)}
                     >
                       <Text style={styles.fpButtonText}>
                         {fpLoading ? 'Verifying...' : 'Verify OTP'}
@@ -1188,7 +1314,7 @@ const Login = ({ navigation, route }) => {
                     <TouchableOpacity
                       style={styles.fpResendBtn}
                       onPress={handleForgotPasswordResendOTP}
-                      disabled={fpResending || fpResendTimer > 0 || fpSuccess}
+                      disabled={!!(fpResending || fpResendTimer > 0 || fpSuccess)}
                     >
                       <Text
                         style={[
@@ -1292,7 +1418,7 @@ const Login = ({ navigation, route }) => {
                     <TouchableOpacity
                       style={[styles.fpButton, { backgroundColor: C.primary, shadowColor: C.primary }, (fpLoading || fpSuccess) && styles.fpButtonDisabled]}
                       onPress={handleForgotPasswordReset}
-                      disabled={fpLoading || fpSuccess}
+                      disabled={!!(fpLoading || fpSuccess)}
                     >
                       <Text style={styles.fpButtonText}>
                         {fpLoading ? t('Resetting Password...') : t('Reset Password')}
@@ -1338,55 +1464,80 @@ const styles = StyleSheet.create({
   },
   headerSection: {
     alignItems: 'center',
-    marginBottom: 34,
+    marginBottom: 16,
   },
-  logoImage: {
-    // Logo is a 2.92:1 wordmark with transparent padding stripped, so the box
-    // has to match that ratio - a square box would re-add the dead space.
-    width: 200,
-    height: 68,
-    marginBottom: 20,
+  // Square icon-only mark — dimensions set responsively in logoStyle above.
+  logoImage: {},
+  backBtn: {
+    position: 'absolute',
+    left: 16,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
   },
-  title: {
-    fontSize: 30,
+  brandName: {
+    fontSize: 26,
     fontWeight: '800',
-    color: '#1e293b',
-    marginBottom: 8,
+    marginBottom: 4,
     letterSpacing: 0.2,
   },
   subtitle: {
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#5b6472',
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 19,
   },
-  formContainer: {
-    marginTop: 4,
+  // Floating white card that holds the whole form — gives the screen a
+  // professional, grounded focal point against the colored mesh backdrop.
+  // A crisp hairline border plus a stronger, tighter shadow keeps its edge
+  // well-defined against the light blue mesh (a soft shadow alone all but
+  // disappeared against that background).
+  formCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: 'rgba(15, 23, 42, 0.06)',
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    paddingBottom: 18,
+    shadowColor: '#0b1e4d',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 22,
+    elevation: 8,
   },
-  // Plain floating white pill — no border by default (only on focus), no
-  // label above it, matching the reference design's minimal input style.
+  // Soft pill inputs living inside the card — subtle border by default,
+  // brand-colored glow on focus for a premium feel.
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: 56,
     borderWidth: 1.5,
-    borderColor: 'transparent',
-    borderRadius: 28,
-    backgroundColor: '#ffffff',
-    paddingLeft: 20,
+    borderColor: '#e7eaf1',
+    borderRadius: 18,
+    backgroundColor: '#f8fafc',
+    paddingLeft: 16,
     shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0,
+    shadowRadius: 8,
+    elevation: 0,
   },
   inputWrapperSpaced: {
     marginTop: 14,
   },
+  inputIcon: {
+    marginRight: 10,
+  },
   input: {
     flex: 1,
-    paddingVertical: 12,
-    paddingRight: 20,
+    paddingVertical: 14,
+    paddingRight: 16,
     fontSize: 15,
     fontWeight: '600',
     color: '#1e293b',
@@ -1403,7 +1554,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 25,
+    // Breathing room from the password pill above — without this the row sat
+    // flush against it, making "Remember me" look glued to the field.
+    marginTop: 16,
+    marginBottom: 18,
   },
   checkboxContainer: {
     flexDirection: 'row',
@@ -1438,36 +1592,38 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#007AFF',
   },
-  loginButton: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    minHeight: 58,
-    borderRadius: 29,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-    marginBottom: 20,
-    // Colored glow shadow (color set inline via C.primary) — matches the
-    // premium button treatment on RoleSelector/Signup screens.
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 14,
+  // Outer wrapper carries the colored glow shadow (color set inline via
+  // C.primary); the gradient fill lives on the inner LinearGradient below so
+  // the rounded corners clip the gradient cleanly on both platforms.
+  loginButtonWrap: {
+    borderRadius: 18,
+    marginTop: 4,
+    marginBottom: 14,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.32,
+    shadowRadius: 16,
     elevation: 6,
   },
+  loginButton: {
+    minHeight: 56,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   loginButtonDisabled: {
-    backgroundColor: '#ccc',
     shadowOpacity: 0,
     elevation: 0,
   },
   loginButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 16.5,
     fontWeight: '800',
+    letterSpacing: 0.3,
   },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 22,
+    marginVertical: 14,
   },
   dividerLine: {
     flex: 1,
@@ -1510,7 +1666,7 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 20,
+    marginTop: 14,
   },
   footerText: {
     fontSize: 14,
@@ -1520,6 +1676,115 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#007AFF',
     fontWeight: 'bold',
+  },
+  cfCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    paddingHorizontal: 22,
+    paddingTop: 26,
+    paddingBottom: 14,
+    width: '90%',
+    maxWidth: 400,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  cfIconWrap: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  cfTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  cfText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  cfBtnWrap: {
+    width: '100%',
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  cfBtn: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  cfBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15.5,
+    fontWeight: '700',
+    textAlign: 'center',
+    flexShrink: 1,
+  },
+  cfOtpSection: {
+    width: '100%',
+  },
+  cfOtpRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 14,
+  },
+  cfOtpBox: {
+    flex: 1,
+    height: 54,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#DDE3EA',
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cfOtpBoxError: {
+    borderColor: '#EF4444',
+    backgroundColor: '#FEF2F2',
+  },
+  cfOtpDigit: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  cfHiddenInput: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0.01,
+    color: 'transparent',
+  },
+  cfErrorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: 12,
+  },
+  cfErrorText: {
+    flexShrink: 1,
+    color: '#DC2626',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   modalOverlay: {
     flex: 1,

@@ -7,14 +7,15 @@ import { forceSignOut } from './utils/authSession';
 const API_ENDPOINTS = {
   // RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
   RAILWAY: 'https://humaeli-backend-update-production.up.railway.app',
+  DevTunnels: 'https://s5jl7g4z-5002.inc1.devtunnels.ms',
   LOCAL_ADB_5002: 'http://127.0.0.1:5002',
   LOCAL_5001: 'http://localhost:5001',
   LOCAL_5000: 'http://localhost:5000',
   LOCAL_3000: 'http://localhost:3000',
 };
 export const API_BASE_URL = __DEV__
-  ? API_ENDPOINTS.RAILWAY
-  : API_ENDPOINTS.RAILWAY;
+  ? API_ENDPOINTS.DevTunnels
+  : API_ENDPOINTS.DevTunnels;
 export const AI_REALTIME_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
 export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
   ? { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' }
@@ -22,7 +23,10 @@ export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
 Object.assign(axios.defaults.headers.common, TUNNEL_HEADERS);
 const PUBLIC_AUTH_PATHS = [
   '/api/auth/login',
-  '/api/auth/logout',
+  // NOT '/api/auth/logout': the backend route is behind authMiddleware, so it needs the
+  // Bearer token. Listing it here stripped the header and made every logout 401.
+  // logout-other-devices is public on the backend, so keep it listed explicitly.
+  '/api/auth/logout-other-devices',
   '/api/auth/refresh-token',
   '/api/auth/google',
   '/api/auth/verify-login-otp',

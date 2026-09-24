@@ -53,6 +53,7 @@ import {
 } from './authUtils';
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
 
+import { enterAuthenticatedRoute } from '../../utils/authSession';
 const OTP_RESEND_SECONDS = 60;
 
 const CounselorSignup = ({ navigation, route }) => {
@@ -60,7 +61,7 @@ const CounselorSignup = ({ navigation, route }) => {
   const { width, height } = useWindowDimensions();
   const isTablet = width >= 600;
   const isCompact = width < 360 || height < 700;
-  const [isLogin, setIsLogin] = useState(true);
+  const [isLogin, setIsLogin] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
   const {
     scrollRef,
@@ -295,7 +296,7 @@ const CounselorSignup = ({ navigation, route }) => {
         showNotification('Login successful!');
         // Existing counselor logging in → location gate, then dashboard.
         // Onboarding is only for brand-new signups (see handleSignup).
-        setTimeout(() => navigation.replace('LocationGate', { destination: 'CounselorDashboard' }), 1000);
+        setTimeout(() => enterAuthenticatedRoute(navigation, 'LocationGate', { destination: 'CounselorDashboard' }), 1000);
       }
     } catch (err) {
       if (err?.response?.status === 409) {
@@ -556,7 +557,7 @@ const CounselorSignup = ({ navigation, route }) => {
       if (await persistCounselorSession(response.data)) {
         closeDeviceConflictModal();
         // Device-conflict resolution is a login → location gate, then dashboard.
-        navigation.replace('LocationGate', { destination: 'CounselorDashboard' });
+        enterAuthenticatedRoute(navigation, 'LocationGate', { destination: 'CounselorDashboard' });
       }
     } catch (err) {
       showNotification('Invalid OTP', 'error');
@@ -734,7 +735,7 @@ const CounselorSignup = ({ navigation, route }) => {
     styles.panel,
     {
       maxWidth: isTablet ? 480 : 440,
-      height: isLogin ? undefined : signupPanelHeight,
+      height: undefined,
       paddingHorizontal: isCompact ? 16 : 22,
       paddingVertical: signupPanelPaddingY,
       borderRadius: isCompact ? 28 : 40,
@@ -742,13 +743,9 @@ const CounselorSignup = ({ navigation, route }) => {
   ];
   const formScrollStyle = [
     styles.formScroll,
-    !isLogin && styles.signupFormScroll,
-    !isLogin && { height: signupFormHeight },
   ];
   const formContentStyle = [
     styles.formPanel,
-    !isLogin && styles.signupFormPanel,
-    !isLogin && { paddingBottom: (isCompact ? 18 : 24) + keyboardInset },
   ];
 
   return (
@@ -760,15 +757,15 @@ const CounselorSignup = ({ navigation, route }) => {
           <View style={styles.flex}>
             <TouchableOpacity style={styles.backBtn} onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.replace('RoleSelector'))}><Icon name="chevron-left" size={28} color="#0F172A" /></TouchableOpacity>
             <ScrollView
-              ref={isLogin ? scrollRef : null}
+              ref={scrollRef}
               contentContainerStyle={scrollContainerStyle}
               showsVerticalScrollIndicator={false}
-              onLayout={isLogin ? handleKeyboardAwareScrollLayout : undefined}
-              onScroll={isLogin ? handleKeyboardAwareScroll : undefined}
+              onLayout={handleKeyboardAwareScrollLayout}
+              onScroll={handleKeyboardAwareScroll}
               scrollEventThrottle={16}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              scrollEnabled={isLogin}
+              scrollEnabled
             >
               <Animated.View style={[panelStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
@@ -789,16 +786,11 @@ const CounselorSignup = ({ navigation, route }) => {
                   </Animated.View>
                 )} */}
                 <ScrollView
-                  ref={!isLogin ? scrollRef : null}
                   style={formScrollStyle}
                   contentContainerStyle={formContentStyle}
-                  showsVerticalScrollIndicator={!isLogin}
-                  onLayout={!isLogin ? handleKeyboardAwareScrollLayout : undefined}
-                  onScroll={!isLogin ? handleKeyboardAwareScroll : undefined}
-                  scrollEventThrottle={16}
+                  showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
-                  nestedScrollEnabled
-                  scrollEnabled={!isLogin}
+                  scrollEnabled={false}
                 >
                   {!isLogin ? (
                     <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderPhoneInput(3)}{renderDateOfBirthInput(4)}{renderInput(5, 'age', 'calendar-account-outline', 'Age', { editable: false, placeholder: 'Age will be calculated' })}
@@ -886,7 +878,7 @@ const CounselorSignup = ({ navigation, route }) => {
                         setTimeout(() => {
                           if (isLogin) {
                             // Existing account signing in with Google — no tour.
-                            navigation.replace(dashboardDestination);
+                            enterAuthenticatedRoute(navigation, dashboardDestination);
                             return;
                           }
                           // Was on the "Create Account" tab — new Google signup,
@@ -902,7 +894,9 @@ const CounselorSignup = ({ navigation, route }) => {
                       }}
                     />
                   </Animated.View>
-                  <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[17] }]}><Text style={styles.switchText}>{isLogin ? "New consultant?" : "Already a member?"}</Text><TouchableOpacity onPress={() => setIsLogin(!isLogin)}><Text style={[styles.switchLink, { color: '#004AC6' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
+                  {/* One shared Login screen for every role — tapping this always
+                      goes to the common front Login, never a per-screen login form. */}
+                  <Animated.View key="sw-section" style={[styles.switchRow, { opacity: fieldAnims[17] }]}><Text style={styles.switchText}>{isLogin ? "New consultant?" : "Already a member?"}</Text><TouchableOpacity onPress={() => (isLogin ? setIsLogin(false) : navigation.navigate('Login'))}><Text style={[styles.switchLink, { color: '#004AC6' }]}>{isLogin ? " Sign Up" : " Login"}</Text></TouchableOpacity></Animated.View>
                 </ScrollView>
               </Animated.View>
             </ScrollView>
