@@ -12,9 +12,8 @@ import TextInput from '../../components/TranslatedTextInput';
 import Text from '../../components/TranslatedText';
 import { useNavigation, useRoute } from "@react-navigation/native";
 import Ionicons from "react-native-vector-icons/Ionicons";
-import axios from "axios";
-import { API_BASE_URL } from "../../axiosConfig";
 import useLanguageRender from '../../hooks/useLanguageRender';
+import { getApiErrorMessage, postPublicAuthEndpoint } from "./authUtils";
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from "../../utils/passwordPolicy";
 import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 
@@ -57,11 +56,11 @@ export default function ResetPasswordScreen() {
 
     try {
       setLoading(true);
-      const response = await axios.post(
-        `${API_BASE_URL}/api/auth/reset-password`,
-        { email, newPassword: password, confirmPassword },
-        { withCredentials: true }
-      );
+      const response = await postPublicAuthEndpoint("reset-password", {
+        email: email.trim().toLowerCase(),
+        newPassword: password,
+        confirmPassword,
+      });
 
       if (response.data.success) {
         Alert.alert(
@@ -80,11 +79,7 @@ export default function ResetPasswordScreen() {
         setError(response.data.message || "Failed to reset password");
       }
     } catch (err) {
-      const errorMsg =
-        err.response?.data?.message ||
-        err.message ||
-        "Something went wrong. Please try again.";
-      setError(errorMsg);
+      setError(getApiErrorMessage(err, "Something went wrong. Please try again."));
     } finally {
       setLoading(false);
     }

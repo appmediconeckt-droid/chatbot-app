@@ -121,6 +121,8 @@ function ToastViewport({ toast, onHide, topOffset, role }) {
   const titleColor = config.titleColor || config.accent;
   const messageColor = config.messageColor || "#0f172a";
   const iconBg = config.iconBg || config.accent;
+  const message = String(themedToast.message || "");
+  const isLongMessage = message.length > 86;
 
   return (
     <Animated.View
@@ -152,22 +154,23 @@ function ToastViewport({ toast, onHide, topOffset, role }) {
           {...surfaceProps}
           style={[
             styles.card,
+            isLongMessage && styles.cardMultiline,
             {
               backgroundColor: config.gradientColors ? undefined : config.bg,
               borderColor: config.border,
             },
           ]}
         >
-          <View style={[styles.leadingIcon, { backgroundColor: iconBg }]}>
+          <View style={[styles.leadingIcon, isLongMessage && styles.leadingIconMultiline, { backgroundColor: iconBg }]}>
             <Text translate={themedToast.translate !== false} style={styles.leadingIconText}>{config.icon}</Text>
           </View>
 
           <View style={styles.content}>
-            <Text translate={themedToast.translate !== false} style={[styles.title, { color: titleColor }]} numberOfLines={1}>
+            <Text translate={themedToast.translate !== false} style={[styles.title, { color: titleColor }]} numberOfLines={2}>
               {themedToast.title || config.title}
             </Text>
-            <Text translate={themedToast.translate !== false} style={[styles.message, { color: messageColor }]} numberOfLines={3}>
-              {themedToast.message}
+            <Text translate={themedToast.translate !== false} style={[styles.message, { color: messageColor }]} numberOfLines={isLongMessage ? 6 : 3}>
+              {message}
             </Text>
           </View>
 
@@ -196,9 +199,16 @@ export function ToastProvider({ children }) {
     }
   }, []);
 
-  const showToast = useCallback((payload) => {
+  const showToast = useCallback((payload, typeOrOptions) => {
     if (typeof payload === "string") {
-      setToast({ message: payload, type: "info" });
+      const options = typeof typeOrOptions === "object" && typeOrOptions !== null ? typeOrOptions : {};
+      setToast({
+        message: payload,
+        type: typeof typeOrOptions === "string" ? typeOrOptions : options.type || "info",
+        title: options.title,
+        duration: options.duration,
+        translate: options.translate,
+      });
       return;
     }
 
@@ -309,6 +319,10 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 8,
   },
+  cardMultiline: {
+    alignItems: "flex-start",
+    paddingVertical: 14,
+  },
   leadingIcon: {
     width: 30,
     height: 30,
@@ -317,6 +331,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 10,
   },
+  leadingIconMultiline: {
+    marginTop: 2,
+  },
   leadingIconText: {
     color: "#ffffff",
     fontSize: 14,
@@ -324,18 +341,21 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    flexShrink: 1,
     paddingRight: 10,
   },
   title: {
     fontSize: 13,
     fontWeight: "800",
     marginBottom: 2,
+    lineHeight: 17,
   },
   message: {
     color: "#0f172a",
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 19,
     fontWeight: "600",
+    flexShrink: 1,
   },
   sideAccent: {
     width: 4,

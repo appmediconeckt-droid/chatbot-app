@@ -5,17 +5,19 @@ import { forceSignOut } from './utils/authSession';
 
 
 const API_ENDPOINTS = {
-  // RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
-  RAILWAY: 'https://humaeli-backend-update-production.up.railway.app',
-  DevTunnels: 'https://s5jl7g4z-5002.inc1.devtunnels.ms',
+  // Must match the SAME backend the web frontend uses (chatbot/.env.local)
+  // so OTP / email / forgot-password behave identically to web.
+  
+  DEV_TUNNEL: 'https://24p1k2bg-5001.inc1.devtunnels.ms',
+  RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
   LOCAL_ADB_5002: 'http://127.0.0.1:5002',
   LOCAL_5001: 'http://localhost:5001',
   LOCAL_5000: 'http://localhost:5000',
   LOCAL_3000: 'http://localhost:3000',
 };
 export const API_BASE_URL = __DEV__
-  ? API_ENDPOINTS.DevTunnels
-  : API_ENDPOINTS.DevTunnels;
+  ? API_ENDPOINTS.DEV_TUNNEL
+  : API_ENDPOINTS.DEV_TUNNEL;
 export const AI_REALTIME_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
 export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
   ? { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' }
