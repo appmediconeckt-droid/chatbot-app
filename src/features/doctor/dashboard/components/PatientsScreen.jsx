@@ -3,18 +3,43 @@
 // from GET /api/appointments?doctor_id (api/doctorPatients). Same stats,
 // search, sort and 10-per-page pagination as the web. "Add Patient" is
 // local-only there too (the web has no create-patient API).
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
+import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { loadDoctorPatients } from '../api/doctorPatients';
 
 const PAGE_SIZE = 10;
 const GENDERS = ['All', 'Male', 'Female', 'Other'];
 const SORTS = ['Newest First', 'Oldest First', 'Name A-Z'];
-const BLOOD_GROUPS = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
+const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+
+// Patient data comes from free-form appointment fields, so gender and blood
+// group arrive as "M" / "male" / "Female", "O Positive" / "b+ve" / "AB -".
+// Normalise both sides before comparing so the filters actually match.
+const normalizeGender = (value) => {
+  const v = String(value || '').trim().toLowerCase();
+  if (!v || v === 'n/a') return '';
+  if (v === 'm' || v === 'male' || v === 'man') return 'Male';
+  if (v === 'f' || v === 'female' || v === 'woman') return 'Female';
+  return 'Other';
+};
+
+const normalizeBloodGroup = (value) => {
+  const v = String(value || '').toUpperCase().replace(/[\s()]/g, '')
+    .replace(/(POSITIVE|POS|\+VE)$/, '+')
+    .replace(/(NEGATIVE|NEG|-VE)$/, '-');
+  return BLOOD_GROUPS.includes(v) ? v : '';
+};
+
+// Floating filter menu geometry.
+const MENU_ROW_HEIGHT = 42;
+const MENU_MAX_HEIGHT = 5.5 * MENU_ROW_HEIGHT; // half a row peeks out, hinting that it scrolls
+const CHIP_BORDER = 1.5;
+const SCREEN_GUTTER = 12;
 
 const todayLabel = () => new Date().toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
 const emptyForm = () => ({ name: '', phone: '', age: '', gender: 'Male', bloodGroup: '', doctor: '' });
@@ -29,6 +54,15 @@ export default function PatientsScreen({ onPatientPress }) {
   const [gender, setGender] = useState('All');
   const [bloodGroup, setBloodGroup] = useState('All');
   const [sort, setSort] = useState('Newest First');
+  // The filter dropdown is drawn inside this screen's root view (not a Modal):
+  // a Modal is a separate Android window, and with edge-to-edge on its
+  // coordinates don't line up with the chip's, so the menu landed off-screen.
+  // Measuring the chip relative to the root keeps everything in one space.
+  // menuAnchor = { key, x, y, width, height } of the chip whose menu is open.
+  const [menuAnchor, setMenuAnchor] = useState(null);
+  const [rootSize, setRootSize] = useState({ width: 0, height: 0 });
+  const rootRef = useRef(null);
+  const chipRefs = useRef({});
   const [page, setPage] = useState(1);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -50,17 +84,20 @@ export default function PatientsScreen({ onPatientPress }) {
   useEffect(() => { setPage(1); }, [search, gender, bloodGroup, sort]);
 
   const all = useMemo(() => [...localPatients, ...patients], [localPatients, patients]);
-  const bloodOptions = useMemo(
-    () => ['All', ...Array.from(new Set(all.map((p) => p.bloodGroup).filter((b) => b && b !== 'N/A')))],
-    [all],
-  );
-
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const rows = all.filter((p) =>
-      (!term || p.name.toLowerCase().includes(term) || String(p.phone).includes(term)) &&
-      (gender === 'All' || String(p.gender).toLowerCase() === gender.toLowerCase()) &&
-      (bloodGroup === 'All' || p.bloodGroup === bloodGroup));
+    // Phone numbers are stored with spaces / +91 / dashes, so compare digits only.
+    const termDigits = term.replace(/\D/g, '');
+    const rows = all.filter((p) => {
+      if (term) {
+        const nameHit = String(p.name || '').toLowerCase().includes(term);
+        const phoneHit = termDigits.length >= 3 && String(p.phone || '').replace(/\D/g, '').includes(termDigits);
+        if (!nameHit && !phoneHit) return false;
+      }
+      if (gender !== 'All' && normalizeGender(p.gender) !== gender) return false;
+      if (bloodGroup !== 'All' && normalizeBloodGroup(p.bloodGroup) !== bloodGroup) return false;
+      return true;
+    });
     if (sort === 'Name A-Z') return [...rows].sort((a, b) => a.name.localeCompare(b.name));
     if (sort === 'Oldest First') return [...rows].sort((a, b) => a.lastVisitKey - b.lastVisitKey);
     return [...rows].sort((a, b) => b.lastVisitKey - a.lastVisitKey);
@@ -76,10 +113,59 @@ export default function PatientsScreen({ onPatientPress }) {
     { label: 'Total Patients', value: all.length, icon: 'users', tone: 'teal' },
     { label: 'New Admissions', value: all.filter((p) => p.records.length === 1).length, icon: 'user', tone: 'blue' },
     { label: 'Pending Reports', value: all.reduce((n, p) => n + p.records.filter((r) => r.diagnosis === 'N/A').length, 0), icon: 'file', tone: 'red' },
-    { label: "Today's Appts", value: all.reduce((n, p) => n + p.records.filter((r) => r.date === today).length, 0), icon: 'calendar', tone: 'slate' },
+    { label: "Today's Appointments", value: all.reduce((n, p) => n + p.records.filter((r) => r.date === today).length, 0), icon: 'calendar', tone: 'slate' },
   ];
 
-  const cycle = (list, value, set) => set(list[(list.indexOf(value) + 1) % list.length]);
+  const filterConfig = {
+    gender: { label: 'Gender', value: gender, options: GENDERS, onSelect: setGender },
+    blood: { label: 'Blood Group', value: bloodGroup, options: ['All', ...BLOOD_GROUPS], onSelect: setBloodGroup },
+    sort: { label: 'Sort By', value: sort, options: SORTS, onSelect: setSort },
+  };
+  const openConfig = menuAnchor ? filterConfig[menuAnchor.key] : null;
+
+  const closeMenu = () => setMenuAnchor(null);
+
+  // Measure the tapped chip relative to the screen root so the menu can
+  // float directly under it.
+  const toggleMenu = (key) => {
+    if (menuAnchor?.key === key) {
+      closeMenu();
+      return;
+    }
+    const node = chipRefs.current[key];
+    if (!node || !rootRef.current) return;
+    node.measureLayout(
+      rootRef.current,
+      (x, y, width, height) => setMenuAnchor({ key, x, y, width, height }),
+      () => closeMenu(),
+    );
+  };
+
+  // Android back closes an open dropdown before leaving the screen.
+  useDoctorBack(() => {
+    if (!menuAnchor) return false;
+    setMenuAnchor(null);
+    return true;
+  });
+
+  // A select-style list attached to the chip: same width, same left edge,
+  // joined border. Opens below; flips above when it would run off-screen.
+  const menuLayout = (() => {
+    if (!menuAnchor || !openConfig || !rootSize.width) return null;
+    const height = Math.min(openConfig.options.length * MENU_ROW_HEIGHT + CHIP_BORDER, MENU_MAX_HEIGHT);
+    const below = menuAnchor.y + menuAnchor.height - CHIP_BORDER;
+    const direction = below + height <= rootSize.height - SCREEN_GUTTER ? 'down' : 'up';
+    const top = direction === 'down' ? below : Math.max(menuAnchor.y - height + CHIP_BORDER, SCREEN_GUTTER);
+    return { direction, style: { top, left: menuAnchor.x, width: menuAnchor.width, maxHeight: height } };
+  })();
+  const hasFilters = Boolean(search.trim()) || gender !== 'All' || bloodGroup !== 'All';
+
+  const clearFilters = () => {
+    setSearch('');
+    setGender('All');
+    setBloodGroup('All');
+    closeMenu();
+  };
 
   const addPatient = () => {
     if (!form.name.trim()) return;
@@ -104,7 +190,12 @@ export default function PatientsScreen({ onPatientPress }) {
   };
 
   return (
-    <View style={s.screen}>
+    <View
+      ref={rootRef}
+      collapsable={false}
+      style={s.screen}
+      onLayout={(e) => setRootSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
+    >
       <ScrollView
         contentContainerStyle={s.content}
         showsVerticalScrollIndicator={false}
@@ -140,18 +231,36 @@ export default function PatientsScreen({ onPatientPress }) {
           <TextInput value={search} onChangeText={setSearch} placeholder="Search patient by name or phone" placeholderTextColor="#94A3B8" style={s.searchInput} />
           {!!search && <Pressable onPress={() => setSearch('')} hitSlop={8}><AppIcon name="x" size={14} color="#98A2B3" /></Pressable>}
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filters}>
-          <FilterChip label="Gender" value={gender} active={gender !== 'All'} onPress={() => cycle(GENDERS, gender, setGender)} />
-          <FilterChip label="Blood Group" value={bloodGroup} active={bloodGroup !== 'All'} onPress={() => cycle(bloodOptions, bloodGroup, setBloodGroup)} />
-          <FilterChip label="Sort" value={sort} active={sort !== 'Newest First'} onPress={() => cycle(SORTS, sort, setSort)} />
-        </ScrollView>
+        <View style={s.filters}>
+          {Object.entries(filterConfig).map(([key, config]) => (
+            <FilterChip
+              key={key}
+              chipRef={(node) => { chipRefs.current[key] = node; }}
+              label={config.label}
+              value={config.value}
+              active={key === 'sort' ? config.value !== 'Newest First' : config.value !== 'All'}
+              openDirection={menuAnchor?.key === key ? menuLayout?.direction || 'down' : null}
+              onPress={() => toggleMenu(key)}
+            />
+          ))}
+        </View>
+        {hasFilters && (
+          <View style={s.resultRow}>
+            <Text style={s.resultText}>{filtered.length} {filtered.length === 1 ? 'patient' : 'patients'} found</Text>
+            <Pressable onPress={clearFilters} hitSlop={8}><Text style={s.clearText}>Clear filters</Text></Pressable>
+          </View>
+        )}
 
         {status === 'loading' ? (
           <View style={s.empty}><ActivityIndicator color="#0D9488" /><Text style={s.emptyText}>Loading patients...</Text></View>
         ) : status === 'failed' && !all.length ? (
           <View style={s.empty}><AppIcon name="file" size={30} color="#98A2B3" /><Text style={s.emptyText}>{error}</Text></View>
         ) : filtered.length === 0 ? (
-          <View style={s.empty}><AppIcon name="file" size={30} color="#98A2B3" /><Text style={s.emptyText}>No patients found for this doctor</Text></View>
+          <View style={s.empty}>
+            <AppIcon name="file" size={30} color="#98A2B3" />
+            <Text style={s.emptyText}>{hasFilters ? 'No patients match your search or filters' : 'No patients found for this doctor'}</Text>
+            {hasFilters && <Pressable onPress={clearFilters} hitSlop={8}><Text style={s.clearText}>Clear filters</Text></Pressable>}
+          </View>
         ) : (
           <>
             {pageRows.map((p) => (
@@ -185,6 +294,33 @@ export default function PatientsScreen({ onPatientPress }) {
           </>
         )}
       </ScrollView>
+
+      {menuLayout && (
+        <>
+          <Pressable style={s.menuBackdrop} onPress={closeMenu} />
+          <View style={[s.menu, menuLayout.direction === 'down' ? s.menuDown : s.menuUp, menuLayout.style]}>
+            <ScrollView bounces={false} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+              {openConfig.options.map((option, index) => {
+                const selected = openConfig.value === option;
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => { openConfig.onSelect(option); closeMenu(); }}
+                    style={({ pressed }) => [
+                      s.menuRow,
+                      index > 0 && s.menuRowDivider,
+                      selected && s.menuRowSelected,
+                      pressed && s.menuRowPressed,
+                    ]}
+                  >
+                    <Text style={[s.menuRowText, selected && s.menuRowTextSelected]} numberOfLines={1}>{option}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </>
+      )}
 
       <Modal visible={showAdd} transparent animationType="slide" onRequestClose={() => setShowAdd(false)}>
         <View style={s.modalOverlay}>
@@ -235,11 +371,28 @@ export default function PatientsScreen({ onPatientPress }) {
 
 const TONE_FG = { teal: '#0D9488', blue: '#0369A1', red: '#DC2626', slate: '#475467' };
 
-function FilterChip({ label, value, active, onPress }) {
+function FilterChip({ chipRef, label, value, active, openDirection, onPress }) {
+  const open = Boolean(openDirection);
   return (
-    <Pressable onPress={onPress} style={[s.chip, active && s.chipActive]}>
-      <Text style={[s.chipText, active && s.chipTextActive]}>{label}: {value}</Text>
-      <AppIcon name="chevron-down" size={11} strokeWidth={2.4} color={active ? '#FFF' : '#243249'} />
+    <Pressable
+      ref={chipRef}
+      collapsable={false}
+      onPress={onPress}
+      style={[
+        s.chip,
+        active && s.chipActive,
+        open && s.chipOpen,
+        openDirection === 'down' && s.chipOpenDown,
+        openDirection === 'up' && s.chipOpenUp,
+      ]}
+    >
+      <View style={s.flex}>
+        <Text style={[s.chipLabel, active && s.chipLabelActive]} numberOfLines={1}>{label}</Text>
+        <Text style={[s.chipText, active && s.chipTextActive]} numberOfLines={1}>{value}</Text>
+      </View>
+      <View style={open && s.chevronOpen}>
+        <AppIcon name="chevron-down" size={12} strokeWidth={2.4} color={active ? '#FFF' : '#243249'} />
+      </View>
     </Pressable>
   );
 }
@@ -277,11 +430,31 @@ const s = createDoctorStyles({
   section: { fontSize: 16, fontWeight: '800', color: '#17243A', marginTop: 18, marginBottom: 10 },
   search: { height: 46, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CDE7E3', borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12 },
   searchInput: { flex: 1, fontSize: 14, color: '#17243A', paddingVertical: 0 },
-  filters: { gap: 8, paddingVertical: 10 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, borderRadius: 17, borderWidth: 1, borderColor: '#D5DAE3', backgroundColor: '#FFF', paddingHorizontal: 12 },
+  filters: { flexDirection: 'row', gap: 8, paddingTop: 10, paddingBottom: 4 },
+  chip: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, height: 46, borderRadius: 12, borderWidth: 1, borderColor: '#D5DAE3', backgroundColor: '#FFF', paddingHorizontal: 10 },
   chipActive: { backgroundColor: '#0D9488', borderColor: '#0D9488' },
-  chipText: { fontSize: 12.5, fontWeight: '700', color: '#243249' },
+  chipOpen: { borderColor: '#0D9488', borderWidth: CHIP_BORDER },
+  // Square off the edge the list attaches to so chip + list read as one control.
+  chipOpenDown: { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
+  chipOpenUp: { borderTopLeftRadius: 0, borderTopRightRadius: 0 },
+  chipLabel: { fontSize: 10.5, fontWeight: '700', color: '#667085', textTransform: 'uppercase', letterSpacing: 0.3 },
+  chipLabelActive: { color: 'rgba(255,255,255,0.8)' },
+  chipText: { fontSize: 13, fontWeight: '800', color: '#243249', marginTop: 1 },
   chipTextActive: { color: '#FFF' },
+  chevronOpen: { transform: [{ rotate: '180deg' }] },
+  menuBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 20, elevation: 20 },
+  menu: { position: 'absolute', zIndex: 21, backgroundColor: '#FFF', borderWidth: CHIP_BORDER, borderColor: '#0D9488', overflow: 'hidden', shadowColor: '#0F172A', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 21 },
+  menuDown: { borderTopWidth: 0, borderBottomLeftRadius: 12, borderBottomRightRadius: 12 },
+  menuUp: { borderBottomWidth: 0, borderTopLeftRadius: 12, borderTopRightRadius: 12 },
+  menuRow: { height: MENU_ROW_HEIGHT, justifyContent: 'center', paddingHorizontal: 10 },
+  menuRowDivider: { borderTopWidth: 1, borderTopColor: '#EEF1F5' },
+  menuRowSelected: { backgroundColor: '#E6FAF6' },
+  menuRowPressed: { backgroundColor: '#F2F4F7' },
+  menuRowText: { fontSize: 13.5, fontWeight: '500', color: '#344054' },
+  menuRowTextSelected: { fontWeight: '800', color: '#0F766E' },
+  resultRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, marginBottom: 2, paddingHorizontal: 2 },
+  resultText: { fontSize: 12.5, fontWeight: '600', color: '#526078' },
+  clearText: { fontSize: 13, fontWeight: '800', color: '#0D9488' },
   empty: { alignItems: 'center', gap: 8, paddingVertical: 36 },
   emptyText: { fontSize: 13, color: '#667085', textAlign: 'center' },
   card: { backgroundColor: '#FFF', borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#E3EEEC', shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },

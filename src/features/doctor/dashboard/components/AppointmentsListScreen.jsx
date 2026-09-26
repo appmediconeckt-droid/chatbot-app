@@ -1,9 +1,9 @@
 // Ported from MediconecktApp's AppointmentsListScreen. Same data + actions as
 // the web AppointmentList: GET /api/appointments?doctor_id=<id> (rows filtered
-// to this doctor), DELETE /api/appointments/:id, tap-to-call, and status /
+// to this doctor), DELETE /api/appointments/:id, and status /
 // date / search / hide-visited filters.
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
@@ -40,6 +40,7 @@ const mapAppointment = (raw) => {
     doctorId: pickFirst(raw?.doctor_id, raw?.doctorId, raw?.doctor?.id, raw?.doctor?._id),
     name: appt.name,
     phone: appt.phone,
+    token: appt.tokenNumber != null ? String(appt.tokenNumber) : '',
     time: appt.scheduledTime,
     rawDate: formatLocalDateKey(appt.appointmentDate),
     status: STATUS_LABEL[appt.status] || 'Pending',
@@ -127,17 +128,9 @@ export default function AppointmentsListScreen({ onBack }) {
     ]);
   }, [fetchAppointments, showToast]);
 
-  const callPatient = useCallback((item) => {
-    const phone = String(item.phone || '').trim();
-    if (!phone || phone.toUpperCase() === 'N/A') {
-      showToast(`Phone number is not available for ${item.name}.`);
-      return;
-    }
-    Linking.openURL(`tel:${phone}`).catch(() => showToast('Could not start the call'));
-  }, [showToast]);
-
   const visible = appointments.filter((item) => {
-    if (!item.name.toLowerCase().includes(query.toLowerCase())) return false;
+    const q = query.trim().toLowerCase().replace(/^#/, '');
+    if (q && !item.name.toLowerCase().includes(q) && item.token.toLowerCase() !== q) return false;
     if (hideVisited && item.status === 'Visited') return false;
     if (statusFilter !== 'All' && item.status !== statusFilter) return false;
     if (selectedDate && item.rawDate && item.rawDate !== selectedDate) return false;
@@ -188,7 +181,7 @@ export default function AppointmentsListScreen({ onBack }) {
 
         <View style={s.search}>
           <AppIcon name="search" size={15} color="#7C8798" />
-          <TextInput value={query} onChangeText={setQuery} placeholder="Search Patient..." placeholderTextColor="#8A94A4" style={s.searchInput} />
+          <TextInput value={query} onChangeText={setQuery} placeholder="Search patient or token..." placeholderTextColor="#8A94A4" style={s.searchInput} />
         </View>
 
         <View style={s.filters}>
@@ -233,7 +226,7 @@ export default function AppointmentsListScreen({ onBack }) {
           </View>
         ) : (
           visible.map((item) => (
-            <AppointmentListCard key={item.id} item={item} onCall={callPatient} onDelete={deleteAppointment} />
+            <AppointmentListCard key={item.id} item={item} onDelete={deleteAppointment} />
           ))
         )}
       </ScrollView>
@@ -243,7 +236,7 @@ export default function AppointmentsListScreen({ onBack }) {
 
 const getInitials = (name) => name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
-function AppointmentListCard({ item, onCall, onDelete }) {
+function AppointmentListCard({ item, onDelete }) {
   const meta = STATUS_META[item.status];
   const isVisited = item.status === 'Visited';
   const isCancelled = item.status === 'Cancelled';
@@ -255,8 +248,18 @@ function AppointmentListCard({ item, onCall, onDelete }) {
           <Text style={[s.avatarText, { color: meta.color }]}>{getInitials(item.name)}</Text>
         </View>
         <View style={s.grow}>
-          <Text style={[s.name, isVisited && s.nameHighlight]}>{item.name}</Text>
+          <View style={s.nameRow}>
+            <Text style={[s.name, isVisited && s.nameHighlight]} numberOfLines={1}>{item.name}</Text>
+            <View style={[s.tokenPill, !item.token && s.tokenPillEmpty]}>
+              <Text style={[s.tokenText, !item.token && s.tokenTextEmpty]}>
+                {item.token ? `Token #${item.token}` : 'No token'}
+              </Text>
+            </View>
+          </View>
           <View style={s.timeRow}>
+            <AppIcon name="calendar" size={11} color="#526078" />
+            <Text style={s.time}>{item.rawDate ? formatDateLabel(item.rawDate) : 'Date N/A'}</Text>
+            <Text style={s.timeDot}>•</Text>
             <AppIcon name="clock" size={11} color="#526078" />
             <Text style={s.time}>{item.time}</Text>
           </View>
@@ -281,9 +284,6 @@ function AppointmentListCard({ item, onCall, onDelete }) {
         <Text style={s.visitType}>
           {item.visitType}{item.place ? ` | ${item.place}` : ''}
         </Text>
-        <Pressable style={s.iconButton} onPress={() => onCall(item)}>
-          <AppIcon name="phone" size={14} color="#0D9488" strokeWidth={1.9} />
-        </Pressable>
         <Pressable style={s.iconButton} onPress={() => onDelete(item.id, item.name)}>
           <AppIcon name="trash" size={14} color="#D92D20" strokeWidth={1.9} />
         </Pressable>
@@ -326,10 +326,16 @@ const s = createDoctorStyles({
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   avatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 13, fontWeight: '800' },
-  name: { fontSize: 15.5, fontWeight: '700', color: '#17243A' },
+  nameRow: { flexDirection: 'row', alignItems: 'center' },
+  name: { flexShrink: 1, fontSize: 15.5, fontWeight: '700', color: '#17243A' },
   nameHighlight: { color: '#0D9488' },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   time: { fontSize: 12, color: '#526078' },
+  timeDot: { fontSize: 12, color: '#AEB8C6', marginHorizontal: 3 },
+  tokenPill: { marginLeft: 8, backgroundColor: '#E6FAF6', borderWidth: 1, borderColor: '#99E6D8', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
+  tokenPillEmpty: { backgroundColor: '#F5F6F8', borderColor: '#E1E6ED' },
+  tokenText: { fontSize: 11.5, fontWeight: '800', color: '#0F766E' },
+  tokenTextEmpty: { fontWeight: '600', color: '#8A94A4' },
   status: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 5 },
   statusText: { fontSize: 11, fontWeight: '700' },
   reasonBox: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 9, padding: 9, marginTop: 11 },

@@ -30,6 +30,7 @@ import {
   resolveAuthRole,
   routeForAuthRole,
 } from '../resolveAuthRole';
+import { mapRoleForBackend } from '../googleAuthRole';
 
 let GoogleSigninModule = null;
 let StatusCodesModule = null;
@@ -46,16 +47,13 @@ try {
   );
 }
 
-// UI uses American spelling "counselor"; backend uses British "counsellor".
-// Normalize for our own UI state, then map back when sending to the backend.
+// UI uses American spelling "counselor"; backend uses British "counsellor"
+// for counselors. Doctor is its own backend role and must stay "doctor".
 const normalizeRole = (role) => {
   const value = String(role || '').trim().toLowerCase();
   if (!value) return '';
   return value === 'counsellor' ? 'counselor' : value;
 };
-
-const mapRoleForBackend = (role) =>
-  role === 'counselor' || role === 'doctor' ? 'counsellor' : role;
 
 const getRoleLabel = (role) => {
   const normalized = normalizeRole(role);

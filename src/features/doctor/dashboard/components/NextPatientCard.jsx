@@ -6,19 +6,31 @@ import { Pressable, Text, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { colors, typography, createDoctorStyles, doctorGradient, gradientDirection } from '../theme';
 import AppIcon from '../icons/AppIcon';
-import { getRemoteConsultationMode, getTokenLabel, isAppointmentCallWindowOpen } from '../api/doctorAppointments';
+import {
+  formatClockTime,
+  getCallWindow,
+  getRemoteConsultationMode,
+  getTokenLabel,
+  isConsultationStartOpen,
+} from '../api/doctorAppointments';
 
 const getInitials = (name = '') =>
   name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || 'NA';
 
 export default function NextPatientCard({ patient, isActive, onBreak, onStartConsultation, onContinue, onCall }) {
   const remoteMode = getRemoteConsultationMode(patient);
-  const disabled =
-    !patient ||
-    onBreak ||
-    (Boolean(remoteMode) && (!isAppointmentCallWindowOpen(patient) || !patient?.patientId));
-  const label = remoteMode === 'video' ? 'Video Call' : remoteMode === 'voice' ? 'Voice Call' : 'Start Consultation';
-  const icon = remoteMode === 'video' ? 'video' : remoteMode === 'voice' ? 'phone' : 'pulse';
+  // In-person Start unlocks at the slot time (an active one can always continue).
+  const startLocked = Boolean(patient) && !remoteMode && !isActive && !isConsultationStartOpen(patient);
+  // Remote: the call window opens 15 min before the slot (see getCallWindow).
+  const callWindow = remoteMode ? getCallWindow(patient) : null;
+  const callLocked = Boolean(callWindow) && !callWindow.open;
+  const callNotYet = callLocked && callWindow.opensAt && Date.now() < callWindow.opensAt.getTime();
+  const disabled = !patient || onBreak || startLocked || callLocked;
+  const label = callNotYet ? `Call opens at ${formatClockTime(callWindow.opensAt)}`
+    : remoteMode === 'video' ? 'Video Call'
+      : remoteMode === 'voice' ? 'Voice Call'
+        : startLocked ? `Starts at ${patient.scheduledTime}` : 'Start Consultation';
+  const icon = remoteMode === 'video' ? 'video' : remoteMode === 'voice' ? 'phone' : startLocked ? 'clock' : 'pulse';
 
   const handlePress = () => {
     if (!patient) return;

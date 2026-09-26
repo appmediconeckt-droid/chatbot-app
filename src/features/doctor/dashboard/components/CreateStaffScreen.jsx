@@ -4,13 +4,14 @@
 // /api/staff on the final step (see staffApi.js). Staff records have no
 // login of their own, so there's no activation email / temp password —
 // the review step just previews the employee ID the backend will assign.
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, BackHandler, Image, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles } from '../theme';
+import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { getDatePickerValue, toDateOnlyString } from '../../../../utils/dateOfBirth';
 import { createStaff } from './staffApi';
@@ -92,17 +93,14 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
   const [photo, setPhoto] = useState(null);
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (step > 1) {
-        setStep((current) => current - 1);
-      } else {
-        onCancel();
-      }
-      return true;
-    });
-    return () => subscription.remove();
-  }, [step, onCancel]);
+  useDoctorBack(() => {
+    if (step > 1) {
+      setStep((current) => current - 1);
+    } else {
+      onCancel();
+    }
+    return true;
+  });
 
   const setField = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   const selectedRoleInfo = ROLES.find((item) => item.key === selectedRole);

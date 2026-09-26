@@ -53,10 +53,14 @@ export const resetToRoleSelector = (navigation) => {
 
 // Post-login routes. Entering one of these wipes the back stack, so Android
 // back from the dashboard never returns to Login / RoleSelector / Signup.
+// DoctorOnboarding runs right after signup with the session already saved,
+// so it belongs here too — otherwise back from it lands on RoleSelector while
+// still signed in.
 const POST_AUTH_ROUTES = new Set([
   'UserDashboard',
   'CounselorDashboard',
   'DoctorDashboard',
+  'DoctorOnboarding',
   'LocationGate',
   'PinSetup',
 ]);

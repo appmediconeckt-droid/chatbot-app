@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Modal, View, TouchableOpacity, StyleSheet, Linking, Platform } from 'react-native';
+import { Modal, View, TouchableOpacity, StyleSheet, Linking, Platform, TurboModuleRegistry } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -16,6 +16,14 @@ const SNOOZE_KEY = 'update_reminder_snoozed_until';
 const SNOOZE_MS = 24 * 60 * 60 * 1000;
 
 const getSpInAppUpdates = () => {
+  // The library calls TurboModuleRegistry.getEnforcing('SpInAppUpdates') the
+  // moment it loads, and in dev that throw reaches LogBox as an uncaught
+  // error even inside this try/catch. On a binary built before the native
+  // module was added, bail out before requiring it at all.
+  if (!TurboModuleRegistry.get('SpInAppUpdates')) {
+    console.log('[UpdateReminder] In-app update native module not in this build; skipping check.');
+    return null;
+  }
   try {
     const updatesModule = require('sp-react-native-in-app-updates');
     return updatesModule?.default || updatesModule;

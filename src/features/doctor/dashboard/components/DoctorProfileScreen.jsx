@@ -4,6 +4,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
+import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import DoctorEditProfileScreen from './DoctorEditProfileScreen';
@@ -13,6 +14,12 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null);
+
+  useDoctorBack(() => {
+    if (!editing) return false;
+    setEditing(false);
+    return true;
+  });
 
   const fetchProfile = useCallback(async () => {
     try {

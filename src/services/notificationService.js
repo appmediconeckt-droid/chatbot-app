@@ -10,6 +10,7 @@ import {
   notifyIncomingCallIntent,
 } from './callNotificationBridge';
 import { startIncomingRingtone } from '../hooks/useRingtone';
+import { shouldDeliverNotification } from './notificationPreferences';
 
 const NOTIFICATION_CHANNEL_ID = 'humaeli-default';
 const INCOMING_CALL_CHANNEL_ID = 'humaeli-incoming-calls-v3';
@@ -378,6 +379,14 @@ export const displaySystemNotification = async remoteMessage => {
   }
   if (isIncomingCall && !data.receivedAt) {
     data.receivedAt = String(Date.now());
+  }
+  // Doctor notification preferences (mute, categories, quiet hours). Calls
+  // always go through.
+  if (
+    !isIncomingCallNotification(data) &&
+    !(await shouldDeliverNotification(data, { isChat: isChatNotification(data) }))
+  ) {
+    return;
   }
 
   if (Platform.OS === 'android') {

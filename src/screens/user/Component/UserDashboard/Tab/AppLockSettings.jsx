@@ -15,7 +15,8 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { isBiometricAvailable, authenticateWithBiometrics } from '../../../../../utils/biometrics';
-import { PATIENT, DOCTOR } from '../../../../../theme/palette';
+import { PATIENT } from '../../../../../theme/palette';
+import { getStoredThemeRole, paletteForRole } from '../../../../../theme/rolePalette';
 import useLanguageRender from '../../../../../hooks/useLanguageRender';
 
 const PIN_STORAGE_KEY = 'appLockPin';
@@ -30,22 +31,14 @@ const AppLockSettings = ({ navigation }) => {
   const [biometryType, setBiometryType] = useState(null);
   const [loading, setLoading] = useState(true);
   const completingPendingBiometricRef = useRef(false);
-  // Role → palette: counselor = blue, everyone else = green.
+  // Role → palette (see theme/rolePalette).
   const [C, setC] = useState(PATIENT);
 
   useEffect(() => {
     checkSecurityStatus();
     (async () => {
-      const [userRole, roleKey, userType] = await Promise.all([
-        AsyncStorage.getItem('userRole'),
-        AsyncStorage.getItem('role'),
-        AsyncStorage.getItem('userType'),
-      ]);
-      const norm = (v) => String(v || '').trim().toLowerCase();
-      const isCounselor = [userRole, roleKey, userType]
-        .map(norm)
-        .some((v) => v === 'counselor' || v === 'counsellor');
-      setC(isCounselor ? DOCTOR : PATIENT);
+      // doctor = teal, counselor = blue, everyone else = green.
+      setC(paletteForRole(await getStoredThemeRole()));
     })();
   }, []);
 

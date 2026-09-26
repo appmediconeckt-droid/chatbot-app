@@ -127,9 +127,45 @@ const SECTIONS = [
   },
 ];
 
-const CounselorPrivacyPolicy = ({ onClose }) => {
+// The accent blue the icon lists use. Under another role's palette it is
+// swapped for that palette's colour so the page doesn't show counselor blue.
+const COUNSELOR_ACCENT = '#2563EB';
+
+const COUNSELOR_CONTENT = {
+  heroText: 'Learn how Humaeli protects your professional data, patient conversations, appointments, earnings, and account information.',
+  features: FEATURES,
+  sections: SECTIONS,
+  lastUpdated: LAST_UPDATED,
+};
+
+/**
+ * Shared Humaeli privacy policy. Defaults are the counselor app's; the doctor
+ * side passes its own palette and labels.
+ *
+ * Props:
+ *   onClose        () => void
+ *   palette        role palette (default DOCTOR — the counselor blue)
+ *   safeAreaEdges  insets to pad (default top + bottom); pass [] when the
+ *                  host screen already sits inside a SafeAreaView
+ *   footerLabel    footer text
+ *   emailSubject   subject for the "Email Support" draft
+ *   content        { heroText, features, sections, lastUpdated } — the policy
+ *                  text; defaults to the counselor policy below
+ */
+const CounselorPrivacyPolicy = ({
+  onClose,
+  palette = DOCTOR,
+  safeAreaEdges = ['top', 'bottom'],
+  footerLabel = 'Humaeli Consultant App v2.4.1',
+  emailSubject = 'Privacy question - Humaeli Consultant',
+  content = COUNSELOR_CONTENT,
+}) => {
   const { t } = useLanguageRender();
-  const C = DOCTOR;
+  const C = palette;
+  const themed = palette !== DOCTOR;
+  const accent = (item) => (themed && item.color === COUNSELOR_ACCENT
+    ? { ...item, color: C.primary, bg: `${C.primary}1A` }
+    : item);
   const [expanded, setExpanded] = useState(null);
 
   const toggle = (id) => {
@@ -139,14 +175,14 @@ const CounselorPrivacyPolicy = ({ onClose }) => {
 
   const dial = () => Linking.openURL(`tel:${SUPPORT_PHONE_TEL}`).catch(() => {});
   const email = () => {
-    const subject = encodeURIComponent('Privacy question - Humaeli Consultant');
+    const subject = encodeURIComponent(emailSubject);
     Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}`).catch(() => {});
   };
 
   return (
     <View style={[s.root, { backgroundColor: C.backgroundTint }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <SafeAreaView edges={['top', 'bottom']} style={{ backgroundColor: '#fff' }}>
+      <SafeAreaView edges={safeAreaEdges} style={{ backgroundColor: '#fff' }}>
         <View style={s.header}>
           <TouchableOpacity onPress={onClose} style={s.headerBtn} hitSlop={12}>
             <Ionicons name="chevron-back" size={24} color="#0f172a" />
@@ -172,19 +208,16 @@ const CounselorPrivacyPolicy = ({ onClose }) => {
             </View>
             <Text style={s.heroTitle}>{t('Privacy & Security')}</Text>
           </View>
-          <Text style={s.heroText}>
-            Learn how Humaeli protects your professional data, patient conversations,
-            appointments, earnings, and account information.
-          </Text>
+          <Text style={s.heroText}>{t(content.heroText)}</Text>
           <View style={s.heroStamp}>
             <Ionicons name="time-outline" size={13} color="#fff" />
-            <Text style={s.heroStampText}>Last Updated: {LAST_UPDATED}</Text>
+            <Text style={s.heroStampText}>Last Updated: {content.lastUpdated}</Text>
           </View>
         </LinearGradient>
 
         {/* ── Feature grid ─────────────────────────────────────────────────── */}
         <View style={s.grid}>
-          {FEATURES.map((f) => (
+          {content.features.map(accent).map((f) => (
             <View key={f.label} style={s.featureCard}>
               <View style={[s.featureIcon, { backgroundColor: f.bg }]}>
                 <Ionicons name={f.icon} size={18} color={f.color} />
@@ -196,7 +229,7 @@ const CounselorPrivacyPolicy = ({ onClose }) => {
 
         {/* ── Accordion ────────────────────────────────────────────────────── */}
         <View style={s.accordion}>
-          {SECTIONS.map((sec) => {
+          {content.sections.map(accent).map((sec) => {
             const open = expanded === sec.id;
             return (
               <View key={sec.id} style={s.accItem}>
@@ -255,7 +288,7 @@ const CounselorPrivacyPolicy = ({ onClose }) => {
           </View>
         </View>
 
-        <Text style={s.footer}>{t('Humaeli Consultant App v2.4.1')}</Text>
+        <Text style={s.footer}>{t(footerLabel)}</Text>
       </ScrollView>
     </View>
   );

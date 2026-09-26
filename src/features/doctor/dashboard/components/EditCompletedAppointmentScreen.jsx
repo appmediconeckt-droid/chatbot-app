@@ -1,13 +1,13 @@
 // Web parity: Dashboard/DoctorDashboard.jsx EditCompletedModal. "View" on a
 // completed queue row opens this; Save PATCHes diagnosis / medicine / advice /
 // additional_notes / follow_up_* (the parent does the request).
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { colors, typography, createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
-import { getTokenLabel } from '../api/doctorAppointments';
+import { getRemoteConsultationMode, getTokenLabel } from '../api/doctorAppointments';
 import { formatDuration } from './ActiveConsultationCard';
 
 const formatDateTime = (value) => {
@@ -32,6 +32,7 @@ function Area({ label, value, onChangeText, minHeight = 80 }) {
 }
 
 export default function EditCompletedAppointmentScreen({ appointment, onCancel, onSave }) {
+  const isVisit = !getRemoteConsultationMode(appointment);
   const [diagnosis, setDiagnosis] = useState(appointment.diagnosis || '');
   const [medicine, setMedicine] = useState(appointment.medicine || '');
   const [advice, setAdvice] = useState(appointment.advice || '');
@@ -39,14 +40,25 @@ export default function EditCompletedAppointmentScreen({ appointment, onCancel, 
   const [followUpRequired, setFollowUpRequired] = useState(Boolean(appointment.followUpRequired));
   const [followUpDate, setFollowUpDate] = useState(appointment.followUpDate || '');
   const [saving, setSaving] = useState(false);
+  const saveLock = useRef(false);
 
   const save = async () => {
+    if (saveLock.current) return;
     if (followUpRequired && !/^\d{4}-\d{2}-\d{2}$/.test(followUpDate.trim())) {
       Alert.alert('Invalid date', 'Follow-up date must be YYYY-MM-DD.');
       return;
     }
+    saveLock.current = true;
     setSaving(true);
     try {
+      if (isVisit) {
+        await onSave?.({
+          visitOnly: true,
+          followUpRequired,
+          followUpDate: followUpRequired ? followUpDate.trim() : '',
+        });
+        return;
+      }
       await onSave?.({
         diagnosis,
         medicine,
@@ -56,6 +68,7 @@ export default function EditCompletedAppointmentScreen({ appointment, onCancel, 
         followUpDate: followUpRequired ? followUpDate.trim() : '',
       });
     } finally {
+      saveLock.current = false;
       setSaving(false);
     }
   };
@@ -71,10 +84,15 @@ export default function EditCompletedAppointmentScreen({ appointment, onCancel, 
           {!!appointment.durationMs && <Text style={styles.meta}>Duration: {formatDuration(appointment.durationMs)}</Text>}
         </View>
 
-        <Area label="Diagnosis" value={diagnosis} onChangeText={setDiagnosis} />
-        <Area label="Medicine" value={medicine} onChangeText={setMedicine} minHeight={100} />
-        <Area label="Advice" value={advice} onChangeText={setAdvice} />
-        <Area label="Additional Notes" value={additionalNotes} onChangeText={setAdditionalNotes} />
+        {/* In-clinic / walk-in visits record only the follow-up (see CompleteAppointmentScreen). */}
+        {!isVisit && (
+          <>
+            <Area label="Diagnosis" value={diagnosis} onChangeText={setDiagnosis} />
+            <Area label="Medicine" value={medicine} onChangeText={setMedicine} minHeight={100} />
+            <Area label="Advice" value={advice} onChangeText={setAdvice} />
+            <Area label="Additional Notes" value={additionalNotes} onChangeText={setAdditionalNotes} />
+          </>
+        )}
 
         <TouchableOpacity style={styles.checkRow} onPress={() => setFollowUpRequired((v) => !v)}>
           <View style={[styles.checkbox, followUpRequired && styles.checkboxOn]}>

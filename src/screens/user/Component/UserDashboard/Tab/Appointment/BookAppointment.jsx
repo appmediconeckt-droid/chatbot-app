@@ -527,27 +527,6 @@ const CounselorRequestChat = ({
   };
 
   const handleBookAppointment = (counselor) => {
-    // Scheduling is only available once the counselor has accepted the request.
-    // The card already hides the button, but guard here too so no other entry
-    // point can open the booking modal for an unconnected counselor.
-    const existingChat = acceptedChatsByCounselorId[String(counselor?.id)];
-    const status = String(existingChat?.status || '').toLowerCase();
-    if (status !== 'accepted' && status !== 'active') {
-      Alert.alert(
-        t('appointment:requestRequired', 'Request required'),
-        status === 'pending'
-          ? t(
-              'appointment:requestPendingMessage',
-              'Your request is waiting for the consultant to accept. You can schedule an appointment once it is accepted.'
-            )
-          : t(
-              'appointment:requestFirstMessage',
-              'Send a request to this consultant first. You can schedule an appointment once they accept.'
-            )
-      );
-      return;
-    }
-
     setSelectedCounselorForRequest(counselor);
     const nextSlot = new Date();
     const roundedMinutes = Math.ceil(nextSlot.getMinutes() / 15) * 15;
@@ -798,9 +777,8 @@ const CounselorRequestChat = ({
   };
 
   const renderCounselorCard = (item) => {
-    // A request must be ACCEPTED before scheduling opens up. A merely pending
-    // request still counts as "no connection yet", so the card keeps showing
-    // the request state instead of the booking/chat actions.
+    // Scheduling doesn't need a chat connection. The chat state only decides
+    // the second button: Chat Now once accepted, Send Request before that.
     const existingChat = acceptedChatsByCounselorId[String(item.id)];
     const chatStatus = String(existingChat?.status || '').toLowerCase();
     const isAccepted = !!existingChat?.chatId && (chatStatus === 'accepted' || chatStatus === 'active');
@@ -836,11 +814,13 @@ const CounselorRequestChat = ({
             <View style={styles.cardMetaRow}>
               <Ionicons name="briefcase-outline" size={12.5} color={PATIENT.textSecondary} />
               <Text style={styles.cardMetaText}>{item.experience}</Text>
-              <Ionicons name="star" size={12.5} color="#F5A623" style={{ marginLeft: 12 }} />
-              {/* "New" rather than 0.0 - an unrated counselor isn't a zero-star one. */}
-              <Text style={styles.cardMetaText}>
-                {Number(item.rating) > 0 ? Number(item.rating).toFixed(1) : 'New'}
-              </Text>
+              {/* Unrated counselors show no rating rather than 0.0. */}
+              {Number(item.rating) > 0 && (
+                <>
+                  <Ionicons name="star" size={12.5} color="#F5A623" style={{ marginLeft: 12 }} />
+                  <Text style={styles.cardMetaText}>{Number(item.rating).toFixed(1)}</Text>
+                </>
+              )}
             </View>
           </View>
 
@@ -886,59 +866,50 @@ const CounselorRequestChat = ({
               {t('appointment:doctorBookingSoon', 'Appointment booking with doctors is coming soon')}
             </Text>
           </View>
-        ) : isPending ? (
-          // Request sent, counselor hasn't accepted yet — nothing to do but wait.
-          <View style={styles.btnPendingRow}>
-            <Ionicons name="time-outline" size={15} color="#B45309" />
-            <Text style={styles.btnPendingText} numberOfLines={1}>
-              {t('appointment:requestPending', 'Request pending — waiting for consultant to accept')}
-            </Text>
-          </View>
-        ) : !online ? (
-          // Offline is checked before `isAccepted` so neither "Chat Now" nor
-          // "Schedule" can render for a counselor who isn't there right now —
-          // "Currently unavailable" means no action is offered, connected or
-          // not.
-          <View style={styles.cardOfflineRow}>
-            <Text style={styles.nextAvailText} numberOfLines={1}>
-              {item.nextAvailable
-                ? `${t('appointment:nextAvailable', 'Next Available')} ${item.nextAvailable}`
-                : t('appointment:currentlyUnavailable', 'Currently unavailable')}
-            </Text>
-          </View>
-        ) : isAccepted ? (
-          // Connected and online: scheduling and chat are both unlocked.
-          <View style={styles.cardActions}>
-            <PatientGradientButton
-              style={styles.btnPrimary}
-              onPress={() => handleBookAppointment(item)}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.btnPrimaryText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-                {t('appointment:scheduleAppointment', 'Schedule Appointment')}
-              </Text>
-            </PatientGradientButton>
-            <TouchableOpacity
-              style={styles.btnOutline}
-              onPress={() => handleChatNow(item)}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.btnOutlineText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-                {t('appointment:chatNow')}
-              </Text>
-            </TouchableOpacity>
-          </View>
         ) : (
-          // First time with this counselor: request only, no scheduling yet.
-          <PatientGradientButton
-            style={styles.btnPrimaryFull}
-            onPress={() => handleChatNow(item)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.btnPrimaryText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-              {t('appointment:sendRequest', 'Send Request')}
-            </Text>
-          </PatientGradientButton>
+          // Consultants: Schedule Appointment is always offered - the backend
+          // books straight away and the consultant confirms it. The second
+          // button depends on the chat connection and needs them online.
+          <>
+            {isPending ? (
+              <View style={styles.btnPendingRow}>
+                <Ionicons name="time-outline" size={15} color="#B45309" />
+                <Text style={styles.btnPendingText} numberOfLines={1}>
+                  {t('appointment:requestPending', 'Request pending — waiting for consultant to accept')}
+                </Text>
+              </View>
+            ) : !online ? (
+              <View style={styles.cardOfflineRow}>
+                <Text style={styles.nextAvailText} numberOfLines={1}>
+                  {item.nextAvailable
+                    ? `${t('appointment:nextAvailable', 'Next Available')} ${item.nextAvailable}`
+                    : t('appointment:currentlyUnavailable', 'Currently unavailable')}
+                </Text>
+              </View>
+            ) : null}
+            <View style={styles.cardActions}>
+              <PatientGradientButton
+                style={styles.btnPrimary}
+                onPress={() => handleBookAppointment(item)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.btnPrimaryText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                  {t('appointment:scheduleAppointment', 'Schedule Appointment')}
+                </Text>
+              </PatientGradientButton>
+              {online && !isPending && (
+                <TouchableOpacity
+                  style={styles.btnOutline}
+                  onPress={() => handleChatNow(item)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.btnOutlineText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                    {isAccepted ? t('appointment:chatNow') : t('appointment:sendRequest', 'Send Request')}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </>
         )}
       </View>
     );
@@ -985,7 +956,7 @@ const CounselorRequestChat = ({
       counselor.specialization,
       counselor.location,
       counselor.experience,
-      Number(counselor.rating) > 0 ? `${counselor.rating} rating` : 'new',
+      Number(counselor.rating) > 0 ? `${counselor.rating} rating` : '',
       Number(counselor.rating) >= 4.5 ? 'top rated' : '',
       counselor.location ? 'nearby' : '',
       counselor.available ? 'online available' : 'offline unavailable',

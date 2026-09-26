@@ -1,14 +1,18 @@
 // "Currently With" card — mirrors the web `dd-live-consult`: the server-side
-// consultation timer (start time minus pauses), plus the same three actions:
+// consultation timer (start time minus pauses), plus the actions:
 //   Pause / Resume  → PATCH { consultation_action: 'pause' | 'resume' }
-//   Checked         → open the Complete Appointment form
-//   Complete        → mark completed immediately
+//   Checked         → open the Complete Appointment form — video / voice only
+//   Complete        → video / voice: mark completed immediately;
+//                     in-clinic & walk-in visits: open the Complete Appointment
+//                     form (they have no Checked button, and the form is where
+//                     the diagnosis and medicines are recorded)
 import React, { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { colors, typography, createDoctorStyles, doctorGradient, gradientDirection } from '../theme';
-import { getTokenLabel } from '../api/doctorAppointments';
+import { getConsultationModeInfo, getRemoteConsultationMode, getTokenLabel } from '../api/doctorAppointments';
+import { MODE_STYLES } from './AppointmentCard';
 
 const getInitials = (name = '') =>
   name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || 'NA';
@@ -47,6 +51,9 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
   const paused = session.status === 'paused';
   const onBreak = session.status === 'break';
   const disabled = onBreak || busy;
+  const isRemote = Boolean(getRemoteConsultationMode(patient));
+  const mode = getConsultationModeInfo(patient);
+  const modeStyle = MODE_STYLES[mode.key];
 
   return (
     <View style={s.card}>
@@ -76,8 +83,10 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
       </View>
 
       <View style={s.chips}>
-        <View style={s.chip}><Text style={s.chipText}>BP: {patient.bp}</Text></View>
-        <View style={s.chip}><Text style={s.chipText}>BG: {patient.bloodGroup}</Text></View>
+        <View style={[s.modeChip, { backgroundColor: modeStyle.bg }]}>
+          <AppIcon name={mode.icon} size={12} strokeWidth={2.2} color={modeStyle.text} />
+          <Text style={[s.chipText, { color: modeStyle.text }]}>{mode.label}</Text>
+        </View>
         <View style={s.chip}><Text style={s.chipText}>{getTokenLabel(patient)}</Text></View>
       </View>
 
@@ -96,11 +105,17 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
         <Pressable style={[s.outlineButton, disabled && s.disabled]} onPress={onPause} disabled={disabled}>
           <Text style={s.outlineText}>{paused ? '▶ Resume' : '❚❚ Pause'}</Text>
         </Pressable>
-        <Pressable style={[s.outlineButton, disabled && s.disabled]} onPress={onChecked} disabled={disabled}>
-          <AppIcon name="check-mark" size={13} strokeWidth={2.5} color={colors.navy} />
-          <Text style={s.outlineText}>Checked</Text>
-        </Pressable>
-        <Pressable style={[s.completeButtonWrap, disabled && s.disabled]} onPress={onComplete} disabled={disabled}>
+        {isRemote && (
+          <Pressable style={[s.outlineButton, disabled && s.disabled]} onPress={onChecked} disabled={disabled}>
+            <AppIcon name="check-mark" size={13} strokeWidth={2.5} color={colors.navy} />
+            <Text style={s.outlineText}>Checked</Text>
+          </Pressable>
+        )}
+        <Pressable
+          style={[s.completeButtonWrap, disabled && s.disabled]}
+          onPress={isRemote ? onComplete : onChecked}
+          disabled={disabled}
+        >
           <LinearGradient colors={doctorGradient} {...gradientDirection} style={s.completeButton}>
             <AppIcon name="check-mark" size={13} strokeWidth={2.5} color="#FFFFFF" />
             <Text style={s.completeText}>Complete</Text>
@@ -133,6 +148,7 @@ const s = createDoctorStyles({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 9 },
   chip: { height: 25, paddingHorizontal: 8, borderRadius: 6, borderWidth: 1, borderColor: colors.line, backgroundColor: '#FAFBFD', alignItems: 'center', justifyContent: 'center' },
   chipText: { ...typography.label, fontSize: 11, color: '#536176' },
+  modeChip: { height: 25, paddingHorizontal: 9, borderRadius: 13, flexDirection: 'row', alignItems: 'center', gap: 5 },
   timeRow: { flexDirection: 'row', gap: 8, marginTop: 9 },
   timeBox: { flex: 1, borderWidth: 1, borderColor: colors.line, backgroundColor: '#FAFBFD', borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
   timeLabel: { ...typography.label, fontSize: 9.5, letterSpacing: 0.3, color: colors.muted },

@@ -247,7 +247,9 @@ const CounselorDirectoryScreen = ({ navigation }) => {
           rating: Number(c.rating ?? c.averageRating ?? 0),
           ratingCount: Number(c.ratingCount ?? c.totalRatings ?? c.reviewsCount ?? 0),
           online: Boolean(c.isOnline),
-          available: Boolean(c.isActive),
+          active: Boolean(c.isActive),
+          available: Boolean(c.isOnline) && Boolean(c.isActive),
+          canSchedule: true,
           // Counselor's self-set availability. Only meaningful while online;
           // when socket-offline we show 'offline' regardless.
           availabilityStatus: Boolean(c.isOnline)
@@ -276,7 +278,8 @@ const CounselorDirectoryScreen = ({ navigation }) => {
           .map(c => c.location)
           .filter(l => l && l !== "Online" && l.trim())
       )];
-      // Use server-provided fields only: isOnline for live presence, isActive for availability setting
+      // Use server-provided fields only: isOnline for live presence, isActive for availability setting.
+      // Chat requires both. Scheduling remains available for later even when a consultant is offline.
       setUniqueLocations(locations);
       if (!showLoader) setError("");
 
@@ -333,6 +336,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
               ? {
                   ...counselor,
                   online: isOnline,
+                  available: Boolean(isOnline) && counselor.active !== false,
                   // Going offline forces 'offline'; coming online keeps the
                   // counselor's manual status if known, else defaults to online.
                   availabilityStatus: isOnline
@@ -647,6 +651,8 @@ const CounselorDirectoryScreen = ({ navigation }) => {
     const profilePhotoUrl = !hasImageError ? counselor.profilePhoto : null;
     const statusMeta =
       AVAIL_STATUS_META[counselor.availabilityStatus] || AVAIL_STATUS_META.offline;
+    const canChatNow = Boolean(counselor.available);
+    const canSchedule = counselor.canSchedule !== false;
 
     return (
       <View style={styles.card}>
@@ -674,15 +680,13 @@ const CounselorDirectoryScreen = ({ navigation }) => {
             <Text style={styles.specialization} numberOfLines={1}>
               {counselor.specialization}
             </Text>
-            {counselor.ratingCount > 0 ? (
+            {counselor.ratingCount > 0 && (
               <StarRating
                 rating={counselor.rating}
                 count={counselor.ratingCount}
                 size={14}
                 style={styles.ratingRow}
               />
-            ) : (
-              <Text style={styles.newBadgeText}>✨ New consultant</Text>
             )}
             {location !== "Online" && (
               <Text style={styles.locationText}>📍 {location}</Text>
@@ -741,25 +745,26 @@ const CounselorDirectoryScreen = ({ navigation }) => {
             ) : (
               <>
             <TouchableOpacity
-              style={[styles.actionBtn, styles.chatBtn, !counselor.available && styles.disabledBtn]}
+              style={[styles.actionBtn, styles.chatBtn, !canChatNow && styles.disabledBtn]}
               onPress={() => {
                 setSelectedCounselor(counselor);
                 setShowChatModal(true);
               }}
-              disabled={!counselor.available}
+              disabled={!canChatNow}
             >
               <Text style={styles.actionBtnText}>
                 {counselor.available ? "💬 " + t('appointment:chatNow') : "🔴 " + t('counselor:available')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.actionBtn, styles.bookBtn]}
+              style={[styles.actionBtn, styles.bookBtn, !canSchedule && styles.disabledBtn]}
               onPress={() => {
                 setSelectedCounselor(counselor);
                 setShowBookingModal(true);
               }}
+              disabled={!canSchedule}
             >
-              <Text style={styles.actionBtnText}>📅 Book</Text>
+              <Text style={styles.actionBtnText}>Schedule</Text>
             </TouchableOpacity>
               </>
             )}
@@ -982,6 +987,12 @@ const CounselorDirectoryScreen = ({ navigation }) => {
               </View>
 
               <View style={styles.infoBox}>
+                {selectedCounselor && !selectedCounselor.online && (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoIcon}>i</Text>
+                    <Text style={styles.infoText}>This consultant is offline right now, but you can still schedule an appointment for confirmation.</Text>
+                  </View>
+                )}
                 <View style={styles.infoRow}>
                   <Text style={styles.infoIcon}>⏳</Text>
                   <Text style={styles.infoText}>Appointment will be sent for confirmation</Text>
@@ -1386,12 +1397,6 @@ const styles = StyleSheet.create({
   ratingRow: {
     marginTop: 4,
   },
-  newBadgeText: {
-    fontSize: 12,
-    color: "#2c50cd",
-    fontWeight: "600",
-    marginTop: 4,
-  },
   locationText: {
     fontSize: 12,
     color: "#94A3B8",
@@ -1472,10 +1477,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
   },
   languagesContainer: {
     flexDirection: "row",
     gap: 8,
+    flexShrink: 1,
+    flexWrap: "wrap",
   },
   language: {
     fontSize: 11,
@@ -1488,11 +1497,14 @@ const styles = StyleSheet.create({
   actionButtons: {
     flexDirection: "row",
     gap: 8,
+    flexShrink: 0,
   },
   actionBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
+    minWidth: 86,
+    alignItems: "center",
   },
   chatBtn: {
     backgroundColor: "#10B981",

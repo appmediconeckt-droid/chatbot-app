@@ -1,40 +1,124 @@
-import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+// Doctor Privacy & Security. Every row does something real:
+//   Change Password  → DoctorChangePasswordScreen (signs out after a change)
+//   App Lock         → the shared AppLockSettings screen (PIN + biometrics),
+//                      which App.tsx enforces on launch / resume for every role
+//   Privacy Policy   → the Humaeli privacy policy
+//   Data requests    → email draft to support (there is no export API)
+//   This Device      → the backend allows one signed-in device per account,
+//                      so the only session to manage is this one.
+import React, { useCallback, useEffect, useState } from 'react';
+import { Alert, Linking, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
+import { CLINICIAN } from '../../../../theme/palette';
+import { APP_VERSION } from '../../../../constants/appInfo';
+import { DOCTOR_PRIVACY_CONTENT } from '../doctorPrivacyContent';
+import { useDoctorBack } from '../useDoctorBack';
 import DoctorChangePasswordScreen from './DoctorChangePasswordScreen';
+import CounselorPrivacyPolicy from '../../../counselor/screens/CounselorPrivacyPolicy';
+import { isBiometricAvailable } from '../../../../utils/biometrics';
 
-const DEVICES = [
-  { icon: 'smartphone', name: 'iPhone 13 Pro', detail: 'Current Session', current: true },
-  { icon: 'laptop', name: 'MacBook Pro', detail: 'Last active: 2 hours ago', current: false },
-];
+const SUPPORT_EMAIL = 'support@humaeli.com';
+// Same keys AppLockSettings / AppLockScreen use.
+const PIN_STORAGE_KEY = 'appLockPin';
+const BIOMETRIC_ENABLED_KEY = 'appLockBiometricEnabled';
 
-export default function DoctorPrivacySecurityScreen({ onBack }) {
+const deviceLabel = Platform.OS === 'ios' ? 'This iPhone' : Platform.OS === 'android' ? 'This Android phone' : 'This device';
+
+export default function DoctorPrivacySecurityScreen({ onBack, navigation, onLogout, onForceLogout }) {
   const { showToast } = useToast();
   const [view, setView] = useState('list');
-  const [twoFactor, setTwoFactor] = useState(true);
-  const [biometric, setBiometric] = useState(false);
+  const [lockStatus, setLockStatus] = useState({ pin: false, biometric: false, biometricAvailable: false });
 
-  const notify = (text) => showToast(text);
+  const refreshLockStatus = useCallback(async () => {
+    try {
+      const [pin, bio, availability] = await Promise.all([
+        AsyncStorage.getItem(PIN_STORAGE_KEY),
+        AsyncStorage.getItem(BIOMETRIC_ENABLED_KEY),
+        isBiometricAvailable().catch(() => ({ available: false })),
+      ]);
+      setLockStatus({ pin: Boolean(pin), biometric: bio === 'true', biometricAvailable: Boolean(availability?.available) });
+    } catch {
+      // Leave the last known status.
+    }
+  }, []);
+
+  // App Lock is a stack screen above the dashboard — re-read when we're back.
+  useEffect(() => {
+    refreshLockStatus();
+    const unsubscribe = navigation?.addListener?.('focus', refreshLockStatus);
+    return () => unsubscribe?.();
+  }, [navigation, refreshLockStatus]);
+
+  useDoctorBack(() => {
+    if (view === 'list') return false;
+    setView('list');
+    return true;
+  });
 
   if (view === 'changePassword') {
-    return <DoctorChangePasswordScreen onBack={() => setView('list')} />;
+    return (
+      <DoctorChangePasswordScreen
+        onBack={() => setView('list')}
+        onPasswordChanged={() => {
+          Alert.alert('Password changed', 'Password changed successfully. Please sign in again.');
+          onForceLogout?.();
+        }}
+      />
+    );
   }
 
-  const revokeDevice = (name) => {
-    Alert.alert('Log Out Device', `Log out "${name}" from your account?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Log Out', style: 'destructive', onPress: () => notify(`${name} logged out`) },
-    ]);
+  if (view === 'privacyPolicy') {
+    return (
+      <CounselorPrivacyPolicy
+        onClose={() => setView('list')}
+        palette={CLINICIAN}
+        // The dashboard already wraps this screen in a SafeAreaView.
+        safeAreaEdges={[]}
+        footerLabel={`Humaeli Doctor · Version ${APP_VERSION}`}
+        emailSubject="Privacy question - Humaeli Doctor"
+        content={DOCTOR_PRIVACY_CONTENT}
+      />
+    );
+  }
+
+  const openAppLock = () => {
+    if (!navigation?.navigate) return showToast('App Lock is not available here');
+    return navigation.navigate('AppLockSettings');
   };
 
-  const logoutAllDevices = () => {
-    Alert.alert('Log Out of All Devices', 'This will sign you out everywhere except this device.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Log Out All', style: 'destructive', onPress: () => notify('Logged out of all other devices') },
-    ]);
+  const emailSupport = async (subject, body) => {
+    const email = (await AsyncStorage.getItem('userEmail').catch(() => null)) || '';
+    const fullBody = `${body}\n\nAccount email: ${email || '(not available)'}`;
+    const url = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(fullBody)}`;
+    Linking.openURL(url).catch(() => {
+      Alert.alert('No email app', `Please email ${SUPPORT_EMAIL} with the subject "${subject}".`);
+    });
   };
+
+  const requestDataExport = () => {
+    Alert.alert(
+      'Request Data Export',
+      'This opens an email to Humaeli support asking for a copy of your account data. Support will reply to your account email.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          onPress: () => emailSupport('Data export request', 'Hello, please send me a copy of the data associated with my doctor account.'),
+        },
+      ],
+    );
+  };
+
+  const lockSubtitle = !lockStatus.pin
+    ? 'Off — require a PIN to open the app'
+    : lockStatus.biometric
+      ? 'On — PIN + fingerprint / face'
+      : lockStatus.biometricAvailable
+        ? 'On — PIN (biometrics available)'
+        : 'On — PIN';
 
   return (
     <View style={s.screen}>
@@ -42,98 +126,68 @@ export default function DoctorPrivacySecurityScreen({ onBack }) {
         <Pressable onPress={onBack} style={s.backButton} hitSlop={8}>
           <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
         </Pressable>
-        <Text style={s.title}>Security & Privacy</Text>
+        <Text style={s.title}>Privacy & Security</Text>
       </View>
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
 
-        <Section icon="lock" label="Login Security">
+        <Section label="Login Security">
           <Row
             icon="lock"
             title="Change Password"
-            subtitle="Last changed: Oct 12, 2023"
+            subtitle="You'll be signed out after changing it"
             onPress={() => setView('changePassword')}
           />
           <Row
-            icon="shield"
-            title="Two-Factor Authentication"
-            subtitle="Add an extra layer of security"
-            last
-            control={
-              <Switch
-                value={twoFactor}
-                onValueChange={(v) => { setTwoFactor(v); notify(v ? 'Two-factor authentication enabled' : 'Two-factor authentication disabled'); }}
-                trackColor={{ false: '#D5DAE3', true: '#2DD4BF' }}
-                thumbColor="#FFF"
-              />
-            }
-          />
-        </Section>
-
-        <Section icon="fingerprint" label="Biometric Access">
-          <Row
             icon="fingerprint"
-            title="Face ID / Touch ID"
-            subtitle="Use biometrics to login"
+            title="App Lock"
+            subtitle={lockSubtitle}
+            badge={lockStatus.pin ? 'ON' : 'OFF'}
+            badgeOn={lockStatus.pin}
             last
-            control={
-              <Switch
-                value={biometric}
-                onValueChange={(v) => { setBiometric(v); notify(v ? 'Biometric login enabled' : 'Biometric login disabled'); }}
-                trackColor={{ false: '#D5DAE3', true: '#2DD4BF' }}
-                thumbColor="#FFF"
-              />
-            }
+            onPress={openAppLock}
           />
         </Section>
 
-        <Section icon="shield" label="Data & Privacy">
-          <Row
-            icon="shield"
-            title="Manage Health Data Sharing"
-            subtitle="Control who sees your records"
-            onPress={() => notify('Manage Health Data Sharing — coming soon')}
-          />
+        <Section label="Privacy">
           <Row
             icon="file"
             title="Privacy Policy"
-            subtitle="Read our commitment to privacy"
-            onPress={() => notify('Privacy Policy — coming soon')}
+            subtitle="How Humaeli collects, uses and protects data"
+            onPress={() => setView('privacyPolicy')}
           />
           <Row
             icon="download"
             title="Request Data Export"
-            subtitle="Download a copy of your data"
+            subtitle="Ask support for a copy of your account data"
+            onPress={requestDataExport}
+          />
+          <Row
+            icon="mail"
+            title="Privacy Questions"
+            subtitle={SUPPORT_EMAIL}
             last
-            onPress={() => notify('Data export requested')}
+            onPress={() => emailSupport('Privacy question - Doctor account', 'Hello,')}
           />
         </Section>
 
-        <Section icon="smartphone" label="Device Management">
-          {DEVICES.map((device, index) => (
-            <View key={device.name} style={[s.row, index === DEVICES.length - 1 && s.rowLast]}>
-              <View style={s.rowIcon}>
-                <AppIcon name={device.icon} size={18} color="#0D9488" strokeWidth={1.9} />
-              </View>
-              <View style={s.rowBody}>
-                <Text style={s.rowTitle}>{device.name}</Text>
-                {device.current ? (
-                  <View style={s.currentBadge}><Text style={s.currentBadgeText}>Current Session</Text></View>
-                ) : (
-                  <Text style={s.rowSubtitle}>{device.detail}</Text>
-                )}
-              </View>
-              {!device.current && (
-                <Pressable onPress={() => revokeDevice(device.name)} hitSlop={8} style={s.revokeBtn}>
-                  <AppIcon name="logout" size={16} color="#DC2626" strokeWidth={2} />
-                </Pressable>
-              )}
+        <Section label="This Device">
+          <View style={[s.row, s.rowLast]}>
+            <View style={s.rowIcon}>
+              <AppIcon name="smartphone" size={18} color="#0D9488" strokeWidth={1.9} />
             </View>
-          ))}
+            <View style={s.rowBody}>
+              <Text style={s.rowTitle}>{deviceLabel}</Text>
+              <View style={s.currentBadge}><Text style={s.currentBadgeText}>Current Session</Text></View>
+            </View>
+          </View>
         </Section>
+        <Text style={s.note}>
+          Your account stays signed in on one device at a time. Signing in on another device automatically signs this one out.
+        </Text>
 
-        <Pressable onPress={logoutAllDevices} style={s.logoutAll}>
+        <Pressable onPress={onLogout} style={s.logoutBtn}>
           <AppIcon name="logout" size={17} color="#FFF" strokeWidth={2} />
-          <Text style={s.logoutAllText}>Log Out of All Devices</Text>
+          <Text style={s.logoutText}>Log Out of This Device</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -149,9 +203,9 @@ function Section({ label, children }) {
   );
 }
 
-function Row({ icon, title, subtitle, last, control, onPress }) {
-  const content = (
-    <>
+function Row({ icon, title, subtitle, last, onPress, badge, badgeOn }) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [s.row, last && s.rowLast, pressed && s.rowPressed]}>
       <View style={s.rowIcon}>
         <AppIcon name={icon} size={18} color="#0D9488" strokeWidth={1.9} />
       </View>
@@ -159,15 +213,12 @@ function Row({ icon, title, subtitle, last, control, onPress }) {
         <Text style={s.rowTitle}>{title}</Text>
         <Text style={s.rowSubtitle}>{subtitle}</Text>
       </View>
-      {control || (onPress && <AppIcon name="chevron-right" size={18} color="#9AA6B8" strokeWidth={2} />)}
-    </>
-  );
-  if (control) {
-    return <View style={[s.row, last && s.rowLast]}>{content}</View>;
-  }
-  return (
-    <Pressable onPress={onPress} style={[s.row, last && s.rowLast]}>
-      {content}
+      {!!badge && (
+        <View style={[s.badge, badgeOn ? s.badgeOn : s.badgeOff]}>
+          <Text style={[s.badgeText, badgeOn ? s.badgeTextOn : s.badgeTextOff]}>{badge}</Text>
+        </View>
+      )}
+      <AppIcon name="chevron-right" size={18} color="#9AA6B8" strokeWidth={2} />
     </Pressable>
   );
 }
@@ -193,22 +244,20 @@ const s = createDoctorStyles({
   },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#EEF1F5', gap: 12 },
   rowLast: { borderBottomWidth: 0 },
+  rowPressed: { backgroundColor: '#F7F9FC' },
   rowIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#DCFCFF', alignItems: 'center', justifyContent: 'center' },
   rowBody: { flex: 1 },
   rowTitle: { fontSize: 15, fontWeight: '700', color: '#17243A' },
   rowSubtitle: { fontSize: 12.5, color: '#667085', marginTop: 2 },
-  currentBadge: { alignSelf: 'flex-start', backgroundColor: '#D9FAE8', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, marginTop: 3 },
+  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  badgeOn: { backgroundColor: '#D9FAE8' },
+  badgeOff: { backgroundColor: '#F1F4F8' },
+  badgeText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
+  badgeTextOn: { color: '#139A5B' },
+  badgeTextOff: { color: '#667085' },
+  currentBadge: { alignSelf: 'flex-start', backgroundColor: '#D9FAE8', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, marginTop: 4 },
   currentBadgeText: { fontSize: 11.5, fontWeight: '700', color: '#139A5B' },
-  revokeBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
-  logoutAll: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    height: 50,
-    borderRadius: 12,
-    backgroundColor: '#0D9488',
-    marginTop: 4,
-  },
-  logoutAllText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
+  note: { fontSize: 12.5, lineHeight: 18, color: '#667085', marginTop: -8, marginBottom: 16, marginHorizontal: 2 },
+  logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 50, borderRadius: 12, backgroundColor: '#DC2626' },
+  logoutText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
 });

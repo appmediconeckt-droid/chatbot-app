@@ -216,6 +216,27 @@ const TIME_PRESETS = [
   { label: 'Evening', icon: '☾', start: '18:00', end: '21:00' },
 ];
 
+// Slot preview groups each day's slots into these parts of the day, by start
+// time: before 12:00 is Morning, 12:00–16:59 Afternoon, 17:00 on Evening.
+const DAY_PERIODS = [
+  { label: 'Morning', icon: '☀', until: 12 * 60 },
+  { label: 'Afternoon', icon: '◐', until: 17 * 60 },
+  { label: 'Evening', icon: '☾', until: 24 * 60 },
+];
+
+const groupSlotsByPeriod = (slots = []) => DAY_PERIODS
+  .map((period, index) => {
+    const from = index ? DAY_PERIODS[index - 1].until : 0;
+    return {
+      ...period,
+      slots: slots.filter((slot) => {
+        const mins = toMinutes(slot.time);
+        return mins >= from && mins < period.until;
+      }),
+    };
+  })
+  .filter((period) => period.slots.length);
+
 const addMinutes = (hhmm, mins) => {
   const total = Math.min(toMinutes(hhmm) + mins, 23 * 60 + 59);
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
@@ -1313,11 +1334,20 @@ export default function CalendarAvailabilityScreen() {
                 {entry.blocked ? (
                   <Text style={s.blockedText}>⊘ {entry.reason || 'Doctor unavailable'}</Text>
                 ) : (
-                  <View style={s.previewChips}>
-                    {entry.slots.map((slot, i) => (
-                      <View key={`${slot.time}-${i}`} style={s.previewChip}><Text style={s.previewChipText}>{slot.time}</Text></View>
-                    ))}
-                  </View>
+                  groupSlotsByPeriod(entry.slots).map((period) => (
+                    <View key={period.label} style={s.previewPeriod}>
+                      <Text style={s.previewPeriodLabel}>
+                        {period.icon} {period.label} · {period.slots.length}
+                      </Text>
+                      <View style={s.previewGrid}>
+                        {period.slots.map((slot, i) => (
+                          <View key={`${slot.time}-${i}`} style={s.previewCell}>
+                            <View style={s.previewChip}><Text style={s.previewChipText}>{formatTime12h(slot.time)}</Text></View>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  ))
                 )}
               </View>
             ))
@@ -1733,13 +1763,18 @@ const s = createDoctorStyles({
   secondaryText: { fontSize: 14, fontWeight: '700', color: colors.blue },
   previewTitle: { fontSize: 16, fontWeight: '700', color: colors.blue, marginBottom: 8, marginHorizontal: 2 },
   previewEmpty: { alignItems: 'center', paddingVertical: 18, gap: 2 },
-  previewGroup: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#EEF1F5', gap: 6 },
+  previewGroup: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EEF1F5', gap: 12 },
   previewHead: { flexDirection: 'row', justifyContent: 'space-between' },
   previewDate: { fontSize: 14, fontWeight: '700', color: '#17243A' },
   previewCount: { fontSize: 12.5, fontWeight: '600', color: colors.blue },
-  previewChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  previewChip: { paddingHorizontal: 9, height: 26, borderRadius: 13, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
-  previewChipText: { fontSize: 12, fontWeight: '600', color: colors.blue },
+  previewPeriod: { gap: 6 },
+  previewPeriodLabel: { fontSize: 12.5, fontWeight: '700', color: '#52617A', marginLeft: 2 },
+  // Fixed 4-column grid: each cell is 25% wide with equal padding, so chips
+  // line up in even rows with the same gap regardless of label length.
+  previewGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 },
+  previewCell: { width: '25%', padding: 4 },
+  previewChip: { height: 30, borderRadius: 15, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
+  previewChipText: { fontSize: 11.5, fontWeight: '600', color: colors.blue },
   blockedText: { fontSize: 13, fontWeight: '600', color: '#EF4444', marginTop: 6 },
   bottomBar: { backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#D7DEE9', paddingHorizontal: 10, paddingVertical: 10 },
   bottomActions: { flexDirection: 'row', gap: 7 },

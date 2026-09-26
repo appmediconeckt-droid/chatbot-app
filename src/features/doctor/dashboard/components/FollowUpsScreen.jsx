@@ -3,13 +3,14 @@
 // from GET /api/followups?doctor_id, status changes / edits via PUT, delete
 // via DELETE { doctor_id }, plus the web's status / type / search filters.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import NewFollowUpScreen from './NewFollowUpScreen';
 import FollowUpDetailsScreen from './FollowUpDetailsScreen';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
+import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { formatLocalDateKey } from '../api/doctorAppointments';
 import {
@@ -111,16 +112,13 @@ export default function FollowUpsScreen({ onBack }) {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (editing) setEditing(null);
-      else if (creating) setCreating(false);
-      else if (viewing) setViewing(null);
-      else onBack();
-      return true;
-    });
-    return () => subscription.remove();
-  }, [creating, editing, viewing, onBack]);
+  useDoctorBack(() => {
+    if (editing) setEditing(null);
+    else if (creating) setCreating(false);
+    else if (viewing) setViewing(null);
+    else return false;
+    return true;
+  });
 
   const handleStatusChange = async (followUp, newStatus) => {
     const previous = followUps;

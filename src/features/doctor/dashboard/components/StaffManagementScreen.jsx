@@ -10,6 +10,7 @@ import StaffProfileScreen from './StaffProfileScreen';
 import StaffEditProfileScreen from './StaffEditProfileScreen';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles } from '../theme';
+import { useDoctorBack } from '../useDoctorBack';
 import { deleteStaff, fetchStaff } from './staffApi';
 
 const ROLES = ['All', 'Nurse', 'Medical Assistant', 'Lab Technician', 'Billing', 'Housekeeping', 'Supervisor', 'Receptionist'];
@@ -67,6 +68,19 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
       },
     ]);
   };
+
+  useDoctorBack(() => {
+    if (editingMember) {
+      setEditingMember(null);
+      return true;
+    }
+    if (viewingMember) {
+      setViewingMember(null);
+      onStaffProfileOpenChange?.(false);
+      return true;
+    }
+    return false;
+  });
 
   if (creatingStaff) {
     return (

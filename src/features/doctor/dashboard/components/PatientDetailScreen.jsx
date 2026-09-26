@@ -1,19 +1,21 @@
 // Patient visit history — port of the web Patient Details "records" view
 // (PatientAppointmentDetails/PatientDetailsPage.jsx): patient banner, Visit
 // History (date, time, problem, doctor, follow-up) with 10-per-page
-// pagination, and View Details per visit. Call dials the patient's phone;
-// Message opens the patient's chat.
+// pagination, and View Details per visit.
 import React, { useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
-import { openChatForPatientId } from '../api/doctorChat';
 
 const PAGE_SIZE = 10;
 
-export default function PatientDetailScreen({ patient, navigation, onBack, onVisitPress }) {
+const isKnown = (value) => value != null && String(value).trim() !== '' && String(value).trim().toUpperCase() !== 'N/A';
+
+const getInitials = (name = '') => name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || '?';
+
+export default function PatientDetailScreen({ patient, onBack, onVisitPress }) {
   const [page, setPage] = useState(1);
   const records = patient?.records || [];
   const totalPages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
@@ -21,21 +23,17 @@ export default function PatientDetailScreen({ patient, navigation, onBack, onVis
   const first = records.length ? (safePage - 1) * PAGE_SIZE : 0;
   const pageRows = records.slice(first, first + PAGE_SIZE);
 
-  const call = () => {
-    const phone = String(patient.phone || '').trim();
-    if (!phone || phone === 'N/A') return Alert.alert('Call', `Phone number is not available for ${patient.name}.`);
-    Linking.openURL(`tel:${phone}`).catch(() => Alert.alert('Call', 'Could not start the call.'));
-  };
+  const metaLine = [
+    isKnown(patient.age) ? `${patient.age} yrs` : null,
+    isKnown(patient.gender) ? patient.gender : null,
+  ].filter(Boolean).join(' • ') || 'Age & gender not recorded';
 
-  const message = async () => {
-    if (!navigation || String(patient.id).startsWith('local-')) return Alert.alert('Message', 'No chat available for this patient.');
-    try {
-      const opened = await openChatForPatientId(navigation, patient.id);
-      if (!opened) Alert.alert('Message', `No active chat found for ${patient.name}.`);
-    } catch {
-      Alert.alert('Message', 'Could not open the chat.');
-    }
-  };
+  const details = [
+    { icon: 'phone', label: 'Phone', value: isKnown(patient.phone) ? patient.phone : 'Not added' },
+    { emoji: '❤', label: 'Blood Group', value: isKnown(patient.bloodGroup) ? patient.bloodGroup : 'Not recorded' },
+    { icon: 'file', label: 'Total Visits', value: String(records.length) },
+    { icon: 'calendar', label: 'Last Visit', value: isKnown(patient.lastVisit) ? patient.lastVisit : '—' },
+  ];
 
   return (
     <View style={s.screen}>
@@ -48,19 +46,31 @@ export default function PatientDetailScreen({ patient, navigation, onBack, onVis
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.banner}>
           <View style={s.bannerRow}>
-            <View style={s.avatar}><Text style={s.avatarText}>{patient.name.charAt(0).toUpperCase()}</Text></View>
+            <View style={s.avatarRing}>
+              <View style={s.avatar}><Text style={s.avatarText}>{getInitials(patient.name)}</Text></View>
+            </View>
             <View style={s.flex}>
-              <Text style={s.name}>{patient.name}</Text>
-              <Text style={s.bannerMeta}>{patient.age !== 'N/A' ? `${patient.age} yrs` : 'Age N/A'} • {patient.gender}</Text>
+              <Text style={s.name} numberOfLines={2}>{patient.name}</Text>
+              <Text style={s.bannerMeta}>{metaLine}</Text>
             </View>
           </View>
-          <View style={s.bannerInfo}>
-            <View style={s.infoPill}><AppIcon name="phone" size={12} color="#FFF" /><Text style={s.infoText}>{patient.phone}</Text></View>
-            <View style={s.infoPill}><Text style={s.infoText}>❤ Blood Group: {patient.bloodGroup}</Text></View>
-          </View>
-          <View style={s.actions}>
-            <Pressable style={s.actionBtn} onPress={call}><AppIcon name="phone" size={14} color="#0D9488" /><Text style={s.actionText}>Call</Text></Pressable>
-            <Pressable style={s.actionBtn} onPress={message}><AppIcon name="message" size={14} color="#0D9488" /><Text style={s.actionText}>Message</Text></Pressable>
+
+          <View style={s.detailGrid}>
+            {details.map((item) => (
+              <View key={item.label} style={s.detailCell}>
+                <View style={s.detailTile}>
+                  <View style={s.detailIcon}>
+                    {item.icon
+                      ? <AppIcon name={item.icon} size={14} color="#0D9488" strokeWidth={2} />
+                      : <Text style={s.detailEmoji}>{item.emoji}</Text>}
+                  </View>
+                  <View style={s.flex}>
+                    <Text style={s.detailLabel}>{item.label}</Text>
+                    <Text style={s.detailValue} numberOfLines={1}>{item.value}</Text>
+                  </View>
+                </View>
+              </View>
+            ))}
           </View>
         </LinearGradient>
 
@@ -123,18 +133,22 @@ const s = createDoctorStyles({
   backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F0FDFA', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   title: { fontSize: 17, fontWeight: '800', color: '#0D9488' },
   content: { padding: 14, paddingBottom: 28 },
-  banner: { borderRadius: 20, padding: 16 },
-  bannerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 22, fontWeight: '800', color: '#FFF' },
-  name: { fontSize: 19, fontWeight: '800', color: '#FFF' },
-  bannerMeta: { fontSize: 13, color: 'rgba(255,255,255,0.9)', marginTop: 2 },
-  bannerInfo: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
-  infoPill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5 },
-  infoText: { fontSize: 12, fontWeight: '600', color: '#FFF' },
-  actions: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 38, borderRadius: 12, backgroundColor: '#FFF' },
-  actionText: { fontSize: 13.5, fontWeight: '800', color: '#0D9488' },
+  banner: { borderRadius: 20, padding: 16, paddingBottom: 12 },
+  bannerRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  avatarRing: { width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: 'rgba(255,255,255,0.55)', alignItems: 'center', justifyContent: 'center' },
+  avatar: { width: 54, height: 54, borderRadius: 27, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 20, fontWeight: '800', color: '#FFF', letterSpacing: 0.5 },
+  name: { fontSize: 20, fontWeight: '800', color: '#FFF' },
+  bannerMeta: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.88)', marginTop: 3 },
+  // 2x2 grid of white tiles; each cell is 50% wide with equal padding so the
+  // tiles line up regardless of value length.
+  detailGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 14, marginHorizontal: -4 },
+  detailCell: { width: '50%', padding: 4 },
+  detailTile: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 9 },
+  detailIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#E6FAF6', alignItems: 'center', justifyContent: 'center' },
+  detailEmoji: { fontSize: 13, color: '#E11D48' },
+  detailLabel: { fontSize: 10.5, fontWeight: '700', color: '#667085', textTransform: 'uppercase', letterSpacing: 0.3 },
+  detailValue: { fontSize: 13.5, fontWeight: '800', color: '#17243A', marginTop: 1 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 18, marginBottom: 10 },
   section: { fontSize: 16, fontWeight: '800', color: '#17243A' },
   empty: { alignItems: 'center', gap: 8, paddingVertical: 36 },

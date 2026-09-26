@@ -129,13 +129,16 @@ const Login = ({ navigation, route }) => {
   };
 
   const buildBackendRoleCandidates = (role) => {
-    // Always try BOTH candidates, regardless of any role hint (route param or
+    // Always try all known patient/doctor/counselor candidates, regardless of
+    // any role hint (route param or
     // a leftover AsyncStorage 'role' from a visit to RoleSelector that never
     // finished signup) — a hint only decides which one is tried first. This
     // is what makes login "auto-detect the account's real role by email":
     // whichever candidate the backend accepts wins, and a stale/irrelevant
     // hint can never make a real account fail to log in.
-    return role === 'counselor' || role === 'doctor' ? ['counsellor', 'user'] : ['user', 'counsellor'];
+    if (role === 'doctor') return ['doctor', 'counsellor', 'user'];
+    if (role === 'counselor') return ['counsellor', 'doctor', 'user'];
+    return ['user', 'doctor', 'counsellor'];
   };
 
   useEffect(() => {

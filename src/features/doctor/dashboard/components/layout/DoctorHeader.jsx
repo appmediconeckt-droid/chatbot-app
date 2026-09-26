@@ -38,7 +38,7 @@ export default function DoctorHeader({ onMenuPress, onProfilePress, onNotificati
           <AppIcon name="bell" size={17} strokeWidth={1.9} color="#20242C" />
           <View style={styles.dot} />
         </Pressable>
-        <Pressable accessibilityLabel="Doctor profile QR" style={styles.avatarButton} onPress={onProfilePress}>
+        <Pressable accessibilityLabel="Doctor profile" style={styles.avatarButton} onPress={onProfilePress}>
           <Image source={{ uri: 'https://i.pravatar.cc/100?img=32' }} style={styles.avatar} />
         </Pressable>
       </View>

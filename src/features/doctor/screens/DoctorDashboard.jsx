@@ -20,6 +20,7 @@ import ActiveConsultationCard from '../dashboard/components/ActiveConsultationCa
 import EditCompletedAppointmentScreen from '../dashboard/components/EditCompletedAppointmentScreen';
 import CompleteAppointmentScreen from '../dashboard/components/CompleteAppointmentScreen';
 import DoctorSidebar from '../dashboard/components/DoctorSidebar';
+import { DoctorBackContext, useDoctorBackRegistry } from '../dashboard/useDoctorBack';
 import WalkInAppointmentsScreen from '../dashboard/components/WalkInAppointmentsScreen';
 import PatientsScreen from '../dashboard/components/PatientsScreen';
 import PatientDetailScreen from '../dashboard/components/PatientDetailScreen';
@@ -27,6 +28,7 @@ import VisitDetailScreen from '../dashboard/components/VisitDetailScreen';
 import CalendarAvailabilityScreen from '../dashboard/components/CalendarAvailabilityScreen';
 import AppointmentsListScreen from '../dashboard/components/AppointmentsListScreen';
 import DoctorProfileQrScreen from '../dashboard/components/DoctorProfileQrScreen';
+import DoctorProfileScreen from '../dashboard/components/DoctorProfileScreen';
 import FollowUpsScreen from '../dashboard/components/FollowUpsScreen';
 import ClinicPageScreen from '../dashboard/components/ClinicPageScreen';
 import StaffManagementScreen from '../dashboard/components/StaffManagementScreen';
@@ -43,16 +45,19 @@ import {
   getStatusUpdatePayload,
   getStoredDoctorUser,
   getTokenLabel,
-  isExpiredPendingAppointment,
+  isConsultationStartOpen,
   isTodayAppointment,
   loadDoctorAppointmentFeed,
   loadDoctorFollowUps,
   normalizeAppointmentStatus,
   patchAppointment,
   pickFirst,
+  sortByToken,
   startBreak,
 } from '../dashboard/api/doctorAppointments';
-import { openChatForPatientId } from '../dashboard/api/doctorChat';
+import { endDirectCall, startDirectCall } from '../dashboard/api/doctorCalls';
+import VideoCallModal from '../../../screens/user/Component/UserDashboard/Tab/CallModal/VideoCallModal';
+import VoiceCallModal from '../../../screens/user/Component/UserDashboard/Tab/CallModal/VoiceCallModal';
 import axiosInstance from '../../../axiosConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import socketService from '../../../services/socketService';
@@ -126,22 +131,10 @@ function PatientConsentModal({ visible, onClose, onStartConsultation, patient, s
             <Text style={consentStyles.infoValue}>{patient?.phone || 'N/A'}</Text>
           </View>
 
-          <Text style={[consentStyles.sectionTitle, { marginTop: 16 }]}>Patient Vitals</Text>
-          <View style={consentStyles.vitalsContainer}>
-            <View style={consentStyles.vitalItem}>
-              <Text style={consentStyles.vitalLabel}>Blood Pressure</Text>
-              <Text style={consentStyles.vitalValue}>{patient?.bp || 'Not recorded'}</Text>
-            </View>
-            <View style={consentStyles.vitalItem}>
-              <Text style={consentStyles.vitalLabel}>Blood Group</Text>
-              <Text style={consentStyles.vitalValue}>{patient?.bloodGroup || 'Not recorded'}</Text>
-            </View>
-          </View>
-
           <Text style={[consentStyles.sectionTitle, { marginTop: 16 }]}>Agreement</Text>
           <View style={consentStyles.agreementBox}>
             {[
-              ['reviewed', "I confirm that I have reviewed the patient's information and vitals."],
+              ['reviewed', "I confirm that I have reviewed the patient's information."],
               ['tracking', 'I understand that starting will begin tracking consultation time.'],
               ['responsibility', 'I acknowledge my responsibility for providing appropriate medical care.'],
               ['confidentiality', 'I confirm I will maintain patient confidentiality.'],
@@ -190,10 +183,6 @@ const consentStyles = createDoctorStyles({
   gridRow: { flexDirection: 'row', gap: 9 },
   infoLabel: { ...typography.body, fontSize: 13, lineHeight: 17, color: '#596170', marginBottom: 3 },
   infoValue: { ...typography.caption, fontSize: 14, lineHeight: 19, color: '#252B35' },
-  vitalsContainer: { flexDirection: 'row', gap: 9 },
-  vitalItem: { flex: 1, height: 75, backgroundColor: '#F8F9FB', borderWidth: 1, borderColor: '#CCD4E1', borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
-  vitalLabel: { ...typography.body, fontSize: 13, lineHeight: 17, color: '#596170', marginBottom: 5 },
-  vitalValue: { ...typography.subtitle, fontSize: 18, lineHeight: 23, color: '#252B35' },
   agreementBox: { backgroundColor: '#F8F9FB', borderWidth: 1, borderColor: '#CCD4E1', borderRadius: 6, padding: 10, paddingBottom: 2 },
   agreementItem: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10, gap: 9 },
   checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: '#AEB6C4', backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center', marginTop: 1 },
@@ -450,6 +439,7 @@ export default function DoctorDashboard({ navigation }) {
   const [isCreateStaffOpen, setIsCreateStaffOpen] = useState(false);
   const [notificationsOrigin, setNotificationsOrigin] = useState('dashboard');
   const [isStaffProfileOpen, setIsStaffProfileOpen] = useState(false);
+  const [qrOrigin, setQrOrigin] = useState('dashboard');
 
   // ---- web-parity dashboard state -------------------------------------
   const [doctorId, setDoctorId] = useState(null);
@@ -496,8 +486,7 @@ export default function DoctorDashboard({ navigation }) {
         list
           .filter((apt) =>
             isTodayAppointment(apt) &&
-            ['pending', 'confirmed', 'in-progress'].includes(normalizeAppointmentStatus(apt)) &&
-            !isExpiredPendingAppointment(apt))
+            ['pending', 'confirmed', 'in-progress'].includes(normalizeAppointmentStatus(apt)))
           .map((apt) => formatAppointment(apt)),
       );
 
@@ -568,27 +557,32 @@ export default function DoctorDashboard({ navigation }) {
 
   // ---- consultation ---------------------------------------------------
   const handleConsentClick = (appt) => {
+    // Every Start path funnels through here, so the time gate holds even for
+    // the queue's "View" rows, which also open the start-consultation modal.
+    if (!isConsultationStartOpen(appt)) {
+      Alert.alert('Not yet time', `${appt.name}'s consultation can be started at ${appt.scheduledTime}.`);
+      return;
+    }
     setSelectedPatient(appt);
     setConsentModalVisible(true);
   };
 
-  const handleStartConsultation = async () => {
-    if (!selectedPatient || actionBusy) return;
-    setActionBusy(true);
+  // Marks one appointment in-progress and opens it as the "Currently With"
+  // session. Shared by Start Consultation (consent form) and direct calls.
+  const beginConsultation = async (appt) => {
     let saved;
     try {
-      const response = await patchAppointment(selectedPatient, getStatusUpdatePayload(selectedPatient, 'in-progress'));
+      const response = await patchAppointment(appt, getStatusUpdatePayload(appt, 'in-progress'));
       saved = response.data?.appointment || response.data?.data;
     } catch (err) {
       showError(err, 'Checkup could not be started.');
-      setActionBusy(false);
-      return;
+      return false;
     }
     const timing = saved?.consultation_timing || {};
     const pauses = timing.pauses || [];
     const openPause = pauses.find((pause) => !pause.endedAt);
     setActiveSession({
-      appt: { ...selectedPatient, status: 'in-progress' },
+      appt: { ...appt, status: 'in-progress' },
       startTime: new Date(timing.startedAt || saved?.consultation_started_at || Date.now()).getTime(),
       accumulatedPauseMs: pauses.reduce(
         (total, pause) => total + (pause.endedAt ? Math.max(0, Date.parse(pause.endedAt) - Date.parse(pause.startedAt)) : 0),
@@ -600,10 +594,19 @@ export default function DoctorDashboard({ navigation }) {
       breakDurationMs: null,
       status: openPause ? 'paused' : 'started',
     });
-    setAppointments((prev) => prev.map((a) => (a.id === selectedPatient.id ? { ...a, status: 'in-progress' } : a)));
-    setConsentModalVisible(false);
-    setSelectedPatient(null);
+    setAppointments((prev) => prev.map((a) => (a.id === appt.id ? { ...a, status: 'in-progress' } : a)));
     setActiveTab('In Progress');
+    return true;
+  };
+
+  const handleStartConsultation = async () => {
+    if (!selectedPatient || actionBusy) return;
+    setActionBusy(true);
+    const started = await beginConsultation(selectedPatient);
+    if (started) {
+      setConsentModalVisible(false);
+      setSelectedPatient(null);
+    }
     setActionBusy(false);
   };
 
@@ -677,21 +680,26 @@ export default function DoctorDashboard({ navigation }) {
         instructions: test.instructions || '',
       }));
     const primaryTest = tests[0] || {};
+    // In-clinic / walk-in visits send only timing + follow-up: no clinical
+    // fields, so nothing empty overwrites what was recorded elsewhere.
+    const clinicalFields = formData.visitOnly ? {} : {
+      diagnosis: formData.diagnosis,
+      medicine: formData.medicine,
+      medicines: formData.medicines || [],
+      testName: primaryTest.testName || null,
+      completeBy: primaryTest.completeBy || null,
+      reason: primaryTest.reason || '',
+      instructions: primaryTest.instructions || '',
+      recommended_tests: tests,
+      recommendedTests: tests,
+      advice: formData.advice,
+      additional_notes: formData.additionalNotes || '',
+    };
     try {
       await patchAppointment(appt, getStatusUpdatePayload(appt, 'completed', {
         end_time: endTime,
         duration_ms: durationMs,
-        diagnosis: formData.diagnosis,
-        medicine: formData.medicine,
-        medicines: formData.medicines || [],
-        testName: primaryTest.testName || null,
-        completeBy: primaryTest.completeBy || null,
-        reason: primaryTest.reason || '',
-        instructions: primaryTest.instructions || '',
-        recommended_tests: tests,
-        recommendedTests: tests,
-        advice: formData.advice,
-        additional_notes: formData.additionalNotes || '',
+        ...clinicalFields,
         follow_up_required: formData.followUpRequired || false,
         follow_up_date: formData.followUpDate || '',
       }));
@@ -710,10 +718,12 @@ export default function DoctorDashboard({ navigation }) {
     if (!editingAppointment) return;
     try {
       await patchAppointment(editingAppointment, {
-        diagnosis: formData.diagnosis,
-        medicine: formData.medicine,
-        advice: formData.advice,
-        additional_notes: formData.additionalNotes,
+        ...(formData.visitOnly ? {} : {
+          diagnosis: formData.diagnosis,
+          medicine: formData.medicine,
+          advice: formData.advice,
+          additional_notes: formData.additionalNotes,
+        }),
         follow_up_required: formData.followUpRequired,
         follow_up_date: formData.followUpDate,
         doctor_id: doctorId,
@@ -726,14 +736,35 @@ export default function DoctorDashboard({ navigation }) {
   };
 
   // Web: navigate('/patient-sms', { callTargetId, autoStartCallType }).
+  // Video / Voice Call: rings the patient straight from the dashboard — no chat
+  // screen. Once the call is placed the consultation starts too, so it shows
+  // under "Currently With" (Checked / Complete) when the call ends. If the
+  // patient is offline the server only notifies them; nothing else changes.
+  const [activeCall, setActiveCall] = useState(null); // { mode, callData, callerId }
+  const [callStarting, setCallStarting] = useState(false);
+
   const handleCall = async (appt, mode) => {
     if (!appt?.patientId) return Alert.alert('Call', 'Patient account not found for this appointment.');
-    try {
-      const opened = await openChatForPatientId(navigation, appt.patientId, mode === 'video' ? 'video' : 'voice');
-      if (!opened) Alert.alert('Call', `No active chat found for ${appt.name}. The patient needs to start a chat first.`);
-    } catch (err) {
-      showError(err, 'Could not open the patient chat.');
+    if (callStarting || activeCall) return undefined;
+    const otherSession = activeSession?.appt && activeSession.appt.id !== appt.id;
+    if (otherSession) {
+      return Alert.alert('Consultation in progress', `Finish ${activeSession.appt.name}'s consultation before calling another patient.`);
     }
+    setCallStarting(true);
+    try {
+      const result = await startDirectCall({ patientId: appt.patientId, patientName: appt.name, mode });
+      if (result.notificationOnly) {
+        Alert.alert('Call request sent', result.message);
+        return undefined;
+      }
+      setActiveCall({ mode, callData: result.callData, callerId: result.callerId });
+      if (!activeSession?.appt) await beginConsultation(appt);
+    } catch (err) {
+      showError(err, 'Could not start the call.');
+    } finally {
+      setCallStarting(false);
+    }
+    return undefined;
   };
 
   // ---- breaks ---------------------------------------------------------
@@ -810,20 +841,25 @@ export default function DoctorDashboard({ navigation }) {
   // ---- derived queue / stats (same formulas as web) ------------------
   const activeAppt = activeSession?.appt || null;
   const onBreak = activeSession?.status === 'break';
+  // Today's pending appointments stay queued even after their slot time has
+  // passed, until the doctor acts on them.
+  // Every queue tab is in token order (lowest token first), so the first
+  // Pending card — and the Next Patient card — is the next token to call.
   const pendingAppointments = useMemo(
-    () => appointments.filter((appt) => appt.status === 'pending' && !isExpiredPendingAppointment(appt, now)),
-    [appointments, now],
+    () => sortByToken(appointments.filter((appt) => appt.status === 'pending')),
+    [appointments],
   );
   const inProgressAppointments = useMemo(() => [
+    // The patient currently being seen stays on top.
     ...(activeAppt ? [activeAppt] : []),
-    ...appointments.filter((appt) => ['confirmed', 'in-progress'].includes(appt.status) && appt.id !== activeAppt?.id),
+    ...sortByToken(appointments.filter((appt) => ['confirmed', 'in-progress'].includes(appt.status) && appt.id !== activeAppt?.id)),
   ], [appointments, activeAppt]);
+  const completedQueue = useMemo(() => sortByToken(completed), [completed]);
   const visibleQueue = activeTab === 'Completed'
-    ? completed
+    ? completedQueue
     : activeTab === 'In Progress' ? inProgressAppointments : pendingAppointments;
   const nextPatient = activeAppt || pendingAppointments[0] || appointments[0] || null;
   const totalToday = appointments.length + completed.length;
-  const completionPercent = totalToday ? Math.round((completed.length / totalToday) * 100) : 0;
   const averageConsultMin = completed.length
     ? Math.max(1, Math.round(completed.reduce((sum, appt) => sum + (appt.durationMs || 0), 0) / completed.length / 60000))
     : 15;
@@ -839,6 +875,10 @@ export default function DoctorDashboard({ navigation }) {
     Completed: completed.length,
   };
 
+  // Android back, one step at a time: overlays first, then the open screen's
+  // own inner pages (via useDoctorBack), then back to wherever this screen was
+  // opened from, and only from Home does it leave the app.
+  const backRegistry = useDoctorBackRegistry();
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (editingAppointment) { setEditingAppointment(null); return true; }
@@ -846,14 +886,17 @@ export default function DoctorDashboard({ navigation }) {
       if (consentModalVisible) { setConsentModalVisible(false); return true; }
       if (breakModalVisible) { setBreakModalVisible(false); return true; }
       if (sidebarVisible) { setSidebarVisible(false); return true; }
+      if (backRegistry.handle()) return true;
       if (activeScreen === 'dashboard') return false;
       if (activeScreen === 'patientDetail') setActiveScreen(patientDetailOrigin);
       else if (activeScreen === 'visitDetail') setActiveScreen('patientDetail');
+      else if (activeScreen === 'notifications') setActiveScreen(notificationsOrigin || 'dashboard');
+      else if (activeScreen === 'profileQr') setActiveScreen(qrOrigin || 'dashboard');
       else setActiveScreen('dashboard');
       return true;
     });
     return () => subscription.remove();
-  }, [activeScreen, breakModalVisible, completeAppointmentVisible, consentModalVisible, editingAppointment, patientDetailOrigin, sidebarVisible]);
+  }, [activeScreen, backRegistry, breakModalVisible, completeAppointmentVisible, consentModalVisible, editingAppointment, notificationsOrigin, patientDetailOrigin, qrOrigin, sidebarVisible]);
 
   const sidebarActiveItem = screenSidebarItems[activeScreen] ?? null;
   const openNotifications = () => {
@@ -864,6 +907,7 @@ export default function DoctorDashboard({ navigation }) {
   const handleSidebarNavigate = (item) => {
     const nextScreen = sidebarRoutes[item];
     if (nextScreen) {
+      if (nextScreen === 'profileQr') setQrOrigin('dashboard');
       setActiveScreen(nextScreen);
       setTimeout(() => setSidebarVisible(false), 120);
       return;
@@ -871,8 +915,14 @@ export default function DoctorDashboard({ navigation }) {
     Alert.alert('Settings', 'Doctor settings are coming soon.');
   };
 
-  // Header/sidebar's profile avatar opens the ported QR screen.
-  const onProfilePress = () => setActiveScreen('profileQr');
+  // Header/sidebar's profile avatar opens the doctor profile; the QR card is
+  // reached from the sidebar "QR Code" item or the profile's "Open Card" pill.
+  const onProfilePress = () => setActiveScreen('profile');
+
+  const openQrCard = (origin = 'dashboard') => {
+    setQrOrigin(origin);
+    setActiveScreen('profileQr');
+  };
 
   const handleSidebarProfilePress = () => {
     onProfilePress();
@@ -896,56 +946,292 @@ export default function DoctorDashboard({ navigation }) {
     />
   );
 
-  if (activeScreen === 'walkIn') {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <WalkInAppointmentsScreen onBack={() => setActiveScreen('dashboard')} />
-      </SafeAreaView>
-    );
-  }
-  if (activeScreen === 'settings') {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <DoctorSettingsScreen
-          onBack={() => setActiveScreen('dashboard')}
-          onOpenCard={onProfilePress}
-          onLogout={confirmLogout}
-          onForceLogout={performLogout}
-        />
-      </SafeAreaView>
-    );
-  }
+  const renderScreen = () => {
+    if (activeScreen === 'walkIn') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <WalkInAppointmentsScreen onBack={() => setActiveScreen('dashboard')} />
+        </SafeAreaView>
+      );
+    }
+    if (activeScreen === 'settings') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <DoctorSettingsScreen
+            onBack={() => setActiveScreen('dashboard')}
+            onOpenCard={() => openQrCard('settings')}
+            onLogout={confirmLogout}
+            onForceLogout={performLogout}
+            navigation={navigation}
+          />
+        </SafeAreaView>
+      );
+    }
 
-  if (activeScreen === 'patientDetail' && selectedListPatient) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <PatientDetailScreen
-          patient={selectedListPatient}
-          navigation={navigation}
-          onBack={() => setActiveScreen(patientDetailOrigin)}
-          onVisitPress={(record) => { setSelectedRecord(record); setActiveScreen('visitDetail'); }}
-        />
-      </SafeAreaView>
-    );
-  }
+    if (activeScreen === 'patientDetail' && selectedListPatient) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <PatientDetailScreen
+            patient={selectedListPatient}
+            onBack={() => setActiveScreen(patientDetailOrigin)}
+            onVisitPress={(record) => { setSelectedRecord(record); setActiveScreen('visitDetail'); }}
+          />
+        </SafeAreaView>
+      );
+    }
 
-  if (activeScreen === 'visitDetail' && selectedListPatient && selectedRecord) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <VisitDetailScreen patient={selectedListPatient} record={selectedRecord} onBack={() => setActiveScreen('patientDetail')} />
-      </SafeAreaView>
-    );
-  }
+    if (activeScreen === 'visitDetail' && selectedListPatient && selectedRecord) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <VisitDetailScreen patient={selectedListPatient} record={selectedRecord} onBack={() => setActiveScreen('patientDetail')} />
+        </SafeAreaView>
+      );
+    }
 
-  if (activeScreen === 'patients') {
+    if (activeScreen === 'patients') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} onSettingsPress={() => setActiveScreen('settings')} />
+          <PatientsScreen onPatientPress={(patient) => { setSelectedListPatient(patient); setPatientDetailOrigin('patients'); setActiveScreen('patientDetail'); }} />
+          <DoctorBottomNavigation
+            active="Patients"
+            onChange={(label) => {
+              if (label === 'Home') setActiveScreen('dashboard');
+              if (label === 'Calendar') setActiveScreen('calendar');
+              if (label === 'Staff') setActiveScreen('staffManagement');
+            }}
+          />
+          {renderSidebar()}
+        </SafeAreaView>
+      );
+    }
+
+    if (activeScreen === 'calendar') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} onSettingsPress={() => setActiveScreen('settings')} />
+          <CalendarAvailabilityScreen />
+          <DoctorBottomNavigation
+            active="Calendar"
+            onChange={(label) => {
+              if (label === 'Home') setActiveScreen('dashboard');
+              if (label === 'Patients') setActiveScreen('patients');
+              if (label === 'Staff') setActiveScreen('staffManagement');
+            }}
+          />
+          {renderSidebar()}
+        </SafeAreaView>
+      );
+    }
+
+    if (activeScreen === 'appointments') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <AppointmentsListScreen onBack={() => setActiveScreen('dashboard')} />
+        </SafeAreaView>
+      );
+    }
+
+    if (activeScreen === 'profile') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <DoctorProfileScreen onBack={() => setActiveScreen('dashboard')} onOpenCard={() => openQrCard('profile')} />
+        </SafeAreaView>
+      );
+    }
+
+    if (activeScreen === 'profileQr') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <DoctorProfileQrScreen onBack={() => setActiveScreen(qrOrigin)} />
+          {renderSidebar()}
+        </SafeAreaView>
+      );
+    }
+
+    if (activeScreen === 'clinic') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <ClinicPageScreen onBack={() => setActiveScreen('dashboard')} />
+        </SafeAreaView>
+      );
+    }
+
+    if (activeScreen === 'followUps') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <FollowUpsScreen onBack={() => setActiveScreen('dashboard')} />
+        </SafeAreaView>
+      );
+    }
+
+    if (activeScreen === 'notifications') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <NotificationsScreen onBack={() => setActiveScreen(notificationsOrigin)} />
+        </SafeAreaView>
+      );
+    }
+
+    if (activeScreen === 'staffManagement') {
+      const staffSubscreenOpen = isCreateStaffOpen || isStaffProfileOpen;
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          {!staffSubscreenOpen && <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} onSettingsPress={() => setActiveScreen('settings')} />}
+          <StaffManagementScreen onCreateStaffOpenChange={setIsCreateStaffOpen} onStaffProfileOpenChange={setIsStaffProfileOpen} />
+          {!staffSubscreenOpen && (
+            <DoctorBottomNavigation
+              active="Staff"
+              onChange={(label) => {
+                if (label === 'Home') setActiveScreen('dashboard');
+                if (label === 'Calendar') setActiveScreen('calendar');
+                if (label === 'Patients') setActiveScreen('patients');
+              }}
+            />
+          )}
+          {!staffSubscreenOpen && renderSidebar()}
+        </SafeAreaView>
+      );
+    }
+
+
+    const renderHomeBody = () => {
+      if (loading) {
+        return (
+          <View style={styles.centerState}>
+            <ActivityIndicator size="large" color={colors.blue} />
+            <Text style={styles.emptyText}>Loading appointments...</Text>
+          </View>
+        );
+      }
+      if (error) {
+        return (
+          <View style={styles.centerState}>
+            <Text style={styles.errorTitle}>Error Loading Dashboard</Text>
+            <Text style={styles.emptyText}>{error}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={() => fetchAppointments()}>
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      }
+      if (onBreak) {
+        return (
+          <BreakInProgressModal
+            onEndBreak={handleEndBreak}
+            endMs={activeSession.breakEndMs}
+            nextPatient={nextPatient}
+          />
+        );
+      }
+      return (
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.blue]} />}
+        >
+          <View style={styles.sectionHeader}>
+            <Text style={styles.eyebrow}>OVERVIEW</Text>
+            <Pressable onPress={() => setBreakModalVisible(true)} style={styles.breakButton}>
+              <AppIcon name="coffee" size={15} strokeWidth={1.8} color="#52617A" />
+              <Text style={styles.breakText}>Take Break</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.grid}>
+            {overview.map((item) => (
+              <OverviewCard
+                key={item.title}
+                {...item}
+                onPress={item.title.startsWith("Today's") ? () => setActiveScreen('appointments') : undefined}
+              />
+            ))}
+          </View>
+
+          <NextPatientCard
+            patient={nextPatient}
+            isActive={Boolean(activeAppt) && nextPatient?.id === activeAppt?.id}
+            onBreak={onBreak}
+            onStartConsultation={handleConsentClick}
+            onContinue={handleChecked}
+            onCall={handleCall}
+          />
+
+          {activeSession?.appt && (
+            <ActiveConsultationCard
+              session={activeSession}
+              busy={actionBusy}
+              onPause={handlePause}
+              onChecked={handleChecked}
+              onComplete={handleCompleteNow}
+            />
+          )}
+
+          <Text style={styles.heading}>Today's Appointment Queue</Text>
+          <QueueTabs active={activeTab} onChange={setActiveTab} counts={tabCounts} />
+
+          {visibleQueue.length === 0 ? (
+            <View style={styles.empty}>
+              <AppIcon name="calendar" size={26} strokeWidth={1.6} color={colors.muted} />
+              <Text style={styles.emptyText}>No appointments in this queue</Text>
+            </View>
+          ) : (
+            visibleQueue.map((item, index) => (
+              <AppointmentCard
+                key={`${activeTab}-${item.id}`}
+                item={item}
+                isActive={activeAppt?.id === item.id}
+                highlight={index === 0}
+                primary={index === 0 && activeTab === 'Pending'}
+                sessionBusy={Boolean(activeSession?.appt)}
+                onBreak={onBreak}
+                onStartConsultation={handleConsentClick}
+                onContinue={handleChecked}
+                onView={(appt) => setEditingAppointment(appt)}
+                onCall={handleCall}
+              />
+            ))
+          )}
+        </ScrollView>
+      );
+    };
+
     return (
       <SafeAreaView style={styles.safeArea}>
         <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} onSettingsPress={() => setActiveScreen('settings')} />
-        <PatientsScreen onPatientPress={(patient) => { setSelectedListPatient(patient); setPatientDetailOrigin('patients'); setActiveScreen('patientDetail'); }} />
+        {renderHomeBody()}
+
+        <BreakModal visible={breakModalVisible} onClose={() => setBreakModalVisible(false)} onStartBreak={handleStartBreak} />
+        <PatientConsentModal
+          visible={consentModalVisible}
+          onClose={() => setConsentModalVisible(false)}
+          onStartConsultation={handleStartConsultation}
+          patient={selectedPatient}
+          starting={actionBusy}
+        />
+
+        {completeAppointmentVisible && activeSession?.appt && (
+          <View style={styles.completeAppointmentOverlay}>
+            <CompleteAppointmentScreen
+              patient={activeSession.appt}
+              onCancel={() => setCompleteAppointmentVisible(false)}
+              onSave={saveCompleteForm}
+            />
+          </View>
+        )}
+        {editingAppointment && (
+          <View style={styles.completeAppointmentOverlay}>
+            <EditCompletedAppointmentScreen
+              appointment={editingAppointment}
+              onCancel={() => setEditingAppointment(null)}
+              onSave={saveEditedAppointment}
+            />
+          </View>
+        )}
         <DoctorBottomNavigation
-          active="Patients"
+          active="Home"
           onChange={(label) => {
-            if (label === 'Home') setActiveScreen('dashboard');
+            if (label === 'Patients') setActiveScreen('patients');
             if (label === 'Calendar') setActiveScreen('calendar');
             if (label === 'Staff') setActiveScreen('staffManagement');
           }}
@@ -953,245 +1239,30 @@ export default function DoctorDashboard({ navigation }) {
         {renderSidebar()}
       </SafeAreaView>
     );
-  }
-
-  if (activeScreen === 'calendar') {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} onSettingsPress={() => setActiveScreen('settings')} />
-        <CalendarAvailabilityScreen />
-        <DoctorBottomNavigation
-          active="Calendar"
-          onChange={(label) => {
-            if (label === 'Home') setActiveScreen('dashboard');
-            if (label === 'Patients') setActiveScreen('patients');
-            if (label === 'Staff') setActiveScreen('staffManagement');
-          }}
-        />
-        {renderSidebar()}
-      </SafeAreaView>
-    );
-  }
-
-  if (activeScreen === 'appointments') {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <AppointmentsListScreen onBack={() => setActiveScreen('dashboard')} />
-      </SafeAreaView>
-    );
-  }
-
-  if (activeScreen === 'profileQr') {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <DoctorProfileQrScreen onBack={() => setActiveScreen('dashboard')} />
-        {renderSidebar()}
-      </SafeAreaView>
-    );
-  }
-
-  if (activeScreen === 'clinic') {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <ClinicPageScreen onBack={() => setActiveScreen('dashboard')} />
-      </SafeAreaView>
-    );
-  }
-
-  if (activeScreen === 'followUps') {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <FollowUpsScreen onBack={() => setActiveScreen('dashboard')} />
-      </SafeAreaView>
-    );
-  }
-
-  if (activeScreen === 'notifications') {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <NotificationsScreen onBack={() => setActiveScreen(notificationsOrigin)} />
-      </SafeAreaView>
-    );
-  }
-
-  if (activeScreen === 'staffManagement') {
-    const staffSubscreenOpen = isCreateStaffOpen || isStaffProfileOpen;
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        {!staffSubscreenOpen && <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} onSettingsPress={() => setActiveScreen('settings')} />}
-        <StaffManagementScreen onCreateStaffOpenChange={setIsCreateStaffOpen} onStaffProfileOpenChange={setIsStaffProfileOpen} />
-        {!staffSubscreenOpen && (
-          <DoctorBottomNavigation
-            active="Staff"
-            onChange={(label) => {
-              if (label === 'Home') setActiveScreen('dashboard');
-              if (label === 'Calendar') setActiveScreen('calendar');
-              if (label === 'Patients') setActiveScreen('patients');
-            }}
-          />
-        )}
-        {!staffSubscreenOpen && renderSidebar()}
-      </SafeAreaView>
-    );
-  }
-
-
-  const renderHomeBody = () => {
-    if (loading) {
-      return (
-        <View style={styles.centerState}>
-          <ActivityIndicator size="large" color={colors.blue} />
-          <Text style={styles.emptyText}>Loading appointments...</Text>
-        </View>
-      );
-    }
-    if (error) {
-      return (
-        <View style={styles.centerState}>
-          <Text style={styles.errorTitle}>Error Loading Dashboard</Text>
-          <Text style={styles.emptyText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => fetchAppointments()}>
-            <Text style={styles.retryText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-    if (onBreak) {
-      return (
-        <BreakInProgressModal
-          onEndBreak={handleEndBreak}
-          endMs={activeSession.breakEndMs}
-          nextPatient={nextPatient}
-        />
-      );
-    }
-    return (
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.blue]} />}
-      >
-        <View style={styles.sectionHeader}>
-          <Text style={styles.eyebrow}>OVERVIEW</Text>
-          <Pressable onPress={() => setBreakModalVisible(true)} style={styles.breakButton}>
-            <AppIcon name="coffee" size={15} strokeWidth={1.8} color="#52617A" />
-            <Text style={styles.breakText}>Take Break</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.grid}>
-          {overview.map((item) => (
-            <OverviewCard
-              key={item.title}
-              {...item}
-              onPress={item.title.startsWith("Today's") ? () => setActiveScreen('appointments') : undefined}
-            />
-          ))}
-        </View>
-
-        <View style={styles.progressCard}>
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressTitle}>Today Overview</Text>
-            <Text style={styles.progressPercent}>{completionPercent}% Complete</Text>
-          </View>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${completionPercent}%` }]} />
-          </View>
-          <Text style={styles.progressSub}>
-            {completed.length} of {totalToday || appointments.length} appointments completed
-          </Text>
-        </View>
-
-        <NextPatientCard
-          patient={nextPatient}
-          isActive={Boolean(activeAppt) && nextPatient?.id === activeAppt?.id}
-          onBreak={onBreak}
-          onStartConsultation={handleConsentClick}
-          onContinue={handleChecked}
-          onCall={handleCall}
-        />
-
-        {activeSession?.appt && (
-          <ActiveConsultationCard
-            session={activeSession}
-            busy={actionBusy}
-            onPause={handlePause}
-            onChecked={handleChecked}
-            onComplete={handleCompleteNow}
-          />
-        )}
-
-        <Text style={styles.heading}>Today's Appointment Queue</Text>
-        <QueueTabs active={activeTab} onChange={setActiveTab} counts={tabCounts} />
-
-        {visibleQueue.length === 0 ? (
-          <View style={styles.empty}>
-            <AppIcon name="calendar" size={26} strokeWidth={1.6} color={colors.muted} />
-            <Text style={styles.emptyText}>No appointments in this queue</Text>
-          </View>
-        ) : (
-          visibleQueue.map((item, index) => (
-            <AppointmentCard
-              key={`${activeTab}-${item.id}`}
-              item={item}
-              isActive={activeAppt?.id === item.id}
-              highlight={index === 0}
-              primary={index === 0 && activeTab === 'Pending'}
-              sessionBusy={Boolean(activeSession?.appt)}
-              onBreak={onBreak}
-              onStartConsultation={handleConsentClick}
-              onContinue={handleChecked}
-              onView={(appt) => setEditingAppointment(appt)}
-              onCall={handleCall}
-            />
-          ))
-        )}
-      </ScrollView>
-    );
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} onSettingsPress={() => setActiveScreen('settings')} />
-      {renderHomeBody()}
-
-      <BreakModal visible={breakModalVisible} onClose={() => setBreakModalVisible(false)} onStartBreak={handleStartBreak} />
-      <PatientConsentModal
-        visible={consentModalVisible}
-        onClose={() => setConsentModalVisible(false)}
-        onStartConsultation={handleStartConsultation}
-        patient={selectedPatient}
-        starting={actionBusy}
-      />
-
-      {completeAppointmentVisible && activeSession?.appt && (
-        <View style={styles.completeAppointmentOverlay}>
-          <CompleteAppointmentScreen
-            patient={activeSession.appt}
-            onCancel={() => setCompleteAppointmentVisible(false)}
-            onSave={saveCompleteForm}
-          />
-        </View>
+    <DoctorBackContext.Provider value={backRegistry}>
+      {renderScreen()}
+      {activeCall?.mode === 'video' && (
+        <VideoCallModal
+          isOpen
+          callData={activeCall.callData}
+          currentUser={{ id: activeCall.callerId, role: 'counsellor' }}
+          onClose={() => setActiveCall(null)}
+          onEndCall={(callId) => endDirectCall(callId, activeCall.callerId)}
+        />
       )}
-      {editingAppointment && (
-        <View style={styles.completeAppointmentOverlay}>
-          <EditCompletedAppointmentScreen
-            appointment={editingAppointment}
-            onCancel={() => setEditingAppointment(null)}
-            onSave={saveEditedAppointment}
-          />
-        </View>
+      {activeCall?.mode === 'voice' && (
+        <VoiceCallModal
+          isOpen
+          callData={activeCall.callData}
+          currentUser={{ id: activeCall.callerId, role: 'counsellor' }}
+          onClose={() => setActiveCall(null)}
+          onEndCall={(callId) => endDirectCall(callId, activeCall.callerId)}
+        />
       )}
-      <DoctorBottomNavigation
-        active="Home"
-        onChange={(label) => {
-          if (label === 'Patients') setActiveScreen('patients');
-          if (label === 'Calendar') setActiveScreen('calendar');
-          if (label === 'Staff') setActiveScreen('staffManagement');
-        }}
-      />
-      {renderSidebar()}
-    </SafeAreaView>
+    </DoctorBackContext.Provider>
   );
 }
 
@@ -1204,13 +1275,6 @@ const styles = createDoctorStyles({
   breakText: { ...typography.caption, fontSize: 15, color: colors.ink },
   eyebrow: { ...typography.title, fontSize: 17, color: '#3C4759', letterSpacing: 0.4 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
-  progressCard: { marginTop: 12, backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: '#EEF1F6', padding: 12 },
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  progressTitle: { ...typography.subtitle, fontSize: 14.5, color: colors.ink },
-  progressPercent: { ...typography.caption, fontSize: 13, color: colors.blue },
-  progressTrack: { height: 8, borderRadius: 4, backgroundColor: '#E4E8EF', marginTop: 9, overflow: 'hidden' },
-  progressFill: { height: 8, borderRadius: 4, backgroundColor: colors.blue },
-  progressSub: { ...typography.body, fontSize: 12.5, color: colors.muted, marginTop: 7 },
   heading: { ...typography.subtitle, fontSize: 18, color: colors.ink, marginBottom: 10 },
   empty: { height: 140, alignItems: 'center', justifyContent: 'center', gap: 8 },
   emptyText: { ...typography.body, fontSize: 15, color: colors.muted, textAlign: 'center' },

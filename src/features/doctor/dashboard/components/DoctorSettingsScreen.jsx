@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
+import { useDoctorBack } from '../useDoctorBack';
 import axiosInstance from '../../../../axiosConfig';
 import DoctorPrivacySecurityScreen from './DoctorPrivacySecurityScreen';
 import DoctorNotificationPreferencesScreen from './DoctorNotificationPreferencesScreen';
@@ -12,32 +13,24 @@ import DoctorClinicSettingsScreen from './DoctorClinicSettingsScreen';
 import DoctorProfileScreen from './DoctorProfileScreen';
 import DoctorPaymentSettingsScreen from './DoctorPaymentSettingsScreen';
 import DoctorChangePasswordScreen from './DoctorChangePasswordScreen';
+import DoctorHelpSupportScreen from './DoctorHelpSupportScreen';
 
 const ACCOUNT_ROWS = [
   { key: 'personal', icon: 'user', title: 'Profile', subtitle: 'Professional details, experience and photo' },
   { key: 'clinic', icon: 'briefcase', title: 'Clinic', subtitle: 'Add clinic contact information, location and photos' },
   { key: 'payment', icon: 'smartphone', title: 'Payment', subtitle: 'Choose which payment methods are available' },
   { key: 'profileQR', icon: 'qr', title: 'Profile QR', subtitle: 'Share your profile and booking link' },
-  { key: 'notifications', icon: 'bell', title: 'Notification Preferences', subtitle: 'Manage alerts for appointments and messages' },
-  { key: 'privacySecurity', icon: 'shield', title: 'Privacy & Security', subtitle: 'Two-factor authentication, devices' },
+  { key: 'notifications', icon: 'bell', title: 'Notification Preferences', subtitle: 'Choose alerts and set quiet hours' },
+  { key: 'privacySecurity', icon: 'shield', title: 'Privacy & Security', subtitle: 'Password, app lock, privacy and this device' },
   { key: 'changePassword', icon: 'lock', title: 'Change Password', subtitle: 'You will be signed out after changing it' },
 ];
 
 const MORE_ROWS = [
-  { key: 'help', icon: 'info', title: 'Help & Support', subtitle: 'What each settings section is for' },
+  { key: 'help', icon: 'info', title: 'Help & Support', subtitle: 'FAQs, contact support, report a problem' },
   { key: 'privacy', icon: 'eye', title: 'Privacy', subtitle: 'How your profile and clinic information is used' },
 ];
 
 const INFO = {
-  help: {
-    title: 'Help & Support',
-    intro: 'Use these settings to keep your doctor profile, clinic details, payment options, and QR profile updated.',
-    items: [
-      ['Profile', 'Update professional details, education, experience, awards, and availability.'],
-      ['Clinic', 'Add clinic contact information, location, and photos for patients.'],
-      ['Payment', 'Choose which payment methods are available for appointments.'],
-    ],
-  },
   privacy: {
     title: 'Privacy',
     intro: 'Your doctor profile and clinic information are used to support appointment booking and patient communication.',
@@ -48,9 +41,16 @@ const INFO = {
   },
 };
 
-export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, onOpenCard }) {
+export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, onOpenCard, navigation }) {
   const [view, setView] = useState('list');
   const [deleting, setDeleting] = useState(false);
+
+  // Back from any settings page returns to the settings list, not Home.
+  useDoctorBack(() => {
+    if (view === 'list') return false;
+    setView('list');
+    return true;
+  });
 
   const handleLogout = onLogout || (() => {});
 
@@ -81,8 +81,26 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
   };
 
   const back = () => setView('list');
-  if (view === 'privacySecurity') return <DoctorPrivacySecurityScreen onBack={back} />;
+  if (view === 'privacySecurity') {
+    return (
+      <DoctorPrivacySecurityScreen
+        onBack={back}
+        navigation={navigation}
+        onLogout={onLogout}
+        onForceLogout={onForceLogout}
+      />
+    );
+  }
   if (view === 'notifications') return <DoctorNotificationPreferencesScreen onBack={back} />;
+  if (view === 'help') {
+    return (
+      <DoctorHelpSupportScreen
+        onBack={back}
+        onOpenNotifications={() => setView('notifications')}
+        onOpenPrivacySecurity={() => setView('privacySecurity')}
+      />
+    );
+  }
   if (view === 'clinic') return <DoctorClinicSettingsScreen onBack={back} />;
   if (view === 'payment') return <DoctorPaymentSettingsScreen onBack={back} />;
   if (view === 'personal') return <DoctorProfileScreen onBack={back} onOpenCard={onOpenCard} />;
