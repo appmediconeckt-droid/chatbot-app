@@ -8,6 +8,7 @@ const API_ENDPOINTS = {
   // RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
   RAILWAY: 'https://humaeli-backend-update-production.up.railway.app',
   DevTunnels: 'https://s5jl7g4z-5002.inc1.devtunnels.ms',
+  // DevTunnels: 'https://m429gbrg-5003.inc1.devtunnels.ms',
   LOCAL_ADB_5002: 'http://127.0.0.1:5002',
   LOCAL_5001: 'http://localhost:5001',
   LOCAL_5000: 'http://localhost:5000',

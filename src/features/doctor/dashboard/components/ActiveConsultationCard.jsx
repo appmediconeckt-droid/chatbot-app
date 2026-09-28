@@ -1,17 +1,16 @@
 // "Currently With" card — mirrors the web `dd-live-consult`: the server-side
 // consultation timer (start time minus pauses), plus the actions:
 //   Pause / Resume  → PATCH { consultation_action: 'pause' | 'resume' }
-//   Checked         → open the Complete Appointment form — video / voice only
-//   Complete        → video / voice: mark completed immediately;
-//                     in-clinic & walk-in visits: open the Complete Appointment
-//                     form (they have no Checked button, and the form is where
-//                     the diagnosis and medicines are recorded)
+//   Complete        → open the Complete Appointment form for every visit type
+//                     (in-clinic, walk-in, video, voice) — that form records the
+//                     diagnosis, medicines, advice and follow-up.
 import React, { useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { colors, typography, createDoctorStyles, doctorGradient, gradientDirection } from '../theme';
-import { getConsultationModeInfo, getRemoteConsultationMode, getTokenLabel } from '../api/doctorAppointments';
+import { getConsultationModeInfo, getTokenLabel } from '../api/doctorAppointments';
 import { MODE_STYLES } from './AppointmentCard';
 
 const getInitials = (name = '') =>
@@ -40,7 +39,7 @@ export const computeElapsedMs = (session, now = Date.now()) => {
   return Math.max(0, end - session.startTime - session.accumulatedPauseMs);
 };
 
-export default function ActiveConsultationCard({ session, onPause, onChecked, onComplete, busy }) {
+export default function ActiveConsultationCard({ session, onPause, onChecked, busy }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -51,7 +50,6 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
   const paused = session.status === 'paused';
   const onBreak = session.status === 'break';
   const disabled = onBreak || busy;
-  const isRemote = Boolean(getRemoteConsultationMode(patient));
   const mode = getConsultationModeInfo(patient);
   const modeStyle = MODE_STYLES[mode.key];
 
@@ -69,15 +67,15 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
       </View>
 
       <View style={s.patientRow}>
-        <View style={s.avatar}><Text style={s.avatarText}>{getInitials(patient.name)}</Text></View>
+        <View style={s.avatar}><Text translate={false} style={s.avatarText}>{getInitials(patient.name)}</Text></View>
         <View style={s.patientInfo}>
           <View style={s.nameRow}>
-            <Text style={s.name}>{patient.name}</Text>
+            <Text translate={false} style={s.name}>{patient.name}</Text>
             <Text style={s.gender}>({patient.gender})</Text>
           </View>
           <View style={s.complaintRow}>
             <AppIcon name="pin" size={12} strokeWidth={2} color={colors.muted} />
-            <Text style={s.complaint}>{patient.issue}</Text>
+            <Text translate={false} style={s.complaint}>{patient.issue}</Text>
           </View>
         </View>
       </View>
@@ -105,15 +103,9 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
         <Pressable style={[s.outlineButton, disabled && s.disabled]} onPress={onPause} disabled={disabled}>
           <Text style={s.outlineText}>{paused ? '▶ Resume' : '❚❚ Pause'}</Text>
         </Pressable>
-        {isRemote && (
-          <Pressable style={[s.outlineButton, disabled && s.disabled]} onPress={onChecked} disabled={disabled}>
-            <AppIcon name="check-mark" size={13} strokeWidth={2.5} color={colors.navy} />
-            <Text style={s.outlineText}>Checked</Text>
-          </Pressable>
-        )}
         <Pressable
           style={[s.completeButtonWrap, disabled && s.disabled]}
-          onPress={isRemote ? onComplete : onChecked}
+          onPress={onChecked}
           disabled={disabled}
         >
           <LinearGradient colors={doctorGradient} {...gradientDirection} style={s.completeButton}>

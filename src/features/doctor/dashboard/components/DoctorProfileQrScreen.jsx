@@ -5,7 +5,8 @@
 // The QR encodes the public walk-in booking link, rendered by api.qrserver.com
 // exactly like the web page.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, Share, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import RNFS from 'react-native-fs';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -140,10 +141,10 @@ export default function DoctorProfileQrScreen({ onBack }) {
                 {profileImage ? (
                   <Image source={{ uri: profileImage }} style={s.avatar} />
                 ) : (
-                  <View style={s.avatar}><Text style={s.avatarInitial}>{String(doctorName).replace(/^Dr\.?\s*/i, '').charAt(0).toUpperCase()}</Text></View>
+                  <View style={s.avatar}><Text translate={false} style={s.avatarInitial}>{String(doctorName).replace(/^Dr\.?\s*/i, '').charAt(0).toUpperCase()}</Text></View>
                 )}
                 <View>
-                  <Text style={s.doctorName}>{doctorName}</Text>
+                  <Text translate={false} style={s.doctorName}>{doctorName}</Text>
                   {!!speciality && <Text style={s.speciality}>{speciality}</Text>}
                 </View>
                 <View style={s.verified}><Text style={s.check}>✓</Text></View>
@@ -207,7 +208,7 @@ function Stat({ label, value, arrow = '↗' }) {
   return (
     <View style={s.stat}>
       <View style={s.statTop}><Text style={s.statLabel}>{label}</Text><Text style={s.statArrow}>{arrow}</Text></View>
-      <Text style={s.statValue}>{value}</Text>
+      <Text translate={false} style={s.statValue}>{value}</Text>
     </View>
   );
 }
@@ -215,7 +216,7 @@ function Detail({ label, value, badge, last, onPress }) {
   return (
     <Pressable onPress={onPress} style={[s.detail, last && s.detailLast]}>
       <Text style={s.detailLabel}>{label}</Text>
-      <Text style={[s.detailValue, badge && s.badge]}>{value}</Text>
+      <Text translate={false} style={[s.detailValue, badge && s.badge]}>{value}</Text>
     </Pressable>
   );
 }

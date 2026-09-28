@@ -3,7 +3,9 @@
 // from GET /api/followups?doctor_id, status changes / edits via PUT, delete
 // via DELETE { doctor_id }, plus the web's status / type / search filters.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import NewFollowUpScreen from './NewFollowUpScreen';
@@ -264,7 +266,7 @@ export default function FollowUpsScreen({ onBack }) {
             return (
               <Pressable key={value} onPress={() => setFilterStatus(value)} style={[s.segmentItem, active && s.segmentItemActive]}>
                 <Text style={[s.segmentText, active && s.segmentTextActive]} numberOfLines={1}>{label}</Text>
-                <Text style={[s.segmentCount, active && s.segmentCountActive]}>{statusCount(value)}</Text>
+                <Text translate={false} style={[s.segmentCount, active && s.segmentCountActive]}>{statusCount(value)}</Text>
               </Pressable>
             );
           })}
@@ -338,7 +340,7 @@ export default function FollowUpsScreen({ onBack }) {
 function HeroStat({ label, value, onPress, alert }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [s.heroStat, alert && s.heroStatAlert, pressed && s.pressed]}>
-      <Text style={s.heroStatValue}>{value}</Text>
+      <Text translate={false} style={s.heroStatValue}>{value}</Text>
       <Text style={s.heroStatLabel} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
@@ -352,11 +354,11 @@ function PatientCard({ card, onPress, onMore, onComplete, busy }) {
       <View style={s.cardBody}>
         <View style={s.cardTop}>
           <View style={[s.avatar, { backgroundColor: statusMeta.bg }]}>
-            <Text style={[s.avatarText, { color: statusMeta.fg }]}>{card.initial}</Text>
+            <Text translate={false} style={[s.avatarText, { color: statusMeta.fg }]}>{card.initial}</Text>
           </View>
           <View style={s.flex}>
-            <Text style={s.name} numberOfLines={1}>{card.name}</Text>
-            <Text style={s.subline} numberOfLines={1}>{card.subline}</Text>
+            <Text translate={false} style={s.name} numberOfLines={1}>{card.name}</Text>
+            <Text translate={false} style={s.subline} numberOfLines={1}>{card.subline}</Text>
           </View>
           <Pressable onPress={onMore} hitSlop={10} style={s.moreBtn}>
             <AppIcon name="more" size={18} color="#667085" />
@@ -379,7 +381,7 @@ function PatientCard({ card, onPress, onMore, onComplete, busy }) {
           </View>
         </View>
 
-        {!!card.notes && <Text style={s.notes} numberOfLines={2}>{card.notes}</Text>}
+        {!!card.notes && <Text translate={false} style={s.notes} numberOfLines={2}>{card.notes}</Text>}
 
         <View style={s.cardFooter}>
           <View style={[s.statusPill, { backgroundColor: statusMeta.bg }]}>

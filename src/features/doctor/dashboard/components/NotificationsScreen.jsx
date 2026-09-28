@@ -8,28 +8,38 @@
 // driven by real fields. Category counts/filters are computed from the real
 // `type` field instead of being hardcoded.
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles } from '../theme';
 import axiosInstance from '../../../../axiosConfig';
 
-const FILTERS = ['All', 'Urgent', 'Appointments', 'Messages'];
+// Doctors don't use chat, so message notifications are not shown here.
+const FILTERS = ['All', 'Urgent', 'Appointments'];
 const TONE_COLORS = { red: '#D2564B', blue: colors.blue, amber: '#B7791F' };
 
-const toneForType = (type) => {
-  const t = String(type || '').toLowerCase();
-  if (['urgent', 'emergency', 'critical', 'alert'].includes(t)) return 'red';
-  if (['appointment', 'appointments', 'booking'].includes(t)) return 'blue';
-  if (['message', 'chat', 'reply'].includes(t)) return 'amber';
+const URGENT_WORDS = ['emergency', 'urgent', 'critical'];
+const hasUrgentWord = (value) => URGENT_WORDS.some((w) => String(value || '').toLowerCase().includes(w));
+
+// Types come in many shapes ("EMERGENCY_APPOINTMENT", "emergency-request",
+// "appointment_emergency"…), so match by substring, and also treat a
+// notification as urgent when its priority / data / title says emergency.
+// Urgent wins over appointment, otherwise an emergency booking counted as a
+// plain appointment and the Urgent tab stayed at 0.
+const classify = (n) => {
+  const type = String(n.type || n.category || '').toLowerCase();
+  const data = n.data || n.metadata || n.meta || {};
+  const urgent = hasUrgentWord(type)
+    || hasUrgentWord(n.priority) || hasUrgentWord(n.severity)
+    || hasUrgentWord(data.priority) || hasUrgentWord(data.type)
+    || data.is_emergency === true || data.isEmergency === true
+    || hasUrgentWord(n.title) || hasUrgentWord(n.heading);
+  if (urgent) return 'red';
+  if (/message|chat|reply/.test(type)) return 'amber';
   return 'blue';
 };
-const categoryForType = (type) => {
-  const tone = toneForType(type);
-  if (tone === 'red') return 'Urgent';
-  if (tone === 'amber') return 'Messages';
-  return 'Appointments';
-};
+const CATEGORY_FOR_TONE = { red: 'Urgent', blue: 'Appointments', amber: 'Messages' };
 const iconForTone = { red: 'warning', blue: 'calendar', amber: 'message' };
 
 const relativeTime = (iso) => {
@@ -46,12 +56,12 @@ const relativeTime = (iso) => {
 };
 
 const normalize = (n) => {
-  const type = n.type || n.category || 'appointment';
+  const tone = classify(n);
   return {
     id: String(n._id || n.id),
-    tone: toneForType(type),
-    category: categoryForType(type),
-    icon: iconForTone[toneForType(type)],
+    tone,
+    category: CATEGORY_FOR_TONE[tone],
+    icon: iconForTone[tone],
     title: n.title || n.heading || 'Notification',
     body: n.message || n.body || n.content || '',
     time: relativeTime(n.createdAt || n.time),
@@ -71,7 +81,7 @@ export default function NotificationsScreen({ onBack }) {
       const res = await axiosInstance.get('/api/notifications');
       const payload = res.data;
       const list = Array.isArray(payload) ? payload : Array.isArray(payload?.notifications) ? payload.notifications : Array.isArray(payload?.data) ? payload.data : [];
-      setNotifications(list.map(normalize));
+      setNotifications(list.map(normalize).filter((n) => n.category !== 'Messages'));
     } catch (err) {
       console.error('Error fetching doctor notifications:', err);
       setNotifications([]);
@@ -87,7 +97,6 @@ export default function NotificationsScreen({ onBack }) {
   const counts = {
     Urgent: notifications.filter((n) => n.category === 'Urgent').length,
     Appointments: notifications.filter((n) => n.category === 'Appointments').length,
-    Messages: notifications.filter((n) => n.category === 'Messages').length,
   };
 
   const markAllRead = async () => {
@@ -137,7 +146,6 @@ export default function NotificationsScreen({ onBack }) {
         <View style={s.statsRow}>
           <StatCard icon="warning" tone="red" value={String(counts.Urgent)} label="Urgent" />
           <StatCard icon="calendar" tone="blue" value={String(counts.Appointments)} label="Appointments" />
-          <StatCard icon="message" tone="amber" value={String(counts.Messages)} label="Messages" />
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filters}>
@@ -179,7 +187,7 @@ function StatCard({ icon, tone, value, label }) {
       <View style={[s.statIcon, s[`statIcon_${tone}`]]}>
         <AppIcon name={icon} size={16} color={TONE_COLORS[tone]} strokeWidth={2} />
       </View>
-      <Text style={s.statValue}>{value}</Text>
+      <Text translate={false} style={s.statValue}>{value}</Text>
       <Text style={s.statLabel}>{label}</Text>
     </View>
   );
@@ -205,7 +213,7 @@ function NotificationCard({ item, onOpen, onDelete }) {
         </Pressable>
       </View>
 
-      {!!item.body && <Text style={s.cardBody}>{item.body}</Text>}
+      {!!item.body && <Text translate={false} style={s.cardBody}>{item.body}</Text>}
     </Pressable>
   );
 }

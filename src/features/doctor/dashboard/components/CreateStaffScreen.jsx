@@ -4,8 +4,10 @@
 // /api/staff on the final step (see staffApi.js). Staff records have no
 // login of their own, so there's no activation email / temp password —
 // the review step just previews the employee ID the backend will assign.
-import React, { useState } from 'react';
-import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -14,41 +16,35 @@ import { colors, createDoctorStyles } from '../theme';
 import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { getDatePickerValue, toDateOnlyString } from '../../../../utils/dateOfBirth';
-import { createStaff } from './staffApi';
+import { createStaff, fetchClinics } from './staffApi';
+import { pickStaffPhoto } from './pickStaffPhoto';
 
+// Role `key`s are the backend role ids the web sends (docStaffRoleCards).
 const ROLES = [
-  { key: 'nurse', title: 'Nurse', description: 'Direct patient care & monitoring.', icon: 'plus', active: 42 },
-  { key: 'medicalAssistant', title: 'Medical Assistant', description: 'Clinical operations & support.', icon: 'pulse', active: 18 },
-  { key: 'labTechnician', title: 'Lab Technician', description: 'Lab tests & samples.', icon: 'flask', active: 12 },
-  { key: 'billingStaff', title: 'Billing Staff', description: 'Invoicing & claims management.', icon: 'note', active: 8 },
-  { key: 'housekeeping', title: 'Housekeeping', description: 'Ensures facility cleanliness and hygiene.', icon: 'home', active: 15 },
-  { key: 'supervisor', title: 'Supervisor', description: 'Oversees departmental operations and staff.', icon: 'users', active: 6 },
+  { key: 'nurse', title: 'Nurse', description: 'Direct patient care & monitoring.', icon: 'plus', department: 'Nursing' },
+  { key: 'assistant', title: 'Medical Assistant', description: 'Clinical operations & support.', icon: 'pulse', department: 'Clinical' },
+  { key: 'technician', title: 'Lab Technician', description: 'Lab tests & samples.', icon: 'flask', department: 'Pathology' },
+  { key: 'billing', title: 'Billing Staff', description: 'Invoicing & claims management.', icon: 'note', department: 'Finance' },
+  { key: 'housekeeping', title: 'Housekeeping', description: 'Ensures facility cleanliness and hygiene.', icon: 'home', department: 'Operations' },
+  { key: 'supervisor', title: 'Supervisor', description: 'Oversees departmental operations and staff.', icon: 'users', department: 'Operations' },
 ];
 const GENDERS = ['Male', 'Female', 'Other'];
-const DEPARTMENTS = ['Emergency', 'Pathology', 'Finance', 'Admin', 'General Medicine', 'Housekeeping'];
-const SHIFTS = ['Morning', 'Afternoon', 'Night', 'Rotational'];
+const DEPARTMENTS = ['Nursing', 'Clinical', 'Emergency', 'Pathology', 'Finance', 'Operations', 'Admin', 'General Medicine'];
+// Web shift values.
+const SHIFTS = ['Morning', 'Evening', 'Night'];
 const SHIFT_TIMES = {
-  Morning: '7 AM - 3 PM',
-  Afternoon: '3 PM - 11 PM',
-  Night: '7 PM - 7 AM',
-  Rotational: 'Varies weekly',
+  Morning: '6 AM - 2 PM',
+  Evening: '2 PM - 10 PM',
+  Night: '10 PM - 6 AM',
 };
 const ROLE_ID_PREFIX = {
   nurse: 'NUR',
-  medicalAssistant: 'MAS',
-  labTechnician: 'LAB',
-  billingStaff: 'BIL',
+  assistant: 'MA',
+  technician: 'LAB',
+  billing: 'BIL',
   housekeeping: 'HSK',
   supervisor: 'SUP',
 };
-const DUMMY_PHOTOS = [
-  'https://i.pravatar.cc/160?img=25',
-  'https://i.pravatar.cc/160?img=33',
-  'https://i.pravatar.cc/160?img=47',
-  'https://i.pravatar.cc/160?img=52',
-  'https://i.pravatar.cc/160?img=61',
-];
-
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 const isValidPhone = (value) => value.replace(/\D/g, '').length >= 10;
 
@@ -71,6 +67,7 @@ const generateEmployeeId = (roleKey) => {
 };
 
 const blankForm = {
+  clinicId: '',
   firstName: '',
   lastName: '',
   email: '',
@@ -79,7 +76,7 @@ const blankForm = {
   gender: '',
   department: '',
   hireDate: '',
-  shiftPreference: '',
+  shiftPreference: 'Morning',
 };
 
 export default function CreateStaffScreen({ onCancel, onCreated }) {
@@ -92,6 +89,23 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
   const [credentials, setCredentials] = useState(null);
   const [photo, setPhoto] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [clinics, setClinics] = useState([]);
+  const [clinicsLoading, setClinicsLoading] = useState(true);
+
+  // Every staff member belongs to one of the doctor's clinics (server requires clinic_id).
+  useEffect(() => {
+    let cancelled = false;
+    fetchClinics()
+      .then((list) => {
+        if (cancelled) return;
+        setClinics(list);
+        if (list.length === 1) setForm((current) => ({ ...current, clinicId: current.clinicId || list[0].id }));
+      })
+      .catch(() => { if (!cancelled) setClinics([]); })
+      .finally(() => { if (!cancelled) setClinicsLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+  const selectedClinic = clinics.find((c) => c.id === form.clinicId);
 
   useDoctorBack(() => {
     if (step > 1) {
@@ -111,10 +125,13 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
   const phoneError = form.phone.trim().length > 0 && !phoneValid ? 'Enter a valid phone number (at least 10 digits).' : '';
 
   const canContinueStep1 = Boolean(selectedRole);
-  const canContinueStep2 = Boolean(form.firstName.trim() && form.lastName.trim() && emailValid && phoneValid);
+  const canContinueStep2 = Boolean(form.clinicId && form.firstName.trim() && form.lastName.trim() && emailValid && phoneValid);
 
   const handleStep1Continue = () => {
     if (!canContinueStep1) return;
+    // Same default as the web: the role's own department.
+    const role = ROLES.find((item) => item.key === selectedRole);
+    if (role && !form.department) setField('department', role.department);
     setStep(2);
   };
 
@@ -128,6 +145,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
     try {
       setCreating(true);
       const created = await createStaff({
+        clinicId: form.clinicId,
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         email: form.email.trim(),
@@ -135,11 +153,11 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
         dateOfBirth: form.dateOfBirth,
         gender: form.gender,
         role: selectedRole,
-        department: form.department,
+        department: form.department || ROLES.find((item) => item.key === selectedRole)?.department,
         hireDate: form.hireDate,
-        shiftPreference: form.shiftPreference,
-      });
-      showToast(`${created.name} added to your staff directory as ${created.id}.`);
+        shift: form.shiftPreference || 'Morning',
+      }, photo);
+      showToast(`${created.name} added to your staff directory.`);
       onCreated ? onCreated(created) : onCancel();
     } catch (error) {
       showToast(error?.response?.data?.message || 'Failed to create staff member');
@@ -152,6 +170,12 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
     gender: { label: 'Gender', options: GENDERS, value: form.gender, onSelect: (value) => setField('gender', value) },
     department: { label: 'Department', options: DEPARTMENTS, value: form.department, onSelect: (value) => setField('department', value) },
     shiftPreference: { label: 'Shift Preference', options: SHIFTS, value: form.shiftPreference, onSelect: (value) => setField('shiftPreference', value) },
+    clinic: {
+      label: 'Clinic / Hospital',
+      options: clinics.map((c) => c.name),
+      value: selectedClinic?.name,
+      onSelect: (value) => setField('clinicId', clinics.find((c) => c.name === value)?.id || ''),
+    },
   }[picker];
 
   const dateField = datePicker === 'dateOfBirth' ? 'dateOfBirth' : datePicker === 'hireDate' ? 'hireDate' : null;
@@ -215,10 +239,6 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
                   </View>
                   <Text style={s.roleTitle}>{role.title}</Text>
                   <Text style={s.roleDescription} numberOfLines={2}>{role.description}</Text>
-                  <View style={s.activeRow}>
-                    <View style={s.activeDot} />
-                    <Text style={s.activeText}>{role.active} Active</Text>
-                  </View>
                 </Pressable>
               );
             })}
@@ -229,6 +249,14 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
       {step === 2 && (
         <ScrollView style={s.scrollArea} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
           <Text style={s.subheading}>Fill in the staff member&apos;s personal and professional details.</Text>
+
+          <SectionHeader title="Clinic" />
+          <FormDropdown
+            label="Clinic / Hospital *"
+            value={selectedClinic?.name}
+            placeholder={clinicsLoading ? 'Loading clinics…' : clinics.length ? 'Select clinic' : 'No clinic found — add one in Clinic Settings'}
+            onPress={() => { if (clinics.length) setPicker('clinic'); }}
+          />
 
           <SectionHeader title="Personal Information" />
           <View style={s.photoRow}>
@@ -241,9 +269,13 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
             </View>
             <Pressable
               style={s.uploadButton}
-              onPress={() => {
-                setPhoto(DUMMY_PHOTOS[Math.floor(Math.random() * DUMMY_PHOTOS.length)]);
-                showToast('Sample photo added (no real upload yet).');
+              onPress={async () => {
+                try {
+                  const uri = await pickStaffPhoto();
+                  if (uri) setPhoto(uri);
+                } catch (err) {
+                  showToast(err?.message || 'Could not add photo');
+                }
               }}
             >
               <AppIcon name="upload" size={14} color={colors.blue} strokeWidth={2.2} />
@@ -318,6 +350,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
                 <View style={s.rolePill}><Text style={s.rolePillText}>{selectedRoleInfo?.title ?? '—'}</Text></View>
               </View>
               <ReviewItem label="Employee ID (preview)" value={credentials?.employeeId} />
+              <ReviewItem label="Clinic / Hospital" value={selectedClinic?.name} />
               <ReviewItem label="Department" value={form.department} />
               <ReviewItem label="Hire Date" value={formatLongDate(form.hireDate)} />
               <ReviewItem label="Shift Preference" value={`${form.shiftPreference} Shift (${SHIFT_TIMES[form.shiftPreference] ?? ''})`} />
@@ -342,8 +375,8 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
 
           <View style={s.infoBanner}>
             <AppIcon name="check" size={14} color={colors.blue} strokeWidth={2.2} />
-            <Text style={s.infoBannerText}>
-              <Text style={s.infoBannerEmail}>{`${form.firstName} ${form.lastName}`.trim()}</Text> will be added to your staff directory. Staff records don&apos;t have their own login yet.
+            <Text translate={false} style={s.infoBannerText}>
+              <Text translate={false} style={s.infoBannerEmail}>{`${form.firstName} ${form.lastName}`.trim()}</Text> will be added to your staff directory. Staff records don&apos;t have their own login yet.
             </Text>
           </View>
         </ScrollView>
@@ -465,7 +498,7 @@ function FormDropdown({ label, value, placeholder, onPress }) {
     <View style={s.field}>
       <Text style={s.fieldLabel}>{label}</Text>
       <Pressable onPress={onPress} style={s.fieldDropdown}>
-        <Text style={value ? s.fieldValueText : s.fieldPlaceholderText}>{value || placeholder}</Text>
+        <Text translate={false} style={value ? s.fieldValueText : s.fieldPlaceholderText}>{value || placeholder}</Text>
         <AppIcon name="chevron-down" size={15} color="#667085" strokeWidth={2.2} />
       </Pressable>
     </View>
@@ -477,7 +510,7 @@ function FormDate({ label, value, onPress }) {
     <View style={s.field}>
       <Text style={s.fieldLabel}>{label}</Text>
       <Pressable onPress={onPress} style={s.fieldDropdown}>
-        <Text style={value ? s.fieldValueText : s.fieldPlaceholderText}>{value ? formatMDY(value) : 'mm/dd/yyyy'}</Text>
+        <Text translate={false} style={value ? s.fieldValueText : s.fieldPlaceholderText}>{value ? formatMDY(value) : 'mm/dd/yyyy'}</Text>
         <AppIcon name="calendar" size={15} color="#667085" strokeWidth={2} />
       </Pressable>
     </View>
@@ -489,7 +522,7 @@ function ReviewItem({ label, value, rightIcon, onIconPress }) {
     <View style={s.reviewItem}>
       <Text style={s.reviewLabel}>{label}</Text>
       <View style={s.reviewValueRow}>
-        <Text style={s.reviewValue} numberOfLines={1}>{value || '—'}</Text>
+        <Text translate={false} style={s.reviewValue} numberOfLines={1}>{value || '—'}</Text>
         {rightIcon && (
           <Pressable onPress={onIconPress} hitSlop={8}>
             <AppIcon name={rightIcon} size={15} color="#8A94A4" strokeWidth={1.9} />

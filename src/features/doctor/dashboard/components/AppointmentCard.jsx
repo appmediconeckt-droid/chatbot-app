@@ -5,7 +5,8 @@
 // already say Pending / In Progress / Completed, so the card shows how the
 // patient is being seen instead of repeating the status.
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import { colors, shadow, typography, createDoctorStyles, doctorGradient, gradientDirection } from '../theme';
 import AppIcon from '../icons/AppIcon';
@@ -80,14 +81,21 @@ export default function AppointmentCard({
   const meta = item.gender && item.gender !== 'Not specified' ? item.gender : '';
 
   return (
-    <View style={[styles.card, (highlight || isActive) && styles.cardHighlight]}>
+    <View style={[styles.card, (highlight || isActive) && styles.cardHighlight, item.isEmergency && !isCompleted && styles.cardEmergency]}>
       {/* Header: avatar | name + token/gender | consultation mode (top right) */}
       <View style={styles.header}>
-        <View style={styles.avatar}><Text style={styles.avatarText}>{getInitials(item.name)}</Text></View>
+        <View style={styles.avatar}><Text translate={false} style={styles.avatarText}>{getInitials(item.name)}</Text></View>
         <View style={styles.patientInfo}>
-          <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
+          <Text translate={false} style={styles.name} numberOfLines={2}>{item.name}</Text>
           <View style={styles.subRow}>
-            <View style={styles.tokenPill}><Text style={styles.tokenText}>{getTokenLabel(item)}</Text></View>
+            {item.isEmergency ? (
+              <View style={styles.emergencyPill}>
+                <AppIcon name="warning" size={10} strokeWidth={2.4} color="#DC2626" />
+                <Text style={styles.emergencyPillText}>EMERGENCY</Text>
+              </View>
+            ) : (
+              <View style={styles.tokenPill}><Text style={styles.tokenText}>{getTokenLabel(item)}</Text></View>
+            )}
             {!!meta && <Text style={styles.meta} numberOfLines={1}>{meta}</Text>}
           </View>
         </View>
@@ -103,10 +111,10 @@ export default function AppointmentCard({
           <View style={styles.issueIcon}>
             <AppIcon name="pulse" size={13} strokeWidth={2} color={colors.blue} />
           </View>
-          <Text style={styles.issue} numberOfLines={2}>{item.issue}</Text>
+          <Text translate={false} style={styles.issue} numberOfLines={2}>{item.issue}</Text>
         </View>
         {item.delayMinutes > 0 && (
-          <Text style={styles.delay}>
+          <Text translate={false} style={styles.delay}>
             Delayed {item.delayMinutes} min{item.delayReason ? ` - ${item.delayReason}` : ''}
           </Text>
         )}
@@ -119,10 +127,17 @@ export default function AppointmentCard({
 
       {/* Footer: time on the left, action on the right */}
       <View style={styles.footerRow}>
-        <View style={styles.timeChip}>
-          <AppIcon name="clock" size={13} strokeWidth={2} color={colors.muted} />
-          <Text style={styles.timeText} numberOfLines={1}>{item.scheduledTime || 'Today'}</Text>
-        </View>
+        {item.isEmergency ? (
+          <View style={styles.timeChip}>
+            <AppIcon name="warning" size={13} strokeWidth={2} color="#DC2626" />
+            <Text style={[styles.timeText, styles.emergencyTimeText]} numberOfLines={1}>Priority</Text>
+          </View>
+        ) : (
+          <View style={styles.timeChip}>
+            <AppIcon name="clock" size={13} strokeWidth={2} color={colors.muted} />
+            <Text style={styles.timeText} numberOfLines={1}>{item.scheduledTime || 'Today'}</Text>
+          </View>
+        )}
 
         <View style={styles.actions}>
           {!!remoteMode && !isCompleted && (
@@ -187,6 +202,10 @@ const styles = createDoctorStyles({
 
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEF1F6' },
   timeChip: { flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  emergencyTimeText: { color: '#DC2626' },
+  cardEmergency: { borderColor: '#FECACA', borderLeftWidth: 3, borderLeftColor: '#F87171' },
+  emergencyPill: { height: 20, paddingHorizontal: 7, borderRadius: 6, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', flexDirection: 'row', alignItems: 'center', gap: 4 },
+  emergencyPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.3, color: '#DC2626' },
   timeText: { ...typography.label, fontSize: 13, lineHeight: 17, color: '#394457' },
   actions: { flexDirection: 'row', gap: 8 },
   button: { height: 38, borderRadius: 9, flexShrink: 0, overflow: 'hidden' },

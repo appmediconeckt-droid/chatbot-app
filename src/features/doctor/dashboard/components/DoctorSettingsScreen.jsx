@@ -1,8 +1,9 @@
 // Doctor settings — same sections as the web Setting/Setting.jsx:
 // Profile, Clinic, Payment, Profile QR, Change Password (POST /auth/changePassword,
 // then sign out), Logout, Help & Support, Privacy, Delete Account (DELETE /auth/delete).
-import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { useDoctorBack } from '../useDoctorBack';
@@ -14,6 +15,11 @@ import DoctorProfileScreen from './DoctorProfileScreen';
 import DoctorPaymentSettingsScreen from './DoctorPaymentSettingsScreen';
 import DoctorChangePasswordScreen from './DoctorChangePasswordScreen';
 import DoctorHelpSupportScreen from './DoctorHelpSupportScreen';
+import LanguageSelector from '../../../../components/common/LanguageSelector';
+import { LANGUAGES } from '../../../../i18n';
+import { useLanguageContext } from '../../../../contexts/LanguageContext';
+import { CLINICIAN } from '../../../../theme/palette';
+import { getDoctorIdFromUser, getStoredDoctorUser } from '../api/doctorAppointments';
 
 const ACCOUNT_ROWS = [
   { key: 'personal', icon: 'user', title: 'Profile', subtitle: 'Professional details, experience and photo' },
@@ -23,6 +29,7 @@ const ACCOUNT_ROWS = [
   { key: 'notifications', icon: 'bell', title: 'Notification Preferences', subtitle: 'Choose alerts and set quiet hours' },
   { key: 'privacySecurity', icon: 'shield', title: 'Privacy & Security', subtitle: 'Password, app lock, privacy and this device' },
   { key: 'changePassword', icon: 'lock', title: 'Change Password', subtitle: 'You will be signed out after changing it' },
+  { key: 'language', icon: 'globe', title: 'Language', subtitle: 'Choose the app language' },
 ];
 
 const MORE_ROWS = [
@@ -44,6 +51,17 @@ const INFO = {
 export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, onOpenCard, navigation }) {
   const [view, setView] = useState('list');
   const [deleting, setDeleting] = useState(false);
+
+  // Language: saved per doctor (same key DoctorDashboard reloads on focus).
+  const { language: appLanguage } = useLanguageContext();
+  const currentLanguageName = LANGUAGES.find((lang) => lang.code === appLanguage)?.name || 'English';
+  const [doctorId, setDoctorId] = useState(null);
+  useEffect(() => {
+    getStoredDoctorUser().then((user) => {
+      const id = getDoctorIdFromUser(user);
+      if (id) setDoctorId(String(id));
+    });
+  }, []);
 
   // Back from any settings page returns to the settings list, not Home.
   useDoctorBack(() => {
@@ -147,7 +165,27 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
     return setView(key);
   };
 
-  const renderRows = (rows) => rows.map((row, index) => (
+  const renderLanguageRow = (row, index, rows) => (
+    <LanguageSelector
+      key={row.key}
+      userId={doctorId}
+      role="doctor"
+      brand={CLINICIAN.primary}
+      triggerStyle={[s.row, index === rows.length - 1 && s.rowLast]}
+    >
+      <View style={s.rowIcon}>
+        <AppIcon name={row.icon} size={19} color="#0D9488" strokeWidth={1.9} />
+      </View>
+      <View style={s.rowBody}>
+        <Text style={s.rowTitle}>{row.title}</Text>
+        <Text style={s.rowSubtitle}>{row.subtitle}</Text>
+      </View>
+      <Text style={s.rowValue} numberOfLines={1} translate={false}>{currentLanguageName}</Text>
+      <AppIcon name="chevron-right" size={18} color="#9AA6B8" strokeWidth={2} />
+    </LanguageSelector>
+  );
+
+  const renderRows = (rows) => rows.map((row, index) => (row.key === 'language' ? renderLanguageRow(row, index, rows) : (
     <Pressable key={row.key} onPress={() => open(row.key)} style={[s.row, index === rows.length - 1 && s.rowLast]}>
       <View style={s.rowIcon}>
         <AppIcon name={row.icon} size={19} color="#0D9488" strokeWidth={1.9} />
@@ -158,7 +196,7 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
       </View>
       <AppIcon name="chevron-right" size={18} color="#9AA6B8" strokeWidth={2} />
     </Pressable>
-  ));
+  )));
 
   return (
     <View style={s.screen}>
@@ -209,6 +247,7 @@ const s = createDoctorStyles({
   rowBody: { flex: 1 },
   rowTitle: { fontSize: 15, fontWeight: '700', color: '#17243A' },
   rowSubtitle: { fontSize: 12.5, color: '#667085', marginTop: 2 },
+  rowValue: { fontSize: 12.5, fontWeight: '700', color: '#0F766E', maxWidth: 110, marginLeft: 6 },
   logout: {
     flexDirection: 'row',
     alignItems: 'center',

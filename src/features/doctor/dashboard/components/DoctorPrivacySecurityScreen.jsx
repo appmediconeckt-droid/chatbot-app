@@ -7,7 +7,8 @@
 //   This Device      → the backend allows one signed-in device per account,
 //                      so the only session to manage is this one.
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';

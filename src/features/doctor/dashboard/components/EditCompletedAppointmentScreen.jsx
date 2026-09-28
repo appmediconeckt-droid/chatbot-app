@@ -2,12 +2,14 @@
 // completed queue row opens this; Save PATCHes diagnosis / medicine / advice /
 // additional_notes / follow_up_* (the parent does the request).
 import React, { useRef, useState } from 'react';
-import { Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, TouchableOpacity, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { colors, typography, createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
-import { getRemoteConsultationMode, getTokenLabel } from '../api/doctorAppointments';
+import { getTokenLabel } from '../api/doctorAppointments';
 import { formatDuration } from './ActiveConsultationCard';
 
 const formatDateTime = (value) => {
@@ -32,7 +34,6 @@ function Area({ label, value, onChangeText, minHeight = 80 }) {
 }
 
 export default function EditCompletedAppointmentScreen({ appointment, onCancel, onSave }) {
-  const isVisit = !getRemoteConsultationMode(appointment);
   const [diagnosis, setDiagnosis] = useState(appointment.diagnosis || '');
   const [medicine, setMedicine] = useState(appointment.medicine || '');
   const [advice, setAdvice] = useState(appointment.advice || '');
@@ -51,14 +52,6 @@ export default function EditCompletedAppointmentScreen({ appointment, onCancel, 
     saveLock.current = true;
     setSaving(true);
     try {
-      if (isVisit) {
-        await onSave?.({
-          visitOnly: true,
-          followUpRequired,
-          followUpDate: followUpRequired ? followUpDate.trim() : '',
-        });
-        return;
-      }
       await onSave?.({
         diagnosis,
         medicine,
@@ -78,21 +71,16 @@ export default function EditCompletedAppointmentScreen({ appointment, onCancel, 
       <View style={styles.titleBar}><Text style={styles.title}>Completed Appointment</Text></View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.patientCard}>
-          <Text style={styles.patientName}>{appointment.name}</Text>
-          <Text style={styles.meta}>{getTokenLabel(appointment)} • {appointment.issue}</Text>
+          <Text translate={false} style={styles.patientName}>{appointment.name}</Text>
+          <Text translate={false} style={styles.meta}>{getTokenLabel(appointment)} • {appointment.issue}</Text>
           <Text style={styles.meta}>Completed on: {appointment.endTime ? formatDateTime(appointment.endTime) : 'N/A'}</Text>
           {!!appointment.durationMs && <Text style={styles.meta}>Duration: {formatDuration(appointment.durationMs)}</Text>}
         </View>
 
-        {/* In-clinic / walk-in visits record only the follow-up (see CompleteAppointmentScreen). */}
-        {!isVisit && (
-          <>
-            <Area label="Diagnosis" value={diagnosis} onChangeText={setDiagnosis} />
-            <Area label="Medicine" value={medicine} onChangeText={setMedicine} minHeight={100} />
-            <Area label="Advice" value={advice} onChangeText={setAdvice} />
-            <Area label="Additional Notes" value={additionalNotes} onChangeText={setAdditionalNotes} />
-          </>
-        )}
+        <Area label="Diagnosis" value={diagnosis} onChangeText={setDiagnosis} />
+        <Area label="Medicine" value={medicine} onChangeText={setMedicine} minHeight={100} />
+        <Area label="Advice" value={advice} onChangeText={setAdvice} />
+        <Area label="Additional Notes" value={additionalNotes} onChangeText={setAdditionalNotes} />
 
         <TouchableOpacity style={styles.checkRow} onPress={() => setFollowUpRequired((v) => !v)}>
           <View style={[styles.checkbox, followUpRequired && styles.checkboxOn]}>

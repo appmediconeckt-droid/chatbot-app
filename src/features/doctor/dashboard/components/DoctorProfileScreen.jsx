@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
@@ -92,7 +93,7 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
               source={{ uri: profile?.profilePhoto?.url || 'https://i.pravatar.cc/120?img=32' }}
               style={s.avatar}
             />
-            <Text style={s.name}>{displayName}</Text>
+            <Text translate={false} style={s.name}>{displayName}</Text>
             {!!subtitle && <Text style={s.role}>{subtitle}</Text>}
             <View style={s.pillRow}>
               <Pressable onPress={onOpenCard} style={s.darkPill}>
@@ -132,7 +133,7 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
         )}
 
         <Section icon="pin" label="Location">
-          <Text style={s.subLabel}>{profile?.location || 'Not set'}</Text>
+          <Text translate={false} style={s.subLabel}>{profile?.location || 'Not set'}</Text>
           <View style={s.mapPreview}>
             <AppIcon name="pin" size={22} color="#0D9488" strokeWidth={2} />
           </View>
@@ -143,7 +144,7 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
 
         {!!profile?.aboutMe && (
           <Section icon="file" label="About">
-            <Text style={s.subLabel}>{profile.aboutMe}</Text>
+            <Text translate={false} style={s.subLabel}>{profile.aboutMe}</Text>
           </Section>
         )}
       </ScrollView>
@@ -167,7 +168,7 @@ function InfoRow({ label, value, last }) {
   return (
     <View style={[s.infoRow, last && s.infoRowLast]}>
       <Text style={s.infoLabel}>{label}</Text>
-      <Text style={s.infoValue}>{value}</Text>
+      <Text translate={false} style={s.infoValue}>{value}</Text>
     </View>
   );
 }

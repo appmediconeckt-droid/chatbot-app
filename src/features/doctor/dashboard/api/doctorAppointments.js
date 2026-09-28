@@ -193,7 +193,17 @@ const getAppointmentDateTime = (a, { endOfDayFallback = true } = {}) => {
   return dateKey ? parseTimeOnDate(dateKey, '23:59:59') : null;
 };
 
+// Emergency request from a patient (web: priority === 'emergency'). It jumps
+// the queue and has no slot time — the clinic sees it as soon as it arrives.
+export const isEmergencyAppointment = (a) => {
+  const raw = a?.__raw || a;
+  return String(pickFirst(raw?.priority, raw?.appointment_priority, raw?.appointmentPriority, '')).toLowerCase() === 'emergency'
+    || raw?.is_emergency === true || raw?.isEmergency === true || Number(raw?.is_emergency) === 1;
+};
+
 export const isTodayAppointment = (a) => {
+  // An open emergency belongs in today's queue whatever day it was sent.
+  if (isEmergencyAppointment(a)) return true;
   const value = getAppointmentDateValue(a);
   if (!value) return true;
   const key = formatLocalDateKey(value);
@@ -216,6 +226,8 @@ export const normalizeAppointmentStatus = (a, forcedStatus) => {
 // doctor hasn't seen yet vanishes from today's queue.
 export const isExpiredPendingAppointment = (a, nowMs = Date.now()) => {
   if (normalizeAppointmentStatus(a) !== 'pending') return false;
+  // Emergencies have no slot to miss; they wait until the doctor acts.
+  if (isEmergencyAppointment(a)) return false;
   // Walk-ins stay queued until their status is changed explicitly.
   if (getAppointmentSource(a) === 'walkin') return false;
   const dt = getAppointmentDateTime(a.__raw || a);
@@ -227,14 +239,16 @@ export const isExpiredPendingAppointment = (a, nowMs = Date.now()) => {
 // can't be gated, so both are always startable.
 export const isConsultationStartOpen = (appt, nowMs = Date.now()) => {
   if (!appt) return false;
-  if (getAppointmentSource(appt) === 'walkin') return true;
+  if (getAppointmentSource(appt) === 'walkin' || isEmergencyAppointment(appt)) return true;
   const dt = getAppointmentDateTime(appt.__raw || appt, { endOfDayFallback: false })
     // Last resort: the exact time string the card is showing.
     || parseTimeOnDate(formatLocalDateKey(appt.appointmentDate), appt.scheduledTime);
   return !dt || dt.getTime() <= nowMs;
 };
 
+// Emergencies show "Emergency" instead of a time everywhere.
 const formatAppointmentTime = (a) => {
+  if (isEmergencyAppointment(a)) return 'Emergency';
   const start = resolveScheduledStart(a);
   if (start) return start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return getAppointmentTimeValue(a) || 'Today';
@@ -271,7 +285,9 @@ export const formatAppointment = (a, forcedStatus) => {
       a?.visitor_name, a?.visitorName, a?.name, patient?.full_name, patient?.fullName, patient?.name, 'Unknown',
     ),
     gender: pickFirst(a?.gender, a?.patient_gender, patient?.gender, 'Not specified'),
-    issue: pickFirst(a?.reason, a?.issue, a?.symptoms, a?.description, 'General Checkup'),
+    isEmergency: isEmergencyAppointment(a),
+    emergencyReason: pickFirst(a?.emergency_reason, a?.emergencyReason),
+    issue: pickFirst(a?.emergency_reason, a?.emergencyReason, a?.reason, a?.issue, a?.symptoms, a?.description, 'General Checkup'),
     scheduledTime: formatAppointmentTime(a),
     status: normalizeAppointmentStatus(a, forcedStatus),
     phone: pickFirst(
@@ -308,7 +324,7 @@ export const formatAppointment = (a, forcedStatus) => {
   };
 };
 
-// Queue order: token number ascending ("Token #3" before "#12"); appointments
+// Queue order: emergencies first, then token number ascending ("Token #3" before "#12"); appointments
 // without a token go after all tokened ones. Ties (or no tokens at all) fall
 // back to slot time, then name, so the order never jumps between refreshes.
 const getTokenNumber = (appt) => {
@@ -322,6 +338,15 @@ const getStartMs = (appt) => {
 };
 
 export const compareByToken = (a, b) => {
+  // Emergencies always come first; among them, whoever sent it first.
+  const ea = isEmergencyAppointment(a);
+  const eb = isEmergencyAppointment(b);
+  if (ea !== eb) return ea ? -1 : 1;
+  if (ea && eb) {
+    const ca = Date.parse(pickFirst(a?.__raw?.created_at, a?.__raw?.createdAt, a?.created_at, a?.createdAt)) || 0;
+    const cb = Date.parse(pickFirst(b?.__raw?.created_at, b?.__raw?.createdAt, b?.created_at, b?.createdAt)) || 0;
+    if (ca !== cb) return ca - cb;
+  }
   const ta = getTokenNumber(a);
   const tb = getTokenNumber(b);
   if (ta !== null && tb !== null && ta !== tb) return ta - tb;
@@ -333,10 +358,13 @@ export const compareByToken = (a, b) => {
 
 export const sortByToken = (list = []) => [...list].sort(compareByToken);
 
+// Readable label only — never a code cut from the database id (that produced
+// meaningless labels like "Pa58" for appointments without a token).
 export const getTokenLabel = (appt) => {
+  if (isEmergencyAppointment(appt)) return 'Emergency';
   if (appt?.tokenNumber) return `Token #${appt.tokenNumber}`;
   if (appt?.appointmentNo) return appt.appointmentNo;
-  return `P${String(appt?.apiId || appt?.id || '').padStart(3, '0').slice(-3)}`;
+  return getAppointmentSource(appt) === 'walkin' ? 'Walk-in' : 'No token';
 };
 
 export const getRemoteConsultationMode = (appt) => {

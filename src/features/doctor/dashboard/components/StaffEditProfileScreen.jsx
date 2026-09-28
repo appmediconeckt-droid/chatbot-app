@@ -2,16 +2,20 @@
 // Profile. Real backend: PATCH /api/staff/:id (see staffApi.js) — Save
 // writes straight to the staff record, and onSave hands the refreshed
 // record back to Staff Management's list.
-import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { roleLabelToKey, updateStaff } from './staffApi';
+import { pickStaffPhoto } from './pickStaffPhoto';
+import { addStaffDocument, loadStaffDocuments, openStaffDocument, removeStaffDocument } from './staffDocuments';
 
-const DEPARTMENTS = ['Emergency', 'Pathology', 'Finance', 'Admin', 'General Medicine', 'Housekeeping'];
+const DEPARTMENTS = ['Nursing', 'Clinical', 'Emergency', 'Pathology', 'Finance', 'Operations', 'Admin', 'General Medicine'];
 const ROLE_TYPES = ['Nurse', 'Medical Assistant', 'Lab Technician', 'Billing', 'Receptionist', 'Housekeeping', 'Supervisor'];
 const EMPLOYMENT_STATUSES = ['Full-Time', 'Part-Time', 'Contract'];
 const TABS = [
@@ -27,8 +31,43 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
   const scrollRef = useRef(null);
   const sectionOffsets = useRef({});
   const [activeTab, setActiveTab] = useState('personal');
+  // New photo (data URI) picked on this screen; null = keep the current one.
+  const [newPhoto, setNewPhoto] = useState(null);
+  const shownPhoto = newPhoto || (member?.hasPhoto ? member.image : null);
+  const changePhoto = async () => {
+    try {
+      const uri = await pickStaffPhoto();
+      if (uri) setNewPhoto(uri);
+    } catch (err) {
+      showToast(err?.message || 'Could not add photo');
+    }
+  };
   const [picker, setPicker] = useState(null);
-  const [documents, setDocuments] = useState(member.documents ?? []);
+  const [documents, setDocuments] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    loadStaffDocuments(member.rawId).then((list) => { if (!cancelled) setDocuments(list); });
+    return () => { cancelled = true; };
+  }, [member.rawId]);
+  const uploadDocument = async () => {
+    setUploading(true);
+    try {
+      const list = await addStaffDocument(member.rawId);
+      if (list) setDocuments(list);
+    } catch (err) {
+      showToast(err?.message || 'Could not add the document.');
+    } finally {
+      setUploading(false);
+    }
+  };
+  const openDocument = async (doc) => {
+    try {
+      await openStaffDocument(doc);
+    } catch (err) {
+      showToast(err?.message || 'No app found to open this document.');
+    }
+  };
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     fullName: member.name ?? '',
@@ -54,7 +93,7 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
     }
   };
 
-  const removeDocument = (name) => setDocuments((current) => current.filter((doc) => doc.name !== name));
+  const removeDocument = async (docId) => setDocuments(await removeStaffDocument(member.rawId, docId));
 
   const handleSave = async () => {
     const fullName = form.fullName.trim();
@@ -73,20 +112,19 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
       return;
     }
 
-    const [firstName, ...rest] = fullName.split(/\s+/);
-    const lastName = rest.join(' ') || firstName;
-
     try {
       setSaving(true);
+      // Web PUT /api/staff/:id body (full_name, clinic_id, contact_number, …).
       const updated = await updateStaff(member.rawId, {
-        firstName,
-        lastName,
+        fullName,
+        clinicId: member.clinicId,
         email: form.email.trim(),
         phone: form.phone.trim(),
         department: form.department,
         role: roleLabelToKey(form.role),
-        employmentStatus: form.employmentStatus,
-      });
+        shift: member.shift,
+        status: member.status,
+      }, newPhoto || undefined);
       onSave(updated);
     } catch (error) {
       showToast(error?.response?.data?.message || 'Failed to update staff member');
@@ -128,13 +166,17 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
       <ScrollView ref={scrollRef} style={s.scrollArea} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <View style={s.photoBlock}>
           <View style={s.avatarWrap}>
-            <View style={s.avatarCircle}><AppIcon name="user" size={26} color="#98A2B3" strokeWidth={1.8} /></View>
-            <Pressable style={s.cameraBadge} onPress={() => showToast('Photo upload is coming soon.')} hitSlop={4}>
+            <View style={s.avatarCircle}>
+              {shownPhoto
+                ? <Image source={{ uri: shownPhoto }} style={s.avatarPhoto} />
+                : <AppIcon name="user" size={26} color="#98A2B3" strokeWidth={1.8} />}
+            </View>
+            <Pressable style={s.cameraBadge} onPress={changePhoto} hitSlop={4}>
               <AppIcon name="camera" size={13} color="#FFFFFF" strokeWidth={2} />
             </Pressable>
           </View>
-          <Pressable onPress={() => showToast('Photo upload is coming soon.')} hitSlop={6}>
-            <Text style={s.changePhotoText}>Change Photo</Text>
+          <Pressable onPress={changePhoto} hitSlop={6}>
+            <Text style={s.changePhotoText}>{shownPhoto ? 'Change Photo' : 'Add Photo'}</Text>
           </Pressable>
         </View>
 
@@ -155,23 +197,25 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
         <View onLayout={(event) => { sectionOffsets.current.documents = event.nativeEvent.layout.y; }}>
           <Text style={s.sectionTitle}>Documents &amp; Credentials</Text>
           {documents.map((doc, index) => (
-            <View key={doc.name} style={[s.documentRow, index === documents.length - 1 && s.documentRowLast]}>
+            <Pressable key={doc.id} onPress={() => openDocument(doc)} style={[s.documentRow, index === documents.length - 1 && s.documentRowLast]}>
               <View style={[s.documentIcon, doc.type === 'PDF' && s.documentIconPdf]}>
                 <AppIcon name="file" size={16} color={doc.type === 'PDF' ? '#D2564B' : colors.blue} strokeWidth={1.9} />
               </View>
               <View style={s.grow}>
-                <Text style={s.documentName} numberOfLines={1}>{doc.name}</Text>
+                <Text translate={false} style={s.documentName} numberOfLines={1}>{doc.name}</Text>
                 <Text style={s.documentMeta}>{[doc.type, doc.size].filter(Boolean).join(' · ')}</Text>
               </View>
-              <Pressable onPress={() => removeDocument(doc.name)} hitSlop={8} style={s.documentDelete}>
+              <Pressable onPress={() => removeDocument(doc.id)} hitSlop={8} style={s.documentDelete}>
                 <AppIcon name="trash" size={16} color="#B0424A" strokeWidth={1.9} />
               </Pressable>
-            </View>
+            </Pressable>
           ))}
           {documents.length === 0 && <Text style={s.emptyHint}>No documents on file.</Text>}
-          <Pressable style={s.uploadButton} onPress={() => showToast('Uploading documents is coming soon.')}>
-            <AppIcon name="upload" size={14} color={colors.blue} strokeWidth={2.2} />
-            <Text style={s.uploadButtonText}>Upload New Document</Text>
+          <Pressable style={s.uploadButton} onPress={uploadDocument} disabled={uploading}>
+            {uploading
+              ? <ActivityIndicator size="small" color={colors.blue} />
+              : <AppIcon name="upload" size={14} color={colors.blue} strokeWidth={2.2} />}
+            <Text style={s.uploadButtonText}>{uploading ? 'Adding…' : 'Upload New Document'}</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -237,7 +281,7 @@ function DropdownField({ label, value, onPress }) {
     <View style={s.field}>
       <Text style={s.fieldLabel}>{label}</Text>
       <Pressable onPress={onPress} style={s.fieldDropdown}>
-        <Text style={value ? s.fieldValueText : s.fieldPlaceholderText}>{value || `Select ${label.toLowerCase()}`}</Text>
+        <Text translate={false} style={value ? s.fieldValueText : s.fieldPlaceholderText}>{value || `Select ${label.toLowerCase()}`}</Text>
         <AppIcon name="chevron-down" size={15} color="#667085" strokeWidth={2.2} />
       </Pressable>
     </View>
@@ -263,8 +307,9 @@ const s = createDoctorStyles({
   grow: { flex: 1 },
 
   photoBlock: { alignItems: 'center', marginBottom: 22 },
+  avatarPhoto: { width: '100%', height: '100%' },
   avatarWrap: { position: 'relative' },
-  avatarCircle: { width: 76, height: 76, borderRadius: 38, backgroundColor: '#EEF1F5', alignItems: 'center', justifyContent: 'center' },
+  avatarCircle: { width: 76, height: 76, borderRadius: 38, backgroundColor: '#EEF1F5', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   cameraBadge: { position: 'absolute', right: -2, bottom: -2, width: 26, height: 26, borderRadius: 13, backgroundColor: colors.blue, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#F5F7FB' },
   changePhotoText: { fontSize: 13.5, fontWeight: '700', color: colors.blue, marginTop: 10 },
 

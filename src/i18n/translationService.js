@@ -38,6 +38,12 @@ const extractTranslatedText = (payload) => {
   if (!Array.isArray(payload)) return '';
   if (typeof payload[0] === 'string') return payload[0];
 
+  // clients5 with sl=auto answers [["<translation>", "<detected source>"]] —
+  // one pair whose first item is the whole translation. Without this case the
+  // pair was read as a segment list, every live translation came back empty,
+  // and the app depended entirely on the fallback endpoint below.
+  if (Array.isArray(payload[0]) && typeof payload[0][0] === 'string') return payload[0][0];
+
   // translate.google.com/single returns an array of translated segments.
   if (Array.isArray(payload[0])) {
     return payload[0]

@@ -1,6 +1,7 @@
 // Ported from MediconecktApp's src/doctor/navigation/DoctorBottomNavigation.tsx.
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { colors, typography, createDoctorStyles } from '../theme';
 

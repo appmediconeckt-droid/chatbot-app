@@ -1,7 +1,9 @@
 // Ported from MediconecktApp's CompleteAppointmentScreen; now submits the web
 // dashboard's complete-appointment payload through onSave (parent PATCHes).
 import React, { useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
@@ -67,7 +69,7 @@ function MedicineEntry({ index, medicine, canRemove, typeOpen, onToggleTypeOpen,
         <View style={styles.fieldWrap}>
           <Text style={styles.fieldLabel}>Type</Text>
           <TouchableOpacity style={styles.selectField} onPress={onToggleTypeOpen}>
-            <Text style={styles.selectText}>{medicine.type}</Text>
+            <Text translate={false} style={styles.selectText}>{medicine.type}</Text>
             <View style={[styles.chevronWrap, typeOpen && styles.chevronOpen]}>
               <AppIcon name="chevron-down" size={13} color="#111827" strokeWidth={2.2} />
             </View>
@@ -120,10 +122,10 @@ const defaultFollowUpDate = (medicines, patient) => {
   return toDateKey(d);
 };
 
-// In-clinic and walk-in visits: the prescription, vitals and advice are handed
-// over in person at the clinic, so the form only asks for an optional
-// follow-up and completes the consultation. Video / voice consultations keep
-// the full form (vitals, diagnosis, medicines, advice, notes, follow-up).
+// Every consultation — in-clinic, walk-in, video or voice — completes through
+// this full form: vitals, diagnosis, medicines, advice, notes and follow-up.
+// Diagnosis, advice and every medicine are required, so the prescription is
+// always recorded (and downloadable as PDF) before a visit is marked complete.
 export default function CompleteAppointmentScreen({ patient, onCancel, onSave }) {
   const isVisit = !getRemoteConsultationMode(patient);
   const modeInfo = getConsultationModeInfo(patient);
@@ -144,8 +146,8 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
   const addMedicine = () => setMedicines((current) => [...current, emptyMedicine()]);
   const removeMedicine = (id) => setMedicines((current) => (current.length > 1 ? current.filter((item) => item.id !== id) : current));
 
-  const canSave = isVisit || Boolean(diagnosis.trim() && advice.trim() && medicines.every(hasValidMedicine));
-  const followUpMedicines = isVisit ? [] : medicines;
+  const canSave = Boolean(diagnosis.trim() && advice.trim() && medicines.every(hasValidMedicine));
+  const followUpMedicines = medicines;
 
   const saveConsultation = async () => {
     if (saveLock.current) return;
@@ -161,10 +163,6 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
     saveLock.current = true;
     setSaving(true);
     try {
-      if (isVisit) {
-        await onSave?.({ visitOnly: true, followUpRequired, followUpDate: finalFollowUpDate });
-        return;
-      }
       await onSave?.({
         temperature,
         bloodPressure,
@@ -190,30 +188,21 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
       <View style={styles.titleBar}><Text style={styles.title}>Complete Appointment</Text></View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.patientCard}>
-          <View><Text style={styles.patientName}>{patient.name}</Text><Text style={styles.patientId}>{getTokenLabel(patient)}</Text></View>
+          <View><Text translate={false} style={styles.patientName}>{patient.name}</Text><Text style={styles.patientId}>{getTokenLabel(patient)}</Text></View>
           <View style={styles.badge}><Text style={styles.badgeText}>{isVisit ? modeInfo.label.toUpperCase() : 'CONSULTATION'}</Text></View>
         </View>
 
-        {isVisit ? (
-          <View style={styles.visitNote}>
-            <AppIcon name="pin" size={15} color="#0F766E" strokeWidth={2} />
-            <Text style={styles.visitNoteText}>
-              In-clinic visit: prescription and advice are given in person. Add a follow-up if needed, then complete the consultation.
-            </Text>
-          </View>
-        ) : (
-        <>
         <SectionTitle>Patient Vitals</SectionTitle>
         <View style={styles.twoColumns}>
           <Field label="Temperature (°C)" placeholder="37.0" keyboardType="decimal-pad" value={temperature} onChangeText={setTemperature} />
           <Field label="Blood Pressure" placeholder="120/80" value={bloodPressure} onChangeText={setBloodPressure} />
         </View>
 
-        <SectionTitle>Diagnosis</SectionTitle>
+        <SectionTitle>Diagnosis *</SectionTitle>
         <TextInput style={styles.textArea} placeholder="Enter detailed diagnosis..." placeholderTextColor="#8D96A6" multiline textAlignVertical="top" value={diagnosis} onChangeText={setDiagnosis} />
 
         <View style={styles.sectionHeadingRow}>
-          <Text style={styles.sectionTitle}>Prescribed Medicines</Text>
+          <Text style={styles.sectionTitle}>Prescribed Medicines *</Text>
           <View style={styles.sectionRule} />
           <TouchableOpacity accessibilityRole="button" style={styles.addMedicine} onPress={addMedicine} hitSlop={6}>
             <Text style={styles.addMedicineText}>＋ Add Medicine</Text>
@@ -232,13 +221,11 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
           />
         ))}
 
-        <SectionTitle>Advice</SectionTitle>
+        <SectionTitle>Advice *</SectionTitle>
         <TextInput style={[styles.textArea, styles.adviceArea]} placeholder="Enter any additional advice or instructions..." placeholderTextColor="#8D96A6" multiline textAlignVertical="top" value={advice} onChangeText={setAdvice} />
 
         <SectionTitle>Additional Notes</SectionTitle>
         <TextInput style={[styles.textArea, styles.adviceArea]} placeholder="Any additional notes..." placeholderTextColor="#8D96A6" multiline textAlignVertical="top" value={additionalNotes} onChangeText={setAdditionalNotes} />
-        </>
-        )}
 
         <SectionTitle>Follow-up</SectionTitle>
         <TouchableOpacity
@@ -286,8 +273,6 @@ const styles = createDoctorStyles({
   patientName: { fontSize: 17, lineHeight: 22, fontWeight: '700', color: '#252B35', marginBottom: 3 },
   patientId: { fontSize: 13, lineHeight: 17, color: '#687181' },
   badge: { backgroundColor: '#EFF1F4', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6 },
-  visitNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#E6FAF6', borderWidth: 1, borderColor: '#99E6D8', borderRadius: 8, padding: 11, marginBottom: 16 },
-  visitNoteText: { flex: 1, fontSize: 13, lineHeight: 18, color: '#0F766E', fontWeight: '600' },
   badgeText: { fontSize: 12, lineHeight: 15, color: '#5E6674', fontWeight: '600', letterSpacing: 0.2 },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 2, marginBottom: 9 },
   sectionRule: { height: StyleSheet.hairlineWidth, backgroundColor: '#DCE1E9', flex: 1 },

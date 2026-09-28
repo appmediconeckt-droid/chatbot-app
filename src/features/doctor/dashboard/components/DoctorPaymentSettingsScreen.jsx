@@ -2,7 +2,9 @@
 // The web has no payment-settings API: it keeps these per doctor on the device
 // under `doctorPaymentSettings:<doctorId>`. The app does the same in AsyncStorage.
 import React, { useEffect, useState } from 'react';
-import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Switch, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';

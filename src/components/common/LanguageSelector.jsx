@@ -13,7 +13,7 @@ import {
 import TextInput from '../TranslatedTextInput';
 import Text from '../TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import i18n, { LANGUAGES, saveUserLanguage, LANG_STORAGE_KEY } from '../../i18n';
+import i18n, { LANGUAGES, saveUserLanguage, LANG_STORAGE_KEY, PENDING_ACCOUNT_LANG_KEY } from '../../i18n';
 import { useLanguageContext } from '../../contexts/LanguageContext';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import AutoTranslatedText from '../AutoTranslatedText';
@@ -113,6 +113,9 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role, ic
         if (userId && role) {
           console.log(`[LanguageSelector] Saving user-specific language: ${code}`);
           await saveUserLanguage(userId, role, code);
+        } else {
+          // Picked before sign-in: the account adopts it on its first dashboard load.
+          await AsyncStorage.setItem(PENDING_ACCOUNT_LANG_KEY, code);
         }
 
         console.log(`[LanguageSelector] ✅ Language changed successfully to: ${code}`);

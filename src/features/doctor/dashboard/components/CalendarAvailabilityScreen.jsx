@@ -14,7 +14,9 @@
 // Availability is also cached per doctor+clinic (web: localStorage,
 // app: AsyncStorage `doctorAvailability:<doctorId>:<clinicId>`).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -1106,7 +1108,7 @@ export default function CalendarAvailabilityScreen() {
 
       <Pressable style={s.clinicBar} onPress={() => setShowClinicDropdown(true)}>
         <View style={[s.clinicDot, { backgroundColor: selectedClinic?.color || colors.blue }]} />
-        <Text style={s.clinicBarText} numberOfLines={1}>
+        <Text translate={false} style={s.clinicBarText} numberOfLines={1}>
           {apiStatus === 'loading' ? 'Loading clinics…' : selectedClinic?.name || 'Add a clinic to get started'}
         </Text>
         <AppIcon name="chevron-down" size={14} color="#667085" />
@@ -1315,7 +1317,7 @@ export default function CalendarAvailabilityScreen() {
         )}
 
         {/* Slot preview */}
-        <Text style={s.previewTitle}>Slot Preview — {selectedClinic?.name || 'Clinic'}</Text>
+        <Text translate={false} style={s.previewTitle}>Slot Preview — {selectedClinic?.name || 'Clinic'}</Text>
         <View style={s.card}>
           {visibleSlotPreview.length === 0 ? (
             <View style={s.previewEmpty}>
@@ -1332,7 +1334,7 @@ export default function CalendarAvailabilityScreen() {
                   <Text style={s.previewCount}>{entry.blocked ? 'Unavailable' : `${entry.slots?.length || 0} slots`}</Text>
                 </View>
                 {entry.blocked ? (
-                  <Text style={s.blockedText}>⊘ {entry.reason || 'Doctor unavailable'}</Text>
+                  <Text translate={false} style={s.blockedText}>⊘ {entry.reason || 'Doctor unavailable'}</Text>
                 ) : (
                   groupSlotsByPeriod(entry.slots).map((period) => (
                     <View key={period.label} style={s.previewPeriod}>
@@ -1398,8 +1400,8 @@ export default function CalendarAvailabilityScreen() {
                   <Pressable key={clinic.id} style={[s.clinicRow, active && s.clinicRowActive]} onPress={() => selectClinic(clinic)}>
                     <View style={[s.clinicDot, { backgroundColor: clinic.color }]} />
                     <View style={s.flex}>
-                      <Text style={s.clinicRowName}>{clinic.name}</Text>
-                      <Text style={s.clinicRowLocation}>{clinic.location}</Text>
+                      <Text translate={false} style={s.clinicRowName}>{clinic.name}</Text>
+                      <Text translate={false} style={s.clinicRowLocation}>{clinic.location}</Text>
                     </View>
                     {active && <Text style={[s.selectedBadge, { backgroundColor: clinic.color }]}>Selected</Text>}
                   </Pressable>
@@ -1525,7 +1527,7 @@ export default function CalendarAvailabilityScreen() {
                 <View style={s.modalHeader}>
                   <View style={s.flex}>
                     <Text style={s.modalTitle}>{editingTarget.key}</Text>
-                    <Text style={s.cardSub}>{selectedClinic?.name} availability for this date.</Text>
+                    <Text translate={false} style={s.cardSub}>{selectedClinic?.name} availability for this date.</Text>
                   </View>
                   <Pressable onPress={() => setEditingTarget(null)} hitSlop={8}><AppIcon name="x" size={18} color="#667085" /></Pressable>
                 </View>
@@ -1633,7 +1635,7 @@ function TimeField({ label, value, onPress, invalid }) {
       <Text style={s.fieldLabel}>{label}</Text>
       <Pressable style={[s.timeButton, !!value && s.timeButtonFilled, invalid && s.timeButtonInvalid]} onPress={onPress}>
         <AppIcon name="clock" size={14} color={invalid ? '#DC2626' : value ? colors.blue : '#98A2B3'} />
-        <Text style={[s.timeButtonText, !value && s.placeholder, invalid && s.invalidText]}>{value ? formatTime12h(value) : 'Tap to set'}</Text>
+        <Text translate={false} style={[s.timeButtonText, !value && s.placeholder, invalid && s.invalidText]}>{value ? formatTime12h(value) : 'Tap to set'}</Text>
       </Pressable>
     </View>
   );

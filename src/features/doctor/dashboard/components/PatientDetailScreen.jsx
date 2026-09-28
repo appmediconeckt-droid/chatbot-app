@@ -3,7 +3,8 @@
 // History (date, time, problem, doctor, follow-up) with 10-per-page
 // pagination, and View Details per visit.
 import React, { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
@@ -47,10 +48,10 @@ export default function PatientDetailScreen({ patient, onBack, onVisitPress }) {
         <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.banner}>
           <View style={s.bannerRow}>
             <View style={s.avatarRing}>
-              <View style={s.avatar}><Text style={s.avatarText}>{getInitials(patient.name)}</Text></View>
+              <View style={s.avatar}><Text translate={false} style={s.avatarText}>{getInitials(patient.name)}</Text></View>
             </View>
             <View style={s.flex}>
-              <Text style={s.name} numberOfLines={2}>{patient.name}</Text>
+              <Text translate={false} style={s.name} numberOfLines={2}>{patient.name}</Text>
               <Text style={s.bannerMeta}>{metaLine}</Text>
             </View>
           </View>
@@ -66,7 +67,7 @@ export default function PatientDetailScreen({ patient, onBack, onVisitPress }) {
                   </View>
                   <View style={s.flex}>
                     <Text style={s.detailLabel}>{item.label}</Text>
-                    <Text style={s.detailValue} numberOfLines={1}>{item.value}</Text>
+                    <Text translate={false} style={s.detailValue} numberOfLines={1}>{item.value}</Text>
                   </View>
                 </View>
               </View>
@@ -95,10 +96,10 @@ export default function PatientDetailScreen({ patient, onBack, onVisitPress }) {
                     <Text style={s.timeText}>{record.time}</Text>
                   </View>
                 </View>
-                <Text style={s.problem} numberOfLines={2}>{record.problem}</Text>
+                <Text translate={false} style={s.problem} numberOfLines={2}>{record.problem}</Text>
                 <View style={s.visitMeta}>
-                  <Text style={s.doctor} numberOfLines={1}>👨‍⚕️ {record.doctor}</Text>
-                  <Text style={[s.followUp, record.followUp === 'Not required' && s.followUpNone]}>Follow-up: {record.followUp}</Text>
+                  <Text translate={false} style={s.doctor} numberOfLines={1}>👨‍⚕️ {record.doctor}</Text>
+                  <Text translate={false} style={[s.followUp, record.followUp === 'Not required' && s.followUpNone]}>Follow-up: {record.followUp}</Text>
                 </View>
                 <View style={s.viewRow}>
                   <AppIcon name="file" size={13} color="#0D9488" />

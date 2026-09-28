@@ -3,7 +3,8 @@
 // for updates, and jump to the settings screens most questions end up in.
 // The FAQs describe how the doctor dashboard actually behaves.
 import React, { useState } from 'react';
-import { Alert, LayoutAnimation, Linking, Platform, Pressable, ScrollView, Text, UIManager, View } from 'react-native';
+import { Alert, LayoutAnimation, Linking, Platform, Pressable, ScrollView, UIManager, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';

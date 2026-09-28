@@ -28,7 +28,6 @@ import LinearGradient from 'react-native-linear-gradient';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import CounselorHelpSupport from './CounselorHelpSupport';
 import GradientFill from '../../../../../../components/common/GradientFill';
-import { useToast } from '../../../../../../components/common/ToastProvider';
 import { DOCTOR } from '../../../../../../theme/palette';
 import CounselorPrivacyPolicy from './CounselorPrivacyPolicy';
 import CounselorWallet from '../Wallet/CounselorWallet';
@@ -43,6 +42,9 @@ import PasswordRequirementChecklist from '../../../../../../components/common/Pa
 import PsychiatristDirectory from '../../../../../../components/common/PsychiatristDirectory';
 import PrescriptionReviews from '../Prescriptions/PrescriptionReviews';
 import { APP_VERSION } from '../../../../../../constants/appInfo';
+import LanguageSelector from '../../../../../../components/common/LanguageSelector';
+import { LANGUAGES } from '../../../../../../i18n';
+import { useLanguageContext } from '../../../../../../contexts/LanguageContext';
 
 const TERMS_URL = 'https://humaeli.com/terms-of-use/';
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -139,7 +141,6 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   } = useKeyboardAwareScroll();
   const navigation = useNavigation();
   const { t } = useLanguageRender();
-  const { showToast } = useToast();
   const [counselor, setCounselor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [settingsSearch, setSettingsSearch] = useState('');
@@ -152,19 +153,17 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
   const [showPrescriptions, setShowPrescriptions] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
-  const showLanguageComingSoon = () => {
-    showToast({
-      title: 'Coming soon',
-      message: 'Work is in progress.',
-      type: 'info',
-      accent: DOCTOR.primary,
-      bg: '#EFF6FF',
-      border: '#BFDBFE',
-      icon: 'i',
-      translate: false,
-      duration: 3200,
-    });
-  };
+  // Language: saved per counsellor (same key the dashboard reloads on focus).
+  const { language: appLanguage } = useLanguageContext();
+  const currentLanguageName =
+    LANGUAGES.find((lang) => lang.code === appLanguage)?.name || 'English';
+  const [languageUserId, setLanguageUserId] = useState(null);
+  useEffect(() => {
+    (async () => {
+      const id = (await AsyncStorage.getItem('counsellorId')) || (await AsyncStorage.getItem('counselorId'));
+      setLanguageUserId(id);
+    })();
+  }, []);
 
   // Feedback modal state
   const [feedbackModal, setFeedbackModal] = useState(false);
@@ -637,15 +636,15 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
             {section.items.map((item, idx) => {
               const isLast = idx === section.items.length - 1;
 
-              // Language is temporarily unavailable, so keep the row in place
-              // and show a short status message instead of opening the selector.
+              // Language row opens the shared language sheet (all app languages).
               if (item.type === 'language') {
                 return (
-                  <TouchableOpacity
+                  <LanguageSelector
                     key={item.id}
-                    style={[styles.row, !isLast && styles.rowDivider]}
-                    onPress={showLanguageComingSoon}
-                    activeOpacity={0.65}
+                    userId={languageUserId}
+                    role="counsellor"
+                    brand={DOCTOR.primary}
+                    triggerStyle={[styles.row, !isLast && styles.rowDivider]}
                   >
                     <View style={[styles.iconBox, { backgroundColor: item.iconBg }]}>
                       <Feather name={item.icon} size={18} color={item.iconColor} />
@@ -654,9 +653,10 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                       <Text style={styles.rowLabel}>{t(item.label)}</Text>
                     </View>
                     <View style={styles.rowTrail}>
+                      <Text style={styles.rowValue} numberOfLines={1} translate={false}>{currentLanguageName}</Text>
                       <Feather name="chevron-right" size={18} color="#cbd5e1" />
                     </View>
-                  </TouchableOpacity>
+                  </LanguageSelector>
                 );
               }
 

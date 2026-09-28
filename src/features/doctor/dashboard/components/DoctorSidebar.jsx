@@ -2,10 +2,16 @@
 // Adaptation: the profile card reads the real (mock) doctor name/specialization
 // from AsyncStorage instead of the source's hardcoded "Vikas Sharma".
 import React, { useEffect, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppIcon from '../icons/AppIcon';
 import { colors, typography, createDoctorStyles } from '../theme';
+import LanguageSelector from '../../../../components/common/LanguageSelector';
+import { LANGUAGES } from '../../../../i18n';
+import { useLanguageContext } from '../../../../contexts/LanguageContext';
+import { CLINICIAN } from '../../../../theme/palette';
+import { getDoctorIdFromUser, getStoredDoctorUser } from '../api/doctorAppointments';
 
 const activeNav = {
   color: colors.blue,
@@ -55,6 +61,18 @@ export default function DoctorSidebar({
   const [doctorName, setDoctorName] = useState('Doctor');
   const [specialization, setSpecialization] = useState('');
 
+  // Language: same per-doctor setting as Settings → Language (the dashboard
+  // re-applies it on focus), so both entry points stay in sync.
+  const { language: appLanguage } = useLanguageContext();
+  const currentLanguageName = LANGUAGES.find((lang) => lang.code === appLanguage)?.name || 'English';
+  const [doctorId, setDoctorId] = useState(null);
+  useEffect(() => {
+    getStoredDoctorUser().then((user) => {
+      const id = getDoctorIdFromUser(user);
+      if (id) setDoctorId(String(id));
+    });
+  }, []);
+
   useEffect(() => {
     setSelectedItem(activeItem ?? null);
   }, [activeItem, visible]);
@@ -88,8 +106,8 @@ export default function DoctorSidebar({
               <View style={styles.onlineDot} />
             </View>
             <View style={styles.profileInfo}>
-              <Text style={styles.name}>{displayName}</Text>
-              <Text style={styles.specialty}>{specialization || 'General Physician'}</Text>
+              <Text translate={false} style={styles.name}>{displayName}</Text>
+              <Text translate={false} style={styles.specialty}>{specialization || 'General Physician'}</Text>
             </View>
             <Text style={styles.profileChevron}>›</Text>
           </Pressable>
@@ -143,6 +161,19 @@ export default function DoctorSidebar({
           </ScrollView>
 
           <View style={styles.footer}>
+            <LanguageSelector
+              userId={doctorId}
+              role="doctor"
+              brand={CLINICIAN.primary}
+              triggerStyle={[styles.item, styles.languageItem]}
+            >
+              <View style={styles.languageIconBox}>
+                <AppIcon name="globe" size={18} strokeWidth={1.8} color={colors.blue} />
+              </View>
+              <Text style={styles.itemText}>Language</Text>
+              <Text style={styles.languageValue} numberOfLines={1} translate={false}>{currentLanguageName}</Text>
+              <AppIcon name="chevron-right" size={16} strokeWidth={2} color="#98A2B3" />
+            </LanguageSelector>
             <Pressable
               accessibilityRole="button"
               onPress={onLogout}
@@ -191,6 +222,9 @@ const styles = createDoctorStyles({
   scheduleBreakdown: { ...typography.body, fontSize: 12.5, color: '#7D879B', marginTop: 2 },
   scheduleLink: { ...typography.caption, fontSize: 12.5, color: colors.blue, marginTop: 8 },
   footer: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 18, borderTopWidth: 1, borderTopColor: '#E8ECF1' },
+  languageItem: { marginBottom: 4 },
+  languageIconBox: { width: 32, height: 32, borderRadius: 9, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
+  languageValue: { ...typography.caption, fontSize: 13, lineHeight: 18, color: colors.blue, maxWidth: 110 },
   logoutItem: { marginTop: 0, marginBottom: 0 },
   logoutIconBox: { width: 32, height: 32, borderRadius: 9, backgroundColor: '#FFF0F1', alignItems: 'center', justifyContent: 'center' },
   logoutText: { ...typography.caption, fontSize: 15, lineHeight: 20, color: '#D92D36', flex: 1 },

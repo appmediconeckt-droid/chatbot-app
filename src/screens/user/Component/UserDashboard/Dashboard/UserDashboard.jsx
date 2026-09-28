@@ -57,6 +57,7 @@ import { loadUserLanguage } from '../../../../../i18n';
 import AutoTranslatedText from '../../../../../components/AutoTranslatedText';
 import { translationService } from '../../../../../i18n/translationService';
 import PATIENT from '../../../../../theme/palette';
+import LanguageSelector from '../../../../../components/common/LanguageSelector';
 import RealVideoCallModal from "../Tab/CallModal/VideoCallModal";
 import RealVoiceCallModal from "../Tab/CallModal/VoiceCallModal";
 import HelpSupport from "../Tab/HelpSupport/HelpSupport";
@@ -985,6 +986,22 @@ const aptSkelStyles = StyleSheet.create({
 
 // Counselor names are often stored with the title already on them, so blindly
 // prefixing produced "Dr. Dr. Naina Sharma".
+const TERMINAL_APT_STATUSES = new Set(["completed", "cancelled", "rejected", "no-show", "no_show"]);
+const normalizeAptStatus = (value) => String(value || "pending").trim().toLowerCase().replace(/^canceled$/, "cancelled");
+// Emergency request the clinic hasn't given a time yet (web emergencyBooking.js).
+const isUnscheduledEmergency = (apt) =>
+  String(apt?.priority || "").toLowerCase() === "emergency" && !apt?.appointment_time;
+
+// Doctor appointments have no chat (web MyAppointments getProfessionalRole).
+// GET /api/appointments only populates the professional's name/photo, so the
+// role comes from the appointment if present, else the counsellors list.
+const isDoctorAppointment = (apt, doctorIds) => {
+  const rawRole = String(apt?.counselor?.role || apt?.doctor?.role || apt?.role || '').trim().toLowerCase();
+  if (rawRole) return rawRole === 'doctor';
+  const id = apt?.counselor?._id || apt?.counselor?.id || apt?.counselorId || apt?.counselor;
+  return !!id && doctorIds.has(String(id));
+};
+
 const counselorDisplayName = (apt) => {
   const name = String(apt?.counselor?.fullName || '').trim() || 'Counselor';
   return /^(dr\.?|doctor)\s/i.test(name) ? name : `Dr. ${name}`;
@@ -1048,12 +1065,27 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(true);
-  const [activeTab, setActiveTab] = useState("Upcoming");
+  const [activeTab, setActiveTab] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [selectedApt, setSelectedApt] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [countdown, setCountdown] = useState("");
+  const [doctorIds, setDoctorIds] = useState(() => new Set());
   const socketRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    axiosInstance.get('/api/auth/counsellors')
+      .then((res) => {
+        const list = res.data?.counsellors || res.data?.data || (Array.isArray(res.data) ? res.data : []);
+        if (cancelled) return;
+        setDoctorIds(new Set(list
+          .filter((c) => String(c?.role || '').toLowerCase() === 'doctor')
+          .map((c) => String(c._id || c.id))));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   // The details sheet is a Modal, so it sits OUTSIDE the screen's SafeAreaView
   // and nothing was compensating for the device's bottom inset. On a phone with
   // gesture navigation the footer's Chat / Call row ran under the system bar.
@@ -1144,15 +1176,18 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     };
   }, [fetchAppointments]);
 
-  const now = new Date();
-  const upcomingApts = appointments.filter((apt) => {
-    const aptDate = new Date(apt.date);
-    return aptDate > now && apt.status !== "canceled";
-  });
-  const pastApts = appointments.filter((apt) => {
-    const aptDate = new Date(apt.date);
-    return aptDate <= now || apt.status === "canceled";
-  });
+  // Same rules as the web (appointmentFilters.js). An emergency request with
+  // no time yet has no valid date, so a plain date check dropped it from both
+  // Upcoming and Past — it stays in Upcoming until it's completed/cancelled.
+  const nowMs = Date.now();
+  const aptTimestamp = (apt) => Date.parse(apt?.date) || 0;
+  const periodApts = appointments.filter((apt) => {
+    const value = normalizeAptStatus(apt.status);
+    const pendingEmergency = isUnscheduledEmergency(apt) && !TERMINAL_APT_STATUSES.has(value);
+    if (activeTab === "Upcoming") return !TERMINAL_APT_STATUSES.has(value) && (pendingEmergency || aptTimestamp(apt) > nowMs);
+    if (activeTab === "Past") return TERMINAL_APT_STATUSES.has(value) || (!pendingEmergency && aptTimestamp(apt) <= nowMs);
+    return true;
+  }).sort((a, b) => (Date.parse(b.createdAt || b.created_at) || aptTimestamp(b)) - (Date.parse(a.createdAt || a.created_at) || aptTimestamp(a)));
 
   // Vitals tracking only makes sense once a Doctor (psychiatrist — medical,
   // can prescribe) has actually seen the patient, not a talk-therapy
@@ -1162,7 +1197,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     (apt) => apt.status === "completed" && isPsychiatristSpecialization(apt?.counselor?.specialization)
   );
 
-  let displayApts = activeTab === "Upcoming" ? upcomingApts : pastApts;
+  let displayApts = periodApts;
 
   if (statusFilter === "Pending") {
     displayApts = displayApts.filter((apt) => apt.status === "pending");
@@ -1206,7 +1241,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   };
 
   // ---- Derived values for the details sheet ----
-  const aptDate = selectedApt?.date ? new Date(selectedApt.date) : null;
+  const aptDate = Number.isFinite(Date.parse(selectedApt?.date)) ? new Date(selectedApt.date) : null;
   const isToday = aptDate ? aptDate.toDateString() === new Date().toDateString() : false;
   const dayLabel = aptDate ? (isToday ? "Today" : aptDate.toLocaleDateString("en-US", { weekday: "short" })) : "";
   const timeLabel = aptDate ? aptDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-";
@@ -1219,7 +1254,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const aptTime = aptDate?.getTime?.() ?? NaN;
   const hasValidAptTime = Number.isFinite(aptTime);
   const sessionHasStarted = hasValidAptTime && aptTime <= Date.now();
-  const isPast = activeTab === "Past" || statusLower === "completed" || statusLower === "canceled";
+  const isPast = TERMINAL_APT_STATUSES.has(normalizeAptStatus(statusLower)) || (sessionHasStarted && !isUnscheduledEmergency(selectedApt));
   const isJoinDisabled = !sessionHasStarted || statusLower === "completed" || statusLower === "canceled";
   // Extract real talk duration from appointment data
   const getTalkDuration = () => {
@@ -1241,34 +1276,23 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
       {/* Tabs + Filter bar */}
       <View style={styles.appointmentsTopBar}>
         <View style={styles.appointmentsTabRow}>
-          <TouchableOpacity
-            onPress={() => setActiveTab("Upcoming")}
-            style={[styles.aptTabBtn, activeTab === "Upcoming" && styles.aptTabBtnActive]}
-          >
-            {activeTab === "Upcoming" && (
-              <LinearGradient
-                colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={StyleSheet.absoluteFillObject}
-              />
-            )}
-            <Text style={[styles.aptTabText, activeTab === "Upcoming" && styles.aptTabTextActive]}>{t('Upcoming')}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setActiveTab("Past")}
-            style={[styles.aptTabBtn, activeTab === "Past" && styles.aptTabBtnActive]}
-          >
-            {activeTab === "Past" && (
-              <LinearGradient
-                colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={StyleSheet.absoluteFillObject}
-              />
-            )}
-            <Text style={[styles.aptTabText, activeTab === "Past" && styles.aptTabTextActive]}>{t('Past')}</Text>
-          </TouchableOpacity>
+          {["All", "Upcoming", "Past"].map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              onPress={() => setActiveTab(tab)}
+              style={[styles.aptTabBtn, activeTab === tab && styles.aptTabBtnActive]}
+            >
+              {activeTab === tab && (
+                <LinearGradient
+                  colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+              )}
+              <Text style={[styles.aptTabText, activeTab === tab && styles.aptTabTextActive]}>{t(tab)}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         <ScrollView
@@ -1362,22 +1386,26 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   <MaterialIcons name="event" size={15} color={PATIENT.primary} />
                 </View>
                 <Text style={styles.appointmentDateText}>
-                  {new Date(apt.date).toLocaleDateString("en-US", {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  })}
+                  {Number.isFinite(Date.parse(apt.date))
+                    ? new Date(apt.date).toLocaleDateString("en-US", {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })
+                    : t('Emergency request')}
                 </Text>
                 <View style={styles.aptTimeDot} />
                 <View style={styles.aptDateIconWrap}>
                   <MaterialIcons name="access-time" size={15} color={PATIENT.primary} />
                 </View>
                 <Text style={styles.appointmentDateText}>
-                  {new Date(apt.date).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+                  {isUnscheduledEmergency(apt) || !Number.isFinite(Date.parse(apt.date))
+                    ? t('Clinic will confirm')
+                    : new Date(apt.date).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                 </Text>
               </View>
 
@@ -1412,13 +1440,15 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   <Ionicons name="call-outline" size={19} color={PATIENT.primary} />
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.aptActionIconBtn}
-                  onPress={() => onChat && onChat(apt)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="chatbubble-outline" size={19} color={PATIENT.primary} />
-                </TouchableOpacity>
+                {!isDoctorAppointment(apt, doctorIds) && (
+                  <TouchableOpacity
+                    style={styles.aptActionIconBtn}
+                    onPress={() => onChat && onChat(apt)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="chatbubble-outline" size={19} color={PATIENT.primary} />
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           ))
@@ -1591,18 +1621,20 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   </TouchableOpacity>
 
                   <View style={sheetStyles.secRow}>
-                    <TouchableOpacity
-                      style={sheetStyles.secBtn}
-                      activeOpacity={0.85}
-                      onPress={() => {
-                        const apt = selectedApt;
-                        setShowDetailsModal(false);
-                        setTimeout(() => onChat && onChat(apt), MODAL_DISMISS_MS);
-                      }}
-                    >
-                      <Ionicons name="chatbubble-ellipses" size={17} color="#F59E0B" />
-                      <Text style={sheetStyles.secText}>{t('Chat')}</Text>
-                    </TouchableOpacity>
+                    {!isDoctorAppointment(selectedApt, doctorIds) && (
+                      <TouchableOpacity
+                        style={sheetStyles.secBtn}
+                        activeOpacity={0.85}
+                        onPress={() => {
+                          const apt = selectedApt;
+                          setShowDetailsModal(false);
+                          setTimeout(() => onChat && onChat(apt), MODAL_DISMISS_MS);
+                        }}
+                      >
+                        <Ionicons name="chatbubble-ellipses" size={17} color="#F59E0B" />
+                        <Text style={sheetStyles.secText}>{t('Chat')}</Text>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
                       style={sheetStyles.secBtn}
                       activeOpacity={0.85}
@@ -1668,7 +1700,7 @@ export default function UserDashboard() {
   const aiButtonBottom = (Platform.OS === "ios" ? 42 : 28) + dashboardBottomInset;
   const { i18n } = useTranslation();
   const { t } = useLanguageRender();
-  const { showToast, setToastRole } = useToast();
+  const { setToastRole } = useToast();
   const navigation = useNavigation();
   const route = useRoute();
   const isFocused = useIsFocused();
@@ -1755,23 +1787,6 @@ export default function UserDashboard() {
   const [selectedLang, setSelectedLang] = useState(i18n.language || 'en-IN');
   const [showAvatarChooser, setShowAvatarChooser] = useState(false);
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
-
-  const showLanguageComingSoon = useCallback(() => {
-    setShowMoreModal(false);
-    setTimeout(() => {
-      showToast({
-        title: 'Coming soon',
-        message: 'Work is in progress.',
-        type: 'info',
-        accent: PATIENT.primary,
-        bg: '#E6F6EC',
-        border: '#BDE8CD',
-        icon: 'i',
-        translate: false,
-        duration: 3200,
-      });
-    }, MODAL_DISMISS_MS);
-  }, [showToast]);
 
   const handleAIContactClick = (name) => {
     setTargetCounselor(name);
@@ -2685,6 +2700,10 @@ export default function UserDashboard() {
 
   const handleDirectBooking = async () => {
     if (!directBookCounselor) return;
+    if (!directBookDateTime || directBookDateTime.getTime() <= Date.now()) {
+      Alert.alert(t('appointment:invalidTime', 'Invalid time'), t('appointment:pleaseChooseFutureDateTime', 'Please choose a future date and time.'));
+      return;
+    }
 
     try {
       setDirectBookLoading(true);
@@ -3194,20 +3213,19 @@ export default function UserDashboard() {
             </View>
 
             <View style={styles.sbBottomActions}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.sbItem,
-                  pressed && styles.sbItemPressed,
-                ]}
-                onPress={showLanguageComingSoon}
-                android_ripple={{ color: '#D7F0E1', borderless: false }}
+              {/* Opens the shared language sheet; saved per user. */}
+              <LanguageSelector
+                userId={userId}
+                role="user"
+                brand={PATIENT.primary}
+                triggerStyle={styles.sbItem}
               >
                 <View style={styles.sbIconChip}>
                   <Ionicons name="globe-outline" size={19} color={PATIENT.primary} />
                 </View>
                 <Text style={styles.sbItemText}>{t('settings:language', 'Language')}</Text>
                 <Ionicons name="chevron-forward" size={17} color="#CBD5E1" />
-              </Pressable>
+              </LanguageSelector>
 
               <TouchableOpacity
                 style={styles.sbLogout}

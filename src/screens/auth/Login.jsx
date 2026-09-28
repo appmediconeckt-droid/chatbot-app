@@ -34,6 +34,9 @@ import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwo
 import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 import { syncPushNotificationToken } from '../../services/notificationService';
 import { enterAuthenticatedRoute } from '../../utils/authSession';
+import LanguageSelector from '../../components/common/LanguageSelector';
+import { LANGUAGES } from '../../i18n';
+import { useLanguageContext } from '../../contexts/LanguageContext';
 import { isCounselorLikeRole, resolveAuthRole, routeForAuthRole } from './resolveAuthRole';
 import {
   getApiErrorMessage,
@@ -47,6 +50,8 @@ const SCROLL_PAD_V = 24;
 
 const Login = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
+  const { language: appLanguage } = useLanguageContext();
+  const currentLanguageName = LANGUAGES.find((lang) => lang.code === appLanguage)?.name || 'English';
   const { t } = useLanguageRender();
   const { showToast } = useToast();
   // Login is the single common entry point for every role now, so it always
@@ -201,10 +206,12 @@ const Login = ({ navigation, route }) => {
     return normalized === 'counselor' ? 'Consultant' : 'User';
   };
 
-  const buildRoleMismatchMessage = (actualRole, selectedRole) => {
+  // Short, professional copy: which account type this is and what to do next.
+  const buildRoleMismatchMessage = (actualRole) => {
+    if (!actualRole) return 'This account uses a different login type. Please choose the correct role.';
     const actualLabel = getRoleLabel(actualRole);
-    const selectedLabel = selectedRole ? getRoleLabel(selectedRole) : 'another';
-    return `Role mismatch: this email is registered as ${actualLabel}, but you selected ${selectedLabel} login. Please go back and select ${actualLabel} login.`;
+    const article = /^[AEIOU]/.test(actualLabel) ? 'an' : 'a';
+    return `This account is registered as ${article} ${actualLabel}. Please sign in as ${actualLabel}.`;
   };
 
   const showLoginError = (message, title = 'Login failed', duration = 8000) => {
@@ -412,10 +419,10 @@ const Login = ({ navigation, route }) => {
         responseMessage.includes('registered as a counselor') ||
         responseMessage.includes('registered as a user');
       const msg = isRoleMismatch
-        ? buildRoleMismatchMessage(responseData?.actualRole, selectedRole)
+        ? buildRoleMismatchMessage(responseData?.actualRole)
         : err?.response?.data?.message || err?.message || 'Login failed';
 
-      showLoginError(msg, isRoleMismatch ? 'Role mismatch' : 'Login failed');
+      showLoginError(msg, isRoleMismatch ? 'Wrong account type' : 'Login failed');
     } finally {
       setIsLoading(false);
     }
@@ -770,6 +777,15 @@ const Login = ({ navigation, route }) => {
       >
         <Ionicons name="chevron-back" size={24} color="#0F172A" />
       </TouchableOpacity>
+      {/* Language — before signing in the choice is saved app-wide; each
+          dashboard then applies the account's own saved language, if any. */}
+      <View style={[styles.langWrap, { top: Math.max(insets.top, 12) + 6 }]}>
+        <LanguageSelector brand={BRAND.primary} triggerStyle={styles.langPill}>
+          <Ionicons name="globe-outline" size={17} color={BRAND.primary} />
+          <Text style={styles.langText} numberOfLines={1} translate={false}>{currentLanguageName}</Text>
+          <Ionicons name="chevron-down" size={14} color={BRAND.primary} />
+        </LanguageSelector>
+      </View>
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={scrollContainerStyle}
@@ -927,6 +943,7 @@ const Login = ({ navigation, route }) => {
             {/* Error Message */}
             {errorMessage ? (
               <View style={[styles.errorContainer, { marginTop: 16 }]}>
+                <Ionicons name="alert-circle" size={18} color="#DC2626" style={styles.errorIcon} />
                 <Text translate={false} style={styles.errorText}>{errorMessage}</Text>
               </View>
             ) : null}
@@ -1379,6 +1396,29 @@ const styles = StyleSheet.create({
   },
   // Square icon-only mark — dimensions set responsively in logoStyle above.
   logoImage: {},
+  langWrap: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 100,
+  },
+  langPill: {
+    height: 42,
+    maxWidth: 170,
+    paddingHorizontal: 13,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(15,138,157,0.25)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  langText: {
+    flexShrink: 1,
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
   backBtn: {
     position: 'absolute',
     left: 16,
@@ -1532,17 +1572,28 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   errorContainer: {
-    backgroundColor: '#ffebee',
-    padding: 14,
-    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FEF2F2',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
     marginTop: 18,
     borderWidth: 1,
-    borderColor: '#ffcdd2',
+    borderColor: '#FECACA',
+    borderLeftWidth: 3,
+    borderLeftColor: '#DC2626',
+  },
+  errorIcon: {
+    marginTop: 1,
+    marginRight: 8,
   },
   errorText: {
-    color: '#c62828',
-    fontSize: 14,
-    textAlign: 'center',
+    flex: 1,
+    color: '#991B1B',
+    fontSize: 13.5,
+    lineHeight: 19,
+    fontWeight: '600',
   },
   successContainer: {
     backgroundColor: '#e8f5e9',

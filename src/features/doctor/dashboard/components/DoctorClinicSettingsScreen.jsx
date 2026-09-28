@@ -3,7 +3,9 @@
 // clinic_photo[]) plus the doctor's existing clinics from
 // GET /api/clinics?doctor_id&role=doctor.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import { launchImageLibrary } from 'react-native-image-picker';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -158,8 +160,8 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
               <View key={clinic.id} style={[s.clinicRow, index === clinics.length - 1 && s.clinicRowLast]}>
                 <View style={s.logoThumb}><AppIcon name="briefcase" size={18} color="#0D9488" strokeWidth={1.8} /></View>
                 <View style={s.flex}>
-                  <Text style={s.clinicName}>{clinic.name}</Text>
-                  <Text style={s.hint}>{clinic.location}{clinic.phone ? ` • ${clinic.phone}` : ''}</Text>
+                  <Text translate={false} style={s.clinicName}>{clinic.name}</Text>
+                  <Text translate={false} style={s.hint}>{clinic.location}{clinic.phone ? ` • ${clinic.phone}` : ''}</Text>
                 </View>
               </View>
             ))
@@ -185,7 +187,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
             </ScrollView>
           )}
           {!!message && (
-            <Text style={[s.message, status === 'failed' && s.messageError, status === 'succeeded' && s.messageOk]}>{message}</Text>
+            <Text translate={false} style={[s.message, status === 'failed' && s.messageError, status === 'succeeded' && s.messageOk]}>{message}</Text>
           )}
         </Section>
       </ScrollView>

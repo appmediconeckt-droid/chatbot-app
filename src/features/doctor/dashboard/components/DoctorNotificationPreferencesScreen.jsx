@@ -2,7 +2,8 @@
 // services/notificationService before it shows a notification (see
 // services/notificationPreferences for exactly what can and can't be filtered).
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, Switch, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';

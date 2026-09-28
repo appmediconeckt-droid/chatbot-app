@@ -4,7 +4,9 @@
 // search, sort and 10-per-page pagination as the web. "Add Patient" is
 // local-only there too (the web has no create-patient API).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
@@ -219,7 +221,7 @@ export default function PatientsScreen({ onPatientPress }) {
           {stats.map((item) => (
             <View key={item.label} style={s.stat}>
               <View style={[s.statIcon, s[`tone_${item.tone}`]]}><AppIcon name={item.icon} size={15} color={TONE_FG[item.tone]} /></View>
-              <Text style={s.statValue}>{item.value}</Text>
+              <Text translate={false} style={s.statValue}>{item.value}</Text>
               <Text style={s.statLabel}>{item.label}</Text>
             </View>
           ))}
@@ -258,7 +260,7 @@ export default function PatientsScreen({ onPatientPress }) {
         ) : filtered.length === 0 ? (
           <View style={s.empty}>
             <AppIcon name="file" size={30} color="#98A2B3" />
-            <Text style={s.emptyText}>{hasFilters ? 'No patients match your search or filters' : 'No patients found for this doctor'}</Text>
+            <Text translate={false} style={s.emptyText}>{hasFilters ? 'No patients match your search or filters' : 'No patients found for this doctor'}</Text>
             {hasFilters && <Pressable onPress={clearFilters} hitSlop={8}><Text style={s.clearText}>Clear filters</Text></Pressable>}
           </View>
         ) : (
@@ -266,16 +268,16 @@ export default function PatientsScreen({ onPatientPress }) {
             {pageRows.map((p) => (
               <Pressable key={p.id} onPress={() => onPatientPress?.(p)} style={({ pressed }) => [s.card, pressed && s.pressed]}>
                 <View style={s.cardTop}>
-                  <View style={s.avatar}><Text style={s.avatarText}>{p.name.charAt(0).toUpperCase()}</Text></View>
+                  <View style={s.avatar}><Text translate={false} style={s.avatarText}>{p.name.charAt(0).toUpperCase()}</Text></View>
                   <View style={s.flex}>
-                    <Text style={s.name} numberOfLines={1}>{p.name}</Text>
+                    <Text translate={false} style={s.name} numberOfLines={1}>{p.name}</Text>
                     <Text style={s.meta}>{p.age !== 'N/A' ? `${p.age} yrs` : 'Age N/A'} • {p.gender}</Text>
                   </View>
-                  {p.bloodGroup !== 'N/A' && <Text style={s.blood}>{p.bloodGroup}</Text>}
+                  {p.bloodGroup !== 'N/A' && <Text translate={false} style={s.blood}>{p.bloodGroup}</Text>}
                 </View>
                 <View style={s.contactRow}>
                   <AppIcon name="phone" size={13} color="#0D9488" />
-                  <Text style={s.contactText}>{p.phone}</Text>
+                  <Text translate={false} style={s.contactText}>{p.phone}</Text>
                 </View>
                 <View style={s.cardFooter}>
                   <Text style={s.lastVisit}>Last visit: {p.lastVisit}</Text>
@@ -388,7 +390,7 @@ function FilterChip({ chipRef, label, value, active, openDirection, onPress }) {
     >
       <View style={s.flex}>
         <Text style={[s.chipLabel, active && s.chipLabelActive]} numberOfLines={1}>{label}</Text>
-        <Text style={[s.chipText, active && s.chipTextActive]} numberOfLines={1}>{value}</Text>
+        <Text translate={false} style={[s.chipText, active && s.chipTextActive]} numberOfLines={1}>{value}</Text>
       </View>
       <View style={open && s.chevronOpen}>
         <AppIcon name="chevron-down" size={12} strokeWidth={2.4} color={active ? '#FFF' : '#243249'} />

@@ -429,6 +429,8 @@ export const displaySystemNotification = async remoteMessage => {
     body: String(body),
     data,
     android: {
+      smallIcon: 'ic_notification',
+      color: '#0F8A9D',
       channelId: isIncomingCall
         ? INCOMING_CALL_CHANNEL_ID
         : NOTIFICATION_CHANNEL_ID,
@@ -736,6 +738,8 @@ export const displayMissedCallNotification = async (callData = {}, reason = 'mis
     ),
     android: Platform.OS === 'android'
       ? {
+          smallIcon: 'ic_notification',
+          color: '#0F8A9D',
           channelId: NOTIFICATION_CHANNEL_ID,
           importance: AndroidImportance.HIGH,
           sound: 'default',

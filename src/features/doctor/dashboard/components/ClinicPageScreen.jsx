@@ -4,7 +4,8 @@
 //   GET /api/auth/me?clinic_id&doctor_id          (clinic doctors)
 //   GET /api/appointments?clinic_id&doctor_id     (patient count / departments)
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, ImageBackground, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Image, ImageBackground, Linking, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { colors, createDoctorStyles, typography } from '../theme';
 import axiosInstance, { API_BASE_URL } from '../../../../axiosConfig';
@@ -274,10 +275,10 @@ export default function ClinicPageScreen({ onBack }) {
               <Text style={s.openBadge}>Open Now</Text>
               <Text style={s.typeBadge}>{clinic.subtitle}</Text>
             </View>
-            <Text style={s.heroTitle}>{clinic.name}</Text>
+            <Text translate={false} style={s.heroTitle}>{clinic.name}</Text>
             <View style={s.heroMetaRow}>
               <AppIcon name="pin" size={13} color="#FFFFFF" />
-              <Text style={s.heroMeta} numberOfLines={1}>{clinic.address}</Text>
+              <Text translate={false} style={s.heroMeta} numberOfLines={1}>{clinic.address}</Text>
             </View>
             <Text style={s.heroMeta}>★ {clinic.stats.rating !== 'N/A' ? `${clinic.stats.rating} Rating` : 'No rating available'}</Text>
           </View>
@@ -310,7 +311,7 @@ export default function ClinicPageScreen({ onBack }) {
             {stats.map((item) => (
               <View key={item.label} style={s.statCard}>
                 <View style={s.statIcon}><AppIcon name={item.icon} size={16} color="#0D9488" /></View>
-                <Text style={s.statValue}>{String(item.value)}</Text>
+                <Text translate={false} style={s.statValue}>{String(item.value)}</Text>
                 <Text style={s.statLabel}>{item.label}</Text>
               </View>
             ))}
@@ -320,7 +321,7 @@ export default function ClinicPageScreen({ onBack }) {
         {activeTab === 'Overview' && (
           <View style={s.panel}>
             <Text style={s.panelTitle}>About Hospital</Text>
-            <Text style={s.body}>{clinic.about}</Text>
+            <Text translate={false} style={s.body}>{clinic.about}</Text>
             <Text style={s.subTitle}>Our Mission</Text>
             <Text style={s.body}>{clinic.mission}</Text>
             <Text style={s.subTitle}>Key Specialties</Text>
@@ -337,24 +338,24 @@ export default function ClinicPageScreen({ onBack }) {
             <Text style={s.panelTitle}>Contact Information</Text>
             <Pressable style={s.contactRow} onPress={() => openUrl(clinic.mapUrl)}>
               <AppIcon name="pin" size={15} color="#0D9488" />
-              <Text style={[s.body, s.flex]}>{clinic.fullAddress}</Text>
+              <Text translate={false} style={[s.body, s.flex]}>{clinic.fullAddress}</Text>
             </Pressable>
             {!!clinic.phone && (
               <Pressable style={s.contactRow} onPress={() => openUrl(`tel:${clinic.phone}`)}>
                 <AppIcon name="phone" size={15} color="#0D9488" />
-                <Text style={[s.link, s.flex]}>{clinic.phone}</Text>
+                <Text translate={false} style={[s.link, s.flex]}>{clinic.phone}</Text>
               </Pressable>
             )}
             {!!clinic.email && (
               <Pressable style={s.contactRow} onPress={() => openUrl(`mailto:${clinic.email}`)}>
                 <AppIcon name="mail" size={15} color="#0D9488" />
-                <Text style={[s.link, s.flex]}>{clinic.email}</Text>
+                <Text translate={false} style={[s.link, s.flex]}>{clinic.email}</Text>
               </Pressable>
             )}
             {!!website && (
               <Pressable style={s.contactRow} onPress={() => openUrl(website)}>
                 <AppIcon name="globe" size={15} color="#0D9488" />
-                <Text style={[s.link, s.flex]}>{clinic.website}</Text>
+                <Text translate={false} style={[s.link, s.flex]}>{clinic.website}</Text>
               </Pressable>
             )}
             <Text style={s.subTitle}>Hours</Text>
@@ -380,12 +381,12 @@ export default function ClinicPageScreen({ onBack }) {
                 {doctor.image ? (
                   <Image source={{ uri: doctor.image }} style={s.doctorImage} />
                 ) : (
-                  <View style={[s.doctorImage, s.doctorInitials]}><Text style={s.doctorInitialText}>{doctor.name.charAt(0)}</Text></View>
+                  <View style={[s.doctorImage, s.doctorInitials]}><Text translate={false} style={s.doctorInitialText}>{doctor.name.charAt(0)}</Text></View>
                 )}
                 <View style={s.flex}>
-                  <Text style={s.strong}>{doctor.name}</Text>
-                  <Text style={s.muted}>{doctor.specialty}</Text>
-                  <Text style={s.muted}>Experience: {doctor.experience} • Rating: {doctor.rating}</Text>
+                  <Text translate={false} style={s.strong}>{doctor.name}</Text>
+                  <Text translate={false} style={s.muted}>{doctor.specialty}</Text>
+                  <Text translate={false} style={s.muted}>Experience: {doctor.experience} • Rating: {doctor.rating}</Text>
                 </View>
               </View>
             ))}
@@ -396,7 +397,7 @@ export default function ClinicPageScreen({ onBack }) {
           <View style={s.panel}>
             <Text style={s.panelTitle}>Departments</Text>
             {departmentNames.length === 0 && <Text style={s.muted}>No departments available</Text>}
-            <View style={s.chips}>{departmentNames.map((name) => <Text key={name} style={s.chip}>{name}</Text>)}</View>
+            <View style={s.chips}>{departmentNames.map((name) => <Text translate={false} key={name} style={s.chip}>{name}</Text>)}</View>
           </View>
         )}
 
@@ -404,7 +405,7 @@ export default function ClinicPageScreen({ onBack }) {
           <View style={s.panel}>
             <Text style={s.panelTitle}>Facilities</Text>
             {facilities.length === 0 && <Text style={s.muted}>No facilities available</Text>}
-            <View style={s.chips}>{facilities.map((name) => <Text key={name} style={s.chip}>{name}</Text>)}</View>
+            <View style={s.chips}>{facilities.map((name) => <Text translate={false} key={name} style={s.chip}>{name}</Text>)}</View>
           </View>
         )}
 

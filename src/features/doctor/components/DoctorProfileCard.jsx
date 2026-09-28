@@ -42,8 +42,8 @@ const DoctorProfileCard = ({ doctor, onViewProfile, style }) => {
         )}
       </LinearGradient>
 
-      <Text style={styles.name} numberOfLines={1}>{fullName}</Text>
-      {specialization ? <Text style={styles.specialization}>{specialization}</Text> : null}
+      <Text translate={false} style={styles.name} numberOfLines={1}>{fullName}</Text>
+      {specialization ? <Text translate={false} style={styles.specialization}>{specialization}</Text> : null}
 
       <View style={styles.metaRow}>
         {typeof rating === 'number' && (
@@ -54,7 +54,7 @@ const DoctorProfileCard = ({ doctor, onViewProfile, style }) => {
         )}
         {(experience || experience === 0) && (
           <View style={styles.metaItem}>
-            <Text style={styles.metaText}>{t('Experience')} {experience} {t('yrs')}</Text>
+            <Text translate={false} style={styles.metaText}>{t('Experience')} {experience} {t('yrs')}</Text>
           </View>
         )}
       </View>

@@ -89,6 +89,10 @@ import ur from './locales/ur-IN.json';
 import ne from './locales/ne-NP.json';
 
 export const LANG_STORAGE_KEY = 'appLanguage';
+// Set when a language is picked before signing in (e.g. on the Login screen).
+// The first dashboard load after sign-in adopts it for that account, so the
+// choice carries through instead of being replaced by an older saved one.
+export const PENDING_ACCOUNT_LANG_KEY = 'pendingAccountLanguage';
 
 // Generate a unique key for each user
 export const getUserLangStorageKey = (userId, role) => {
@@ -99,6 +103,13 @@ export const getUserLangStorageKey = (userId, role) => {
 // Load language for a specific user
 export const loadUserLanguage = async (userId, role) => {
   const key = getUserLangStorageKey(userId, role);
+  const pendingLang = await AsyncStorage.getItem(PENDING_ACCOUNT_LANG_KEY);
+  if (pendingLang && userId && role) {
+    await AsyncStorage.multiRemove([PENDING_ACCOUNT_LANG_KEY]);
+    await AsyncStorage.setItem(key, pendingLang);
+    await i18n.changeLanguage(pendingLang);
+    return pendingLang;
+  }
   const storedLang = await AsyncStorage.getItem(key);
   // Fall back to the global app language, then to en-US
   const globalLang = await AsyncStorage.getItem(LANG_STORAGE_KEY);

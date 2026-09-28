@@ -5,7 +5,9 @@
 //   consult   PATCH /api/(walkin-)appointments/:id  in-progress / pause / resume / completed
 //   breaks    GET /api/doctor-breaks/active, POST /start, PATCH /:id/end
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, Dimensions, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Dimensions, Modal, Pressable, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import Text from '../../../components/TranslatedText';
+import TextInput from '../../../components/TranslatedTextInput';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import { CLINICIAN_GRADIENT } from '../../../theme/palette';
@@ -21,6 +23,7 @@ import EditCompletedAppointmentScreen from '../dashboard/components/EditComplete
 import CompleteAppointmentScreen from '../dashboard/components/CompleteAppointmentScreen';
 import DoctorSidebar from '../dashboard/components/DoctorSidebar';
 import { DoctorBackContext, useDoctorBackRegistry } from '../dashboard/useDoctorBack';
+import { loadUserLanguage } from '../../../i18n';
 import WalkInAppointmentsScreen from '../dashboard/components/WalkInAppointmentsScreen';
 import PatientsScreen from '../dashboard/components/PatientsScreen';
 import PatientDetailScreen from '../dashboard/components/PatientDetailScreen';
@@ -106,7 +109,7 @@ function PatientConsentModal({ visible, onClose, onStartConsultation, patient, s
           <Text style={consentStyles.sectionTitle}>Patient Information</Text>
           <View style={[consentStyles.infoRow, consentStyles.fullWidth]}>
             <Text style={consentStyles.infoLabel}>Name:</Text>
-            <Text style={consentStyles.infoValue}>{patient?.name ?? ''}</Text>
+            <Text translate={false} style={consentStyles.infoValue}>{patient?.name ?? ''}</Text>
           </View>
           <View style={consentStyles.gridRow}>
             <View style={consentStyles.infoRow}>
@@ -120,7 +123,7 @@ function PatientConsentModal({ visible, onClose, onStartConsultation, patient, s
           </View>
           <View style={[consentStyles.infoRow, consentStyles.fullWidth]}>
             <Text style={consentStyles.infoLabel}>Issue:</Text>
-            <Text style={consentStyles.infoValue}>{patient?.issue ?? ''}</Text>
+            <Text translate={false} style={consentStyles.infoValue}>{patient?.issue ?? ''}</Text>
           </View>
           <View style={[consentStyles.infoRow, consentStyles.fullWidth]}>
             <Text style={consentStyles.infoLabel}>Token:</Text>
@@ -128,7 +131,7 @@ function PatientConsentModal({ visible, onClose, onStartConsultation, patient, s
           </View>
           <View style={[consentStyles.infoRow, consentStyles.fullWidth]}>
             <Text style={consentStyles.infoLabel}>Phone:</Text>
-            <Text style={consentStyles.infoValue}>{patient?.phone || 'N/A'}</Text>
+            <Text translate={false} style={consentStyles.infoValue}>{patient?.phone || 'N/A'}</Text>
           </View>
 
           <Text style={[consentStyles.sectionTitle, { marginTop: 16 }]}>Agreement</Text>
@@ -249,10 +252,10 @@ function BreakInProgressModal({ onEndBreak, endMs, nextPatient }) {
         </View>
         {nextPatient ? (
           <View style={breakInProgressStyles.patientRow}>
-            <View style={[breakInProgressStyles.avatar, breakInProgressStyles.avatarInitials]}><Text style={breakInProgressStyles.avatarText}>{nextPatient.name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}</Text></View>
+            <View style={[breakInProgressStyles.avatar, breakInProgressStyles.avatarInitials]}><Text translate={false} style={breakInProgressStyles.avatarText}>{nextPatient.name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}</Text></View>
             <View style={breakInProgressStyles.patientInfo}>
-              <Text style={breakInProgressStyles.patientName}>{nextPatient.name}</Text>
-              <Text style={breakInProgressStyles.patientDetails}>{getTokenLabel(nextPatient)} - {nextPatient.issue}</Text>
+              <Text translate={false} style={breakInProgressStyles.patientName}>{nextPatient.name}</Text>
+              <Text translate={false} style={breakInProgressStyles.patientDetails}>{getTokenLabel(nextPatient)} - {nextPatient.issue}</Text>
             </View>
             <View style={breakInProgressStyles.patientArrow}>
               <AppIcon name="chevron-right" size={16} color="#3C4759" strokeWidth={2} />
@@ -459,6 +462,15 @@ export default function DoctorDashboard({ navigation }) {
     return () => clearInterval(interval);
   }, []);
 
+  // Apply this doctor's saved app language (Settings → Language), the same
+  // way the patient and counselor dashboards do — on open and on refocus.
+  useEffect(() => {
+    if (!doctorId) return undefined;
+    loadUserLanguage(doctorId, 'doctor');
+    const unsubscribe = navigation?.addListener?.('focus', () => loadUserLanguage(doctorId, 'doctor'));
+    return () => unsubscribe?.();
+  }, [doctorId, navigation]);
+
   useEffect(() => {
     getStoredDoctorUser().then((user) => {
       const id = getDoctorIdFromUser(user);
@@ -635,33 +647,8 @@ export default function DoctorDashboard({ navigation }) {
     return { endTime, durationMs: Math.max(0, endTime - activeSession.startTime - paused) };
   };
 
-  // "Complete" — mark completed without the form (web handleCompleteNow).
-  const handleCompleteNow = () => {
-    if (!activeSession?.appt) return;
-    const appt = activeSession.appt;
-    Alert.alert('Complete Appointment', `Mark ${appt.name}'s consultation as completed?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Complete',
-        onPress: async () => {
-          setActionBusy(true);
-          try {
-            await patchAppointment(appt, getStatusUpdatePayload(appt, 'completed'));
-            setAppointments((prev) => prev.filter((a) => a.id !== appt.id));
-            setActiveSession(null);
-            setActiveTab('Completed');
-            await fetchAppointments({ silent: true });
-          } catch (err) {
-            showError(err, 'Appointment could not be completed.');
-          } finally {
-            setActionBusy(false);
-          }
-        },
-      },
-    ]);
-  };
-
-  // "Checked" / "Continue" — open the form (web handleChecked → CompleteModal).
+  // "Complete" / "Continue" — open the Complete Appointment form. Every visit
+  // type completes through it, so medicines and follow-up are always recorded.
   const handleChecked = () => {
     if (!activeSession?.appt) return;
     setCompleteAppointmentVisible(true);
@@ -680,8 +667,6 @@ export default function DoctorDashboard({ navigation }) {
         instructions: test.instructions || '',
       }));
     const primaryTest = tests[0] || {};
-    // In-clinic / walk-in visits send only timing + follow-up: no clinical
-    // fields, so nothing empty overwrites what was recorded elsewhere.
     const clinicalFields = formData.visitOnly ? {} : {
       diagnosis: formData.diagnosis,
       medicine: formData.medicine,
@@ -738,7 +723,7 @@ export default function DoctorDashboard({ navigation }) {
   // Web: navigate('/patient-sms', { callTargetId, autoStartCallType }).
   // Video / Voice Call: rings the patient straight from the dashboard — no chat
   // screen. Once the call is placed the consultation starts too, so it shows
-  // under "Currently With" (Checked / Complete) when the call ends. If the
+  // under "Currently With" (Complete) when the call ends. If the
   // patient is offline the server only notifies them; nothing else changes.
   const [activeCall, setActiveCall] = useState(null); // { mode, callData, callerId }
   const [callStarting, setCallStarting] = useState(false);
@@ -1163,7 +1148,6 @@ export default function DoctorDashboard({ navigation }) {
               busy={actionBusy}
               onPause={handlePause}
               onChecked={handleChecked}
-              onComplete={handleCompleteNow}
             />
           )}
 

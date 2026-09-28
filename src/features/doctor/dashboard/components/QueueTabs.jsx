@@ -2,7 +2,8 @@
 // Pending / In Progress / Completed — same three queues as the web dashboard,
 // with a live count per tab.
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import { colors, typography, createDoctorStyles } from '../theme';
 
 const tabs = ['Pending', 'In Progress', 'Completed'];

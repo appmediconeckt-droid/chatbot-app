@@ -2,7 +2,8 @@
 // (normalizeFollowUp shape from api/doctorFollowUps) — the web's "View"
 // modal — with Check-in (status -> completed), Edit and Delete actions.
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
@@ -47,20 +48,20 @@ export default function FollowUpDetailsScreen({ followUp, onBack, onEdit, onChec
       </View>
       <ScrollView contentContainerStyle={s.content}>
         <View style={s.patientCard}>
-          <View style={[s.avatar, s.avatarInitials]}><Text style={s.avatarText}>{getInitials(followUp.name)}</Text></View>
+          <View style={[s.avatar, s.avatarInitials]}><Text translate={false} style={s.avatarText}>{getInitials(followUp.name)}</Text></View>
           <View style={s.grow}>
-            <Text style={s.patient}>{followUp.name}</Text>
-            <Text style={s.patientMeta}>Age: {followUp.age} • Gender: {genderInitial} • Phone: {followUp.phone}</Text>
+            <Text translate={false} style={s.patient}>{followUp.name}</Text>
+            <Text translate={false} style={s.patientMeta}>Age: {followUp.age} • Gender: {genderInitial} • Phone: {followUp.phone}</Text>
           </View>
         </View>
         <View style={s.badges}>
           <View style={s.scheduled}>
             <AppIcon name="calendar" size={12} color="#0D9488" strokeWidth={2.2} />
-            <Text style={s.scheduledText}>{STATUS_LABEL[followUp.followUpStatus] || 'Pending'}</Text>
+            <Text translate={false} style={s.scheduledText}>{STATUS_LABEL[followUp.followUpStatus] || 'Pending'}</Text>
           </View>
           <View style={s.priority}>
             <AppIcon name="warning" size={12} color="#D92D20" strokeWidth={2.2} />
-            <Text style={s.priorityText}>{TYPE_LABEL[followUp.followUpType] || 'Routine'}</Text>
+            <Text translate={false} style={s.priorityText}>{TYPE_LABEL[followUp.followUpType] || 'Routine'}</Text>
           </View>
         </View>
         <View style={s.card}>
@@ -85,7 +86,7 @@ export default function FollowUpDetailsScreen({ followUp, onBack, onEdit, onChec
             <AppIcon name="note" size={14} color="#526078" strokeWidth={1.9} />
             <Text style={s.label}>NOTES & INSTRUCTIONS</Text>
           </View>
-          <Text style={s.notes}>{followUp.notes || 'N/A'}</Text>
+          <Text translate={false} style={s.notes}>{followUp.notes || 'N/A'}</Text>
         </View>
       </ScrollView>
       <View style={s.footer}>
@@ -109,7 +110,7 @@ function Context({ icon, label, value }) {
   return (
     <View style={s.context}>
       <AppIcon name={icon} size={17} color="#667085" />
-      <View><Text style={s.contextLabel}>{label}</Text><Text style={s.contextValue}>{value}</Text></View>
+      <View><Text style={s.contextLabel}>{label}</Text><Text translate={false} style={s.contextValue}>{value}</Text></View>
     </View>
   );
 }

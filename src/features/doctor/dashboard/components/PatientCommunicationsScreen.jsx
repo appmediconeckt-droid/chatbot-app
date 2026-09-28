@@ -6,7 +6,9 @@
 // voice appointment get the web's "Check & Complete Appointment" form
 // (PATCH /api/appointments/:id).
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
@@ -202,17 +204,17 @@ export default function PatientCommunicationsScreen({ navigation, onChatOpenChan
                   {item.avatarUrl ? (
                     <Image source={{ uri: item.avatarUrl }} style={s.avatar} />
                   ) : (
-                    <View style={[s.avatar, s.avatarInitials]}><Text style={s.avatarText}>{getInitials(item.name)}</Text></View>
+                    <View style={[s.avatar, s.avatarInitials]}><Text translate={false} style={s.avatarText}>{getInitials(item.name)}</Text></View>
                   )}
                   {item.online && <View style={s.onlineDot} />}
                 </View>
                 <View style={s.conversationBody}>
                   <View style={s.conversationTop}>
-                    <Text style={[s.name, unread && s.nameUnread]} numberOfLines={1}>{item.name}</Text>
+                    <Text translate={false} style={[s.name, unread && s.nameUnread]} numberOfLines={1}>{item.name}</Text>
                     <Text style={[s.time, unread && s.timeUnread]}>{item.messageTime}</Text>
                   </View>
                   <View style={s.metaRow}>
-                    <Text style={s.condition} numberOfLines={1}>
+                    <Text translate={false} style={s.condition} numberOfLines={1}>
                       {[item.age !== 'NA' ? `${item.age} yrs` : null, item.gender, item.condition].filter(Boolean).join(' • ')}
                     </Text>
                     <View style={[s.status, tone === 'orange' && s.orange, tone === 'red' && s.red]}>
@@ -220,7 +222,7 @@ export default function PatientCommunicationsScreen({ navigation, onChatOpenChan
                     </View>
                   </View>
                   <View style={s.previewRow}>
-                    <Text numberOfLines={1} style={[s.preview, unread && s.previewUnread]}>{item.lastMessage}</Text>
+                    <Text translate={false} numberOfLines={1} style={[s.preview, unread && s.previewUnread]}>{item.lastMessage}</Text>
                     {unread && <View style={s.unread}><Text style={s.unreadText}>{item.unread}</Text></View>}
                   </View>
                   <View style={s.actionsRow}>
@@ -254,7 +256,7 @@ export default function PatientCommunicationsScreen({ navigation, onChatOpenChan
               <View style={s.flex}>
                 <Text style={s.modalEyebrow}>REMOTE CONSULTATION</Text>
                 <Text style={s.modalTitle}>Check & Complete Appointment</Text>
-                <Text style={s.modalSub}>Add the prescription and recommended tests for {consult?.patient?.name || 'this patient'}.</Text>
+                <Text translate={false} style={s.modalSub}>Add the prescription and recommended tests for {consult?.patient?.name || 'this patient'}.</Text>
               </View>
               <Pressable onPress={() => setConsult(null)} hitSlop={8}><AppIcon name="x" size={18} color="#667085" /></Pressable>
             </View>
@@ -306,7 +308,7 @@ function Stat({ icon, label, value, tone }) {
   return (
     <View style={s.stat}>
       <View style={[s.statIcon, s[`statIcon_${tone}`]]}><AppIcon name={icon} size={14} color={STAT_COLORS[tone]} /></View>
-      <Text style={s.statValue}>{value}</Text>
+      <Text translate={false} style={s.statValue}>{value}</Text>
       <Text style={s.statLabel} numberOfLines={2}>{label}</Text>
       <Text style={[s.statLive, { color: STAT_COLORS[tone] }]}>● Live</Text>
     </View>

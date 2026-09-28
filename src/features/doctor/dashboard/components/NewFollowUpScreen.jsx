@@ -4,7 +4,9 @@
 //   edit   -> PUT  /api/followups/:id
 // Dates are sent as YYYY-MM-DD and times as HH:mm, same as the web inputs.
 import React, { useRef, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -128,15 +130,15 @@ export default function NewFollowUpScreen({ doctor, patients = [], followUp, onB
             <View style={s.options}>
               {patients.map((p) => (
                 <Pressable key={String(p.id)} onPress={() => { setPatientId(p.id); setOpen(null); }} style={s.option}>
-                  <Text style={s.optionText}>{p.name}</Text>
-                  <Text style={s.optionSub}>{p.phone} • Last visit: {p.lastVisit ? displayDate(normalizeDateInput(p.lastVisit)) : 'N/A'}</Text>
+                  <Text translate={false} style={s.optionText}>{p.name}</Text>
+                  <Text translate={false} style={s.optionSub}>{p.phone} • Last visit: {p.lastVisit ? displayDate(normalizeDateInput(p.lastVisit)) : 'N/A'}</Text>
                 </Pressable>
               ))}
             </View>
           )
         )}
         {!!selectedPatient && !editing && (
-          <Text style={s.hint}>Issue: {selectedPatient.issue}</Text>
+          <Text translate={false} style={s.hint}>Issue: {selectedPatient.issue}</Text>
         )}
         <View style={s.row}>
           <View style={s.half}>
@@ -180,7 +182,7 @@ export default function NewFollowUpScreen({ doctor, patients = [], followUp, onB
         <Label text="ASSIGN DOCTOR" />
         <View style={s.inputBox}>
           <AppIcon name="users" size={17} color="#667085" />
-          <Text style={s.selectText}>{doctor?.name || 'Doctor'}</Text>
+          <Text translate={false} style={s.selectText}>{doctor?.name || 'Doctor'}</Text>
         </View>
         <Label text="FOLLOW-UP TYPE" />
         <View style={s.priority}>
@@ -223,7 +225,7 @@ function Select({ value, placeholder, onPress, icon }) {
   return (
     <Pressable onPress={onPress} style={s.inputBox}>
       {icon && <AppIcon name={icon} size={17} color="#667085" />}
-      <Text style={[s.selectText, !value && s.placeholder]}>{value || placeholder}</Text>
+      <Text translate={false} style={[s.selectText, !value && s.placeholder]}>{value || placeholder}</Text>
       <Text style={s.chevron}>⌄</Text>
     </Pressable>
   );

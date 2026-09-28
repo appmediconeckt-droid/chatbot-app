@@ -2,7 +2,8 @@
 // consultation, else the first pending appointment, else "Queue is clear".
 // Remote (video / voice) appointments get a call button instead of Start.
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import { colors, typography, createDoctorStyles, doctorGradient, gradientDirection } from '../theme';
 import AppIcon from '../icons/AppIcon';
@@ -46,14 +47,21 @@ export default function NextPatientCard({ patient, isActive, onBreak, onStartCon
           <View style={styles.dot} />
           <Text style={styles.label}>NEXT PATIENT</Text>
         </View>
-        <Text style={styles.time}>{patient?.scheduledTime || '--:--'}</Text>
+        {patient?.isEmergency ? (
+          <View style={styles.emergencyBadge}>
+            <AppIcon name="warning" size={11} strokeWidth={2.2} color="#DC2626" />
+            <Text style={styles.emergencyBadgeText}>EMERGENCY</Text>
+          </View>
+        ) : (
+          <Text style={styles.time}>{patient?.scheduledTime || '--:--'}</Text>
+        )}
       </View>
       <View style={styles.patient}>
-        <View style={styles.avatar}><Text style={styles.avatarText}>{patient ? getInitials(patient.name) : 'NA'}</Text></View>
+        <View style={styles.avatar}><Text translate={false} style={styles.avatarText}>{patient ? getInitials(patient.name) : 'NA'}</Text></View>
         <View style={styles.info}>
-          <Text style={styles.name}>{patient?.name || 'No Patient'}</Text>
-          <Text style={styles.complaint} numberOfLines={1}>
-            {patient ? `${getTokenLabel(patient)} - ${patient.issue}` : 'Queue is clear'}
+          <Text translate={false} style={styles.name}>{patient?.name || 'No Patient'}</Text>
+          <Text translate={false} style={styles.complaint} numberOfLines={1}>
+            {patient ? `${patient.isEmergency ? 'Emergency' : getTokenLabel(patient)} - ${patient.issue}` : 'Queue is clear'}
           </Text>
         </View>
       </View>
@@ -76,6 +84,8 @@ const styles = createDoctorStyles({
   card: { borderRadius: 8, borderWidth: 1, borderColor: '#9AE8F8', backgroundColor: '#F0FDFA', padding: 12, marginTop: 16, marginBottom: 17 },
   top: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
   labelRow: { flexDirection: 'row', alignItems: 'center' },
+  emergencyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 23, paddingHorizontal: 10, borderRadius: 11, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' },
+  emergencyBadgeText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.4, color: '#DC2626' },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.blue, marginRight: 7 },
   label: { ...typography.label, fontSize: 13, color: colors.navy },
   time: { ...typography.label, fontSize: 13, lineHeight: 23, color: colors.blue, backgroundColor: '#FFF', borderRadius: 11, paddingHorizontal: 10, overflow: 'hidden' },

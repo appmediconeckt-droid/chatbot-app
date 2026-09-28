@@ -61,14 +61,14 @@ const getRoleLabel = (role) => {
   return normalized === 'counselor' ? 'Consultant' : 'User';
 };
 
-const buildRoleMismatchMessage = ({ actualRole, requestedRole, fallbackMessage }) => {
-  if (!actualRole && !requestedRole) {
-    return fallbackMessage || 'Role mismatch. Please select the correct login role.';
+// Short, professional copy: which account type this is and what to do next.
+const buildRoleMismatchMessage = ({ actualRole }) => {
+  if (!actualRole) {
+    return 'This Google account uses a different login type. Please choose the correct role.';
   }
-
   const actualLabel = getRoleLabel(actualRole);
-  const requestedLabel = requestedRole ? getRoleLabel(requestedRole) : 'another';
-  return `Role mismatch: this Google account is registered as ${actualLabel}, but you selected ${requestedLabel} login. Please go back and select ${actualLabel} login.`;
+  const article = /^[AEIOU]/.test(actualLabel) ? 'an' : 'a';
+  return `This Google account is registered as ${article} ${actualLabel}. Please sign in as ${actualLabel}.`;
 };
 
 const isGeneratedUserAvatarUrl = (raw) => {

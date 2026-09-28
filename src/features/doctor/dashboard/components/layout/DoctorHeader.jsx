@@ -2,7 +2,8 @@
 // Adaptation: the header reads the real (mock) doctor name from
 // AsyncStorage instead of the source's hardcoded "Dr. Sharma".
 import React, { useEffect, useState } from 'react';
-import { Image, Pressable, Text, View } from 'react-native';
+import { Image, Pressable, View } from 'react-native';
+import Text from '../../../../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, typography, createDoctorStyles } from '../../theme';
 import AppIcon from '../../icons/AppIcon';
@@ -28,7 +29,7 @@ export default function DoctorHeader({ onMenuPress, onProfilePress, onNotificati
         <AppIcon name="menu" size={24} strokeWidth={2} color={colors.ink} />
       </Pressable>
       <View style={styles.titleArea}>
-        <Text style={styles.doctor} numberOfLines={1} ellipsizeMode="tail">{displayName}</Text>
+        <Text translate={false} style={styles.doctor} numberOfLines={1} ellipsizeMode="tail">{displayName}</Text>
       </View>
       <View style={styles.actions}>
         <Pressable accessibilityLabel="Settings" style={styles.actionButton} onPress={onSettingsPress}>
