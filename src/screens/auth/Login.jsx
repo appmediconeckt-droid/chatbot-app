@@ -95,6 +95,9 @@ const Login = ({ navigation, route }) => {
   const [otpLoading, setOtpLoading] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
+  // Role the server accepted for this email during handleLogin (e.g. 'billing'
+  // for clinic staff), reused by the logout-other-devices / OTP step.
+  const confirmedRoleRef = useRef('');
   const [conflictOtpResendTimer, setConflictOtpResendTimer] = useState(0);
   const [conflictOtpResending, setConflictOtpResending] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -297,6 +300,7 @@ const Login = ({ navigation, route }) => {
     setIsLoading(true);
 
     let selectedRole = '';
+    confirmedRoleRef.current = '';
     try {
       const roleFromRoute = normalizeRole(route?.params?.role);
       const storedRoleRaw = normalizeRole(await AsyncStorage.getItem('role'));
@@ -331,6 +335,17 @@ const Login = ({ navigation, route }) => {
             message.includes('please use counsellor login') ||
             message.includes('please use counselor login') ||
             message.includes('please use user login');
+          // Clinic staff (billing, nurse, receptionist, …) aren't among the
+          // candidates above. On a mismatch the server names the account's
+          // real role, so try that one next instead of failing the login.
+          const rawActualRole = String(responseData?.actualRole || '').trim().toLowerCase();
+          const actualRole = rawActualRole === 'counselor' ? 'counsellor' : rawActualRole;
+          if (isRoleMismatch && actualRole && !roleCandidates.includes(actualRole)) {
+            roleCandidates.splice(index + 1, 0, actualRole);
+          }
+          // Signed in elsewhere: remember which role the server accepted so
+          // the logout-other-devices / OTP step sends that role, not 'user'.
+          if (error?.response?.status === 409) confirmedRoleRef.current = candidateRole;
           const isLastAttempt = index === Math.max(roleCandidates.length, 1) - 1;
           if (!isRoleMismatch || isLastAttempt) {
             throw error;
@@ -433,7 +448,7 @@ const Login = ({ navigation, route }) => {
     setErrorMessage('');
 
     try {
-      const selectedRole = await resolveSelectedRole();
+      const selectedRole = confirmedRoleRef.current || await resolveSelectedRole();
       const response = await postPublicAuthEndpoint('logout-other-devices', {
         email,
         role: selectedRole,
@@ -501,7 +516,7 @@ const Login = ({ navigation, route }) => {
     setErrorMessage('');
 
     try {
-      const selectedRole = await resolveSelectedRole();
+      const selectedRole = confirmedRoleRef.current || await resolveSelectedRole();
       const response = await postPublicAuthEndpoint('verify-login-otp', {
         email,
         otp,

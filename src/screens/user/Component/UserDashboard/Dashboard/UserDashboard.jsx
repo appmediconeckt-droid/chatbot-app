@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Keyboard,
+  LayoutAnimation,
   Platform,
   StyleSheet,
   useWindowDimensions,
@@ -253,6 +254,11 @@ const ChatPopup = ({
   }, [clearTranscript, isListening, newMessage, selectedLang, startListening, stopListening]);
 
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  // Android only: how much of this popup the keyboard covers. The app runs
+  // edge-to-edge (gradle edgeToEdgeEnabled) and this Modal is translucent, so
+  // Android no longer shrinks the window for the keyboard (adjustResize is
+  // ignored there) and the keyboard used to sit on top of the input box.
+  const [keyboardInset, setKeyboardInset] = useState(0);
   // The KeyboardAvoidingView reports the actual space available to the popup
   // via onLayout. On Android, KAV's own behavior is disabled (see below) and
   // the AndroidManifest's windowSoftInputMode="adjustResize" already shrinks
@@ -284,7 +290,7 @@ const ChatPopup = ({
     Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0,
   );
   const popupTopGap = topSafeInset + 8;
-  const availHeight = Math.max(0, overlayHeight - popupTopGap);
+  const availHeight = Math.max(0, overlayHeight - popupTopGap - keyboardInset);
   const screenHeight = Dimensions.get('screen').height;
   const androidBottomInsetFallback = Platform.OS === 'android' && !keyboardVisible
     ? Math.max(0, Math.min(80, screenHeight - height - topSafeInset))
@@ -295,13 +301,14 @@ const ChatPopup = ({
   // it — so its height still has to be reserved even with the keyboard up.
   // Skipping it there (an earlier version of this) left a visible white
   // strip between the input and the keyboard, exactly the nav bar's height.
-  const bottomSafeInsetKeyboardOpen = Math.max(insets.bottom, 0);
-  // The popup itself must also fit in whatever room `overlayHeight` reports —
-  // that already shrank for the keyboard via the OS's own adjustResize, so no
-  // separate keyboard-height formula is needed here, just the nav bar
-  // reservation above.
+  // When the popup is lifted by `keyboardInset`, the keyboard already covers
+  // the nav bar area, so only a small gap is kept under the input.
+  const bottomSafeInsetKeyboardOpen = keyboardInset > 0 ? 0 : Math.max(insets.bottom, 0);
+  // The popup fits in the room left above the keyboard. (It used to be forced
+  // to at least 520px while the keyboard was open, which pushed the input
+  // under the keyboard on phones where less room was left.)
   const popupAvailableHeight = Math.max(
-    keyboardVisible ? 520 : 0,
+    0,
     availHeight - (keyboardVisible ? bottomSafeInsetKeyboardOpen + 12 : bottomSafeInset + 12),
   );
 
@@ -314,7 +321,7 @@ const ChatPopup = ({
   // shrinks it to fit above the keyboard on smaller screens.
   const popupBaseHeight = isTablet ? 750 : 630;
   const chatPopupFooterKeyboardStyle = {
-    paddingBottom: keyboardVisible ? bottomSafeInsetKeyboardOpen : bottomSafeInset + 8,
+    paddingBottom: keyboardVisible ? Math.max(bottomSafeInsetKeyboardOpen, 8) : bottomSafeInset + 8,
   };
   const inputRef = useRef(null);
   const scrollViewRef = useRef(null);
@@ -323,12 +330,37 @@ const ChatPopup = ({
   // the actual resize/positioning (KeyboardAvoidingView stays iOS-only, see
   // above), so we no longer need to independently measure and re-apply the
   // keyboard height ourselves.
+  const overlayHeightRef = useRef(height);
+  overlayHeightRef.current = overlayHeight;
   useEffect(() => {
     // iOS fires keyboardWillShow; Android only reliably fires keyboardDidShow.
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvt, () => setKeyboardVisible(true));
-    const hide = Keyboard.addListener(hideEvt, () => setKeyboardVisible(false));
+    const animate = () => LayoutAnimation.configureNext(
+      LayoutAnimation.create(180, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity),
+    );
+    const show = Keyboard.addListener(showEvt, (event) => {
+      if (Platform.OS === 'android') {
+        // Overlap between the keyboard and this full-screen popup overlay.
+        // If the OS did resize the window, the overlay already ends above
+        // the keyboard and the overlap is 0, so nothing is counted twice.
+        const kbTop = event?.endCoordinates?.screenY;
+        const kbHeight = event?.endCoordinates?.height || 0;
+        const overlap = Number.isFinite(kbTop) && kbTop > 0
+          ? Math.max(0, overlayHeightRef.current - kbTop)
+          : kbHeight;
+        animate();
+        setKeyboardInset(overlap);
+      }
+      setKeyboardVisible(true);
+    });
+    const hide = Keyboard.addListener(hideEvt, () => {
+      if (Platform.OS === 'android') {
+        animate();
+        setKeyboardInset(0);
+      }
+      setKeyboardVisible(false);
+    });
     return () => { show.remove(); hide.remove(); };
   }, []);
 
@@ -394,7 +426,7 @@ const ChatPopup = ({
     <KeyboardAvoidingView
       style={[
         styles.chatPopupOverlay,
-        { paddingTop: popupTopGap },
+        { paddingTop: popupTopGap, paddingBottom: keyboardInset },
       ]}
       // The app's AndroidManifest already sets windowSoftInputMode
       // "adjustResize" — the Activity window (and this Modal's content area
@@ -4633,7 +4665,10 @@ const styles = StyleSheet.create({
   chatPopupBackdrop: {
     flex: 1,
     minHeight: 0,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    // No scrim of its own: chatPopupOverlay already dims the whole screen.
+    // A second 50% layer here made the area above the popup darker than the
+    // strip beside its rounded corners, so a lighter square showed around
+    // both top corners.
   },
   chatPopup: {
     width: '100%',
@@ -4651,7 +4686,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,
     shadowRadius: 16,
-    elevation: 12,
+    // No elevation shadow on Android: with only the TOP corners rounded,
+    // Android draws it square, leaving a thin dark edge outside both rounded
+    // corners. The scrim behind already separates the popup; iOS keeps its
+    // shadow.
+    elevation: Platform.OS === 'android' ? 0 : 12,
   },
   chatPopupClip: {
     flex: 1,

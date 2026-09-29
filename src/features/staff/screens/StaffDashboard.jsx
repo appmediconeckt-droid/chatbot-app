@@ -154,11 +154,11 @@ export default function StaffDashboard({ navigation }) {
             <Text style={s.actionTitle}>Change Password</Text>
             <Text style={s.actionSub}>Replace the password your doctor shared with you.</Text>
           </View>
-          <AppIcon name="chevron-right" size={16} color="#98A2B3" />
+          <AppIcon name="chevron-right" size={16} color={colors.muted} />
         </Pressable>
 
         <Pressable onPress={confirmLogout} style={s.logoutButton}>
-          <AppIcon name="logout" size={16} color="#D92D20" strokeWidth={2} />
+          <AppIcon name="logout" size={16} color={colors.red} strokeWidth={2} />
           <Text style={s.logoutText}>Logout</Text>
         </Pressable>
       </ScrollView>
@@ -176,7 +176,7 @@ function Detail({ label, value, last }) {
 }
 
 const s = createDoctorStyles({
-  safeArea: { flex: 1, backgroundColor: '#F5F7FB' },
+  safeArea: { flex: 1, backgroundColor: colors.background },
   content: { padding: 14, paddingBottom: 32 },
   grow: { flex: 1 },
 
@@ -190,36 +190,36 @@ const s = createDoctorStyles({
   rolePill: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,.18)', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5, marginTop: 14 },
   rolePillText: { fontSize: 12.5, fontWeight: '700', color: '#FFFFFF' },
 
-  card: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DDE3EC', borderRadius: 14, padding: 14, marginTop: 14 },
+  card: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.line, borderRadius: 14, padding: 14, marginTop: 14 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10 },
-  cardTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: '#17243A' },
+  cardTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: colors.ink },
 
   statusPill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
-  statusOn: { backgroundColor: '#E9FBF0' },
-  statusOff: { backgroundColor: '#F1F4F8' },
+  statusOn: { backgroundColor: colors.paleBlue, borderWidth: 1, borderColor: '#99F6E4' },
+  statusOff: { backgroundColor: colors.line },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
-  dotOn: { backgroundColor: '#16A34A' },
-  dotOff: { backgroundColor: '#98A2B3' },
+  dotOn: { backgroundColor: colors.blue },
+  dotOff: { backgroundColor: colors.muted },
   statusText: { fontSize: 11.5, fontWeight: '700' },
-  statusTextOn: { color: '#16A34A' },
-  statusTextOff: { color: '#667085' },
-  shiftName: { fontSize: 18, fontWeight: '800', color: '#17243A' },
-  shiftTime: { fontSize: 13.5, color: '#526078', marginTop: 2 },
+  statusTextOn: { color: colors.blue },
+  statusTextOff: { color: colors.muted },
+  shiftName: { fontSize: 18, fontWeight: '800', color: colors.ink },
+  shiftTime: { fontSize: 13.5, color: colors.muted, marginTop: 2 },
 
   dutyRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 6 },
   dutyCheck: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
-  dutyText: { flex: 1, fontSize: 13.5, color: '#344054' },
+  dutyText: { flex: 1, fontSize: 13.5, color: colors.ink },
 
-  detail: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EDF0F4' },
+  detail: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.line },
   detailLast: { borderBottomWidth: 0 },
-  detailLabel: { fontSize: 13, color: '#667085', width: 100 },
-  detailValue: { flex: 1, fontSize: 13.5, fontWeight: '600', color: '#17243A', textAlign: 'right' },
+  detailLabel: { fontSize: 13, color: colors.muted, width: 100 },
+  detailValue: { flex: 1, fontSize: 13.5, fontWeight: '600', color: colors.ink, textAlign: 'right' },
 
-  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DDE3EC', borderRadius: 14, padding: 14, marginTop: 14 },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.line, borderRadius: 14, padding: 14, marginTop: 14 },
   actionIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
-  actionTitle: { fontSize: 14.5, fontWeight: '700', color: '#17243A' },
-  actionSub: { fontSize: 12, color: '#667085', marginTop: 2 },
+  actionTitle: { fontSize: 14.5, fontWeight: '700', color: colors.ink },
+  actionSub: { fontSize: 12, color: colors.muted, marginTop: 2 },
 
   logoutButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 48, borderRadius: 12, borderWidth: 1, borderColor: '#F4C7C3', backgroundColor: '#FFF5F4', marginTop: 16 },
-  logoutText: { fontSize: 15, fontWeight: '700', color: '#D92D20' },
+  logoutText: { fontSize: 15, fontWeight: '700', color: colors.red },
 });
