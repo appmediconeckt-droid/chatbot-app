@@ -65,6 +65,7 @@ import axiosInstance from '../../../axiosConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import socketService from '../../../services/socketService';
 import { clearAccountLocalData } from '../../../utils/authSession';
+import UpdateReminderModal from '../../../components/UpdateReminderModal';
 
 const { width } = Dimensions.get('window');
 
@@ -1228,6 +1229,9 @@ export default function DoctorDashboard({ navigation }) {
   return (
     <DoctorBackContext.Provider value={backRegistry}>
       {renderScreen()}
+      {/* Play Store "update available" reminder, same as the patient and
+          consultant dashboards (popup + notification, twice per version). */}
+      <UpdateReminderModal variant="doctor" />
       {activeCall?.mode === 'video' && (
         <VideoCallModal
           isOpen

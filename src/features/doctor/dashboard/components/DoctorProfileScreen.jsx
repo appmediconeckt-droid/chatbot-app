@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -71,6 +71,22 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
   const languages = Array.isArray(profile?.languages) ? profile.languages : [];
   const consultationMode = Array.isArray(profile?.consultationMode) ? profile.consultationMode : [];
   const displayName = profile?.fullName ? `Dr. ${profile.fullName}` : 'Doctor';
+
+  // Same Google Maps search link as LocationPicker's "View on map": opens the
+  // Maps app when installed, otherwise the browser. Uses coordinates when the
+  // profile has them, else the saved address text.
+  const openInMaps = () => {
+    const lat = Number(profile?.latitude ?? profile?.location?.latitude ?? profile?.coordinates?.lat);
+    const lng = Number(profile?.longitude ?? profile?.location?.longitude ?? profile?.coordinates?.lng);
+    const address = typeof profile?.location === 'string' ? profile.location.trim() : '';
+    const query = Number.isFinite(lat) && Number.isFinite(lng) && (lat || lng) ? `${lat},${lng}` : address;
+    if (!query) {
+      showToast('Add your location in Edit Profile first');
+      return;
+    }
+    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`)
+      .catch(() => showToast('Could not open Google Maps'));
+  };
   const subtitle = specialization.length ? specialization.join(' · ') : (profile?.qualification || '');
 
   return (
@@ -137,7 +153,7 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
           <View style={s.mapPreview}>
             <AppIcon name="pin" size={22} color="#0D9488" strokeWidth={2} />
           </View>
-          <Pressable onPress={() => showToast('Opening Google Maps — coming soon')}>
+          <Pressable onPress={openInMaps}>
             <Text style={s.mapLink}>View on Google Maps</Text>
           </Pressable>
         </Section>

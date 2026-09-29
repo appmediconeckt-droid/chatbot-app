@@ -14,7 +14,8 @@
 // Availability is also cached per doctor+clinic (web: localStorage,
 // app: AsyncStorage `doctorAvailability:<doctorId>:<clinicId>`).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import { launchImageLibrary } from 'react-native-image-picker';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -284,6 +285,8 @@ export default function CalendarAvailabilityScreen() {
   const [showClinicDropdown, setShowClinicDropdown] = useState(false);
   const [showNewClinicForm, setShowNewClinicForm] = useState(false);
   const [newClinic, setNewClinic] = useState({ name: '', phone: '', location: '' });
+  // Optional clinic photo for "Add a new clinic" ({ uri, type, fileName }).
+  const [newClinicPhoto, setNewClinicPhoto] = useState(null);
   const [savingClinic, setSavingClinic] = useState(false);
   const [apiStatus, setApiStatus] = useState('idle');
   const [apiError, setApiError] = useState('');
@@ -890,6 +893,18 @@ export default function CalendarAvailabilityScreen() {
     setShowNewClinicForm(false);
   };
 
+  const pickNewClinicPhoto = async () => {
+    try {
+      const result = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1, quality: 0.8, maxWidth: 1600, maxHeight: 1600 });
+      if (result?.didCancel) return;
+      if (result?.errorCode) return showToast(result.errorMessage || 'Could not open the photo picker');
+      const asset = result?.assets?.[0];
+      if (asset?.uri) setNewClinicPhoto({ uri: asset.uri, type: asset.type, fileName: asset.fileName });
+    } catch (err) {
+      showToast(err?.message || 'Could not open the photo picker');
+    }
+  };
+
   const createNewClinic = async () => {
     if (!newClinic.name.trim() || !newClinic.location.trim()) return showToast('Clinic name and location are required');
     try {
@@ -898,8 +913,11 @@ export default function CalendarAvailabilityScreen() {
         name: newClinic.name.trim(),
         phone: newClinic.phone.trim(),
         location: newClinic.location.trim(),
+        photo: newClinicPhoto,
       });
       setNewClinic({ name: '', phone: '', location: '' });
+      setNewClinicPhoto(null);
+      if (entry?.photoSkipped) showToast('Clinic saved, but the server did not accept the photo');
       if (entry) {
         const clinic = { ...entry, color: CLINIC_COLORS[clinics.length % CLINIC_COLORS.length] };
         setClinics((current) => [...current, clinic]);
@@ -1414,6 +1432,21 @@ export default function CalendarAvailabilityScreen() {
                 <TextInput style={s.input} placeholder="Clinic name" placeholderTextColor="#94A3B8" value={newClinic.name} onChangeText={(v) => setNewClinic((p) => ({ ...p, name: v }))} />
                 <TextInput style={s.input} placeholder="Phone (optional)" placeholderTextColor="#94A3B8" keyboardType="phone-pad" value={newClinic.phone} onChangeText={(v) => setNewClinic((p) => ({ ...p, phone: v }))} />
                 <TextInput style={s.input} placeholder="Address / location" placeholderTextColor="#94A3B8" value={newClinic.location} onChangeText={(v) => setNewClinic((p) => ({ ...p, location: v }))} />
+                {newClinicPhoto ? (
+                  <View style={s.clinicPhotoRow}>
+                    <Image source={{ uri: newClinicPhoto.uri }} style={s.clinicPhotoPreview} />
+                    <Text style={s.clinicPhotoText} numberOfLines={1}>Clinic photo added</Text>
+                    <Pressable onPress={pickNewClinicPhoto} hitSlop={6}><Text style={s.addLink}>Change</Text></Pressable>
+                    <Pressable onPress={() => setNewClinicPhoto(null)} hitSlop={6} accessibilityLabel="Remove photo">
+                      <AppIcon name="x" size={16} color="#98A2B3" />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable style={s.clinicPhotoPicker} onPress={pickNewClinicPhoto}>
+                    <AppIcon name="camera" size={18} color={colors.blue} />
+                    <Text style={s.addLink}>Add clinic photo (optional)</Text>
+                  </Pressable>
+                )}
                 <View style={s.modalActions}>
                   <Pressable style={s.outlineBtnFlex} onPress={() => setShowNewClinicForm(false)}><Text style={s.outlineBtnText}>Cancel</Text></Pressable>
                   <Pressable style={s.solidBtn} onPress={createNewClinic} disabled={savingClinic}>
@@ -1852,5 +1885,9 @@ const s = createDoctorStyles({
   selectedBadge: { fontSize: 11, fontWeight: '700', color: '#FFF', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
   addClinicBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 6 },
   newClinicForm: { marginTop: 10, gap: 10 },
+  clinicPhotoPicker: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 48, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#99D5CF', borderRadius: 12, backgroundColor: '#F0FDFA' },
+  clinicPhotoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 8, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 12, backgroundColor: '#FFF' },
+  clinicPhotoPreview: { width: 48, height: 48, borderRadius: 8, backgroundColor: '#EEF1F5' },
+  clinicPhotoText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#344054' },
   input: { height: 44, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, paddingHorizontal: 12, fontSize: 13.5, color: '#17243A' },
 });

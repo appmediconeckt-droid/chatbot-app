@@ -9,6 +9,11 @@ export const NOTIFICATION_PREFS_KEY = 'doctorNotificationPreferences';
 
 export const NOTIFICATION_CATEGORIES = ['appointments', 'messages', 'payments', 'system'];
 
+// Categories the doctor can switch off on the preferences screen. Messages
+// and payments have no toggle any more, so an old saved "off" for them must
+// not keep silently muting those notifications.
+export const USER_CONTROLLED_CATEGORIES = ['appointments', 'system'];
+
 export const DEFAULT_NOTIFICATION_PREFS = {
   enabled: true,
   categories: { appointments: true, messages: true, payments: true, system: true },
@@ -67,7 +72,8 @@ export const shouldDeliverNotification = async (data = {}, { isChat = false } = 
     if (role !== 'doctor') return true;
     const prefs = await loadNotificationPreferences();
     if (!prefs.enabled) return false;
-    if (prefs.categories[getNotificationCategory(data, { isChat })] === false) return false;
+    const category = getNotificationCategory(data, { isChat });
+    if (USER_CONTROLLED_CATEGORIES.includes(category) && prefs.categories[category] === false) return false;
     return !isWithinQuietHours(prefs.quietHours);
   } catch {
     return true;

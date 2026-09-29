@@ -14,10 +14,11 @@ import {
   saveNotificationPreferences,
 } from '../../../../services/notificationPreferences';
 
+// Only categories doctors actually receive. "Patient Messages" and "Payments"
+// were removed: the doctor dashboard has no patient chat and no payment
+// notifications yet (see USER_CONTROLLED_CATEGORIES in notificationPreferences).
 const CATEGORY_ROWS = [
   { key: 'appointments', icon: 'calendar', title: 'Appointments', subtitle: 'New bookings, cancellations, follow-ups and queue updates.' },
-  { key: 'messages', icon: 'message', title: 'Patient Messages', subtitle: 'New chat messages from your patients.' },
-  { key: 'payments', icon: 'smartphone', title: 'Payments', subtitle: 'Consultation payments and payout updates.' },
   { key: 'system', icon: 'info', title: 'Account & Updates', subtitle: 'Account, security and app announcements.' },
 ];
 

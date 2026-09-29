@@ -11,6 +11,8 @@ import { colors, createDoctorStyles, typography } from '../theme';
 import axiosInstance, { API_BASE_URL } from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
 import { unwrapApiArray } from '../api/doctorClinics';
+import { useDoctorBack } from '../useDoctorBack';
+import DoctorClinicSettingsScreen from './DoctorClinicSettingsScreen';
 
 const DEFAULT_CLINIC_IMAGE = 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&w=1600&q=80';
 const TABS = ['Overview', 'Doctors', 'Departments', 'Facilities', 'Reviews', 'Contact'];
@@ -249,6 +251,21 @@ export default function ClinicPageScreen({ onBack }) {
 
   const website = clinic.website && (clinic.website.startsWith('http') ? clinic.website : `https://${clinic.website}`);
 
+  // "+ Add" in the header opens the Add Clinic form (same screen as Settings →
+  // Clinic) right here; closing it reloads the list so a new clinic shows up.
+  const [addingClinic, setAddingClinic] = useState(false);
+  const closeAddClinic = () => {
+    setAddingClinic(false);
+    loadClinics();
+  };
+  useDoctorBack(() => {
+    if (!addingClinic) return false;
+    closeAddClinic();
+    return true;
+  });
+
+  if (addingClinic) return <DoctorClinicSettingsScreen onBack={closeAddClinic} />;
+
   return (
     <View style={s.screen}>
       <View style={s.header}>
@@ -256,6 +273,16 @@ export default function ClinicPageScreen({ onBack }) {
           <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
         </Pressable>
         <Text style={s.title}>Clinic</Text>
+        <Pressable
+          onPress={() => setAddingClinic(true)}
+          style={({ pressed }) => [s.addClinicButton, pressed && s.addClinicButtonPressed]}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Add clinic"
+        >
+          <AppIcon name="plus" size={16} color="#FFFFFF" strokeWidth={2.6} />
+          <Text style={s.addClinicText}>Add</Text>
+        </Pressable>
       </View>
       <ScrollView
         contentContainerStyle={s.content}
@@ -424,7 +451,10 @@ const s = createDoctorStyles({
   screen: { flex: 1, backgroundColor: '#F0FDFA' },
   header: { height: 62, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },
   backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-  title: { fontSize: 22, fontWeight: '800', color: '#0D9488' },
+  title: { flex: 1, fontSize: 22, fontWeight: '800', color: '#0D9488' },
+  addClinicButton: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 36, paddingHorizontal: 13, borderRadius: 18, backgroundColor: '#0D9488' },
+  addClinicButtonPressed: { backgroundColor: '#0F766E' },
+  addClinicText: { fontSize: 13.5, fontWeight: '800', color: '#FFFFFF' },
   content: { padding: 12, paddingBottom: 32 },
   error: { fontSize: 13, color: colors.red, marginBottom: 10 },
   hero: { height: 210, borderRadius: 14, overflow: 'hidden', justifyContent: 'flex-end' },

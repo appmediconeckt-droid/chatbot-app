@@ -14,6 +14,7 @@ import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles } from '../theme';
 import axiosInstance from '../../../../axiosConfig';
+import { fetchNotificationList, subscribeToNewNotifications } from '../api/doctorNotifications';
 
 // Doctors don't use chat, so message notifications are not shown here.
 const FILTERS = ['All', 'Urgent', 'Appointments'];
@@ -55,6 +56,9 @@ const relativeTime = (iso) => {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 
+// What the doctor sees: every notification except chat messages.
+export const toDoctorNotifications = (list) => list.map(normalize).filter((n) => n.category !== 'Messages');
+
 const normalize = (n) => {
   const tone = classify(n);
   return {
@@ -75,22 +79,24 @@ export default function NotificationsScreen({ onBack }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
 
-  const fetchNotifications = useCallback(async () => {
+  // `silent`: live refresh without the loading state (and without wiping the
+  // list if that refresh fails).
+  const fetchNotifications = useCallback(async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
-      const res = await axiosInstance.get('/api/notifications');
-      const payload = res.data;
-      const list = Array.isArray(payload) ? payload : Array.isArray(payload?.notifications) ? payload.notifications : Array.isArray(payload?.data) ? payload.data : [];
-      setNotifications(list.map(normalize).filter((n) => n.category !== 'Messages'));
+      if (!silent) setLoading(true);
+      setNotifications(toDoctorNotifications(await fetchNotificationList()));
     } catch (err) {
       console.error('Error fetching doctor notifications:', err);
-      setNotifications([]);
+      if (!silent) setNotifications([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
+
+  // Real time: a new notification from the server reloads the list in place.
+  useEffect(() => subscribeToNewNotifications(() => fetchNotifications({ silent: true })), [fetchNotifications]);
 
   const unreadCount = notifications.filter((item) => !item.read).length;
   const visible = filter === 'All' ? notifications : notifications.filter((item) => item.category === filter);

@@ -1,4 +1,5 @@
 import {
+  Linking,
   PermissionsAndroid,
   Platform,
 } from 'react-native';
@@ -24,6 +25,8 @@ const MISSED_CALL_NOTIFIED_KEY_PREFIX = 'missedCallNotification:';
 export const PENDING_INCOMING_CALL_PUSH_KEY = 'pendingIncomingCallPush';
 export const PENDING_NOTIFICATION_OPEN_KEY = 'pendingNotificationOpen';
 export const NOTIFICATION_REPLY_ACTION_ID = 'reply-to-chat';
+// Local "Update available" notification posted by UpdateReminderModal.
+export const APP_UPDATE_NOTIFICATION_TYPE = 'APP_UPDATE';
 let firebaseMessagingApi;
 let notifeeApi;
 let backgroundHandlersRegistered = false;
@@ -277,6 +280,11 @@ const handleNotificationPressEvent = async ({ type, detail }) => {
 
   const data = detail?.notification?.data || {};
   if (Object.keys(data).length) {
+    // "Update available" reminder (UpdateReminderModal): straight to the store.
+    if (data.type === APP_UPDATE_NOTIFICATION_TYPE && data.url) {
+      Linking.openURL(data.url).catch(() => {});
+      return;
+    }
     if (isIncomingCallNotification(data)) {
       await notifyIncomingCallIntent(data, 'notification-press');
       return;
@@ -695,6 +703,19 @@ export const listenForForegroundNotifications = () => {
       return;
     }
 
+    // Doctors: the type list above missed server types such as follow-up,
+    // booking or queue updates, so those never showed while the app was open.
+    // Show any push that carries visible text; the doctor's notification
+    // preferences still apply inside displaySystemNotification.
+    const hasVisibleText = Boolean(
+      remoteMessage?.notification?.title || remoteMessage?.notification?.body ||
+      data?.title || data?.body || data?.message,
+    );
+    if (hasVisibleText && String((await AsyncStorage.getItem('userRole')) || '').toLowerCase() === 'doctor') {
+      await displaySystemNotification(remoteMessage);
+      return;
+    }
+
     console.log('[Push] Foreground notification suppressed:', data?.type);
   });
 };
@@ -856,6 +877,12 @@ export const handleNotificationNavigation = async (
   const data = remoteMessage?.data;
 
   if (!data) {
+    return;
+  }
+
+  // Tapped while the app was closed (opened via the pending/initial path).
+  if (data.type === APP_UPDATE_NOTIFICATION_TYPE && data.url) {
+    Linking.openURL(data.url).catch(() => {});
     return;
   }
 

@@ -99,20 +99,6 @@ export default function DoctorPrivacySecurityScreen({ onBack, navigation, onLogo
     });
   };
 
-  const requestDataExport = () => {
-    Alert.alert(
-      'Request Data Export',
-      'This opens an email to Humaeli support asking for a copy of your account data. Support will reply to your account email.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Continue',
-          onPress: () => emailSupport('Data export request', 'Hello, please send me a copy of the data associated with my doctor account.'),
-        },
-      ],
-    );
-  };
-
   const lockSubtitle = !lockStatus.pin
     ? 'Off — require a PIN to open the app'
     : lockStatus.biometric
@@ -155,12 +141,6 @@ export default function DoctorPrivacySecurityScreen({ onBack, navigation, onLogo
             title="Privacy Policy"
             subtitle="How Humaeli collects, uses and protects data"
             onPress={() => setView('privacyPolicy')}
-          />
-          <Row
-            icon="download"
-            title="Request Data Export"
-            subtitle="Ask support for a copy of your account data"
-            onPress={requestDataExport}
           />
           <Row
             icon="mail"
