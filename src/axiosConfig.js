@@ -2,12 +2,14 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { forceSignOut } from './utils/authSession';
+import { isTokenExpired } from './utils/tokenExpiry';
 
 
 const API_ENDPOINTS = {
   // RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
   RAILWAY: 'https://humaeli-backend-update-production.up.railway.app',
   DevTunnels: 'https://s5jl7g4z-5002.inc1.devtunnels.ms',
+  DevTunnels_5001: 'https://24p1k2bg-5001.inc1.devtunnels.ms',
   // DevTunnels: 'https://m429gbrg-5003.inc1.devtunnels.ms',
   LOCAL_ADB_5002: 'http://127.0.0.1:5002',
   LOCAL_5001: 'http://localhost:5001',
@@ -15,8 +17,8 @@ const API_ENDPOINTS = {
   LOCAL_3000: 'http://localhost:3000',
 };
 export const API_BASE_URL = __DEV__
-  ? API_ENDPOINTS.DevTunnels
-  : API_ENDPOINTS.DevTunnels;
+  ? API_ENDPOINTS.RAILWAY
+  : API_ENDPOINTS.RAILWAY;
 export const AI_REALTIME_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
 export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
   ? { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' }
@@ -68,6 +70,12 @@ axiosInstance.interceptors.request.use(
         const token =
           (await AsyncStorage.getItem('accessToken')) ||
           (await AsyncStorage.getItem('token'));
+        if (token && isTokenExpired(token)) {
+          // Expired session = log out, not a silent refresh (the refresh token
+          // never expires, so refreshing would keep the user signed in forever).
+          await forceSignOut({ reason: 'expired' });
+          return Promise.reject(new axios.CanceledError('Session expired'));
+        }
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }

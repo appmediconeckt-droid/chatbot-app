@@ -27,7 +27,7 @@ const SUPPORT_EMAIL = 'support@humaeli.com';
 
 // ─── Static content (mirrors the Figma) ───────────────────────────────────────
 const PROTECTED_FEATURES = [
-  { icon: 'lock-closed', label: 'End-to-end\nencryption' },
+  { icon: 'lock-closed', label: 'Secure\nconnections' },
   { icon: 'shield-checkmark', label: 'GDPR certified\naccess' },
   { icon: 'eye-off', label: 'Anonymous\nconsultation' },
   { icon: 'card', label: 'Secure wallet\ntransactions' },
@@ -390,7 +390,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab, onOpenHelpSupport, onOpenRefund }) 
                     <View style={[s.infoBox, { backgroundColor: C.secondaryTint, borderColor: C.border }]}>
                       <Ionicons name="lock-closed" size={15} color={C.primary} />
                       <Text style={[s.infoText, { color: C.primary }]}>
-                        All interactions are end-to-end encrypted and stored securely.
+                        All interactions are sent over secure, encrypted connections.
                       </Text>
                     </View>
                   </View>

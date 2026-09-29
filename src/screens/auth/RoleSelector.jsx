@@ -354,12 +354,6 @@ const RoleSelector = () => {
                 </TouchableOpacity>
               </Animated.View>
             </View>
-
-            {/* Encrypted badge */}
-            <View style={styles.badgeContainer}>
-              <Icon name="shield-lock" size={12} color={DOCTOR.primary} />
-              <Text style={styles.badgeText}>{t('END-TO-END ENCRYPTED')}</Text>
-            </View>
           </Animated.View>
           </ScrollView>
         </SafeAreaView>

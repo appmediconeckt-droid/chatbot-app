@@ -31,7 +31,7 @@ const LAST_UPDATED = '24 June 2026';
 // ─── Feature grid (2×2) ────────────────────────────────────────────────────────
 const FEATURES = [
   { icon: 'shield-checkmark', label: 'Secure Data', color: '#16A34A', bg: '#E6F6EC' },
-  { icon: 'lock-closed', label: 'Encrypted Chats', color: '#2563EB', bg: '#EFF6FF' },
+  { icon: 'lock-closed', label: 'Secure Chats', color: '#2563EB', bg: '#EFF6FF' },
   { icon: 'card', label: 'Protected Payments', color: '#16A34A', bg: '#E6F6EC' },
   { icon: 'ribbon', label: 'Professional Privacy', color: '#EF4444', bg: '#FEE2E2' },
 ];
@@ -110,7 +110,7 @@ const SECTIONS = [
     points: [
       'We never sell your data',
       'Information is shared only for care coordination',
-      'All chats are end-to-end encrypted',
+      'Chats are sent over secure, encrypted connections',
     ],
   },
   {

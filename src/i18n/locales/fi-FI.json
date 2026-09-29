@@ -1220,16 +1220,16 @@
     "p1vxjz4m": "Puhelin (valinnainen)",
     "ppmpvs1": "Osoite / sijainti",
     "p15kmheu": "Tallenna klinikka",
-    "p16yp30b": "Add a new clinic",
+    "p16yp30b": "Lisää uusi klinikka",
     "p1vtui3h": "Lisää aikavälit",
     "pex5gh6": "Lisää erilliset ikkunat, kuten aamulla, iltapäivällä ja illalla.",
-    "p1gpc6bq": "Already saved",
-    "phktjc1": "Quick add",
+    "p1gpc6bq": "on jo tallennettu",
+    "phktjc1": "Nopea lisäys",
     "pobyv8w": "Napauta lisätäksesi ikkunan omaksi aluekseen · napauta uudelleen poistaaksesi sen",
     "pq2yzs0": "Uudet aikavälit",
     "p3t046y": "Alue",
-    "py3pzol": "Add another time range",
-    "pyjl545": "Done",
+    "py3pzol": "Lisää toinen aikaväli",
+    "pyjl545": "Valmis",
     "pwbz9t1": "arkipäivä",
     "pyirr4h": "päivämäärä",
     "p10y91bp": "Tallenna kaikki alueet päivämääriin",
@@ -1763,6 +1763,10 @@
     "pd8eeue": "YLEISKATSAUS",
     "p120ntfl": "Ota tauko",
     "piwskw8": "Tämän päivän ajanvarausjono",
-    "p1jhpdzc": "Ei tapaamisia tässä jonossa"
+    "p1jhpdzc": "Ei tapaamisia tässä jonossa",
+    "p143itpq": "Kyllä. Henkilökohtaiset ja lääketieteelliset tietosi lähetetään suojattujen, salattujen yhteyksien kautta, ja ne on suojattu alan standardien tietoturvakäytännöillä. Tietojasi ei koskaan jaeta kolmansille osapuolille ilman suostumustasi.",
+    "p6pyuaf": "Turvalliset liitännät",
+    "p2gw9gv": "Kaikki vuorovaikutukset lähetetään suojattujen, salattujen yhteyksien kautta.",
+    "p1gg8u15": "Pysy Nimettömänä"
   }
 }

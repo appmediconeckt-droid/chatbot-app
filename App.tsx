@@ -25,6 +25,7 @@ import {
 import { NavigationContainer } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import { navigationRef } from './src/navigationRef';
+import { isTokenExpired, startTokenExpiryWatcher } from './src/utils/tokenExpiry';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import UserSignup from './src/screens/auth/UserSignup';
 import Landing from "./src/screens/auth/Landing";
@@ -311,6 +312,13 @@ function App() {
           return;
         }
 
+        // Expired session: don't open the dashboard. The expiry watcher started
+        // in NavigationContainer.onReady clears it and moves to the login screen.
+        if (isTokenExpired(accessToken || token)) {
+          setBootRoute('RoleSelector');
+          return;
+        }
+
         // Show lock screen if the user has set up a PIN
         if (storedPin && !hasFreshIncomingCall) {
           setIsLocked(true);
@@ -452,6 +460,7 @@ useEffect(() => {
           onReady={() => {
             routeNameRef.current = navigationRef.current?.getCurrentRoute()?.name;
             void checkInitialNotification(navigationRef);
+            startTokenExpiryWatcher();
           }}
           onStateChange={() => {
             const previousRouteName = routeNameRef.current;

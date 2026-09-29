@@ -140,8 +140,8 @@ const OnboardingPage4 = () => {
           <Text style={s.featureBtnText}>{t('Secure Chat')}</Text>
         </View>
         <View style={s.featureItem}>
-          <Ionicons name="shield-checkmark" size={20} color={PATIENT.primary} />
-          <Text style={s.featureBtnText}>{t('End-to-End')}</Text>
+          <Ionicons name="eye-off" size={20} color={PATIENT.primary} />
+          <Text style={s.featureBtnText}>{t('Stay Anonymous')}</Text>
         </View>
       </View>
     </View>

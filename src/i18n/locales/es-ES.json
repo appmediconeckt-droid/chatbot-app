@@ -1309,7 +1309,7 @@
     "p1jcbfo3": "Gestión de facturación y reclamaciones.",
     "p545q6y": "limpieza",
     "p1wajpna": "Garantiza la limpieza e higiene de las instalaciones.",
-    "p1sxe905": "Supervisor",
+    "p1sxe905": "Supervisora",
     "pxgrt6v": "Supervisa las operaciones y el personal departamental.",
     "pk5d6yp": "Departamento",
     "pt70bmm": "Preferencia de turno",
@@ -1763,6 +1763,10 @@
     "pd8eeue": "RESUMEN",
     "p120ntfl": "tomar un descanso",
     "piwskw8": "Cola de citas de hoy",
-    "p1jhpdzc": "No hay citas en esta cola"
+    "p1jhpdzc": "No hay citas en esta cola",
+    "p143itpq": "Sí. Sus datos personales y médicos se envían a través de conexiones seguras y cifradas y se protegen con prácticas de seguridad estándar de la industria. Tus datos nunca se comparten con terceros sin tu consentimiento.",
+    "p6pyuaf": "Conexiones seguras",
+    "p2gw9gv": "Todas las interacciones se envían a través de conexiones seguras y cifradas.",
+    "p1gg8u15": "Manténgase anónimo"
   }
 }

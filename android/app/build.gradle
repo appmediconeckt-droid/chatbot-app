@@ -128,6 +128,11 @@ dependencies {
     // Notifee notifications
     implementation project(":notifee_react-native")
 
+    // HumaeliMessagingService extends RNFirebase's FirebaseMessagingService, which
+    // RNFirebase only pulls in as `implementation`. Same BOM as RNFirebase uses.
+    implementation platform("com.google.firebase:firebase-bom:34.18.0")
+    implementation "com.google.firebase:firebase-messaging"
+
     // Hermes / JSC
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

@@ -64,6 +64,8 @@ import HelpSupport from "../Tab/HelpSupport/HelpSupport";
 import PrivacyPolicy from "../Tab/PrivacyPolicy/PrivacyPolicy";
 import NotificationScreen from "../Tab/Notifications/NotificationScreen";
 import QrScannerScreen from "../Tab/QrScanner/QrScannerScreen";
+import WalkInBookingScreen from "../Tab/QrScanner/WalkInBookingScreen";
+import { parseWalkInQr } from "../Tab/QrScanner/walkInQr";
 import UserAccountSettings from "../Tab/UserAccountSettings";
 import PrescriptionScreen from "../Tab/Prescription/PrescriptionScreen";
 import TokenStatusScreen from "../Tab/Token/TokenStatusScreen";
@@ -1739,6 +1741,28 @@ export default function UserDashboard() {
   const [walletInitialTab, setWalletInitialTab] = useState('add-money');
   const [showNotifications, setShowNotifications] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
+  // A scanned doctor QR opens the walk-in booking form directly (instead of
+  // just showing the link). { doctorId, source } | null
+  const [walkInBooking, setWalkInBooking] = useState(null);
+  const handleQrScanned = useCallback((value) => {
+    const walkIn = parseWalkInQr(value);
+    setShowQrScanner(false);
+    if (walkIn) {
+      // Let the scanner modal finish closing before the form slides in.
+      setTimeout(() => setWalkInBooking(walkIn), MODAL_DISMISS_MS);
+      return;
+    }
+    setTimeout(() => {
+      Alert.alert(
+        t('Not a Humaeli QR code'),
+        t("Scan the QR code shown at your doctor's clinic to book a walk-in visit."),
+        [
+          { text: t('Close'), style: 'cancel' },
+          { text: t('Scan Again'), onPress: () => setShowQrScanner(true) },
+        ],
+      );
+    }, MODAL_DISMISS_MS);
+  }, [t]);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   // Unread NOTIFICATION count for the header bell (separate from AI-chat unread).
@@ -3002,7 +3026,13 @@ export default function UserDashboard() {
         </TouchableOpacity>
       </View>
 
-      <QrScannerScreen visible={showQrScanner} onClose={() => setShowQrScanner(false)} />
+      <QrScannerScreen visible={showQrScanner} onClose={() => setShowQrScanner(false)} onScanned={handleQrScanned} />
+      <WalkInBookingScreen
+        visible={Boolean(walkInBooking)}
+        doctorId={walkInBooking?.doctorId}
+        source={walkInBooking?.source}
+        onClose={() => setWalkInBooking(null)}
+      />
 
       {/* MAIN CONTENT */}
       <View style={[styles.contentContainer, { marginBottom: bottomNavHeight }]}>

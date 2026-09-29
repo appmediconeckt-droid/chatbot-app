@@ -1479,7 +1479,7 @@
     "pa8xc0e": "Sair da conta",
     "p8zkt7r": "Compromisso concluído",
     "pzhmhub": "Concluído em:",
-    "p376e1x": "N/A",
+    "p376e1x": "N/D",
     "p3hqo3l": "Duração:",
     "pthsq3t": "Data de acompanhamento (AAAA-MM-DD)",
     "pp1tf81": "Salvar alterações",
@@ -1763,6 +1763,10 @@
     "pd8eeue": "VISÃO GERAL",
     "p120ntfl": "Faça uma pausa",
     "piwskw8": "Fila de agendamento de hoje",
-    "p1jhpdzc": "Nenhum compromisso nesta fila"
+    "p1jhpdzc": "Nenhum compromisso nesta fila",
+    "p143itpq": "Sim. Seus dados pessoais e médicos são enviados por conexões seguras e criptografadas e protegidos com práticas de segurança padrão do setor. Os seus dados nunca são partilhados com terceiros sem o seu consentimento.",
+    "p6pyuaf": "Conexões seguras",
+    "p2gw9gv": "Todas as interações são enviadas por conexões seguras e criptografadas.",
+    "p1gg8u15": "Fique anônimo"
   }
 }

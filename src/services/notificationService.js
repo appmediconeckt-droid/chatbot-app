@@ -12,6 +12,12 @@ import {
 import { startIncomingRingtone } from '../hooks/useRingtone';
 import { shouldDeliverNotification } from './notificationPreferences';
 
+// Notification icon: only the small icon (res/drawable-*/ic_notification.png,
+// a white silhouette) is used. With no large icon, Android 12+ draws it inside a
+// circle filled with `color` (Humaeli teal) at the start of the notification —
+// the logo with its background. A large icon would move to the right side and
+// the small icon would lose that circle.
+
 const NOTIFICATION_CHANNEL_ID = 'humaeli-default';
 const INCOMING_CALL_CHANNEL_ID = 'humaeli-incoming-calls-v3';
 const MISSED_CALL_NOTIFIED_KEY_PREFIX = 'missedCallNotification:';
@@ -321,12 +327,14 @@ export const registerBackgroundNotificationHandler = () => {
           }
 
           console.log('Background Notification:', remoteMessage);
-          // Notification payloads are already displayed by Android while the
-          // app is backgrounded/killed. Only data-only messages need Notifee
-          // here, otherwise the same push is displayed twice.
-          const displayPromise = remoteMessage?.notification
-            ? null
-            : displaySystemNotification(remoteMessage);
+          // On Android, HumaeliMessagingService stops Firebase from drawing
+          // notification payloads itself, so every push is shown here through
+          // Notifee (with the Humaeli logo). iOS still displays notification
+          // payloads natively — showing them here too would duplicate them.
+          const displayPromise =
+            remoteMessage?.notification && Platform.OS !== 'android'
+              ? null
+              : displaySystemNotification(remoteMessage);
           if (displayPromise) {
             await displayPromise;
           }
@@ -444,7 +452,11 @@ export const displaySystemNotification = async remoteMessage => {
         ? incomingCallPressAction
         : { id: 'default' },
       category: isIncomingCall ? AndroidCategory.CALL : undefined,
-      ongoing: isIncomingCall || undefined,
+      // Must be a real boolean: notifee rejects `ongoing: undefined` and then
+      // shows nothing ("'notification.android.ongoing' expected a boolean").
+      // Since HumaeliMessagingService routes every background push through
+      // here, that error silently dropped all of them.
+      ongoing: Boolean(isIncomingCall),
       autoCancel: !isIncomingCall,
       loopSound: false,
       timeoutAfter: isIncomingCall ? 60000 : undefined,
