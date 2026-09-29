@@ -4,14 +4,18 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Modal, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppIcon from '../icons/AppIcon';
 import { colors, typography, createDoctorStyles } from '../theme';
 import LanguageSelector from '../../../../components/common/LanguageSelector';
 import { LANGUAGES } from '../../../../i18n';
 import { useLanguageContext } from '../../../../contexts/LanguageContext';
 import { CLINICIAN } from '../../../../theme/palette';
-import { getDoctorIdFromUser, getStoredDoctorUser } from '../api/doctorAppointments';
+import {
+  formatDoctorDisplayName,
+  getDoctorIdFromUser,
+  getStoredDoctorUser,
+  loadDoctorDisplayProfile,
+} from '../api/doctorAppointments';
 
 const activeNav = {
   color: colors.blue,
@@ -78,17 +82,13 @@ export default function DoctorSidebar({
   }, [activeItem, visible]);
 
   useEffect(() => {
-    AsyncStorage.getItem('doctorMockProfile').then((raw) => {
-      if (!raw) return;
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed?.fullName) setDoctorName(parsed.fullName);
-        if (parsed?.specialization) setSpecialization(parsed.specialization);
-      } catch { /* ignore malformed mock data */ }
+    loadDoctorDisplayProfile().then(({ name, specialization: spec }) => {
+      setDoctorName(name);
+      if (spec) setSpecialization(spec);
     });
   }, []);
 
-  const displayName = doctorName.startsWith('Dr.') ? doctorName : `Dr. ${doctorName}`;
+  const displayName = formatDoctorDisplayName(doctorName);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>

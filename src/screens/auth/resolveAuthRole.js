@@ -6,6 +6,15 @@ const normalizeAuthRole = (role) => {
   return value;
 };
 
+// Clinic staff roles a doctor creates (Staff Management → Create Staff; ids
+// from staffApi ROLE_LABELS). They all log in on the main Login page and
+// share one staff dashboard, which reads the exact role from userData.
+export const STAFF_ROLES = new Set([
+  'staff', 'nurse', 'assistant', 'technician', 'billing', 'housekeeping',
+  'supervisor', 'receptionist', 'manager',
+  'medical_assistant', 'lab_technician', 'nurse_lab_technician', 'billing_accounts',
+]);
+
 const includesPsychiatry = (value) => {
   if (Array.isArray(value)) {
     return value.some(includesPsychiatry);
@@ -24,6 +33,7 @@ export const resolveAuthRole = (data, fallbackRole = 'user') => {
     normalizeAuthRole(user?.appRole);
 
   if (explicitAppRole === 'doctor') return 'doctor';
+  if (STAFF_ROLES.has(explicitAppRole)) return 'staff';
 
   const backendRole =
     normalizeAuthRole(data?.role) ||
@@ -44,6 +54,8 @@ export const resolveAuthRole = (data, fallbackRole = 'user') => {
     return 'doctor';
   }
 
+  if (STAFF_ROLES.has(backendRole.replace(/[\s-]+/g, '_'))) return 'staff';
+
   return backendRole === 'doctor' ? 'doctor' : backendRole === 'counselor' ? 'counselor' : 'user';
 };
 
@@ -51,6 +63,7 @@ export const routeForAuthRole = (role) => {
   const normalized = normalizeAuthRole(role);
   if (normalized === 'doctor') return 'DoctorDashboard';
   if (normalized === 'counselor') return 'CounselorDashboard';
+  if (normalized === 'staff') return 'StaffDashboard';
   return 'UserDashboard';
 };
 

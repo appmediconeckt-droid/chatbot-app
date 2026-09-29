@@ -898,7 +898,7 @@ const CounselorRequestChat = ({
               activeOpacity={0.85}
             >
               <Text style={styles.btnPrimaryText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-                {t('appointment:scheduleAppointment', 'Schedule Appointment')}
+                {t('appointment:bookAppointment', 'Book Appointment')}
               </Text>
             </PatientGradientButton>
           </View>

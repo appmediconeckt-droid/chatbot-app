@@ -64,6 +64,28 @@ export const ROLE_LABELS = {
 };
 const STAFF_ROLE_VALUES = ['staff', ...Object.keys(ROLE_LABELS)];
 
+// Login password generated for a new staff member: 10 characters with at
+// least one upper, lower, digit and symbol. Look-alike characters
+// (I/l/1, O/0) are left out so it can be read out or typed from a message.
+const PASSWORD_SETS = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnpqrstuvwxyz', '23456789', '@#$%&*!?'];
+const randomIndex = (max) => {
+  const cryptoApi = global.crypto;
+  if (cryptoApi?.getRandomValues) return cryptoApi.getRandomValues(new Uint32Array(1))[0] % max;
+  return Math.floor(Math.random() * max);
+};
+const pickChar = (set) => set[randomIndex(set.length)];
+
+export const generateStaffPassword = (length = 10) => {
+  const all = PASSWORD_SETS.join('');
+  const chars = PASSWORD_SETS.map(pickChar);
+  while (chars.length < length) chars.push(pickChar(all));
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = randomIndex(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+};
+
 const ROLE_KEYS_BY_LABEL = Object.fromEntries(Object.entries(ROLE_LABELS).map(([key, label]) => [label, key]));
 // Older app builds used these ids; map them onto the backend ones.
 const LEGACY_ROLE_KEYS = { medicalAssistant: 'assistant', labTechnician: 'technician', billingStaff: 'billing', 'Billing Staff': 'billing' };
@@ -158,7 +180,10 @@ export const fetchClinics = async () => {
 };
 
 // `form`: { clinicId, firstName, lastName, email, phone, role, department,
-// shift, dateOfBirth, gender, hireDate }. `photo`: data URI or null.
+// shift, dateOfBirth, gender, hireDate, password }. `photo`: data URI or null.
+// `password` is the generated login password: the staff member signs in on
+// the main Login page with `email` + `password`, and `role` routes them to
+// the staff dashboard.
 export const createStaff = async (form, photo = null) => {
   await loadPhotoCache();
   const fullName = `${form.firstName || ''} ${form.lastName || ''}`.trim();
@@ -174,8 +199,7 @@ export const createStaff = async (form, photo = null) => {
     date_of_birth: form.dateOfBirth || undefined,
     gender: form.gender || undefined,
     hire_date: form.hireDate || undefined,
-    // Same placeholder the web sends; staff can't sign in with it yet.
-    password: 'Temp@12345',
+    password: form.password || generateStaffPassword(),
     ...(photo ? { profilePhoto: photo } : {}),
   };
   const { data } = await axiosInstance.post('/api/staff', body);

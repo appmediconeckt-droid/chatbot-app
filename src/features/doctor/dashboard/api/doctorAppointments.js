@@ -109,8 +109,37 @@ export const getDoctorIdFromUser = (user) => pickFirst(
 );
 
 export const getDoctorName = (user) => pickFirst(
-  user?.name, user?.full_name, user?.fullName, user?.user?.name, user?.data?.user?.name, 'Doctor',
+  user?.full_name, user?.fullName, user?.fullname, user?.name, user?.doctor_name,
+  user?.user?.full_name, user?.user?.fullName, user?.user?.name,
+  user?.data?.user?.full_name, user?.data?.user?.fullName, user?.data?.user?.name,
+  'Doctor',
 );
+
+// "Dr. <name>", without doubling a "Dr"/"Dr." the doctor typed themselves.
+export const formatDoctorDisplayName = (name) => {
+  const bare = String(name || '').trim().replace(/^dr\.?\s+/i, '').trim();
+  return `Dr. ${bare || 'Doctor'}`;
+};
+
+// Logged-in doctor's name: the real session user (`userData`, written by
+// Login/Signup/OTP/Google) first, then the older `doctorMockProfile` cache.
+export const loadDoctorDisplayProfile = async () => {
+  const user = await getStoredDoctorUser();
+  let cached = null;
+  try {
+    cached = JSON.parse((await AsyncStorage.getItem('doctorMockProfile')) || 'null');
+  } catch { /* ignore malformed cache */ }
+  const name = pickFirst(
+    getDoctorName(user) !== 'Doctor' ? getDoctorName(user) : undefined,
+    getDoctorName(cached) !== 'Doctor' ? getDoctorName(cached) : undefined,
+    'Doctor',
+  );
+  const specialization = pickFirst(
+    user?.specialization, user?.speciality, user?.specialty,
+    cached?.specialization, cached?.speciality, cached?.specialty, '',
+  );
+  return { name, specialization };
+};
 
 // ---- dates / status -------------------------------------------------------
 

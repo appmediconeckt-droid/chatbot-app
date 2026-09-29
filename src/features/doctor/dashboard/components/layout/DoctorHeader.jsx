@@ -4,24 +4,18 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import Text from '../../../../../components/TranslatedText';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, typography, createDoctorStyles } from '../../theme';
 import AppIcon from '../../icons/AppIcon';
+import { formatDoctorDisplayName, loadDoctorDisplayProfile } from '../../api/doctorAppointments';
 
 export default function DoctorHeader({ onMenuPress, onProfilePress, onNotificationsPress, onSettingsPress }) {
   const [doctorName, setDoctorName] = useState('Doctor');
 
   useEffect(() => {
-    AsyncStorage.getItem('doctorMockProfile').then((raw) => {
-      if (!raw) return;
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed?.fullName) setDoctorName(parsed.fullName);
-      } catch { /* ignore malformed mock data */ }
-    });
+    loadDoctorDisplayProfile().then(({ name }) => setDoctorName(name));
   }, []);
 
-  const displayName = doctorName.startsWith('Dr.') ? doctorName : `Dr. ${doctorName}`;
+  const displayName = formatDoctorDisplayName(doctorName);
 
   return (
     <View style={styles.header}>

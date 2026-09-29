@@ -56,6 +56,7 @@ import SMSInput from './src/features/counselor/screens/SMSInput';
 
 // Doctor screens (frontend-only — no Doctor backend yet)
 import DoctorDashboard from './src/features/doctor/screens/DoctorDashboard';
+import StaffDashboard from './src/features/staff/screens/StaffDashboard';
 import ChangePassword from './src/screens/account/ChangePassword';
 import SetPassword from './src/screens/account/SetPassword';
 import SetPasswordByOtp from './src/screens/account/SetPasswordByOtp';
@@ -101,6 +102,7 @@ export type RootStackParamList = {
   CounselorSignup: { role?: 'user' | 'counselor' } | undefined;
   DoctorSignup: { role?: 'doctor'; doctorProfileDraft?: object } | undefined;
   DoctorDashboard: undefined;
+  StaffDashboard: undefined;
   OTPVerification: undefined;
   LocationGate: { destination: keyof RootStackParamList; destinationParams?: object };
   UserDashboard: undefined;
@@ -507,6 +509,7 @@ useEffect(() => {
             <Stack.Screen name='CounselorSignup' component={CounselorSignup} />
             <Stack.Screen name='DoctorSignup' component={DoctorSignup as React.ComponentType<any>} />
             <Stack.Screen name='DoctorDashboard' component={DoctorDashboard as React.ComponentType<any>} />
+            <Stack.Screen name='StaffDashboard' component={StaffDashboard as React.ComponentType<any>} />
               <Stack.Screen name='OTPVerification' component={OTPVerification} />
             <Stack.Screen
               name="LocationGate"

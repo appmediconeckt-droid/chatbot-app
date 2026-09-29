@@ -2222,13 +2222,14 @@ export default function CounselorDashboard() {
   const greetingTitle = (() => {
     const h = new Date().getHours();
     const g = h < 12 ? 'Good Morning' : h < 17 ? t('Good Afternoon') : t('Good Evening');
-    // First name only — surname is dropped (e.g. "Vivek Singh" → "Dr. Vivek").
+    // First name only, no "Dr." — surname is dropped (e.g. "Vivek Singh" → "Vivek").
+    // A "Dr." the counselor typed into their own name is stripped as well.
     const firstNameOnly =
       (counselorData?.name || 'Consultant')
         .replace(/^Dr\.?\s*/i, '')
         .trim()
         .split(/\s+/)[0] || 'Consultant';
-    return `${g}, Dr. ${firstNameOnly}`;
+    return `${g}, ${firstNameOnly}`;
   })();
   if (loading) {
     return (

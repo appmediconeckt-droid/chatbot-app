@@ -138,7 +138,7 @@ export default function PatientChatScreen({ name, avatar, onBack, onProfilePress
         ))}
       </ScrollView>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.actions}>
-        <Quick icon="calendar" text="Schedule Appointment" onPress={() => addChatAction('Appointment scheduling request sent.')} />
+        <Quick icon="calendar" text="Book Appointment" onPress={() => addChatAction('Appointment scheduling request sent.')} />
         <Quick icon="file" text="Request Reports" onPress={() => setPicker('reports')} />
         <Quick icon="message" text="Prescription" onPress={() => addChatAction('Prescription shared with patient.')} />
       </ScrollView>

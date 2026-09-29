@@ -60,6 +60,7 @@ const POST_AUTH_ROUTES = new Set([
   'UserDashboard',
   'CounselorDashboard',
   'DoctorDashboard',
+  'StaffDashboard',
   'DoctorOnboarding',
   'LocationGate',
   'PinSetup',
