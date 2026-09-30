@@ -121,6 +121,30 @@ export const formatDoctorDisplayName = (name) => {
   return `Dr. ${bare || 'Doctor'}`;
 };
 
+const apiOrigin = String(axiosInstance.defaults.baseURL || '').replace(/\/api\/?$/, '').replace(/\/+$/, '');
+
+// The doctor's real profile photo as a loadable URL, or '' when there is none.
+// The server stores it as { url } or a plain string, sometimes a relative
+// upload path ("uploads/…"), which needs the API origin in front.
+export const getDoctorPhotoUrl = (user) => {
+  const raw = pickFirst(
+    user?.profilePhoto?.url, user?.profilePhoto?.secure_url,
+    typeof user?.profilePhoto === 'string' ? user.profilePhoto : undefined,
+    user?.profile_photo?.url, typeof user?.profile_photo === 'string' ? user.profile_photo : undefined,
+    user?.profilePic, user?.profile_image, user?.photo, user?.avatar, user?.image,
+    user?.user?.profilePhoto?.url, user?.data?.user?.profilePhoto?.url,
+  );
+  if (!raw || typeof raw !== 'string') return '';
+  const path = raw.trim().replace(/\\/g, '/');
+  if (/^(https?:|data:|file:|content:)/i.test(path)) return path;
+  return apiOrigin ? `${apiOrigin}/${path.replace(/^\/+/, '')}` : '';
+};
+
+// Initials for the avatar fallback ("Dr. Vivek Raj" -> "VR").
+export const getDoctorInitials = (name) => String(name || '')
+  .replace(/^dr\.?\s+/i, '').trim().split(/\s+/).filter(Boolean)
+  .slice(0, 2).map((w) => w[0]).join('').toUpperCase() || 'D';
+
 // Logged-in doctor's name: the real session user (`userData`, written by
 // Login/Signup/OTP/Google) first, then the older `doctorMockProfile` cache.
 export const loadDoctorDisplayProfile = async () => {
@@ -138,7 +162,27 @@ export const loadDoctorDisplayProfile = async () => {
     user?.specialization, user?.speciality, user?.specialty,
     cached?.specialization, cached?.speciality, cached?.specialty, '',
   );
-  return { name, specialization };
+  const photo = getDoctorPhotoUrl(user) || getDoctorPhotoUrl(cached);
+  return { name, specialization, photo };
+};
+
+// Saves the latest server copy of the doctor (GET /api/auth/me) into
+// `userData`, so the header/sidebar show a photo or name changed later.
+export const saveDoctorUser = async (serverUser) => {
+  if (!serverUser || typeof serverUser !== 'object') return;
+  const current = (await getStoredDoctorUser()) || {};
+  await AsyncStorage.setItem('userData', JSON.stringify({ ...current, ...serverUser }));
+};
+
+// One /api/auth/me refresh per app session, shared by every header/sidebar.
+let serverRefresh = null;
+export const refreshDoctorUserOnce = () => {
+  if (!serverRefresh) {
+    serverRefresh = axiosInstance.get('/api/auth/me')
+      .then(({ data }) => saveDoctorUser(data?.user || data?.data?.user))
+      .catch(() => { serverRefresh = null; });
+  }
+  return serverRefresh;
 };
 
 // ---- dates / status -------------------------------------------------------

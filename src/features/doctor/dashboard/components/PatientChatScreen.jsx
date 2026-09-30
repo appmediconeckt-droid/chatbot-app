@@ -2,6 +2,7 @@
 // Adaptation: ToastAndroid (Android-only) replaced with the app's cross-platform useToast.
 import React, { useEffect, useRef, useState } from 'react';
 import { BackHandler, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
+import DoctorAvatar from './layout/DoctorAvatar';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -128,7 +129,7 @@ export default function PatientChatScreen({ name, avatar, onBack, onProfilePress
             <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.outgoing}>
               <Text translate={false} style={s.outgoingText}>Hello {firstName}. I'm sorry to hear that. Did you check your blood pressure recently? Let's have a quick video call to assess.</Text>
             </LinearGradient>
-            <Image source={{ uri: 'https://i.pravatar.cc/80?img=32' }} style={s.doctorAvatar} />
+            <DoctorAvatar size={30} style={s.doctorAvatar} />
           </View>
         </View>
         {sent.map((text, index) => (

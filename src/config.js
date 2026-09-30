@@ -12,7 +12,6 @@ export const GOOGLE_WEB_CLIENT_ID =
 // `${PUBLIC_WEB_APP_URL}/walk-in-appointment?doctorId=…&source=qr` — the same
 // link the web dashboard's QR page generates (web uses window.location.origin).
 export const PUBLIC_WEB_APP_URL = 'https://humaeli.com';
-
 export const SUPPORT_EMAIL = 'support@humaeli.com';
 export const SUPPORT_PHONE_DISPLAY = '+91 90095 55930';
 export const SUPPORT_PHONE_TEL = '+919009555930';

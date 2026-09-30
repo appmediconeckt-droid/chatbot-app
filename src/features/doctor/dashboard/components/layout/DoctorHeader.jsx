@@ -2,7 +2,8 @@
 // Adaptation: the header reads the real (mock) doctor name from
 // AsyncStorage instead of the source's hardcoded "Dr. Sharma".
 import React, { useEffect, useState } from 'react';
-import { Image, Pressable, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import DoctorAvatar from './DoctorAvatar';
 import Text from '../../../../../components/TranslatedText';
 import { colors, typography, createDoctorStyles } from '../../theme';
 import AppIcon from '../../icons/AppIcon';
@@ -61,7 +62,7 @@ export default function DoctorHeader({ onMenuPress, onProfilePress, onNotificati
           )}
         </Pressable>
         <Pressable accessibilityLabel="Doctor profile" style={styles.avatarButton} onPress={onProfilePress}>
-          <Image source={{ uri: 'https://i.pravatar.cc/100?img=32' }} style={styles.avatar} />
+          <DoctorAvatar size={30} />
         </Pressable>
       </View>
     </View>
@@ -79,5 +80,4 @@ const styles = createDoctorStyles({
   badge: { position: 'absolute', right: 0, top: 1, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 8, backgroundColor: '#E53935', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: colors.surface },
   badgeText: { fontSize: 9.5, lineHeight: 12, fontWeight: '800', color: '#FFF' },
   avatarButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
-  avatar: { width: 30, height: 30, borderRadius: 15 },
 });

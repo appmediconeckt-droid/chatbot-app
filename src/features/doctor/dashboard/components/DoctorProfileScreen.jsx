@@ -9,12 +9,15 @@ import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import DoctorEditProfileScreen from './DoctorEditProfileScreen';
+import { getDoctorInitials, getDoctorPhotoUrl, saveDoctorUser } from '../api/doctorAppointments';
 
 export default function DoctorProfileScreen({ onBack, onOpenCard }) {
   const { showToast } = useToast();
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null);
+  const [photoFailed, setPhotoFailed] = useState(false);
+  useEffect(() => setPhotoFailed(false), [profile]);
 
   useDoctorBack(() => {
     if (!editing) return false;
@@ -27,6 +30,8 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
       setLoading(true);
       const { data } = await axiosInstance.get('/api/auth/me');
       setProfile(data?.user || null);
+      // Keep the header / sidebar avatar in step with a photo changed here.
+      saveDoctorUser(data?.user).catch(() => {});
     } catch (error) {
       showToast(error?.response?.data?.message || 'Failed to load profile');
     } finally {
@@ -71,6 +76,7 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
   const languages = Array.isArray(profile?.languages) ? profile.languages : [];
   const consultationMode = Array.isArray(profile?.consultationMode) ? profile.consultationMode : [];
   const displayName = profile?.fullName ? `Dr. ${profile.fullName}` : 'Doctor';
+  const photoUrl = getDoctorPhotoUrl(profile);
 
   // Same Google Maps search link as LocationPicker's "View on map": opens the
   // Maps app when installed, otherwise the browser. Uses coordinates when the
@@ -105,10 +111,13 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
         <View style={s.profileCard}>
           <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.banner} />
           <View style={s.profileBody}>
-            <Image
-              source={{ uri: profile?.profilePhoto?.url || 'https://i.pravatar.cc/120?img=32' }}
-              style={s.avatar}
-            />
+            {photoUrl && !photoFailed ? (
+              <Image source={{ uri: photoUrl }} style={s.avatar} onError={() => setPhotoFailed(true)} />
+            ) : (
+              <View style={[s.avatar, s.avatarInitials]}>
+                <Text translate={false} style={s.avatarInitialsText}>{getDoctorInitials(profile?.fullName)}</Text>
+              </View>
+            )}
             <Text translate={false} style={s.name}>{displayName}</Text>
             {!!subtitle && <Text style={s.role}>{subtitle}</Text>}
             <View style={s.pillRow}>
@@ -202,6 +211,8 @@ const s = createDoctorStyles({
   banner: { height: 64 },
   profileBody: { alignItems: 'center', paddingHorizontal: 16, paddingBottom: 18, marginTop: -34 },
   avatar: { width: 74, height: 74, borderRadius: 37, borderWidth: 3, borderColor: '#FFF', backgroundColor: '#DCFCFF' },
+  avatarInitials: { backgroundColor: '#0D9488', alignItems: 'center', justifyContent: 'center' },
+  avatarInitialsText: { fontSize: 26, fontWeight: '800', color: '#FFF' },
   name: { fontSize: 17, fontWeight: '800', color: '#17243A', marginTop: 10 },
   role: { fontSize: 12.5, color: '#667085', marginTop: 2 },
   pillRow: { flexDirection: 'row', gap: 8, marginTop: 12 },

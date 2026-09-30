@@ -2,7 +2,8 @@
 // Adaptation: the profile card reads the real (mock) doctor name/specialization
 // from AsyncStorage instead of the source's hardcoded "Vikas Sharma".
 import React, { useEffect, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import { Modal, Pressable, ScrollView, View } from 'react-native';
+import DoctorAvatar from './layout/DoctorAvatar';
 import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { colors, typography, createDoctorStyles } from '../theme';
@@ -102,7 +103,7 @@ export default function DoctorSidebar({
             style={({ pressed }) => [styles.profileCard, pressed && styles.profileCardPressed]}
           >
             <View style={styles.avatarWrap}>
-              <Image source={{ uri: 'https://i.pravatar.cc/100?img=32' }} style={styles.avatar} />
+              <DoctorAvatar size={45} />
               <View style={styles.onlineDot} />
             </View>
             <View style={styles.profileInfo}>
@@ -198,7 +199,6 @@ const styles = createDoctorStyles({
   profileCard: { height: 76, marginHorizontal: 16, borderWidth: 1, borderColor: '#BFF8F6', backgroundColor: colors.paleBlue, borderRadius: 16, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', shadowColor: '#10213F', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   profileCardPressed: { backgroundColor: '#E6FFFB' },
   avatarWrap: { position: 'relative', marginRight: 12 },
-  avatar: { width: 45, height: 45, borderRadius: 23 },
   onlineDot: { position: 'absolute', right: 0, bottom: 1, width: 11, height: 11, borderRadius: 6, backgroundColor: '#20A05A', borderWidth: 2, borderColor: '#FFF' },
   profileInfo: { flex: 1 },
   name: { ...typography.subtitle, fontSize: 16.5, lineHeight: 21, color: '#10213F' },
