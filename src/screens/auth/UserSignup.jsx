@@ -1654,9 +1654,9 @@ const UserSignup = ({ navigation, route }) => {
         </Modal>
 
         {notification.show && (
-          <Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#00652C' : '#10b981' }]}>
-            <Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color="#fff" />
-            <Text style={styles.notificationText}>{notification.message}</Text>
+          <Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#FEF2F2' : notification.type === 'info' ? '#00652C' : '#10b981' }, notification.type === 'error' && styles.notificationError]}>
+            <Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color={notification.type === 'error' ? '#DC2626' : '#fff'} />
+            <Text style={[styles.notificationText, notification.type === 'error' && styles.notificationTextError]}>{notification.message}</Text>
           </Animated.View>
         )}
 
@@ -1740,8 +1740,10 @@ const styles = StyleSheet.create({
   switchRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 10 },
   switchText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
   switchLink: { fontSize: 14, fontWeight: '800', color: '#00652C' },
-  notification: { position: 'absolute', top: 50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 10, zIndex: 1000 },
-  notificationText: { color: '#fff', fontSize: 14, fontWeight: '700', marginLeft: 8 },
+  notification: { position: 'absolute', top: 50, left: 16, right: 16, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 8, zIndex: 1000 },
+  notificationError: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderLeftWidth: 4, borderLeftColor: '#DC2626' },
+  notificationText: { flex: 1, color: '#fff', fontSize: 13.5, lineHeight: 19, fontWeight: '600', marginLeft: 10 },
+  notificationTextError: { color: '#991B1B' },
   modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.64)', justifyContent: 'center', alignItems: 'center', padding: 22, zIndex: 30 },
   modalContent: { backgroundColor: '#fff', borderRadius: 26, padding: 28, width: '100%', maxWidth: 390, alignItems: 'center', borderWidth: 1, borderColor: '#DDF4E6', shadowColor: '#052E16', shadowOpacity: 0.18, shadowRadius: 24, elevation: 14 },
   modalIcon: { width: 68, height: 68, borderRadius: 34, justifyContent: 'center', alignItems: 'center', marginBottom: 18 },

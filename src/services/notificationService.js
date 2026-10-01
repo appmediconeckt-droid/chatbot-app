@@ -1,4 +1,5 @@
 import {
+  Linking,
   PermissionsAndroid,
   Platform,
 } from 'react-native';
@@ -10,6 +11,13 @@ import {
   notifyIncomingCallIntent,
 } from './callNotificationBridge';
 import { startIncomingRingtone } from '../hooks/useRingtone';
+import { shouldDeliverNotification } from './notificationPreferences';
+
+// Notification icon: only the small icon (res/drawable-*/ic_notification.png,
+// a white silhouette) is used. With no large icon, Android 12+ draws it inside a
+// circle filled with `color` (Humaeli teal) at the start of the notification —
+// the logo with its background. A large icon would move to the right side and
+// the small icon would lose that circle.
 
 const NOTIFICATION_CHANNEL_ID = 'humaeli-default';
 const INCOMING_CALL_CHANNEL_ID = 'humaeli-incoming-calls-v3';
@@ -17,6 +25,8 @@ const MISSED_CALL_NOTIFIED_KEY_PREFIX = 'missedCallNotification:';
 export const PENDING_INCOMING_CALL_PUSH_KEY = 'pendingIncomingCallPush';
 export const PENDING_NOTIFICATION_OPEN_KEY = 'pendingNotificationOpen';
 export const NOTIFICATION_REPLY_ACTION_ID = 'reply-to-chat';
+// Local "Update available" notification posted by UpdateReminderModal.
+export const APP_UPDATE_NOTIFICATION_TYPE = 'APP_UPDATE';
 let firebaseMessagingApi;
 let notifeeApi;
 let backgroundHandlersRegistered = false;
@@ -270,6 +280,11 @@ const handleNotificationPressEvent = async ({ type, detail }) => {
 
   const data = detail?.notification?.data || {};
   if (Object.keys(data).length) {
+    // "Update available" reminder (UpdateReminderModal): straight to the store.
+    if (data.type === APP_UPDATE_NOTIFICATION_TYPE && data.url) {
+      Linking.openURL(data.url).catch(() => {});
+      return;
+    }
     if (isIncomingCallNotification(data)) {
       await notifyIncomingCallIntent(data, 'notification-press');
       return;
@@ -320,12 +335,14 @@ export const registerBackgroundNotificationHandler = () => {
           }
 
           console.log('Background Notification:', remoteMessage);
-          // Notification payloads are already displayed by Android while the
-          // app is backgrounded/killed. Only data-only messages need Notifee
-          // here, otherwise the same push is displayed twice.
-          const displayPromise = remoteMessage?.notification
-            ? null
-            : displaySystemNotification(remoteMessage);
+          // On Android, HumaeliMessagingService stops Firebase from drawing
+          // notification payloads itself, so every push is shown here through
+          // Notifee (with the Humaeli logo). iOS still displays notification
+          // payloads natively — showing them here too would duplicate them.
+          const displayPromise =
+            remoteMessage?.notification && Platform.OS !== 'android'
+              ? null
+              : displaySystemNotification(remoteMessage);
           if (displayPromise) {
             await displayPromise;
           }
@@ -379,6 +396,14 @@ export const displaySystemNotification = async remoteMessage => {
   if (isIncomingCall && !data.receivedAt) {
     data.receivedAt = String(Date.now());
   }
+  // Doctor notification preferences (mute, categories, quiet hours). Calls
+  // always go through.
+  if (
+    !isIncomingCallNotification(data) &&
+    !(await shouldDeliverNotification(data, { isChat: isChatNotification(data) }))
+  ) {
+    return;
+  }
 
   if (Platform.OS === 'android') {
     await notifee.createChannel({
@@ -420,6 +445,8 @@ export const displaySystemNotification = async remoteMessage => {
     body: String(body),
     data,
     android: {
+      smallIcon: 'ic_notification',
+      color: '#0F8A9D',
       channelId: isIncomingCall
         ? INCOMING_CALL_CHANNEL_ID
         : NOTIFICATION_CHANNEL_ID,
@@ -433,7 +460,11 @@ export const displaySystemNotification = async remoteMessage => {
         ? incomingCallPressAction
         : { id: 'default' },
       category: isIncomingCall ? AndroidCategory.CALL : undefined,
-      ongoing: isIncomingCall || undefined,
+      // Must be a real boolean: notifee rejects `ongoing: undefined` and then
+      // shows nothing ("'notification.android.ongoing' expected a boolean").
+      // Since HumaeliMessagingService routes every background push through
+      // here, that error silently dropped all of them.
+      ongoing: Boolean(isIncomingCall),
       autoCancel: !isIncomingCall,
       loopSound: false,
       timeoutAfter: isIncomingCall ? 60000 : undefined,
@@ -672,6 +703,19 @@ export const listenForForegroundNotifications = () => {
       return;
     }
 
+    // Doctors: the type list above missed server types such as follow-up,
+    // booking or queue updates, so those never showed while the app was open.
+    // Show any push that carries visible text; the doctor's notification
+    // preferences still apply inside displaySystemNotification.
+    const hasVisibleText = Boolean(
+      remoteMessage?.notification?.title || remoteMessage?.notification?.body ||
+      data?.title || data?.body || data?.message,
+    );
+    if (hasVisibleText && String((await AsyncStorage.getItem('userRole')) || '').toLowerCase() === 'doctor') {
+      await displaySystemNotification(remoteMessage);
+      return;
+    }
+
     console.log('[Push] Foreground notification suppressed:', data?.type);
   });
 };
@@ -727,6 +771,8 @@ export const displayMissedCallNotification = async (callData = {}, reason = 'mis
     ),
     android: Platform.OS === 'android'
       ? {
+          smallIcon: 'ic_notification',
+          color: '#0F8A9D',
           channelId: NOTIFICATION_CHANNEL_ID,
           importance: AndroidImportance.HIGH,
           sound: 'default',
@@ -831,6 +877,12 @@ export const handleNotificationNavigation = async (
   const data = remoteMessage?.data;
 
   if (!data) {
+    return;
+  }
+
+  // Tapped while the app was closed (opened via the pending/initial path).
+  if (data.type === APP_UPDATE_NOTIFICATION_TYPE && data.url) {
+    Linking.openURL(data.url).catch(() => {});
     return;
   }
 

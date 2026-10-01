@@ -7,7 +7,9 @@
 //   3. Type it manually.
 // "View on map" opens the chosen address in Google Maps.
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import AppIcon from '../icons/AppIcon';
 import { colors, createDoctorStyles } from '../theme';
 import { captureAndSendLocation, getCurrentPosition } from '../../../../utils/locationHelper';
@@ -126,7 +128,7 @@ export default function LocationPicker({ value, onChange, label = 'Location / Ad
     <View>
       <Pressable style={[s.gpsBtn, locating && s.disabled]} onPress={useCurrentLocation} disabled={locating}>
         {locating ? <ActivityIndicator size="small" color="#FFF" /> : <AppIcon name="pin" size={16} color="#FFF" strokeWidth={2.2} />}
-        <Text style={s.gpsText}>{locating ? 'Getting your location…' : 'Use my current location'}</Text>
+        <Text translate={false} style={s.gpsText}>{locating ? 'Getting your location…' : 'Use my current location'}</Text>
       </Pressable>
 
       <View style={s.orRow}><View style={s.orLine} /><Text style={s.orText}>or search</Text><View style={s.orLine} /></View>
@@ -157,8 +159,8 @@ export default function LocationPicker({ value, onChange, label = 'Location / Ad
             <Pressable key={String(item.place_id)} style={({ pressed }) => [s.suggestion, pressed && s.suggestionPressed]} onPress={() => choose(shortAddress(item))}>
               <AppIcon name="pin" size={14} color={colors.blue} />
               <View style={s.flex}>
-                <Text style={s.suggestionMain} numberOfLines={1}>{shortAddress(item)}</Text>
-                <Text style={s.suggestionSub} numberOfLines={1}>{item.display_name}</Text>
+                <Text translate={false} style={s.suggestionMain} numberOfLines={1}>{shortAddress(item)}</Text>
+                <Text translate={false} style={s.suggestionSub} numberOfLines={1}>{item.display_name}</Text>
               </View>
             </Pressable>
           ))}
@@ -170,7 +172,7 @@ export default function LocationPicker({ value, onChange, label = 'Location / Ad
           <View style={s.selectedIcon}><AppIcon name="pin" size={18} color={colors.blue} strokeWidth={2.2} /></View>
           <View style={s.flex}>
             <Text style={s.selectedLabel}>Selected location</Text>
-            <Text style={s.selectedValue}>{value}</Text>
+            <Text translate={false} style={s.selectedValue}>{value}</Text>
           </View>
           <Pressable onPress={openMap} hitSlop={6} style={s.mapBtn}>
             <Text style={s.mapBtnText}>View on map</Text>

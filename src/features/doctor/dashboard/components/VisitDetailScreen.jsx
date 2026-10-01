@@ -3,7 +3,8 @@
 // Information, Vital Signs, Medical Information, Prescription + Doctor's
 // Instructions, and Download Prescription (PDF with the web's sections).
 import React, { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
@@ -32,10 +33,10 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
       </View>
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <View style={s.banner}>
-          <View style={s.avatar}><Text style={s.avatarText}>{patient.name.charAt(0).toUpperCase()}</Text></View>
+          <View style={s.avatar}><Text translate={false} style={s.avatarText}>{patient.name.charAt(0).toUpperCase()}</Text></View>
           <View style={s.flex}>
-            <Text style={s.name}>{patient.name}</Text>
-            <Text style={s.meta}>
+            <Text translate={false} style={s.name}>{patient.name}</Text>
+            <Text translate={false} style={s.meta}>
               {[patient.age !== 'N/A' ? `${patient.age} yrs` : null, patient.gender, patient.bloodGroup, patient.phone].filter(Boolean).join(' • ')}
             </Text>
           </View>
@@ -58,20 +59,20 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
 
         <Card title="Medical Information" icon="note">
           <Text style={s.label}>Presenting Problem</Text>
-          <Text style={s.problem}>{record.problem}</Text>
+          <Text translate={false} style={s.problem}>{record.problem}</Text>
           <Text style={[s.label, s.labelSpaced]}>Diagnosis</Text>
-          <Text style={s.body}>{record.diagnosis}</Text>
+          <Text translate={false} style={s.body}>{record.diagnosis}</Text>
         </Card>
 
         <Card title="Prescription" icon="pill">
           <View style={s.rxBox}>
             <Text style={s.label}>Medication</Text>
-            <Text style={s.body}>{record.tablets}</Text>
+            <Text translate={false} style={s.body}>{record.tablets}</Text>
             <Text style={[s.label, s.labelSpaced]}>Duration</Text>
             <Text style={s.body}>{record.days}</Text>
           </View>
           <Text style={[s.label, s.labelSpaced]}>Doctor's Instructions</Text>
-          <Text style={s.body}>{record.prescription}</Text>
+          <Text translate={false} style={s.body}>{record.prescription}</Text>
         </Card>
       </ScrollView>
       <View style={s.footer}>
@@ -102,7 +103,7 @@ function Row({ label, value, highlight, warn, last }) {
   return (
     <View style={[s.row, last && s.rowLast]}>
       <Text style={s.rowLabel}>{label}</Text>
-      <Text style={[s.rowValue, highlight && s.rowHighlight, warn && s.rowWarn]} numberOfLines={2}>{value}</Text>
+      <Text translate={false} style={[s.rowValue, highlight && s.rowHighlight, warn && s.rowWarn]} numberOfLines={2}>{value}</Text>
     </View>
   );
 }
@@ -111,7 +112,7 @@ function Vital({ label, value, icon, tone }) {
   return (
     <View style={[s.vital, s[`vital_${tone}`]]}>
       <Text style={s.vitalIcon}>{icon}</Text>
-      <Text style={s.vitalValue}>{value}</Text>
+      <Text translate={false} style={s.vitalValue}>{value}</Text>
       <Text style={s.vitalLabel}>{label}</Text>
     </View>
   );

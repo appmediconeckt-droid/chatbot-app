@@ -3,7 +3,9 @@
 // clinic_photo[]) plus the doctor's existing clinics from
 // GET /api/clinics?doctor_id&role=doctor.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import { launchImageLibrary } from 'react-native-image-picker';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -24,8 +26,10 @@ const getApiErrorText = (err, fallback) => {
   return data?.message || data?.error || err?.message || fallback;
 };
 
+// multer's "Unexpected field" (wrong field name or more files than allowed),
+// also seen wrapped as "Unexpected file field: clinic_photo".
 const isUnexpectedFileFieldError = (err) =>
-  /Unexpected file field/i.test(getApiErrorText(err, ''));
+  /Unexpected (file )?field|LIMIT_UNEXPECTED_FILE/i.test(getApiErrorText(err, ''));
 
 export default function DoctorClinicSettingsScreen({ onBack }) {
   const { showToast } = useToast();
@@ -85,48 +89,63 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
       setMessage(`Missing: ${missing.join(', ')}`);
       return;
     }
-    const buildFormData = (withPhotos) => {
+    const buildFormData = (photoList) => {
       const formData = new FormData();
       formData.append('doctor_id', doctorId);
       formData.append('clinic_name', clinicName.trim());
       formData.append('phone_number', phone.trim());
       formData.append('location', address.trim());
-      if (withPhotos) {
-        photos.forEach((photo, index) => {
-          formData.append('clinic_photo', {
-            uri: photo.uri,
-            type: photo.type || 'image/jpeg',
-            name: photo.fileName || `clinic-${Date.now()}-${index}.jpg`,
-          });
+      photoList.forEach((photo, index) => {
+        const type = photo.type || 'image/jpeg';
+        const ext = (type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+        formData.append('clinic_photo', {
+          uri: photo.uri,
+          type,
+          name: photo.fileName || `clinic-${Date.now()}-${index}.${ext}`,
         });
-      }
+      });
       return formData;
     };
     const post = (formData) =>
-      axiosInstance.post('/api/clinics', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      axiosInstance.post('/api/clinics', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        // Send the FormData as-is: axios must not serialise it, and uploads
+        // need longer than the default timeout on slow networks.
+        transformRequest: (data) => data,
+        timeout: 60000,
+      });
+
+    // Try all photos, then only the first one (a server that accepts a
+    // single `clinic_photo` rejects extra files with "Unexpected field"),
+    // and only then save the clinic without photos.
+    const attempts = [photos, photos.slice(0, 1), []]
+      .filter((list, index, all) => index === 0 || list.length !== all[index - 1].length);
 
     try {
       setStatus('loading');
-      setMessage('Creating clinic...');
-      let photosSkipped = false;
-      try {
-        await post(buildFormData(photos.length > 0));
-      } catch (err) {
-        // Backends without the clinic upload handler (multerConfig
-        // handleClinicUpload) reject the `clinic_photo` file field with a 500
-        // HTML page ("Unexpected file field: clinic_photo"). Save the clinic
-        // without photos instead of failing the whole request.
-        if (photos.length > 0 && isUnexpectedFileFieldError(err)) {
-          await post(buildFormData(false));
-          photosSkipped = true;
-        } else {
-          throw err;
+      setMessage(photos.length ? 'Uploading clinic and photos...' : 'Creating clinic...');
+      let uploadedCount = 0;
+      for (let i = 0; i < attempts.length; i += 1) {
+        try {
+          await post(buildFormData(attempts[i]));
+          uploadedCount = attempts[i].length;
+          break;
+        } catch (err) {
+          console.warn('[clinic-upload] attempt failed', JSON.stringify({
+            photos: attempts[i].length,
+            status: err?.response?.status,
+            error: getApiErrorText(err, err?.message || 'unknown'),
+          }));
+          const canRetryWithFewer = i < attempts.length - 1 && isUnexpectedFileFieldError(err);
+          if (!canRetryWithFewer) throw err;
         }
       }
       setStatus('succeeded');
-      setMessage(photosSkipped
-        ? 'Clinic created, but photos were not uploaded — the server does not accept clinic photos yet.'
-        : 'Clinic created successfully.');
+      setMessage(uploadedCount === photos.length
+        ? 'Clinic created successfully.'
+        : uploadedCount > 0
+          ? `Clinic created with ${uploadedCount} photo — the server accepts only one clinic photo.`
+          : 'Clinic created, but photos were not uploaded — the server did not accept the photo.');
       showToast('Clinic created');
       reset();
       refreshClinics();
@@ -158,8 +177,8 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
               <View key={clinic.id} style={[s.clinicRow, index === clinics.length - 1 && s.clinicRowLast]}>
                 <View style={s.logoThumb}><AppIcon name="briefcase" size={18} color="#0D9488" strokeWidth={1.8} /></View>
                 <View style={s.flex}>
-                  <Text style={s.clinicName}>{clinic.name}</Text>
-                  <Text style={s.hint}>{clinic.location}{clinic.phone ? ` • ${clinic.phone}` : ''}</Text>
+                  <Text translate={false} style={s.clinicName}>{clinic.name}</Text>
+                  <Text translate={false} style={s.hint}>{clinic.location}{clinic.phone ? ` • ${clinic.phone}` : ''}</Text>
                 </View>
               </View>
             ))
@@ -185,7 +204,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
             </ScrollView>
           )}
           {!!message && (
-            <Text style={[s.message, status === 'failed' && s.messageError, status === 'succeeded' && s.messageOk]}>{message}</Text>
+            <Text translate={false} style={[s.message, status === 'failed' && s.messageError, status === 'succeeded' && s.messageOk]}>{message}</Text>
           )}
         </Section>
       </ScrollView>

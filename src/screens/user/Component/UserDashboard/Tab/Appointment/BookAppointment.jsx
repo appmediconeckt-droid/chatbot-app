@@ -28,11 +28,16 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import PATIENT from '../../../../../../theme/palette';
 import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
+import DoctorBookingModal from './DoctorBookingModal';
 import { toImageUri } from '../../../../../../utils/imageUri';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import socketService from '../../../../../../services/socketService';
 import useLiveRefresh from '../../../../../../hooks/useLiveRefresh';
-import { getAvailabilitySubscription, setAvailabilitySubscription } from '../../../../../../services/availabilitySubscriptions';
+import {
+  getAvailabilitySubscription,
+  isAvailabilitySubscriptionUnsupported,
+  setAvailabilitySubscription,
+} from '../../../../../../services/availabilitySubscriptions';
 
 // Same gradient and direction as the wallet balance card.
 const WALLET_GRADIENT = ['#006B2C', '#01CE54'];
@@ -131,6 +136,8 @@ const CounselorRequestChat = ({
   const [notifications, setNotifications] = useState([]);
   const [acceptedChatsByCounselorId, setAcceptedChatsByCounselorId] = useState({});
   const [availabilitySubscriptions, setAvailabilitySubscriptions] = useState({});
+  // False when the server has no online-notification route (404) — hide the bell.
+  const [availabilityBellSupported, setAvailabilityBellSupported] = useState(true);
   const [availabilityUpdating, setAvailabilityUpdating] = useState({});
   const availabilityRequestsRef = useRef(new Set());
   const availabilityVersionsRef = useRef({});
@@ -142,6 +149,8 @@ const CounselorRequestChat = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
   const [showBookingModal, setShowBookingModal] = useState(false);
+  // Doctors book through the web's clinic / slot flow (DoctorBookingModal).
+  const [doctorForBooking, setDoctorForBooking] = useState(null);
   const [bookingDateTime, setBookingDateTime] = useState(() => {
     const nextSlot = new Date();
     const roundedMinutes = Math.ceil(nextSlot.getMinutes() / 15) * 15;
@@ -349,6 +358,9 @@ const CounselorRequestChat = ({
         email: c.email,
         phone: c.phoneNumber,
         location: c.location,
+        languages: c.languages,
+        consultationFee: c.consultationFee ?? c.fee ?? c.consultation_fee,
+        qualification: c.qualification,
       }));
 
       setCounselors(formattedCounselors);
@@ -404,6 +416,10 @@ const CounselorRequestChat = ({
           setAvailabilitySubscriptions((previous) => ({ ...previous, [key]: subscribed }));
         })
         .catch((error) => {
+          if (isAvailabilitySubscriptionUnsupported(error)) {
+            if (active) setAvailabilityBellSupported(false);
+            return;
+          }
           console.warn('Could not load availability notification:', error?.message);
         });
     });
@@ -431,6 +447,14 @@ const CounselorRequestChat = ({
         throw new Error('The server did not save the requested notification status');
       }
     } catch (error) {
+      if (isAvailabilitySubscriptionUnsupported(error)) {
+        setAvailabilityBellSupported(false);
+        Alert.alert(
+          t('appointment:availabilityNotificationTitle', 'Online notifications'),
+          t('appointment:availabilityNotificationUnsupported', 'Online notifications are not available yet. Please check back later.')
+        );
+        return;
+      }
       console.warn('Availability notification update failed:', error?.response?.status, error?.message);
       Alert.alert(
         t('common:error'),
@@ -527,6 +551,12 @@ const CounselorRequestChat = ({
   };
 
   const handleBookAppointment = (counselor) => {
+    // Booking needs no accepted chat request — the backend books straight away
+    // and the consultant confirms it. Doctors use the clinic/slot booking modal.
+    if (counselor.role === 'doctor') {
+      setDoctorForBooking(counselor);
+      return;
+    }
     setSelectedCounselorForRequest(counselor);
     const nextSlot = new Date();
     const roundedMinutes = Math.ceil(nextSlot.getMinutes() / 15) * 15;
@@ -831,6 +861,7 @@ const CounselorRequestChat = ({
                 {online ? t('counselor:available', 'AVAILABLE') : t('common:offline', 'OFFLINE')}
               </Text>
             </View>
+            {availabilityBellSupported && (
             <TouchableOpacity
               style={[styles.btnBellSm, availabilitySubscriptions[String(item.id)] && styles.btnBellSmActive]}
               onPress={() => toggleAvailabilityNotification(item)}
@@ -856,15 +887,22 @@ const CounselorRequestChat = ({
                 />
               )}
             </TouchableOpacity>
+            )}
           </View>
         </View>
 
         {item.role === 'doctor' ? (
-          // Doctors: chat is not allowed (same as web). Clinic/slot booking is not in the app yet.
-          <View style={styles.cardOfflineRow}>
-            <Text style={styles.nextAvailText} numberOfLines={2}>
-              {t('appointment:doctorBookingSoon', 'Appointment booking with doctors is coming soon')}
-            </Text>
+          // Doctors: chat is not allowed (same as web) — only clinic / slot booking.
+          <View style={styles.cardActions}>
+            <PatientGradientButton
+              style={styles.btnPrimary}
+              onPress={() => handleBookAppointment(item)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.btnPrimaryText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                {t('appointment:bookAppointment', 'Book Appointment')}
+              </Text>
+            </PatientGradientButton>
           </View>
         ) : (
           // Consultants: Schedule Appointment is always offered - the backend
@@ -974,6 +1012,8 @@ const CounselorRequestChat = ({
       { id: 'all', label: t('common:all', 'All') },
       { id: 'online', label: t('common:online', 'Online') },
       { id: 'offline', label: t('common:offline', 'Offline') },
+      { id: 'doctor', label: t('appointment:doctors', 'Doctors') },
+      { id: 'consultant', label: t('appointment:consultants', 'Consultants') },
     ];
   })();
 
@@ -992,6 +1032,8 @@ const CounselorRequestChat = ({
     if (activeFilter === 'all') return true;
     if (activeFilter === 'online') return !!c.available;
     if (activeFilter === 'offline') return !c.available;
+    if (activeFilter === 'doctor') return c.role === 'doctor';
+    if (activeFilter === 'consultant') return c.role !== 'doctor';
     return true;
   });
 
@@ -1313,6 +1355,12 @@ const CounselorRequestChat = ({
           </View>
         </View>
       </Modal>
+
+      <DoctorBookingModal
+        visible={Boolean(doctorForBooking)}
+        doctorData={doctorForBooking}
+        onClose={() => setDoctorForBooking(null)}
+      />
 
       <Modal
         visible={showBookingModal}

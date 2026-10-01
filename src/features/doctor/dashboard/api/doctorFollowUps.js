@@ -104,9 +104,29 @@ export const normalizeFollowUp = (followUp, index, appointmentPatients = [], doc
   };
 };
 
+// normalizeApiList gathers rows from every collection key in the payload
+// (data / followups / results ...). When the backend returns the same list
+// under several keys, each follow-up came back once per key — one saved
+// follow-up showed up 3 times. Keep one row per server id (or, for rows with
+// no id, per patient + appointment + date + time).
+const dedupeFollowUps = (rows) => {
+  const seen = new Set();
+  return rows.filter((row) => {
+    const serverId = pickFirst(row.id, row.followup_id, row.follow_up_id, row._id);
+    const key = serverId !== undefined
+      ? `id:${serverId}`
+      : ['row', getPatientId(row), pickFirst(row.appointment_id, row.appointmentId, ''),
+        pickFirst(row.follow_up_date, row.followUpDate, row.date, ''),
+        pickFirst(row.followup_time, row.follow_up_time, row.followUpTime, row.time, '')].join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 export const loadFollowUpsForDoctor = async (doctorId, appointmentPatients, doctorName) => {
   const response = await axiosInstance.get('/api/followups', { params: { doctor_id: doctorId } });
-  return normalizeApiList(response.data)
+  return dedupeFollowUps(normalizeApiList(response.data))
     .map((row, index) => normalizeFollowUp(row, index, appointmentPatients, doctorName))
     .filter((fu) => !fu.doctorId || String(fu.doctorId) === String(doctorId));
 };

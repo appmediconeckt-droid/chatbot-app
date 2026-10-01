@@ -4,7 +4,8 @@
 // ("Patient Details", reached from the Patients list), which keeps its own
 // tabbed vitals/allergies/visit layout untouched.
 import React from 'react';
-import { Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { colors, createDoctorStyles } from '../theme';
 
@@ -41,8 +42,8 @@ export default function PatientProfileScreen({ patient, onBack }) {
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <View style={s.profileCard}>
           <Image source={{ uri: patient?.image }} style={s.avatar} />
-          <Text style={s.name}>{patient?.name ?? 'Patient'}</Text>
-          <Text style={s.meta}>
+          <Text translate={false} style={s.name}>{patient?.name ?? 'Patient'}</Text>
+          <Text translate={false} style={s.meta}>
             {patient?.age ?? 54} Yrs · {patient?.gender ?? 'Male'} · {patient?.bloodGroup ?? 'O+'}
           </Text>
           <View style={s.quickActions}>
@@ -57,8 +58,8 @@ export default function PatientProfileScreen({ patient, onBack }) {
           <View style={s.diagnosisIcon}><AppIcon name="pulse" size={16} color="#C0463F" strokeWidth={2.2} /></View>
           <View style={s.grow}>
             <Text style={s.diagnosisEyebrow}>CURRENT PRIMARY DIAGNOSIS</Text>
-            <Text style={s.diagnosisTitle}>{diagnosis.title}</Text>
-            <Text style={s.diagnosisDetail}>{diagnosis.detail}</Text>
+            <Text translate={false} style={s.diagnosisTitle}>{diagnosis.title}</Text>
+            <Text translate={false} style={s.diagnosisDetail}>{diagnosis.detail}</Text>
           </View>
         </View>
 
@@ -71,8 +72,8 @@ export default function PatientProfileScreen({ patient, onBack }) {
             <View key={med.name} style={[s.medRow, index === medications.length - 1 && s.medRowLast]}>
               <View style={s.medIcon}><AppIcon name="pill" size={17} color={colors.blue} strokeWidth={2} /></View>
               <View style={s.grow}>
-                <Text style={s.medName}>{med.name}</Text>
-                <Text style={s.medDose}>{med.dose}</Text>
+                <Text translate={false} style={s.medName}>{med.name}</Text>
+                <Text translate={false} style={s.medDose}>{med.dose}</Text>
               </View>
               <Pressable hitSlop={8} style={s.medEdit}>
                 <AppIcon name="edit" size={16} color="#8A94A4" strokeWidth={2} />
@@ -87,11 +88,11 @@ export default function PatientProfileScreen({ patient, onBack }) {
               <AppIcon name="flask" size={17} color={colors.blue} strokeWidth={2} />
               <Text style={s.miniTitle}>Labs</Text>
             </View>
-            <Text style={s.miniLine}>{labs.title}</Text>
+            <Text translate={false} style={s.miniLine}>{labs.title}</Text>
             <View style={s.miniFooterRow}>
-              <Text style={s.miniSub}>{labs.date}</Text>
+              <Text translate={false} style={s.miniSub}>{labs.date}</Text>
               {!!labs.badge && (
-                <View style={s.miniBadge}><Text style={s.miniBadgeText}>{labs.badge}</Text></View>
+                <View style={s.miniBadge}><Text translate={false} style={s.miniBadgeText}>{labs.badge}</Text></View>
               )}
             </View>
           </View>

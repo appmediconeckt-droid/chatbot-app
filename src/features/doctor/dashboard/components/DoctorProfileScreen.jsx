@@ -1,24 +1,37 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
+import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import DoctorEditProfileScreen from './DoctorEditProfileScreen';
+import { getDoctorInitials, getDoctorPhotoUrl, saveDoctorUser } from '../api/doctorAppointments';
 
 export default function DoctorProfileScreen({ onBack, onOpenCard }) {
   const { showToast } = useToast();
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null);
+  const [photoFailed, setPhotoFailed] = useState(false);
+  useEffect(() => setPhotoFailed(false), [profile]);
+
+  useDoctorBack(() => {
+    if (!editing) return false;
+    setEditing(false);
+    return true;
+  });
 
   const fetchProfile = useCallback(async () => {
     try {
       setLoading(true);
       const { data } = await axiosInstance.get('/api/auth/me');
       setProfile(data?.user || null);
+      // Keep the header / sidebar avatar in step with a photo changed here.
+      saveDoctorUser(data?.user).catch(() => {});
     } catch (error) {
       showToast(error?.response?.data?.message || 'Failed to load profile');
     } finally {
@@ -63,6 +76,23 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
   const languages = Array.isArray(profile?.languages) ? profile.languages : [];
   const consultationMode = Array.isArray(profile?.consultationMode) ? profile.consultationMode : [];
   const displayName = profile?.fullName ? `Dr. ${profile.fullName}` : 'Doctor';
+  const photoUrl = getDoctorPhotoUrl(profile);
+
+  // Same Google Maps search link as LocationPicker's "View on map": opens the
+  // Maps app when installed, otherwise the browser. Uses coordinates when the
+  // profile has them, else the saved address text.
+  const openInMaps = () => {
+    const lat = Number(profile?.latitude ?? profile?.location?.latitude ?? profile?.coordinates?.lat);
+    const lng = Number(profile?.longitude ?? profile?.location?.longitude ?? profile?.coordinates?.lng);
+    const address = typeof profile?.location === 'string' ? profile.location.trim() : '';
+    const query = Number.isFinite(lat) && Number.isFinite(lng) && (lat || lng) ? `${lat},${lng}` : address;
+    if (!query) {
+      showToast('Add your location in Edit Profile first');
+      return;
+    }
+    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`)
+      .catch(() => showToast('Could not open Google Maps'));
+  };
   const subtitle = specialization.length ? specialization.join(' · ') : (profile?.qualification || '');
 
   return (
@@ -81,11 +111,14 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
         <View style={s.profileCard}>
           <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.banner} />
           <View style={s.profileBody}>
-            <Image
-              source={{ uri: profile?.profilePhoto?.url || 'https://i.pravatar.cc/120?img=32' }}
-              style={s.avatar}
-            />
-            <Text style={s.name}>{displayName}</Text>
+            {photoUrl && !photoFailed ? (
+              <Image source={{ uri: photoUrl }} style={s.avatar} onError={() => setPhotoFailed(true)} />
+            ) : (
+              <View style={[s.avatar, s.avatarInitials]}>
+                <Text translate={false} style={s.avatarInitialsText}>{getDoctorInitials(profile?.fullName)}</Text>
+              </View>
+            )}
+            <Text translate={false} style={s.name}>{displayName}</Text>
             {!!subtitle && <Text style={s.role}>{subtitle}</Text>}
             <View style={s.pillRow}>
               <Pressable onPress={onOpenCard} style={s.darkPill}>
@@ -125,18 +158,18 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
         )}
 
         <Section icon="pin" label="Location">
-          <Text style={s.subLabel}>{profile?.location || 'Not set'}</Text>
+          <Text translate={false} style={s.subLabel}>{profile?.location || 'Not set'}</Text>
           <View style={s.mapPreview}>
             <AppIcon name="pin" size={22} color="#0D9488" strokeWidth={2} />
           </View>
-          <Pressable onPress={() => showToast('Opening Google Maps — coming soon')}>
+          <Pressable onPress={openInMaps}>
             <Text style={s.mapLink}>View on Google Maps</Text>
           </Pressable>
         </Section>
 
         {!!profile?.aboutMe && (
           <Section icon="file" label="About">
-            <Text style={s.subLabel}>{profile.aboutMe}</Text>
+            <Text translate={false} style={s.subLabel}>{profile.aboutMe}</Text>
           </Section>
         )}
       </ScrollView>
@@ -160,7 +193,7 @@ function InfoRow({ label, value, last }) {
   return (
     <View style={[s.infoRow, last && s.infoRowLast]}>
       <Text style={s.infoLabel}>{label}</Text>
-      <Text style={s.infoValue}>{value}</Text>
+      <Text translate={false} style={s.infoValue}>{value}</Text>
     </View>
   );
 }
@@ -178,6 +211,8 @@ const s = createDoctorStyles({
   banner: { height: 64 },
   profileBody: { alignItems: 'center', paddingHorizontal: 16, paddingBottom: 18, marginTop: -34 },
   avatar: { width: 74, height: 74, borderRadius: 37, borderWidth: 3, borderColor: '#FFF', backgroundColor: '#DCFCFF' },
+  avatarInitials: { backgroundColor: '#0D9488', alignItems: 'center', justifyContent: 'center' },
+  avatarInitialsText: { fontSize: 26, fontWeight: '800', color: '#FFF' },
   name: { fontSize: 17, fontWeight: '800', color: '#17243A', marginTop: 10 },
   role: { fontSize: 12.5, color: '#667085', marginTop: 2 },
   pillRow: { flexDirection: 'row', gap: 8, marginTop: 12 },

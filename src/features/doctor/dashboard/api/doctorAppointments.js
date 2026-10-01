@@ -109,8 +109,81 @@ export const getDoctorIdFromUser = (user) => pickFirst(
 );
 
 export const getDoctorName = (user) => pickFirst(
-  user?.name, user?.full_name, user?.fullName, user?.user?.name, user?.data?.user?.name, 'Doctor',
+  user?.full_name, user?.fullName, user?.fullname, user?.name, user?.doctor_name,
+  user?.user?.full_name, user?.user?.fullName, user?.user?.name,
+  user?.data?.user?.full_name, user?.data?.user?.fullName, user?.data?.user?.name,
+  'Doctor',
 );
+
+// "Dr. <name>", without doubling a "Dr"/"Dr." the doctor typed themselves.
+export const formatDoctorDisplayName = (name) => {
+  const bare = String(name || '').trim().replace(/^dr\.?\s+/i, '').trim();
+  return `Dr. ${bare || 'Doctor'}`;
+};
+
+const apiOrigin = String(axiosInstance.defaults.baseURL || '').replace(/\/api\/?$/, '').replace(/\/+$/, '');
+
+// The doctor's real profile photo as a loadable URL, or '' when there is none.
+// The server stores it as { url } or a plain string, sometimes a relative
+// upload path ("uploads/…"), which needs the API origin in front.
+export const getDoctorPhotoUrl = (user) => {
+  const raw = pickFirst(
+    user?.profilePhoto?.url, user?.profilePhoto?.secure_url,
+    typeof user?.profilePhoto === 'string' ? user.profilePhoto : undefined,
+    user?.profile_photo?.url, typeof user?.profile_photo === 'string' ? user.profile_photo : undefined,
+    user?.profilePic, user?.profile_image, user?.photo, user?.avatar, user?.image,
+    user?.user?.profilePhoto?.url, user?.data?.user?.profilePhoto?.url,
+  );
+  if (!raw || typeof raw !== 'string') return '';
+  const path = raw.trim().replace(/\\/g, '/');
+  if (/^(https?:|data:|file:|content:)/i.test(path)) return path;
+  return apiOrigin ? `${apiOrigin}/${path.replace(/^\/+/, '')}` : '';
+};
+
+// Initials for the avatar fallback ("Dr. Vivek Raj" -> "VR").
+export const getDoctorInitials = (name) => String(name || '')
+  .replace(/^dr\.?\s+/i, '').trim().split(/\s+/).filter(Boolean)
+  .slice(0, 2).map((w) => w[0]).join('').toUpperCase() || 'D';
+
+// Logged-in doctor's name: the real session user (`userData`, written by
+// Login/Signup/OTP/Google) first, then the older `doctorMockProfile` cache.
+export const loadDoctorDisplayProfile = async () => {
+  const user = await getStoredDoctorUser();
+  let cached = null;
+  try {
+    cached = JSON.parse((await AsyncStorage.getItem('doctorMockProfile')) || 'null');
+  } catch { /* ignore malformed cache */ }
+  const name = pickFirst(
+    getDoctorName(user) !== 'Doctor' ? getDoctorName(user) : undefined,
+    getDoctorName(cached) !== 'Doctor' ? getDoctorName(cached) : undefined,
+    'Doctor',
+  );
+  const specialization = pickFirst(
+    user?.specialization, user?.speciality, user?.specialty,
+    cached?.specialization, cached?.speciality, cached?.specialty, '',
+  );
+  const photo = getDoctorPhotoUrl(user) || getDoctorPhotoUrl(cached);
+  return { name, specialization, photo };
+};
+
+// Saves the latest server copy of the doctor (GET /api/auth/me) into
+// `userData`, so the header/sidebar show a photo or name changed later.
+export const saveDoctorUser = async (serverUser) => {
+  if (!serverUser || typeof serverUser !== 'object') return;
+  const current = (await getStoredDoctorUser()) || {};
+  await AsyncStorage.setItem('userData', JSON.stringify({ ...current, ...serverUser }));
+};
+
+// One /api/auth/me refresh per app session, shared by every header/sidebar.
+let serverRefresh = null;
+export const refreshDoctorUserOnce = () => {
+  if (!serverRefresh) {
+    serverRefresh = axiosInstance.get('/api/auth/me')
+      .then(({ data }) => saveDoctorUser(data?.user || data?.data?.user))
+      .catch(() => { serverRefresh = null; });
+  }
+  return serverRefresh;
+};
 
 // ---- dates / status -------------------------------------------------------
 
@@ -129,22 +202,81 @@ const getAppointmentDateValue = (a) => pickFirst(
   a?.visitDate, a?.check_in_at, a?.checkInAt, a?.created_at, a?.createdAt,
 );
 
-const getAppointmentDateTime = (a) => {
-  const dateKey = formatLocalDateKey(getAppointmentDateValue(a));
-  if (!dateKey) return null;
-  const timeValue = pickFirst(
-    a?.appointment_time, a?.appointmentTime, a?.time, a?.scheduled_time, a?.scheduledTime,
-    a?.slot_time, a?.slotTime, a?.check_in_time, a?.checkInTime,
-  );
-  const [hours = '23', minutes = '59', seconds = '59'] = String(timeValue || '23:59:59').trim().split(':');
+const getAppointmentTimeValue = (a) => pickFirst(
+  a?.appointment_time, a?.appointmentTime, a?.time, a?.scheduled_time, a?.scheduledTime,
+  a?.slot_time, a?.slotTime, a?.start_time, a?.slot_start_time, a?.slotStartTime,
+  a?.check_in_time, a?.checkInTime,
+);
+
+const isValidDate = (d) => d instanceof Date && !Number.isNaN(d.getTime());
+
+// A date-only value serialised as UTC midnight ("2026-09-25T00:00:00.000Z")
+// carries no real time of day — don't read 00:00 UTC (05:30 IST) as the slot.
+const isMidnightUtc = (value) => /T00:00(:00(\.0+)?)?(Z|[+-]00:?00)$/.test(String(value));
+
+// Accepts "14:30", "14:30:00", "2:30 PM" and "02:30 pm" on the given day.
+const parseTimeOnDate = (dateKey, value) => {
+  if (!dateKey || !value) return null;
+  const match = String(value).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i);
+  if (!match) return null;
+  let hours = Number(match[1]);
+  if (match[4]?.toUpperCase() === 'PM' && hours !== 12) hours += 12;
+  if (match[4]?.toUpperCase() === 'AM' && hours === 12) hours = 0;
   const dt = new Date(
     Number(dateKey.slice(0, 4)), Number(dateKey.slice(5, 7)) - 1, Number(dateKey.slice(8, 10)),
-    Number(hours), Number(minutes), Number(seconds),
+    hours, Number(match[2]), Number(match[3] || 0),
   );
-  return Number.isNaN(dt.getTime()) ? null : dt;
+  return isValidDate(dt) ? dt : null;
+};
+
+// The one place that decides an appointment's slot start. The queue card's
+// time, the Start Consultation gate and the pending-expiry check all read it, so the
+// time on screen is always the time Start unlocks. Null when no time is known.
+const resolveScheduledStart = (a) => {
+  const effective = pickFirst(a?.estimated_start_at, a?.estimatedStartAt, a?.original_appointment_at, a?.originalAppointmentAt);
+  if (effective) {
+    const d = new Date(effective);
+    if (isValidDate(d)) return d;
+  }
+  const dateValue = getAppointmentDateValue(a);
+  const dateKey = formatLocalDateKey(dateValue);
+  if (!dateKey) return null;
+  const timeValue = getAppointmentTimeValue(a);
+  if (timeValue) {
+    if (String(timeValue).includes('T')) {
+      const d = new Date(timeValue);
+      return isValidDate(d) ? d : null;
+    }
+    return parseTimeOnDate(dateKey, timeValue);
+  }
+  // Patient bookings send one ISO `date` that carries the time too.
+  if (typeof dateValue === 'string' && dateValue.includes('T') && !isMidnightUtc(dateValue)) {
+    const d = new Date(dateValue);
+    if (isValidDate(d)) return d;
+  }
+  return null;
+};
+
+// `endOfDayFallback`: with no time on the appointment, treat it as 23:59:59
+// (right for expiry). Pass false to get null instead when the time is unknown.
+const getAppointmentDateTime = (a, { endOfDayFallback = true } = {}) => {
+  const resolved = resolveScheduledStart(a);
+  if (resolved || !endOfDayFallback) return resolved;
+  const dateKey = formatLocalDateKey(getAppointmentDateValue(a));
+  return dateKey ? parseTimeOnDate(dateKey, '23:59:59') : null;
+};
+
+// Emergency request from a patient (web: priority === 'emergency'). It jumps
+// the queue and has no slot time — the clinic sees it as soon as it arrives.
+export const isEmergencyAppointment = (a) => {
+  const raw = a?.__raw || a;
+  return String(pickFirst(raw?.priority, raw?.appointment_priority, raw?.appointmentPriority, '')).toLowerCase() === 'emergency'
+    || raw?.is_emergency === true || raw?.isEmergency === true || Number(raw?.is_emergency) === 1;
 };
 
 export const isTodayAppointment = (a) => {
+  // An open emergency belongs in today's queue whatever day it was sent.
+  if (isEmergencyAppointment(a)) return true;
   const value = getAppointmentDateValue(a);
   if (!value) return true;
   const key = formatLocalDateKey(value);
@@ -162,29 +294,37 @@ export const normalizeAppointmentStatus = (a, forcedStatus) => {
 };
 
 // Works on raw API rows and on formatAppointment() output (both carry status).
+// True once a pending online appointment's slot time has passed. The doctor
+// dashboard must NOT drop these from the Pending queue, or a patient the
+// doctor hasn't seen yet vanishes from today's queue.
 export const isExpiredPendingAppointment = (a, nowMs = Date.now()) => {
   if (normalizeAppointmentStatus(a) !== 'pending') return false;
+  // Emergencies have no slot to miss; they wait until the doctor acts.
+  if (isEmergencyAppointment(a)) return false;
   // Walk-ins stay queued until their status is changed explicitly.
   if (getAppointmentSource(a) === 'walkin') return false;
   const dt = getAppointmentDateTime(a.__raw || a);
   return dt ? dt.getTime() < nowMs : false;
 };
 
+// In-person consultations can only be started once the slot time arrives.
+// Walk-ins are already at the clinic, and appointments without a known time
+// can't be gated, so both are always startable.
+export const isConsultationStartOpen = (appt, nowMs = Date.now()) => {
+  if (!appt) return false;
+  if (getAppointmentSource(appt) === 'walkin' || isEmergencyAppointment(appt)) return true;
+  const dt = getAppointmentDateTime(appt.__raw || appt, { endOfDayFallback: false })
+    // Last resort: the exact time string the card is showing.
+    || parseTimeOnDate(formatLocalDateKey(appt.appointmentDate), appt.scheduledTime);
+  return !dt || dt.getTime() <= nowMs;
+};
+
+// Emergencies show "Emergency" instead of a time everywhere.
 const formatAppointmentTime = (a) => {
-  const effective = pickFirst(a?.estimated_start_at, a?.estimatedStartAt, a?.original_appointment_at, a?.originalAppointmentAt);
-  if (effective) {
-    const d = new Date(effective);
-    if (!Number.isNaN(d.getTime())) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-  const explicit = pickFirst(
-    a?.time, a?.scheduled_time, a?.scheduledTime, a?.appointment_time, a?.appointmentTime,
-    a?.slot_time, a?.slotTime, a?.check_in_time, a?.checkInTime,
-  );
-  if (explicit) return explicit;
-  const value = getAppointmentDateValue(a);
-  const d = value ? new Date(value) : null;
-  if (d && !Number.isNaN(d.getTime())) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  return 'Today';
+  if (isEmergencyAppointment(a)) return 'Emergency';
+  const start = resolveScheduledStart(a);
+  if (start) return start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return getAppointmentTimeValue(a) || 'Today';
 };
 
 export const formatAppointment = (a, forcedStatus) => {
@@ -218,14 +358,22 @@ export const formatAppointment = (a, forcedStatus) => {
       a?.visitor_name, a?.visitorName, a?.name, patient?.full_name, patient?.fullName, patient?.name, 'Unknown',
     ),
     gender: pickFirst(a?.gender, a?.patient_gender, patient?.gender, 'Not specified'),
-    issue: pickFirst(a?.reason, a?.issue, a?.symptoms, a?.description, 'General Checkup'),
+    isEmergency: isEmergencyAppointment(a),
+    emergencyReason: pickFirst(a?.emergency_reason, a?.emergencyReason),
+    issue: pickFirst(a?.emergency_reason, a?.emergencyReason, a?.reason, a?.issue, a?.symptoms, a?.description, 'General Checkup'),
     scheduledTime: formatAppointmentTime(a),
     status: normalizeAppointmentStatus(a, forcedStatus),
     phone: pickFirst(
       a?.patient_phone, a?.patientPhone, a?.phone, a?.mobile, a?.phone_number, a?.phoneNumber,
       patient?.phone, patient?.mobile, patient?.phone_number, patient?.phoneNumber, 'N/A',
     ),
-    tokenNumber: pickFirst(a?.token_number, a?.tokenNumber, a?.token, a?.appointment_token, a?.appointmentToken),
+    // Same field spread WalkInAppointmentsScreen accepts. `token` is only used
+    // when it's a plain value — some endpoints nest a token-status object there.
+    tokenNumber: pickFirst(
+      a?.token_number, a?.tokenNumber, a?.token_no, a?.tokenNo, a?.queue_token, a?.queueToken,
+      a?.walkin_token, a?.walkinToken, a?.appointment_token, a?.appointmentToken,
+      typeof a?.token === 'object' ? a?.token?.myToken : a?.token,
+    ),
     appointmentNo: pickFirst(a?.appointment_no, a?.appointmentNo, a?.appointment_number, a?.appointmentNumber),
     bp: pickFirst(a?.blood_pressure, a?.bp, a?.bloodPressure, 'Not recorded'),
     temperature: pickFirst(a?.temperature, a?.temp),
@@ -249,10 +397,47 @@ export const formatAppointment = (a, forcedStatus) => {
   };
 };
 
+// Queue order: emergencies first, then token number ascending ("Token #3" before "#12"); appointments
+// without a token go after all tokened ones. Ties (or no tokens at all) fall
+// back to slot time, then name, so the order never jumps between refreshes.
+const getTokenNumber = (appt) => {
+  const match = String(appt?.tokenNumber ?? '').match(/\d+/);
+  return match ? Number(match[0]) : null;
+};
+
+const getStartMs = (appt) => {
+  const dt = getAppointmentDateTime(appt?.__raw || appt);
+  return dt ? dt.getTime() : Number.MAX_SAFE_INTEGER;
+};
+
+export const compareByToken = (a, b) => {
+  // Emergencies always come first; among them, whoever sent it first.
+  const ea = isEmergencyAppointment(a);
+  const eb = isEmergencyAppointment(b);
+  if (ea !== eb) return ea ? -1 : 1;
+  if (ea && eb) {
+    const ca = Date.parse(pickFirst(a?.__raw?.created_at, a?.__raw?.createdAt, a?.created_at, a?.createdAt)) || 0;
+    const cb = Date.parse(pickFirst(b?.__raw?.created_at, b?.__raw?.createdAt, b?.created_at, b?.createdAt)) || 0;
+    if (ca !== cb) return ca - cb;
+  }
+  const ta = getTokenNumber(a);
+  const tb = getTokenNumber(b);
+  if (ta !== null && tb !== null && ta !== tb) return ta - tb;
+  if ((ta === null) !== (tb === null)) return ta === null ? 1 : -1;
+  const timeDiff = getStartMs(a) - getStartMs(b);
+  if (timeDiff) return timeDiff;
+  return String(a?.name || '').localeCompare(String(b?.name || ''));
+};
+
+export const sortByToken = (list = []) => [...list].sort(compareByToken);
+
+// Readable label only — never a code cut from the database id (that produced
+// meaningless labels like "Pa58" for appointments without a token).
 export const getTokenLabel = (appt) => {
+  if (isEmergencyAppointment(appt)) return 'Emergency';
   if (appt?.tokenNumber) return `Token #${appt.tokenNumber}`;
   if (appt?.appointmentNo) return appt.appointmentNo;
-  return `P${String(appt?.apiId || appt?.id || '').padStart(3, '0').slice(-3)}`;
+  return getAppointmentSource(appt) === 'walkin' ? 'Walk-in' : 'No token';
 };
 
 export const getRemoteConsultationMode = (appt) => {
@@ -262,19 +447,41 @@ export const getRemoteConsultationMode = (appt) => {
   return '';
 };
 
-// Calls open 15 min before and stay open 90 min after the scheduled time.
-export const isAppointmentCallWindowOpen = (appt) => {
-  const dateKey = formatLocalDateKey(appt?.appointmentDate);
-  if (!dateKey) return true;
-  const match = String(appt?.scheduledTime || '00:00:00').match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i);
-  if (!match) return true;
-  let hours = Number(match[1]);
-  if (match[4]?.toUpperCase() === 'PM' && hours !== 12) hours += 12;
-  if (match[4]?.toUpperCase() === 'AM' && hours === 12) hours = 0;
-  const scheduled = new Date(`${dateKey}T${String(hours).padStart(2, '0')}:${match[2]}:${match[3] || '00'}`);
-  const diffMinutes = (Date.now() - scheduled.getTime()) / 60000;
-  return diffMinutes >= -15 && diffMinutes <= 90;
+// How the consultation happens, for the mode badge on queue cards:
+//   video / voice → remote consultation; walk-in → patient came to the clinic
+//   without booking; anything else → a booked in-clinic visit.
+export const getConsultationModeInfo = (appt) => {
+  const remote = getRemoteConsultationMode(appt);
+  if (remote === 'video') return { key: 'video', label: 'Video Consultation', icon: 'video' };
+  if (remote === 'voice') return { key: 'voice', label: 'Voice Consultation', icon: 'phone' };
+  if (getAppointmentSource(appt) === 'walkin') return { key: 'walkin', label: 'Walk-in Visit', icon: 'walk' };
+  return { key: 'visit', label: 'In-clinic Visit', icon: 'pin' };
 };
+
+// Video / voice call window: opens 15 min before the slot and stays open for
+// the rest of that day, so a doctor running late can still call the patient.
+//
+// Computed from the real slot time (resolveScheduledStart). It used to re-parse
+// the time *label* on the card, which is locale-formatted ("०५:०५ PM" on a
+// Marathi phone, and could lose AM/PM) — so the button could stay disabled
+// right through the slot — and it shut 90 min after the slot, after which a
+// late remote appointment could never be called or finished.
+export const CALL_OPENS_BEFORE_MIN = 15;
+
+export const getCallWindow = (appt, nowMs = Date.now()) => {
+  const start = getAppointmentDateTime(appt?.__raw || appt, { endOfDayFallback: false })
+    || parseTimeOnDate(formatLocalDateKey(appt?.appointmentDate), appt?.scheduledTime);
+  if (!start) return { open: true, opensAt: null };
+  const opensAt = new Date(start.getTime() - CALL_OPENS_BEFORE_MIN * 60000);
+  const endOfDay = new Date(start);
+  endOfDay.setHours(23, 59, 59, 999);
+  return { open: nowMs >= opensAt.getTime() && nowMs <= endOfDay.getTime(), opensAt };
+};
+
+export const isAppointmentCallWindowOpen = (appt, nowMs = Date.now()) => getCallWindow(appt, nowMs).open;
+
+export const formatClockTime = (date) =>
+  date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 // ---- writes ---------------------------------------------------------------
 

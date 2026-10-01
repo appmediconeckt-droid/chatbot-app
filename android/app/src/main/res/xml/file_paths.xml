@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="cache" path="." />
+    <!-- App-private files dir: staff documents kept on this device. -->
+    <files-path name="files" path="." />
     <external-cache-path name="external_cache" path="." />
 </paths>

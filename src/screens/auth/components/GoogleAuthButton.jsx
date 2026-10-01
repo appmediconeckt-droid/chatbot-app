@@ -30,6 +30,7 @@ import {
   resolveAuthRole,
   routeForAuthRole,
 } from '../resolveAuthRole';
+import { mapRoleForBackend } from '../googleAuthRole';
 
 let GoogleSigninModule = null;
 let StatusCodesModule = null;
@@ -46,16 +47,13 @@ try {
   );
 }
 
-// UI uses American spelling "counselor"; backend uses British "counsellor".
-// Normalize for our own UI state, then map back when sending to the backend.
+// UI uses American spelling "counselor"; backend uses British "counsellor"
+// for counselors. Doctor is its own backend role and must stay "doctor".
 const normalizeRole = (role) => {
   const value = String(role || '').trim().toLowerCase();
   if (!value) return '';
   return value === 'counsellor' ? 'counselor' : value;
 };
-
-const mapRoleForBackend = (role) =>
-  role === 'counselor' || role === 'doctor' ? 'counsellor' : role;
 
 const getRoleLabel = (role) => {
   const normalized = normalizeRole(role);
@@ -63,14 +61,14 @@ const getRoleLabel = (role) => {
   return normalized === 'counselor' ? 'Consultant' : 'User';
 };
 
-const buildRoleMismatchMessage = ({ actualRole, requestedRole, fallbackMessage }) => {
-  if (!actualRole && !requestedRole) {
-    return fallbackMessage || 'Role mismatch. Please select the correct login role.';
+// Short, professional copy: which account type this is and what to do next.
+const buildRoleMismatchMessage = ({ actualRole }) => {
+  if (!actualRole) {
+    return 'This Google account uses a different login type. Please choose the correct role.';
   }
-
   const actualLabel = getRoleLabel(actualRole);
-  const requestedLabel = requestedRole ? getRoleLabel(requestedRole) : 'another';
-  return `Role mismatch: this Google account is registered as ${actualLabel}, but you selected ${requestedLabel} login. Please go back and select ${actualLabel} login.`;
+  const article = /^[AEIOU]/.test(actualLabel) ? 'an' : 'a';
+  return `This Google account is registered as ${article} ${actualLabel}. Please sign in as ${actualLabel}.`;
 };
 
 const isGeneratedUserAvatarUrl = (raw) => {

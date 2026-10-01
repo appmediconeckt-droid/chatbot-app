@@ -57,7 +57,8 @@ const VERIFICATION_DOCUMENT_OPTIONS = [
   'Government ID Proof',
   'Clinic / Hospital Affiliation Proof'
 ];
-const ALLOWED_DOCUMENT_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/jpg', 'image/png'];
+// The server only accepts images and PDFs for certification files (Word is rejected).
+const ALLOWED_DOCUMENT_TYPES = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
 const DATE_PICKER_FIELDS = {
   issueDate: 'issueDate',
   expiryDate: 'expiryDate',
@@ -1100,7 +1101,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
 
       const fileType = selectedDocument.type || '';
       if (fileType && !ALLOWED_DOCUMENT_TYPES.includes(fileType)) {
-        Alert.alert('Invalid File', 'Only PDF, DOC, DOCX, JPG, and PNG files are allowed.');
+        Alert.alert('Invalid File', 'Only PDF, JPG, and PNG files are allowed.');
         return;
       }
 
@@ -1254,42 +1255,58 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         }
       }
 
-      const certificationPayload = (editedData.certifications || [])
+      // The server pairs file `certifications[i][document]` with entry i of the
+      // `certifications` JSON array, so payload entries and files are built
+      // together to keep their indexes aligned.
+      const certificationPayload = [];
+      const certificationFiles = [];
+
+      (editedData.certifications || [])
         .filter(cert => cert && (cert._id || cert.name))
-        .map((cert) => ({
-          _id: cert._id && !String(cert._id).startsWith('temp_') ? cert._id : undefined,
-          name: cert.name || '',
-          issuedBy: cert.issuedBy || '',
-          issueDate: cert.issueDate || '',
-          expiryDate: cert.expiryDate || '',
-          documentUrl: cert.documentUrl || '',
-          documentName: cert.documentName || ''
-        }));
+        .forEach((cert) => {
+          certificationPayload.push({
+            _id: cert._id && !String(cert._id).startsWith('temp_') ? cert._id : undefined,
+            name: cert.name || '',
+            issuedBy: cert.issuedBy || '',
+            issueDate: cert.issueDate || '',
+            expiryDate: cert.expiryDate || '',
+            documentUrl: cert.documentUrl || '',
+            documentName: cert.documentName || ''
+          });
+          certificationFiles.push(cert?.document?.uri ? {
+            uri: cert.document.uri,
+            type: cert.document.type || 'image/jpeg',
+            name: cert.document.name || cert.documentName || `certificate-${certificationPayload.length}.jpg`
+          } : null);
+        });
+
+      // The backend has no verification-document field (multer rejects
+      // `verificationDocuments[...]` as "Unexpected file field"), so each one is
+      // sent as a certification named after its document type.
+      documents
+        .filter(doc => doc?.uri)
+        .forEach((doc) => {
+          certificationPayload.push({
+            name: doc.documentType || 'Verification Document',
+            issuedBy: '',
+            issueDate: '',
+            expiryDate: '',
+            documentUrl: '',
+            documentName: doc.documentName || ''
+          });
+          certificationFiles.push({
+            uri: doc.uri,
+            type: doc.type || 'application/octet-stream',
+            name: doc.documentName || `verification-document-${certificationPayload.length}`
+          });
+        });
 
       if (certificationPayload.length > 0) {
         formData.append('certifications', JSON.stringify(certificationPayload));
       }
 
-      documents.forEach((doc, index) => {
-        formData.append(`verificationDocuments[${index}][documentType]`, doc.documentType || '');
-        formData.append(`verificationDocuments[${index}][documentName]`, doc.documentName || '');
-        if (doc?.uri) {
-          formData.append(`verificationDocuments[${index}][document]`, {
-            uri: doc.uri,
-            type: doc.type || 'application/octet-stream',
-            name: doc.documentName || `verification-document-${index + 1}`
-          });
-        }
-      });
-
-      (editedData.certifications || []).forEach((cert, index) => {
-        if (cert?.document?.uri) {
-          formData.append(`certifications[${index}][document]`, {
-            uri: cert.document.uri,
-            type: cert.document.type || 'image/jpeg',
-            name: cert.document.name || cert.documentName || `certificate-${index + 1}.jpg`
-          });
-        }
+      certificationFiles.forEach((file, index) => {
+        if (file) formData.append(`certifications[${index}][document]`, file);
       });
 
       const response = await updateCounselorProfile(formData);
@@ -1309,6 +1326,9 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
           duration: 3200,
         });
         setEmailChange(createBlankEmailChange());
+        // Saved documents now come back as certifications; drop the local copies
+        // so the next save doesn't upload them again.
+        setDocuments([]);
         await fetchCounselorProfile();
         await onProfileSaved?.();
         setShowRemainingAfterSave(true);

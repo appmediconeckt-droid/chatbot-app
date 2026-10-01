@@ -53,10 +53,15 @@ export const resetToRoleSelector = (navigation) => {
 
 // Post-login routes. Entering one of these wipes the back stack, so Android
 // back from the dashboard never returns to Login / RoleSelector / Signup.
+// DoctorOnboarding runs right after signup with the session already saved,
+// so it belongs here too — otherwise back from it lands on RoleSelector while
+// still signed in.
 const POST_AUTH_ROUTES = new Set([
   'UserDashboard',
   'CounselorDashboard',
   'DoctorDashboard',
+  'StaffDashboard',
+  'DoctorOnboarding',
   'LocationGate',
   'PinSetup',
 ]);
@@ -81,7 +86,7 @@ let signingOut = false;
  * with status code 401" on every screen. Now the app drops to the login screen
  * the way it would after a normal sign-out.
  */
-export const forceSignOut = async ({ silent = false } = {}) => {
+export const forceSignOut = async ({ silent = false, reason = 'otherDevice' } = {}) => {
   if (signingOut) return;
   signingOut = true;
   try {
@@ -92,10 +97,14 @@ export const forceSignOut = async ({ silent = false } = {}) => {
 
     const navigated = resetToLogin(role);
     if (!silent && navigated) {
-      Alert.alert(
-        'Signed out',
-        'Your account was signed in on another device, so this device has been signed out. Please log in again.',
-      );
+      if (reason === 'expired') {
+        Alert.alert('Session expired', 'Your session has expired. Please log in again.');
+      } else {
+        Alert.alert(
+          'Signed out',
+          'Your account was signed in on another device, so this device has been signed out. Please log in again.',
+        );
+      }
     }
   } finally {
     // Long enough for the reset to settle, short enough that a genuine second

@@ -1,12 +1,8 @@
 // DoctorSignup — Login / Create Account for the new Doctor role.
 //
 // Real auth, mirroring CounselorSignup.jsx: login hits POST /api/auth/login
-// and signup hits POST /api/auth/complete-registration. There is still no
-// distinct "doctor" role on the backend (User.role is only
-// user/counsellor/admin), so a Doctor account is a real `counsellor`-role
-// account whose specialization must contain "Psychiatrist" — see the AUTH
-// section below for the full reasoning. Google sign-in uses the shared native
-// Google flow and the backend's counsellor role.
+// and signup hits POST /api/auth/complete-registration. Doctor signup/login
+// must send the backend's real doctor role.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, TouchableOpacity, ScrollView, Platform, ActivityIndicator, Image, StatusBar, SafeAreaView, useWindowDimensions, Animated, findNodeHandle, Modal } from 'react-native';
 // SafeAreaView is deliberately the plain react-native one here (a no-op on
@@ -63,14 +59,9 @@ const languageOptions = ['Hindi', 'English', 'Gujarati', 'Marathi', 'Tamil', 'Te
 const OTP_RESEND_SECONDS = 60;
 
 // ─────────────────────────── AUTH ───────────────────────────
-// Doctor = Psychiatrist. The backend's User.role enum only has
-// user/counsellor/admin — there is no separate "doctor" role — so a Doctor
-// account is a real `counsellor`-role account whose specialization contains
-// "Psychiatrist" (see isPsychiatristSpecialization in PsychiatristDirectory,
-// also used for the Doctor/Consultant badge and the Health Vitals gate).
-// `userRole` is stored as 'doctor' LOCALLY ONLY, purely so this app's own
-// routeForRole() sends the session to DoctorDashboard instead of
-// CounselorDashboard on login/reload — the backend never sees that value.
+// Doctor accounts use the backend's real `doctor` role. `userRole` is also
+// stored as 'doctor' locally so routeForRole() sends the session to
+// DoctorDashboard on login/reload.
 //
 const persistDoctorSession = async (data, email) => {
   const token = data?.token || data?.accessToken || data?.data?.token;
@@ -83,7 +74,6 @@ const persistDoctorSession = async (data, email) => {
     await AsyncStorage.setItem('refreshToken', data?.refreshToken || data?.data?.refreshToken);
   }
   await AsyncStorage.setItem('isAuthenticated', 'true');
-  // Real backend role stays 'counsellor' — only the local routing hint says 'doctor'.
   await AsyncStorage.setItem('userType', 'doctor');
   await AsyncStorage.setItem('userRole', 'doctor');
   if (email) await AsyncStorage.setItem('userEmail', email);
@@ -287,7 +277,7 @@ const DoctorSignup = ({ navigation, route }) => {
       const response = await axiosInstance.post('/api/auth/login', {
         email: formData.email.trim().toLowerCase(),
         password: formData.password,
-        role: 'counsellor',
+        role: 'doctor',
       });
       const ok = await persistDoctorSession(response.data, formData.email.trim().toLowerCase());
       if (ok) {
@@ -329,8 +319,7 @@ const DoctorSignup = ({ navigation, route }) => {
         aboutMe: formData.aboutMe.trim(),
         password: formData.password,
         confirmPassword: formData.confirmPassword,
-        // Real backend role — see the AUTH comment above for why this isn't 'doctor'.
-        role: 'counselor',
+        role: 'doctor',
         isEmailVerified: true,
         isPhoneVerified: true,
         emailVerificationToken,
@@ -344,7 +333,7 @@ const DoctorSignup = ({ navigation, route }) => {
       if (response.data?.success !== false) {
         const hasSession = await persistDoctorSession(response.data, email);
         showNotification(response.data?.message || t('Account created! Let’s finish your professional profile.'));
-        setTimeout(() => navigation.replace('DoctorOnboarding', {
+        setTimeout(() => enterAuthenticatedRoute(navigation, 'DoctorOnboarding', {
           destination: 'DoctorDashboard',
           doctorProfileBase: doctorProfile,
         }), hasSession ? 1000 : 1500);
@@ -484,7 +473,7 @@ const DoctorSignup = ({ navigation, route }) => {
     }
 
     showNotification(t('Account created with Google!'));
-    setTimeout(() => navigation.replace('DoctorOnboarding', {
+    setTimeout(() => enterAuthenticatedRoute(navigation, 'DoctorOnboarding', {
       destination: 'DoctorDashboard',
       doctorProfileBase: user,
     }), 900);
@@ -765,7 +754,7 @@ const DoctorSignup = ({ navigation, route }) => {
                       <View style={styles.googleDividerLine} />
                     </View>
                     <GoogleAuthButton
-                      role="counselor"
+                      role="doctor"
                       mode={isLogin ? 'signin' : 'signup'}
                       disabled={isLoading}
                       accountRole="doctor"
@@ -844,9 +833,9 @@ const DoctorSignup = ({ navigation, route }) => {
         </Modal>
 
         {notification.show && (
-          <Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : CLINICIAN.primary }]}>
-            <Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color="#fff" />
-            <Text style={styles.notificationText}>{notification.message}</Text>
+          <Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#FEF2F2' : CLINICIAN.primary }, notification.type === 'error' && styles.notificationError]}>
+            <Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color={notification.type === 'error' ? '#DC2626' : '#fff'} />
+            <Text style={[styles.notificationText, notification.type === 'error' && styles.notificationTextError]}>{notification.message}</Text>
           </Animated.View>
         )}
       </AuthBackground>
@@ -905,8 +894,10 @@ const styles = createDoctorStyles({
   genderBtnSelected: { backgroundColor: '#F0FDFA', borderColor: CLINICIAN.primary },
   genderText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
   genderTextSelected: { color: CLINICIAN.primary },
-  notification: { position: 'absolute', top: 50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 10, zIndex: 1000 },
-  notificationText: { color: '#fff', fontSize: 14, fontWeight: '700', marginLeft: 8 },
+  notification: { position: 'absolute', top: 50, left: 16, right: 16, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 8, zIndex: 1000 },
+  notificationError: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderLeftWidth: 4, borderLeftColor: '#DC2626' },
+  notificationText: { flex: 1, color: '#fff', fontSize: 13.5, lineHeight: 19, fontWeight: '600', marginLeft: 10 },
+  notificationTextError: { color: '#991B1B' },
 
   verifyBtn: { minWidth: 68, minHeight: 34, backgroundColor: CLINICIAN.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   verifiedBtn: { backgroundColor: 'transparent' },

@@ -6,7 +6,9 @@
 //   DELETE /api/walkin-appointments/:id { doctor_id }
 // camelCase duplicates are sent too so older backends keep accepting it.
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
@@ -265,7 +267,7 @@ export default function WalkInAppointmentsScreen({ onBack }) {
           {stats.map((item) => (
             <View style={styles.stat} key={item.label}>
               <View style={[styles.statIcon, { backgroundColor: item.bg }]}><AppIcon name={item.icon} size={17} color={item.color} strokeWidth={2} /></View>
-              <Text style={styles.statValue}>{item.value}</Text>
+              <Text translate={false} style={styles.statValue}>{item.value}</Text>
               <Text style={styles.statLabel}>{item.label}</Text>
             </View>
           ))}
@@ -320,12 +322,12 @@ export default function WalkInAppointmentsScreen({ onBack }) {
               <Pressable style={styles.patient} key={String(p.id)} onPress={() => openActions(p)}>
                 <View style={styles.patientTop}>
                   <View style={[styles.avatar, styles.initials]}>
-                    <Text style={styles.initialText}>{p.name?.split(' ').map((x) => x[0]).join('').slice(0, 2).toUpperCase()}</Text>
+                    <Text translate={false} style={styles.initialText}>{p.name?.split(' ').map((x) => x[0]).join('').slice(0, 2).toUpperCase()}</Text>
                   </View>
                   <View style={styles.patientInfo}>
-                    <Text style={styles.patientName}>{p.name}</Text>
-                    <Text style={styles.phone}>{p.phone || 'No phone'} · {p.gender}</Text>
-                    {!!p.problem && <Text style={styles.phone} numberOfLines={1}>{p.problem}</Text>}
+                    <Text translate={false} style={styles.patientName}>{p.name}</Text>
+                    <Text translate={false} style={styles.phone}>{p.phone || 'No phone'} · {p.gender}</Text>
+                    {!!p.problem && <Text translate={false} style={styles.phone} numberOfLines={1}>{p.problem}</Text>}
                   </View>
                   <Text style={styles.token}>{p.token ? `#${p.token}` : '—'}</Text>
                 </View>
@@ -362,13 +364,13 @@ export default function WalkInAppointmentsScreen({ onBack }) {
               <AppIcon name="user" size={14} color="#667085" />
               <TextInput style={styles.formInput} value={form.name} onChangeText={(v) => setField('name', v)} placeholder="Michael Johnson" placeholderTextColor="#8B95A7" />
             </View>
-            {!!errors.name && <Text style={styles.fieldError}>{errors.name}</Text>}
+            {!!errors.name && <Text translate={false} style={styles.fieldError}>{errors.name}</Text>}
             <Text style={styles.formLabel}>Phone Number <Text style={styles.required}>*</Text></Text>
             <View style={[styles.formInputRow, !!errors.phone && styles.inputError]}>
               <AppIcon name="phone" size={14} color="#667085" />
               <TextInput style={styles.formInput} value={form.phone} onChangeText={(v) => setField('phone', v.replace(/\D/g, '').slice(0, 10))} placeholder="1234567890" placeholderTextColor="#8B95A7" keyboardType="phone-pad" />
             </View>
-            {!!errors.phone && <Text style={styles.fieldError}>{errors.phone}</Text>}
+            {!!errors.phone && <Text translate={false} style={styles.fieldError}>{errors.phone}</Text>}
             <Text style={styles.formLabel}>Gender</Text>
             <View style={styles.priorityRow}>
               {GENDERS.map((item) => (
@@ -415,7 +417,7 @@ export default function WalkInAppointmentsScreen({ onBack }) {
               multiline
               textAlignVertical="top"
             />
-            {!!errors.problem && <Text style={[styles.fieldError, styles.fieldErrorSpaced]}>{errors.problem}</Text>}
+            {!!errors.problem && <Text translate={false} style={[styles.fieldError, styles.fieldErrorSpaced]}>{errors.problem}</Text>}
             <Pressable style={styles.registerButtonWrap} onPress={submitRegistration} disabled={submitting}>
               <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.registerButton}>
                 <AppIcon name="plus" size={15} color="#FFF" strokeWidth={2.4} />

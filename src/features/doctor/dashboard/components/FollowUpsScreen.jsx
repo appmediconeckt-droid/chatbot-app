@@ -3,13 +3,16 @@
 // from GET /api/followups?doctor_id, status changes / edits via PUT, delete
 // via DELETE { doctor_id }, plus the web's status / type / search filters.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import NewFollowUpScreen from './NewFollowUpScreen';
 import FollowUpDetailsScreen from './FollowUpDetailsScreen';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
+import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { formatLocalDateKey } from '../api/doctorAppointments';
 import {
@@ -78,6 +81,8 @@ export default function FollowUpsScreen({ onBack }) {
   const [followUps, setFollowUps] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterType, setFilterType] = useState('all');
+  // Which filter dropdown sheet is open: 'status' | 'type' | null.
+  const [openFilter, setOpenFilter] = useState(null);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -111,16 +116,13 @@ export default function FollowUpsScreen({ onBack }) {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (editing) setEditing(null);
-      else if (creating) setCreating(false);
-      else if (viewing) setViewing(null);
-      else onBack();
-      return true;
-    });
-    return () => subscription.remove();
-  }, [creating, editing, viewing, onBack]);
+  useDoctorBack(() => {
+    if (editing) setEditing(null);
+    else if (creating) setCreating(false);
+    else if (viewing) setViewing(null);
+    else return false;
+    return true;
+  });
 
   const handleStatusChange = async (followUp, newStatus) => {
     const previous = followUps;
@@ -259,36 +261,22 @@ export default function FollowUpsScreen({ onBack }) {
           )}
         </View>
 
-        {/* Status filter (segmented) */}
-        <View style={s.segment}>
-          {STATUS_FILTERS.map(([value, label]) => {
-            const active = filterStatus === value;
-            return (
-              <Pressable key={value} onPress={() => setFilterStatus(value)} style={[s.segmentItem, active && s.segmentItemActive]}>
-                <Text style={[s.segmentText, active && s.segmentTextActive]} numberOfLines={1}>{label}</Text>
-                <Text style={[s.segmentCount, active && s.segmentCountActive]}>{statusCount(value)}</Text>
-              </Pressable>
-            );
-          })}
+        {/* Status + type filters: two dropdowns in one row */}
+        <View style={s.filterRow}>
+          <FilterDropdown
+            label="Status"
+            value={`${STATUS_FILTERS.find(([v]) => v === filterStatus)?.[1]} (${statusCount(filterStatus)})`}
+            active={filterStatus !== 'all'}
+            onPress={() => setOpenFilter('status')}
+          />
+          <FilterDropdown
+            label="Type"
+            value={TYPE_FILTERS.find(([v]) => v === filterType)?.[1]}
+            dotColor={TYPE_META[filterType]?.fg}
+            active={filterType !== 'all'}
+            onPress={() => setOpenFilter('type')}
+          />
         </View>
-
-        {/* Type filter */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.typeFilters}>
-          {TYPE_FILTERS.map(([value, label]) => {
-            const active = filterType === value;
-            const meta = TYPE_META[value];
-            return (
-              <Pressable
-                key={value}
-                onPress={() => setFilterType(value)}
-                style={[s.typeChip, active && (meta ? { backgroundColor: meta.bg, borderColor: meta.fg } : s.typeChipAllActive)]}
-              >
-                {meta && <View style={[s.typeDot, { backgroundColor: meta.fg }]} />}
-                <Text style={[s.typeChipText, active && (meta ? { color: meta.fg } : s.typeChipTextAllActive)]}>{label}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
 
         <View style={s.listHeader}>
           <Text style={s.section}>{filterStatus === 'all' ? 'All follow-ups' : `${STATUS_LABEL[filterStatus]} follow-ups`}</Text>
@@ -333,14 +321,61 @@ export default function FollowUpsScreen({ onBack }) {
           <Text style={s.fabText}>New</Text>
         </LinearGradient>
       </Pressable>
+
+      {/* Options sheet for the Status / Type dropdowns */}
+      <Modal visible={openFilter !== null} transparent animationType="fade" onRequestClose={() => setOpenFilter(null)}>
+        <Pressable style={s.sheetOverlay} onPress={() => setOpenFilter(null)}>
+          <View style={s.sheet}>
+            <View style={s.sheetHandle} />
+            <Text style={s.sheetTitle}>{openFilter === 'type' ? 'Follow-up type' : 'Follow-up status'}</Text>
+            {(openFilter === 'type' ? TYPE_FILTERS : STATUS_FILTERS).map(([value, label]) => {
+              const selected = openFilter === 'type' ? filterType === value : filterStatus === value;
+              const dot = openFilter === 'type' ? TYPE_META[value]?.fg : STATUS_META[value]?.strip;
+              return (
+                <Pressable
+                  key={value}
+                  style={({ pressed }) => [s.sheetOption, pressed && s.pressed]}
+                  onPress={() => {
+                    if (openFilter === 'type') setFilterType(value);
+                    else setFilterStatus(value);
+                    setOpenFilter(null);
+                  }}
+                >
+                  <View style={[s.sheetDot, { backgroundColor: dot || '#CBD5E1' }]} />
+                  <Text style={[s.sheetOptionText, selected && s.sheetOptionTextActive]}>{label}</Text>
+                  {openFilter === 'status' && (
+                    <Text translate={false} style={s.sheetCount}>{statusCount(value)}</Text>
+                  )}
+                  {selected && <AppIcon name="check-mark" size={16} color="#0D9488" strokeWidth={2.6} />}
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
+  );
+}
+
+function FilterDropdown({ label, value, dotColor, active, onPress }) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [s.dropdown, active && s.dropdownActive, pressed && s.pressed]}>
+      <View style={s.dropdownTextWrap}>
+        <Text style={s.dropdownLabel}>{label}</Text>
+        <View style={s.dropdownValueRow}>
+          {!!dotColor && <View style={[s.typeDot, { backgroundColor: dotColor }]} />}
+          <Text style={[s.dropdownValue, active && s.dropdownValueActive]} numberOfLines={1}>{value}</Text>
+        </View>
+      </View>
+      <AppIcon name="chevron-down" size={15} color={active ? '#0D9488' : '#667085'} strokeWidth={2.2} />
+    </Pressable>
   );
 }
 
 function HeroStat({ label, value, onPress, alert }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [s.heroStat, alert && s.heroStatAlert, pressed && s.pressed]}>
-      <Text style={s.heroStatValue}>{value}</Text>
+      <Text translate={false} style={s.heroStatValue}>{value}</Text>
       <Text style={s.heroStatLabel} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
@@ -354,11 +389,11 @@ function PatientCard({ card, onPress, onMore, onComplete, busy }) {
       <View style={s.cardBody}>
         <View style={s.cardTop}>
           <View style={[s.avatar, { backgroundColor: statusMeta.bg }]}>
-            <Text style={[s.avatarText, { color: statusMeta.fg }]}>{card.initial}</Text>
+            <Text translate={false} style={[s.avatarText, { color: statusMeta.fg }]}>{card.initial}</Text>
           </View>
           <View style={s.flex}>
-            <Text style={s.name} numberOfLines={1}>{card.name}</Text>
-            <Text style={s.subline} numberOfLines={1}>{card.subline}</Text>
+            <Text translate={false} style={s.name} numberOfLines={1}>{card.name}</Text>
+            <Text translate={false} style={s.subline} numberOfLines={1}>{card.subline}</Text>
           </View>
           <Pressable onPress={onMore} hitSlop={10} style={s.moreBtn}>
             <AppIcon name="more" size={18} color="#667085" />
@@ -381,7 +416,7 @@ function PatientCard({ card, onPress, onMore, onComplete, busy }) {
           </View>
         </View>
 
-        {!!card.notes && <Text style={s.notes} numberOfLines={2}>{card.notes}</Text>}
+        {!!card.notes && <Text translate={false} style={s.notes} numberOfLines={2}>{card.notes}</Text>}
 
         <View style={s.cardFooter}>
           <View style={[s.statusPill, { backgroundColor: statusMeta.bg }]}>
@@ -432,20 +467,25 @@ const s = createDoctorStyles({
   search: { height: 48, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CDE7E3', borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, marginTop: 16 },
   input: { flex: 1, fontSize: 14, color: '#17243A', paddingVertical: 0 },
 
-  segment: { flexDirection: 'row', backgroundColor: '#E1F3F0', borderRadius: 14, padding: 4, gap: 4, marginTop: 12 },
-  segmentItem: { flex: 1, borderRadius: 11, paddingVertical: 7, alignItems: 'center' },
-  segmentItemActive: { backgroundColor: '#0D9488', shadowColor: '#0F766E', shadowOpacity: 0.25, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-  segmentText: { fontSize: 12, fontWeight: '700', color: '#475467' },
-  segmentTextActive: { color: '#FFF' },
-  segmentCount: { fontSize: 11, fontWeight: '800', color: '#0F766E', marginTop: 1 },
-  segmentCountActive: { color: '#CCFBF1' },
-
-  typeFilters: { gap: 8, paddingVertical: 12 },
-  typeChip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, borderRadius: 17, borderWidth: 1, borderColor: '#D5DAE3', backgroundColor: '#FFF', paddingHorizontal: 13 },
-  typeChipAllActive: { backgroundColor: '#17243A', borderColor: '#17243A' },
+  filterRow: { flexDirection: 'row', gap: 10, marginTop: 12, marginBottom: 14 },
+  dropdown: { flex: 1, minWidth: 0, height: 52, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CDE7E3', borderRadius: 14, paddingHorizontal: 12 },
+  dropdownActive: { borderColor: '#0D9488', backgroundColor: '#F0FDFA' },
+  dropdownTextWrap: { flex: 1, minWidth: 0 },
+  dropdownLabel: { fontSize: 10.5, fontWeight: '700', color: '#667085', letterSpacing: 0.3 },
+  dropdownValueRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  dropdownValue: { flexShrink: 1, fontSize: 14, fontWeight: '700', color: '#17243A' },
+  dropdownValueActive: { color: '#0F766E' },
   typeDot: { width: 8, height: 8, borderRadius: 4 },
-  typeChipText: { fontSize: 12.5, fontWeight: '700', color: '#475467' },
-  typeChipTextAllActive: { color: '#FFF' },
+
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(18,28,45,.35)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: '#FFF', borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, paddingBottom: 28 },
+  sheetHandle: { width: 42, height: 4, borderRadius: 2, backgroundColor: '#D0D5DD', alignSelf: 'center', marginBottom: 16 },
+  sheetTitle: { fontSize: 17, fontWeight: '800', color: '#17243A', marginBottom: 6 },
+  sheetOption: { height: 50, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: '#EEF3F2' },
+  sheetDot: { width: 10, height: 10, borderRadius: 5 },
+  sheetOptionText: { flex: 1, fontSize: 15, fontWeight: '600', color: '#26364D' },
+  sheetOptionTextActive: { fontWeight: '800', color: '#0D9488' },
+  sheetCount: { fontSize: 13, fontWeight: '800', color: '#0F766E', backgroundColor: '#F0FDFA', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, overflow: 'hidden' },
 
   listHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 },
   section: { fontSize: 17, fontWeight: '800', color: '#17243A' },

@@ -1,6 +1,7 @@
 // Ported from MediconecktApp's src/doctor/dashboard/components/OverviewCard.tsx.
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import { colors, shadow, typography, createDoctorStyles } from '../theme';
 import AppIcon from '../icons/AppIcon';
 
@@ -14,7 +15,7 @@ export default function OverviewCard({ title, value, suffix, icon, neutral, onPr
         </View>
       </View>
       <View style={styles.valueRow}>
-        <Text style={styles.value}>{value}</Text>
+        <Text translate={false} style={styles.value}>{value}</Text>
         {suffix && <Text style={styles.suffix}>{suffix}</Text>}
       </View>
     </Pressable>

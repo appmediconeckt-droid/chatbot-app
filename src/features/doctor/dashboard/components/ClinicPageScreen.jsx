@@ -4,12 +4,15 @@
 //   GET /api/auth/me?clinic_id&doctor_id          (clinic doctors)
 //   GET /api/appointments?clinic_id&doctor_id     (patient count / departments)
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, ImageBackground, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Image, ImageBackground, Linking, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { colors, createDoctorStyles, typography } from '../theme';
 import axiosInstance, { API_BASE_URL } from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
 import { unwrapApiArray } from '../api/doctorClinics';
+import { useDoctorBack } from '../useDoctorBack';
+import DoctorClinicSettingsScreen from './DoctorClinicSettingsScreen';
 
 const DEFAULT_CLINIC_IMAGE = 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&w=1600&q=80';
 const TABS = ['Overview', 'Doctors', 'Departments', 'Facilities', 'Reviews', 'Contact'];
@@ -248,6 +251,21 @@ export default function ClinicPageScreen({ onBack }) {
 
   const website = clinic.website && (clinic.website.startsWith('http') ? clinic.website : `https://${clinic.website}`);
 
+  // "+ Add" in the header opens the Add Clinic form (same screen as Settings →
+  // Clinic) right here; closing it reloads the list so a new clinic shows up.
+  const [addingClinic, setAddingClinic] = useState(false);
+  const closeAddClinic = () => {
+    setAddingClinic(false);
+    loadClinics();
+  };
+  useDoctorBack(() => {
+    if (!addingClinic) return false;
+    closeAddClinic();
+    return true;
+  });
+
+  if (addingClinic) return <DoctorClinicSettingsScreen onBack={closeAddClinic} />;
+
   return (
     <View style={s.screen}>
       <View style={s.header}>
@@ -255,6 +273,16 @@ export default function ClinicPageScreen({ onBack }) {
           <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
         </Pressable>
         <Text style={s.title}>Clinic</Text>
+        <Pressable
+          onPress={() => setAddingClinic(true)}
+          style={({ pressed }) => [s.addClinicButton, pressed && s.addClinicButtonPressed]}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Add clinic"
+        >
+          <AppIcon name="plus" size={16} color="#FFFFFF" strokeWidth={2.6} />
+          <Text style={s.addClinicText}>Add</Text>
+        </Pressable>
       </View>
       <ScrollView
         contentContainerStyle={s.content}
@@ -274,10 +302,10 @@ export default function ClinicPageScreen({ onBack }) {
               <Text style={s.openBadge}>Open Now</Text>
               <Text style={s.typeBadge}>{clinic.subtitle}</Text>
             </View>
-            <Text style={s.heroTitle}>{clinic.name}</Text>
+            <Text translate={false} style={s.heroTitle}>{clinic.name}</Text>
             <View style={s.heroMetaRow}>
               <AppIcon name="pin" size={13} color="#FFFFFF" />
-              <Text style={s.heroMeta} numberOfLines={1}>{clinic.address}</Text>
+              <Text translate={false} style={s.heroMeta} numberOfLines={1}>{clinic.address}</Text>
             </View>
             <Text style={s.heroMeta}>★ {clinic.stats.rating !== 'N/A' ? `${clinic.stats.rating} Rating` : 'No rating available'}</Text>
           </View>
@@ -310,7 +338,7 @@ export default function ClinicPageScreen({ onBack }) {
             {stats.map((item) => (
               <View key={item.label} style={s.statCard}>
                 <View style={s.statIcon}><AppIcon name={item.icon} size={16} color="#0D9488" /></View>
-                <Text style={s.statValue}>{String(item.value)}</Text>
+                <Text translate={false} style={s.statValue}>{String(item.value)}</Text>
                 <Text style={s.statLabel}>{item.label}</Text>
               </View>
             ))}
@@ -320,7 +348,7 @@ export default function ClinicPageScreen({ onBack }) {
         {activeTab === 'Overview' && (
           <View style={s.panel}>
             <Text style={s.panelTitle}>About Hospital</Text>
-            <Text style={s.body}>{clinic.about}</Text>
+            <Text translate={false} style={s.body}>{clinic.about}</Text>
             <Text style={s.subTitle}>Our Mission</Text>
             <Text style={s.body}>{clinic.mission}</Text>
             <Text style={s.subTitle}>Key Specialties</Text>
@@ -337,24 +365,24 @@ export default function ClinicPageScreen({ onBack }) {
             <Text style={s.panelTitle}>Contact Information</Text>
             <Pressable style={s.contactRow} onPress={() => openUrl(clinic.mapUrl)}>
               <AppIcon name="pin" size={15} color="#0D9488" />
-              <Text style={[s.body, s.flex]}>{clinic.fullAddress}</Text>
+              <Text translate={false} style={[s.body, s.flex]}>{clinic.fullAddress}</Text>
             </Pressable>
             {!!clinic.phone && (
               <Pressable style={s.contactRow} onPress={() => openUrl(`tel:${clinic.phone}`)}>
                 <AppIcon name="phone" size={15} color="#0D9488" />
-                <Text style={[s.link, s.flex]}>{clinic.phone}</Text>
+                <Text translate={false} style={[s.link, s.flex]}>{clinic.phone}</Text>
               </Pressable>
             )}
             {!!clinic.email && (
               <Pressable style={s.contactRow} onPress={() => openUrl(`mailto:${clinic.email}`)}>
                 <AppIcon name="mail" size={15} color="#0D9488" />
-                <Text style={[s.link, s.flex]}>{clinic.email}</Text>
+                <Text translate={false} style={[s.link, s.flex]}>{clinic.email}</Text>
               </Pressable>
             )}
             {!!website && (
               <Pressable style={s.contactRow} onPress={() => openUrl(website)}>
                 <AppIcon name="globe" size={15} color="#0D9488" />
-                <Text style={[s.link, s.flex]}>{clinic.website}</Text>
+                <Text translate={false} style={[s.link, s.flex]}>{clinic.website}</Text>
               </Pressable>
             )}
             <Text style={s.subTitle}>Hours</Text>
@@ -380,12 +408,12 @@ export default function ClinicPageScreen({ onBack }) {
                 {doctor.image ? (
                   <Image source={{ uri: doctor.image }} style={s.doctorImage} />
                 ) : (
-                  <View style={[s.doctorImage, s.doctorInitials]}><Text style={s.doctorInitialText}>{doctor.name.charAt(0)}</Text></View>
+                  <View style={[s.doctorImage, s.doctorInitials]}><Text translate={false} style={s.doctorInitialText}>{doctor.name.charAt(0)}</Text></View>
                 )}
                 <View style={s.flex}>
-                  <Text style={s.strong}>{doctor.name}</Text>
-                  <Text style={s.muted}>{doctor.specialty}</Text>
-                  <Text style={s.muted}>Experience: {doctor.experience} • Rating: {doctor.rating}</Text>
+                  <Text translate={false} style={s.strong}>{doctor.name}</Text>
+                  <Text translate={false} style={s.muted}>{doctor.specialty}</Text>
+                  <Text translate={false} style={s.muted}>Experience: {doctor.experience} • Rating: {doctor.rating}</Text>
                 </View>
               </View>
             ))}
@@ -396,7 +424,7 @@ export default function ClinicPageScreen({ onBack }) {
           <View style={s.panel}>
             <Text style={s.panelTitle}>Departments</Text>
             {departmentNames.length === 0 && <Text style={s.muted}>No departments available</Text>}
-            <View style={s.chips}>{departmentNames.map((name) => <Text key={name} style={s.chip}>{name}</Text>)}</View>
+            <View style={s.chips}>{departmentNames.map((name) => <Text translate={false} key={name} style={s.chip}>{name}</Text>)}</View>
           </View>
         )}
 
@@ -404,7 +432,7 @@ export default function ClinicPageScreen({ onBack }) {
           <View style={s.panel}>
             <Text style={s.panelTitle}>Facilities</Text>
             {facilities.length === 0 && <Text style={s.muted}>No facilities available</Text>}
-            <View style={s.chips}>{facilities.map((name) => <Text key={name} style={s.chip}>{name}</Text>)}</View>
+            <View style={s.chips}>{facilities.map((name) => <Text translate={false} key={name} style={s.chip}>{name}</Text>)}</View>
           </View>
         )}
 
@@ -423,7 +451,10 @@ const s = createDoctorStyles({
   screen: { flex: 1, backgroundColor: '#F0FDFA' },
   header: { height: 62, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },
   backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-  title: { fontSize: 22, fontWeight: '800', color: '#0D9488' },
+  title: { flex: 1, fontSize: 22, fontWeight: '800', color: '#0D9488' },
+  addClinicButton: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 36, paddingHorizontal: 13, borderRadius: 18, backgroundColor: '#0D9488' },
+  addClinicButtonPressed: { backgroundColor: '#0F766E' },
+  addClinicText: { fontSize: 13.5, fontWeight: '800', color: '#FFFFFF' },
   content: { padding: 12, paddingBottom: 32 },
   error: { fontSize: 13, color: colors.red, marginBottom: 10 },
   hero: { height: 210, borderRadius: 14, overflow: 'hidden', justifyContent: 'flex-end' },

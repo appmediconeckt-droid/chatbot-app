@@ -27,7 +27,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { PATIENT, DOCTOR } from '../../theme/palette';
+import { PATIENT } from '../../theme/palette';
+import { getStoredThemeRole, paletteForRole } from '../../theme/rolePalette';
 import AuthBackground from '../../theme/AuthBackground';
 import useLanguageRender from '../../hooks/useLanguageRender';
 
@@ -147,7 +148,7 @@ const AppLockScreen = ({
   const [pin, setPin] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
-  // Role → palette: counselor = blue, everyone else = green.
+  // Role → palette: doctor = teal, counselor = blue, everyone else = green.
   const [C, setC] = useState(PATIENT);
   const [role, setRole] = useState('user');
   const [biometricUnlockEnabled, setBiometricUnlockEnabled] = useState(false);
@@ -162,20 +163,9 @@ const AppLockScreen = ({
 
   useEffect(() => {
     (async () => {
-      // Blue ONLY when a role field explicitly says counselor. Every other
-      // value (user, patient, empty, unknown) → green. Checking all the fields
-      // the app writes avoids a stale single key flipping the theme.
-      const [userRole, roleKey, userType] = await Promise.all([
-        AsyncStorage.getItem('userRole'),
-        AsyncStorage.getItem('role'),
-        AsyncStorage.getItem('userType'),
-      ]);
-      const norm = (v) => String(v || '').trim().toLowerCase();
-      const isCounselor = [userRole, roleKey, userType]
-        .map(norm)
-        .some((v) => v === 'counselor' || v === 'counsellor');
-      setRole(isCounselor ? 'counselor' : 'user');
-      setC(isCounselor ? DOCTOR : PATIENT);
+      const themeRole = await getStoredThemeRole();
+      setRole(themeRole);
+      setC(paletteForRole(themeRole));
     })();
   }, []);
 

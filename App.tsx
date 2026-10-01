@@ -25,6 +25,7 @@ import {
 import { NavigationContainer } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import { navigationRef } from './src/navigationRef';
+import { isTokenExpired, startTokenExpiryWatcher } from './src/utils/tokenExpiry';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import UserSignup from './src/screens/auth/UserSignup';
 import Landing from "./src/screens/auth/Landing";
@@ -55,6 +56,7 @@ import SMSInput from './src/features/counselor/screens/SMSInput';
 
 // Doctor screens (frontend-only — no Doctor backend yet)
 import DoctorDashboard from './src/features/doctor/screens/DoctorDashboard';
+import StaffDashboard from './src/features/staff/screens/StaffDashboard';
 import ChangePassword from './src/screens/account/ChangePassword';
 import SetPassword from './src/screens/account/SetPassword';
 import SetPasswordByOtp from './src/screens/account/SetPasswordByOtp';
@@ -100,6 +102,7 @@ export type RootStackParamList = {
   CounselorSignup: { role?: 'user' | 'counselor' } | undefined;
   DoctorSignup: { role?: 'doctor'; doctorProfileDraft?: object } | undefined;
   DoctorDashboard: undefined;
+  StaffDashboard: undefined;
   OTPVerification: undefined;
   LocationGate: { destination: keyof RootStackParamList; destinationParams?: object };
   UserDashboard: undefined;
@@ -311,6 +314,13 @@ function App() {
           return;
         }
 
+        // Expired session: don't open the dashboard. The expiry watcher started
+        // in NavigationContainer.onReady clears it and moves to the login screen.
+        if (isTokenExpired(accessToken || token)) {
+          setBootRoute('RoleSelector');
+          return;
+        }
+
         // Show lock screen if the user has set up a PIN
         if (storedPin && !hasFreshIncomingCall) {
           setIsLocked(true);
@@ -452,6 +462,7 @@ useEffect(() => {
           onReady={() => {
             routeNameRef.current = navigationRef.current?.getCurrentRoute()?.name;
             void checkInitialNotification(navigationRef);
+            startTokenExpiryWatcher();
           }}
           onStateChange={() => {
             const previousRouteName = routeNameRef.current;
@@ -498,6 +509,7 @@ useEffect(() => {
             <Stack.Screen name='CounselorSignup' component={CounselorSignup} />
             <Stack.Screen name='DoctorSignup' component={DoctorSignup as React.ComponentType<any>} />
             <Stack.Screen name='DoctorDashboard' component={DoctorDashboard as React.ComponentType<any>} />
+            <Stack.Screen name='StaffDashboard' component={StaffDashboard as React.ComponentType<any>} />
               <Stack.Screen name='OTPVerification' component={OTPVerification} />
             <Stack.Screen
               name="LocationGate"

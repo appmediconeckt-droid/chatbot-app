@@ -1027,7 +1027,7 @@ const CounselorSignup = ({ navigation, route }) => {
             </View>
           </View>
         </Modal>
-        {notification.show && (<Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#004AC6' : '#004AC6' }]}><Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color="#fff" /><Text style={styles.notificationText}>{notification.message}</Text></Animated.View>)}
+        {notification.show && (<Animated.View style={[styles.notification, { backgroundColor: notification.type === 'error' ? '#FEF2F2' : notification.type === 'info' ? '#004AC6' : '#004AC6' }, notification.type === 'error' && styles.notificationError]}><Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} size={20} color={notification.type === 'error' ? '#DC2626' : '#fff'} /><Text style={[styles.notificationText, notification.type === 'error' && styles.notificationTextError]}>{notification.message}</Text></Animated.View>)}
 
         {/* Forgot Password popup (counselor side) */}
         <ForgotPasswordModal
@@ -1131,8 +1131,10 @@ const styles = StyleSheet.create({
   otpTimerText: { color: '#64748B', fontSize: 13, fontWeight: '700', textAlign: 'center' },
   otpResendText: { color: '#004AC6', fontSize: 13, fontWeight: '900' },
   otpResendTextDisabled: { color: '#94A3B8' },
-  notification: { position: 'absolute', top: 50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 10, zIndex: 1000 },
-  notificationText: { color: '#fff', fontSize: 14, fontWeight: '700', marginLeft: 8 },
+  notification: { position: 'absolute', top: 50, left: 16, right: 16, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 8, zIndex: 1000 },
+  notificationError: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderLeftWidth: 4, borderLeftColor: '#DC2626' },
+  notificationText: { flex: 1, color: '#fff', fontSize: 13.5, lineHeight: 19, fontWeight: '600', marginLeft: 10 },
+  notificationTextError: { color: '#991B1B' },
 });
 
 export default CounselorSignup;

@@ -9,7 +9,8 @@
 // Render it INSIDE the Modal that opens it (it is an absolute overlay, not a
 // Modal itself) so it always sits on top of that sheet on iOS and Android.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { PanResponder, Pressable, Text, View } from 'react-native';
+import { PanResponder, Pressable, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { colors, createDoctorStyles, doctorGradient, gradientDirection } from '../theme';

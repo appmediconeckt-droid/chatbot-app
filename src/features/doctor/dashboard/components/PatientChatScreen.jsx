@@ -1,7 +1,10 @@
 // Ported from MediconecktApp's src/doctor/dashboard/components/PatientChatScreen.tsx.
 // Adaptation: ToastAndroid (Android-only) replaced with the app's cross-platform useToast.
 import React, { useEffect, useRef, useState } from 'react';
-import { BackHandler, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { BackHandler, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
+import DoctorAvatar from './layout/DoctorAvatar';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -110,9 +113,9 @@ export default function PatientChatScreen({ name, avatar, onBack, onProfilePress
           {avatar ? (
             <Image source={{ uri: avatar }} style={s.headerAvatar} />
           ) : (
-            <View style={s.initial}><Text style={s.initialText}>{initials}</Text></View>
+            <View style={s.initial}><Text translate={false} style={s.initialText}>{initials}</Text></View>
           )}
-          <Text style={s.name}>{name}</Text>
+          <Text translate={false} style={s.name}>{name}</Text>
         </Pressable>
       </View>
       <ScrollView contentContainerStyle={s.messages} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
@@ -124,9 +127,9 @@ export default function PatientChatScreen({ name, avatar, onBack, onProfilePress
           <Text style={s.outTime}>Just now <Text style={s.you}>You</Text></Text>
           <View style={s.outRow}>
             <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.outgoing}>
-              <Text style={s.outgoingText}>Hello {firstName}. I'm sorry to hear that. Did you check your blood pressure recently? Let's have a quick video call to assess.</Text>
+              <Text translate={false} style={s.outgoingText}>Hello {firstName}. I'm sorry to hear that. Did you check your blood pressure recently? Let's have a quick video call to assess.</Text>
             </LinearGradient>
-            <Image source={{ uri: 'https://i.pravatar.cc/80?img=32' }} style={s.doctorAvatar} />
+            <DoctorAvatar size={30} style={s.doctorAvatar} />
           </View>
         </View>
         {sent.map((text, index) => (
@@ -136,7 +139,7 @@ export default function PatientChatScreen({ name, avatar, onBack, onProfilePress
         ))}
       </ScrollView>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.actions}>
-        <Quick icon="calendar" text="Schedule Appointment" onPress={() => addChatAction('Appointment scheduling request sent.')} />
+        <Quick icon="calendar" text="Book Appointment" onPress={() => addChatAction('Appointment scheduling request sent.')} />
         <Quick icon="file" text="Request Reports" onPress={() => setPicker('reports')} />
         <Quick icon="message" text="Prescription" onPress={() => addChatAction('Prescription shared with patient.')} />
       </ScrollView>
@@ -225,11 +228,11 @@ function Incoming({ name, avatar, initials, time, children }) {
         {avatar ? (
           <Image source={{ uri: avatar }} style={s.smallAvatar} />
         ) : (
-          <View style={s.smallInitial}><Text style={s.smallInitialText}>{initials}</Text></View>
+          <View style={s.smallInitial}><Text translate={false} style={s.smallInitialText}>{initials}</Text></View>
         )}
         <View style={s.incomingContent}>
           <View style={s.incomingMeta}>
-            <Text style={s.sender}>{name}</Text>
+            <Text translate={false} style={s.sender}>{name}</Text>
             <Text style={s.inTime}>{time}</Text>
           </View>
           <View style={s.incoming}><Text style={s.incomingText}>{children}</Text></View>

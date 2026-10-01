@@ -47,8 +47,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
 
         // Google Play update version. Must be higher than the live Play release.
-        versionCode 15
-        versionName "1.0.10"
+        versionCode 16
+        versionName "1.0.14"
 
         manifestPlaceholders = [usesCleartextTraffic: "false"]
     }
@@ -127,6 +127,11 @@ dependencies {
 
     // Notifee notifications
     implementation project(":notifee_react-native")
+
+    // HumaeliMessagingService extends RNFirebase's FirebaseMessagingService, which
+    // RNFirebase only pulls in as `implementation`. Same BOM as RNFirebase uses.
+    implementation platform("com.google.firebase:firebase-bom:34.18.0")
+    implementation "com.google.firebase:firebase-messaging"
 
     // Hermes / JSC
     if (hermesEnabled.toBoolean()) {

@@ -1,8 +1,10 @@
 // Web parity: Dashboard/DoctorDashboard.jsx EditCompletedModal. "View" on a
 // completed queue row opens this; Save PATCHes diagnosis / medicine / advice /
 // additional_notes / follow_up_* (the parent does the request).
-import React, { useState } from 'react';
-import { Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { Alert, ScrollView, TouchableOpacity, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { colors, typography, createDoctorStyles } from '../theme';
@@ -39,12 +41,15 @@ export default function EditCompletedAppointmentScreen({ appointment, onCancel, 
   const [followUpRequired, setFollowUpRequired] = useState(Boolean(appointment.followUpRequired));
   const [followUpDate, setFollowUpDate] = useState(appointment.followUpDate || '');
   const [saving, setSaving] = useState(false);
+  const saveLock = useRef(false);
 
   const save = async () => {
+    if (saveLock.current) return;
     if (followUpRequired && !/^\d{4}-\d{2}-\d{2}$/.test(followUpDate.trim())) {
       Alert.alert('Invalid date', 'Follow-up date must be YYYY-MM-DD.');
       return;
     }
+    saveLock.current = true;
     setSaving(true);
     try {
       await onSave?.({
@@ -56,6 +61,7 @@ export default function EditCompletedAppointmentScreen({ appointment, onCancel, 
         followUpDate: followUpRequired ? followUpDate.trim() : '',
       });
     } finally {
+      saveLock.current = false;
       setSaving(false);
     }
   };
@@ -65,8 +71,8 @@ export default function EditCompletedAppointmentScreen({ appointment, onCancel, 
       <View style={styles.titleBar}><Text style={styles.title}>Completed Appointment</Text></View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.patientCard}>
-          <Text style={styles.patientName}>{appointment.name}</Text>
-          <Text style={styles.meta}>{getTokenLabel(appointment)} • {appointment.issue}</Text>
+          <Text translate={false} style={styles.patientName}>{appointment.name}</Text>
+          <Text translate={false} style={styles.meta}>{getTokenLabel(appointment)} • {appointment.issue}</Text>
           <Text style={styles.meta}>Completed on: {appointment.endTime ? formatDateTime(appointment.endTime) : 'N/A'}</Text>
           {!!appointment.durationMs && <Text style={styles.meta}>Duration: {formatDuration(appointment.durationMs)}</Text>}
         </View>

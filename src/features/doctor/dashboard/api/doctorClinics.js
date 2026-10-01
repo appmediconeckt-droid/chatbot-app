@@ -32,23 +32,52 @@ export const loadDoctorClinics = async (doctorId, role = 'doctor') => {
     .filter((clinic) => !clinic.doctorId || String(clinic.doctorId) === String(doctorId));
 };
 
+const errorText = (err) => {
+  const data = err?.response?.data;
+  if (typeof data === 'string') return data;
+  return data?.message || data?.error || err?.message || '';
+};
+
 // photo: { uri, type, fileName } from an image picker (optional).
+// Resolves to the new clinic (or null) with `photoSkipped: true` when the
+// server refused the photo and the clinic was saved without it.
 export const createClinic = async (doctorId, { name, phone, location, photo }) => {
-  const formData = new FormData();
-  formData.append('doctor_id', String(doctorId));
-  formData.append('clinic_name', name);
-  formData.append('phone_number', phone || '');
-  formData.append('location', location);
-  if (photo?.uri) {
-    formData.append('clinic_photo', {
-      uri: photo.uri,
-      type: photo.type || 'image/jpeg',
-      name: photo.fileName || `clinic-${Date.now()}.jpg`,
-    });
-  }
-  const response = await axiosInstance.post('/api/clinics', formData, {
+  const buildFormData = (withPhoto) => {
+    const formData = new FormData();
+    formData.append('doctor_id', String(doctorId));
+    formData.append('clinic_name', name);
+    formData.append('phone_number', phone || '');
+    formData.append('location', location);
+    if (withPhoto && photo?.uri) {
+      const type = photo.type || 'image/jpeg';
+      formData.append('clinic_photo', {
+        uri: photo.uri,
+        type,
+        name: photo.fileName || `clinic-${Date.now()}.${(type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')}`,
+      });
+    }
+    return formData;
+  };
+  const post = (formData) => axiosInstance.post('/api/clinics', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    // Send the FormData as-is and allow time for the image upload.
+    transformRequest: (data) => data,
+    timeout: 60000,
   });
+
+  let response;
+  let photoSkipped = false;
+  try {
+    response = await post(buildFormData(true));
+  } catch (err) {
+    // A server that doesn't take the `clinic_photo` field answers multer's
+    // "Unexpected field": still save the clinic, just without the photo.
+    if (!photo?.uri || !/Unexpected (file )?field|LIMIT_UNEXPECTED_FILE/i.test(errorText(err))) throw err;
+    console.warn('[clinic-upload] photo refused by server:', err?.response?.status, errorText(err).slice(0, 200));
+    response = await post(buildFormData(false));
+    photoSkipped = true;
+  }
   const created = response.data?.clinic || response.data?.data?.clinic || response.data?.data || response.data;
-  return created && typeof created === 'object' ? normalizeClinic(created) : null;
+  if (!created || typeof created !== 'object') return null;
+  return { ...normalizeClinic(created), photoSkipped };
 };

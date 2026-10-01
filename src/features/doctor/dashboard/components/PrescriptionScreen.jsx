@@ -1,7 +1,8 @@
 // Ported from MediconecktApp's src/doctor/dashboard/components/PrescriptionScreen.tsx.
 // Adaptation: brand renamed from "Mediconeckt" to "Humaeli".
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { downloadPrescriptionPdf } from '../utils/prescriptionPdf';
 import { createDoctorStyles } from '../theme';
@@ -89,7 +90,7 @@ export default function PrescriptionScreen({ patient, onBack }) {
   );
 }
 function Info({ label, value, blue }) {
-  return <View style={s.info}><Text style={s.infoLabel}>{label}</Text><Text style={[s.infoValue, blue && s.blue]}>{value}</Text></View>;
+  return <View style={s.info}><Text style={s.infoLabel}>{label}</Text><Text translate={false} style={[s.infoValue, blue && s.blue]}>{value}</Text></View>;
 }
 function Cell({ text, style }) {
   return <Text style={[s.cell, style]}>{text}</Text>;

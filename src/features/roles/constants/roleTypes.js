@@ -10,6 +10,7 @@ export const USER_ROLES = {
   BILLING_ACCOUNTS: 'billing_accounts',
   HOUSEKEEPING: 'housekeeping',
   SUPER_ADMIN: 'super_admin',
+  STAFF: 'staff',
 };
 
 export const ROLE_ALIASES = {

@@ -27,7 +27,28 @@ const pageSources = [
   'src/screens/user/Component/UserDashboard/Tab/Wallet/WalletDashboard.jsx',
   'src/screens/user/Component/UserDashboard/Tab/Wallet/TransactionsHistory.jsx',
   'src/screens/user/Component/UserDashboard/Dashboard/UserDashboard.jsx',
+  'src/components/common/LanguageSelector.jsx',
 ];
+
+// Whole folders whose screens are shown before sign-in (login, role selector,
+// signups, onboarding, password reset, app lock) and the doctor app. Their
+// visible text gets built-in translations so a language picked on the login
+// screen applies instantly and offline, not only after a live lookup.
+const pageDirs = [
+  'src/screens/auth',
+  'src/features/doctor',
+];
+
+const walkSources = (relativeDir) => fs.readdirSync(path.join(root, relativeDir), { withFileTypes: true })
+  .flatMap((entry) => {
+    const rel = `${relativeDir}/${entry.name}`;
+    if (entry.isDirectory()) return walkSources(rel);
+    return /\.(jsx|js)$/.test(entry.name) ? [rel] : [];
+  });
+
+pageDirs.forEach((dir) => walkSources(dir).forEach((file) => {
+  if (!pageSources.includes(file)) pageSources.push(file);
+}));
 
 const collectPagePhrases = () => {
   const phrases = new Set([

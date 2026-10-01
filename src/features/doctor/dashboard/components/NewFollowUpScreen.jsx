@@ -3,12 +3,15 @@
 //   create -> POST /api/followups  (patient from the doctor's appointments)
 //   edit   -> PUT  /api/followups/:id
 // Dates are sent as YYYY-MM-DD and times as HH:mm, same as the web inputs.
-import React, { useEffect, useState } from 'react';
-import { Alert, BackHandler, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { Alert, Platform, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
+import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { formatLocalDateKey } from '../api/doctorAppointments';
 import { apiErrorMessage, createFollowUp, normalizeDateInput, updateFollowUp } from '../api/doctorFollowUps';
@@ -55,24 +58,25 @@ export default function NewFollowUpScreen({ doctor, patients = [], followUp, onB
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [open, setOpen] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  // State alone can't stop a fast double tap (both taps run before the
+  // re-render), which created the same follow-up more than once.
+  const submitLock = useRef(false);
 
   const selectedPatient = patients.find((p) => String(p.id) === String(patientId));
   const patientLabel = editing ? followUp.name : selectedPatient?.name || '';
 
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      onBack();
-      return true;
-    });
-    return () => subscription.remove();
-  }, [onBack]);
+  useDoctorBack(() => {
+    onBack();
+    return true;
+  });
 
   const save = async () => {
     if (!patientId || !followUpDate) {
       Alert.alert('Missing information', 'Please select patient and follow-up date');
       return;
     }
-    if (submitting) return;
+    if (submitLock.current) return;
+    submitLock.current = true;
     try {
       setSubmitting(true);
       if (editing) {
@@ -98,6 +102,7 @@ export default function NewFollowUpScreen({ doctor, patients = [], followUp, onB
     } catch (err) {
       Alert.alert('Error', apiErrorMessage(err, editing ? 'Failed to update follow-up' : 'Failed to add follow-up'));
     } finally {
+      submitLock.current = false;
       setSubmitting(false);
     }
   };
@@ -125,15 +130,15 @@ export default function NewFollowUpScreen({ doctor, patients = [], followUp, onB
             <View style={s.options}>
               {patients.map((p) => (
                 <Pressable key={String(p.id)} onPress={() => { setPatientId(p.id); setOpen(null); }} style={s.option}>
-                  <Text style={s.optionText}>{p.name}</Text>
-                  <Text style={s.optionSub}>{p.phone} • Last visit: {p.lastVisit ? displayDate(normalizeDateInput(p.lastVisit)) : 'N/A'}</Text>
+                  <Text translate={false} style={s.optionText}>{p.name}</Text>
+                  <Text translate={false} style={s.optionSub}>{p.phone} • Last visit: {p.lastVisit ? displayDate(normalizeDateInput(p.lastVisit)) : 'N/A'}</Text>
                 </Pressable>
               ))}
             </View>
           )
         )}
         {!!selectedPatient && !editing && (
-          <Text style={s.hint}>Issue: {selectedPatient.issue}</Text>
+          <Text translate={false} style={s.hint}>Issue: {selectedPatient.issue}</Text>
         )}
         <View style={s.row}>
           <View style={s.half}>
@@ -177,7 +182,7 @@ export default function NewFollowUpScreen({ doctor, patients = [], followUp, onB
         <Label text="ASSIGN DOCTOR" />
         <View style={s.inputBox}>
           <AppIcon name="users" size={17} color="#667085" />
-          <Text style={s.selectText}>{doctor?.name || 'Doctor'}</Text>
+          <Text translate={false} style={s.selectText}>{doctor?.name || 'Doctor'}</Text>
         </View>
         <Label text="FOLLOW-UP TYPE" />
         <View style={s.priority}>
@@ -220,7 +225,7 @@ function Select({ value, placeholder, onPress, icon }) {
   return (
     <Pressable onPress={onPress} style={s.inputBox}>
       {icon && <AppIcon name={icon} size={17} color="#667085" />}
-      <Text style={[s.selectText, !value && s.placeholder]}>{value || placeholder}</Text>
+      <Text translate={false} style={[s.selectText, !value && s.placeholder]}>{value || placeholder}</Text>
       <Text style={s.chevron}>⌄</Text>
     </Pressable>
   );

@@ -5,7 +5,8 @@
 // The QR encodes the public walk-in booking link, rendered by api.qrserver.com
 // exactly like the web page.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, Share, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
 import RNFS from 'react-native-fs';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -15,7 +16,6 @@ import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import { PUBLIC_WEB_APP_URL } from '../../../../config';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
-
 const createQrImageUrl = (targetUrl) =>
   `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(targetUrl)}`;
 
@@ -79,6 +79,17 @@ export default function DoctorProfileQrScreen({ onBack }) {
     ? `${PUBLIC_WEB_APP_URL.replace(/\/+$/, '')}/walk-in-appointment?doctorId=${encodeURIComponent(doctorId)}&source=qr`
     : '';
   const qrImageUrl = appointmentUrl ? createQrImageUrl(appointmentUrl) : '';
+  // Public profile page a patient lands on after scanning (web /doctor/:doctorId).
+  const profileUrl = doctorId
+    ? `${PUBLIC_WEB_APP_URL.replace(/\/+$/, '')}/doctor/${encodeURIComponent(doctorId)}`
+    : '';
+
+  // "Scan this QR code to" options: the doctor can open each one to see
+  // what the patient gets.
+  const openLink = (url) => {
+    if (!url) return;
+    Linking.openURL(url).catch(() => showToast('Could not open link'));
+  };
 
   const shareQr = () => {
     if (!appointmentUrl) return;
@@ -140,10 +151,10 @@ export default function DoctorProfileQrScreen({ onBack }) {
                 {profileImage ? (
                   <Image source={{ uri: profileImage }} style={s.avatar} />
                 ) : (
-                  <View style={s.avatar}><Text style={s.avatarInitial}>{String(doctorName).replace(/^Dr\.?\s*/i, '').charAt(0).toUpperCase()}</Text></View>
+                  <View style={s.avatar}><Text translate={false} style={s.avatarInitial}>{String(doctorName).replace(/^Dr\.?\s*/i, '').charAt(0).toUpperCase()}</Text></View>
                 )}
                 <View>
-                  <Text style={s.doctorName}>{doctorName}</Text>
+                  <Text translate={false} style={s.doctorName}>{doctorName}</Text>
                   {!!speciality && <Text style={s.speciality}>{speciality}</Text>}
                 </View>
                 <View style={s.verified}><Text style={s.check}>✓</Text></View>
@@ -151,10 +162,8 @@ export default function DoctorProfileQrScreen({ onBack }) {
             </View>
             <Text style={s.scanTitle}>SCAN THIS QR CODE TO:</Text>
             <View style={s.scanGrid}>
-              <Action icon="user" text="View Profile" />
-              <Action icon="calendar" text="Book Appt." />
-              <Action icon="message" text="Start Chat" />
-              <Action icon="phone" text="Contact Clinic" />
+              <Action icon="user" text="View Profile" onPress={() => openLink(profileUrl)} />
+              <Action icon="calendar" text="Book Appt." onPress={() => openLink(appointmentUrl)} />
             </View>
             <View style={s.card}>
               <Text style={s.section}>QR MANAGEMENT</Text>
@@ -197,8 +206,18 @@ export default function DoctorProfileQrScreen({ onBack }) {
   );
 }
 
-function Action({ icon, text }) {
-  return <View style={s.action}><AppIcon name={icon} size={15} color="#526078" /><Text style={s.actionText}>{text}</Text></View>;
+function Action({ icon, text, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [s.action, pressed && s.actionPressed]}
+    >
+      <AppIcon name={icon} size={15} color="#0D9488" />
+      <Text style={s.actionText}>{text}</Text>
+      <View style={s.actionChevron}><AppIcon name="chevron-right" size={14} color="#98A2B3" /></View>
+    </Pressable>
+  );
 }
 function Outline({ text, onPress }) {
   return <Pressable onPress={onPress} style={s.outline}><Text style={s.outlineText}>{text}</Text></Pressable>;
@@ -207,7 +226,7 @@ function Stat({ label, value, arrow = '↗' }) {
   return (
     <View style={s.stat}>
       <View style={s.statTop}><Text style={s.statLabel}>{label}</Text><Text style={s.statArrow}>{arrow}</Text></View>
-      <Text style={s.statValue}>{value}</Text>
+      <Text translate={false} style={s.statValue}>{value}</Text>
     </View>
   );
 }
@@ -215,7 +234,7 @@ function Detail({ label, value, badge, last, onPress }) {
   return (
     <Pressable onPress={onPress} style={[s.detail, last && s.detailLast]}>
       <Text style={s.detailLabel}>{label}</Text>
-      <Text style={[s.detailValue, badge && s.badge]}>{value}</Text>
+      <Text translate={false} style={[s.detailValue, badge && s.badge]}>{value}</Text>
     </Pressable>
   );
 }
@@ -244,8 +263,10 @@ const s = createDoctorStyles({
   check: { color: '#FFF', fontSize: 14, fontWeight: '700' },
   scanTitle: { fontSize: 14, fontWeight: '700', letterSpacing: 0.3, color: '#344054', marginTop: 22, marginBottom: 10 },
   scanGrid: { flexDirection: 'row', flexWrap: 'wrap', borderBottomWidth: 1, borderBottomColor: '#DDE3EB', paddingBottom: 15 },
-  action: { width: '50%', height: 42, flexDirection: 'row', alignItems: 'center', gap: 9, paddingLeft: 8 },
-  actionText: { fontSize: 14, color: '#526078' },
+  action: { width: '50%', height: 42, flexDirection: 'row', alignItems: 'center', gap: 9, paddingLeft: 8, paddingRight: 10, borderRadius: 8 },
+  actionPressed: { backgroundColor: '#E6F7F5' },
+  actionText: { fontSize: 14, color: '#344054', fontWeight: '500' },
+  actionChevron: { marginLeft: 'auto' },
   card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 11, padding: 15, marginTop: 16, shadowColor: '#17243A', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
   section: { fontSize: 14, fontWeight: '700', letterSpacing: 0.7, color: '#344054', marginBottom: 13 },
   downloadWrap: { borderRadius: 8, shadowColor: '#2DD4BF', shadowOpacity: 0.18, shadowRadius: 4, elevation: 2 },

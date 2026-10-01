@@ -14,7 +14,10 @@
 // Availability is also cached per doctor+clinic (web: localStorage,
 // app: AsyncStorage `doctorAvailability:<doctorId>:<clinicId>`).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import { launchImageLibrary } from 'react-native-image-picker';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -216,6 +219,27 @@ const TIME_PRESETS = [
   { label: 'Evening', icon: '☾', start: '18:00', end: '21:00' },
 ];
 
+// Slot preview groups each day's slots into these parts of the day, by start
+// time: before 12:00 is Morning, 12:00–16:59 Afternoon, 17:00 on Evening.
+const DAY_PERIODS = [
+  { label: 'Morning', icon: '☀', until: 12 * 60 },
+  { label: 'Afternoon', icon: '◐', until: 17 * 60 },
+  { label: 'Evening', icon: '☾', until: 24 * 60 },
+];
+
+const groupSlotsByPeriod = (slots = []) => DAY_PERIODS
+  .map((period, index) => {
+    const from = index ? DAY_PERIODS[index - 1].until : 0;
+    return {
+      ...period,
+      slots: slots.filter((slot) => {
+        const mins = toMinutes(slot.time);
+        return mins >= from && mins < period.until;
+      }),
+    };
+  })
+  .filter((period) => period.slots.length);
+
 const addMinutes = (hhmm, mins) => {
   const total = Math.min(toMinutes(hhmm) + mins, 23 * 60 + 59);
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
@@ -261,6 +285,8 @@ export default function CalendarAvailabilityScreen() {
   const [showClinicDropdown, setShowClinicDropdown] = useState(false);
   const [showNewClinicForm, setShowNewClinicForm] = useState(false);
   const [newClinic, setNewClinic] = useState({ name: '', phone: '', location: '' });
+  // Optional clinic photo for "Add a new clinic" ({ uri, type, fileName }).
+  const [newClinicPhoto, setNewClinicPhoto] = useState(null);
   const [savingClinic, setSavingClinic] = useState(false);
   const [apiStatus, setApiStatus] = useState('idle');
   const [apiError, setApiError] = useState('');
@@ -867,6 +893,18 @@ export default function CalendarAvailabilityScreen() {
     setShowNewClinicForm(false);
   };
 
+  const pickNewClinicPhoto = async () => {
+    try {
+      const result = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1, quality: 0.8, maxWidth: 1600, maxHeight: 1600 });
+      if (result?.didCancel) return;
+      if (result?.errorCode) return showToast(result.errorMessage || 'Could not open the photo picker');
+      const asset = result?.assets?.[0];
+      if (asset?.uri) setNewClinicPhoto({ uri: asset.uri, type: asset.type, fileName: asset.fileName });
+    } catch (err) {
+      showToast(err?.message || 'Could not open the photo picker');
+    }
+  };
+
   const createNewClinic = async () => {
     if (!newClinic.name.trim() || !newClinic.location.trim()) return showToast('Clinic name and location are required');
     try {
@@ -875,8 +913,11 @@ export default function CalendarAvailabilityScreen() {
         name: newClinic.name.trim(),
         phone: newClinic.phone.trim(),
         location: newClinic.location.trim(),
+        photo: newClinicPhoto,
       });
       setNewClinic({ name: '', phone: '', location: '' });
+      setNewClinicPhoto(null);
+      if (entry?.photoSkipped) showToast('Clinic saved, but the server did not accept the photo');
       if (entry) {
         const clinic = { ...entry, color: CLINIC_COLORS[clinics.length % CLINIC_COLORS.length] };
         setClinics((current) => [...current, clinic]);
@@ -1085,7 +1126,7 @@ export default function CalendarAvailabilityScreen() {
 
       <Pressable style={s.clinicBar} onPress={() => setShowClinicDropdown(true)}>
         <View style={[s.clinicDot, { backgroundColor: selectedClinic?.color || colors.blue }]} />
-        <Text style={s.clinicBarText} numberOfLines={1}>
+        <Text translate={false} style={s.clinicBarText} numberOfLines={1}>
           {apiStatus === 'loading' ? 'Loading clinics…' : selectedClinic?.name || 'Add a clinic to get started'}
         </Text>
         <AppIcon name="chevron-down" size={14} color="#667085" />
@@ -1294,7 +1335,7 @@ export default function CalendarAvailabilityScreen() {
         )}
 
         {/* Slot preview */}
-        <Text style={s.previewTitle}>Slot Preview — {selectedClinic?.name || 'Clinic'}</Text>
+        <Text translate={false} style={s.previewTitle}>Slot Preview — {selectedClinic?.name || 'Clinic'}</Text>
         <View style={s.card}>
           {visibleSlotPreview.length === 0 ? (
             <View style={s.previewEmpty}>
@@ -1311,13 +1352,22 @@ export default function CalendarAvailabilityScreen() {
                   <Text style={s.previewCount}>{entry.blocked ? 'Unavailable' : `${entry.slots?.length || 0} slots`}</Text>
                 </View>
                 {entry.blocked ? (
-                  <Text style={s.blockedText}>⊘ {entry.reason || 'Doctor unavailable'}</Text>
+                  <Text translate={false} style={s.blockedText}>⊘ {entry.reason || 'Doctor unavailable'}</Text>
                 ) : (
-                  <View style={s.previewChips}>
-                    {entry.slots.map((slot, i) => (
-                      <View key={`${slot.time}-${i}`} style={s.previewChip}><Text style={s.previewChipText}>{slot.time}</Text></View>
-                    ))}
-                  </View>
+                  groupSlotsByPeriod(entry.slots).map((period) => (
+                    <View key={period.label} style={s.previewPeriod}>
+                      <Text style={s.previewPeriodLabel}>
+                        {period.icon} {period.label} · {period.slots.length}
+                      </Text>
+                      <View style={s.previewGrid}>
+                        {period.slots.map((slot, i) => (
+                          <View key={`${slot.time}-${i}`} style={s.previewCell}>
+                            <View style={s.previewChip}><Text style={s.previewChipText}>{formatTime12h(slot.time)}</Text></View>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  ))
                 )}
               </View>
             ))
@@ -1368,8 +1418,8 @@ export default function CalendarAvailabilityScreen() {
                   <Pressable key={clinic.id} style={[s.clinicRow, active && s.clinicRowActive]} onPress={() => selectClinic(clinic)}>
                     <View style={[s.clinicDot, { backgroundColor: clinic.color }]} />
                     <View style={s.flex}>
-                      <Text style={s.clinicRowName}>{clinic.name}</Text>
-                      <Text style={s.clinicRowLocation}>{clinic.location}</Text>
+                      <Text translate={false} style={s.clinicRowName}>{clinic.name}</Text>
+                      <Text translate={false} style={s.clinicRowLocation}>{clinic.location}</Text>
                     </View>
                     {active && <Text style={[s.selectedBadge, { backgroundColor: clinic.color }]}>Selected</Text>}
                   </Pressable>
@@ -1382,6 +1432,21 @@ export default function CalendarAvailabilityScreen() {
                 <TextInput style={s.input} placeholder="Clinic name" placeholderTextColor="#94A3B8" value={newClinic.name} onChangeText={(v) => setNewClinic((p) => ({ ...p, name: v }))} />
                 <TextInput style={s.input} placeholder="Phone (optional)" placeholderTextColor="#94A3B8" keyboardType="phone-pad" value={newClinic.phone} onChangeText={(v) => setNewClinic((p) => ({ ...p, phone: v }))} />
                 <TextInput style={s.input} placeholder="Address / location" placeholderTextColor="#94A3B8" value={newClinic.location} onChangeText={(v) => setNewClinic((p) => ({ ...p, location: v }))} />
+                {newClinicPhoto ? (
+                  <View style={s.clinicPhotoRow}>
+                    <Image source={{ uri: newClinicPhoto.uri }} style={s.clinicPhotoPreview} />
+                    <Text style={s.clinicPhotoText} numberOfLines={1}>Clinic photo added</Text>
+                    <Pressable onPress={pickNewClinicPhoto} hitSlop={6}><Text style={s.addLink}>Change</Text></Pressable>
+                    <Pressable onPress={() => setNewClinicPhoto(null)} hitSlop={6} accessibilityLabel="Remove photo">
+                      <AppIcon name="x" size={16} color="#98A2B3" />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable style={s.clinicPhotoPicker} onPress={pickNewClinicPhoto}>
+                    <AppIcon name="camera" size={18} color={colors.blue} />
+                    <Text style={s.addLink}>Add clinic photo (optional)</Text>
+                  </Pressable>
+                )}
                 <View style={s.modalActions}>
                   <Pressable style={s.outlineBtnFlex} onPress={() => setShowNewClinicForm(false)}><Text style={s.outlineBtnText}>Cancel</Text></Pressable>
                   <Pressable style={s.solidBtn} onPress={createNewClinic} disabled={savingClinic}>
@@ -1495,7 +1560,7 @@ export default function CalendarAvailabilityScreen() {
                 <View style={s.modalHeader}>
                   <View style={s.flex}>
                     <Text style={s.modalTitle}>{editingTarget.key}</Text>
-                    <Text style={s.cardSub}>{selectedClinic?.name} availability for this date.</Text>
+                    <Text translate={false} style={s.cardSub}>{selectedClinic?.name} availability for this date.</Text>
                   </View>
                   <Pressable onPress={() => setEditingTarget(null)} hitSlop={8}><AppIcon name="x" size={18} color="#667085" /></Pressable>
                 </View>
@@ -1603,7 +1668,7 @@ function TimeField({ label, value, onPress, invalid }) {
       <Text style={s.fieldLabel}>{label}</Text>
       <Pressable style={[s.timeButton, !!value && s.timeButtonFilled, invalid && s.timeButtonInvalid]} onPress={onPress}>
         <AppIcon name="clock" size={14} color={invalid ? '#DC2626' : value ? colors.blue : '#98A2B3'} />
-        <Text style={[s.timeButtonText, !value && s.placeholder, invalid && s.invalidText]}>{value ? formatTime12h(value) : 'Tap to set'}</Text>
+        <Text translate={false} style={[s.timeButtonText, !value && s.placeholder, invalid && s.invalidText]}>{value ? formatTime12h(value) : 'Tap to set'}</Text>
       </Pressable>
     </View>
   );
@@ -1733,13 +1798,18 @@ const s = createDoctorStyles({
   secondaryText: { fontSize: 14, fontWeight: '700', color: colors.blue },
   previewTitle: { fontSize: 16, fontWeight: '700', color: colors.blue, marginBottom: 8, marginHorizontal: 2 },
   previewEmpty: { alignItems: 'center', paddingVertical: 18, gap: 2 },
-  previewGroup: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#EEF1F5', gap: 6 },
+  previewGroup: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EEF1F5', gap: 12 },
   previewHead: { flexDirection: 'row', justifyContent: 'space-between' },
   previewDate: { fontSize: 14, fontWeight: '700', color: '#17243A' },
   previewCount: { fontSize: 12.5, fontWeight: '600', color: colors.blue },
-  previewChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  previewChip: { paddingHorizontal: 9, height: 26, borderRadius: 13, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
-  previewChipText: { fontSize: 12, fontWeight: '600', color: colors.blue },
+  previewPeriod: { gap: 6 },
+  previewPeriodLabel: { fontSize: 12.5, fontWeight: '700', color: '#52617A', marginLeft: 2 },
+  // Fixed 4-column grid: each cell is 25% wide with equal padding, so chips
+  // line up in even rows with the same gap regardless of label length.
+  previewGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 },
+  previewCell: { width: '25%', padding: 4 },
+  previewChip: { height: 30, borderRadius: 15, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
+  previewChipText: { fontSize: 11.5, fontWeight: '600', color: colors.blue },
   blockedText: { fontSize: 13, fontWeight: '600', color: '#EF4444', marginTop: 6 },
   bottomBar: { backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#D7DEE9', paddingHorizontal: 10, paddingVertical: 10 },
   bottomActions: { flexDirection: 'row', gap: 7 },
@@ -1815,5 +1885,9 @@ const s = createDoctorStyles({
   selectedBadge: { fontSize: 11, fontWeight: '700', color: '#FFF', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
   addClinicBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 6 },
   newClinicForm: { marginTop: 10, gap: 10 },
+  clinicPhotoPicker: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 48, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#99D5CF', borderRadius: 12, backgroundColor: '#F0FDFA' },
+  clinicPhotoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 8, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 12, backgroundColor: '#FFF' },
+  clinicPhotoPreview: { width: 48, height: 48, borderRadius: 8, backgroundColor: '#EEF1F5' },
+  clinicPhotoText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#344054' },
   input: { height: 44, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, paddingHorizontal: 12, fontSize: 13.5, color: '#17243A' },
 });

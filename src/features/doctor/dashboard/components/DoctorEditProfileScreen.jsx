@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
@@ -116,8 +118,8 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
             <Pressable onPress={pickPhoto} style={s.avatarEdit}>
               <AppIcon name="camera" size={13} color="#FFF" strokeWidth={2} />
             </Pressable>
-            <Text style={s.name}>{form.fullName || 'Doctor'}</Text>
-            <Text style={s.role}>{form.qualification}</Text>
+            <Text translate={false} style={s.name}>{form.fullName || 'Doctor'}</Text>
+            <Text translate={false} style={s.role}>{form.qualification}</Text>
           </View>
         </View>
 

@@ -3,17 +3,20 @@
 // see staffApi.js / staffModel.js). Search and role/department/status
 // filtering run client-side over the fetched roster.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import AppIcon from '../icons/AppIcon';
 import CreateStaffScreen from './CreateStaffScreen';
 import StaffProfileScreen from './StaffProfileScreen';
 import StaffEditProfileScreen from './StaffEditProfileScreen';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles } from '../theme';
+import { useDoctorBack } from '../useDoctorBack';
 import { deleteStaff, fetchStaff } from './staffApi';
 
 const ROLES = ['All', 'Nurse', 'Medical Assistant', 'Lab Technician', 'Billing', 'Housekeeping', 'Supervisor', 'Receptionist'];
-const DEPARTMENTS = ['All', 'Emergency', 'Pathology', 'Finance', 'Admin', 'General Medicine', 'Housekeeping', 'General'];
+const DEPARTMENTS = ['All', 'Nursing', 'Clinical', 'Emergency', 'Pathology', 'Finance', 'Operations', 'Admin', 'General Medicine', 'General'];
 const STATUSES = ['All', 'Active', 'On Leave', 'Suspended'];
 
 export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaffProfileOpenChange }) {
@@ -68,6 +71,19 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
     ]);
   };
 
+  useDoctorBack(() => {
+    if (editingMember) {
+      setEditingMember(null);
+      return true;
+    }
+    if (viewingMember) {
+      setViewingMember(null);
+      onStaffProfileOpenChange?.(false);
+      return true;
+    }
+    return false;
+  });
+
   if (creatingStaff) {
     return (
       <CreateStaffScreen
@@ -108,6 +124,10 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
           onStaffProfileOpenChange?.(false);
         }}
         onEdit={() => setEditingMember(viewingMember)}
+        onUpdated={(updated) => {
+          setStaffList((current) => current.map((item) => (item.rawId === updated.rawId ? updated : item)));
+          setViewingMember(updated);
+        }}
       />
     );
   }
@@ -239,8 +259,8 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
 function FilterChip({ label, value, onPress }) {
   return (
     <Pressable onPress={onPress} style={s.filterChip}>
-      <Text style={s.filterChipText} numberOfLines={1}>
-        {label}: <Text style={s.filterChipValue}>{value}</Text>
+      <Text translate={false} style={s.filterChipText} numberOfLines={1}>
+        {label}: <Text translate={false} style={s.filterChipValue}>{value}</Text>
       </Text>
       <AppIcon name="chevron-down" size={13} color="#526078" strokeWidth={2.4} />
     </Pressable>
@@ -255,8 +275,8 @@ function StaffCard({ member, onPress, onMore }) {
       <View style={s.cardTop}>
         <Image source={{ uri: member.image }} style={s.avatar} />
         <View style={s.identity}>
-          <Text style={s.name} numberOfLines={1}>{member.name}</Text>
-          <Text style={s.subline} numberOfLines={1}>{member.email} · {member.id}</Text>
+          <Text translate={false} style={s.name} numberOfLines={1}>{member.name}</Text>
+          <Text translate={false} style={s.subline} numberOfLines={1}>{member.email} · {member.id}</Text>
         </View>
         <Pressable onPress={onMore} hitSlop={8} style={s.moreButton}>
           <AppIcon name="more" size={17} color="#8A94A4" />

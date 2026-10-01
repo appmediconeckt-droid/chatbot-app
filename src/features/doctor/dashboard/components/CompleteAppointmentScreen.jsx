@@ -1,12 +1,14 @@
 // Ported from MediconecktApp's CompleteAppointmentScreen; now submits the web
 // dashboard's complete-appointment payload through onSave (parent PATCHes).
-import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import Text from '../../../../components/TranslatedText';
+import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
-import { getTokenLabel } from '../api/doctorAppointments';
+import { getConsultationModeInfo, getRemoteConsultationMode, getTokenLabel } from '../api/doctorAppointments';
 
 const DURATION_TYPES = ['Days', 'Weeks', 'Months'];
 const TIMINGS = ['Morning', 'Afternoon', 'Evening', 'Night'];
@@ -67,7 +69,7 @@ function MedicineEntry({ index, medicine, canRemove, typeOpen, onToggleTypeOpen,
         <View style={styles.fieldWrap}>
           <Text style={styles.fieldLabel}>Type</Text>
           <TouchableOpacity style={styles.selectField} onPress={onToggleTypeOpen}>
-            <Text style={styles.selectText}>{medicine.type}</Text>
+            <Text translate={false} style={styles.selectText}>{medicine.type}</Text>
             <View style={[styles.chevronWrap, typeOpen && styles.chevronOpen]}>
               <AppIcon name="chevron-down" size={13} color="#111827" strokeWidth={2.2} />
             </View>
@@ -110,15 +112,23 @@ const durationDays = (m) => {
   const t = String(m.type || 'Days').toLowerCase();
   return t.startsWith('week') ? v * 7 : t.startsWith('month') ? v * 30 : v;
 };
+// After the longest medicine course, or a week out when there are none
+// (in-clinic visits don't record medicines here).
 const defaultFollowUpDate = (medicines, patient) => {
   const base = new Date(patient?.appointmentDate || Date.now());
   const d = Number.isNaN(base.getTime()) ? new Date() : base;
   d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + Math.max(0, ...medicines.map(durationDays)));
+  d.setDate(d.getDate() + (Math.max(0, ...medicines.map(durationDays)) || 7));
   return toDateKey(d);
 };
 
+// Every consultation — in-clinic, walk-in, video or voice — completes through
+// this full form: vitals, diagnosis, medicines, advice, notes and follow-up.
+// Diagnosis, advice and every medicine are required, so the prescription is
+// always recorded (and downloadable as PDF) before a visit is marked complete.
 export default function CompleteAppointmentScreen({ patient, onCancel, onSave }) {
+  const isVisit = !getRemoteConsultationMode(patient);
+  const modeInfo = getConsultationModeInfo(patient);
   const [temperature, setTemperature] = useState(patient.temperature ? String(patient.temperature) : '');
   const [bloodPressure, setBloodPressure] = useState(patient.bp && patient.bp !== 'Not recorded' ? patient.bp : '');
   const [diagnosis, setDiagnosis] = useState('');
@@ -129,24 +139,28 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
   const [followUpRequired, setFollowUpRequired] = useState(false);
   const [followUpDate, setFollowUpDate] = useState('');
   const [saving, setSaving] = useState(false);
+  // Ref lock: a double tap must not complete (and create the follow-up) twice.
+  const saveLock = useRef(false);
 
   const updateMedicine = (id, next) => setMedicines((current) => current.map((item) => (item.id === id ? next : item)));
   const addMedicine = () => setMedicines((current) => [...current, emptyMedicine()]);
   const removeMedicine = (id) => setMedicines((current) => (current.length > 1 ? current.filter((item) => item.id !== id) : current));
 
   const canSave = Boolean(diagnosis.trim() && advice.trim() && medicines.every(hasValidMedicine));
+  const followUpMedicines = medicines;
 
   const saveConsultation = async () => {
-    if (saving) return;
+    if (saveLock.current) return;
     if (!canSave) {
       Alert.alert('Incomplete', 'Diagnosis, advice and every medicine (name, dosage, timing, duration) are required.');
       return;
     }
-    const finalFollowUpDate = followUpRequired ? (followUpDate.trim() || defaultFollowUpDate(medicines, patient)) : '';
+    const finalFollowUpDate = followUpRequired ? (followUpDate.trim() || defaultFollowUpDate(followUpMedicines, patient)) : '';
     if (followUpRequired && !/^\d{4}-\d{2}-\d{2}$/.test(finalFollowUpDate)) {
       Alert.alert('Invalid date', 'Follow-up date must be YYYY-MM-DD.');
       return;
     }
+    saveLock.current = true;
     setSaving(true);
     try {
       await onSave?.({
@@ -164,6 +178,7 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
         followUpDate: finalFollowUpDate,
       });
     } finally {
+      saveLock.current = false;
       setSaving(false);
     }
   };
@@ -173,8 +188,8 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
       <View style={styles.titleBar}><Text style={styles.title}>Complete Appointment</Text></View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.patientCard}>
-          <View><Text style={styles.patientName}>{patient.name}</Text><Text style={styles.patientId}>{getTokenLabel(patient)}</Text></View>
-          <View style={styles.badge}><Text style={styles.badgeText}>CONSULTATION</Text></View>
+          <View><Text translate={false} style={styles.patientName}>{patient.name}</Text><Text style={styles.patientId}>{getTokenLabel(patient)}</Text></View>
+          <View style={styles.badge}><Text style={styles.badgeText}>{isVisit ? modeInfo.label.toUpperCase() : 'CONSULTATION'}</Text></View>
         </View>
 
         <SectionTitle>Patient Vitals</SectionTitle>
@@ -183,11 +198,11 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
           <Field label="Blood Pressure" placeholder="120/80" value={bloodPressure} onChangeText={setBloodPressure} />
         </View>
 
-        <SectionTitle>Diagnosis</SectionTitle>
+        <SectionTitle>Diagnosis *</SectionTitle>
         <TextInput style={styles.textArea} placeholder="Enter detailed diagnosis..." placeholderTextColor="#8D96A6" multiline textAlignVertical="top" value={diagnosis} onChangeText={setDiagnosis} />
 
         <View style={styles.sectionHeadingRow}>
-          <Text style={styles.sectionTitle}>Prescribed Medicines</Text>
+          <Text style={styles.sectionTitle}>Prescribed Medicines *</Text>
           <View style={styles.sectionRule} />
           <TouchableOpacity accessibilityRole="button" style={styles.addMedicine} onPress={addMedicine} hitSlop={6}>
             <Text style={styles.addMedicineText}>＋ Add Medicine</Text>
@@ -206,7 +221,7 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
           />
         ))}
 
-        <SectionTitle>Advice</SectionTitle>
+        <SectionTitle>Advice *</SectionTitle>
         <TextInput style={[styles.textArea, styles.adviceArea]} placeholder="Enter any additional advice or instructions..." placeholderTextColor="#8D96A6" multiline textAlignVertical="top" value={advice} onChangeText={setAdvice} />
 
         <SectionTitle>Additional Notes</SectionTitle>
@@ -218,7 +233,7 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
           onPress={() => {
             const next = !followUpRequired;
             setFollowUpRequired(next);
-            if (next && !followUpDate) setFollowUpDate(defaultFollowUpDate(medicines, patient));
+            if (next && !followUpDate) setFollowUpDate(defaultFollowUpDate(followUpMedicines, patient));
           }}
         >
           <View style={[styles.checkbox, followUpRequired && styles.checkboxSelected]}>
@@ -240,7 +255,7 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
             end={{ x: 1, y: 0 }}
             style={styles.continueButton}
           >
-            <Text style={styles.continueText}>{saving ? 'Saving...' : 'Complete Appointment'}</Text>
+            <Text style={styles.continueText}>{saving ? 'Saving...' : isVisit ? 'Complete Consultation' : 'Complete Appointment'}</Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>
