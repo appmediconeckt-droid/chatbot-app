@@ -1191,12 +1191,20 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       }
       if (editedData.gender) formData.append('gender', editedData.gender);
       if (editedData.address) {
-        formData.append('address[line1]', editedData.address.line1 || '');
-        formData.append('address[line2]', editedData.address.line2 || '');
-        formData.append('address[city]', editedData.address.city || '');
-        formData.append('address[state]', editedData.address.state || '');
-        formData.append('address[pincode]', editedData.address.pincode || '');
-        formData.append('address[country]', editedData.address.country || 'India');
+        // One JSON field, not address[line1] / address[city] / ... fields.
+        // The server's multipart parser turns bracket fields into an object
+        // with no prototype, and its profile-completion check runs
+        // String(address) on it once experience > 0, which crashed the save
+        // with "Cannot convert object to primitive value" (500). The server
+        // JSON.parses a string address into a normal object.
+        formData.append('address', JSON.stringify({
+          line1: editedData.address.line1 || '',
+          line2: editedData.address.line2 || '',
+          city: editedData.address.city || '',
+          state: editedData.address.state || '',
+          pincode: editedData.address.pincode || '',
+          country: editedData.address.country || 'India',
+        }));
       }
 
       if (editedData.languages && editedData.languages.length > 0) {
@@ -1254,41 +1262,46 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         }
       }
 
-      const certificationPayload = (editedData.certifications || [])
-        .filter(cert => cert && (cert._id || cert.name))
-        .map((cert) => ({
-          _id: cert._id && !String(cert._id).startsWith('temp_') ? cert._id : undefined,
-          name: cert.name || '',
-          issuedBy: cert.issuedBy || '',
-          issueDate: cert.issueDate || '',
-          expiryDate: cert.expiryDate || '',
-          documentUrl: cert.documentUrl || '',
-          documentName: cert.documentName || ''
-        }));
+      // Certifications go field by field, exactly like the web profile
+      // (certifications[i][name], [issuedBy], ..., file in [document]).
+      // Sending them as one JSON `certifications` string next to
+      // `certifications[i][document]` files made the server fail with
+      // "Cannot convert object to primitive value".
+      //
+      // Verification documents are saved as certifications too (name = the
+      // document type), as on the web. The server has no
+      // `verificationDocuments[...]` field and rejected it with
+      // "Unexpected file field: verificationDocuments[0][document]".
+      const certificationItems = [
+        ...(editedData.certifications || []).filter(cert => cert && (cert._id || cert.name)),
+        ...documents
+          .filter((doc) => doc?.uri)
+          .map((doc) => ({
+            name: doc.documentType || 'Verification Document',
+            documentName: doc.documentName || '',
+            document: { uri: doc.uri, type: doc.type || 'application/octet-stream', name: doc.documentName },
+          })),
+      ];
 
-      if (certificationPayload.length > 0) {
-        formData.append('certifications', JSON.stringify(certificationPayload));
-      }
+      certificationItems.forEach((cert, index) => {
+        const key = `certifications[${index}]`;
+        formData.append(`${key}[name]`, cert.name || '');
+        formData.append(`${key}[issuedBy]`, cert.issuedBy || '');
+        if (cert.issueDate) formData.append(`${key}[issueDate]`, String(cert.issueDate));
+        if (cert.expiryDate) formData.append(`${key}[expiryDate]`, String(cert.expiryDate));
+        if (cert._id && !String(cert._id).startsWith('temp_')) formData.append(`${key}[_id]`, String(cert._id));
 
-      documents.forEach((doc, index) => {
-        formData.append(`verificationDocuments[${index}][documentType]`, doc.documentType || '');
-        formData.append(`verificationDocuments[${index}][documentName]`, doc.documentName || '');
-        if (doc?.uri) {
-          formData.append(`verificationDocuments[${index}][document]`, {
-            uri: doc.uri,
-            type: doc.type || 'application/octet-stream',
-            name: doc.documentName || `verification-document-${index + 1}`
-          });
-        }
-      });
-
-      (editedData.certifications || []).forEach((cert, index) => {
-        if (cert?.document?.uri) {
-          formData.append(`certifications[${index}][document]`, {
+        if (cert.document?.uri) {
+          formData.append(`${key}[document]`, {
             uri: cert.document.uri,
             type: cert.document.type || 'image/jpeg',
             name: cert.document.name || cert.documentName || `certificate-${index + 1}.jpg`
           });
+        } else if (cert.documentUrl) {
+          // Already uploaded: keep the stored file.
+          formData.append(`${key}[documentUrl]`, cert.documentUrl);
+          formData.append(`${key}[documentName]`, cert.documentName || '');
+          if (cert.documentPublicId) formData.append(`${key}[documentPublicId]`, cert.documentPublicId);
         }
       });
 
@@ -1309,6 +1322,8 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
           duration: 3200,
         });
         setEmailChange(createBlankEmailChange());
+        // Now stored on the server as certifications; don't upload them again.
+        setDocuments([]);
         await fetchCounselorProfile();
         await onProfileSaved?.();
         setShowRemainingAfterSave(true);

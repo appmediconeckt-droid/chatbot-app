@@ -75,9 +75,14 @@ const SLIDES = [
 // Illustrations — small "app preview" cards built from Views, floating over a
 // gradient orb. `float` is a shared looping value for the gentle bob.
 // ---------------------------------------------------------------------------
-const Orb = ({ children }) => (
+const Orb = ({ children, pulse }) => (
   <View style={s.orbWrap}>
-    <View style={s.orbHalo} />
+    <Animated.View
+      style={[s.orbHalo, pulse && {
+        opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 0.45] }),
+        transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1.08] }) }],
+      }]}
+    />
     <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.orb}>
       <View style={s.orbShine} />
       {children}
@@ -85,27 +90,30 @@ const Orb = ({ children }) => (
   </View>
 );
 
-const Float = ({ float, range = 8, style, children }) => (
+const Float = ({ float, pop, range = 8, style, children }) => (
   <Animated.View
-    style={[style, { transform: [{ translateY: float.interpolate({ inputRange: [0, 1], outputRange: [0, -range] }) }] }]}
+    style={[style, { transform: [
+      { translateY: float.interpolate({ inputRange: [0, 1], outputRange: [0, -range] }) },
+      ...(pop ? [{ scale: pop }] : []),
+    ] }]}
   >
     {children}
   </Animated.View>
 );
 
-const WelcomeArt = ({ float, t }) => (
-  <Orb>
-    <Float float={float} range={10}>
+const WelcomeArt = ({ float, t, pulse, pop }) => (
+  <Orb pulse={pulse}>
+    <Float float={float} pop={pop} range={10}>
       <View style={s.bigIconRing}><Icon name="stethoscope" size={64} color="#FFFFFF" /></View>
     </Float>
-    <Float float={float} range={6} style={[s.floatCard, s.posTopLeft]}>
+    <Float float={float} pop={pop} range={6} style={[s.floatCard, s.posTopLeft]}>
       <View style={[s.miniIcon, { backgroundColor: '#CCFBF1' }]}><Icon name="calendar-check" size={15} color={CLINICIAN.gradientFrom} /></View>
       <View>
         <Text style={s.miniTitle}>{t('Next patient')}</Text>
         <Text style={s.miniSub}>10:30 AM</Text>
       </View>
     </Float>
-    <Float float={float} range={12} style={[s.floatCard, s.posBottomRight]}>
+    <Float float={float} pop={pop} range={12} style={[s.floatCard, s.posBottomRight]}>
       <View style={[s.miniIcon, { backgroundColor: '#DCFCE7' }]}><Icon name="check-decagram" size={15} color="#16A34A" /></View>
       <Text style={s.miniTitle}>{t('Verified')}</Text>
     </Float>
@@ -113,9 +121,9 @@ const WelcomeArt = ({ float, t }) => (
 );
 
 const WEEK = ['M', 'T', 'W', 'T', 'F', 'S'];
-const CalendarArt = ({ float, t }) => (
-  <Orb>
-    <Float float={float} range={6} style={s.panel}>
+const CalendarArt = ({ float, t, pulse, pop }) => (
+  <Orb pulse={pulse}>
+    <Float float={float} pop={pop} range={6} style={s.panel}>
       <View style={s.panelHead}>
         <Icon name="calendar-month" size={16} color={CLINICIAN.gradientFrom} />
         <Text style={s.panelTitle}>{t('This week')}</Text>
@@ -137,36 +145,36 @@ const CalendarArt = ({ float, t }) => (
         ))}
       </View>
     </Float>
-    <Float float={float} range={12} style={[s.floatCard, s.posBottomLeft]}>
+    <Float float={float} pop={pop} range={12} style={[s.floatCard, s.posBottomLeft]}>
       <View style={[s.miniIcon, { backgroundColor: '#CCFBF1' }]}><Icon name="clock-outline" size={15} color={CLINICIAN.gradientFrom} /></View>
       <Text style={s.miniTitle}>9 AM – 1 PM</Text>
     </Float>
   </Orb>
 );
 
-const QueueArt = ({ float, t }) => (
-  <Orb>
-    <Float float={float} range={6} style={s.tokenCard}>
+const QueueArt = ({ float, t, pulse, pop }) => (
+  <Orb pulse={pulse}>
+    <Float float={float} pop={pop} range={6} style={s.tokenCard}>
       <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.fill} />
       <Text style={s.tokenLabel}>{t('NOW SERVING')}</Text>
       <Text style={s.tokenNumber}>#07</Text>
       <View style={s.tokenTrack}><View style={s.tokenTrackFill} /></View>
       <Text style={s.tokenMeta}>{t('3 patients waiting')}</Text>
     </Float>
-    <Float float={float} range={12} style={[s.floatCard, s.posTopRight]}>
+    <Float float={float} pop={pop} range={12} style={[s.floatCard, s.posTopRight]}>
       <View style={[s.miniIcon, { backgroundColor: '#FEE2E2' }]}><Icon name="ambulance" size={15} color="#DC2626" /></View>
       <Text style={s.miniTitle}>{t('Emergency first')}</Text>
     </Float>
-    <Float float={float} range={9} style={[s.floatCard, s.posBottomLeft]}>
+    <Float float={float} pop={pop} range={9} style={[s.floatCard, s.posBottomLeft]}>
       <View style={[s.miniIcon, { backgroundColor: '#CCFBF1' }]}><Icon name="account-clock-outline" size={15} color={CLINICIAN.gradientFrom} /></View>
       <Text style={s.miniTitle}>{t('Walk-in #08')}</Text>
     </Float>
   </Orb>
 );
 
-const RecordsArt = ({ float, t }) => (
-  <Orb>
-    <Float float={float} range={6} style={s.panel}>
+const RecordsArt = ({ float, t, pulse, pop }) => (
+  <Orb pulse={pulse}>
+    <Float float={float} pop={pop} range={6} style={s.panel}>
       <View style={s.panelHead}>
         <Icon name="prescription" size={18} color={CLINICIAN.gradientFrom} />
         <Text style={s.panelTitle}>{t('Prescription')}</Text>
@@ -183,7 +191,7 @@ const RecordsArt = ({ float, t }) => (
         <View style={s.signLine} />
       </View>
     </Float>
-    <Float float={float} range={12} style={[s.floatCard, s.posBottomRight]}>
+    <Float float={float} pop={pop} range={12} style={[s.floatCard, s.posBottomRight]}>
       <View style={[s.miniIcon, { backgroundColor: '#EDE9FE' }]}><Icon name="calendar-refresh" size={15} color="#7C3AED" /></View>
       <View>
         <Text style={s.miniTitle}>{t('Follow-up')}</Text>
@@ -198,7 +206,7 @@ const ART = { welcome: WelcomeArt, calendar: CalendarArt, queue: QueueArt, recor
 // ---------------------------------------------------------------------------
 // One slide: parallax on the illustration and text, driven by scrollX.
 // ---------------------------------------------------------------------------
-const Slide = ({ slide, index, scrollX, float, t }) => {
+const Slide = ({ slide, index, scrollX, float, t, pulse, pop }) => {
   const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
   const artStyle = {
     opacity: scrollX.interpolate({ inputRange, outputRange: [0, 1, 0], extrapolate: 'clamp' }),
@@ -216,7 +224,7 @@ const Slide = ({ slide, index, scrollX, float, t }) => {
   return (
     <View style={s.slide}>
       <Animated.View style={[s.artArea, artStyle]}>
-        <Art float={float} t={t} />
+        <Art float={float} t={t} pulse={pulse} pop={pop} />
       </Animated.View>
 
       <View style={s.textArea}>
@@ -261,17 +269,31 @@ const DoctorOnboarding = ({ navigation, route }) => {
   const scrollX = useRef(new Animated.Value(0)).current;
   const float = useRef(new Animated.Value(0)).current;
   const intro = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(0)).current; // halo breathing
+  const pop = useRef(new Animated.Value(1)).current; // cards pop on each new slide
+  const nudge = useRef(new Animated.Value(0)).current; // "Next" arrow hint
+  const press = useRef(new Animated.Value(1)).current; // button press
   const isLast = page === SLIDES.length - 1;
 
   useEffect(() => {
-    Animated.timing(intro, { toValue: 1, duration: 650, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-    const loop = Animated.loop(Animated.sequence([
-      Animated.timing(float, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      Animated.timing(float, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    // Kept brisk: the earlier 650ms / 1800ms timings felt sluggish.
+    Animated.timing(intro, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    const back = (value, duration) => Animated.loop(Animated.sequence([
+      Animated.timing(value, { toValue: 1, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(value, { toValue: 0, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
     ]));
-    loop.start();
-    return () => loop.stop();
-  }, [float, intro]);
+    const loops = [back(float, 850), back(pulse, 1200), back(nudge, 450)];
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, [float, intro, nudge, pulse]);
+
+  // Each time a new slide settles, its illustration cards pop in.
+  useEffect(() => {
+    pop.setValue(0.82);
+    Animated.spring(pop, { toValue: 1, speed: 22, bounciness: 11, useNativeDriver: true }).start();
+  }, [page, pop]);
+
+  const pressTo = (toValue) => Animated.spring(press, { toValue, speed: 40, bounciness: 8, useNativeDriver: true }).start();
 
   const finishOnboarding = useCallback(() => {
     const destination = route?.params?.destination || 'DoctorDashboard';
@@ -332,7 +354,7 @@ const DoctorOnboarding = ({ navigation, route }) => {
         style={[s.pager, { opacity: intro, transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }] }]}
       >
         {SLIDES.map((slide, index) => (
-          <Slide key={slide.key} slide={slide} index={index} scrollX={scrollX} float={float} t={t} />
+          <Slide key={slide.key} slide={slide} index={index} scrollX={scrollX} float={float} t={t} pulse={pulse} pop={index === page ? pop : undefined} />
         ))}
       </Animated.ScrollView>
 
@@ -340,14 +362,23 @@ const DoctorOnboarding = ({ navigation, route }) => {
         <View style={s.dots}>
           {SLIDES.map((slide, index) => <Dot key={slide.key} index={index} scrollX={scrollX} />)}
         </View>
-        <TouchableOpacity activeOpacity={0.88} onPress={goNext} style={s.ctaWrap}>
-          <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.cta}>
-            <Text style={s.ctaText}>{isLast ? t('Go to Dashboard') : t('Next')}</Text>
-            <View style={s.ctaIcon}>
-              <Ionicons name={isLast ? 'checkmark' : 'arrow-forward'} size={17} color={CLINICIAN.gradientFrom} />
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
+        <Animated.View style={[s.ctaWrap, { transform: [{ scale: press }] }]}>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={goNext}
+            onPressIn={() => pressTo(0.95)}
+            onPressOut={() => pressTo(1)}
+          >
+            <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.cta}>
+              <Text style={s.ctaText}>{isLast ? t('Go to Dashboard') : t('Next')}</Text>
+              <Animated.View
+                style={[s.ctaIcon, !isLast && { transform: [{ translateX: nudge.interpolate({ inputRange: [0, 1], outputRange: [0, 4] }) }] }]}
+              >
+                <Ionicons name={isLast ? 'checkmark' : 'arrow-forward'} size={17} color={CLINICIAN.gradientFrom} />
+              </Animated.View>
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animated.View>
       </View>
     </SafeAreaView>
   );

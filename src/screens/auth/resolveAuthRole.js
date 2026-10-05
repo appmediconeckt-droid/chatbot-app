@@ -15,13 +15,11 @@ export const STAFF_ROLES = new Set([
   'medical_assistant', 'lab_technician', 'nurse_lab_technician', 'billing_accounts',
 ]);
 
-const includesPsychiatry = (value) => {
-  if (Array.isArray(value)) {
-    return value.some(includesPsychiatry);
-  }
-  return /psychiatrist|psychiatry/i.test(String(value || ''));
-};
-
+// The role comes from the server only. An older rule also turned any
+// counsellor whose specialization mentioned "Psychiatrist" into a doctor,
+// which blocked those consultants on the consultant login ("registered as a
+// Doctor") and let them into the doctor dashboard instead. The backend has a
+// real `doctor` role now, so that guess is gone.
 export const resolveAuthRole = (data, fallbackRole = 'user') => {
   const user = data?.user || data?.data?.user || data?.profile || data || {};
   const explicitAppRole =
@@ -41,18 +39,6 @@ export const resolveAuthRole = (data, fallbackRole = 'user') => {
     normalizeAuthRole(user?.role) ||
     normalizeAuthRole(fallbackRole) ||
     'user';
-
-  if (
-    backendRole === 'counselor' &&
-    (
-      includesPsychiatry(data?.specialization) ||
-      includesPsychiatry(data?.specializations) ||
-      includesPsychiatry(user?.specialization) ||
-      includesPsychiatry(user?.specializations)
-    )
-  ) {
-    return 'doctor';
-  }
 
   if (STAFF_ROLES.has(backendRole.replace(/[\s-]+/g, '_'))) return 'staff';
 

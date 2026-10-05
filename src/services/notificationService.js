@@ -446,7 +446,7 @@ export const displaySystemNotification = async remoteMessage => {
     data,
     android: {
       smallIcon: 'ic_notification',
-      color: '#0F8A9D',
+      color: '#309B92', // Humaeli logo bubble colour
       channelId: isIncomingCall
         ? INCOMING_CALL_CHANNEL_ID
         : NOTIFICATION_CHANNEL_ID,
@@ -772,7 +772,7 @@ export const displayMissedCallNotification = async (callData = {}, reason = 'mis
     android: Platform.OS === 'android'
       ? {
           smallIcon: 'ic_notification',
-          color: '#0F8A9D',
+          color: '#309B92', // Humaeli logo bubble colour
           channelId: NOTIFICATION_CHANNEL_ID,
           importance: AndroidImportance.HIGH,
           sound: 'default',

@@ -41,6 +41,7 @@ import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
 import { CLINICIAN } from '../../theme/palette';
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
 import GoogleAuthButton from './components/GoogleAuthButton';
+import { resolveAuthRole } from './resolveAuthRole';
 import { createDoctorStyles } from '../../features/doctor/dashboard/theme';
 import axiosInstance from '../../axiosConfig';
 import socketService from '../../services/socketService';
@@ -279,6 +280,22 @@ const DoctorSignup = ({ navigation, route }) => {
         password: formData.password,
         role: 'doctor',
       });
+      // Doctor page: doctor accounts only. The server doesn't always enforce
+      // the requested role, and a user or consultant email used to be signed
+      // in here as a doctor. Check the role it actually returned.
+      const accountRole = resolveAuthRole(response.data, '');
+      if (accountRole !== 'doctor') {
+        const issuedToken = response.data?.accessToken || response.data?.token || response.data?.data?.token;
+        if (issuedToken) {
+          // Close the session the server just opened for the wrong account.
+          axiosInstance.post('/api/auth/logout', { refreshToken: response.data?.refreshToken }, {
+            headers: { Authorization: `Bearer ${issuedToken}` },
+          }).catch(() => {});
+        }
+        const label = accountRole === 'counselor' ? 'Consultant' : accountRole === 'staff' ? 'Staff' : 'User';
+        showNotification(t(`This account is registered as a ${label}. Please use the ${label} login.`), 'error');
+        return;
+      }
       const ok = await persistDoctorSession(response.data, formData.email.trim().toLowerCase());
       if (ok) {
         showNotification(t('Welcome back, Doctor!'));
@@ -450,9 +467,10 @@ const DoctorSignup = ({ navigation, route }) => {
     resendingOtpRef.current = false;
   };
 
-  const handleGoogleSuccess = async ({ isCounselor, user, isNewUser }) => {
-    if (!isCounselor) {
-      showNotification(t('This Google account is not registered as a doctor or consultant'), 'error');
+  const handleGoogleSuccess = async ({ role, user, isNewUser }) => {
+    // Doctor page: doctor accounts only (this used to let consultants in too).
+    if (role !== 'doctor') {
+      showNotification(t('This Google account is not registered as a doctor. Please use the correct login.'), 'error');
       return;
     }
 

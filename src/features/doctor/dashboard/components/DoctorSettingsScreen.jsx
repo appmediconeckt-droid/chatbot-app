@@ -2,7 +2,8 @@
 // Profile, Clinic, Payment, Profile QR, Change Password (POST /auth/changePassword,
 // then sign out), Logout, Help & Support, Privacy, Delete Account (DELETE /auth/delete).
 import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, View } from 'react-native';
+import { loadPublicProfileLink } from '../api/doctorPublicProfile';
 import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
@@ -41,9 +42,10 @@ const INFO = {
   privacy: {
     title: 'Privacy',
     intro: 'Your doctor profile and clinic information are used to support appointment booking and patient communication.',
+    // [title, text, action]: each row opens the matching place (see openInfoAction).
     items: [
-      ['Public Information', 'Only profile and clinic details intended for patients are displayed publicly.'],
-      ['Account Security', 'Change your password regularly and log out from shared devices.'],
+      ['Public Information', 'Only profile and clinic details intended for patients are displayed publicly. Tap to see your public profile.', 'publicProfile'],
+      ['Account Security', 'Change your password, turn on App Lock and manage this device.', 'privacySecurity'],
     ],
   },
 };
@@ -99,6 +101,23 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
   };
 
   const back = () => setView('list');
+
+  // Privacy page rows: "Public Information" opens the doctor's public profile
+  // (the page patients reach from the QR code); "Account Security" opens
+  // Privacy & Security (password, App Lock, this device).
+  const openInfoAction = (action) => {
+    if (action === 'privacySecurity') {
+      setView('privacySecurity');
+      return;
+    }
+    if (action === 'publicProfile') {
+      getStoredDoctorUser()
+        .then((stored) => loadPublicProfileLink(stored))
+        .then((url) => Linking.openURL(url))
+        .catch((err) => Alert.alert('Public profile', err?.message || 'Could not open your public profile.'));
+    }
+  };
+
   if (view === 'privacySecurity') {
     return (
       <DoctorPrivacySecurityScreen
@@ -146,13 +165,19 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
         <ScrollView contentContainerStyle={s.content}>
           <Text style={s.infoIntro}>{info.intro}</Text>
           <View style={s.card}>
-            {info.items.map(([title, text], index) => (
-              <View key={title} style={[s.row, index === info.items.length - 1 && s.rowLast]}>
+            {info.items.map(([title, text, action], index) => (
+              <Pressable
+                key={title}
+                onPress={action ? () => openInfoAction(action) : undefined}
+                disabled={!action}
+                style={[s.row, index === info.items.length - 1 && s.rowLast]}
+              >
                 <View style={s.rowBody}>
                   <Text style={s.rowTitle}>{title}</Text>
                   <Text style={s.rowSubtitle}>{text}</Text>
                 </View>
-              </View>
+                {!!action && <AppIcon name="chevron-right" size={18} color="#9AA6B8" strokeWidth={2} />}
+              </Pressable>
             ))}
           </View>
         </ScrollView>

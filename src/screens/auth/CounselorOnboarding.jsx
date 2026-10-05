@@ -37,10 +37,10 @@ const OnboardingPage1 = () => {
     <Text style={s.description}>
       Reach more patients through secure online and offline consultations.
     </Text>
-    <TouchableOpacity style={s.featureBtn}>
+    <View style={s.featureBtn}>
       <Ionicons name="shield-checkmark" size={16} color={DOCTOR.primary} />
       <Text style={s.featureBtnText}>{t('Secure Sessions')}</Text>
-    </TouchableOpacity>
+    </View>
   </View>
 );
 };

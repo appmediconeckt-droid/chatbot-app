@@ -4,7 +4,11 @@
 // the same public endpoints and payload:
 //   GET  /api/auth/doctor-qr/:doctorId          doctor shown at the top
 //   POST /api/auth/doctor-qr/:doctorId/visits   records the QR visit
+//   GET  /api/availability/available?doctor_id  today's slots + bookedSlots
 //   POST /api/walkin-appointments               books it, returns the token
+// Walk-in is for today only: the patient picks one of today's free slots. Each
+// slot carries its token, numbered like the backend's buildDaySlots (first slot
+// of the day = token 1), and slots other patients hold are shown as booked.
 // Requests go through plain axios (no login token), exactly like the web page,
 // so a refusal here can never trigger the app's sign-out-on-401 handling.
 import React, { useEffect, useRef, useState } from 'react';
@@ -31,7 +35,6 @@ const GENDERS = [
 const pick = (...values) => values.find((v) => v !== undefined && v !== null && String(v).trim() !== '');
 const pad = (n) => String(n).padStart(2, '0');
 const toDateKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const toTimeKey = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const normalizeGender = (g) => {
   const v = String(g || '').trim().toLowerCase();
   if (v === 'm' || v === 'male') return 'male';
@@ -63,18 +66,56 @@ const formatTime = (key) => {
   return `${h % 12 || 12}:${pad(m)} ${h >= 12 ? 'PM' : 'AM'}`;
 };
 
-// Preferred visit date: today up to BOOKING_WINDOW_DAYS ahead.
-const BOOKING_WINDOW_DAYS = 30;
-const addDays = (date, days) => { const d = new Date(date); d.setDate(d.getDate() + days); return d; };
-const formatVisitDate = (key) => {
-  if (!key) return '';
-  const today = toDateKey(new Date());
-  if (key === today) return 'Today';
-  if (key === toDateKey(addDays(new Date(), 1))) return 'Tomorrow';
-  return new Date(`${key}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' });
+const SLOT_BOOKED_MESSAGE = 'This slot is already booked. Please choose another time.';
+// Re-read slots while the form is open so booked/passed slots drop out.
+const SLOT_REFRESH_MS = 30000;
+
+// Clinic slots are India time, like DoctorBookingModal.
+const todayIndia = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+const nowMinutesIndia = () => {
+  const d = new Date(Date.now() + 330 * 60000);
+  return d.getUTCHours() * 60 + d.getUTCMinutes();
+};
+const toMinutes = (value) => {
+  const m = String(value || '').match(/^(\d{1,2}):(\d{2})/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+const minutesToKey = (minutes) => `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
+const isUnavailableFlag = (range) => range.is_unavailable === true || Number(range.is_unavailable) === 1;
+
+// Mirrors the backend's buildDaySlots (appointmentSlotService.js): every slot of
+// the day across all of the doctor's ranges, merged by start time, and
+// token = position in the day, so a given time always has the same token.
+const buildDaySlots = (ranges, date) => {
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  const slots = new Map();
+  ranges.forEach((range) => {
+    if (isUnavailableFlag(range)) return;
+    const specificDate = String(range.availability_date || range.date || '').slice(0, 10);
+    const applies = specificDate
+      ? specificDate === date
+      : range.weekday !== null && range.weekday !== undefined && range.weekday !== '' && Number(range.weekday) === weekday;
+    if (!applies) return;
+    const start = toMinutes(range.start_time);
+    const end = toMinutes(range.end_time);
+    const duration = Number(range.slot_duration);
+    if (start === null || end === null || !Number.isInteger(duration) || duration < 1 || end <= start) return;
+    for (let minute = start; minute + duration <= end; minute += duration) {
+      if (!slots.has(minute)) slots.set(minute, { minutes: minute, duration });
+    }
+  });
+  return [...slots.values()]
+    .sort((a, b) => a.minutes - b.minutes)
+    .map((slot, index) => ({ ...slot, time: minutesToKey(slot.minutes), token: index + 1 }));
 };
 
-const emptyForm = { patientName: '', contactNumber: '', problem: '', dateOfBirth: '', location: '', gender: '', appointmentDate: '', appointmentTime: '', email: '' };
+const SLOT_GROUPS = [
+  { label: 'Morning', icon: 'sunny-outline', test: (m) => m < 720 },
+  { label: 'Afternoon', icon: 'partly-sunny-outline', test: (m) => m >= 720 && m < 1020 },
+  { label: 'Evening', icon: 'moon-outline', test: (m) => m >= 1020 },
+];
+
+const emptyForm = { patientName: '', contactNumber: '', problem: '', dateOfBirth: '', location: '', gender: '', appointmentTime: '', email: '' };
 
 export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', onClose }) {
   const { t } = useLanguageRender();
@@ -85,7 +126,12 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
   const [submitting, setSubmitting] = useState(false);
   const [apiError, setApiError] = useState('');
   const [token, setToken] = useState('');
-  const [picker, setPicker] = useState(null); // 'dob' | 'time' | null
+  const [picker, setPicker] = useState(null); // 'dob' | null
+  const [availability, setAvailability] = useState({ ranges: [], unavailableDates: [], bookedSlots: [] });
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState('');
+  const [slotsReload, setSlotsReload] = useState(0);
+  const [bookedTime, setBookedTime] = useState('');
   const visitRecorded = useRef(null);
 
   // Fresh form for every scan, pre-filled from the signed-in patient's profile.
@@ -94,6 +140,7 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
     setErrors({});
     setApiError('');
     setToken('');
+    setBookedTime('');
     (async () => {
       let user = {};
       try { user = JSON.parse((await AsyncStorage.getItem('userData')) || '{}') || {}; } catch { user = {}; }
@@ -106,7 +153,6 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
         location: String(pick(typeof user.address === 'string' ? user.address : '', user.location, user.city, '') || ''),
         gender: normalizeGender(user.gender),
         email: String(pick(user.email, await AsyncStorage.getItem('userEmail'), '') || ''),
-        appointmentDate: toDateKey(new Date()),
       });
     })();
   }, [visible]);
@@ -138,6 +184,71 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
 
   useEffect(() => { if (!visible) visitRecorded.current = null; }, [visible]);
 
+  // Doctor's availability + every booked slot (walk-in and online), re-read
+  // every SLOT_REFRESH_MS while the form is open.
+  useEffect(() => {
+    if (!visible || !doctorId) return undefined;
+    let active = true;
+    const load = (initial) => {
+      if (initial) { setSlotsLoading(true); setSlotsError(''); }
+      axios.get(`${API}/availability/available`, { params: { doctor_id: doctorId } })
+        .then(({ data }) => {
+          if (!active) return;
+          setAvailability({
+            ranges: data?.availableRanges || data?.existingRanges || data?.data || [],
+            unavailableDates: data?.unavailableDates || [],
+            bookedSlots: data?.bookedSlots || [],
+          });
+          setSlotsError('');
+        })
+        .catch((err) => {
+          if (active && initial) setSlotsError(err?.response?.data?.message || "Could not load today's slots.");
+        })
+        .finally(() => { if (active && initial) setSlotsLoading(false); });
+    };
+    load(true);
+    const timer = setInterval(() => load(false), SLOT_REFRESH_MS);
+    return () => { active = false; clearInterval(timer); };
+  }, [visible, doctorId, slotsReload]);
+
+  const today = todayIndia();
+  const dayOff = availability.unavailableDates.some((item) =>
+    !item?.clinic_id && String(item?.date || item?.unavailable_date || item).slice(0, 10) === today);
+  const daySlots = dayOff ? [] : buildDaySlots(availability.ranges, today);
+  const bookedMinutes = new Set(availability.bookedSlots
+    .filter((slot) => String(slot?.date || '').slice(0, 10) === today)
+    .map((slot) => toMinutes(slot.time))
+    .filter((minutes) => minutes !== null));
+  // A slot stays bookable until it ends (the running slot + everything after).
+  const nowMinutes = nowMinutesIndia();
+  const visibleSlots = daySlots.filter((slot) => slot.minutes + slot.duration > nowMinutes);
+  const freeSlots = visibleSlots.filter((slot) => !bookedMinutes.has(slot.minutes));
+  const slotGroups = SLOT_GROUPS
+    .map((group) => ({ ...group, slots: visibleSlots.filter((slot) => group.test(slot.minutes)) }))
+    .filter((group) => group.slots.length);
+  const isTimeBooked = (time) => !!time && bookedMinutes.has(toMinutes(time));
+  const selectedSlot = daySlots.find((slot) => slot.time === form.appointmentTime);
+
+  // The chosen slot got booked by someone else or ran out while the form was open.
+  useEffect(() => {
+    if (!form.appointmentTime) return;
+    if (isTimeBooked(form.appointmentTime)) {
+      setForm((current) => ({ ...current, appointmentTime: '' }));
+      setErrors((current) => ({ ...current, appointmentTime: SLOT_BOOKED_MESSAGE }));
+    } else if (!visibleSlots.some((slot) => slot.time === form.appointmentTime)) {
+      setForm((current) => ({ ...current, appointmentTime: '' }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availability]);
+
+  const chooseSlot = (slot) => {
+    if (bookedMinutes.has(slot.minutes)) {
+      setErrors((current) => ({ ...current, appointmentTime: SLOT_BOOKED_MESSAGE }));
+      return;
+    }
+    update('appointmentTime', slot.time);
+  };
+
   const update = (name, value) => {
     setForm((current) => ({ ...current, [name]: value }));
     setErrors((current) => ({ ...current, [name]: '' }));
@@ -153,16 +264,8 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
     if (!form.location.trim()) next.location = 'Location or address is required';
     if (!form.gender) next.gender = 'Gender is required';
     if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) next.email = 'Enter a valid email';
-    // The API takes appointment_date and appointment_time together (or neither):
-    // "Any time" is only possible for today; another day needs a time.
-    const today = toDateKey(new Date());
-    const visitDate = form.appointmentDate || today;
-    if (visitDate < today) next.appointmentDate = 'Pick today or a later date';
-    if (!form.appointmentTime && visitDate !== today) {
-      next.appointmentTime = 'Pick a time for this date';
-    } else if (form.appointmentTime && visitDate === today && form.appointmentTime <= toTimeKey(new Date())) {
-      next.appointmentTime = 'That time has already passed. Pick a later time.';
-    }
+    if (!form.appointmentTime) next.appointmentTime = 'Please choose a time slot';
+    else if (isTimeBooked(form.appointmentTime)) next.appointmentTime = SLOT_BOOKED_MESSAGE;
     setErrors(next);
     return !Object.keys(next).length;
   };
@@ -183,10 +286,9 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
       age: age ? Number(age) : undefined,
       location: form.location.trim(),
       gender: form.gender,
-      // appointment_date (YYYY-MM-DD) and appointment_time (HH:MM, 24h) go
-      // together, as the API requires; with "Any time" (today) neither is sent.
-      appointment_date: form.appointmentTime ? (form.appointmentDate || toDateKey(new Date())) : undefined,
-      appointment_time: form.appointmentTime || undefined,
+      // Walk-in is always today, at the chosen slot (the API needs both).
+      appointment_date: todayIndia(),
+      appointment_time: form.appointmentTime,
       email: form.email.trim() || undefined,
       status: 'booked',
       booking_source: source,
@@ -197,9 +299,18 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
       const response = await axios.post(`${API}/walkin-appointments`, payload, { headers: { 'Content-Type': 'application/json' } });
       const created = response.data?.data || response.data?.appointment || response.data || {};
       const tokenValue = pick(created.token_number, created.tokenNumber, created.walkin_token, created.queue_token, created.token, created.id, 'Booked');
+      setBookedTime(form.appointmentTime);
       setToken(String(tokenValue));
     } catch (error) {
-      setApiError(error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Unable to book walk-in appointment');
+      const message = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Unable to book walk-in appointment';
+      if (error?.response?.status === 409) {
+        // Someone took this slot between loading the form and submitting.
+        setForm((current) => ({ ...current, appointmentTime: '' }));
+        setErrors((current) => ({ ...current, appointmentTime: SLOT_BOOKED_MESSAGE }));
+        setSlotsReload((n) => n + 1);
+      } else {
+        setApiError(message);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -210,10 +321,6 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
     if (Platform.OS === 'android') setPicker(null);
     if (event?.type === 'dismissed' || !date || !which) return;
     if (which === 'dob') update('dateOfBirth', toDateKey(date));
-    else if (which === 'visitDate') {
-      update('appointmentDate', toDateKey(date));
-      setErrors((current) => ({ ...current, appointmentTime: '' }));
-    } else update('appointmentTime', toTimeKey(date));
   };
 
   const doctorName = doctor ? pick(doctor.full_name, doctor.fullName, doctor.name, 'Doctor') : '';
@@ -243,6 +350,9 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
             <View style={s.tokenCard}>
               <Text style={s.tokenLabel}>YOUR TOKEN</Text>
               <Text style={s.tokenValue} translate={false}>{/^\d+$/.test(token) ? `#${token}` : token}</Text>
+              {!!bookedTime && (
+                <Text style={s.tokenTime}>Today, <Text translate={false}>{formatTime(bookedTime)}</Text></Text>
+              )}
             </View>
             <Text style={s.successNote}>Show this token at the clinic reception. Carry a valid ID and any past reports.</Text>
             <Pressable onPress={onClose} style={s.primaryBtn}>
@@ -314,35 +424,63 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
                 </View>
               </Field>
 
-              <View style={s.row}>
-                <View style={s.flex}>
-                  <Field label="Preferred Date" error={errors.appointmentDate}>
-                    <Pressable onPress={() => setPicker('visitDate')} style={[s.input, s.selectInput]}>
-                      <Text style={s.selectValue}>{formatVisitDate(form.appointmentDate || toDateKey(new Date()))}</Text>
-                      <Ionicons name="calendar-outline" size={17} color={PATIENT.primary} />
+              <Field label="Today's Available Slots *" error={errors.appointmentTime}>
+                {slotsLoading ? (
+                  <View style={s.slotState}><ActivityIndicator color={PATIENT.primary} /></View>
+                ) : slotsError ? (
+                  <View style={s.slotState}>
+                    <Text style={s.slotStateText}>{slotsError}</Text>
+                    <Pressable onPress={() => setSlotsReload((n) => n + 1)} style={s.retryBtn}>
+                      <Text style={s.retryText}>Retry</Text>
                     </Pressable>
-                  </Field>
-                </View>
-                <View style={s.flex}>
-                  <Field label="Preferred Time" error={errors.appointmentTime}>
-                    <Pressable onPress={() => setPicker('time')} style={[s.input, s.selectInput]}>
-                      <Text style={form.appointmentTime ? s.selectValue : s.placeholder}>
-                        {form.appointmentTime
-                          ? formatTime(form.appointmentTime)
-                          : (form.appointmentDate && form.appointmentDate !== toDateKey(new Date()) ? 'Select time' : 'Any time')}
-                      </Text>
-                      <View style={s.timeActions}>
-                        {!!form.appointmentTime && (
-                          <Pressable onPress={() => update('appointmentTime', '')} hitSlop={8}>
-                            <Ionicons name="close-circle" size={18} color="#94A3B8" />
-                          </Pressable>
-                        )}
-                        <Ionicons name="time-outline" size={17} color={PATIENT.primary} />
+                  </View>
+                ) : !freeSlots.length ? (
+                  <View style={s.slotState}>
+                    <Ionicons name="calendar-clear-outline" size={26} color="#94A3B8" />
+                    <Text style={s.slotStateTitle}>No slots available today</Text>
+                    <Text style={s.slotStateText}>All of today's slots are booked or the doctor isn't available today.</Text>
+                  </View>
+                ) : (
+                  slotGroups.map((group) => (
+                    <View key={group.label} style={s.slotGroup}>
+                      <View style={s.slotGroupHead}>
+                        <Ionicons name={group.icon} size={14} color="#64748B" />
+                        <Text style={s.slotGroupLabel}>{group.label}</Text>
                       </View>
-                    </Pressable>
-                  </Field>
+                      <View style={s.slotGrid}>
+                        {group.slots.map((slot) => {
+                          const booked = bookedMinutes.has(slot.minutes);
+                          const on = form.appointmentTime === slot.time;
+                          return (
+                            <Pressable
+                              key={slot.time}
+                              onPress={() => chooseSlot(slot)}
+                              style={[s.slot, on && s.slotOn, booked && s.slotBooked]}
+                            >
+                              <Text translate={false} style={[s.slotTime, on && s.slotTextOn, booked && s.slotTextBooked]}>
+                                {formatTime(slot.time)}
+                              </Text>
+                              {booked ? (
+                                <Text style={[s.slotToken, s.slotTextBooked]}>Booked</Text>
+                              ) : (
+                                <Text style={[s.slotToken, on && s.slotTextOn]}>Token <Text translate={false}>{slot.token}</Text></Text>
+                              )}
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ))
+                )}
+              </Field>
+              {!!selectedSlot && (
+                <View style={s.selectedBox}>
+                  <Ionicons name="ticket-outline" size={16} color={PATIENT.primary} />
+                  <Text style={s.selectedText}>
+                    Today at <Text translate={false}>{formatTime(selectedSlot.time)}</Text> · Token <Text translate={false}>{selectedSlot.token}</Text>
+                  </Text>
                 </View>
-              </View>
+              )}
               <Field label="Email (Optional)" error={errors.email}>
                 <TextInput style={s.input} value={form.email} onChangeText={(v) => update('email', v)} placeholder="you@example.com" placeholderTextColor="#94A3B8" keyboardType="email-address" autoCapitalize="none" />
               </Field>
@@ -354,7 +492,7 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
                 </View>
               )}
 
-              <Pressable onPress={submit} disabled={submitting} style={[s.primaryBtn, submitting && s.disabled]}>
+              <Pressable onPress={submit} disabled={submitting || !freeSlots.length} style={[s.primaryBtn, (submitting || !freeSlots.length) && s.disabled]}>
                 {submitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.primaryBtnText}>{t('Confirm Appointment')}</Text>}
               </Pressable>
               <Text style={s.expect}>You'll get your token instantly. Estimated wait is usually 15–30 minutes.</Text>
@@ -364,14 +502,9 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
 
         {picker && (
           <DateTimePicker
-            value={picker === 'dob'
-              ? (form.dateOfBirth ? new Date(`${form.dateOfBirth}T00:00:00`) : new Date(2000, 0, 1))
-              : picker === 'visitDate'
-                ? new Date(`${form.appointmentDate || toDateKey(new Date())}T00:00:00`)
-                : (form.appointmentTime ? new Date(`${form.appointmentDate || toDateKey(new Date())}T${form.appointmentTime}:00`) : new Date())}
-            mode={picker === 'time' ? 'time' : 'date'}
-            minimumDate={picker === 'visitDate' ? new Date() : undefined}
-            maximumDate={picker === 'dob' ? new Date() : picker === 'visitDate' ? addDays(new Date(), BOOKING_WINDOW_DAYS) : undefined}
+            value={form.dateOfBirth ? new Date(`${form.dateOfBirth}T00:00:00`) : new Date(2000, 0, 1)}
+            mode="date"
+            maximumDate={new Date()}
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
             onChange={onPick}
           />
@@ -425,6 +558,25 @@ const s = StyleSheet.create({
   chipText: { fontSize: 13.5, fontWeight: '600', color: '#334155' },
   chipTextOn: { color: '#FFFFFF' },
   error: { fontSize: 12, color: '#B42318', marginTop: 5 },
+  slotState: { alignItems: 'center', gap: 6, paddingVertical: 18, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF' },
+  slotStateTitle: { fontSize: 14.5, fontWeight: '800', color: '#334155' },
+  slotStateText: { fontSize: 12.5, color: '#64748B', textAlign: 'center' },
+  retryBtn: { marginTop: 4, paddingHorizontal: 18, height: 34, borderRadius: 17, borderWidth: 1, borderColor: PATIENT.primary, alignItems: 'center', justifyContent: 'center' },
+  retryText: { fontSize: 13, fontWeight: '700', color: PATIENT.primary },
+  slotGroup: { marginBottom: 10 },
+  slotGroupHead: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 7 },
+  slotGroupLabel: { fontSize: 12.5, fontWeight: '700', color: '#64748B' },
+  slotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  slot: { width: '31%', minHeight: 54, borderRadius: 11, borderWidth: 1, borderColor: '#D5DCE5', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingVertical: 7 },
+  slotOn: { backgroundColor: PATIENT.primary, borderColor: PATIENT.primary },
+  slotBooked: { backgroundColor: '#F1F5F9', borderColor: '#E2E8F0' },
+  slotTime: { fontSize: 13.5, fontWeight: '800', color: '#0F172A' },
+  slotToken: { fontSize: 11.5, fontWeight: '600', color: PATIENT.primary, marginTop: 2 },
+  slotTextOn: { color: '#FFFFFF' },
+  slotTextBooked: { color: '#94A3B8', textDecorationLine: 'line-through' },
+  selectedBox: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 4, padding: 10, borderRadius: 10, backgroundColor: '#ECFDF3', borderWidth: 1, borderColor: '#BDE8CD' },
+  selectedText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#05603A' },
+  tokenTime: { fontSize: 13.5, fontWeight: '600', color: '#64748B', marginTop: 4 },
   errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FEF3F2', borderWidth: 1, borderColor: '#FECDCA', borderRadius: 10, padding: 11, marginTop: 16 },
   errorBoxText: { flex: 1, fontSize: 13, color: '#B42318' },
   primaryBtn: { height: 50, borderRadius: 14, backgroundColor: PATIENT.primary, alignItems: 'center', justifyContent: 'center', marginTop: 20, alignSelf: 'stretch' },

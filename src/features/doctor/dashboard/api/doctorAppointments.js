@@ -140,6 +140,23 @@ export const getDoctorPhotoUrl = (user) => {
   return apiOrigin ? `${apiOrigin}/${path.replace(/^\/+/, '')}` : '';
 };
 
+// Specializations as readable text: ["Cardiology","Neurology"] ->
+// "Cardiology, Neurology". Rendering the array directly glued the names
+// together ("CardiologyNeurology"). Also takes a JSON-array string or a
+// comma list from the server. Returns '' when there is nothing to show.
+export const formatSpecialization = (value) => {
+  let list = value;
+  if (typeof list === 'string') {
+    const text = list.trim();
+    if (text.startsWith('[')) {
+      try { list = JSON.parse(text); } catch { list = text; }
+    }
+    if (typeof list === 'string') list = list.split(',');
+  }
+  if (!Array.isArray(list)) return '';
+  return list.map((item) => String(item ?? '').trim()).filter(Boolean).join(', ');
+};
+
 // Initials for the avatar fallback ("Dr. Vivek Raj" -> "VR").
 export const getDoctorInitials = (name) => String(name || '')
   .replace(/^dr\.?\s+/i, '').trim().split(/\s+/).filter(Boolean)
@@ -159,8 +176,8 @@ export const loadDoctorDisplayProfile = async () => {
     'Doctor',
   );
   const specialization = pickFirst(
-    user?.specialization, user?.speciality, user?.specialty,
-    cached?.specialization, cached?.speciality, cached?.specialty, '',
+    formatSpecialization(user?.specialization), formatSpecialization(user?.speciality), formatSpecialization(user?.specialty),
+    formatSpecialization(cached?.specialization), formatSpecialization(cached?.speciality), formatSpecialization(cached?.specialty), '',
   );
   const photo = getDoctorPhotoUrl(user) || getDoctorPhotoUrl(cached);
   return { name, specialization, photo };

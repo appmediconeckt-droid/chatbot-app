@@ -198,10 +198,11 @@ const GoogleAuthButton = ({
     }
 
     const requestedAppRole = normalizeRole(accountRole || storedRole);
-    const userRole = resolveAuthRole(
-      { ...data, accountRole: data.accountRole || accountRole },
-      isAuto ? 'user' : requestedAppRole,
-    );
+    // The account's role as the SERVER reports it. The screen's own
+    // `accountRole` must not be merged in here: that made every account look
+    // like the screen's role (any Google account "was" a doctor on the doctor
+    // page), so the mismatch check below could never catch a wrong account.
+    const userRole = resolveAuthRole(data, isAuto ? 'user' : requestedAppRole);
     if (!isAuto && requestedAppRole && requestedAppRole !== userRole) {
       const err = new Error(
         buildRoleMismatchMessage({

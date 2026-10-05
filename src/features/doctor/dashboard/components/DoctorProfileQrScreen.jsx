@@ -16,6 +16,8 @@ import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import { PUBLIC_WEB_APP_URL } from '../../../../config';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
+import { loadPublicProfileLink } from '../api/doctorPublicProfile';
+import ClinicQrLedSection from './ClinicQrLedSection';
 const createQrImageUrl = (targetUrl) =>
   `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(targetUrl)}`;
 
@@ -79,16 +81,19 @@ export default function DoctorProfileQrScreen({ onBack }) {
     ? `${PUBLIC_WEB_APP_URL.replace(/\/+$/, '')}/walk-in-appointment?doctorId=${encodeURIComponent(doctorId)}&source=qr`
     : '';
   const qrImageUrl = appointmentUrl ? createQrImageUrl(appointmentUrl) : '';
-  // Public profile page a patient lands on after scanning (web /doctor/:doctorId).
-  const profileUrl = doctorId
-    ? `${PUBLIC_WEB_APP_URL.replace(/\/+$/, '')}/doctor/${encodeURIComponent(doctorId)}`
-    : '';
-
   // "Scan this QR code to" options: the doctor can open each one to see
   // what the patient gets.
   const openLink = (url) => {
     if (!url) return;
     Linking.openURL(url).catch(() => showToast('Could not open link'));
+  };
+
+  // Public profile page (web /doctor-profile-qr, details in the link itself;
+  // the /doctor/:id page isn't live on humaeli.com and opened empty).
+  const openPublicProfile = () => {
+    loadPublicProfileLink({ ...storedUser, ...doctorRecord })
+      .then(openLink)
+      .catch((err) => showToast(err?.message || 'Could not open your public profile'));
   };
 
   const shareQr = () => {
@@ -129,7 +134,10 @@ export default function DoctorProfileQrScreen({ onBack }) {
         </Pressable>
         <Text style={s.title}>DR. Profile QR Code</Text>
       </View>
-      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        {/* Web parity: clinic walk-in QR + LED display (screen connect). The
+            profile QR card and stats below are kept as they were. */}
+        <ClinicQrLedSection doctorId={doctorId} />
         <Text style={s.intro}>Share your professional profile instantly with{`\n`}patients using a secure QR Code.</Text>
         {isLoading && (
           <View style={s.stateBox}><ActivityIndicator color="#0D9488" /><Text style={s.stateText}>QR Loading...</Text></View>
@@ -162,7 +170,7 @@ export default function DoctorProfileQrScreen({ onBack }) {
             </View>
             <Text style={s.scanTitle}>SCAN THIS QR CODE TO:</Text>
             <View style={s.scanGrid}>
-              <Action icon="user" text="View Profile" onPress={() => openLink(profileUrl)} />
+              <Action icon="user" text="View Profile" onPress={openPublicProfile} />
               <Action icon="calendar" text="Book Appt." onPress={() => openLink(appointmentUrl)} />
             </View>
             <View style={s.card}>

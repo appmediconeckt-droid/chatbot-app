@@ -8,6 +8,6 @@
          theme, so an unset splash background can resolve dark in dark mode. -->
     <color name="splash_background">#FFFFFF</color>
 
-    <!-- Tint for the status-bar notification icon (brand teal). -->
-    <color name="notification_color">#0F8A9D</color>
+    <!-- Tint for the status-bar notification icon: the Humaeli logo bubble colour. -->
+    <color name="notification_color">#309B92</color>
 </resources>

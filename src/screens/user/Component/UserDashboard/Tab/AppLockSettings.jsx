@@ -212,7 +212,7 @@ const AppLockSettings = ({ navigation }) => {
 
       <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
         {/* Security Status Card */}
-        <TouchableOpacity style={s.statusCard} activeOpacity={0.8}>
+        <View style={s.statusCard}>
           <LinearGradient
             colors={[C.gradientFrom, C.gradientTo]}
             start={{ x: 0, y: 0 }}
@@ -233,7 +233,7 @@ const AppLockSettings = ({ navigation }) => {
               </View>
             </View>
           </LinearGradient>
-        </TouchableOpacity>
+        </View>
 
         {/* PIN Section */}
         <View style={s.section}>
