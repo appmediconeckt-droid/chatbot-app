@@ -15,13 +15,6 @@ export const STAFF_ROLES = new Set([
   'medical_assistant', 'lab_technician', 'nurse_lab_technician', 'billing_accounts',
 ]);
 
-const includesPsychiatry = (value) => {
-  if (Array.isArray(value)) {
-    return value.some(includesPsychiatry);
-  }
-  return /psychiatrist|psychiatry/i.test(String(value || ''));
-};
-
 export const resolveAuthRole = (data, fallbackRole = 'user') => {
   const user = data?.user || data?.data?.user || data?.profile || data || {};
   const explicitAppRole =
@@ -42,18 +35,9 @@ export const resolveAuthRole = (data, fallbackRole = 'user') => {
     normalizeAuthRole(fallbackRole) ||
     'user';
 
-  if (
-    backendRole === 'counselor' &&
-    (
-      includesPsychiatry(data?.specialization) ||
-      includesPsychiatry(data?.specializations) ||
-      includesPsychiatry(user?.specialization) ||
-      includesPsychiatry(user?.specializations)
-    )
-  ) {
-    return 'doctor';
-  }
-
+  // Psychiatrists are counsellor accounts and use the Counselor dashboard
+  // (prescriptions etc. are gated by specialization there). Only the backend's
+  // real `doctor` role opens DoctorDashboard.
   if (STAFF_ROLES.has(backendRole.replace(/[\s-]+/g, '_'))) return 'staff';
 
   return backendRole === 'doctor' ? 'doctor' : backendRole === 'counselor' ? 'counselor' : 'user';

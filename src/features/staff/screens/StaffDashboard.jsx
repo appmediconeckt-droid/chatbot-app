@@ -4,6 +4,7 @@
 // (CreateStaffScreen). One screen for every staff role: the role, clinic and
 // shift come from the logged-in user record (`userData`).
 import React, { useCallback, useEffect, useState } from 'react';
+import { resetToLoginScreen } from '../../../navigationRef';
 import { Alert, Image, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -67,7 +68,7 @@ export default function StaffDashboard({ navigation }) {
     } finally {
       try { socketService.disconnect(); } catch (e) { /* ignore */ }
       try { await clearAccountLocalData(); } catch (e) { /* ignore */ }
-      navigation.replace('RoleSelector');
+      resetToLoginScreen(navigation);
     }
   }, [navigation]);
 

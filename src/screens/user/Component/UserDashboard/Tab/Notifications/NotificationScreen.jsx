@@ -8,6 +8,7 @@ import {
   Platform,
   ActivityIndicator,
   RefreshControl,
+  Image,
 } from 'react-native';
 import Text from '../../../../../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -39,9 +40,13 @@ const TYPE_CONFIG = {
   wallet:      { icon: 'account-balance-wallet', color: '#7C3AED', bg: '#F3E8FF' },
   call:        { icon: 'call',                   color: '#0D9488', bg: '#CCFBF1' },
   reminder:    { icon: 'notifications-active',   color: '#D97706', bg: '#FEF3C7' },
-  system:      { icon: 'info',                   color: '#475569', bg: '#EEF1F5' },
-  default:     { icon: 'notifications',          color: '#475569', bg: '#EEF1F5' },
+  // General / system notices come from Humaeli itself, so they carry the app
+  // logo instead of a grey info glyph.
+  system:      { logo: true,                     color: '#0F8A9D', bg: '#E6F6F3' },
+  default:     { logo: true,                     color: '#0F8A9D', bg: '#E6F6F3' },
 };
+
+const HUMAELI_LOGO = require('../../../../../../image/HumaeliIcon.png');
 
 const configFor = (type) => TYPE_CONFIG[String(type || '').toLowerCase()] || TYPE_CONFIG.default;
 
@@ -303,7 +308,11 @@ const NotificationScreen = ({ onClose, onAction }) => {
                   {!n.read && <View style={[s.unreadRail, { backgroundColor: cfg.color }]} />}
 
                   <View style={[s.cardIcon, { backgroundColor: cfg.bg }]}>
-                    <MaterialIcons name={cfg.icon} size={20} color={cfg.color} />
+                    {cfg.logo ? (
+                      <Image source={HUMAELI_LOGO} style={s.cardLogo} resizeMode="contain" />
+                    ) : (
+                      <MaterialIcons name={cfg.icon} size={20} color={cfg.color} />
+                    )}
                   </View>
 
                   <View style={s.cardBody}>
@@ -335,6 +344,7 @@ const NotificationScreen = ({ onClose, onAction }) => {
 };
 
 const s = StyleSheet.create({
+  cardLogo: { width: 30, height: 30 },
   root: { flex: 1, backgroundColor: PATIENT.backgroundTint },
   header: {
     flexDirection: 'row',

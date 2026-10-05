@@ -7,9 +7,10 @@
 //   POST /api/walkin-appointments               books it, returns the token
 // Requests go through plain axios (no login token), exactly like the web page,
 // so a refusal here can never trigger the app's sign-out-on-401 handling.
-import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -19,6 +20,29 @@ import TextInput from '../../../../../../components/TranslatedTextInput';
 import PATIENT from '../../../../../../theme/palette';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import axiosInstance from '../../../../../../axiosConfig';
+import { bookedSlotKeys, ownBookedKeys, slotsForDay, upcomingDays } from '../../../../../../utils/doctorSlots';
+
+// Walk-ins booked from this phone ({ doctorId, key: 'YYYY-MM-DD|minutes' }).
+// Walk-in rows aren't returned to the patient by any API, so this is how a
+// second scan still knows which of today's times the patient already took.
+const WALKIN_BOOKED_KEY = 'walkinBookedSlots';
+const readOwnWalkins = async () => {
+  try {
+    const list = JSON.parse((await AsyncStorage.getItem(WALKIN_BOOKED_KEY)) || '[]');
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+};
+const rememberOwnWalkin = async (doctorId, key) => {
+  const today = upcomingDays(1)[0].iso;
+  const list = (await readOwnWalkins()).filter((e) => String(e?.key || '').slice(0, 10) >= today);
+  list.push({ doctorId: String(doctorId), key });
+  try { await AsyncStorage.setItem(WALKIN_BOOKED_KEY, JSON.stringify(list)); } catch { /* best effort */ }
+};
+
+const SLOT_REFRESH_MS = 30000;
 
 const API = `${API_BASE_URL.replace(/\/+$/, '').replace(/\/api$/, '')}/api`;
 const GENDERS = [
@@ -31,7 +55,6 @@ const GENDERS = [
 const pick = (...values) => values.find((v) => v !== undefined && v !== null && String(v).trim() !== '');
 const pad = (n) => String(n).padStart(2, '0');
 const toDateKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const toTimeKey = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const normalizeGender = (g) => {
   const v = String(g || '').trim().toLowerCase();
   if (v === 'm' || v === 'male') return 'male';
@@ -57,36 +80,111 @@ const calculateAge = (dateKey) => {
 const formatDob = (key) => (key
   ? new Date(`${key}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   : '');
-const formatTime = (key) => {
-  if (!key) return '';
-  const [h, m] = key.split(':').map(Number);
-  return `${h % 12 || 12}:${pad(m)} ${h >= 12 ? 'PM' : 'AM'}`;
-};
 
-// Preferred visit date: today up to BOOKING_WINDOW_DAYS ahead.
-const BOOKING_WINDOW_DAYS = 30;
-const addDays = (date, days) => { const d = new Date(date); d.setDate(d.getDate() + days); return d; };
-const formatVisitDate = (key) => {
-  if (!key) return '';
-  const today = toDateKey(new Date());
-  if (key === today) return 'Today';
-  if (key === toDateKey(addDays(new Date(), 1))) return 'Tomorrow';
-  return new Date(`${key}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' });
+// '15:00' → '3:00 PM' (clinic timings from the QR profile).
+const formatClock = (value) => {
+  const [h, m] = String(value || '').split(':').map(Number);
+  if (!Number.isFinite(h)) return String(value || '');
+  return `${h % 12 || 12}:${pad(m || 0)} ${h >= 12 ? 'PM' : 'AM'}`;
 };
 
 const emptyForm = { patientName: '', contactNumber: '', problem: '', dateOfBirth: '', location: '', gender: '', appointmentDate: '', appointmentTime: '', email: '' };
 
-export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', onClose }) {
+// clinicId: set when the scanned QR is a clinic-wise booking QR, so the walk-in
+// is booked at that clinic (old QRs without a clinic book as before).
+export default function WalkInBookingScreen({ visible, doctorId, clinicId = null, source = 'qr', onClose }) {
   const { t } = useLanguageRender();
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState({});
   const [doctor, setDoctor] = useState(null);
   const [doctorLoading, setDoctorLoading] = useState(false);
+  const [doctorProfile, setDoctorProfile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [apiError, setApiError] = useState('');
   const [token, setToken] = useState('');
-  const [picker, setPicker] = useState(null); // 'dob' | 'time' | null
+  const [picker, setPicker] = useState(null); // 'dob' | null
   const visitRecorded = useRef(null);
+
+  // Doctor's open slots (public availability API). A walk-in is booked only
+  // on a free slot — no free-form time, so two patients can't pick the same
+  // time and nobody books outside the doctor's hours.
+  const [availability, setAvailability] = useState({ ranges: [], unavailableDates: [], bookedSlots: [] });
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState('');
+  const [clockTick, setClockTick] = useState(0);
+
+  const loadAvailability = useCallback(async () => {
+    if (!doctorId) return;
+    try {
+      setSlotsLoading(true);
+      setSlotsError('');
+      const { data } = await axios.get(`${API}/availability/available`, {
+        params: { doctor_id: doctorId, clinic_id: clinicId || undefined },
+      });
+      setAvailability({
+        ranges: data?.availableRanges || data?.existingRanges || data?.data || [],
+        unavailableDates: data?.unavailableDates || [],
+        bookedSlots: data?.bookedSlots || [],
+      });
+    } catch (err) {
+      setSlotsError('Could not load available slots. Pull to retry or try again.');
+      setAvailability({ ranges: [], unavailableDates: [], bookedSlots: [] });
+    } finally {
+      setSlotsLoading(false);
+    }
+  }, [doctorId, clinicId]);
+
+  useEffect(() => { if (visible) loadAvailability(); }, [visible, loadAvailability]);
+
+  // Times this patient already holds with this doctor — never offered again:
+  // their appointments (signed-in /api/appointments returns only their own),
+  // walk-ins booked from this phone, and slots the server just refused.
+  const [ownBooked, setOwnBooked] = useState(() => new Set());
+  const loadOwnBookings = useCallback(async () => {
+    if (!doctorId) return;
+    const keys = new Set();
+    (await readOwnWalkins()).forEach((e) => { if (String(e?.doctorId) === String(doctorId) && e?.key) keys.add(e.key); });
+    try {
+      const { data } = await axiosInstance.get('/api/appointments', { headers: { 'Cache-Control': 'no-cache' } });
+      const list = Array.isArray(data) ? data : (data?.appointments || data?.data || []);
+      ownBookedKeys(list, doctorId).forEach((k) => keys.add(k));
+    } catch { /* signed out / offline: the server still guards */ }
+    setOwnBooked((prev) => new Set([...prev, ...keys]));
+  }, [doctorId]);
+  useEffect(() => {
+    if (!visible) return;
+    setOwnBooked(new Set());
+    loadOwnBookings();
+  }, [visible, loadOwnBookings]);
+
+  // Re-check every 30s so a slot that starts while the form is open drops out.
+  useEffect(() => {
+    if (!visible) return undefined;
+    const id = setInterval(() => setClockTick((n) => n + 1), SLOT_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [visible]);
+
+  // A walk-in is for today (as on the web walk-in page), so only today's free
+  // slots are offered — no day picker.
+  const today = upcomingDays(1)[0];
+  const daySlots = useMemo(() => {
+    // Booked by anyone (when the server reports it) + held by this patient.
+    const booked = new Set([...bookedSlotKeys(availability.bookedSlots, clinicId), ...ownBooked]);
+    return slotsForDay({ ...availability, booked, clinicId, iso: today.iso, weekday: today.weekday });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availability, clinicId, clockTick, today.iso, ownBooked]);
+  const hasAnySlot = daySlots.length > 0;
+
+  // Keep the visit on today and drop a picked slot that is no longer free
+  // (booked / started while the form was open).
+  useEffect(() => {
+    if (!visible || slotsLoading) return;
+    setForm((cur) => {
+      const keepTime = cur.appointmentTime && daySlots.some((x) => x.time24 === cur.appointmentTime);
+      if (cur.appointmentDate === today.iso && (keepTime || !cur.appointmentTime)) return cur;
+      return { ...cur, appointmentDate: today.iso, appointmentTime: keepTime ? cur.appointmentTime : '' };
+    });
+  }, [visible, slotsLoading, daySlots, today.iso]);
 
   // Fresh form for every scan, pre-filled from the signed-in patient's profile.
   useEffect(() => {
@@ -117,10 +215,20 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
     let active = true;
     setDoctor(null);
     setDoctorLoading(true);
+    // Public doctor profile for the card: photo, specialization, clinics with
+    // today's timings. Optional — the card falls back to the QR details.
+    setDoctorProfile(null);
+    axios.get(`${API}/qr/doctors/${encodeURIComponent(doctorId)}/profile`)
+      .then(({ data }) => { if (active) setDoctorProfile(data?.data || null); })
+      .catch(() => {});
     axios.get(`${API}/auth/doctor-qr/${encodeURIComponent(doctorId)}`)
       .then(({ data }) => {
         if (!active) return;
-        const found = data?.data?.doctor || data?.doctor || null;
+        // The server sends the doctor's fields straight in `data` (fullName,
+        // name, …); older ones nested them under `doctor`. Reading only
+        // `.doctor` left the card saying "Doctor" instead of the name.
+        const payload = data?.data || data || {};
+        const found = payload.doctor || (payload.fullName || payload.name ? payload : null);
         setDoctor(found);
         const visitKey = `${doctorId}-${Date.now()}`;
         if (found && visitRecorded.current !== doctorId) {
@@ -153,15 +261,11 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
     if (!form.location.trim()) next.location = 'Location or address is required';
     if (!form.gender) next.gender = 'Gender is required';
     if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) next.email = 'Enter a valid email';
-    // The API takes appointment_date and appointment_time together (or neither):
-    // "Any time" is only possible for today; another day needs a time.
-    const today = toDateKey(new Date());
-    const visitDate = form.appointmentDate || today;
-    if (visitDate < today) next.appointmentDate = 'Pick today or a later date';
-    if (!form.appointmentTime && visitDate !== today) {
-      next.appointmentTime = 'Pick a time for this date';
-    } else if (form.appointmentTime && visitDate === today && form.appointmentTime <= toTimeKey(new Date())) {
-      next.appointmentTime = 'That time has already passed. Pick a later time.';
+    // A walk-in needs one of the doctor's free slots.
+    if (!hasAnySlot) next.appointmentTime = 'No walk-in slots are left for today. Please contact the clinic.';
+    else if (!form.appointmentTime) next.appointmentTime = 'Pick an available time slot';
+    else if (!daySlots.some((x) => x.time24 === form.appointmentTime)) {
+      next.appointmentTime = 'That slot is no longer available. Please pick another.';
     }
     setErrors(next);
     return !Object.keys(next).length;
@@ -179,14 +283,14 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
       phone_number: form.contactNumber.trim(),
       symptoms: form.problem.trim(),
       doctor_id: doctorId,
+      clinic_id: clinicId || undefined,
       date_of_birth: form.dateOfBirth,
       age: age ? Number(age) : undefined,
       location: form.location.trim(),
       gender: form.gender,
-      // appointment_date (YYYY-MM-DD) and appointment_time (HH:MM, 24h) go
-      // together, as the API requires; with "Any time" (today) neither is sent.
-      appointment_date: form.appointmentTime ? (form.appointmentDate || toDateKey(new Date())) : undefined,
-      appointment_time: form.appointmentTime || undefined,
+      // The chosen slot: appointment_date (YYYY-MM-DD) + appointment_time (HH:MM, 24h).
+      appointment_date: form.appointmentDate,
+      appointment_time: form.appointmentTime,
       email: form.email.trim() || undefined,
       status: 'booked',
       booking_source: source,
@@ -198,8 +302,22 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
       const created = response.data?.data || response.data?.appointment || response.data || {};
       const tokenValue = pick(created.token_number, created.tokenNumber, created.walkin_token, created.queue_token, created.token, created.id, 'Booked');
       setToken(String(tokenValue));
+      // Remember it so this time isn't offered to this patient again today.
+      const [h, m] = form.appointmentTime.split(':').map(Number);
+      rememberOwnWalkin(doctorId, `${form.appointmentDate}|${h * 60 + m}`);
     } catch (error) {
-      setApiError(error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Unable to book walk-in appointment');
+      const message = error?.response?.data?.message || error?.response?.data?.error || error?.message || '';
+      // The server refused this exact time (taken / duplicate): hide the slot
+      // straight away so it can't be picked again, then refresh the list.
+      if (error?.response?.status === 409 || /already|booked|taken|slot|duplicate/i.test(message)) {
+        const [h, m] = form.appointmentTime.split(':').map(Number);
+        setOwnBooked((prev) => new Set(prev).add(`${form.appointmentDate}|${h * 60 + m}`));
+        setForm((cur) => ({ ...cur, appointmentTime: '' }));
+        setApiError('That time was just booked. Please pick another slot.');
+      } else {
+        setApiError(message || 'Unable to book walk-in appointment');
+      }
+      loadAvailability();
     } finally {
       setSubmitting(false);
     }
@@ -210,16 +328,30 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
     if (Platform.OS === 'android') setPicker(null);
     if (event?.type === 'dismissed' || !date || !which) return;
     if (which === 'dob') update('dateOfBirth', toDateKey(date));
-    else if (which === 'visitDate') {
-      update('appointmentDate', toDateKey(date));
-      setErrors((current) => ({ ...current, appointmentTime: '' }));
-    } else update('appointmentTime', toTimeKey(date));
   };
 
-  const doctorName = doctor ? pick(doctor.full_name, doctor.fullName, doctor.name, 'Doctor') : '';
-  const specialization = doctor
-    ? (Array.isArray(doctor.specialization) ? doctor.specialization.join(', ') : doctor.specialization || '')
-    : '';
+
+  const rawDoctorName = pick(
+    doctorProfile?.name, doctorProfile?.fullName,
+    doctor?.full_name, doctor?.fullName, doctor?.name,
+  ) || '';
+  // "Dr. Vijay" — without doubling a title the name already carries.
+  const doctorName = rawDoctorName ? (/^dr\.?\s/i.test(rawDoctorName) ? rawDoctorName : `Dr. ${rawDoctorName}`) : '';
+  const specRaw = pick(doctorProfile?.specialization, doctor?.specialization);
+  const specialization = (Array.isArray(specRaw) ? specRaw.filter(Boolean).join(' · ') : specRaw || '').trim();
+  const qualification = String(pick(doctorProfile?.qualification, doctor?.qualification, '') || '');
+  const doctorPhoto = pick(doctorProfile?.profilePhoto?.url, typeof doctorProfile?.profilePhoto === 'string' ? doctorProfile.profilePhoto : undefined);
+  const doctorInitials = rawDoctorName.replace(/^dr\.?\s+/i, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || 'Dr';
+  // The clinic this walk-in is for (the QR's clinic, or the only one).
+  const profileClinics = Array.isArray(doctorProfile?.clinics) ? doctorProfile.clinics : [];
+  const visitClinic = profileClinics.find((c) => clinicId && String(c.clinicId || c.clinic?.id) === String(clinicId))
+    || (profileClinics.length === 1 ? profileClinics[0] : null);
+  const clinicAddress = typeof visitClinic?.clinic?.address === 'string'
+    ? visitClinic.clinic.address
+    : Object.values(visitClinic?.clinic?.address || {}).filter((v) => typeof v === 'string' && v).join(', ');
+  const todayTimings = (visitClinic?.timings || [])
+    .filter((tm) => (tm.date ? String(tm.date).slice(0, 10) === today.iso : Number(tm.weekday) === today.weekday))
+    .map((tm) => `${formatClock(tm.startTime)} – ${formatClock(tm.endTime)}`);
   const age = calculateAge(form.dateOfBirth);
 
   return (
@@ -230,7 +362,10 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
           <Pressable onPress={onClose} style={s.backBtn} hitSlop={10}>
             <Ionicons name="chevron-back" size={22} color="#0F172A" />
           </Pressable>
-          <Text style={s.headerTitle}>Book Walk-in Visit</Text>
+          <View style={s.flex}>
+            <Text style={s.headerTitle}>Book Walk-in Visit</Text>
+            {!!doctorName && <Text translate={false} style={s.headerSub} numberOfLines={1}>with {doctorName}</Text>}
+          </View>
         </View>
 
         {token ? (
@@ -252,22 +387,58 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
         ) : (
           <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-              <View style={s.doctorCard}>
-                <View style={s.doctorAvatar}>
-                  <Ionicons name="medkit" size={20} color={PATIENT.primary} />
+              {/* Doctor card: who the patient is booking with, where and when. */}
+              <LinearGradient colors={[PATIENT.gradientFrom, PATIENT.gradientTo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.doctorCard}>
+                <View style={s.doctorDecoLg} />
+                <View style={s.doctorDecoSm} />
+                <View style={s.doctorTop}>
+                  <View style={s.doctorAvatar}>
+                    {doctorPhoto
+                      ? <Image source={{ uri: doctorPhoto }} style={s.doctorPhoto} />
+                      : <Text translate={false} style={s.doctorInitials}>{doctorInitials}</Text>}
+                  </View>
+                  <View style={s.flex}>
+                    {doctorLoading && !doctorName ? (
+                      <ActivityIndicator color="#FFFFFF" style={s.doctorLoading} />
+                    ) : (
+                      <>
+                        <View style={s.doctorNameRow}>
+                          <Text translate={false} style={s.doctorName} numberOfLines={1}>{doctorName || 'Doctor'}</Text>
+                          {!!doctorName && <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />}
+                        </View>
+                        <Text translate={false} style={s.doctorSpec} numberOfLines={1}>
+                          {[specialization, qualification].filter(Boolean).join('  ·  ') || 'Doctor'}
+                        </Text>
+                      </>
+                    )}
+                  </View>
+                  <View style={s.walkinBadge}>
+                    <Ionicons name="walk-outline" size={12} color="#FFFFFF" />
+                    <Text style={s.walkinBadgeText}>Walk-in</Text>
+                  </View>
                 </View>
-                <View style={s.flex}>
-                  {doctorLoading ? (
-                    <ActivityIndicator color={PATIENT.primary} style={s.doctorLoading} />
-                  ) : (
-                    <>
-                      <Text style={s.doctorName} numberOfLines={1} translate={!doctor}>{doctorName || 'Doctor'}</Text>
-                      {!!specialization && <Text style={s.doctorSpec} numberOfLines={1}>{specialization}</Text>}
-                    </>
-                  )}
-                </View>
-              </View>
-              <Text style={s.intro}>Fill in your details to get your appointment token.</Text>
+                {!!visitClinic && (
+                  <View style={s.doctorInfoBox}>
+                    <View style={s.doctorInfoRow}>
+                      <Ionicons name="business-outline" size={15} color="#FFFFFF" />
+                      <Text translate={false} style={s.doctorInfoStrong} numberOfLines={1}>{visitClinic.clinic?.name}</Text>
+                    </View>
+                    {!!clinicAddress && (
+                      <View style={s.doctorInfoRow}>
+                        <Ionicons name="location-outline" size={15} color="rgba(255,255,255,0.9)" />
+                        <Text translate={false} style={s.doctorInfoText} numberOfLines={2}>{clinicAddress}</Text>
+                      </View>
+                    )}
+                    <View style={s.doctorInfoRow}>
+                      <Ionicons name="time-outline" size={15} color="rgba(255,255,255,0.9)" />
+                      <Text style={s.doctorInfoText} numberOfLines={1}>
+                        {todayTimings.length ? `Today ${todayTimings.join(', ')}` : 'Today'}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </LinearGradient>
+              <Text style={s.intro}>Fill in your details and pick a slot to get today's token.</Text>
 
               <Field label="Patient Name *" error={errors.patientName}>
                 <TextInput style={s.input} value={form.patientName} onChangeText={(v) => update('patientName', v)} placeholder="Full name" placeholderTextColor="#94A3B8" />
@@ -314,35 +485,33 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
                 </View>
               </Field>
 
-              <View style={s.row}>
-                <View style={s.flex}>
-                  <Field label="Preferred Date" error={errors.appointmentDate}>
-                    <Pressable onPress={() => setPicker('visitDate')} style={[s.input, s.selectInput]}>
-                      <Text style={s.selectValue}>{formatVisitDate(form.appointmentDate || toDateKey(new Date()))}</Text>
-                      <Ionicons name="calendar-outline" size={17} color={PATIENT.primary} />
-                    </Pressable>
-                  </Field>
-                </View>
-                <View style={s.flex}>
-                  <Field label="Preferred Time" error={errors.appointmentTime}>
-                    <Pressable onPress={() => setPicker('time')} style={[s.input, s.selectInput]}>
-                      <Text style={form.appointmentTime ? s.selectValue : s.placeholder}>
-                        {form.appointmentTime
-                          ? formatTime(form.appointmentTime)
-                          : (form.appointmentDate && form.appointmentDate !== toDateKey(new Date()) ? 'Select time' : 'Any time')}
-                      </Text>
-                      <View style={s.timeActions}>
-                        {!!form.appointmentTime && (
-                          <Pressable onPress={() => update('appointmentTime', '')} hitSlop={8}>
-                            <Ionicons name="close-circle" size={18} color="#94A3B8" />
-                          </Pressable>
-                        )}
-                        <Ionicons name="time-outline" size={17} color={PATIENT.primary} />
-                      </View>
-                    </Pressable>
-                  </Field>
-                </View>
-              </View>
+              {/* Today's free slots (a walk-in is for today). */}
+              <Field label="Today's Available Slots *" error={errors.appointmentTime}>
+                {slotsLoading ? (
+                  <View style={s.slotState}><ActivityIndicator color={PATIENT.primary} /><Text style={s.slotStateText}>Loading available slots...</Text></View>
+                ) : slotsError ? (
+                  <View style={s.slotState}>
+                    <Text style={s.slotStateText}>{slotsError}</Text>
+                    <Pressable onPress={loadAvailability} style={s.retryBtn}><Text style={s.retryText}>Retry</Text></Pressable>
+                  </View>
+                ) : !hasAnySlot ? (
+                  <View style={s.slotState}>
+                    <Ionicons name="calendar-clear-outline" size={22} color="#94A3B8" />
+                    <Text style={s.slotStateText}>No walk-in slots are left for today. Please contact the clinic reception.</Text>
+                  </View>
+                ) : (
+                  <View style={s.slotGrid}>
+                    {daySlots.map((slot) => {
+                      const on = slot.time24 === form.appointmentTime;
+                      return (
+                        <Pressable key={slot.time24} onPress={() => update('appointmentTime', slot.time24)} style={[s.slot, on && s.slotOn]}>
+                          <Text translate={false} style={[s.slotText, on && s.slotTextOn]}>{slot.label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+              </Field>
               <Field label="Email (Optional)" error={errors.email}>
                 <TextInput style={s.input} value={form.email} onChangeText={(v) => update('email', v)} placeholder="you@example.com" placeholderTextColor="#94A3B8" keyboardType="email-address" autoCapitalize="none" />
               </Field>
@@ -354,7 +523,7 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
                 </View>
               )}
 
-              <Pressable onPress={submit} disabled={submitting} style={[s.primaryBtn, submitting && s.disabled]}>
+              <Pressable onPress={submit} disabled={submitting || (!slotsLoading && !hasAnySlot)} style={[s.primaryBtn, (submitting || (!slotsLoading && !hasAnySlot)) && s.disabled]}>
                 {submitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.primaryBtnText}>{t('Confirm Appointment')}</Text>}
               </Pressable>
               <Text style={s.expect}>You'll get your token instantly. Estimated wait is usually 15–30 minutes.</Text>
@@ -364,14 +533,9 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
 
         {picker && (
           <DateTimePicker
-            value={picker === 'dob'
-              ? (form.dateOfBirth ? new Date(`${form.dateOfBirth}T00:00:00`) : new Date(2000, 0, 1))
-              : picker === 'visitDate'
-                ? new Date(`${form.appointmentDate || toDateKey(new Date())}T00:00:00`)
-                : (form.appointmentTime ? new Date(`${form.appointmentDate || toDateKey(new Date())}T${form.appointmentTime}:00`) : new Date())}
-            mode={picker === 'time' ? 'time' : 'date'}
-            minimumDate={picker === 'visitDate' ? new Date() : undefined}
-            maximumDate={picker === 'dob' ? new Date() : picker === 'visitDate' ? addDays(new Date(), BOOKING_WINDOW_DAYS) : undefined}
+            value={form.dateOfBirth ? new Date(`${form.dateOfBirth}T00:00:00`) : new Date(2000, 0, 1)}
+            mode="date"
+            maximumDate={new Date()}
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
             onChange={onPick}
           />
@@ -395,17 +559,40 @@ function Field({ label, error, children }) {
 }
 
 const s = StyleSheet.create({
+  // Visit slot picker
+  slotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  slot: { width: '31.5%', paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', alignItems: 'center' },
+  slotOn: { borderColor: PATIENT.primary, backgroundColor: PATIENT.primary },
+  slotText: { fontSize: 13.5, fontWeight: '700', color: '#0F172A' },
+  slotTextOn: { color: '#FFFFFF' },
+  slotState: { alignItems: 'center', gap: 8, paddingVertical: 16, paddingHorizontal: 12, borderRadius: 12, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0' },
+  slotStateText: { fontSize: 13, color: '#64748B', textAlign: 'center', lineHeight: 18 },
+  retryBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: PATIENT.primary },
+  retryText: { fontSize: 13, fontWeight: '700', color: PATIENT.primary },
   screen: { flex: 1, backgroundColor: PATIENT.backgroundTint },
   flex: { flex: 1 },
   header: { height: 56, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E8ECF1' },
   backBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F1F5F9', marginRight: 10 },
   headerTitle: { fontSize: 17, fontWeight: '800', color: '#0F172A' },
   content: { padding: 16, paddingBottom: 32 },
-  doctorCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 1, borderColor: '#DCEFE3', padding: 14 },
-  doctorAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#E6F6EC', alignItems: 'center', justifyContent: 'center' },
+  headerSub: { fontSize: 12.5, fontWeight: '600', color: PATIENT.primary, marginTop: 1 },
+  doctorCard: { borderRadius: 20, padding: 16, overflow: 'hidden', shadowColor: '#0F172A', shadowOpacity: 0.16, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 5 },
+  doctorDecoLg: { position: 'absolute', width: 160, height: 160, borderRadius: 80, right: -50, top: -70, backgroundColor: 'rgba(255,255,255,0.12)' },
+  doctorDecoSm: { position: 'absolute', width: 80, height: 80, borderRadius: 40, left: -25, bottom: -35, backgroundColor: 'rgba(255,255,255,0.10)' },
+  doctorTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  doctorAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.22)', borderWidth: 2, borderColor: 'rgba(255,255,255,0.65)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  doctorPhoto: { width: '100%', height: '100%' },
+  doctorInitials: { fontSize: 19, fontWeight: '800', color: '#FFFFFF' },
   doctorLoading: { alignSelf: 'flex-start' },
-  doctorName: { fontSize: 16, fontWeight: '800', color: '#0F172A' },
-  doctorSpec: { fontSize: 12.5, color: '#64748B', marginTop: 2 },
+  doctorNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  doctorName: { flexShrink: 1, fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
+  doctorSpec: { fontSize: 12.5, fontWeight: '600', color: 'rgba(255,255,255,0.9)', marginTop: 2 },
+  walkinBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.22)', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 },
+  walkinBadgeText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.3 },
+  doctorInfoBox: { marginTop: 14, padding: 11, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.16)', gap: 7 },
+  doctorInfoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  doctorInfoStrong: { flex: 1, fontSize: 14, fontWeight: '800', color: '#FFFFFF' },
+  doctorInfoText: { flex: 1, fontSize: 12.5, lineHeight: 17, fontWeight: '500', color: 'rgba(255,255,255,0.92)' },
   intro: { fontSize: 13, color: '#64748B', marginTop: 12, marginBottom: 6 },
   field: { marginTop: 12 },
   label: { fontSize: 12.5, fontWeight: '700', color: '#334155', marginBottom: 6 },
@@ -414,7 +601,6 @@ const s = StyleSheet.create({
   multilineShort: { minHeight: 70, paddingTop: 11 },
   selectInput: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   readOnly: { backgroundColor: '#F1F5F9' },
-  timeActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   selectValue: { fontSize: 14.5, color: '#0F172A' },
   placeholder: { fontSize: 14.5, color: '#94A3B8' },
   row: { flexDirection: 'row', gap: 10 },

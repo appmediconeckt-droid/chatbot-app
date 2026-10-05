@@ -4,8 +4,9 @@
 //             /api/appointments?appointment_status=completed, /api/followups
 //   consult   PATCH /api/(walkin-)appointments/:id  in-progress / pause / resume / completed
 //   breaks    GET /api/doctor-breaks/active, POST /start, PATCH /:id/end
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, Dimensions, Modal, Pressable, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { resetToLoginScreen } from '../../../navigationRef';
+import { ActivityIndicator, Alert, Animated, BackHandler, Dimensions, Easing, Modal, Pressable, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import Text from '../../../components/TranslatedText';
 import TextInput from '../../../components/TranslatedTextInput';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -44,6 +45,7 @@ import {
   fetchActiveBreak,
   formatAppointment,
   formatLocalDateKey,
+  getAppointmentSource,
   getDoctorIdFromUser,
   getStatusUpdatePayload,
   getStoredDoctorUser,
@@ -68,6 +70,9 @@ import { clearAccountLocalData } from '../../../utils/authSession';
 import UpdateReminderModal from '../../../components/UpdateReminderModal';
 
 const { width } = Dimensions.get('window');
+
+// Bottom-bar tabs; Back from a tab goes Home.
+const TAB_SCREENS = new Set(['dashboard', 'patients', 'calendar', 'staffManagement']);
 
 const sidebarRoutes = {
   appointments: 'appointments',
@@ -418,7 +423,7 @@ export default function DoctorDashboard({ navigation }) {
       try { socketService.disconnect(); } catch (e) { /* ignore */ }
       try { await clearAccountLocalData(); } catch (e) { /* ignore */ }
       setSidebarVisible(false);
-      navigation.replace('RoleSelector');
+      resetToLoginScreen(navigation);
     }
   }, [navigation]);
 
@@ -441,9 +446,20 @@ export default function DoctorDashboard({ navigation }) {
   const [patientDetailOrigin, setPatientDetailOrigin] = useState('patients');
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [isCreateStaffOpen, setIsCreateStaffOpen] = useState(false);
-  const [notificationsOrigin, setNotificationsOrigin] = useState('dashboard');
   const [isStaffProfileOpen, setIsStaffProfileOpen] = useState(false);
   const [qrOrigin, setQrOrigin] = useState('dashboard');
+  const [qrMode, setQrMode] = useState('booking');
+  // Appointment to scroll to + highlight when Appointments is opened from a
+  // notification; null for every other way in (sidebar, home stats).
+  const [appointmentFocus, setAppointmentFocus] = useState(null);
+  const appointmentOpenedFromNotificationRef = useRef(false);
+  // Plain Appointments list (sidebar, Today's schedule, home stat): no highlight,
+  // and Back goes to the tab as usual.
+  const openAppointmentsList = () => {
+    appointmentOpenedFromNotificationRef.current = false;
+    setAppointmentFocus(null);
+    setActiveScreen('appointments');
+  };
 
   // ---- web-parity dashboard state -------------------------------------
   const [doctorId, setDoctorId] = useState(null);
@@ -585,7 +601,21 @@ export default function DoctorDashboard({ navigation }) {
   const beginConsultation = async (appt) => {
     let saved;
     try {
-      const response = await patchAppointment(appt, getStatusUpdatePayload(appt, 'in-progress'));
+      let response;
+      try {
+        response = await patchAppointment(appt, getStatusUpdatePayload(appt, 'in-progress'));
+      } catch (err) {
+        // The backend's walk-in model has no "in-progress" status yet
+        // (enum: booked/pending/confirmed/completed/cancelled), so the PATCH
+        // fails validation. Fall back to "confirmed" so the doctor can still
+        // start the checkup; once the backend accepts in-progress the first
+        // request succeeds and this never runs.
+        const message = String(err?.response?.data?.message || err?.response?.data?.error || err?.message || '');
+        const walkinStatusRejected = getAppointmentSource(appt) === 'walkin'
+          && /appointment_status|not a valid enum|validation failed/i.test(message);
+        if (!walkinStatusRejected) throw err;
+        response = await patchAppointment(appt, getStatusUpdatePayload(appt, 'confirmed'));
+      }
       saved = response.data?.appointment || response.data?.data;
     } catch (err) {
       showError(err, 'Checkup could not be started.');
@@ -865,6 +895,29 @@ export default function DoctorDashboard({ navigation }) {
   // own inner pages (via useDoctorBack), then back to wherever this screen was
   // opened from, and only from Home does it leave the app.
   const backRegistry = useDoctorBackRegistry();
+
+  // WhatsApp-style Back: one level up, never a replay of every screen visited.
+  //   Home            → leaves the app
+  //   a tab           → Home
+  //   a screen opened from the header / sidebar / bottom QR → the tab it was
+  //                     opened over (sidebar hops don't stack up)
+  //   real sub-pages  → their parent (Visit → Patient, Open Card QR → Profile
+  //                     or Settings, Patient → the list it was opened from)
+  const lastTabRef = useRef('dashboard');
+  useEffect(() => {
+    if (TAB_SCREENS.has(activeScreen)) lastTabRef.current = activeScreen;
+  }, [activeScreen]);
+  const goBack = useCallback(() => {
+    let parent = lastTabRef.current;
+    if (activeScreen === 'dashboard') return;
+    if (TAB_SCREENS.has(activeScreen)) parent = 'dashboard';
+    else if (activeScreen === 'visitDetail') parent = 'patientDetail';
+    else if (activeScreen === 'patientDetail') parent = patientDetailOrigin || lastTabRef.current;
+    else if (activeScreen === 'profileQr' && qrMode === 'profile') parent = qrOrigin || lastTabRef.current;
+    else if (activeScreen === 'appointments' && appointmentOpenedFromNotificationRef.current) parent = 'notifications';
+    setActiveScreen(parent === activeScreen ? 'dashboard' : parent);
+  }, [activeScreen, patientDetailOrigin, qrMode, qrOrigin]);
+
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (editingAppointment) { setEditingAppointment(null); return true; }
@@ -874,26 +927,28 @@ export default function DoctorDashboard({ navigation }) {
       if (sidebarVisible) { setSidebarVisible(false); return true; }
       if (backRegistry.handle()) return true;
       if (activeScreen === 'dashboard') return false;
-      if (activeScreen === 'patientDetail') setActiveScreen(patientDetailOrigin);
-      else if (activeScreen === 'visitDetail') setActiveScreen('patientDetail');
-      else if (activeScreen === 'notifications') setActiveScreen(notificationsOrigin || 'dashboard');
-      else if (activeScreen === 'profileQr') setActiveScreen(qrOrigin || 'dashboard');
-      else setActiveScreen('dashboard');
+      goBack();
       return true;
     });
     return () => subscription.remove();
-  }, [activeScreen, backRegistry, breakModalVisible, completeAppointmentVisible, consentModalVisible, editingAppointment, notificationsOrigin, patientDetailOrigin, qrOrigin, sidebarVisible]);
+  }, [activeScreen, backRegistry, breakModalVisible, completeAppointmentVisible, consentModalVisible, editingAppointment, goBack, sidebarVisible]);
 
   const sidebarActiveItem = screenSidebarItems[activeScreen] ?? null;
   const openNotifications = () => {
-    setNotificationsOrigin(activeScreen);
     setActiveScreen('notifications');
   };
 
   const handleSidebarNavigate = (item) => {
     const nextScreen = sidebarRoutes[item];
     if (nextScreen) {
-      if (nextScreen === 'profileQr') setQrOrigin('dashboard');
+      if (nextScreen === 'profileQr') {
+        setQrOrigin(activeScreen);
+        setQrMode('booking');
+      }
+      if (nextScreen === 'appointments') {
+        appointmentOpenedFromNotificationRef.current = false;
+        setAppointmentFocus(null);
+      }
       setActiveScreen(nextScreen);
       setTimeout(() => setSidebarVisible(false), 120);
       return;
@@ -905,9 +960,22 @@ export default function DoctorDashboard({ navigation }) {
   // reached from the sidebar "QR Code" item or the profile's "Open Card" pill.
   const onProfilePress = () => setActiveScreen('profile');
 
-  const openQrCard = (origin = 'dashboard') => {
+  // mode 'profile' = profile QR (Open Card); 'booking' = clinic-wise Book
+  // Appointment QR (sidebar QR Code, bottom-bar QR button).
+  const openQrCard = (origin = 'dashboard', mode = 'profile') => {
     setQrOrigin(origin);
+    setQrMode(mode);
     setActiveScreen('profileQr');
+  };
+
+  // One handler for every tab's bottom bar; the raised middle button ('QR')
+  // opens the Book Appointment QR and Back returns to the tab it came from.
+  const handleBottomNav = (label) => {
+    if (label === 'Home') setActiveScreen('dashboard');
+    else if (label === 'Calendar') setActiveScreen('calendar');
+    else if (label === 'Patients') setActiveScreen('patients');
+    else if (label === 'Staff') setActiveScreen('staffManagement');
+    else if (label === 'QR') openQrCard(activeScreen, 'booking');
   };
 
   const handleSidebarProfilePress = () => {
@@ -925,7 +993,7 @@ export default function DoctorDashboard({ navigation }) {
       todayTotal={totalToday}
       todayCompleted={completed.length}
       onViewSchedule={() => {
-        setActiveScreen('appointments');
+        openAppointmentsList();
         setTimeout(() => setSidebarVisible(false), 120);
       }}
       onLogout={confirmLogout}
@@ -936,7 +1004,7 @@ export default function DoctorDashboard({ navigation }) {
     if (activeScreen === 'walkIn') {
       return (
         <SafeAreaView style={styles.safeArea}>
-          <WalkInAppointmentsScreen onBack={() => setActiveScreen('dashboard')} />
+          <WalkInAppointmentsScreen onBack={goBack} />
         </SafeAreaView>
       );
     }
@@ -944,7 +1012,7 @@ export default function DoctorDashboard({ navigation }) {
       return (
         <SafeAreaView style={styles.safeArea}>
           <DoctorSettingsScreen
-            onBack={() => setActiveScreen('dashboard')}
+            onBack={goBack}
             onOpenCard={() => openQrCard('settings')}
             onLogout={confirmLogout}
             onForceLogout={performLogout}
@@ -959,7 +1027,7 @@ export default function DoctorDashboard({ navigation }) {
         <SafeAreaView style={styles.safeArea}>
           <PatientDetailScreen
             patient={selectedListPatient}
-            onBack={() => setActiveScreen(patientDetailOrigin)}
+            onBack={goBack}
             onVisitPress={(record) => { setSelectedRecord(record); setActiveScreen('visitDetail'); }}
           />
         </SafeAreaView>
@@ -969,7 +1037,7 @@ export default function DoctorDashboard({ navigation }) {
     if (activeScreen === 'visitDetail' && selectedListPatient && selectedRecord) {
       return (
         <SafeAreaView style={styles.safeArea}>
-          <VisitDetailScreen patient={selectedListPatient} record={selectedRecord} onBack={() => setActiveScreen('patientDetail')} />
+          <VisitDetailScreen patient={selectedListPatient} record={selectedRecord} onBack={goBack} />
         </SafeAreaView>
       );
     }
@@ -977,15 +1045,11 @@ export default function DoctorDashboard({ navigation }) {
     if (activeScreen === 'patients') {
       return (
         <SafeAreaView style={styles.safeArea}>
-          <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} onSettingsPress={() => setActiveScreen('settings')} />
+          <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} />
           <PatientsScreen onPatientPress={(patient) => { setSelectedListPatient(patient); setPatientDetailOrigin('patients'); setActiveScreen('patientDetail'); }} />
           <DoctorBottomNavigation
             active="Patients"
-            onChange={(label) => {
-              if (label === 'Home') setActiveScreen('dashboard');
-              if (label === 'Calendar') setActiveScreen('calendar');
-              if (label === 'Staff') setActiveScreen('staffManagement');
-            }}
+            onChange={handleBottomNav}
           />
           {renderSidebar()}
         </SafeAreaView>
@@ -995,15 +1059,11 @@ export default function DoctorDashboard({ navigation }) {
     if (activeScreen === 'calendar') {
       return (
         <SafeAreaView style={styles.safeArea}>
-          <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} onSettingsPress={() => setActiveScreen('settings')} />
+          <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} />
           <CalendarAvailabilityScreen />
           <DoctorBottomNavigation
             active="Calendar"
-            onChange={(label) => {
-              if (label === 'Home') setActiveScreen('dashboard');
-              if (label === 'Patients') setActiveScreen('patients');
-              if (label === 'Staff') setActiveScreen('staffManagement');
-            }}
+            onChange={handleBottomNav}
           />
           {renderSidebar()}
         </SafeAreaView>
@@ -1013,7 +1073,7 @@ export default function DoctorDashboard({ navigation }) {
     if (activeScreen === 'appointments') {
       return (
         <SafeAreaView style={styles.safeArea}>
-          <AppointmentsListScreen onBack={() => setActiveScreen('dashboard')} />
+          <AppointmentsListScreen key={appointmentFocus || 'all'} focusAppointmentId={appointmentFocus} onBack={goBack} />
         </SafeAreaView>
       );
     }
@@ -1021,7 +1081,7 @@ export default function DoctorDashboard({ navigation }) {
     if (activeScreen === 'profile') {
       return (
         <SafeAreaView style={styles.safeArea}>
-          <DoctorProfileScreen onBack={() => setActiveScreen('dashboard')} onOpenCard={() => openQrCard('profile')} />
+          <DoctorProfileScreen onBack={goBack} onOpenCard={() => openQrCard('profile')} />
         </SafeAreaView>
       );
     }
@@ -1029,7 +1089,13 @@ export default function DoctorDashboard({ navigation }) {
     if (activeScreen === 'profileQr') {
       return (
         <SafeAreaView style={styles.safeArea}>
-          <DoctorProfileQrScreen onBack={() => setActiveScreen(qrOrigin)} />
+          {/* Sidebar "QR Code" / bottom-bar QR = clinic-wise Book
+              Appointment QR; Profile / Settings "Open Card" = profile QR. */}
+          <DoctorProfileQrScreen
+            key={qrMode}
+            mode={qrMode}
+            onBack={goBack}
+          />
           {renderSidebar()}
         </SafeAreaView>
       );
@@ -1038,7 +1104,7 @@ export default function DoctorDashboard({ navigation }) {
     if (activeScreen === 'clinic') {
       return (
         <SafeAreaView style={styles.safeArea}>
-          <ClinicPageScreen onBack={() => setActiveScreen('dashboard')} />
+          <ClinicPageScreen onBack={goBack} />
         </SafeAreaView>
       );
     }
@@ -1046,7 +1112,7 @@ export default function DoctorDashboard({ navigation }) {
     if (activeScreen === 'followUps') {
       return (
         <SafeAreaView style={styles.safeArea}>
-          <FollowUpsScreen onBack={() => setActiveScreen('dashboard')} />
+          <FollowUpsScreen onBack={goBack} />
         </SafeAreaView>
       );
     }
@@ -1054,7 +1120,14 @@ export default function DoctorDashboard({ navigation }) {
     if (activeScreen === 'notifications') {
       return (
         <SafeAreaView style={styles.safeArea}>
-          <NotificationsScreen onBack={() => setActiveScreen(notificationsOrigin)} />
+          <NotificationsScreen
+            onBack={goBack}
+            onOpenAppointment={(appointmentId) => {
+              appointmentOpenedFromNotificationRef.current = true;
+              setAppointmentFocus(appointmentId || null);
+              setActiveScreen('appointments');
+            }}
+          />
         </SafeAreaView>
       );
     }
@@ -1063,16 +1136,12 @@ export default function DoctorDashboard({ navigation }) {
       const staffSubscreenOpen = isCreateStaffOpen || isStaffProfileOpen;
       return (
         <SafeAreaView style={styles.safeArea}>
-          {!staffSubscreenOpen && <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} onSettingsPress={() => setActiveScreen('settings')} />}
+          {!staffSubscreenOpen && <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} />}
           <StaffManagementScreen onCreateStaffOpenChange={setIsCreateStaffOpen} onStaffProfileOpenChange={setIsStaffProfileOpen} />
           {!staffSubscreenOpen && (
             <DoctorBottomNavigation
               active="Staff"
-              onChange={(label) => {
-                if (label === 'Home') setActiveScreen('dashboard');
-                if (label === 'Calendar') setActiveScreen('calendar');
-                if (label === 'Patients') setActiveScreen('patients');
-              }}
+              onChange={handleBottomNav}
             />
           )}
           {!staffSubscreenOpen && renderSidebar()}
@@ -1129,7 +1198,7 @@ export default function DoctorDashboard({ navigation }) {
               <OverviewCard
                 key={item.title}
                 {...item}
-                onPress={item.title.startsWith("Today's") ? () => setActiveScreen('appointments') : undefined}
+                onPress={item.title.startsWith("Today's") ? openAppointmentsList : undefined}
               />
             ))}
           </View>
@@ -1183,7 +1252,7 @@ export default function DoctorDashboard({ navigation }) {
 
     return (
       <SafeAreaView style={styles.safeArea}>
-        <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} onSettingsPress={() => setActiveScreen('settings')} />
+        <DoctorHeader onMenuPress={() => setSidebarVisible(true)} onProfilePress={onProfilePress} onNotificationsPress={openNotifications} />
         {renderHomeBody()}
 
         <BreakModal visible={breakModalVisible} onClose={() => setBreakModalVisible(false)} onStartBreak={handleStartBreak} />
@@ -1215,11 +1284,7 @@ export default function DoctorDashboard({ navigation }) {
         )}
         <DoctorBottomNavigation
           active="Home"
-          onChange={(label) => {
-            if (label === 'Patients') setActiveScreen('patients');
-            if (label === 'Calendar') setActiveScreen('calendar');
-            if (label === 'Staff') setActiveScreen('staffManagement');
-          }}
+          onChange={handleBottomNav}
         />
         {renderSidebar()}
       </SafeAreaView>
@@ -1228,7 +1293,9 @@ export default function DoctorDashboard({ navigation }) {
 
   return (
     <DoctorBackContext.Provider value={backRegistry}>
-      {renderScreen()}
+      <ZoomScreen screenKey={activeScreen}>
+        {renderScreen()}
+      </ZoomScreen>
       {/* Play Store "update available" reminder, same as the patient and
           consultant dashboards (popup + notification, twice per version). */}
       <UpdateReminderModal variant="doctor" />
@@ -1251,6 +1318,59 @@ export default function DoctorDashboard({ navigation }) {
         />
       )}
     </DoctorBackContext.Provider>
+  );
+}
+
+// How deep a screen sits, so a screen change can tell forward from back:
+// Home → tabs → detail pages → nested detail.
+const SCREEN_DEPTH = { dashboard: 0, patients: 1, calendar: 1, staffManagement: 1, patientDetail: 3, visitDetail: 4 };
+const screenDepth = (key) => SCREEN_DEPTH[key] ?? 2;
+const SCREEN_TRANSITION_MS = 230;
+
+// Every doctor screen change animates (it used to swap instantly): opening a
+// screen zooms in from slightly small, going back zooms out from slightly
+// large, both with a quick fade. Native driver, so it stays smooth.
+function ZoomScreen({ screenKey, children }) {
+  const progress = useRef(new Animated.Value(1)).current;
+  const previousKey = useRef(screenKey);
+  const [fromScale, setFromScale] = useState(1);
+
+  // Layout effect: reset before the new screen paints, so it never flashes at
+  // full size for a frame before animating.
+  useLayoutEffect(() => {
+    if (previousKey.current === screenKey) return;
+    const fromKey = previousKey.current;
+    previousKey.current = screenKey;
+    // Switching between bottom tabs (Home / Calendar / Patients / Staff) is
+    // instant, like WhatsApp's tabs — zooming there felt jumpy. Only opening
+    // or closing a screen animates.
+    if (TAB_SCREENS.has(fromKey) && TAB_SCREENS.has(screenKey)) {
+      progress.stopAnimation();
+      progress.setValue(1);
+      setFromScale(1);
+      return;
+    }
+    const goingBack = screenDepth(screenKey) < screenDepth(fromKey);
+    setFromScale(goingBack ? 1.06 : 0.92);
+    progress.setValue(0);
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: SCREEN_TRANSITION_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [screenKey, progress]);
+
+  return (
+    <Animated.View
+      style={{
+        flex: 1,
+        opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] }),
+        transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [fromScale, 1] }) }],
+      }}
+    >
+      {children}
+    </Animated.View>
   );
 }
 

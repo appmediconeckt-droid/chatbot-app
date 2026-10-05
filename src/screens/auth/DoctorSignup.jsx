@@ -246,12 +246,6 @@ const DoctorSignup = ({ navigation, route }) => {
     if (!formData.gender) next.gender = 'Gender is required';
     if (!formData.qualification) next.qualification = 'Qualification required';
     if (!formData.specialization) next.specialization = 'Specialization required';
-    // Doctor accounts are Psychiatrists on this backend (see AUTH comment
-    // above) — the Doctor/Consultant badge and Health Vitals gate elsewhere
-    // in the app only recognize "psychiatrist" in the specialization text.
-    else if (!/psychiatr/i.test(formData.specialization)) {
-      next.specialization = 'Must include "Psychiatrist" (e.g. Child & Adolescent Psychiatrist)';
-    }
     if (!formData.experience) next.experience = 'Experience required';
     if (formData.consultationMode.length === 0) next.consultationMode = 'Select mode';
     if (!formData.aboutMe) next.aboutMe = 'About me required';

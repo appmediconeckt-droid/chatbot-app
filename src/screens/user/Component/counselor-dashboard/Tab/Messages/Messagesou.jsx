@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { resetToLoginScreen } from '../../../../../../navigationRef';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import {
@@ -151,10 +152,7 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
 
   const handleSessionExpired = useCallback(() => {
     AsyncStorage.multiRemove(['token', 'accessToken', 'userData']);
-    navigation.replace('RoleSelector', {
-      reason: 'session-expired',
-      message: 'Your session has expired. Please log in again.',
-    });
+    resetToLoginScreen(navigation);
   }, [navigation]);
 
   const formatTime = (timeString) => {

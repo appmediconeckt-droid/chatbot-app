@@ -20,6 +20,23 @@ class ScreenshotPreventModule(private val reactContext: ReactApplicationContext)
         }
     }
 
+    // Clinic queue display: keep the screen on while it is showing on the TV.
+    @ReactMethod
+    fun keepScreenOn() {
+        val activity = reactContext.currentActivity ?: return
+        activity.runOnUiThread {
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    @ReactMethod
+    fun allowScreenOff() {
+        val activity = reactContext.currentActivity ?: return
+        activity.runOnUiThread {
+            activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     @ReactMethod
     fun disable() {
         val activity = reactContext.currentActivity ?: return

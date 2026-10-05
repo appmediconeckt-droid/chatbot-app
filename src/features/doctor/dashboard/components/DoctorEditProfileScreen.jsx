@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useContext, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
@@ -11,6 +11,12 @@ import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { API_BASE_URL } from '../../../../axiosConfig';
 import { launchImageLibrary } from 'react-native-image-picker';
 import LocationPicker from './LocationPicker';
+import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
+
+// Edge-to-edge Android doesn't shrink the window for the keyboard, so the
+// form reserves the keyboard's height at the bottom and scrolls the focused
+// field into view — every field (down to Location) stays reachable.
+const KeyboardFocusContext = React.createContext(undefined);
 
 function toInitial(profile) {
   return {
@@ -25,6 +31,13 @@ function toInitial(profile) {
 
 export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
   const { showToast } = useToast();
+  const {
+    scrollRef,
+    keyboardInset,
+    scrollFocusedInputIntoView,
+    handleKeyboardAwareScroll,
+    handleKeyboardAwareScrollLayout,
+  } = useKeyboardAwareScroll();
   const [form, setForm] = useState(() => toInitial(profile));
   const set = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value }));
   const [specialization, setSpecialization] = useState(() =>
@@ -105,7 +118,16 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
           <Text style={s.cancelLink}>Cancel</Text>
         </Pressable>
       </View>
-      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+      <KeyboardFocusContext.Provider value={scrollFocusedInputIntoView}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={[s.content, { paddingBottom: 30 + keyboardInset }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        onScroll={handleKeyboardAwareScroll}
+        onLayout={handleKeyboardAwareScrollLayout}
+        scrollEventThrottle={16}
+      >
 
         <View style={s.profileCard}>
           <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.banner} />
@@ -137,6 +159,7 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
             value={form.summary}
             onChangeText={set('summary')}
             multiline
+            onFocus={scrollFocusedInputIntoView}
             style={s.summaryInput}
             placeholder="Write a short professional summary"
             placeholderTextColor="#94A3B8"
@@ -151,6 +174,7 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
           <LocationPicker value={form.location} onChange={set('location')} />
         </Section>
       </ScrollView>
+      </KeyboardFocusContext.Provider>
     </View>
   );
 }
@@ -168,6 +192,7 @@ function Section({ icon, label, children }) {
 }
 
 function Field({ label, value, onChangeText, half, keyboardType }) {
+  const onFocus = useContext(KeyboardFocusContext);
   return (
     <View style={[s.field, half && s.fieldHalf]}>
       <Text style={s.fieldLabel}>{label}</Text>
@@ -177,12 +202,14 @@ function Field({ label, value, onChangeText, half, keyboardType }) {
         style={s.fieldInput}
         placeholderTextColor="#94A3B8"
         keyboardType={keyboardType}
+        onFocus={onFocus}
       />
     </View>
   );
 }
 
 function ChipEditor({ label, items, onChange, muted, style }) {
+  const onInputFocus = useContext(KeyboardFocusContext);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
 
@@ -219,6 +246,7 @@ function ChipEditor({ label, items, onChange, muted, style }) {
             value={draft}
             onChangeText={setDraft}
             placeholder="Type and confirm"
+            onFocus={onInputFocus}
             placeholderTextColor="#94A3B8"
             style={s.addInput}
             autoFocus

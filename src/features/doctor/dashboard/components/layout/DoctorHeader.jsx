@@ -14,7 +14,7 @@ import { toDoctorNotifications } from '../NotificationsScreen';
 // Fallback refresh for the bell when the socket isn't delivering events.
 const UNREAD_POLL_MS = 60000;
 
-export default function DoctorHeader({ onMenuPress, onProfilePress, onNotificationsPress, onSettingsPress }) {
+export default function DoctorHeader({ onMenuPress, onProfilePress, onNotificationsPress }) {
   const [doctorName, setDoctorName] = useState('Doctor');
   // Unread notifications (same list and rules as the Notifications screen).
   // The red badge used to be drawn always, whether or not anything was unread.
@@ -45,10 +45,8 @@ export default function DoctorHeader({ onMenuPress, onProfilePress, onNotificati
       <View style={styles.titleArea}>
         <Text translate={false} style={styles.doctor} numberOfLines={1} ellipsizeMode="tail">{displayName}</Text>
       </View>
+      {/* No Settings gear here: Settings is in the sidebar. */}
       <View style={styles.actions}>
-        <Pressable accessibilityLabel="Settings" style={styles.actionButton} onPress={onSettingsPress}>
-          <AppIcon name="settings" size={17} strokeWidth={1.9} color="#20242C" />
-        </Pressable>
         <Pressable
           accessibilityLabel={unread ? `Notifications, ${unread} unread` : 'Notifications'}
           style={[styles.actionButton, styles.bell]}

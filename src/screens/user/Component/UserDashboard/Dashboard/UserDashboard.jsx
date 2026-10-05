@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { resetToLoginScreen } from '../../../../../navigationRef';
 import { useTranslation } from 'react-i18next';
 import useLanguageRender from '../../../../../hooks/useLanguageRender';
 import {
@@ -70,6 +71,7 @@ import { parseWalkInQr } from "../Tab/QrScanner/walkInQr";
 import UserAccountSettings from "../Tab/UserAccountSettings";
 import PrescriptionScreen from "../Tab/Prescription/PrescriptionScreen";
 import TokenStatusScreen from "../Tab/Token/TokenStatusScreen";
+import { formatTimer, getLiveTokenTiming } from "../Tab/Token/tokenTiming";
 import HealthVitalsCard from "../Tab/HealthVitals/HealthVitalsCard";
 import { isPsychiatristSpecialization } from "../../../../../components/common/PsychiatristDirectory";
 import { toImageUri } from "../../../../../utils/imageUri";
@@ -1036,6 +1038,104 @@ const isDoctorAppointment = (apt, doctorIds) => {
   return !!id && doctorIds.has(String(id));
 };
 
+// In-clinic (OPD / walk-in / emergency) doctor visits happen in person, so they
+// get the live token queue instead of video / voice / chat. DoctorBookingModal
+// sends consultation_mode 'in-clinic' | 'video' | 'voice'; older rows may only
+// carry a clinic or token, so those count as clinic visits unless a remote mode
+// is named.
+const getAptConsultMode = (apt) => String(
+  apt?.consultation_mode || apt?.consultationMode || apt?.mode || apt?.sessionType
+  || apt?.appointment_type || apt?.visit_type || ''
+).trim().toLowerCase();
+
+const isClinicVisitAppointment = (apt) => {
+  if (!apt) return false;
+  const mode = getAptConsultMode(apt);
+  if (/clinic|opd|in[-_ ]?person|offline|walk[-_ ]?in/.test(mode)) return true;
+  if (/video|voice|audio|call|online|chat/.test(mode)) return false;
+  return Boolean(
+    apt.clinic_id || apt.clinicId || apt.clinic
+    || apt.token_number != null || apt.tokenNumber != null || apt.queue_token != null
+  );
+};
+
+const getAptId = (apt) => String(apt?._id || apt?.id || apt?.appointmentId || apt?.appointment_id || '');
+const getTokenItemAptId = (item) => String(
+  item?.appointment?.appointmentId || item?.appointment?._id || item?.appointment?.id || item?._id || item?.id || ''
+);
+const showQueueValue = (value, suffix = '') => (value != null && value !== '' ? `${value}${suffix}` : '--');
+const formatTurnTime = (value) => {
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
+};
+const CLINIC_QUEUE_POLL_MS = 10000;
+
+// Live queue for one clinic-visit appointment, from the same endpoint and
+// `queueUpdated` socket event as the My Token screen. Only runs while enabled
+// (the details sheet is open on a clinic visit).
+const useClinicQueue = (apt, enabled) => {
+  const [item, setItem] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const [clockOffset, setClockOffset] = useState(0);
+  const aptId = getAptId(apt);
+  const aptToken = apt?.token_number ?? apt?.tokenNumber ?? apt?.queue_token ?? apt?.token;
+
+  useEffect(() => {
+    if (!enabled) {
+      setItem(null);
+      return undefined;
+    }
+    let cancelled = false;
+    let unsubscribe = null;
+    let debounceId = null;
+    setNow(Date.now());
+
+    const load = async (silent) => {
+      try {
+        if (!silent) setLoading(true);
+        const res = await axiosInstance.get('/api/appointments/my-token-status', { headers: { 'Cache-Control': 'no-cache' } });
+        if (cancelled) return;
+        const list = Array.isArray(res.data?.appointments) ? res.data.appointments : [];
+        const match = list.find((entry) => aptId && getTokenItemAptId(entry) === aptId)
+          || (aptToken != null ? list.find((entry) => String(entry?.token?.myToken) === String(aptToken)) : null)
+          || null;
+        setItem(match);
+        const serverTime = Date.parse(match?.current?.serverTime);
+        if (Number.isFinite(serverTime)) setClockOffset(serverTime - Date.now());
+      } catch (err) {
+        console.warn('Failed to load clinic queue:', err?.response?.data || err?.message);
+      } finally {
+        if (!cancelled && !silent) setLoading(false);
+      }
+    };
+
+    load(false);
+    const pollId = setInterval(() => load(true), CLINIC_QUEUE_POLL_MS);
+    const tickId = setInterval(() => setNow(Date.now()), 1000);
+    (async () => {
+      try {
+        await socketService.connect();
+        const off = await socketService.on('queueUpdated', () => {
+          clearTimeout(debounceId);
+          debounceId = setTimeout(() => load(true), 500);
+        });
+        if (cancelled) off?.(); else unsubscribe = off;
+      } catch (e) { /* polling still keeps it fresh */ }
+    })();
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollId);
+      clearInterval(tickId);
+      clearTimeout(debounceId);
+      try { unsubscribe?.(); } catch (e) { /* ignore */ }
+    };
+  }, [enabled, aptId, aptToken]);
+
+  return { item, loading, now: now + clockOffset, fallbackToken: aptToken };
+};
+
 const counselorDisplayName = (apt) => {
   const name = String(apt?.counselor?.fullName || '').trim() || 'Counselor';
   return /^(dr\.?|doctor)\s/i.test(name) ? name : `Dr. ${name}`;
@@ -1086,6 +1186,25 @@ const sheetStyles = StyleSheet.create({
   closePastBtnWrap: { borderRadius: 12, overflow: 'hidden' },
   closePastBtn: { paddingVertical: 12, alignItems: 'center' },
   closePastText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
+  queueCard: { backgroundColor: PATIENT.backgroundTint, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#E6F6EC', gap: 10 },
+  queueHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  queueHeadLabel: { fontSize: 11.5, fontWeight: '600', color: '#64748b' },
+  queueTokenValue: { fontSize: 30, fontWeight: '900', color: PATIENT.primary, marginTop: 1 },
+  queueServingBox: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: '#E6F6EC' },
+  queueServingLabel: { fontSize: 10.5, fontWeight: '700', color: '#94a3b8', letterSpacing: 0.4 },
+  queueServingValue: { fontSize: 22, fontWeight: '900', color: '#0f172a', marginTop: 1 },
+  queueCountdownRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ffffff', borderRadius: 12, padding: 10 },
+  queueStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#ffffff', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
+  queueStatusRowTurn: { backgroundColor: PATIENT.primary },
+  queueStatusText: { flex: 1, fontSize: 12.5, fontWeight: '600', color: '#0f172a' },
+  queueStatusTextTurn: { color: '#ffffff', fontWeight: '800' },
+  queueStatsRow: { flexDirection: 'row', gap: 8 },
+  queueStat: { flex: 1, alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 10, paddingVertical: 8 },
+  queueStatValue: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
+  queueStatLabel: { fontSize: 10.5, fontWeight: '600', color: '#64748b', marginTop: 2, textAlign: 'center' },
+  queueNote: { fontSize: 11.5, fontWeight: '500', color: '#64748b', textAlign: 'center' },
+  queueClinicRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  queueClinicText: { flex: 1, fontSize: 12, fontWeight: '600', color: '#64748b' },
   joinBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 12, marginBottom: 10 },
   joinBtnDisabled: { opacity: 0.55 },
   joinText: { fontSize: 15, fontWeight: '800', color: '#ffffff' },
@@ -1120,6 +1239,9 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
+  // Only a doctor appointment booked as a clinic visit drops the calls for the
+  // live token queue; consultant appointments always keep video/voice/chat.
+  const isDoctorClinicVisit = (apt) => isDoctorAppointment(apt, doctorIds) && isClinicVisitAppointment(apt);
   // The details sheet is a Modal, so it sits OUTSIDE the screen's SafeAreaView
   // and nothing was compensating for the device's bottom inset. On a phone with
   // gesture navigation the footer's Chat / Call row ran under the system bar.
@@ -1283,12 +1405,18 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const statusRaw = selectedApt?.status || "pending";
   const statusLower = String(statusRaw).toLowerCase();
   const statusCap = statusLower.charAt(0).toUpperCase() + statusLower.slice(1);
-  const modeLabel = selectedApt?.mode || selectedApt?.sessionType || "Video Call";
+  const selectedIsClinicVisit = isDoctorClinicVisit(selectedApt);
+  const modeLabel = selectedIsClinicVisit
+    ? t('In-Clinic Visit')
+    : selectedApt?.mode || selectedApt?.sessionType || "Video Call";
   const durationLabel = selectedApt?.duration ? `${selectedApt.duration} Minutes` : "45 Minutes";
   const aptTime = aptDate?.getTime?.() ?? NaN;
   const hasValidAptTime = Number.isFinite(aptTime);
   const sessionHasStarted = hasValidAptTime && aptTime <= Date.now();
-  const isPast = TERMINAL_APT_STATUSES.has(normalizeAptStatus(statusLower)) || (sessionHasStarted && !isUnscheduledEmergency(selectedApt));
+  // A clinic visit runs on the token queue, not the booked minute: the patient
+  // can still be waiting after that time, so only a final status ends it.
+  const isPast = TERMINAL_APT_STATUSES.has(normalizeAptStatus(statusLower))
+    || (!selectedIsClinicVisit && sessionHasStarted && !isUnscheduledEmergency(selectedApt));
   const isJoinDisabled = !sessionHasStarted || statusLower === "completed" || statusLower === "canceled";
   // Extract real talk duration from appointment data
   const getTalkDuration = () => {
@@ -1304,6 +1432,47 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     return selectedApt?.duration || "45";
   };
   const talkDuration = getTalkDuration();
+
+  // ---- Live token queue (clinic visits only) ----
+  const clinicQueue = useClinicQueue(selectedApt, showDetailsModal && selectedIsClinicVisit && !isPast);
+  const queueToken = clinicQueue.item?.token || {};
+  const queueCurrent = clinicQueue.item?.current || {};
+  const queueInfo = clinicQueue.item?.queue || {};
+  const myTokenNo = queueToken.myToken ?? clinicQueue.fallbackToken;
+  const nowServingNo = queueCurrent.currentToken;
+  const queueTiming = getLiveTokenTiming(queueCurrent, queueInfo, clinicQueue.now);
+  const queueWait = queueTiming.waiting != null
+    ? formatTimer(queueTiming.waiting)
+    : showQueueValue(queueInfo.estimatedWaitMinutes, ' min');
+  const queueStatusText = queueCurrent.isYourTurn
+    ? t("It's your turn! Please go to the doctor's cabin.")
+    : queueCurrent.doctorStatus === 'consulting'
+      ? t('Doctor is consulting. Please wait for your token.')
+      : queueCurrent.doctorStatus === 'paused' || queueCurrent.doctorStatus === 'break'
+        ? t('Doctor is on a short break. The queue will resume soon.')
+        : t('Consultation has not started yet.');
+  // Live "your turn in" countdown (HH:MM:SS, ticks every second on server
+  // time). The queue ETA moves as patients are seen, but a turn never comes
+  // before the booked time, so the later of the two is counted down to.
+  const queueEtaMs = Date.parse(queueInfo.estimatedTurnTime);
+  const turnTargetMs = Math.max(
+    hasValidAptTime ? aptTime : -Infinity,
+    Number.isFinite(queueEtaMs) ? queueEtaMs : -Infinity,
+  );
+  const turnLeftSec = Number.isFinite(turnTargetMs)
+    ? Math.max(0, Math.floor((turnTargetMs - clinicQueue.now) / 1000))
+    : null;
+  const turnCountdown = turnLeftSec == null
+    ? '--:--:--'
+    : [Math.floor(turnLeftSec / 3600), Math.floor((turnLeftSec % 3600) / 60), turnLeftSec % 60]
+      .map((n) => String(n).padStart(2, '0')).join(':');
+  const turnCountdownLabel = queueCurrent.isYourTurn
+    ? t("It's your turn now")
+    : turnLeftSec === 0
+      ? t('Your turn is coming up any moment')
+      : t('Your turn in');
+  const clinicName = selectedApt?.clinic?.name || selectedApt?.clinic?.clinic_name
+    || (typeof selectedApt?.clinic === 'string' ? selectedApt.clinic : '') || selectedApt?.clinic_name || '';
 
   return (
     <View style={styles.appointmentsRoot}>
@@ -1457,31 +1626,28 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   </Text>
                 </TouchableOpacity>
 
-                {/* Action Buttons: Video, Voice, Chat */}
-                <TouchableOpacity
-                  style={styles.aptActionIconBtn}
-                  onPress={() => onVideoCall && onVideoCall(apt)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="videocam-outline" size={19} color={PATIENT.primary} />
-                </TouchableOpacity>
+                {/* Quick Video / Voice only on a doctor's video/voice
+                    consultation. Consultant cards show just View Details (their
+                    video, voice and chat are inside the details sheet), and a
+                    doctor's in-clinic visit is in person. */}
+                {isDoctorAppointment(apt, doctorIds) && !isDoctorClinicVisit(apt) && (
+                  <>
+                    <TouchableOpacity
+                      style={styles.aptActionIconBtn}
+                      onPress={() => onVideoCall && onVideoCall(apt)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="videocam-outline" size={19} color={PATIENT.primary} />
+                    </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.aptActionIconBtn}
-                  onPress={() => onVoiceCall && onVoiceCall(apt)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="call-outline" size={19} color={PATIENT.primary} />
-                </TouchableOpacity>
-
-                {!isDoctorAppointment(apt, doctorIds) && (
-                  <TouchableOpacity
-                    style={styles.aptActionIconBtn}
-                    onPress={() => onChat && onChat(apt)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="chatbubble-outline" size={19} color={PATIENT.primary} />
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.aptActionIconBtn}
+                      onPress={() => onVoiceCall && onVoiceCall(apt)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="call-outline" size={19} color={PATIENT.primary} />
+                    </TouchableOpacity>
+                  </>
                 )}
               </View>
             </View>
@@ -1559,8 +1725,87 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 </View>
               </View>
 
-              {/* Countdown banner (upcoming) OR Session summary (past) */}
-              {!isPast ? (
+              {/* Live token queue (clinic visit) OR Countdown banner (upcoming)
+                  OR Session summary (past) */}
+              {!isPast && selectedIsClinicVisit ? (
+                <View style={sheetStyles.queueCard}>
+                  <View style={sheetStyles.queueHeadRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={sheetStyles.queueHeadLabel}>{t('Your Token')}</Text>
+                      <Text style={sheetStyles.queueTokenValue}>
+                        {myTokenNo != null ? `#${myTokenNo}` : '--'}
+                      </Text>
+                    </View>
+                    <View style={sheetStyles.queueServingBox}>
+                      <Text style={sheetStyles.queueServingLabel}>{t('Now Serving')}</Text>
+                      <Text style={sheetStyles.queueServingValue}>
+                        {nowServingNo != null ? `#${nowServingNo}` : '--'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={sheetStyles.queueCountdownRow}>
+                    <LinearGradient
+                      colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                      style={sheetStyles.countIcon}
+                    >
+                      <Ionicons name="time-outline" size={22} color="#ffffff" />
+                    </LinearGradient>
+                    <View style={{ flex: 1 }}>
+                      <Text style={sheetStyles.countLabel}>{turnCountdownLabel}</Text>
+                      <Text style={sheetStyles.countValue}>
+                        {queueCurrent.isYourTurn ? '00:00:00' : turnCountdown}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text style={sheetStyles.countDay}>{dayLabel}</Text>
+                      <Text style={sheetStyles.countTime}>{timeLabel}</Text>
+                    </View>
+                  </View>
+
+                  <View style={[sheetStyles.queueStatusRow, queueCurrent.isYourTurn && sheetStyles.queueStatusRowTurn]}>
+                    {clinicQueue.loading && !clinicQueue.item ? (
+                      <ActivityIndicator size="small" color={PATIENT.primary} />
+                    ) : (
+                      <Ionicons
+                        name={queueCurrent.isYourTurn ? 'notifications' : 'hourglass-outline'}
+                        size={16}
+                        color={queueCurrent.isYourTurn ? '#ffffff' : PATIENT.primary}
+                      />
+                    )}
+                    <Text style={[sheetStyles.queueStatusText, queueCurrent.isYourTurn && sheetStyles.queueStatusTextTurn]}>
+                      {clinicQueue.loading && !clinicQueue.item ? t('Loading live queue...') : queueStatusText}
+                    </Text>
+                  </View>
+
+                  <View style={sheetStyles.queueStatsRow}>
+                    <View style={sheetStyles.queueStat}>
+                      <Text style={sheetStyles.queueStatValue}>{showQueueValue(queueInfo.patientsAhead)}</Text>
+                      <Text style={sheetStyles.queueStatLabel}>{t('People ahead')}</Text>
+                    </View>
+                    <View style={sheetStyles.queueStat}>
+                      <Text style={sheetStyles.queueStatValue}>{queueWait}</Text>
+                      <Text style={sheetStyles.queueStatLabel}>{t('Est. wait')}</Text>
+                    </View>
+                    <View style={sheetStyles.queueStat}>
+                      <Text style={sheetStyles.queueStatValue}>{formatTurnTime(queueInfo.estimatedTurnTime)}</Text>
+                      <Text style={sheetStyles.queueStatLabel}>{t('Expected turn')}</Text>
+                    </View>
+                  </View>
+
+                  {!clinicQueue.loading && !clinicQueue.item && (
+                    <Text style={sheetStyles.queueNote}>
+                      {t('Live queue starts on your appointment day once the clinic opens.')}
+                    </Text>
+                  )}
+                  {!!clinicName && (
+                    <View style={sheetStyles.queueClinicRow}>
+                      <Ionicons name="business-outline" size={13} color="#64748b" />
+                      <Text style={sheetStyles.queueClinicText} numberOfLines={1}>{clinicName}</Text>
+                    </View>
+                  )}
+                </View>
+              ) : !isPast ? (
                 <View style={sheetStyles.countBanner}>
                   <LinearGradient
                     colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
@@ -1586,8 +1831,12 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     <Ionicons name="checkmark-circle" size={22} color="#10b981" />
                   </LinearGradient>
                   <View style={{ flex: 1 }}>
-                    <Text style={sheetStyles.pastLabel}>{t('Session Completed')}</Text>
-                    <Text style={sheetStyles.pastValue}>Talk time: {talkDuration} mins</Text>
+                    <Text style={sheetStyles.pastLabel}>
+                      {selectedIsClinicVisit ? t('Visit') : t('Session Completed')}
+                    </Text>
+                    <Text style={sheetStyles.pastValue}>
+                      {selectedIsClinicVisit ? statusCap : `Talk time: ${talkDuration} mins`}
+                    </Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
                     <Text style={sheetStyles.pastDay}>{t('Ended')}</Text>
@@ -1631,7 +1880,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 </View>
               </View>
 
-              {!isPast ? (
+              {!isPast && !selectedIsClinicVisit ? (
                 <View style={sheetStyles.inlineFooter}>
                   <TouchableOpacity
                     activeOpacity={isJoinDisabled ? 1 : 0.9}
@@ -1779,21 +2028,42 @@ export default function UserDashboard() {
   const handleQrScanned = useCallback((value) => {
     const walkIn = parseWalkInQr(value);
     setShowQrScanner(false);
+    const showScanError = (title, message) => setTimeout(() => {
+      Alert.alert(title, message, [
+        { text: t('Close'), style: 'cancel' },
+        { text: t('Scan Again'), onPress: () => setShowQrScanner(true) },
+      ]);
+    }, MODAL_DISMISS_MS);
+
+    // Clinic walk-in QR (https://…/walkin/<doctorClinicId>): look up which
+    // doctor and clinic it belongs to, then open the same booking form.
+    if (walkIn?.doctorClinicId) {
+      axios.get(`${API_BASE_URL}/api/qr/walkin/${encodeURIComponent(walkIn.doctorClinicId)}`)
+        .then(({ data }) => {
+          const info = data?.data || {};
+          const doctorId = info.doctorId || info.doctor?.id;
+          if (!doctorId) throw new Error('missing doctor');
+          setWalkInBooking({
+            doctorId: String(doctorId),
+            clinicId: info.clinicId || info.clinic?.id ? String(info.clinicId || info.clinic.id) : null,
+            source: 'qr',
+          });
+        })
+        .catch(() => showScanError(
+          t('QR not active'),
+          t("This clinic's walk-in QR is no longer active. Please ask the clinic reception."),
+        ));
+      return;
+    }
     if (walkIn) {
       // Let the scanner modal finish closing before the form slides in.
       setTimeout(() => setWalkInBooking(walkIn), MODAL_DISMISS_MS);
       return;
     }
-    setTimeout(() => {
-      Alert.alert(
-        t('Not a Humaeli QR code'),
-        t("Scan the QR code shown at your doctor's clinic to book a walk-in visit."),
-        [
-          { text: t('Close'), style: 'cancel' },
-          { text: t('Scan Again'), onPress: () => setShowQrScanner(true) },
-        ],
-      );
-    }, MODAL_DISMISS_MS);
+    showScanError(
+      t('Not a Humaeli QR code'),
+      t("Scan the QR code shown at your doctor's clinic to book a walk-in visit."),
+    );
   }, [t]);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -2602,12 +2872,12 @@ export default function UserDashboard() {
 
       await AsyncStorage.clear();
       setShowLogoutConfirm(false);
-      navigation.replace("RoleSelector");
+      resetToLoginScreen(navigation);
     } catch (error) {
       console.error("Logout error:", error);
       await AsyncStorage.clear();
       setShowLogoutConfirm(false);
-      navigation.replace("RoleSelector");
+      resetToLoginScreen(navigation);
     } finally {
       setLoggingOut(false);
     }
@@ -3062,6 +3332,7 @@ export default function UserDashboard() {
       <WalkInBookingScreen
         visible={Boolean(walkInBooking)}
         doctorId={walkInBooking?.doctorId}
+        clinicId={walkInBooking?.clinicId}
         source={walkInBooking?.source}
         onClose={() => setWalkInBooking(null)}
       />

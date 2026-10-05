@@ -30,14 +30,15 @@ describe('auth role resolution', () => {
     expect(routeForAuthRole(role)).toBe('DoctorDashboard');
   });
 
-  it('detects doctor from psychiatrist specialization on legacy counsellor data', () => {
-    expect(
-      resolveAuthRole({
-        user: {
-          role: 'counsellor',
-          specialization: 'Child Psychiatrist',
-        },
-      }),
-    ).toBe('doctor');
+  it('keeps a psychiatrist counsellor on the counselor dashboard', () => {
+    const role = resolveAuthRole({
+      user: {
+        role: 'counsellor',
+        specialization: 'Child Psychiatrist',
+      },
+    });
+
+    expect(role).toBe('counselor');
+    expect(routeForAuthRole(role)).toBe('CounselorDashboard');
   });
 });

@@ -2,7 +2,7 @@
 // the web AppointmentList: GET /api/appointments?doctor_id=<id> (rows filtered
 // to this doctor), DELETE /api/appointments/:id, and status /
 // date / search / hide-visited filters.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
@@ -40,6 +40,7 @@ const mapAppointment = (raw) => {
   const mode = appt.consultationMode;
   return {
     id: appt.apiId,
+    rawId: String(pickFirst(raw?._id, raw?.id, '') || ''),
     doctorId: pickFirst(raw?.doctor_id, raw?.doctorId, raw?.doctor?.id, raw?.doctor?._id),
     name: appt.name,
     phone: appt.phone,
@@ -68,8 +69,14 @@ const formatDateLabel = (key) =>
 
 const STATUS_FILTERS = ['All', 'Pending', 'Confirmed', 'Visited', 'Cancelled'];
 
-export default function AppointmentsListScreen({ onBack }) {
+// focusAppointmentId: opened from a notification — scroll to that appointment
+// and highlight it (filters start cleared, so it is always in the list).
+export default function AppointmentsListScreen({ onBack, focusAppointmentId = null }) {
   const { showToast } = useToast();
+  const scrollRef = useRef(null);
+  const focusScrolledRef = useRef(false);
+  const focusId = focusAppointmentId ? String(focusAppointmentId) : '';
+  const isFocused = (item) => !!focusId && (String(item.id) === focusId || item.rawId === focusId);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [selectedDate, setSelectedDate] = useState(''); // '' = all dates (web default)
@@ -116,6 +123,23 @@ export default function AppointmentsListScreen({ onBack }) {
 
   useEffect(() => { fetchAppointments(); }, [fetchAppointments]);
 
+  // Opened from a notification whose appointment is gone (deleted/cancelled
+  // and removed): say so once instead of silently showing the full list.
+  const focusCheckedRef = useRef(false);
+  useEffect(() => {
+    if (!focusId || loading || focusCheckedRef.current) return;
+    focusCheckedRef.current = true;
+    if (!appointments.some(isFocused)) showToast('This appointment is no longer available');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId, loading, appointments]);
+
+  // Scroll the focused card into view once it has been laid out.
+  const onCardLayout = (item, y) => {
+    if (!isFocused(item) || focusScrolledRef.current) return;
+    focusScrolledRef.current = true;
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true }));
+  };
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchAppointments(true);
@@ -161,6 +185,7 @@ export default function AppointmentsListScreen({ onBack }) {
         <Text style={s.title}>Appointments</Text>
       </View>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={s.content}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0D9488']} tintColor="#0D9488" />}
@@ -228,7 +253,13 @@ export default function AppointmentsListScreen({ onBack }) {
           </View>
         ) : (
           visible.map((item) => (
-            <AppointmentListCard key={item.id} item={item} onDelete={deleteAppointment} />
+            <AppointmentListCard
+              key={item.id}
+              item={item}
+              highlighted={isFocused(item)}
+              onLayout={(e) => onCardLayout(item, e.nativeEvent.layout.y)}
+              onDelete={deleteAppointment}
+            />
           ))
         )}
       </ScrollView>
@@ -238,13 +269,19 @@ export default function AppointmentsListScreen({ onBack }) {
 
 const getInitials = (name) => name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
-function AppointmentListCard({ item, onDelete }) {
+function AppointmentListCard({ item, highlighted, onLayout, onDelete }) {
   const meta = STATUS_META[item.status] || STATUS_META.Pending;
   const muted = item.status === 'Visited' || item.status === 'Cancelled';
   const modeIcon = item.visitType.startsWith('Video') ? 'video' : item.visitType.startsWith('Voice') ? 'phone' : 'pin';
 
   return (
-    <View style={[s.card, item.isEmergency && s.cardEmergency]}>
+    <View onLayout={onLayout} style={[s.card, item.isEmergency && s.cardEmergency, highlighted && s.cardHighlighted]}>
+      {highlighted && (
+        <View style={s.fromNotification}>
+          <AppIcon name="bell" size={11} color="#0D9488" strokeWidth={2.2} />
+          <Text style={s.fromNotificationText}>From notification</Text>
+        </View>
+      )}
       <View style={s.cardTop}>
         <View style={s.avatar}>
           <Text translate={false} style={s.avatarText}>{getInitials(item.name)}</Text>
@@ -317,6 +354,9 @@ const s = createDoctorStyles({
 
   card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 14, padding: 14, marginBottom: 10 },
   cardEmergency: { borderColor: '#FECACA' },
+  cardHighlighted: { borderColor: '#0D9488', borderWidth: 2, backgroundColor: '#F0FDFA' },
+  fromNotification: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#E6F7F5', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, marginBottom: 9 },
+  fromNotificationText: { fontSize: 11, fontWeight: '700', color: '#0D9488' },
   grow: { flex: 1 },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 11 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center' },

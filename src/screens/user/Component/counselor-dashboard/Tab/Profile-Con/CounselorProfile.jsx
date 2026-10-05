@@ -1180,7 +1180,8 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       formData.append('phoneNumber', normalizedPhone);
       formData.append('phoneCountryCode', editedData.phoneCountryCode || '+91');
       formData.append('qualification', editedData.qualification || editedData.education);
-      formData.append('experience', editedData.experience.toString());
+      // Whole years as a plain integer (MySQL INT column), never NaN/empty.
+      formData.append('experience', String(Math.max(0, parseInt(editedData.experience, 10) || 0)));
       formData.append('aboutMe', editedData.aboutMe);
       formData.append('education', editedData.education);
 
@@ -1191,13 +1192,19 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         formData.append('age', editedData.age.toString());
       }
       if (editedData.gender) formData.append('gender', editedData.gender);
+      // One JSON string, not address[line1]/address[city]… fields: multer turns
+      // those into a prototype-less object, which the MySQL backend can't
+      // stringify ("Cannot convert object to primitive value"). The server
+      // JSON.parses a string address.
       if (editedData.address) {
-        formData.append('address[line1]', editedData.address.line1 || '');
-        formData.append('address[line2]', editedData.address.line2 || '');
-        formData.append('address[city]', editedData.address.city || '');
-        formData.append('address[state]', editedData.address.state || '');
-        formData.append('address[pincode]', editedData.address.pincode || '');
-        formData.append('address[country]', editedData.address.country || 'India');
+        formData.append('address', JSON.stringify({
+          line1: editedData.address.line1 || '',
+          line2: editedData.address.line2 || '',
+          city: editedData.address.city || '',
+          state: editedData.address.state || '',
+          pincode: editedData.address.pincode || '',
+          country: editedData.address.country || 'India',
+        }));
       }
 
       if (editedData.languages && editedData.languages.length > 0) {

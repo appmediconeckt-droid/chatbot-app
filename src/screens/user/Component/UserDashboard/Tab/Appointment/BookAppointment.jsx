@@ -861,7 +861,9 @@ const CounselorRequestChat = ({
                 {online ? t('counselor:available', 'AVAILABLE') : t('common:offline', 'OFFLINE')}
               </Text>
             </View>
-            {availabilityBellSupported && (
+            {/* "Notify me when online" is for consultants (chat/call); doctors
+                are booked by clinic slot, so their cards have no bell. */}
+            {availabilityBellSupported && item.role !== 'doctor' && (
             <TouchableOpacity
               style={[styles.btnBellSm, availabilitySubscriptions[String(item.id)] && styles.btnBellSmActive]}
               onPress={() => toggleAvailabilityNotification(item)}

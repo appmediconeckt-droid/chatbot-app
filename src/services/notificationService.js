@@ -19,6 +19,11 @@ import { shouldDeliverNotification } from './notificationPreferences';
 // the logo with its background. A large icon would move to the right side and
 // the small icon would lose that circle.
 
+// Full-colour Humaeli logo on a white circle, shown inside every notification
+// (user, consultant and doctor). The status-bar smallIcon has to stay a
+// single-colour silhouette — Android masks it — so the real logo goes here.
+const HUMAELI_LOGO = require('../image/HumaeliNotificationIcon.png');
+
 const NOTIFICATION_CHANNEL_ID = 'humaeli-default';
 const INCOMING_CALL_CHANNEL_ID = 'humaeli-incoming-calls-v3';
 const MISSED_CALL_NOTIFIED_KEY_PREFIX = 'missedCallNotification:';
@@ -446,6 +451,8 @@ export const displaySystemNotification = async remoteMessage => {
     data,
     android: {
       smallIcon: 'ic_notification',
+      largeIcon: HUMAELI_LOGO,
+      circularLargeIcon: true,
       color: '#0F8A9D',
       channelId: isIncomingCall
         ? INCOMING_CALL_CHANNEL_ID
@@ -772,6 +779,8 @@ export const displayMissedCallNotification = async (callData = {}, reason = 'mis
     android: Platform.OS === 'android'
       ? {
           smallIcon: 'ic_notification',
+          largeIcon: HUMAELI_LOGO,
+          circularLargeIcon: true,
           color: '#0F8A9D',
           channelId: NOTIFICATION_CHANNEL_ID,
           importance: AndroidImportance.HIGH,

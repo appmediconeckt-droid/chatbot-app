@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Dimensions, findNodeHandle, Keyboard, Platform, UIManager } from 'react-native';
+import { Dimensions, findNodeHandle, Keyboard, Platform, TextInput, UIManager } from 'react-native';
 
 // Handles both Android keyboard modes: older devices usually resize the window,
 // while edge-to-edge Android versions may overlay it. Only reserve the portion
@@ -97,6 +97,12 @@ const useKeyboardAwareScroll = () => {
       const currentHeight = Dimensions.get('window').height;
       const alreadyResizedBy = Math.max(0, baseHeightRef.current - currentHeight);
       const nextInset = Math.max(0, keyboardHeight - alreadyResizedBy);
+
+      // Inputs inside child components (e.g. a location search box) don't call
+      // scrollFocusedInputIntoView themselves — pick up whichever input
+      // actually opened the keyboard so it is still scrolled into view.
+      const focusedInput = TextInput.State?.currentlyFocusedInput?.();
+      if (focusedInput) focusedInputHandleRef.current = focusedInput;
 
       keyboardInsetRef.current = nextInset;
       keyboardOpenRef.current = true;

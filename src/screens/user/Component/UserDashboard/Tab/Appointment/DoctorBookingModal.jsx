@@ -15,6 +15,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../../../../components/TranslatedText';
 import { PATIENT, PATIENT_GRADIENT } from '../../../../../../theme/palette';
 import api from '../../../../../../axiosConfig';
+import { bookedSlotKeys } from '../../../../../../utils/doctorSlots';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -75,6 +76,26 @@ const nowMinutesIndia = () => {
   const d = new Date(Date.now() + 330 * 60000);
   return d.getUTCHours() * 60 + d.getUTCMinutes();
 };
+
+// Slot key "YYYY-MM-DD|minutes" (clinic-local IST) of an existing appointment.
+const bookingSlotKey = (apt) => {
+  let iso = String(apt?.appointment_date || apt?.appointmentDate || '').slice(0, 10);
+  let time = String(apt?.appointment_time || apt?.appointmentTime || '');
+  if ((!iso || !time) && Number.isFinite(Date.parse(apt?.date))) {
+    const ist = new Date(Date.parse(apt.date) + 330 * 60000).toISOString();
+    iso = iso || ist.slice(0, 10);
+    time = time || ist.slice(11, 16);
+  }
+  if (!time) return null;
+  const [h, m] = to24Hour(time).split(':').map(Number);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || !Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return `${iso}|${h * 60 + m}`;
+};
+const isSameDoctor = (apt, doctorId) => String(pickFirst(
+  apt?.counselor?._id, apt?.counselor?.id, typeof apt?.counselor === 'string' ? apt.counselor : undefined,
+  apt?.counselorId, apt?.doctor_id, apt?.doctorId, apt?.doctor?._id, apt?.doctor?.id,
+) || '') === String(doctorId);
+const INACTIVE_BOOKING_STATUSES = new Set(['cancelled', 'canceled', 'rejected', 'completed', 'no-show', 'no_show']);
 
 const isUnavailableFlag = (range) => range.is_unavailable === true || Number(range.is_unavailable) === 1;
 
@@ -223,6 +244,8 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
         if (cancelled) return;
         setRanges(res.data?.availableRanges || res.data?.existingRanges || res.data?.data || []);
         setUnavailableDates(res.data?.unavailableDates || []);
+        // Times already taken by anyone, when the server reports them.
+        setServerBooked(bookedSlotKeys(res.data?.bookedSlots, null));
       })
       .catch(() => api.get('/api/availability/ranges', { params })
         .then((res2) => {
@@ -237,6 +260,31 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
           }
         }))
       .finally(() => { if (!cancelled) setAvailabilityLoading(false); });
+    return () => { cancelled = true; };
+  }, [visible, doctorId]);
+
+  // Times this patient already has an active booking with this doctor. The
+  // server refuses a second one ("This patient already has a booking with this
+  // doctor at the selected date and time"), so those slots aren't offered.
+  const [bookedSlots, setBookedSlots] = useState(() => new Set());
+  const [serverBooked, setServerBooked] = useState(() => new Set());
+  useEffect(() => {
+    if (!visible || !doctorId) return undefined;
+    let cancelled = false;
+    setBookedSlots(new Set());
+    api.get('/api/appointments', { headers: { 'Cache-Control': 'no-cache' } })
+      .then((res) => {
+        if (cancelled) return;
+        const list = Array.isArray(res.data) ? res.data : (res.data?.appointments || res.data?.data || []);
+        const keys = new Set();
+        list.forEach((apt) => {
+          if (!isSameDoctor(apt, doctorId) || INACTIVE_BOOKING_STATUSES.has(String(apt?.status || '').toLowerCase())) return;
+          const key = bookingSlotKey(apt);
+          if (key) keys.add(key);
+        });
+        setBookedSlots(keys);
+      })
+      .catch(() => { /* server still guards against a duplicate */ });
     return () => { cancelled = true; };
   }, [visible, doctorId]);
 
@@ -267,8 +315,12 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
     });
   };
 
-  // Only current/future slots: on today, a slot is bookable while it hasn't
-  // ended yet (the running slot + everything after it). Earlier ones are gone.
+  // Only current/future slots. An in-clinic visit joins the token queue, so on
+  // today the running slot is still bookable (until it ends). A video/voice
+  // consultation starts at the slot time itself and the server rejects a past
+  // start ("Appointment date and time must be in the future"), so only slots
+  // that haven't started yet are offered for those.
+  const isRemoteMode = selectedModeId !== 'in-clinic';
   const buildSlots = (iso, weekday) => {
     const cutoff = iso === todayIndia() ? nowMinutesIndia() : -1;
     const slots = new Map();
@@ -281,7 +333,8 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       const duration = Math.max(1, Number(range.slot_duration || 15));
       if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
       for (let cursor = start; cursor + duration <= end; cursor += duration) {
-        if (cursor + duration > cutoff) slots.set(cursor, { time: formatMinutes(cursor), minutes: cursor });
+        const bookable = isRemoteMode ? cursor > cutoff : cursor + duration > cutoff;
+        if (bookable && !bookedSlots.has(`${iso}|${cursor}`) && !serverBooked.has(`${iso}|${cursor}`)) slots.set(cursor, { time: formatMinutes(cursor), minutes: cursor });
       }
     });
     return Array.from(slots.values()).sort((a, b) => a.minutes - b.minutes);
@@ -301,7 +354,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       status: buildSlots(iso, d.getDay()).length ? 'available' : 'unavailable',
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [ranges, unavailableDates, selectedClinicId, clockTick]);
+  }), [ranges, unavailableDates, selectedClinicId, clockTick, selectedModeId, bookedSlots, serverBooked]);
 
   // Default to the first available day.
   useEffect(() => {
@@ -316,7 +369,14 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   useEffect(() => {
     if (selectedTime && !dateSlots.some((x) => x.time === selectedTime)) setSelectedTime(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clockTick, selectedDate?.iso]);
+  }, [clockTick, selectedDate?.iso, selectedModeId, bookedSlots, serverBooked]);
+
+  // Cash is paid at the clinic, so it's only offered for an in-clinic visit.
+  const paymentMethods = isRemoteMode ? PAYMENT_METHODS.filter((pm) => pm.id !== 'Cash') : PAYMENT_METHODS;
+  useEffect(() => {
+    if (!paymentMethods.some((pm) => pm.id === paymentMethod)) setPaymentMethod(paymentMethods[0].id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedModeId]);
   const slotGroups = [
     { label: 'Morning', icon: 'sunny-outline', slots: dateSlots.filter((x) => x.minutes < 720) },
     { label: 'Afternoon', icon: 'partly-sunny-outline', slots: dateSlots.filter((x) => x.minutes >= 720 && x.minutes < 1020) },
@@ -411,7 +471,18 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       setStep('success');
       onBooked?.();
     } catch (err) {
-      setBookError(err?.response?.data?.message || err?.message || 'Failed to book appointment. Please try again.');
+      const message = err?.response?.data?.message || err?.message || '';
+      // A booking made elsewhere (web / another device) since the sheet opened:
+      // hide that slot now and let the patient pick another time.
+      if (/already has (a )?booking/i.test(message) && selectedDate?.iso && selectedTime) {
+        const [h, m] = formattedTime.split(':').map(Number);
+        setBookedSlots((prev) => new Set(prev).add(`${selectedDate.iso}|${h * 60 + m}`));
+        setSelectedTime(null);
+        setStep('select');
+        setBookError('You already have an appointment with this doctor at that time. Please choose another slot.');
+        return;
+      }
+      setBookError(message || 'Failed to book appointment. Please try again.');
     } finally {
       setBooking(false);
     }
@@ -490,7 +561,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
 
         <View style={s.card}>
           <Text style={s.cardTitle}><Ionicons name="wallet-outline" size={15} color={PATIENT.primary} /> Choose Payment Method</Text>
-          {PAYMENT_METHODS.map((pm) => {
+          {paymentMethods.map((pm) => {
             const active = paymentMethod === pm.id;
             return (
               <Pressable key={pm.id} onPress={() => setPaymentMethod(pm.id)} style={[s.payMethod, active && s.payMethodActive]}>

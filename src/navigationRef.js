@@ -11,20 +11,26 @@ export const navigationRef = createNavigationContainerRef();
 // them tries to bounce the user out. Only the first should actually navigate.
 let resetting = false;
 
-export const resetToLogin = (role) => {
+// The shared Login screen (every role signs in there), with Landing under it so
+// Back from Login lands on Landing instead of leaving a blank stack. Used after
+// logout and when a session ends — signing out must not drop the user on the
+// Sign Up flow (RoleSelector / *Signup), which is for new accounts.
+const LOGIN_STACK = { index: 1, routes: [{ name: 'Landing' }, { name: 'Login' }] };
+
+export const resetToLoginScreen = (navigation) => {
+  if (navigationRef.isReady()) {
+    navigationRef.dispatch(CommonActions.reset(LOGIN_STACK));
+    return;
+  }
+  navigation?.replace?.('Login');
+};
+
+// Session ended elsewhere (401 / signed in on another device). Several failing
+// requests call this at once; only the first navigates.
+export const resetToLogin = () => {
   if (!navigationRef.isReady() || resetting) return false;
   resetting = true;
-
-  const isCounselor = /counsell?or/i.test(String(role || ''));
-  const screen = isCounselor ? 'CounselorSignup' : 'UserSignup';
-  const params = { role: isCounselor ? 'counselor' : 'user' };
-
-  navigationRef.dispatch(
-    CommonActions.reset({
-      index: 1,
-      routes: [{ name: 'RoleSelector' }, { name: screen, params }],
-    }),
-  );
+  navigationRef.dispatch(CommonActions.reset(LOGIN_STACK));
   setTimeout(() => {
     resetting = false;
   }, 1500);

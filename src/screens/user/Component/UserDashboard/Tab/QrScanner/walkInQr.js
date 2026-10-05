@@ -7,6 +7,32 @@
 // URL polyfill in React Native doesn't reliably support searchParams.
 export const parseWalkInQr = (value) => {
   const text = String(value || '').trim();
+
+  // Clinic walk-in QR from the server / web (Settings → QR, Clinic Settings):
+  //   https://<web origin>/walkin/<doctorClinicId>
+  // It names the doctor-clinic link, not the doctor — the caller resolves it
+  // through GET /api/qr/walkin/:doctorClinicId.
+  const clinicWalkin = /\/walkin\/([A-Za-z0-9_-]+)\/?(?:[?#]|$)/i.exec(text);
+  if (clinicWalkin) return { doctorClinicId: decodeURIComponent(clinicWalkin[1]), source: 'qr' };
+
+  // The server's doctor QR image encodes JSON: {"type":"doctor","id":"…",…}.
+  if (text.startsWith('{')) {
+    try {
+      const data = JSON.parse(text);
+      const id = data?.doctorId || data?.id;
+      if (id && (String(data?.type || data?.qrType || '').toLowerCase().includes('doctor'))) {
+        return { doctorId: String(id), source: 'qr' };
+      }
+    } catch {
+      // not JSON — fall through to the URL formats
+    }
+  }
+
+  // The doctor's profile QR: https://<web origin>/doctor/<doctorId>
+  // (DoctorProfileQrScreen / server profileQrUrl). Opens the same doctor screen.
+  const profile = /\/doctor\/([A-Za-z0-9_-]+)\/?(?:[?#]|$)/i.exec(text);
+  if (profile) return { doctorId: decodeURIComponent(profile[1]), source: 'qr' };
+
   const match = /\/walk-in-appointment\/?\?([^#\s]*)/i.exec(text);
   if (!match) return null;
 
@@ -23,5 +49,7 @@ export const parseWalkInQr = (value) => {
 
   const doctorId = String(params.doctorId || params.doctor_id || '').trim();
   if (!doctorId) return null;
-  return { doctorId, source: String(params.source || '').toLowerCase() === 'qr' ? 'qr' : 'direct' };
+  // Clinic-wise booking QR (doctor sidebar → QR Code) also names the clinic.
+  const clinicId = String(params.clinicId || params.clinic_id || '').trim() || null;
+  return { doctorId, clinicId, source: String(params.source || '').toLowerCase() === 'qr' ? 'qr' : 'direct' };
 };
