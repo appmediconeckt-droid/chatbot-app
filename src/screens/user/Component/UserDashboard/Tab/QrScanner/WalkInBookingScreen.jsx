@@ -1,12 +1,11 @@
 // Walk-in booking opened straight from a doctor's QR code (patient side).
-// Native version of the web form at /walk-in-appointment
-// (chatbot/src/Component/DoctorDashboard/Walk-in/AppointmentForm.jsx), with
-// the same public endpoints and payload:
 //   GET  /api/auth/doctor-qr/:doctorId          doctor shown at the top
-//   POST /api/auth/doctor-qr/:doctorId/visits   records the QR visit
-//   POST /api/walkin-appointments               books it, returns the token
-// Requests go through plain axios (no login token), exactly like the web page,
-// so a refusal here can never trigger the app's sign-out-on-401 handling.
+//   POST /api/auth/doctor-qr/:doctorId/scan     records the QR scan (stats)
+//   POST /api/appointments                      books today's in-clinic visit
+// The visit is booked as the signed-in patient's appointment (booking_source
+// 'qr'), not as an anonymous walk-in row: that links it to the patient, so it
+// shows in My Token with its live queue, gets a token number from the
+// server's slot service, and counts as a QR booking in the doctor's stats.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -233,7 +232,7 @@ export default function WalkInBookingScreen({ visible, doctorId, clinicId = null
         const visitKey = `${doctorId}-${Date.now()}`;
         if (found && visitRecorded.current !== doctorId) {
           visitRecorded.current = doctorId;
-          axios.post(`${API}/auth/doctor-qr/${encodeURIComponent(doctorId)}/visits`, {
+          axios.post(`${API}/auth/doctor-qr/${encodeURIComponent(doctorId)}/scan`, {
             visitId: `${visitKey}-${Math.random().toString(36).slice(2)}`,
             source,
           }).catch(() => {});
@@ -278,27 +277,32 @@ export default function WalkInBookingScreen({ visible, doctorId, clinicId = null
       return;
     }
     const age = calculateAge(form.dateOfBirth);
+    // Patient details the doctor should see with the visit (the appointment
+    // itself is tied to the signed-in account).
+    const details = [
+      `Patient: ${form.patientName.trim()}`,
+      `Phone: ${form.contactNumber.trim()}`,
+      age ? `Age: ${age}` : '',
+      form.gender ? `Gender: ${form.gender}` : '',
+      form.email.trim() ? `Email: ${form.email.trim()}` : '',
+    ].filter(Boolean).join(' | ');
     const payload = {
-      patient_name: form.patientName.trim(),
-      phone_number: form.contactNumber.trim(),
-      symptoms: form.problem.trim(),
       doctor_id: doctorId,
+      counselorId: doctorId,
       clinic_id: clinicId || undefined,
-      date_of_birth: form.dateOfBirth,
-      age: age ? Number(age) : undefined,
-      location: form.location.trim(),
-      gender: form.gender,
-      // The chosen slot: appointment_date (YYYY-MM-DD) + appointment_time (HH:MM, 24h).
+      // The chosen slot: appointment_date (YYYY-MM-DD) + appointment_time (HH:MM, 24h, IST).
       appointment_date: form.appointmentDate,
       appointment_time: form.appointmentTime,
-      email: form.email.trim() || undefined,
-      status: 'booked',
-      booking_source: source,
+      symptoms: form.problem.trim(),
+      notes: `Walk-in (QR). ${details}. Problem: ${form.problem.trim()}`,
+      patient_location: form.location.trim(),
+      consultation_mode: 'in-clinic',
+      booking_source: source === 'qr' ? 'qr' : 'direct',
     };
     try {
       setSubmitting(true);
       setApiError('');
-      const response = await axios.post(`${API}/walkin-appointments`, payload, { headers: { 'Content-Type': 'application/json' } });
+      const response = await axiosInstance.post('/api/appointments', payload);
       const created = response.data?.data || response.data?.appointment || response.data || {};
       const tokenValue = pick(created.token_number, created.tokenNumber, created.walkin_token, created.queue_token, created.token, created.id, 'Booked');
       setToken(String(tokenValue));
