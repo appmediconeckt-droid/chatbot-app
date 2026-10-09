@@ -1,8 +1,8 @@
 // Ported from MediconecktApp's src/doctor/dashboard/components/DoctorSidebar.tsx.
 // Adaptation: the profile card reads the real (mock) doctor name/specialization
 // from AsyncStorage instead of the source's hardcoded "Vikas Sharma".
-import React, { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, Modal, Pressable, ScrollView, View } from 'react-native';
 import DoctorAvatar from './layout/DoctorAvatar';
 import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
@@ -90,11 +90,39 @@ export default function DoctorSidebar({
 
   const displayName = formatDoctorDisplayName(doctorName);
 
+  // Opening animation: the panel slides in from the left while zooming up from
+  // slightly small, and the backdrop fades in — quicker and livelier than the
+  // Modal's built-in fade.
+  const openAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!visible) return;
+    openAnim.setValue(0);
+    Animated.timing(openAnim, {
+      toValue: 1,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [visible, openAnim]);
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.root}>
-        <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.panel}>
+        <Animated.View style={[styles.backdrop, { opacity: openAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolate: 'clamp' }) }]}>
+          <Pressable style={styles.backdropTap} onPress={onClose} />
+        </Animated.View>
+        <Animated.View
+          style={[
+            styles.panel,
+            {
+              opacity: openAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 1, 1], extrapolate: 'clamp' }),
+              transform: [
+                { translateX: openAnim.interpolate({ inputRange: [0, 1], outputRange: [-90, 0] }) },
+                { scale: openAnim.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) },
+              ],
+            },
+          ]}
+        >
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Open doctor profile"
@@ -185,7 +213,7 @@ export default function DoctorSidebar({
               <Text style={styles.logoutText}>Logout Account</Text>
             </Pressable>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -194,6 +222,7 @@ export default function DoctorSidebar({
 const styles = createDoctorStyles({
   root: { flex: 1, flexDirection: 'row' },
   backdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(16,33,63,0.28)' },
+  backdropTap: { flex: 1 },
   panel: { width: '88%', maxWidth: 360, height: '100%', backgroundColor: '#FFFFFF', paddingTop: 34, borderTopRightRadius: 26, borderBottomRightRadius: 18, shadowColor: '#10213F', shadowOpacity: 0.16, shadowRadius: 18, shadowOffset: { width: 5, height: 0 }, elevation: 12 },
   profileCard: { height: 76, marginHorizontal: 16, borderWidth: 1, borderColor: '#BFF8F6', backgroundColor: colors.paleBlue, borderRadius: 16, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', shadowColor: '#10213F', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   profileCardPressed: { backgroundColor: '#E6FFFB' },

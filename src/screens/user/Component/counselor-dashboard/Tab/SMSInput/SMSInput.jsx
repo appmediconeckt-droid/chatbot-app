@@ -1,5 +1,6 @@
 // SMSInput.js - Fully Responsive Chat Interface with working avatar logic (mirrors SMSList)
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { resetToLoginScreen } from '../../../../../../navigationRef';
 import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -859,7 +860,7 @@ const SMSInput = ({ navigation, route }) => {
       }
     } catch (error) {
       if (error?.response?.status === 401) {
-        navigation.replace('RoleSelector', { reason: 'session-expired' });
+        resetToLoginScreen(navigation);
         return;
       }
       loadMessagesFromLocalStorage();
@@ -1323,7 +1324,7 @@ const SMSInput = ({ navigation, route }) => {
               });
             } catch (deleteError) {
               if (deleteError?.response?.status === 401) {
-                navigation.replace('RoleSelector', { reason: 'session-expired' });
+                resetToLoginScreen(navigation);
                 return;
               }
               // Restore the message since the server delete failed.

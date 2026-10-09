@@ -13,8 +13,8 @@ import Text from '../../../../../components/TranslatedText';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import PATIENT from '../../../../../../theme/palette';
-import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
+import PATIENT from '../../../../../theme/palette';
+import PatientGradientButton from '../../../../../components/common/PatientGradientButton';
 import useLanguageRender from '../../../../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 

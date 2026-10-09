@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useLanguageRender } from '../../../../../hooks/useLanguageRender';
+import { resetToLoginScreen } from '../../../../../navigationRef';
 import {
   Image,
   View,
@@ -1986,12 +1987,12 @@ export default function CounselorDashboard() {
       }
       await AsyncStorage.clear();
       setShowLogoutConfirm(false);
-      navigation.replace("RoleSelector");
+      resetToLoginScreen(navigation);
     } catch (error) {
       console.error("Logout Error:", error);
       await AsyncStorage.clear();
       setShowLogoutConfirm(false);
-      navigation.replace("RoleSelector");
+      resetToLoginScreen(navigation);
     }
   };
 

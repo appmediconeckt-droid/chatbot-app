@@ -16,7 +16,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import i18n, { LANGUAGES, saveUserLanguage, LANG_STORAGE_KEY, PENDING_ACCOUNT_LANG_KEY } from '../../i18n';
 import { useLanguageContext } from '../../contexts/LanguageContext';
 import useLanguageRender from '../../hooks/useLanguageRender';
-import AutoTranslatedText from '../AutoTranslatedText';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -147,15 +146,19 @@ export default function LanguageSelector({ iconColor, iconSize, userId, role, ic
       >
         {isActive && <View style={[styles.activeBar, { backgroundColor: accent }]} />}
 
+        {/* Language names are never translated: each language shows in its own
+            script ("English", "हिंदी") with the English name under it, so the
+            list reads the same in every app language — "English" never turns
+            into "अंग्रेज़ी". */}
         <View style={[styles.langBadge, { backgroundColor: accent + '20', borderColor: accent + '40' }]}>
-          <Text style={[styles.langBadgeText, { color: accent }]}>{initial}</Text>
+          <Text translate={false} style={[styles.langBadgeText, { color: accent }]}>{initial}</Text>
         </View>
 
         <View style={styles.langLabels}>
-          <Text style={[styles.langNative, isActive && { color: accent }]}>{item.name || item.label}</Text>
-          <AutoTranslatedText style={styles.langEnglish}>
-            {item.label}
-          </AutoTranslatedText>
+          <Text translate={false} style={[styles.langNative, isActive && { color: accent }]}>{item.name || item.label}</Text>
+          {!!item.label && item.label !== item.name && (
+            <Text translate={false} style={styles.langEnglish}>{item.label}</Text>
+          )}
         </View>
 
         {isActive ? (

@@ -53,9 +53,13 @@ const TYPE_CONFIG = {
   chat:        { icon: 'chat-bubble',            color: '#7C3AED', bg: '#F3E8FF' },
   call:        { icon: 'call',                   color: '#004AC6', bg: '#E7EEFE' },
   reminder:    { icon: 'notifications-active',   color: '#D97706', bg: '#FEF3C7' },
-  system:      { icon: 'info',                   color: '#475569', bg: '#EEF1F5' },
-  default:     { icon: 'notifications',          color: '#475569', bg: '#EEF1F5' },
+  // General / system notices come from Humaeli itself, so they carry the app
+  // logo instead of a grey info glyph.
+  system:      { logo: true,                     color: '#0F8A9D', bg: '#E6F6F3' },
+  default:     { logo: true,                     color: '#0F8A9D', bg: '#E6F6F3' },
 };
+
+const HUMAELI_LOGO = require('../../../../../../image/HumaeliIcon.png');
 const configFor = (type) => TYPE_CONFIG[String(type || '').toLowerCase()] || TYPE_CONFIG.default;
 
 const relativeTime = (iso, t = (s) => s) => {
@@ -317,7 +321,11 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) =>
       >
         {!item.read && <View style={[s.rail, { backgroundColor: cfg.color }]} />}
         <View style={[s.notifIcon, { backgroundColor: cfg.bg }]}>
-          <MaterialIcons name={cfg.icon} size={20} color={cfg.color} />
+          {cfg.logo ? (
+            <Image source={HUMAELI_LOGO} style={s.notifLogo} resizeMode="contain" />
+          ) : (
+            <MaterialIcons name={cfg.icon} size={20} color={cfg.color} />
+          )}
         </View>
         <View style={{ flex: 1 }}>
           <View style={s.nameRow}>
@@ -424,6 +432,7 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) =>
 };
 
 const s = StyleSheet.create({
+  notifLogo: { width: 30, height: 30 },
   root: { flex: 1, backgroundColor: C.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

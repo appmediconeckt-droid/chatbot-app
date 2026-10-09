@@ -10,6 +10,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../../../../axiosConfig';
 import { getDoctorIdFromUser, getStoredDoctorUser } from '../api/doctorAppointments';
+import { loadDoctorClinics } from '../api/doctorClinics';
 import { clearStaffDocuments } from './staffDocuments';
 
 // Web shift values and their hours (24h, end may wrap past midnight).
@@ -169,14 +170,13 @@ export const fetchStaff = async () => {
     .map(normalizeStaff);
 };
 
+// Same loader as Clinic Settings, so a clinic saved there always shows up here.
+// (getNestedArray only knows staff-list keys and missed `clinics` / `data.clinics`.)
 export const fetchClinics = async () => {
   const doctorId = await getDoctorId();
-  const { data } = await axiosInstance.get('/api/clinics', { params: { doctor_id: doctorId || undefined } });
-  return getNestedArray(data).map((clinic) => ({
-    id: String(clinic.id || clinic._id),
-    name: clinic.clinic_name || clinic.name || 'Clinic',
-    location: clinic.location || '',
-  }));
+  if (!doctorId) return [];
+  const clinics = await loadDoctorClinics(String(doctorId));
+  return clinics.map(({ id, name, location }) => ({ id, name, location }));
 };
 
 // `form`: { clinicId, firstName, lastName, email, phone, role, department,

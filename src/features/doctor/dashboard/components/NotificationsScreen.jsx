@@ -8,7 +8,7 @@
 // driven by real fields. Category counts/filters are computed from the real
 // `type` field instead of being hardcoded.
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Image, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
@@ -42,6 +42,7 @@ const classify = (n) => {
 };
 const CATEGORY_FOR_TONE = { red: 'Urgent', blue: 'Appointments', amber: 'Messages' };
 const iconForTone = { red: 'warning', blue: 'calendar', amber: 'message' };
+const HUMAELI_LOGO = require('../../../../image/HumaeliIcon.png');
 
 const relativeTime = (iso) => {
   const d = new Date(iso);
@@ -56,12 +57,19 @@ const relativeTime = (iso) => {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 
+const pickId = (...values) => values.find((v) => v !== undefined && v !== null && v !== '');
+
 // What the doctor sees: every notification except chat messages.
 export const toDoctorNotifications = (list) => list.map(normalize).filter((n) => n.category !== 'Messages');
 
 const normalize = (n) => {
   const tone = classify(n);
+  const data = n.data || n.metadata || n.meta || {};
   return {
+    // Set on appointment notifications (backend: data.appointmentId), so a
+    // tap can open that exact appointment.
+    appointmentId: String(pickId(data.appointmentId, data.appointment_id, data.appointment?._id, data.appointment?.id, n.appointmentId) || ''),
+    isAppointment: /appointment|booking/i.test(String(n.type || '')) || /appointment/i.test(String(n.actionUrl || '')),
     id: String(n._id || n.id),
     tone,
     category: CATEGORY_FOR_TONE[tone],
@@ -73,7 +81,10 @@ const normalize = (n) => {
   };
 };
 
-export default function NotificationsScreen({ onBack }) {
+// onOpenAppointment(appointmentId | null): tapping an appointment notification
+// opens the Appointments list on that appointment (or just the list when the
+// notification names none).
+export default function NotificationsScreen({ onBack, onOpenAppointment }) {
   const { showToast } = useToast();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -179,7 +190,15 @@ export default function NotificationsScreen({ onBack }) {
           <View style={s.empty}><Text style={s.emptyText}>No notifications in this filter.</Text></View>
         ) : (
           visible.map((item) => (
-            <NotificationCard key={item.id} item={item} onOpen={() => markRead(item.id)} onDelete={() => removeNotification(item.id)} />
+            <NotificationCard
+              key={item.id}
+              item={item}
+              onOpen={() => {
+                if (!item.read) markRead(item.id);
+                if ((item.appointmentId || item.isAppointment) && onOpenAppointment) onOpenAppointment(item.appointmentId || null);
+              }}
+              onDelete={() => removeNotification(item.id)}
+            />
           ))
         )}
       </ScrollView>
@@ -200,12 +219,20 @@ function StatCard({ icon, tone, value, label }) {
 }
 
 function NotificationCard({ item, onOpen, onDelete }) {
+  // Every card shows the Humaeli logo; a small corner badge keeps the type
+  // readable (calendar = appointment, warning = urgent, none = general notice).
+  const general = item.tone === 'blue' && !item.isAppointment;
   return (
     <Pressable onPress={onOpen} style={s.card}>
       <View style={[s.accentBar, s[`accent_${item.tone}`]]} />
       <View style={s.cardTopRow}>
-        <View style={[s.cardIcon, s[`statIcon_${item.tone}`]]}>
-          <AppIcon name={item.icon} size={17} color={TONE_COLORS[item.tone]} strokeWidth={2} />
+        <View style={[s.cardIcon, s.cardIconBrand]}>
+          <Image source={HUMAELI_LOGO} style={s.cardLogo} resizeMode="contain" />
+          {!general && (
+            <View style={[s.typeBadge, s[`statIcon_${item.tone}`]]}>
+              <AppIcon name={item.icon} size={10} color={TONE_COLORS[item.tone]} strokeWidth={2.4} />
+            </View>
+          )}
         </View>
         <View style={s.grow}>
           <View style={s.cardTitleRow}>
@@ -225,6 +252,9 @@ function NotificationCard({ item, onOpen, onDelete }) {
 }
 
 const s = createDoctorStyles({
+  cardIconBrand: { backgroundColor: '#E6F6F3' },
+  cardLogo: { width: 28, height: 28 },
+  typeBadge: { position: 'absolute', right: -4, bottom: -4, width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#FFF' },
   screen: { flex: 1, backgroundColor: '#F5F7FB' },
   header: { minHeight: 62, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13, paddingVertical: 10 },
   backButton: { width: 30, height: 38, alignItems: 'flex-start', justifyContent: 'center', marginRight: 6 },

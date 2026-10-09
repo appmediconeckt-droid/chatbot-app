@@ -1,10 +1,19 @@
 import React, { useCallback } from 'react';
-import { Modal, NativeModules, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Modal, NativeModules, Pressable, StatusBar, StyleSheet, Text, TurboModuleRegistry, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import PATIENT from '../../../../../../theme/palette';
 
-const hasVisionCameraNativeModule = () => NativeModules.CameraView != null;
+// VisionCamera's native module ("CameraView") is in the build. Under the New
+// Architecture (bridgeless) it can be exposed through the TurboModule registry
+// instead of NativeModules, so look in both before saying it's missing.
+const hasVisionCameraNativeModule = () => {
+  try {
+    return NativeModules.CameraView != null || TurboModuleRegistry.get('CameraView') != null;
+  } catch {
+    return false;
+  }
+};
 
 export default function QrScannerScreen({ visible, onClose, onScanned }) {
   const renderScanner = useCallback(() => {

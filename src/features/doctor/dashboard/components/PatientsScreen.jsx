@@ -1,17 +1,15 @@
 // Patients — port of the web "Patients Medical Records" directory
 // (PatientAppointmentDetails/PatientDetailsPage.jsx). Patients + visits come
 // from GET /api/appointments?doctor_id (api/doctorPatients). Same stats,
-// search, sort and 10-per-page pagination as the web. "Add Patient" is
-// local-only there too (the web has no create-patient API).
+// search, sort and 10-per-page pagination as the web. Doctors don't add
+// patients here — patients come from their appointments.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
-import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { useDoctorBack } from '../useDoctorBack';
-import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { loadDoctorPatients } from '../api/doctorPatients';
 
 const PAGE_SIZE = 10;
@@ -44,11 +42,9 @@ const CHIP_BORDER = 1.5;
 const SCREEN_GUTTER = 12;
 
 const todayLabel = () => new Date().toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
-const emptyForm = () => ({ name: '', phone: '', age: '', gender: 'Male', bloodGroup: '', doctor: '' });
 
 export default function PatientsScreen({ onPatientPress }) {
   const [patients, setPatients] = useState([]);
-  const [localPatients, setLocalPatients] = useState([]);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -66,8 +62,6 @@ export default function PatientsScreen({ onPatientPress }) {
   const rootRef = useRef(null);
   const chipRefs = useRef({});
   const [page, setPage] = useState(1);
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState(emptyForm);
 
   const load = useCallback(async () => {
     try {
@@ -85,7 +79,7 @@ export default function PatientsScreen({ onPatientPress }) {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [search, gender, bloodGroup, sort]);
 
-  const all = useMemo(() => [...localPatients, ...patients], [localPatients, patients]);
+  const all = patients;
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     // Phone numbers are stored with spaces / +91 / dashes, so compare digits only.
@@ -169,28 +163,6 @@ export default function PatientsScreen({ onPatientPress }) {
     closeMenu();
   };
 
-  const addPatient = () => {
-    if (!form.name.trim()) return;
-    const record = {
-      id: `record-${Date.now()}`, sortKey: Date.now(), date: today, time: 'N/A', bp: 'N/A', pulse: 'N/A', temperature: 'N/A',
-      problem: 'New patient registration', diagnosis: 'N/A', tablets: 'N/A', days: 'N/A',
-      doctor: form.doctor.trim() || 'Doctor', prescription: 'N/A', followUp: 'N/A',
-    };
-    setLocalPatients((prev) => [{
-      id: `local-${Date.now()}`,
-      name: form.name.trim(),
-      age: form.age || 'N/A',
-      gender: form.gender || 'N/A',
-      phone: form.phone.trim() || 'N/A',
-      bloodGroup: form.bloodGroup || 'N/A',
-      lastVisit: today,
-      lastVisitKey: Date.now(),
-      records: [record],
-    }, ...prev]);
-    setForm(emptyForm());
-    setShowAdd(false);
-  };
-
   return (
     <View
       ref={rootRef}
@@ -209,12 +181,6 @@ export default function PatientsScreen({ onPatientPress }) {
             <Text style={s.title}>Patients Medical Records</Text>
             <Text style={s.subtitle}>Comprehensive patient history and visit details</Text>
           </View>
-          <Pressable style={s.addBtnWrap} onPress={() => setShowAdd(true)}>
-            <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.addBtn}>
-              <AppIcon name="plus" size={14} color="#FFF" strokeWidth={2.6} />
-              <Text style={s.addBtnText}>Add</Text>
-            </LinearGradient>
-          </Pressable>
         </View>
 
         <View style={s.stats}>
@@ -324,49 +290,6 @@ export default function PatientsScreen({ onPatientPress }) {
         </>
       )}
 
-      <Modal visible={showAdd} transparent animationType="slide" onRequestClose={() => setShowAdd(false)}>
-        <View style={s.modalOverlay}>
-          <View style={s.modalSheet}>
-            <View style={s.modalHead}>
-              <View style={s.flex}>
-                <Text style={s.modalTitle}>Add Patient</Text>
-                <Text style={s.subtitle}>Create a patient profile for the doctor portal.</Text>
-              </View>
-              <Pressable onPress={() => setShowAdd(false)} hitSlop={8}><AppIcon name="x" size={18} color="#667085" /></Pressable>
-            </View>
-            <ScrollView keyboardShouldPersistTaps="handled" style={s.modalScroll}>
-              <Field label="Patient Name *" value={form.name} onChangeText={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="Robert Chen" />
-              <Field label="Phone No" value={form.phone} onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))} placeholder="+91 90000 00000" keyboardType="phone-pad" />
-              <Field label="Age" value={form.age} onChangeText={(v) => setForm((f) => ({ ...f, age: v.replace(/\D/g, '') }))} placeholder="54" keyboardType="number-pad" />
-              <Text style={s.fieldLabel}>Gender</Text>
-              <View style={s.optionRow}>
-                {['Male', 'Female', 'Other'].map((g) => (
-                  <Pressable key={g} onPress={() => setForm((f) => ({ ...f, gender: g }))} style={[s.option, form.gender === g && s.optionActive]}>
-                    <Text style={[s.optionText, form.gender === g && s.optionTextActive]}>{g}</Text>
-                  </Pressable>
-                ))}
-              </View>
-              <Text style={s.fieldLabel}>Blood Group</Text>
-              <View style={s.optionRow}>
-                {BLOOD_GROUPS.map((b) => (
-                  <Pressable key={b} onPress={() => setForm((f) => ({ ...f, bloodGroup: f.bloodGroup === b ? '' : b }))} style={[s.option, form.bloodGroup === b && s.optionActive]}>
-                    <Text style={[s.optionText, form.bloodGroup === b && s.optionTextActive]}>{b}</Text>
-                  </Pressable>
-                ))}
-              </View>
-              <Field label="Doctor" value={form.doctor} onChangeText={(v) => setForm((f) => ({ ...f, doctor: v }))} placeholder="Dr. Sarah Jenkins" />
-            </ScrollView>
-            <View style={s.modalActions}>
-              <Pressable style={s.cancelBtn} onPress={() => setShowAdd(false)}><Text style={s.cancelText}>Cancel</Text></Pressable>
-              <Pressable style={[s.saveWrap, !form.name.trim() && s.disabled]} onPress={addPatient} disabled={!form.name.trim()}>
-                <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.saveBtn}>
-                  <Text style={s.saveText}>Add Patient</Text>
-                </LinearGradient>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -399,14 +322,6 @@ function FilterChip({ chipRef, label, value, active, openDirection, onPress }) {
   );
 }
 
-function Field({ label, ...inputProps }) {
-  return (
-    <View>
-      <Text style={s.fieldLabel}>{label}</Text>
-      <TextInput style={s.input} placeholderTextColor="#94A3B8" {...inputProps} />
-    </View>
-  );
-}
 
 const s = createDoctorStyles({
   screen: { flex: 1, backgroundColor: '#F0FDFA' },
@@ -417,9 +332,6 @@ const s = createDoctorStyles({
   headRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title: { fontSize: 19, fontWeight: '800', color: '#17243A' },
   subtitle: { fontSize: 12.5, color: '#667085', marginTop: 2 },
-  addBtnWrap: { borderRadius: 12, overflow: 'hidden' },
-  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, height: 38, borderRadius: 12 },
-  addBtnText: { fontSize: 13.5, fontWeight: '800', color: '#FFF' },
   stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   stat: { width: '48.6%', backgroundColor: '#FFF', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#E3EEEC' },
   statIcon: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
@@ -477,22 +389,4 @@ const s = createDoctorStyles({
   pageBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CDE7E3', alignItems: 'center', justifyContent: 'center' },
   pageBtnText: { fontSize: 18, fontWeight: '800', color: '#0D9488', marginTop: -2 },
   pageNow: { fontSize: 12.5, fontWeight: '700', color: '#344054' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: '#FFF', borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16, maxHeight: '90%' },
-  modalHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 6 },
-  modalTitle: { fontSize: 17, fontWeight: '800', color: '#17243A' },
-  modalScroll: { flexGrow: 0 },
-  fieldLabel: { fontSize: 12.5, fontWeight: '700', color: '#344054', marginTop: 10, marginBottom: 6 },
-  input: { height: 44, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, paddingHorizontal: 12, fontSize: 14, color: '#17243A' },
-  optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  option: { paddingHorizontal: 13, height: 34, borderRadius: 17, borderWidth: 1, borderColor: '#D5DAE3', alignItems: 'center', justifyContent: 'center' },
-  optionActive: { backgroundColor: '#0D9488', borderColor: '#0D9488' },
-  optionText: { fontSize: 13, fontWeight: '700', color: '#475467' },
-  optionTextActive: { color: '#FFF' },
-  modalActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  cancelBtn: { flex: 1, height: 46, borderRadius: 12, borderWidth: 1, borderColor: '#D5DAE3', alignItems: 'center', justifyContent: 'center' },
-  cancelText: { fontSize: 14, fontWeight: '700', color: '#344054' },
-  saveWrap: { flex: 1.5 },
-  saveBtn: { height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  saveText: { fontSize: 14, fontWeight: '800', color: '#FFF' },
 });

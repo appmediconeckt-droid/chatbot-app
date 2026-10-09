@@ -10,7 +10,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Share, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
@@ -216,6 +216,26 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
   }[picker];
 
   const dateField = datePicker === 'dateOfBirth' ? 'dateOfBirth' : datePicker === 'hireDate' ? 'hireDate' : null;
+  // Empty hire date starts on today; empty date of birth on 1 Jan 2000.
+  const pickerStart = (field) => (field === 'hireDate' && !form.hireDate ? new Date() : getDatePickerValue(form[field]));
+
+  // Android: open the dialog imperatively. The <DateTimePicker> component
+  // re-opens its dialog on every re-render (its onChange prop is new each
+  // render), which snapped the year back to the start value mid-scroll.
+  const openDatePicker = (field) => {
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: pickerStart(field),
+        mode: 'date',
+        maximumDate: new Date(),
+        onChange: (event, selectedDate) => {
+          if (event?.type === 'set' && selectedDate) setField(field, toDateOnlyString(selectedDate));
+        },
+      });
+      return;
+    }
+    setDatePicker(field);
+  };
 
   return (
     <View style={s.screen}>
@@ -326,10 +346,10 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
           <FormField label="Phone Number" value={form.phone} onChangeText={(value) => setField('phone', value)} placeholder="+91 0000000000" keyboardType="phone-pad" error={phoneError} />
 
           <SectionHeader title="Professional Details" />
-          <FormDate label="Date of Birth" value={form.dateOfBirth} onPress={() => setDatePicker('dateOfBirth')} />
+          <FormDate label="Date of Birth" value={form.dateOfBirth} onPress={() => openDatePicker('dateOfBirth')} />
           <FormDropdown label="Gender" value={form.gender} placeholder="Select gender" onPress={() => setPicker('gender')} />
           <FormDropdown label="Department" value={form.department} placeholder="Select department" onPress={() => setPicker('department')} />
-          <FormDate label="Hire Date" value={form.hireDate} onPress={() => setDatePicker('hireDate')} />
+          <FormDate label="Hire Date" value={form.hireDate} onPress={() => openDatePicker('hireDate')} />
           <FormDropdown label="Shift Preference" value={form.shiftPreference} placeholder="Select shift preference" onPress={() => setPicker('shiftPreference')} />
         </ScrollView>
       )}
@@ -552,14 +572,14 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
         </View>
       </Modal>
 
-      {datePicker && (
+      {/* iOS only — Android uses DateTimePickerAndroid.open (see openDatePicker). */}
+      {datePicker && Platform.OS === 'ios' && (
         <DateTimePicker
-          value={getDatePickerValue(form[dateField])}
+          value={pickerStart(dateField)}
           mode="date"
-          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+          display="inline"
           maximumDate={new Date()}
           onChange={(_event, selectedDate) => {
-            if (Platform.OS === 'android') setDatePicker(null);
             if (selectedDate) setField(dateField, toDateOnlyString(selectedDate));
           }}
         />

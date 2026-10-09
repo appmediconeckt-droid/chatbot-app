@@ -19,7 +19,8 @@ import Text from '../TranslatedText';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DOCTOR_GRADIENT } from '../../theme/palette';
+import { CLINICIAN, CLINICIAN_GRADIENT, DOCTOR_GRADIENT } from '../../theme/palette';
+import { normalizeRole } from '../../features/roles/utils/normalizeRole';
 
 const ToastContext = createContext(null);
 
@@ -59,8 +60,28 @@ const isConsultantRole = (role) => {
   return normalized === 'counselor' || normalized === 'counsellor' || normalized === 'consultant';
 };
 
+// Doctor and clinic staff/admin roles: everything that is neither a patient
+// nor a consultant. They get the doctor dashboard's teal.
+const isClinicianRole = (role) => {
+  const normalized = normalizeRole(role);
+  return Boolean(normalized) && normalized !== 'user' && !isConsultantRole(role) && normalized !== 'counselor';
+};
+
 const applyRoleTheme = (toast, role) => {
-  if (!isConsultantRole(toast?.role || role)) return toast;
+  const activeRole = toast?.role || role;
+  // Errors stay red on the doctor side so a failure is never missed.
+  if (isClinicianRole(activeRole) && toast?.type !== 'error') {
+    return {
+      ...toast,
+      accent: toast?.accent || '#FFFFFF',
+      border: toast?.border || CLINICIAN.gradientTo,
+      gradientColors: toast?.gradientColors || CLINICIAN_GRADIENT,
+      iconBg: toast?.iconBg || 'rgba(255,255,255,0.2)',
+      titleColor: toast?.titleColor || '#FFFFFF',
+      messageColor: toast?.messageColor || '#E6FFFA',
+    };
+  }
+  if (!isConsultantRole(activeRole)) return toast;
 
   return {
     ...toast,

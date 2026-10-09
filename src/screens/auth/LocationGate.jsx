@@ -80,22 +80,29 @@ const LocationGate = ({ navigation, route }) => {
   const { t } = useLanguageRender();
   const { destination, destinationParams = {} } = route.params;
 
-  // Role → theme: counselor = blue, user = green (matches the rest of the app).
-  // The destination name tells us the role, so no extra param is needed.
-  const isCounselor = /counsel/i.test(String(destination || ''));
-  const reasons = isCounselor
+  // Role → theme: counselor = blue, doctor/staff = teal (doctor dashboard),
+  // user = green (matches the rest of the app). The destination name tells us
+  // the role, so no extra param is needed.
+  const isDoctor = /doctor|staff/i.test(String(destination || ''));
+  const isCounselor = !isDoctor && /counsel/i.test(String(destination || ''));
+  const isProvider = isCounselor || isDoctor;
+  const reasons = isProvider
     ? [
         {
           icon: '📍',
-          title: 'Help nearby patients find you',
-          body: 'We use your location to show your profile to patients looking for consultants in your area.',
+          title: isDoctor ? 'Help nearby patients find your clinic' : 'Help nearby patients find you',
+          body: isDoctor
+            ? 'We use your location to show your clinic to patients looking for doctors in your area.'
+            : 'We use your location to show your profile to patients looking for consultants in your area.',
         },
         ...REASONS.slice(1),
       ]
     : REASONS;
-  const C = isCounselor
-    ? { bg: '#EFF4FE', blob1: '#C3D8FB', blob2: '#A8C6F8', primary: '#004AC6', primaryDark: '#003A9B', headline: '#0B2A6B' }
-    : { bg: '#F0FDF4', blob1: '#BBF7D0', blob2: '#A7F3D0', primary: '#059669', primaryDark: '#047857', headline: '#064E3B' };
+  const C = isDoctor
+    ? { bg: '#F0FDFA', blob1: '#CCFBF1', blob2: '#99F6E4', primary: '#0D9488', primaryDark: '#0F766E', headline: '#134E4A' }
+    : isCounselor
+      ? { bg: '#EFF4FE', blob1: '#C3D8FB', blob2: '#A8C6F8', primary: '#004AC6', primaryDark: '#003A9B', headline: '#0B2A6B' }
+      : { bg: '#F0FDF4', blob1: '#BBF7D0', blob2: '#A7F3D0', primary: '#059669', primaryDark: '#047857', headline: '#064E3B' };
 
   const [phase, setPhase] = useState('idle');
   const [attempt, setAttempt] = useState(0);
@@ -204,7 +211,7 @@ const LocationGate = ({ navigation, route }) => {
         <Text style={styles.deniedText}>
           {isHard
             ? 'Location was permanently blocked. Open Settings → enable Location for this app, then come back.'
-            : isCounselor
+            : isProvider
             ? attempt === 1
               ? 'Without location access, nearby patients may not find your profile and location-based account security will be limited. Please allow it.'
               : 'Location is still blocked. Features like local profile visibility and location-based security will not work properly.'
