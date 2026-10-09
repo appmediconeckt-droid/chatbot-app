@@ -246,9 +246,9 @@ const parseTimeOnDate = (dateKey, value) => {
   return isValidDate(dt) ? dt : null;
 };
 
-// The one place that decides an appointment's slot start. The queue card's
-// time, the Start Consultation gate and the pending-expiry check all read it, so the
-// time on screen is always the time Start unlocks. Null when no time is known.
+// An appointment's effective slot start (a delayed estimate wins). The queue
+// card's time and the call window read it; queue order and pending expiry use
+// the booked time instead (getBookedDateTime). Null when no time is known.
 const resolveScheduledStart = (a) => {
   const effective = pickFirst(a?.estimated_start_at, a?.estimatedStartAt, a?.original_appointment_at, a?.originalAppointmentAt);
   if (effective) {
@@ -283,6 +283,30 @@ const getAppointmentDateTime = (a, { endOfDayFallback = true } = {}) => {
   return dateKey ? parseTimeOnDate(dateKey, '23:59:59') : null;
 };
 
+// Booked slot time, as the web dashboard reads it for queue order and pending
+// expiry: the appointment's day plus its booked time field — a delayed
+// estimated start does not move it. No booked time → end of that day.
+const getBookedDateTime = (a) => {
+  const dateKey = formatLocalDateKey(getAppointmentDateValue(a));
+  if (!dateKey) return null;
+  const timeValue = pickFirst(
+    a?.appointment_time, a?.appointmentTime, a?.time, a?.scheduled_time, a?.scheduledTime,
+    a?.slot_time, a?.slotTime, a?.check_in_time, a?.checkInTime,
+  );
+  if (timeValue) return parseTimeOnDate(dateKey, timeValue);
+  // Patient bookings send one ISO booked date that carries the time too. Only
+  // booked fields are read here, never the delayed estimated_start_at.
+  const bookedDate = pickFirst(
+    a?.original_appointment_at, a?.originalAppointmentAt, a?.appointment_date, a?.appointmentDate,
+    a?.date, a?.booking_date, a?.bookingDate, a?.scheduled_date, a?.scheduledDate,
+  );
+  if (typeof bookedDate === 'string' && bookedDate.includes('T') && !isMidnightUtc(bookedDate)) {
+    const d = new Date(bookedDate);
+    if (isValidDate(d)) return d;
+  }
+  return parseTimeOnDate(dateKey, '23:59:59');
+};
+
 // Emergency request from a patient (web: priority === 'emergency'). It jumps
 // the queue and has no slot time — the clinic sees it as soon as it arrives.
 export const isEmergencyAppointment = (a) => {
@@ -312,15 +336,14 @@ export const normalizeAppointmentStatus = (a, forcedStatus) => {
 
 // Works on raw API rows and on formatAppointment() output (both carry status).
 // True once a pending online appointment's slot time has passed. The doctor
-// dashboard must NOT drop these from the Pending queue, or a patient the
-// doctor hasn't seen yet vanishes from today's queue.
+// dashboard drops these from today's queue, same as the web dashboard.
 export const isExpiredPendingAppointment = (a, nowMs = Date.now()) => {
   if (normalizeAppointmentStatus(a) !== 'pending') return false;
   // Emergencies have no slot to miss; they wait until the doctor acts.
   if (isEmergencyAppointment(a)) return false;
   // Walk-ins stay queued until their status is changed explicitly.
   if (getAppointmentSource(a) === 'walkin') return false;
-  const dt = getAppointmentDateTime(a.__raw || a);
+  const dt = getBookedDateTime(a.__raw || a);
   return dt ? dt.getTime() < nowMs : false;
 };
 
@@ -414,17 +437,17 @@ export const formatAppointment = (a, forcedStatus) => {
   };
 };
 
-// Queue order: emergencies first, then token number ascending ("Token #3" before "#12"); appointments
-// without a token go after all tokened ones. Ties (or no tokens at all) fall
-// back to slot time, then name, so the order never jumps between refreshes.
+// Queue order (same as the web dashboard): emergencies first, then slot time,
+// then token number ascending when both have one. Remaining ties fall back to
+// name so the order never jumps between refreshes.
 const getTokenNumber = (appt) => {
   const match = String(appt?.tokenNumber ?? '').match(/\d+/);
   return match ? Number(match[0]) : null;
 };
 
 const getStartMs = (appt) => {
-  const dt = getAppointmentDateTime(appt?.__raw || appt);
-  return dt ? dt.getTime() : Number.MAX_SAFE_INTEGER;
+  const dt = getBookedDateTime(appt?.__raw || appt);
+  return dt ? dt.getTime() : 0;
 };
 
 export const compareByToken = (a, b) => {
@@ -437,12 +460,11 @@ export const compareByToken = (a, b) => {
     const cb = Date.parse(pickFirst(b?.__raw?.created_at, b?.__raw?.createdAt, b?.created_at, b?.createdAt)) || 0;
     if (ca !== cb) return ca - cb;
   }
+  const timeDiff = getStartMs(a) - getStartMs(b);
+  if (timeDiff) return timeDiff;
   const ta = getTokenNumber(a);
   const tb = getTokenNumber(b);
   if (ta !== null && tb !== null && ta !== tb) return ta - tb;
-  if ((ta === null) !== (tb === null)) return ta === null ? 1 : -1;
-  const timeDiff = getStartMs(a) - getStartMs(b);
-  if (timeDiff) return timeDiff;
   return String(a?.name || '').localeCompare(String(b?.name || ''));
 };
 
@@ -475,24 +497,22 @@ export const getConsultationModeInfo = (appt) => {
   return { key: 'visit', label: 'In-clinic Visit', icon: 'pin' };
 };
 
-// Video / voice call window: opens 15 min before the slot and stays open for
-// the rest of that day, so a doctor running late can still call the patient.
+// Video / voice call window (same as the web dashboard): opens 15 min before
+// the slot and closes 90 min after it.
 //
-// Computed from the real slot time (resolveScheduledStart). It used to re-parse
+// Computed from the real slot time (resolveScheduledStart), not by re-parsing
 // the time *label* on the card, which is locale-formatted ("०५:०५ PM" on a
-// Marathi phone, and could lose AM/PM) — so the button could stay disabled
-// right through the slot — and it shut 90 min after the slot, after which a
-// late remote appointment could never be called or finished.
+// Marathi phone, and could lose AM/PM).
 export const CALL_OPENS_BEFORE_MIN = 15;
+export const CALL_CLOSES_AFTER_MIN = 90;
 
 export const getCallWindow = (appt, nowMs = Date.now()) => {
   const start = getAppointmentDateTime(appt?.__raw || appt, { endOfDayFallback: false })
     || parseTimeOnDate(formatLocalDateKey(appt?.appointmentDate), appt?.scheduledTime);
   if (!start) return { open: true, opensAt: null };
   const opensAt = new Date(start.getTime() - CALL_OPENS_BEFORE_MIN * 60000);
-  const endOfDay = new Date(start);
-  endOfDay.setHours(23, 59, 59, 999);
-  return { open: nowMs >= opensAt.getTime() && nowMs <= endOfDay.getTime(), opensAt };
+  const closesAt = new Date(start.getTime() + CALL_CLOSES_AFTER_MIN * 60000);
+  return { open: nowMs >= opensAt.getTime() && nowMs <= closesAt.getTime(), opensAt };
 };
 
 export const isAppointmentCallWindowOpen = (appt, nowMs = Date.now()) => getCallWindow(appt, nowMs).open;

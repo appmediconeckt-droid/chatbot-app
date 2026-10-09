@@ -16,7 +16,6 @@ import {
   getConsultationModeInfo,
   getRemoteConsultationMode,
   getTokenLabel,
-  isConsultationStartOpen,
 } from '../api/doctorAppointments';
 
 // Mode badge colours — one per way of consulting, so the queue reads at a glance.
@@ -66,13 +65,12 @@ export default function AppointmentCard({
   } else if (!remoteMode && isActive) {
     action = { label: 'Continue', ghost: false, onPress: () => onContinue?.(item), disabled: onBreak };
   } else if (!remoteMode) {
-    // Start unlocks at the slot time; until then the button says when.
-    const startLocked = primary && !isConsultationStartOpen(item);
+    // Web parity: Start is only blocked by a running consultation or a break.
     action = {
-      label: primary ? (startLocked ? `Starts ${item.scheduledTime}` : 'Start Consultation') : 'View',
+      label: primary ? 'Start Consultation' : 'View',
       ghost: !primary,
       onPress: () => onStartConsultation?.(item),
-      disabled: sessionBusy || onBreak || startLocked,
+      disabled: sessionBusy || onBreak,
     };
   }
 

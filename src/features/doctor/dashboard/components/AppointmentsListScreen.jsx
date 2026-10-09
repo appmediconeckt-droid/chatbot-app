@@ -1,48 +1,98 @@
-// Ported from MediconecktApp's AppointmentsListScreen. Same data + actions as
-// the web AppointmentList: GET /api/appointments?doctor_id=<id> (rows filtered
-// to this doctor), DELETE /api/appointments/:id, and status /
-// date / search / hide-visited filters.
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+// Doctor's appointment list (web AppointmentList layout): All / Online /
+// Walk-in tabs with counts, date filter, summary cards (total, online, walk-in,
+// average consultation time) and one card per appointment with a clear
+// Online / Walk-in type badge and the patient's photo + basic info.
+//
+// Data: loadDoctorAppointmentFeed — GET /api/appointments (+ completed) and
+// GET /api/walkin-appointments for this doctor, merged. Delete goes to the
+// matching table (getAppointmentApiPath).
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Image, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
-import { createDoctorStyles } from '../theme';
+import { colors, createDoctorStyles, doctorGradient, gradientDirection, shadow } from '../theme';
 import axiosInstance from '../../../../axiosConfig';
+import toImageUri from '../../../../utils/imageUri';
 import {
   formatAppointment,
   formatLocalDateKey,
+  getAppointmentApiPath,
   getDoctorIdFromUser,
   getStoredDoctorUser,
-  normalizeApiList,
+  loadDoctorAppointmentFeed,
   pickFirst,
 } from '../api/doctorAppointments';
 
-// Colour is used sparingly: a small dot + label per status, nothing else.
 const STATUS_META = {
-  Pending: { color: '#D97706' },
-  Confirmed: { color: '#0D9488' },
-  Visited: { color: '#64748B' },
-  Cancelled: { color: '#DC2626' },
+  Pending: { color: '#64748B', bg: '#F1F5F9' },
+  'In Consultation': { color: '#15803D', bg: '#DCFCE7' },
+  Completed: { color: '#0F766E', bg: '#CCFBF1' },
+  Cancelled: { color: '#DC2626', bg: '#FEF2F2' },
 };
 
+// normalizeAppointmentStatus values → labels shown here.
 const STATUS_LABEL = {
   pending: 'Pending',
-  confirmed: 'Confirmed',
-  'in-progress': 'Confirmed',
-  completed: 'Visited',
+  confirmed: 'Pending',
+  'in-progress': 'In Consultation',
+  completed: 'Completed',
   cancelled: 'Cancelled',
+};
+
+const TYPE_META = {
+  online: { label: 'Online', icon: 'globe', color: '#0F766E', bg: '#CCFBF1' },
+  walkin: { label: 'Walk-in', icon: 'walk', color: '#EA580C', bg: '#FFEDD5' },
+};
+
+const TABS = [
+  { key: 'all', label: 'All' },
+  { key: 'online', label: 'Online' },
+  { key: 'walkin', label: 'Walk-in' },
+];
+
+// In visit order: not seen yet → being seen → done (or cancelled).
+const STATUS_FILTERS = ['All', 'Pending', 'In Consultation', 'Completed', 'Cancelled'];
+
+// Patient-booked QR walk-ins are stored as appointments (booking_source 'qr'),
+// so they count as walk-ins too.
+const getVisitType = (appt, raw) => {
+  const bookingSource = String(pickFirst(raw?.booking_source, raw?.bookingSource, '')).toLowerCase();
+  return appt.appointmentSource === 'walkin' || ['qr', 'walkin', 'walk-in'].includes(bookingSource)
+    ? 'walkin'
+    : 'online';
+};
+
+// Consultation length: the duration field, else consultation_started_at →
+// consultation_ended_at (what the doctor's Start / Complete buttons record).
+const getConsultMinutes = (appt, raw) => {
+  const start = pickFirst(raw?.consultation_started_at, raw?.consultationStartedAt, appt.startTime);
+  const end = pickFirst(raw?.consultation_ended_at, raw?.consultationEndedAt, appt.endTime);
+  const ms = appt.durationMs || (Date.parse(end) - Date.parse(start));
+  // Ignore missing/implausible values (no Start pressed, > 4 h left open).
+  return Number.isFinite(ms) && ms > 0 && ms < 4 * 3600000 ? ms / 60000 : 0;
 };
 
 const mapAppointment = (raw) => {
   const appt = formatAppointment(raw);
+  const patient = raw?.patient && typeof raw.patient === 'object' ? raw.patient : {};
   const mode = appt.consultationMode;
+  const gender = String(appt.gender || '');
   return {
+    key: appt.id,
     id: appt.apiId,
+    rawId: String(pickFirst(raw?._id, raw?.id, '') || ''),
+    apiPath: getAppointmentApiPath(appt),
     doctorId: pickFirst(raw?.doctor_id, raw?.doctorId, raw?.doctor?.id, raw?.doctor?._id),
     name: appt.name,
-    phone: appt.phone,
+    photo: toImageUri(pickFirst(
+      patient?.profilePhoto?.url, patient?.profilePhoto, patient?.photo,
+      raw?.patient_photo, raw?.patientPhoto,
+    )),
+    age: pickFirst(raw?.age, raw?.patient_age, raw?.patientAge, patient?.age),
+    gender: /not specified/i.test(gender) ? '' : gender,
     token: appt.tokenNumber != null ? String(appt.tokenNumber) : '',
     time: appt.scheduledTime,
     isEmergency: appt.isEmergency,
@@ -50,10 +100,9 @@ const mapAppointment = (raw) => {
     rawDate: formatLocalDateKey(appt.appointmentDate),
     status: STATUS_LABEL[appt.status] || 'Pending',
     reason: appt.issue,
-    visitType: mode.includes('video') ? 'Video Consultation'
-      : mode.includes('voice') || mode.includes('phone') ? 'Voice Consultation'
-        : 'In Person Visit',
-    place: pickFirst(raw?.clinic_name, raw?.clinic?.name, raw?.clinic?.clinic_name),
+    type: getVisitType(appt, raw),
+    mode: mode.includes('video') ? 'Video' : mode.includes('voice') || mode.includes('phone') ? 'Voice' : 'In-clinic',
+    consultMinutes: getConsultMinutes(appt, raw),
   };
 };
 
@@ -66,14 +115,32 @@ const shiftDateKey = (key, days) => {
 const formatDateLabel = (key) =>
   new Date(`${key}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
 
-const STATUS_FILTERS = ['All', 'Pending', 'Confirmed', 'Visited', 'Cancelled'];
+const percent = (part, total) => `${total ? Math.round((part / total) * 100) : 0}% of total`;
 
-export default function AppointmentsListScreen({ onBack }) {
+// Same day: by token; otherwise keep the API order.
+const byToken = (x, y) => {
+  const tx = Number(x.apt.token);
+  const ty = Number(y.apt.token);
+  if (x.apt.rawDate === y.apt.rawDate && x.apt.token && y.apt.token && Number.isFinite(tx) && Number.isFinite(ty)) {
+    return tx - ty;
+  }
+  return x.index - y.index;
+};
+
+// focusAppointmentId: opened from a notification — scroll to that appointment
+// and highlight it (filters start cleared, so it is always in the list).
+export default function AppointmentsListScreen({ onBack, focusAppointmentId = null }) {
   const { showToast } = useToast();
+  const scrollRef = useRef(null);
+  const focusScrolledRef = useRef(false);
+  const focusId = focusAppointmentId ? String(focusAppointmentId) : '';
+  const isFocused = (item) => !!focusId && (String(item.id) === focusId || item.rawId === focusId);
+  const today = formatLocalDateKey();
   const [query, setQuery] = useState('');
+  const [tab, setTab] = useState('all');
   const [statusFilter, setStatusFilter] = useState('All');
-  const [selectedDate, setSelectedDate] = useState(''); // '' = all dates (web default)
-  const [hideVisited, setHideVisited] = useState(false);
+  // Today by default (like the web list); all dates when opened from a notification.
+  const [selectedDate, setSelectedDate] = useState(focusId ? '' : today);
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -88,19 +155,19 @@ export default function AppointmentsListScreen({ onBack }) {
         setLoadError('Doctor id not found. Please login again.');
         return;
       }
-      const response = await axiosInstance.get('/api/appointments', { params: { doctor_id: doctorId } });
+      const rows = await loadDoctorAppointmentFeed(doctorId);
       setAppointments(
-        normalizeApiList(response.data)
+        rows
           .map(mapAppointment)
           .filter((apt) => !apt.doctorId || String(apt.doctorId) === String(doctorId))
-          // Open emergencies on top (oldest request first); the rest keep API order.
+          // Open emergencies on top (oldest request first), then by token.
           .map((apt, index) => ({ apt, index }))
           .sort((x, y) => {
-            const ex = x.apt.isEmergency && ['Pending', 'Confirmed'].includes(x.apt.status);
-            const ey = y.apt.isEmergency && ['Pending', 'Confirmed'].includes(y.apt.status);
+            const ex = x.apt.isEmergency && x.apt.status === 'Pending';
+            const ey = y.apt.isEmergency && y.apt.status === 'Pending';
             if (ex !== ey) return ex ? -1 : 1;
             if (ex && ey) return x.apt.createdMs - y.apt.createdMs;
-            return x.index - y.index;
+            return byToken(x, y);
           })
           .map(({ apt }) => apt),
       );
@@ -116,22 +183,38 @@ export default function AppointmentsListScreen({ onBack }) {
 
   useEffect(() => { fetchAppointments(); }, [fetchAppointments]);
 
+  // Opened from a notification whose appointment is gone (deleted/cancelled
+  // and removed): say so once instead of silently showing the full list.
+  const focusCheckedRef = useRef(false);
+  useEffect(() => {
+    if (!focusId || loading || focusCheckedRef.current) return;
+    focusCheckedRef.current = true;
+    if (!appointments.some(isFocused)) showToast('This appointment is no longer available');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId, loading, appointments]);
+
+  // Scroll the focused card into view once it has been laid out.
+  const onCardLayout = (item, y) => {
+    if (!isFocused(item) || focusScrolledRef.current) return;
+    focusScrolledRef.current = true;
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true }));
+  };
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchAppointments(true);
   };
 
-  // Same as web handleDeleteAppointment: DELETE /api/appointments/:id.
-  const deleteAppointment = useCallback((id, name) => {
-    Alert.alert('Delete Appointment', `Delete appointment for ${name}?`, [
+  const deleteAppointment = useCallback((item) => {
+    Alert.alert('Delete Appointment', `Delete appointment for ${item.name}?`, [
       { text: 'No', style: 'cancel' },
       {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
-          setAppointments((prev) => prev.filter((item) => item.id !== id));
+          setAppointments((prev) => prev.filter((a) => a.key !== item.key));
           try {
-            await axiosInstance.delete(`/api/appointments/${id}`);
+            await axiosInstance.delete(item.apiPath);
             showToast('Appointment deleted');
           } catch (err) {
             console.error('Error deleting appointment:', err?.message);
@@ -143,14 +226,27 @@ export default function AppointmentsListScreen({ onBack }) {
     ]);
   }, [fetchAppointments, showToast]);
 
-  const visible = appointments.filter((item) => {
+  // Tab counts and summary cards follow the selected date only.
+  const forDate = appointments.filter((item) => !selectedDate || !item.rawDate || item.rawDate === selectedDate);
+  const counts = {
+    all: forDate.length,
+    online: forDate.filter((a) => a.type === 'online').length,
+    walkin: forDate.filter((a) => a.type === 'walkin').length,
+  };
+  const timed = forDate.filter((a) => a.consultMinutes > 0);
+  const avgConsult = timed.length
+    ? Math.max(1, Math.round(timed.reduce((sum, a) => sum + a.consultMinutes, 0) / timed.length))
+    : null;
+
+  const visible = forDate.filter((item) => {
     const q = query.trim().toLowerCase().replace(/^#/, '');
+    if (tab !== 'all' && item.type !== tab) return false;
     if (q && !item.name.toLowerCase().includes(q) && item.token.toLowerCase() !== q) return false;
-    if (hideVisited && item.status === 'Visited') return false;
     if (statusFilter !== 'All' && item.status !== statusFilter) return false;
-    if (selectedDate && item.rawDate && item.rawDate !== selectedDate) return false;
     return true;
   });
+
+  const dateTitle = !selectedDate ? 'All dates' : selectedDate === today ? `Today (${formatDateLabel(today)})` : formatDateLabel(selectedDate);
 
   return (
     <View style={s.screen}>
@@ -161,53 +257,77 @@ export default function AppointmentsListScreen({ onBack }) {
         <Text style={s.title}>Appointments</Text>
       </View>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={s.content}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0D9488']} tintColor="#0D9488" />}
       >
-        <View style={s.toolbar}>
-          <View style={s.datePicker}>
-            <Pressable hitSlop={8} style={s.dateArrowBtn} onPress={() => setSelectedDate((d) => shiftDateKey(d, -1))}>
-              <AppIcon name="chevron-left" size={16} color="#475569" strokeWidth={2.2} />
-            </Pressable>
-            <Pressable style={s.dateCenter} onPress={() => setSelectedDate((d) => (d ? '' : formatLocalDateKey()))}>
-              <AppIcon name="calendar" size={14} color="#0D9488" strokeWidth={2.1} />
-              <Text style={s.dateText}>{selectedDate ? formatDateLabel(selectedDate) : 'All dates'}</Text>
-            </Pressable>
-            <Pressable hitSlop={8} style={s.dateArrowBtn} onPress={() => setSelectedDate((d) => shiftDateKey(d, 1))}>
-              <AppIcon name="chevron-right" size={16} color="#475569" strokeWidth={2.2} />
-            </Pressable>
-          </View>
-
-          <View style={s.search}>
-            <AppIcon name="search" size={15} color="#94A3B8" />
-            <TextInput value={query} onChangeText={setQuery} placeholder="Search patient name or token" placeholderTextColor="#94A3B8" style={s.searchInput} />
-          </View>
+        {/* Date filter — counts below follow it. Tap the date for all dates / today. */}
+        <View style={s.datePicker}>
+          <Pressable hitSlop={8} style={s.dateArrowBtn} onPress={() => setSelectedDate((d) => shiftDateKey(d, -1))}>
+            <AppIcon name="chevron-left" size={16} color="#475569" strokeWidth={2.2} />
+          </Pressable>
+          <Pressable style={s.dateCenter} onPress={() => setSelectedDate((d) => (d ? '' : today))}>
+            <AppIcon name="calendar" size={14} color="#0D9488" strokeWidth={2.1} />
+            <Text style={s.dateText}>{selectedDate ? formatDateLabel(selectedDate) : 'All dates'}</Text>
+          </Pressable>
+          <Pressable hitSlop={8} style={s.dateArrowBtn} onPress={() => setSelectedDate((d) => shiftDateKey(d, 1))}>
+            <AppIcon name="chevron-right" size={16} color="#475569" strokeWidth={2.2} />
+          </Pressable>
         </View>
 
-        {/* Status filter — labels only, no counts. */}
+        {/* All / Online / Walk-in tabs with counts. */}
+        <View style={s.tabs}>
+          {TABS.map((t) => {
+            const active = tab === t.key;
+            const content = (
+              <>
+                <Text style={[s.tabLabel, active && s.tabLabelActive]} numberOfLines={1}>{t.label}</Text>
+                <View style={[s.tabCount, active && s.tabCountActive]}>
+                  <Text translate={false} style={[s.tabCountText, active && s.tabCountTextActive]}>{counts[t.key]}</Text>
+                </View>
+              </>
+            );
+            // Active tab: the dashboard's teal gradient.
+            return (
+              <Pressable key={t.key} style={s.tabSlot} onPress={() => setTab(t.key)}>
+                {active ? (
+                  <LinearGradient colors={doctorGradient} {...gradientDirection} style={s.tab}>{content}</LinearGradient>
+                ) : (
+                  <View style={s.tab}>{content}</View>
+                )}
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* Summary cards. */}
+        <View style={s.cards}>
+          <SummaryCard hero icon="users" value={counts.all} label="Total Appointments" sub={dateTitle} />
+          <SummaryCard icon="globe" value={counts.online} label="Online Appointments" sub={percent(counts.online, counts.all)} />
+          <SummaryCard icon="walk" value={counts.walkin} label="Walk-in Appointments" sub={percent(counts.walkin, counts.all)} />
+          <SummaryCard icon="clock" value={avgConsult ? `${avgConsult} min` : '—'} label="Avg. Consultation" sub="Per patient" />
+        </View>
+
+        <Text style={s.listTitle}>
+          {selectedDate === today ? "Today's Appointments" : 'Appointments'} ({visible.length})
+        </Text>
+
+        <View style={s.search}>
+          <AppIcon name="search" size={15} color="#94A3B8" />
+          <TextInput value={query} onChangeText={setQuery} placeholder="Search by name or token" placeholderTextColor="#94A3B8" style={s.searchInput} />
+        </View>
+
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.segmentScroll} contentContainerStyle={s.segment}>
           {STATUS_FILTERS.map((label) => {
             const active = statusFilter === label;
             return (
               <Pressable key={label} style={[s.segmentItem, active && s.segmentItemActive]} onPress={() => setStatusFilter(label)}>
-                <View style={s.segmentLabelRow}>
-                  {label !== 'All' && <View style={[s.dot, { backgroundColor: STATUS_META[label].color }]} />}
-                  <Text style={[s.segmentLabel, active && s.segmentLabelActive]}>{label}</Text>
-                </View>
+                <Text style={[s.segmentLabel, active && s.segmentLabelActive]}>{label}</Text>
               </Pressable>
             );
           })}
         </ScrollView>
-
-        <View style={s.summary}>
-          <Pressable style={s.hide} onPress={() => setHideVisited((v) => !v)} hitSlop={6}>
-            <View style={[s.checkbox, hideVisited && s.checkboxOn]}>
-              {hideVisited && <AppIcon name="check-mark" size={9} color="#FFF" strokeWidth={3.4} />}
-            </View>
-            <Text style={s.hideText}>Hide visited</Text>
-          </Pressable>
-        </View>
 
         {!!loadError && !loading && (
           <View style={s.empty}>
@@ -223,12 +343,19 @@ export default function AppointmentsListScreen({ onBack }) {
           <View style={s.empty}>
             <AppIcon name="calendar" size={26} color="#B7C0CE" strokeWidth={1.6} />
             <Text style={s.emptyText}>
-              {appointments.length === 0 ? 'No appointments yet.' : 'No appointments match your search.'}
+              {forDate.length === 0 ? 'No appointments for this date.' : 'No appointments match your filters.'}
             </Text>
           </View>
         ) : (
-          visible.map((item) => (
-            <AppointmentListCard key={item.id} item={item} onDelete={deleteAppointment} />
+          visible.map((item, index) => (
+            <AppointmentListCard
+              key={item.key}
+              item={item}
+              serial={index + 1}
+              highlighted={isFocused(item)}
+              onLayout={(e) => onCardLayout(item, e.nativeEvent.layout.y)}
+              onDelete={deleteAppointment}
+            />
           ))
         )}
       </ScrollView>
@@ -236,48 +363,79 @@ export default function AppointmentsListScreen({ onBack }) {
   );
 }
 
+// Dashboard overview look: white cards with a teal icon; the total is the
+// gradient hero card.
+function SummaryCard({ hero, icon, value, label, sub }) {
+  const body = (
+    <>
+      <View style={[s.summaryIcon, hero && s.summaryIconHero]}>
+        <AppIcon name={icon} size={18} color={hero ? '#FFFFFF' : colors.blue} strokeWidth={2.1} />
+      </View>
+      <Text translate={false} style={[s.summaryValue, hero && s.textOnGradient]}>{value}</Text>
+      <Text style={[s.summaryLabel, hero && s.textOnGradient]} numberOfLines={1}>{label}</Text>
+      <Text style={[s.summarySub, hero && s.subOnGradient]} numberOfLines={1}>{sub}</Text>
+    </>
+  );
+  return hero ? (
+    <LinearGradient colors={doctorGradient} {...gradientDirection} style={[s.summaryCard, s.summaryHero]}>{body}</LinearGradient>
+  ) : (
+    <View style={s.summaryCard}>{body}</View>
+  );
+}
+
 const getInitials = (name) => name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
-function AppointmentListCard({ item, onDelete }) {
-  const meta = STATUS_META[item.status] || STATUS_META.Pending;
-  const muted = item.status === 'Visited' || item.status === 'Cancelled';
-  const modeIcon = item.visitType.startsWith('Video') ? 'video' : item.visitType.startsWith('Voice') ? 'phone' : 'pin';
+function AppointmentListCard({ item, serial, highlighted, onLayout, onDelete }) {
+  const status = STATUS_META[item.status] || STATUS_META.Pending;
+  const type = TYPE_META[item.type];
+  const muted = item.status === 'Completed' || item.status === 'Cancelled';
+  const info = [item.age ? `${item.age} yrs` : '', item.gender].filter(Boolean).join(' | ');
 
   return (
-    <View style={[s.card, item.isEmergency && s.cardEmergency]}>
-      <View style={s.cardTop}>
-        <View style={s.avatar}>
-          <Text translate={false} style={s.avatarText}>{getInitials(item.name)}</Text>
+    <View onLayout={onLayout} style={[s.card, item.isEmergency && s.cardEmergency, highlighted && s.cardHighlighted]}>
+      {highlighted && (
+        <View style={s.fromNotification}>
+          <AppIcon name="bell" size={11} color="#0D9488" strokeWidth={2.2} />
+          <Text style={s.fromNotificationText}>From notification</Text>
         </View>
-        <View style={s.grow}>
-          <Text translate={false} style={[s.name, muted && s.nameMuted]} numberOfLines={1}>{item.name}</Text>
-          <Text style={s.metaLine} numberOfLines={1}>
-            {item.isEmergency ? 'Emergency' : item.token ? `Token #${item.token}` : 'No token'}
-            {'  ·  '}
-            {item.rawDate ? formatDateLabel(item.rawDate) : 'Date N/A'}
-            {!item.isEmergency && item.time ? `  ·  ${item.time}` : ''}
+      )}
+      <View style={s.cardTop}>
+        <View style={s.tokenCol}>
+          <Text translate={false} style={s.serial}>{serial}</Text>
+          <Text translate={false} style={s.tokenText}>
+            {item.isEmergency ? 'SOS' : item.token ? `#${item.token}` : '—'}
           </Text>
         </View>
-        <View style={s.statusRow}>
-          <View style={[s.dot, { backgroundColor: meta.color }]} />
-          <Text style={[s.statusText, { color: meta.color }]}>{item.status}</Text>
+        {item.photo ? (
+          <Image source={{ uri: item.photo }} style={s.avatarImg} />
+        ) : (
+          <View style={s.avatar}>
+            <Text translate={false} style={s.avatarText}>{getInitials(item.name)}</Text>
+          </View>
+        )}
+        <View style={s.grow}>
+          <Text translate={false} style={[s.name, muted && s.nameMuted]} numberOfLines={1}>{item.name}</Text>
+          {!!info && <Text translate={false} style={s.metaLine} numberOfLines={1}>{info}</Text>}
+        </View>
+        <View style={[s.typeBadge, { backgroundColor: type.bg }]}>
+          <AppIcon name={type.icon} size={12} color={type.color} strokeWidth={2.2} />
+          <Text style={[s.typeText, { color: type.color }]}>{type.label}</Text>
         </View>
       </View>
 
-      <Text translate={false} style={s.reasonText} numberOfLines={2}>{item.reason}</Text>
-      {!!item.cancelNote && <Text translate={false} style={s.cancelNote}>{item.cancelNote}</Text>}
+      {!!item.reason && <Text translate={false} style={s.reasonText} numberOfLines={2}>{item.reason}</Text>}
 
       <View style={s.cardBottom}>
-        <AppIcon name={modeIcon} size={13} color="#64748B" strokeWidth={2} />
-        <Text translate={false} style={s.visitType} numberOfLines={1}>
-          {item.visitType}{item.place ? `  ·  ${item.place}` : ''}
+        <AppIcon name="clock" size={13} color="#64748B" strokeWidth={2} />
+        <Text translate={false} style={s.timeText} numberOfLines={1}>
+          {item.rawDate ? formatDateLabel(item.rawDate) : 'Date N/A'}
+          {!item.isEmergency && item.time ? `  ·  ${item.time}` : ''}
+          {item.mode !== 'In-clinic' ? `  ·  ${item.mode}` : ''}
         </Text>
-        {item.isEmergency && (
-          <View style={s.emergencyTag}>
-            <Text style={s.emergencyTagText}>Emergency</Text>
-          </View>
-        )}
-        <Pressable style={s.iconButton} onPress={() => onDelete(item.id, item.name)} hitSlop={6}>
+        <View style={[s.statusPill, { backgroundColor: status.bg }]}>
+          <Text style={[s.statusText, { color: status.color }]}>{item.status}</Text>
+        </View>
+        <Pressable style={s.iconButton} onPress={() => onDelete(item)} hitSlop={6}>
           <AppIcon name="trash" size={14} color="#94A3B8" strokeWidth={1.9} />
         </Pressable>
       </View>
@@ -286,52 +444,72 @@ function AppointmentListCard({ item, onDelete }) {
 }
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F8FAFC' },
+  screen: { flex: 1, backgroundColor: colors.background },
   header: { height: 60, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 },
   backButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginRight: 6 },
   title: { fontSize: 19, fontWeight: '800', color: '#0F172A' },
   content: { padding: 14, paddingBottom: 28 },
 
-  toolbar: { gap: 10 },
   datePicker: { height: 44, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 6 },
   dateArrowBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   dateCenter: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 6 },
   dateText: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+
+  tabs: { flexDirection: 'row', marginTop: 12, backgroundColor: '#FFF', borderRadius: 14, borderWidth: 1, borderColor: '#CCFBF1', padding: 4, ...shadow },
+  tabSlot: { flex: 1 },
+  tab: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10 },
+  tabLabel: { fontSize: 13.5, fontWeight: '700', color: '#475569', flexShrink: 1 },
+  tabLabelActive: { color: '#FFFFFF' },
+  tabCount: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: '#CCFBF1' },
+  tabCountActive: { backgroundColor: 'rgba(255,255,255,0.25)' },
+  tabCountText: { fontSize: 11.5, fontWeight: '800', color: colors.navy },
+  tabCountTextActive: { color: '#FFFFFF' },
+
+  cards: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 12 },
+  summaryCard: { width: '48.5%', borderRadius: 14, padding: 12, marginBottom: 10, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.line, ...shadow },
+  summaryHero: { borderWidth: 0 },
+  summaryIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', marginBottom: 8, backgroundColor: '#E6F7F5' },
+  summaryIconHero: { backgroundColor: 'rgba(255,255,255,0.22)' },
+  textOnGradient: { color: '#FFFFFF' },
+  subOnGradient: { color: 'rgba(255,255,255,0.85)' },
+  summaryValue: { fontSize: 22, fontWeight: '800', color: '#0F172A' },
+  summaryLabel: { fontSize: 12.5, fontWeight: '600', color: '#334155', marginTop: 2 },
+  summarySub: { fontSize: 11.5, color: '#64748B', marginTop: 2 },
+
+  listTitle: { fontSize: 16, fontWeight: '800', color: '#0F172A', marginTop: 6, marginBottom: 10 },
   search: { height: 44, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 },
   searchInput: { flex: 1, fontSize: 14, color: '#0F172A', paddingVertical: 0, marginLeft: 8 },
 
-  segmentScroll: { marginTop: 12, marginHorizontal: -14, flexGrow: 0 },
+  segmentScroll: { marginTop: 10, marginBottom: 12, marginHorizontal: -14, flexGrow: 0 },
   segment: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14 },
-  segmentItem: { height: 36, paddingHorizontal: 16, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E2E8F0' },
+  segmentItem: { height: 34, paddingHorizontal: 14, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E2E8F0' },
   segmentItemActive: { backgroundColor: '#F0FDFA', borderColor: '#5EEAD4' },
-  segmentLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  segmentLabel: { fontSize: 13, fontWeight: '600', color: '#475569' },
+  segmentLabel: { fontSize: 12.5, fontWeight: '600', color: '#475569' },
   segmentLabelActive: { color: '#0F766E', fontWeight: '700' },
-  dot: { width: 6, height: 6, borderRadius: 3 },
 
-  summary: { flexDirection: 'row', alignItems: 'center', marginTop: 14, marginBottom: 10, paddingHorizontal: 2 },
-  hide: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 6 },
-  checkbox: { width: 16, height: 16, borderWidth: 1.5, borderColor: '#CBD5E1', borderRadius: 4, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
-  checkboxOn: { backgroundColor: '#0D9488', borderColor: '#0D9488' },
-  hideText: { fontSize: 12.5, color: '#475569' },
-
-  card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 14, padding: 14, marginBottom: 10 },
+  card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CCFBF1', borderRadius: 14, padding: 12, marginBottom: 10, ...shadow },
   cardEmergency: { borderColor: '#FECACA' },
+  cardHighlighted: { borderColor: '#0D9488', borderWidth: 2, backgroundColor: '#F0FDFA' },
+  fromNotification: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#E6F7F5', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, marginBottom: 9 },
+  fromNotificationText: { fontSize: 11, fontWeight: '700', color: '#0D9488' },
   grow: { flex: 1 },
-  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 13, fontWeight: '800', color: '#475569' },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  tokenCol: { width: 34, alignItems: 'center' },
+  serial: { fontSize: 10.5, color: '#94A3B8', fontWeight: '600' },
+  tokenText: { fontSize: 14, fontWeight: '800', color: colors.navy },
+  avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.blue, alignItems: 'center', justifyContent: 'center' },
+  avatarImg: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#F1F5F9' },
+  avatarText: { fontSize: 14, fontWeight: '800', color: '#FFFFFF' },
   name: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
   nameMuted: { color: '#475569' },
-  metaLine: { fontSize: 12, color: '#64748B', marginTop: 3 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: 2 },
-  statusText: { fontSize: 12, fontWeight: '700' },
-  reasonText: { fontSize: 13.5, lineHeight: 19, color: '#334155', marginTop: 10 },
-  cancelNote: { fontSize: 12, color: '#94A3B8', marginTop: 3 },
-  cardBottom: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F1F5F9' },
-  visitType: { flex: 1, fontSize: 12, color: '#64748B' },
-  emergencyTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: '#FEF2F2' },
-  emergencyTagText: { fontSize: 11, fontWeight: '700', color: '#DC2626' },
+  metaLine: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  typeBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8 },
+  typeText: { fontSize: 12, fontWeight: '700' },
+  reasonText: { fontSize: 13, lineHeight: 18, color: '#334155', marginTop: 9, marginLeft: 44 },
+  cardBottom: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, paddingTop: 9, borderTopWidth: 1, borderTopColor: '#F1F5F9' },
+  timeText: { flex: 1, fontSize: 12, color: '#64748B' },
+  statusPill: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8 },
+  statusText: { fontSize: 11.5, fontWeight: '700' },
   iconButton: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   empty: { alignItems: 'center', paddingVertical: 40, gap: 10 },
   emptyText: { fontSize: 13, color: '#94A3B8' },

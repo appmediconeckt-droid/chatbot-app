@@ -21,6 +21,7 @@ class MainApplication : Application(), ReactApplication {
           add(SpeechPackage())
           add(ScreenshotPreventPackage())
           add(PdfFileOpenerPackage())
+          add(PrescriptionPrintPackage())
         },
     )
   }

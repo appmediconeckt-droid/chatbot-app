@@ -1293,7 +1293,7 @@ const styles = {
   },
   clearButtonText: {
     fontSize: 14,
-    color: '#4f46e5',
+    color: PATIENT.primary,
     fontWeight: '500',
   },
   startButton: {
@@ -1338,7 +1338,7 @@ const styles = {
   retryButton: {
     paddingHorizontal: 24,
     paddingVertical: 10,
-    backgroundColor: '#4f46e5',
+    backgroundColor: PATIENT.primary,
     borderRadius: 8,
   },
   retryButtonText: {

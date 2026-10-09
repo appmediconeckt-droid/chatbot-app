@@ -8,7 +8,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, BackHandler, Dimensions, Modal, Pressable, RefreshControl, ScrollView, ToastAndroid, TouchableOpacity, View } from 'react-native';
 import Text from '../../../components/TranslatedText';
 import TextInput from '../../../components/TranslatedTextInput';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import { CLINICIAN_GRADIENT } from '../../../theme/palette';
 
@@ -48,7 +48,7 @@ import {
   getStatusUpdatePayload,
   getStoredDoctorUser,
   getTokenLabel,
-  isConsultationStartOpen,
+  isExpiredPendingAppointment,
   isTodayAppointment,
   loadDoctorAppointmentFeed,
   loadDoctorFollowUps,
@@ -92,116 +92,168 @@ const removeMinutesSuffix = (value) => (value ?? '').replace(' min', '');
 // ------------------------------------------------------------------
 // Patient Consent Form Modal
 // ------------------------------------------------------------------
+// A real Modal (bottom sheet) so it sits above the header and the bottom bar —
+// the centre QR button used to cover its Start / Cancel buttons.
 function PatientConsentModal({ visible, onClose, onStartConsultation, patient, starting }) {
+  const insets = useSafeAreaInsets();
   const [agreements, setAgreements] = useState({ reviewed: true, tracking: true, responsibility: true, confidentiality: true });
   const toggleAgreement = (key) => setAgreements((prev) => ({ ...prev, [key]: !prev[key] }));
   const allChecked = agreements.reviewed && agreements.tracking && agreements.responsibility && agreements.confidentiality;
-  if (!visible) return null;
+  const name = patient?.name ?? '';
+  const initials = String(name).split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || 'P';
+  const gender = patient?.gender && !/not specified/i.test(patient.gender) ? patient.gender : '';
+  const canStart = allChecked && !starting;
   return (
-    <View style={consentStyles.overlay}>
-      <View style={consentStyles.content}>
-        <View style={consentStyles.header}>
-          <View style={consentStyles.headerIconBadge}>
-            <AppIcon name="user" size={15} color="#FFFFFF" strokeWidth={2.2} />
-          </View>
-          <Text style={consentStyles.headerTitle}>Patient Consent Form</Text>
-        </View>
-        <ScrollView style={consentStyles.scroll} contentContainerStyle={consentStyles.scrollContent} showsVerticalScrollIndicator={false}>
-          <Text style={consentStyles.sectionTitle}>Patient Information</Text>
-          <View style={[consentStyles.infoRow, consentStyles.fullWidth]}>
-            <Text style={consentStyles.infoLabel}>Name:</Text>
-            <Text translate={false} style={consentStyles.infoValue}>{patient?.name ?? ''}</Text>
-          </View>
-          <View style={consentStyles.gridRow}>
-            <View style={consentStyles.infoRow}>
-              <Text style={consentStyles.infoLabel}>Gender:</Text>
-              <Text style={consentStyles.infoValue}>{patient?.gender ?? ''}</Text>
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
+      <View style={consentStyles.backdrop}>
+        <Pressable style={consentStyles.backdropTap} onPress={starting ? undefined : onClose} />
+        <View style={[consentStyles.sheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={consentStyles.header}>
+            <View style={consentStyles.handle} />
+            <View style={consentStyles.headerRow}>
+              <View style={consentStyles.headerIconBadge}>
+                <AppIcon name="shield" size={18} color="#FFFFFF" strokeWidth={2.2} />
+              </View>
+              <View style={consentStyles.headerText}>
+                <Text style={consentStyles.headerTitle}>Patient Consent Form</Text>
+                <Text style={consentStyles.headerSub}>Review before starting the consultation</Text>
+              </View>
+              <Pressable onPress={onClose} disabled={starting} hitSlop={10} style={consentStyles.closeBtn}>
+                <AppIcon name="x" size={18} color="#FFFFFF" strokeWidth={2.4} />
+              </Pressable>
             </View>
-            <View style={consentStyles.infoRow}>
-              <Text style={consentStyles.infoLabel}>Scheduled:</Text>
-              <Text style={consentStyles.infoValue}>{patient?.scheduledTime ?? ''}</Text>
-            </View>
-          </View>
-          <View style={[consentStyles.infoRow, consentStyles.fullWidth]}>
-            <Text style={consentStyles.infoLabel}>Issue:</Text>
-            <Text translate={false} style={consentStyles.infoValue}>{patient?.issue ?? ''}</Text>
-          </View>
-          <View style={[consentStyles.infoRow, consentStyles.fullWidth]}>
-            <Text style={consentStyles.infoLabel}>Token:</Text>
-            <Text style={consentStyles.infoValue}>{patient ? getTokenLabel(patient) : 'N/A'}</Text>
-          </View>
-          <View style={[consentStyles.infoRow, consentStyles.fullWidth]}>
-            <Text style={consentStyles.infoLabel}>Phone:</Text>
-            <Text translate={false} style={consentStyles.infoValue}>{patient?.phone || 'N/A'}</Text>
-          </View>
+          </LinearGradient>
 
-          <Text style={[consentStyles.sectionTitle, { marginTop: 16 }]}>Agreement</Text>
-          <View style={consentStyles.agreementBox}>
-            {[
-              ['reviewed', "I confirm that I have reviewed the patient's information."],
-              ['tracking', 'I understand that starting will begin tracking consultation time.'],
-              ['responsibility', 'I acknowledge my responsibility for providing appropriate medical care.'],
-              ['confidentiality', 'I confirm I will maintain patient confidentiality.'],
-            ].map(([key, text]) => (
-              <TouchableOpacity key={key} style={consentStyles.agreementItem} onPress={() => toggleAgreement(key)} hitSlop={4}>
-                <View style={[consentStyles.checkbox, agreements[key] && consentStyles.checkboxChecked]}>
-                  {agreements[key] && <AppIcon name="check-mark" size={13} color="#FFFFFF" strokeWidth={3} />}
-                </View>
-                <Text style={consentStyles.agreementText}>{text}</Text>
-              </TouchableOpacity>
-            ))}
+          <ScrollView style={consentStyles.scroll} contentContainerStyle={consentStyles.scrollContent} showsVerticalScrollIndicator={false}>
+            {/* Patient card */}
+            <View style={consentStyles.patientCard}>
+              <View style={consentStyles.avatar}>
+                <Text translate={false} style={consentStyles.avatarText}>{initials}</Text>
+              </View>
+              <View style={consentStyles.patientText}>
+                <Text translate={false} style={consentStyles.patientName} numberOfLines={1}>{name}</Text>
+                {!!gender && <Text style={consentStyles.patientMeta}>{gender}</Text>}
+              </View>
+              <View style={consentStyles.tokenChip}>
+                <Text style={consentStyles.tokenChipText}>{patient ? getTokenLabel(patient) : 'N/A'}</Text>
+              </View>
+            </View>
+
+            <View style={consentStyles.infoGrid}>
+              <InfoTile icon="clock" label="Scheduled" value={patient?.scheduledTime || '—'} />
+              <InfoTile icon="phone" label="Phone" value={patient?.phone || 'N/A'} />
+              <InfoTile icon="pulse" label="Issue" value={patient?.issue || '—'} wide />
+            </View>
+
+            <Text style={consentStyles.sectionTitle}>Agreement</Text>
+            <View style={consentStyles.agreementBox}>
+              {[
+                ['reviewed', "I confirm that I have reviewed the patient's information."],
+                ['tracking', 'I understand that starting will begin tracking consultation time.'],
+                ['responsibility', 'I acknowledge my responsibility for providing appropriate medical care.'],
+                ['confidentiality', 'I confirm I will maintain patient confidentiality.'],
+              ].map(([key, text], index) => (
+                <TouchableOpacity
+                  key={key}
+                  activeOpacity={0.7}
+                  style={[consentStyles.agreementItem, index > 0 && consentStyles.agreementDivider]}
+                  onPress={() => toggleAgreement(key)}
+                >
+                  <View style={[consentStyles.checkbox, agreements[key] && consentStyles.checkboxChecked]}>
+                    {agreements[key] && <AppIcon name="check-mark" size={11} color="#FFFFFF" strokeWidth={3.2} />}
+                  </View>
+                  <Text style={consentStyles.agreementText}>{text}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          <View style={consentStyles.footer}>
+            <TouchableOpacity style={consentStyles.cancelButton} onPress={onClose} disabled={starting}>
+              <Text style={consentStyles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={consentStyles.startButtonWrap} onPress={onStartConsultation} disabled={!canStart} activeOpacity={0.85}>
+              <LinearGradient
+                colors={canStart ? CLINICIAN_GRADIENT : ['#9CA3AF', '#9CA3AF']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={consentStyles.startButton}
+              >
+                {starting
+                  ? <ActivityIndicator size="small" color="#FFFFFF" />
+                  : <AppIcon name="pulse" size={16} color="#FFFFFF" strokeWidth={2.4} />}
+                <Text style={consentStyles.startButtonText}>{starting ? 'Starting...' : 'Start Consultation'}</Text>
+              </LinearGradient>
+            </TouchableOpacity>
           </View>
-        </ScrollView>
-        <View style={consentStyles.buttonContainer}>
-          <TouchableOpacity style={consentStyles.cancelButton} onPress={onClose}>
-            <Text style={consentStyles.cancelButtonText}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={consentStyles.startButtonWrap} onPress={onStartConsultation} disabled={!allChecked || starting}>
-            <LinearGradient
-              colors={allChecked && !starting ? CLINICIAN_GRADIENT : ['#8E9DB0', '#8E9DB0']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={consentStyles.startButton}
-            >
-              <Text style={consentStyles.play}>▶</Text>
-              <Text style={consentStyles.startButtonText}>{starting ? 'Starting...' : 'Start Consultation'}</Text>
-            </LinearGradient>
-          </TouchableOpacity>
         </View>
+      </View>
+    </Modal>
+  );
+}
+
+function InfoTile({ icon, label, value, wide }) {
+  return (
+    <View style={[consentStyles.infoTile, wide && consentStyles.infoTileWide]}>
+      <View style={consentStyles.infoIcon}>
+        <AppIcon name={icon} size={14} color={colors.blue} strokeWidth={2.2} />
+      </View>
+      <View style={consentStyles.infoText}>
+        <Text style={consentStyles.infoLabel}>{label}</Text>
+        <Text translate={false} style={consentStyles.infoValue} numberOfLines={wide ? 3 : 1}>{value}</Text>
       </View>
     </View>
   );
 }
 
 const consentStyles = createDoctorStyles({
-  overlay: { position: 'absolute', top: 58, right: 0, bottom: 65, left: 0, zIndex: 30 },
-  content: { flex: 1, marginHorizontal: 4, backgroundColor: colors.background, borderRadius: 9, overflow: 'hidden' },
-  header: { height: 51, paddingHorizontal: 12, backgroundColor: '#0D9488', flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerIconBadge: { width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { ...typography.subtitle, fontSize: 19, lineHeight: 25, color: '#FFFFFF' },
-  scroll: { flex: 1 },
-  scrollContent: { padding: 12, paddingBottom: 16 },
-  sectionTitle: { ...typography.caption, fontSize: 15, lineHeight: 20, color: '#0D9488', marginBottom: 12 },
-  infoRow: { flex: 1, minHeight: 61, paddingHorizontal: 9, paddingVertical: 8, backgroundColor: '#F8F9FB', borderWidth: 1, borderColor: '#CCD4E1', borderRadius: 6, marginBottom: 9 },
-  fullWidth: { width: '100%' },
-  gridRow: { flexDirection: 'row', gap: 9 },
-  infoLabel: { ...typography.body, fontSize: 13, lineHeight: 17, color: '#596170', marginBottom: 3 },
-  infoValue: { ...typography.caption, fontSize: 14, lineHeight: 19, color: '#252B35' },
-  agreementBox: { backgroundColor: '#F8F9FB', borderWidth: 1, borderColor: '#CCD4E1', borderRadius: 6, padding: 10, paddingBottom: 2 },
-  agreementItem: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10, gap: 9 },
-  checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: '#AEB6C4', backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center', marginTop: 1 },
-  checkboxChecked: { backgroundColor: '#0D9488', borderColor: '#0D9488' },
-  agreementText: { ...typography.body, fontSize: 13, color: '#3C4759', flex: 1, lineHeight: 18 },
-  buttonContainer: { height: 64, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#D9DEE7', paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 9 },
-  cancelButton: { flex: 0.8, height: 43, borderRadius: 6, borderWidth: 1, borderColor: '#C9D1DD', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
-  cancelButtonText: { ...typography.caption, fontSize: 14, color: '#252B35' },
-  // Wrapper carries the flex sizing (matching cancelButton's flex sibling);
-  // the LinearGradient inside carries the actual pill shape/fill so the
-  // gradient corners round correctly.
-  startButtonWrap: { flex: 1.3 },
-  startButton: { height: 43, borderRadius: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  startButtonText: { ...typography.caption, fontSize: 14, lineHeight: 16, color: '#FFFFFF', textAlign: 'center' },
-  play: { ...typography.text, fontSize: 12, color: '#FFFFFF' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', justifyContent: 'flex-end' },
+  backdropTap: { flex: 1 },
+  sheet: { maxHeight: '90%', backgroundColor: colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' },
+  header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 },
+  handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.55)', marginBottom: 12 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerIconBadge: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' },
+  headerText: { flex: 1 },
+  headerTitle: { ...typography.subtitle, fontSize: 18, lineHeight: 23, color: '#FFFFFF' },
+  headerSub: { ...typography.body, fontSize: 12.5, color: 'rgba(255,255,255,0.88)', marginTop: 2 },
+  closeBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' },
+  scroll: { flexGrow: 0 },
+  scrollContent: { padding: 14, paddingBottom: 8 },
+
+  patientCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFFFFF', borderRadius: 16, borderWidth: 1, borderColor: '#CCFBF1', padding: 12 },
+  avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: colors.blue, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { ...typography.subtitle, fontSize: 16, color: '#FFFFFF' },
+  patientText: { flex: 1 },
+  patientName: { ...typography.subtitle, fontSize: 17, lineHeight: 22, color: colors.ink },
+  patientMeta: { ...typography.body, fontSize: 13, color: colors.muted, marginTop: 2, textTransform: 'capitalize' },
+  tokenChip: { backgroundColor: '#CCFBF1', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
+  tokenChipText: { ...typography.caption, fontSize: 13, color: colors.navy },
+
+  infoGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 10 },
+  infoTile: { width: '48.5%', flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 1, borderColor: colors.line, padding: 10, marginBottom: 10 },
+  infoTileWide: { width: '100%', alignItems: 'flex-start' },
+  infoIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#E6F7F5', alignItems: 'center', justifyContent: 'center' },
+  infoText: { flex: 1 },
+  infoLabel: { ...typography.body, fontSize: 11.5, color: colors.muted },
+  infoValue: { ...typography.caption, fontSize: 14, lineHeight: 19, color: colors.ink, marginTop: 1 },
+
+  sectionTitle: { ...typography.caption, fontSize: 14, color: colors.navy, marginTop: 6, marginBottom: 8, marginLeft: 2 },
+  agreementBox: { backgroundColor: '#FFFFFF', borderRadius: 16, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 12 },
+  agreementItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 11 },
+  agreementDivider: { borderTopWidth: 1, borderTopColor: '#F1F5F9' },
+  checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: '#AEB6C4', backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center', marginTop: 1 },
+  checkboxChecked: { backgroundColor: colors.blue, borderColor: colors.blue },
+  agreementText: { ...typography.body, fontSize: 13.5, color: '#334155', flex: 1, lineHeight: 19 },
+
+  footer: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 12, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: colors.line },
+  cancelButton: { flex: 0.8, height: 48, borderRadius: 12, borderWidth: 1, borderColor: '#C9D1DD', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  cancelButtonText: { ...typography.caption, fontSize: 15, color: '#252B35' },
+  // Wrapper carries the flex sizing; the LinearGradient carries the pill
+  // shape/fill so the gradient corners round correctly.
+  startButtonWrap: { flex: 1.4 },
+  startButton: { height: 48, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  startButtonText: { ...typography.caption, fontSize: 15, lineHeight: 18, color: '#FFFFFF', textAlign: 'center' },
 });
 
 // ------------------------------------------------------------------
@@ -496,7 +548,8 @@ export default function DoctorDashboard({ navigation }) {
         list
           .filter((apt) =>
             isTodayAppointment(apt) &&
-            ['pending', 'confirmed', 'in-progress'].includes(normalizeAppointmentStatus(apt)))
+            ['pending', 'confirmed', 'in-progress'].includes(normalizeAppointmentStatus(apt)) &&
+            !isExpiredPendingAppointment(apt))
           .map((apt) => formatAppointment(apt)),
       );
 
@@ -567,12 +620,6 @@ export default function DoctorDashboard({ navigation }) {
 
   // ---- consultation ---------------------------------------------------
   const handleConsentClick = (appt) => {
-    // Every Start path funnels through here, so the time gate holds even for
-    // the queue's "View" rows, which also open the start-consultation modal.
-    if (!isConsultationStartOpen(appt)) {
-      Alert.alert('Not yet time', `${appt.name}'s consultation can be started at ${appt.scheduledTime}.`);
-      return;
-    }
     setSelectedPatient(appt);
     setConsentModalVisible(true);
   };
@@ -645,11 +692,35 @@ export default function DoctorDashboard({ navigation }) {
     return { endTime, durationMs: Math.max(0, endTime - activeSession.startTime - paused) };
   };
 
-  // "Complete" / "Continue" — open the Complete Appointment form. Every visit
-  // type completes through it, so medicines and follow-up are always recorded.
+  // "Checked" / "Continue" — open the Complete Appointment form to record the
+  // diagnosis, medicines, advice and follow-up.
   const handleChecked = () => {
     if (!activeSession?.appt) return;
     setCompleteAppointmentVisible(true);
+  };
+
+  // "Complete" — web handleCompleteNow: finish the consultation straight away
+  // without a prescription, for when the doctor has nothing to prescribe.
+  const handleCompleteNow = async () => {
+    if (!activeSession?.appt || activeSession.status === 'break' || actionBusy) return;
+    const appt = activeSession.appt;
+    const { endTime, durationMs } = getTreatmentTiming();
+    setActionBusy(true);
+    try {
+      await patchAppointment(appt, getStatusUpdatePayload(appt, 'completed', {
+        end_time: endTime,
+        duration_ms: durationMs,
+      }));
+      setAppointments((prev) => prev.filter((a) => a.id !== appt.id));
+      setActiveSession(null);
+      setActiveTab('Completed');
+      Alert.alert('Appointment completed', `${appt.name}'s consultation has been completed.`);
+      await fetchAppointments({ silent: true });
+    } catch (err) {
+      showError(err, 'Appointment could not be completed.');
+    } finally {
+      setActionBusy(false);
+    }
   };
 
   const saveCompleteForm = async (formData) => {
@@ -824,10 +895,8 @@ export default function DoctorDashboard({ navigation }) {
   // ---- derived queue / stats (same formulas as web) ------------------
   const activeAppt = activeSession?.appt || null;
   const onBreak = activeSession?.status === 'break';
-  // Today's pending appointments stay queued even after their slot time has
-  // passed, until the doctor acts on them.
-  // Every queue tab is in token order (lowest token first), so the first
-  // Pending card — and the Next Patient card — is the next token to call.
+  // Every queue tab uses the web order (emergency → slot time → token), so the
+  // first Pending card — and the Next Patient card — is the next one to call.
   const pendingAppointments = useMemo(
     () => sortByToken(appointments.filter((appt) => appt.status === 'pending')),
     [appointments],
@@ -1173,6 +1242,7 @@ export default function DoctorDashboard({ navigation }) {
               busy={actionBusy}
               onPause={handlePause}
               onChecked={handleChecked}
+              onComplete={handleCompleteNow}
             />
           )}
 
@@ -1219,24 +1289,42 @@ export default function DoctorDashboard({ navigation }) {
           starting={actionBusy}
         />
 
-        {completeAppointmentVisible && activeSession?.appt && (
-          <View style={styles.completeAppointmentOverlay}>
-            <CompleteAppointmentScreen
-              patient={activeSession.appt}
-              onCancel={() => setCompleteAppointmentVisible(false)}
-              onSave={saveCompleteForm}
-            />
-          </View>
-        )}
-        {editingAppointment && (
-          <View style={styles.completeAppointmentOverlay}>
-            <EditCompletedAppointmentScreen
-              appointment={editingAppointment}
-              onCancel={() => setEditingAppointment(null)}
-              onSave={saveEditedAppointment}
-            />
-          </View>
-        )}
+        {/* Full-screen modals so the header, bottom bar and the centre QR
+            button never cover the form or its Save / Cancel buttons. */}
+        <Modal
+          visible={Boolean(completeAppointmentVisible && activeSession?.appt)}
+          animationType="slide"
+          statusBarTranslucent
+          navigationBarTranslucent
+          onRequestClose={() => setCompleteAppointmentVisible(false)}
+        >
+          <SafeAreaView style={styles.formModal} edges={['top', 'bottom']}>
+            {completeAppointmentVisible && activeSession?.appt && (
+              <CompleteAppointmentScreen
+                patient={activeSession.appt}
+                onCancel={() => setCompleteAppointmentVisible(false)}
+                onSave={saveCompleteForm}
+              />
+            )}
+          </SafeAreaView>
+        </Modal>
+        <Modal
+          visible={Boolean(editingAppointment)}
+          animationType="slide"
+          statusBarTranslucent
+          navigationBarTranslucent
+          onRequestClose={() => setEditingAppointment(null)}
+        >
+          <SafeAreaView style={styles.formModal} edges={['top', 'bottom']}>
+            {editingAppointment && (
+              <EditCompletedAppointmentScreen
+                appointment={editingAppointment}
+                onCancel={() => setEditingAppointment(null)}
+                onSave={saveEditedAppointment}
+              />
+            )}
+          </SafeAreaView>
+        </Modal>
         <DoctorBottomNavigation
           active="Home"
           onChange={(label) => {
@@ -1281,6 +1369,7 @@ export default function DoctorDashboard({ navigation }) {
 const styles = createDoctorStyles({
   safeArea: { flex: 1, backgroundColor: colors.background },
   completeAppointmentOverlay: { position: 'absolute', top: 58, right: 0, bottom: 65, left: 0, zIndex: 20 },
+  formModal: { flex: 1, backgroundColor: '#F0FDFA' },
   content: { paddingHorizontal: 12, paddingTop: 13, paddingBottom: 18 },
   sectionHeader: { minHeight: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
   breakButton: { height: 28, paddingHorizontal: 11, borderRadius: 15, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: colors.surface },

@@ -1,9 +1,10 @@
 // "Currently With" card — mirrors the web `dd-live-consult`: the server-side
 // consultation timer (start time minus pauses), plus the actions:
 //   Pause / Resume  → PATCH { consultation_action: 'pause' | 'resume' }
-//   Complete        → open the Complete Appointment form for every visit type
-//                     (in-clinic, walk-in, video, voice) — that form records the
+//   Checked         → open the Complete Appointment form, which records the
 //                     diagnosis, medicines, advice and follow-up.
+//   Complete        → finish straight away without a prescription (web
+//                     handleCompleteNow).
 import React, { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
@@ -39,7 +40,7 @@ export const computeElapsedMs = (session, now = Date.now()) => {
   return Math.max(0, end - session.startTime - session.accumulatedPauseMs);
 };
 
-export default function ActiveConsultationCard({ session, onPause, onChecked, busy }) {
+export default function ActiveConsultationCard({ session, onPause, onChecked, onComplete, busy }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -103,9 +104,13 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, bu
         <Pressable style={[s.outlineButton, disabled && s.disabled]} onPress={onPause} disabled={disabled}>
           <Text style={s.outlineText}>{paused ? '▶ Resume' : '❚❚ Pause'}</Text>
         </Pressable>
+        <Pressable style={[s.outlineButton, disabled && s.disabled]} onPress={onChecked} disabled={disabled}>
+          <AppIcon name="file" size={13} strokeWidth={2.2} color={colors.navy} />
+          <Text style={s.outlineText}>Checked</Text>
+        </Pressable>
         <Pressable
           style={[s.completeButtonWrap, disabled && s.disabled]}
-          onPress={onChecked}
+          onPress={onComplete}
           disabled={disabled}
         >
           <LinearGradient colors={doctorGradient} {...gradientDirection} style={s.completeButton}>

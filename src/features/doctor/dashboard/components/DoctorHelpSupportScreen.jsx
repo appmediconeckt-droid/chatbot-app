@@ -18,7 +18,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 const FAQS = [
   {
     q: 'When can I start a consultation?',
-    a: 'Start Consultation unlocks at the appointment\'s scheduled time — until then the button shows when it will open. Walk-in patients can be started at any time. Video and voice calls open 15 minutes before the slot and stay available for the rest of that day.',
+    a: 'Start Consultation is available for the next patient in the Pending queue at any time, unless another consultation is running or you are on a break. Video and voice calls open 15 minutes before the slot and stay available until 90 minutes after it.',
   },
   {
     q: 'What does the coloured badge on a queue card mean?',

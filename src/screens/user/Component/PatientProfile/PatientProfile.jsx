@@ -831,8 +831,24 @@ const PatientProfile = ({ onProfileUpdate }) => {
       setLoading(true);
       const formData = new FormData();
 
+      // Doctors see the patient by their "Anonymous Name" (the backend hides
+      // the full name from providers). Most patients typed their real name
+      // there, so when they rename themselves and that alias was simply their
+      // old name — and they didn't edit it now — it follows the new name.
+      // A real alias (e.g. "Friend-Otter") is left as it is.
+      const oldFullName = normalizeProfileText(patientData.personalInfo.name);
+      const oldAlias = normalizeProfileText(patientData.personalInfo.anonymous);
+      const newFullName = normalizeProfileText(editFormData.name);
+      const newAlias = normalizeProfileText(editFormData.anonymous);
+      const aliasFollowsName = Boolean(oldAlias)
+        && newFullName
+        && newFullName !== oldFullName
+        && oldAlias.toLowerCase() === oldFullName.toLowerCase()
+        && newAlias.toLowerCase() === oldAlias.toLowerCase();
+      const anonymousToSave = aliasFollowsName ? newFullName : editFormData.anonymous || "";
+
       formData.append("fullName", editFormData.name);
-      formData.append("anonymous", editFormData.anonymous || "");
+      formData.append("anonymous", anonymousToSave);
       formData.append("email", String(editFormData.email || "").trim());
       formData.append("phoneNumber", validation.normalizedPhone);
       formData.append("phoneCountryCode", editFormData.phoneCountryCode);

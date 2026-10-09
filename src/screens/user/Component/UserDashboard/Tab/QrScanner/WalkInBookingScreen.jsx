@@ -12,7 +12,7 @@
 // Requests go through plain axios (no login token), exactly like the web page,
 // so a refusal here can never trigger the app's sign-out-on-401 handling.
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -300,6 +300,7 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
       const created = response.data?.data || response.data?.appointment || response.data || {};
       const tokenValue = pick(created.token_number, created.tokenNumber, created.walkin_token, created.queue_token, created.token, created.id, 'Booked');
       setBookedTime(form.appointmentTime);
+      Keyboard.dismiss();
       setToken(String(tokenValue));
     } catch (error) {
       const message = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Unable to book walk-in appointment';
@@ -583,7 +584,9 @@ const s = StyleSheet.create({
   primaryBtnText: { fontSize: 15.5, fontWeight: '800', color: '#FFFFFF' },
   disabled: { opacity: 0.6 },
   expect: { fontSize: 12, color: '#64748B', textAlign: 'center', marginTop: 10 },
-  successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  // Centred in the area under the header; the extra bottom padding lifts it
+  // to the screen's visual centre instead of sitting low.
+  successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingTop: 24, paddingBottom: 96 },
   successIcon: { width: 76, height: 76, borderRadius: 38, backgroundColor: PATIENT.primary, alignItems: 'center', justifyContent: 'center' },
   successTitle: { fontSize: 21, fontWeight: '800', color: '#0F172A', marginTop: 16 },
   successDoctor: { fontSize: 14, color: '#64748B', marginTop: 4 },

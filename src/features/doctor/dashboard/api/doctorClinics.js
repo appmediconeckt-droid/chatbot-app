@@ -2,6 +2,7 @@
 // Setting/ClinicSetting/ClinicUpload.jsx):
 //   GET  /api/clinics?doctor_id=<id>&role=doctor
 //   POST /api/clinics  multipart { doctor_id, clinic_name, phone_number, location, clinic_photo? }
+//   DELETE /api/clinics/:id
 import axiosInstance from '../../../../axiosConfig';
 import { pickFirst } from './doctorAppointments';
 
@@ -17,6 +18,7 @@ export const unwrapApiArray = (payload) => {
 
 export const normalizeClinic = (clinic, index = 0) => ({
   id: String(pickFirst(clinic._id, clinic.clinic_id, clinic.clinicId, clinic.id, clinic.hospital_id, index)),
+  deleteId: pickFirst(clinic._id, clinic.clinic_id, clinic.clinicId, clinic.id, clinic.hospital_id, clinic.hospitalId, ''),
   name: pickFirst(clinic.clinic_name, clinic.clinicName, clinic.hospital_name, clinic.hospitalName, clinic.name, 'Unnamed Clinic'),
   location: pickFirst(clinic.location, clinic.address, clinic.clinic_address, clinic.hospital_address, 'Address not available'),
   phone: pickFirst(clinic.phone_number, clinic.phone, clinic.contact_number, ''),
@@ -30,6 +32,11 @@ export const loadDoctorClinics = async (doctorId, role = 'doctor') => {
   return unwrapApiArray(response.data)
     .map(normalizeClinic)
     .filter((clinic) => !clinic.doctorId || String(clinic.doctorId) === String(doctorId));
+};
+
+export const deleteDoctorClinic = async (clinicId) => {
+  if (!clinicId) throw new Error('Clinic ID is required');
+  return axiosInstance.delete(`/api/clinics/${clinicId}`);
 };
 
 const errorText = (err) => {

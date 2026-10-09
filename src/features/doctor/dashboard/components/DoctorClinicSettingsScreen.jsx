@@ -3,7 +3,7 @@
 // clinic_photo[]) plus the doctor's existing clinics from
 // GET /api/clinics?doctor_id&role=doctor.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -14,7 +14,7 @@ import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
-import { loadDoctorClinics } from '../api/doctorClinics';
+import { deleteDoctorClinic, loadDoctorClinics } from '../api/doctorClinics';
 
 // Express error pages come back as HTML strings, not JSON — read either.
 const getApiErrorText = (err, fallback) => {
@@ -42,6 +42,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
   const [photos, setPhotos] = useState([]);
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
+  const [deletingClinicId, setDeletingClinicId] = useState('');
 
   useEffect(() => {
     getStoredDoctorUser().then((user) => {
@@ -76,6 +77,47 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
     setPhone('');
     setAddress('');
     setPhotos([]);
+  };
+
+  const getClinicDeleteId = (clinic) => pickFirst(
+    clinic?.deleteId,
+    clinic?.raw?._id,
+    clinic?.raw?.clinic_id,
+    clinic?.raw?.clinicId,
+    clinic?.raw?.id,
+    clinic?.raw?.hospital_id,
+    clinic?.raw?.hospitalId,
+    '',
+  );
+
+  const performDeleteClinic = async (clinic) => {
+    const clinicId = getClinicDeleteId(clinic);
+    if (!clinicId || deletingClinicId) return;
+    try {
+      setDeletingClinicId(String(clinicId));
+      setMessage('');
+      await deleteDoctorClinic(clinicId);
+      setClinics((rows) => rows.filter((item) => String(getClinicDeleteId(item)) !== String(clinicId)));
+      showToast('Clinic deleted');
+      setStatus('succeeded');
+      setMessage('Clinic deleted successfully.');
+    } catch (err) {
+      setStatus('failed');
+      setMessage(getApiErrorText(err, 'Clinic could not be deleted. Please try again.'));
+    } finally {
+      setDeletingClinicId('');
+    }
+  };
+
+  const handleDeleteClinic = (clinic) => {
+    Alert.alert(
+      'Delete Clinic / Hospital',
+      `Delete ${clinic?.name || 'this clinic'}? This cannot be undone. Clinics with staff, appointments or saved timings cannot be deleted.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => performDeleteClinic(clinic) },
+      ],
+    );
   };
 
   const handleSave = async () => {
@@ -173,15 +215,42 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
           ) : clinics.length === 0 ? (
             <Text style={s.hint}>No clinics added yet.</Text>
           ) : (
-            clinics.map((clinic, index) => (
-              <View key={clinic.id} style={[s.clinicRow, index === clinics.length - 1 && s.clinicRowLast]}>
+            clinics.map((clinic, index) => {
+              const clinicId = getClinicDeleteId(clinic);
+              const isDeleting = deletingClinicId === String(clinicId);
+              return (
+              <View key={clinic.id} style={[s.clinicItem, index === clinics.length - 1 && s.clinicRowLast]}>
+                <View style={s.clinicRow}>
                 <View style={s.logoThumb}><AppIcon name="briefcase" size={18} color="#0D9488" strokeWidth={1.8} /></View>
                 <View style={s.flex}>
                   <Text translate={false} style={s.clinicName}>{clinic.name}</Text>
                   <Text translate={false} style={s.hint}>{clinic.location}{clinic.phone ? ` • ${clinic.phone}` : ''}</Text>
+                  {!clinicId && <Text style={s.deleteHint}>No clinic id found. Pull down to refresh.</Text>}
                 </View>
+                </View>
+                <Pressable
+                  onPress={() => handleDeleteClinic(clinic)}
+                  disabled={!clinicId || isDeleting}
+                  style={({ pressed }) => [
+                    s.deleteClinicBtn,
+                    !clinicId && s.deleteClinicBtnDisabled,
+                    pressed && clinicId && s.deleteClinicBtnPressed,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete ${clinic.name}`}
+                >
+                  {isDeleting ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <AppIcon name="trash" size={16} color={clinicId ? '#FFFFFF' : '#9CA3AF'} strokeWidth={2} />
+                  )}
+                  <Text style={[s.deleteClinicText, !clinicId && s.deleteClinicTextDisabled]}>
+                    {isDeleting ? 'Deleting...' : 'Delete Clinic / Hospital'}
+                  </Text>
+                </Pressable>
               </View>
-            ))
+              );
+            })
           )}
         </Section>
 
@@ -267,11 +336,18 @@ const s = createDoctorStyles({
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10, marginLeft: 2 },
   sectionLabel: { fontSize: 14, fontWeight: '700', color: '#17243A' },
   card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 14, padding: 14, shadowColor: '#17243A', shadowOpacity: 0.05, shadowRadius: 6, elevation: 1 },
-  clinicRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#EEF1F5' },
+  clinicItem: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EEF1F5' },
+  clinicRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   clinicRowLast: { borderBottomWidth: 0 },
   clinicName: { fontSize: 15, fontWeight: '800', color: '#17243A' },
   hint: { fontSize: 12.5, color: '#667085' },
   logoThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#F0FDFA', alignItems: 'center', justifyContent: 'center' },
+  deleteHint: { fontSize: 11.5, color: '#B45309', marginTop: 3 },
+  deleteClinicBtn: { minHeight: 42, borderRadius: 11, backgroundColor: '#DC2626', marginTop: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  deleteClinicBtnPressed: { backgroundColor: '#B91C1C' },
+  deleteClinicBtnDisabled: { backgroundColor: '#F3F4F6' },
+  deleteClinicText: { fontSize: 12.5, fontWeight: '800', color: '#FFFFFF' },
+  deleteClinicTextDisabled: { color: '#9CA3AF' },
   field: { marginBottom: 14 },
   fieldLabel: { fontSize: 12.5, fontWeight: '700', color: '#344054', marginBottom: 6 },
   fieldInputWrap: { flexDirection: 'row', alignItems: 'center', minHeight: 44, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, paddingHorizontal: 12, gap: 8 },

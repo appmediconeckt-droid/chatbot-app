@@ -1,5 +1,6 @@
 import {
   Linking,
+  NativeModules,
   PermissionsAndroid,
   Platform,
 } from 'react-native';
@@ -21,6 +22,8 @@ import { shouldDeliverNotification } from './notificationPreferences';
 
 const NOTIFICATION_CHANNEL_ID = 'humaeli-default';
 const INCOMING_CALL_CHANNEL_ID = 'humaeli-incoming-calls-v3';
+const DOWNLOADS_CHANNEL_ID = 'humaeli-downloads';
+export const FILE_DOWNLOAD_NOTIFICATION_TYPE = 'FILE_DOWNLOAD';
 const MISSED_CALL_NOTIFIED_KEY_PREFIX = 'missedCallNotification:';
 export const PENDING_INCOMING_CALL_PUSH_KEY = 'pendingIncomingCallPush';
 export const PENDING_NOTIFICATION_OPEN_KEY = 'pendingNotificationOpen';
@@ -283,6 +286,14 @@ const handleNotificationPressEvent = async ({ type, detail }) => {
     // "Update available" reminder (UpdateReminderModal): straight to the store.
     if (data.type === APP_UPDATE_NOTIFICATION_TYPE && data.url) {
       Linking.openURL(data.url).catch(() => {});
+      return;
+    }
+    // "Download complete" (displayDownloadNotification): open the file.
+    if (data.type === FILE_DOWNLOAD_NOTIFICATION_TYPE) {
+      if (data.openPath) {
+        NativeModules.PdfFileOpener?.openFile?.(data.openPath, data.mimeType || 'application/pdf')
+          ?.catch?.(() => {});
+      }
       return;
     }
     if (isIncomingCallNotification(data)) {
@@ -717,6 +728,44 @@ export const listenForForegroundNotifications = () => {
     }
 
     console.log('[Push] Foreground notification suppressed:', data?.type);
+  });
+};
+
+// Browser-style "Download complete" notification for a file the app saved to
+// Downloads. `openPath` must be an app-storage copy (FileProvider only covers
+// app storage); tapping the notification opens it.
+export const displayDownloadNotification = async ({ fileName, openPath, mimeType = 'application/pdf' }) => {
+  const notificationApi = getNotifeeApi();
+  const notifee = notificationApi?.default || notificationApi;
+  const AndroidImportance = notificationApi?.AndroidImportance || {};
+  if (!notifee?.displayNotification) return;
+
+  if (Platform.OS === 'android') {
+    await notifee.createChannel({
+      id: DOWNLOADS_CHANNEL_ID,
+      name: 'Downloads',
+      description: 'Files downloaded in the app, like prescription PDFs',
+      importance: AndroidImportance.DEFAULT,
+    });
+  }
+
+  await notifee.displayNotification({
+    title: 'Download complete',
+    body: String(fileName || 'File downloaded'),
+    data: {
+      type: FILE_DOWNLOAD_NOTIFICATION_TYPE,
+      openPath: String(openPath || ''),
+      mimeType: String(mimeType),
+    },
+    android: Platform.OS === 'android'
+      ? {
+          smallIcon: 'ic_notification',
+          color: '#0F8A9D',
+          channelId: DOWNLOADS_CHANNEL_ID,
+          pressAction: { id: 'default' },
+          autoCancel: true,
+        }
+      : undefined,
   });
 };
 

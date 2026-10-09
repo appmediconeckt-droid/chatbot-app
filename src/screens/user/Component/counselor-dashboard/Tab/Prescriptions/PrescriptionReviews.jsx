@@ -4,8 +4,10 @@ import {
   Alert,
   Image,
   Modal,
+  Platform,
   RefreshControl,
   ScrollView,
+  StatusBar,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -13,8 +15,11 @@ import {
 import RNFS from 'react-native-fs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { launchImageLibrary } from 'react-native-image-picker';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import LinearGradient from 'react-native-linear-gradient';
+import {
+  SafeAreaProvider,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import Text from '../../../../../../components/TranslatedText';
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
@@ -24,7 +29,11 @@ import {
   PRESCRIPTION_FESTIVAL_THEMES,
 } from '../../../../../../utils/prescriptionFestivalThemes';
 import { getPrescriptionValidity } from '../../../../../../utils/prescriptionValidity';
-import toImageUri from '../../../../../../utils/imageUri';
+import {
+  prescriptionSignatureUrlOf,
+  saveMySignature,
+} from '../../../../../../utils/consultantSignature';
+import SignaturePad from '../../../../../../components/SignaturePad';
 
 const statusColors = {
   verified: ['#DCFCE7', '#166534'],
@@ -92,47 +101,33 @@ const getMedicineTimeLabel = medicine => {
   return cleanText(time);
 };
 
-const getPrescriptionAssetUri = (source, keys) => {
-  for (const key of keys) {
-    const uri = toImageUri(source?.[key]);
-    if (uri) return uri;
-  }
-  return '';
-};
 
-const getPrescriptionSignatureAssets = item => {
-  const source = item?.psychiatrist || item?.consultant || item?.doctor || {};
-  const signatureUri =
-    toImageUri(item?.prescriptionSignature) ||
-    toImageUri(item?.prescriptionSignatureUrl) ||
-    toImageUri(item?.signatureUrl) ||
-    toImageUri(item?.signature) ||
-    toImageUri(source.prescriptionSignature) ||
-    toImageUri(source.prescriptionSignatureUrl) ||
-    toImageUri(source.signature) ||
-    toImageUri(source.signatureImage) ||
-    toImageUri(source.doctorSignature);
-  const sealUri =
-    toImageUri(item?.prescriptionSeal) ||
-    toImageUri(item?.prescriptionSealUrl) ||
-    toImageUri(item?.sealUrl) ||
-    toImageUri(item?.seal) ||
-    toImageUri(source.prescriptionSeal) ||
-    toImageUri(source.prescriptionSealUrl) ||
-    toImageUri(source.seal) ||
-    toImageUri(source.stamp) ||
-    toImageUri(source.clinicSeal);
+// The app is edge-to-edge and a Modal is its own native window, so the
+// preview gets its own SafeAreaProvider: insets are measured for this window
+// and the header / scroll content stay clear of the status and navigation bars.
+// `headerGradient` (patient side) paints the header in that gradient.
+export const PrescriptionPreview = props => (
+  <Modal
+    visible
+    animationType="slide"
+    statusBarTranslucent
+    navigationBarTranslucent
+    onRequestClose={props.onClose}
+  >
+    <SafeAreaProvider>
+      <PrescriptionPreviewBody {...props} />
+    </SafeAreaProvider>
+  </Modal>
+);
 
-  return { signatureUri, sealUri };
-};
-
-export const PrescriptionPreview = ({
+const PrescriptionPreviewBody = ({
   item,
   photoUri,
   onClose,
   onTheme,
   saving,
   showThemePicker = true,
+  headerGradient,
 }) => {
   const [paperSize, setPaperSize] = useState({ width: 0, height: 0 });
   const theme = getPrescriptionFestivalTheme(getThemeId(item));
@@ -140,18 +135,50 @@ export const PrescriptionPreview = ({
   const validity = getPrescriptionValidity(item);
   const isIdentityVerified = item?.verificationStatus === 'verified';
   const practitionerId = formatPractitionerId(practitioner.id);
-  const { signatureUri, sealUri } = getPrescriptionSignatureAssets(item);
+  const signatureUri = prescriptionSignatureUrlOf(item);
+  const medicines = Array.isArray(item?.medicines) ? item.medicines : [];
+  const rxNumber = idOf(item) ? `RX-${String(idOf(item)).slice(-6).toUpperCase()}` : '';
+  const insets = useSafeAreaInsets();
+  const headerContent = (
+    <>
+      <Text style={[s.modalTitle, headerGradient && s.modalTitleLight]}>
+        Prescription preview
+      </Text>
+      <TouchableOpacity onPress={onClose} hitSlop={10}>
+        <Ionicons
+          name="close"
+          size={28}
+          color={headerGradient ? '#FFFFFF' : '#0F172A'}
+        />
+      </TouchableOpacity>
+    </>
+  );
   return (
-    <Modal visible animationType="slide" onRequestClose={onClose}>
-      <View style={s.modalHeader}>
-        <Text style={s.modalTitle}>Prescription preview</Text>
-        <TouchableOpacity onPress={onClose}>
-          <Ionicons name="close" size={28} color="#0F172A" />
-        </TouchableOpacity>
-      </View>
+    <View style={s.previewRoot}>
+      {/* The status-bar area stays white with dark icons; the (green)
+          header starts below it so it never sits behind time / battery. */}
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <View style={[s.previewSafeTop, { height: insets.top }]} />
+      {headerGradient ? (
+        <LinearGradient
+          colors={headerGradient}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={[s.modalHeader, { paddingTop: 12 }]}
+        >
+          {headerContent}
+        </LinearGradient>
+      ) : (
+        <View style={[s.modalHeader, { paddingTop: 12 }]}>
+          {headerContent}
+        </View>
+      )}
       <ScrollView
         style={s.previewPage}
-        contentContainerStyle={s.previewContent}
+        contentContainerStyle={[
+          s.previewContent,
+          { paddingBottom: 40 + insets.bottom },
+        ]}
       >
         {showThemePicker && (
           <>
@@ -208,21 +235,33 @@ export const PrescriptionPreview = ({
               resizeMode="stretch"
             />
           )}
-          <View style={s.docHeader}>
+          {/* 1 · Letterhead */}
+          <View style={s.rxHead}>
             <Image
               source={require('../../../../../../image/HumaeliIcon.png')}
               style={s.logo}
             />
-            <View style={s.doctor}>
-              <Text style={s.doctorName}>{practitioner.name}</Text>
-              <Text style={s.doctorType}>{practitioner.type}</Text>
-              {!!practitionerId && (
-                <Text style={s.practitionerId}>ID: {practitionerId}</Text>
-              )}
+            <View style={s.rxBrand}>
+              <Text style={s.rxBrandName}>Humaeli</Text>
+              <Text style={s.rxBrandSub}>Mental Health · Digital Prescription</Text>
+            </View>
+            <View style={s.rxMeta}>
+              {!!rxNumber && <Text style={s.rxNumber}>{rxNumber}</Text>}
               {!!validity.issuedLabel && (
-                <Text style={s.tiny}>Issued: {validity.issuedLabel}</Text>
+                <Text style={s.rxMetaText}>{validity.issuedLabel}</Text>
               )}
             </View>
+          </View>
+          <View style={s.rxRule} />
+
+          {/* 2 · Prescriber */}
+          <View style={s.prescriber}>
+            <Text style={s.sectionTag}>PRESCRIBED BY</Text>
+            <Text style={s.doctorName}>{practitioner.name}</Text>
+            <Text style={s.doctorType}>{practitioner.type}</Text>
+            {!!practitionerId && (
+              <Text style={s.practitionerId}>Practitioner ID: {practitionerId}</Text>
+            )}
           </View>
           {/* <Text style={s.digital}>DIGITAL PRESCRIPTION</Text> */}
           {/* <View style={s.validityBox}>
@@ -246,105 +285,139 @@ export const PrescriptionPreview = ({
               {validity.isExpired ? 'Expired' : `${validity.validDays} days`}
             </Text>
           </View> */}
-          <View
-            style={[
-              s.identityCard,
-              isIdentityVerified ? s.identityVerified : s.identityUnverified,
-            ]}
-          >
-            <View
-              style={[
-                s.identityIcon,
-                isIdentityVerified
-                  ? s.identityIconVerified
-                  : s.identityIconUnverified,
-              ]}
-            >
-              <Ionicons
-                name={isIdentityVerified ? 'checkmark' : 'close'}
-                size={18}
-                color="#FFFFFF"
-              />
-            </View>
-            <View style={s.identityTextWrap}>
-              <Text
-                style={[
-                  s.identityTitle,
-                  isIdentityVerified
-                    ? s.identityTitleVerified
-                    : s.identityTitleUnverified,
-                ]}
-              >
-                Identity {isIdentityVerified ? 'verified' : 'not verified'}
-              </Text>
-              <Text style={s.identitySubtitle}>
-                {isIdentityVerified
-                  ? 'Patient photo confirmed'
-                  : 'Patient photo pending verification'}
-              </Text>
-            </View>
-          </View>
-          <View style={s.patient}>
+          {/* 3 · Patient */}
+          <View style={s.patientCard}>
             <View style={s.patientAvatar}>
               {photoUri ? (
                 <Image source={{ uri: photoUri }} style={s.fill} />
               ) : (
-                <Ionicons name="person" size={32} color="#2563EB" />
+                <Ionicons name="person" size={30} color="#2563EB" />
               )}
             </View>
             <View style={s.flex}>
-              <Text style={s.tiny}>PATIENT</Text>
+              <Text style={s.sectionTag}>PATIENT</Text>
               <Text style={s.patientName}>
                 {item?.patient?.name || 'Anonymous patient'}
               </Text>
-              <Text>
-                <Text style={s.bold}>Problem: </Text>
-                {item?.problem}
-              </Text>
-            </View>
-          </View>
-          <Text style={s.medicineHeading}>Medicines</Text>
-          {(item?.medicines || []).map((medicine, index) => (
-            <View key={`${medicine.name}-${index}`} style={s.medicineRow}>
-              <Text style={s.medNumber}>{index + 1}</Text>
-              <View style={s.flex}>
-                <Text style={s.bold}>{medicine.name || medicine.medicine}</Text>
-                <Text style={s.muted}>
-                  {medicine.dosage} · {(medicine.timeOfDay || []).join(', ')}
-                </Text>
-                <Text style={s.muted}>
-                  {medicine.timing}
-                  {medicine.duration ? ` · ${medicine.duration}` : ''}
+              <View
+                style={[
+                  s.idChip,
+                  isIdentityVerified ? s.idChipVerified : s.idChipPending,
+                ]}
+              >
+                <Ionicons
+                  name={isIdentityVerified ? 'shield-checkmark' : 'time-outline'}
+                  size={12}
+                  color={isIdentityVerified ? '#166534' : '#B45309'}
+                />
+                <Text
+                  style={[
+                    s.idChipText,
+                    isIdentityVerified ? s.idChipTextVerified : s.idChipTextPending,
+                  ]}
+                >
+                  {isIdentityVerified ? 'Identity verified' : 'Identity pending'}
                 </Text>
               </View>
             </View>
-          ))}
-          {!!item?.instructions && (
-            <View style={s.instructions}>
-              <Text style={s.bold}>Additional instructions</Text>
-              <Text style={s.muted}>{item.instructions}</Text>
+          </View>
+          <View style={s.metaGrid}>
+            <View style={s.metaCell}>
+              <Text style={s.metaLabel}>DATE ISSUED</Text>
+              <Text style={s.metaValue}>{validity.issuedLabel || '—'}</Text>
+            </View>
+            <View style={s.metaCell}>
+              <Text style={s.metaLabel}>VALID UNTIL</Text>
+              <Text style={[s.metaValue, validity.isExpired && s.metaExpired]}>
+                {validity.validUntilLabel || '—'}
+              </Text>
+            </View>
+          </View>
+
+          {/* 4 · Chief complaint */}
+          {!!cleanText(item?.problem) && (
+            <View style={s.complaint}>
+              <Text style={s.sectionTag}>CHIEF COMPLAINT</Text>
+              <Text style={s.complaintText}>{item.problem}</Text>
             </View>
           )}
+
+          {/* 5 · ℞ Medicines */}
+          <View style={s.rxTitleRow}>
+            <Text style={s.rxSymbol}>℞</Text>
+            <Text style={s.medicineHeading}>Medicines</Text>
+          </View>
+          {medicines.length === 0 ? (
+            <Text style={s.muted}>No medicines prescribed.</Text>
+          ) : (
+            medicines.map((medicine, index) => {
+              // Plain prescription format: numbered name, then a label/value
+              // grid (no coloured badges).
+              const details = [
+                ['DOSE', cleanText(medicine.dosage)],
+                ['WHEN', getMedicineTimeLabel(medicine)
+                  .split(',')
+                  .map(slot => slot.trim())
+                  .filter(Boolean)
+                  .map(slot => slot.charAt(0).toUpperCase() + slot.slice(1))
+                  .join(' · ')],
+                ['FOOD', cleanText(medicine.timing)],
+                ['DURATION', cleanText(medicine.duration)],
+              ].filter(([, value]) => value);
+              return (
+                <View key={`${medicine.name}-${index}`} style={s.medicineRow}>
+                  <Text style={s.medIndex}>{index + 1}.</Text>
+                  <View style={s.flex}>
+                    <Text style={s.medName}>{medicine.name || medicine.medicine}</Text>
+                    {details.length > 0 && (
+                      <View style={s.medGrid}>
+                        {details.map(([label, value]) => (
+                          <View key={label} style={s.medCell}>
+                            <Text style={s.medLabel}>{label}</Text>
+                            <Text style={s.medValue}>{value}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                </View>
+              );
+            })
+          )}
+
+          {/* 6 · Instructions */}
+          {!!item?.instructions && (
+            <View style={s.instructions}>
+              <Text style={s.sectionTag}>INSTRUCTIONS</Text>
+              <Text style={s.instructionsText}>{item.instructions}</Text>
+            </View>
+          )}
+
+          {/* 7 · Signature — the consultant's drawn signature; older
+              prescriptions without one show their name, digitally signed. */}
           <View style={s.signatureBlock}>
-            {!!sealUri && (
-              <Image
-                source={{ uri: sealUri }}
-                style={s.sealImage}
-                resizeMode="contain"
-              />
-            )}
             <View style={s.signaturePanel}>
-              {!!signatureUri && (
+              {signatureUri ? (
                 <Image
                   source={{ uri: signatureUri }}
                   style={s.signatureImage}
                   resizeMode="contain"
                 />
+              ) : (
+                <Text style={s.autoSignature} numberOfLines={1} adjustsFontSizeToFit>
+                  {practitioner.name}
+                </Text>
               )}
               <View style={s.signatureLine} />
-              <Text style={s.signatureLabel}>Digitally prescribed by</Text>
               <Text style={s.signatureName}>{practitioner.name}</Text>
               <Text style={s.signatureType}>{practitioner.type}</Text>
+              <View style={s.signedRow}>
+                <Ionicons name="checkmark-circle" size={11} color="#16A34A" />
+                <Text style={s.signedText}>
+                  Digitally signed
+                  {validity.issuedLabel ? ` · ${validity.issuedLabel}` : ''}
+                </Text>
+              </View>
             </View>
           </View>
           <Text style={s.footer}>
@@ -352,12 +425,13 @@ export const PrescriptionPreview = ({
           </Text>
         </View>
       </ScrollView>
-    </Modal>
+    </View>
   );
 };
 
-export default function PrescriptionReviews() {
+export default function PrescriptionReviews({ onClose } = {}) {
   const insets = useSafeAreaInsets();
+  const [filter, setFilter] = useState('all');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -368,8 +442,6 @@ export default function PrescriptionReviews() {
   const [approving, setApproving] = useState(null);
   const [reason, setReason] = useState('');
   const [savingThemeId, setSavingThemeId] = useState(null);
-  const [approvalSignatureFile, setApprovalSignatureFile] = useState(null);
-  const [approvalSealFile, setApprovalSealFile] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -410,104 +482,38 @@ export default function PrescriptionReviews() {
     };
   }, [items, photos]);
 
-  const pickApprovalAsset = (type) => new Promise((resolve) => {
-    launchImageLibrary(
-      {
-        mediaType: 'photo',
-        includeBase64: false,
-        quality: 0.9,
-        selectionLimit: 1,
-      },
-      (response) => {
-        if (response.didCancel) return resolve(null);
-        const asset = response.assets?.[0];
-        if (!asset?.uri) {
-          Alert.alert('Image required', 'Unable to read selected image.');
-          return resolve(null);
-        }
-        if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
-          Alert.alert('File too large', 'Signature or seal image must be less than 5MB.');
-          return resolve(null);
-        }
-        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-        if (asset.type && !allowedTypes.includes(String(asset.type).toLowerCase())) {
-          Alert.alert('Invalid format', 'Only JPG, PNG, and WEBP images are allowed.');
-          return resolve(null);
-        }
-        const file = {
-          uri: asset.uri,
-          type: asset.type || 'image/png',
-          name: asset.fileName || `prescription-${type}-${Date.now()}.png`,
-        };
-        if (type === 'signature') setApprovalSignatureFile(file);
-        else setApprovalSealFile(file);
-        resolve(file);
-      },
-    );
-  });
+  // Every approval is signed live: the consultant draws their signature on the
+  // pad for this prescription, and it's uploaded only when they approve.
+  // No saved image is reused and there's no seal / stamp.
+  const [signedFile, setSignedFile] = useState(null); // PNG drawn for this approval
+  const [padVisible, setPadVisible] = useState(false);
+  const [uploadingSignature, setUploadingSignature] = useState(false);
 
   const openApprove = (item) => {
-    setApprovalSignatureFile(null);
-    setApprovalSealFile(null);
+    setSignedFile(null);
     setApproving(item);
+    setPadVisible(true); // go straight to signing
   };
 
-  const saveApprovalAssets = async (item, signatureFile = approvalSignatureFile, sealFile = approvalSealFile) => {
-    if (!signatureFile && !sealFile) {
-      return getPrescriptionSignatureAssets(item);
-    }
-    const practitioner = getPractitioner(item);
-    if (!practitioner.id) throw new Error('Consultant profile not found.');
-    const formData = new FormData();
-    if (signatureFile) formData.append('prescriptionSignature', signatureFile);
-    if (sealFile) formData.append('prescriptionSeal', sealFile);
-    const token = await authToken();
-    const response = await axios.patch(
-      `${API_BASE_URL}/api/auth/update/${encodeURIComponent(practitioner.id)}`,
-      formData,
-      {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          'Content-Type': 'multipart/form-data',
-        },
-      },
-    );
-    const updated = response.data?.user;
-    return {
-      signatureUri:
-        getPrescriptionAssetUri(updated, ['prescriptionSignature', 'prescriptionSignatureUrl']) ||
-        signatureFile?.uri ||
-        getPrescriptionSignatureAssets(item).signatureUri,
-      sealUri:
-        getPrescriptionAssetUri(updated, ['prescriptionSeal', 'prescriptionSealUrl']) ||
-        sealFile?.uri ||
-        getPrescriptionSignatureAssets(item).sealUri,
-    };
+  const handleSignatureDrawn = (file) => {
+    setPadVisible(false);
+    setSignedFile(file);
   };
 
   const confirmApproval = async () => {
     if (!approving) return;
+    if (!signedFile) {
+      setPadVisible(true);
+      return;
+    }
     try {
-      let signatureFile = approvalSignatureFile;
-      let sealFile = approvalSealFile;
-      const existingAssets = getPrescriptionSignatureAssets(approving);
-      if (!existingAssets.signatureUri && !signatureFile) {
-        signatureFile = await pickApprovalAsset('signature');
-        if (!signatureFile) {
-          Alert.alert('Signature required', 'Please add consultant signature before approving.');
-          return;
-        }
-      }
-      if (!existingAssets.sealUri && !sealFile) {
-        sealFile = await pickApprovalAsset('seal');
-        if (!sealFile) {
-          Alert.alert('Humaeli seal required', 'Please add Humaeli seal before approving.');
-          return;
-        }
-      }
-      const assets = await saveApprovalAssets(approving, signatureFile, sealFile);
-      await review(approving, 'approve', '', assets);
+      setUploadingSignature(true);
+      const signatureUrl = await saveMySignature(signedFile);
+      setUploadingSignature(false);
+      await review(approving, 'approve', '', signatureUrl);
+      setSignedFile(null);
     } catch (e) {
+      setUploadingSignature(false);
       Alert.alert(
         'Approval failed',
         e?.response?.data?.message ||
@@ -518,7 +524,7 @@ export default function PrescriptionReviews() {
     }
   };
 
-  const review = async (item, action, rejectionReason = '', assets = {}) => {
+  const review = async (item, action, rejectionReason = '', signatureUrl = '') => {
     const id = idOf(item);
     try {
       setWorkingId(id);
@@ -526,10 +532,9 @@ export default function PrescriptionReviews() {
       const response = await axios.patch(`/api/prescriptions/${id}/verification`, {
         action,
         reason: rejectionReason,
-        prescriptionSignatureUrl: assets.signatureUri,
-        signatureUrl: assets.signatureUri,
-        prescriptionSealUrl: assets.sealUri,
-        sealUrl: assets.sealUri,
+        ...(signatureUrl
+          ? { prescriptionSignatureUrl: signatureUrl, signatureUrl }
+          : {}),
       });
       const status = action === 'approve' ? 'verified' : 'rejected';
       const updatedPrescription = response.data?.prescription;
@@ -557,8 +562,6 @@ export default function PrescriptionReviews() {
       );
       setRejecting(null);
       setApproving(null);
-      setApprovalSignatureFile(null);
-      setApprovalSealFile(null);
       setReason('');
     } catch (e) {
       Alert.alert(
@@ -594,21 +597,85 @@ export default function PrescriptionReviews() {
     }
   };
 
+  // Status filter (counts per status) for the review list.
+  const FILTERS = [
+    { key: 'all', label: 'All' },
+    { key: 'pending', label: 'Pending' },
+    { key: 'verified', label: 'Verified' },
+    { key: 'rejected', label: 'Rejected' },
+  ];
+  const statusOf = item => item?.verificationStatus || 'photo_required';
+  const counts = {
+    all: items.length,
+    // "Pending" = waiting on the consultant: photo uploaded, not yet reviewed,
+    // plus prescriptions still waiting for the patient's photo.
+    pending: items.filter(item => ['pending', 'photo_required'].includes(statusOf(item))).length,
+    verified: items.filter(item => statusOf(item) === 'verified').length,
+    rejected: items.filter(item => statusOf(item) === 'rejected').length,
+  };
+  const visibleItems = items.filter(item =>
+    filter === 'all'
+      ? true
+      : filter === 'pending'
+        ? ['pending', 'photo_required'].includes(statusOf(item))
+        : statusOf(item) === filter,
+  );
+
   return (
     <View style={s.screen}>
-      <View
-        style={[s.pageHeader, { paddingTop: Math.max(insets.top, 18) + 24 }]}
+      {/* Status-bar strip stays white (dark icons); the blue header starts
+          below it so the colour never runs behind the phone's icons. */}
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <View style={[s.rvSafeTop, { height: insets.top }]} />
+      <LinearGradient
+        colors={['#1D4ED8', '#3B82F6']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={s.rvHeader}
       >
-        <View>
-          <Text style={s.title}>Prescriptions</Text>
-          <Text style={s.subtitle}>
-            Review patient photos before releasing final prescriptions.
+        <View style={s.rvHeaderDeco} />
+        {!!onClose && (
+          <TouchableOpacity style={s.rvHeaderBtn} onPress={onClose} hitSlop={8}>
+            <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+        )}
+        <View style={s.flex}>
+          <Text style={s.rvTitle}>Prescriptions</Text>
+          <Text style={s.rvSubtitle} numberOfLines={1}>
+            Review patient photos before release
           </Text>
         </View>
-        <TouchableOpacity style={s.refresh} onPress={load}>
-          <Ionicons name="refresh" size={21} color="#2563EB" />
+        <TouchableOpacity style={s.rvHeaderBtn} onPress={load} hitSlop={8}>
+          <Ionicons name="refresh" size={19} color="#FFFFFF" />
         </TouchableOpacity>
-      </View>
+      </LinearGradient>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={s.rvFilterScroll}
+        contentContainerStyle={s.rvFilters}
+      >
+        {FILTERS.map(f => {
+          const active = filter === f.key;
+          return (
+            <TouchableOpacity
+              key={f.key}
+              style={[s.rvFilter, active && s.rvFilterActive]}
+              onPress={() => setFilter(f.key)}
+              activeOpacity={0.85}
+            >
+              <Text style={[s.rvFilterText, active && s.rvFilterTextActive]}>{f.label}</Text>
+              <View style={[s.rvFilterCount, active && s.rvFilterCountActive]}>
+                <Text style={[s.rvFilterCountText, active && s.rvFilterCountTextActive]}>
+                  {counts[f.key]}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
       {!!error && <Text style={s.error}>{error}</Text>}
       {loading ? (
         <View style={s.empty}>
@@ -620,125 +687,98 @@ export default function PrescriptionReviews() {
           refreshControl={
             <RefreshControl refreshing={loading} onRefresh={load} />
           }
-          contentContainerStyle={s.list}
+          contentContainerStyle={[s.rvList, { paddingBottom: insets.bottom + 24 }]}
         >
-          {items.length === 0 ? (
+          {visibleItems.length === 0 ? (
             <View style={s.empty}>
               <Ionicons
                 name="document-text-outline"
                 size={46}
                 color="#94A3B8"
               />
-              <Text style={s.emptyTitle}>No prescriptions issued yet.</Text>
+              <Text style={s.emptyTitle}>
+                {items.length === 0 ? 'No prescriptions issued yet.' : 'Nothing in this list.'}
+              </Text>
             </View>
           ) : (
-            items.map(item => {
+            visibleItems.map(item => {
               const id = idOf(item);
               const colors =
                 statusColors[item.verificationStatus] ||
                 statusColors.photo_required;
               const practitioner = getPractitioner(item);
-              const validity = getPrescriptionValidity(item);
+              const canReview = Boolean(item.hasPatientPhoto);
+              const isVerified = item.verificationStatus === 'verified';
               return (
-                <View key={id} style={s.card}>
-                  <View style={s.cardAccent} />
-                  <View style={s.cardTop}>
-                    <View style={s.photo}>
+                <View key={id} style={s.rvCard}>
+                  <View style={s.rvCardTop}>
+                    <View style={s.rvPhoto}>
                       {photos[id] ? (
                         <Image source={{ uri: photos[id] }} style={s.fill} />
                       ) : item.hasPatientPhoto ? (
                         <ActivityIndicator color="#2563EB" />
                       ) : (
-                        <Ionicons name="person" size={34} color="#64748B" />
+                        <Ionicons name="person" size={24} color="#94A3B8" />
                       )}
                     </View>
                     <View style={s.flex}>
-                      <Text
-                        style={[
-                          s.status,
-                          { backgroundColor: colors[0], color: colors[1] },
-                        ]}
-                      >
-                        {String(
-                          item.verificationStatus || 'photo_required',
-                        ).replace('_', ' ')}
-                      </Text>
-                      <Text style={s.cardTitle}>
-                        {item.patient?.name || 'Anonymous patient'}
-                      </Text>
-                      <Text style={s.cardDoctor} numberOfLines={1}>
-                        {practitioner.name} · {practitioner.type}
-                      </Text>
-                      <Text style={s.problem}>
-                        <Text style={s.bold}>Problem: </Text>
-                        {item.problem}
-                      </Text>
-                      {!!item.medicines?.[0] && (
-                        <Text style={s.cardMedicine} numberOfLines={1}>
-                          {item.medicines[0].name || item.medicines[0].medicine}
-                          {getMedicineTimeLabel(item.medicines[0])
-                            ? ` · ${getMedicineTimeLabel(item.medicines[0])}`
-                            : ''}
+                      <View style={s.rvNameRow}>
+                        <Text style={s.rvName} numberOfLines={1}>
+                          {item.patient?.name || 'Anonymous patient'}
                         </Text>
-                      )}
-                      <Text style={s.tiny}>
-                        {new Date(item.issuedAt).toLocaleDateString('en-IN')} ·{' '}
-                        {item.medicines?.length || 0} medicine(s)
+                        <View style={[s.rvStatus, { backgroundColor: colors[0] }]}>
+                          <Text style={[s.rvStatusText, { color: colors[1] }]}>
+                            {String(item.verificationStatus || 'photo_required').replace('_', ' ')}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={s.rvDoctor} numberOfLines={1}>
+                        {practitioner.name} · {new Date(item.issuedAt).toLocaleDateString('en-IN')}
                       </Text>
-                      <Text
-                        style={[
-                          s.cardValidUntil,
-                          validity.isExpired && s.cardValidExpired,
-                        ]}
-                      >
-                        Valid until: {validity.validUntilLabel}
-                      </Text>
-                      {!!item.rejectionReason && (
-                        <Text style={s.rejectReason}>
-                          {item.rejectionReason}
-                        </Text>
-                      )}
                     </View>
                   </View>
-                  <View style={s.actions}>
+
+                  <View style={s.rvProblem}>
+                    <Ionicons name="pulse-outline" size={14} color="#2563EB" />
+                    <Text style={s.rvProblemText} numberOfLines={1}>
+                      {item.problem || 'No problem noted'}
+                    </Text>
+                  </View>
+
+                  {!!item.rejectionReason && (
+                    <Text style={s.rejectReason}>{item.rejectionReason}</Text>
+                  )}
+
+                  <View style={s.rvActions}>
                     <TouchableOpacity
-                      style={[s.button, s.view]}
+                      style={[s.rvAction, s.rvActionView]}
                       onPress={() => setPreview(item)}
                     >
-                      <Ionicons name="eye" size={18} color="#1D4ED8" />
-                      <Text style={s.viewText}>View</Text>
+                      <Ionicons name="eye-outline" size={16} color="#1D4ED8" />
+                      <Text style={[s.rvActionText, { color: '#1D4ED8' }]}>View</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      disabled={
-                        !item.hasPatientPhoto ||
-                        workingId === id ||
-                        item.verificationStatus === 'verified'
-                      }
-                      style={[
-                        s.button,
-                        s.approve,
-                        (!item.hasPatientPhoto ||
-                          item.verificationStatus === 'verified') &&
-                          s.disabled,
-                      ]}
+                      disabled={!canReview || workingId === id || isVerified}
+                      style={[s.rvAction, s.rvActionApprove, (!canReview || isVerified) && s.disabled]}
                       onPress={() => openApprove(item)}
                     >
-                      <Ionicons name="checkmark" size={18} color="#166534" />
-                      <Text style={s.approveText}>Approve</Text>
+                      <Ionicons name="checkmark-circle-outline" size={16} color="#166534" />
+                      <Text style={[s.rvActionText, { color: '#166534' }]}>
+                        {isVerified ? 'Approved' : 'Approve'}
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      disabled={!item.hasPatientPhoto || workingId === id}
-                      style={[
-                        s.button,
-                        s.reject,
-                        !item.hasPatientPhoto && s.disabled,
-                      ]}
+                      disabled={!canReview || workingId === id}
+                      style={[s.rvAction, s.rvActionReject, !canReview && s.disabled]}
                       onPress={() => setRejecting(item)}
                     >
-                      <Ionicons name="close" size={18} color="#B91C1C" />
-                      <Text style={s.rejectText}>Reject</Text>
+                      <Ionicons name="close-circle-outline" size={16} color="#B91C1C" />
+                      <Text style={[s.rvActionText, { color: '#B91C1C' }]}>Reject</Text>
                     </TouchableOpacity>
                   </View>
+                  {!canReview && (
+                    <Text style={s.rvHint}>Waiting for the patient to upload their photo.</Text>
+                  )}
                 </View>
               );
             })
@@ -755,86 +795,88 @@ export default function PrescriptionReviews() {
         />
       )}
       {!!approving && (() => {
-        const assets = getPrescriptionSignatureAssets(approving);
-        const signatureUri = approvalSignatureFile?.uri || assets.signatureUri;
-        const sealUri = approvalSealFile?.uri || assets.sealUri;
+        const signerName = getPractitioner(approving).name;
         const isWorking = workingId === idOf(approving);
+        const busy = isWorking || uploadingSignature;
+        const hasSignature = Boolean(signedFile);
+        // One modal at a time: Android can't show the signature pad's Modal
+        // inside this dialog's Modal (it stayed hidden while padVisible was
+        // already true, so "Tap to sign" did nothing). The dialog hides while
+        // the pad is open and comes back with the signature.
         return (
+          <>
           <Modal
             transparent
-            visible
+            visible={!padVisible}
             animationType="fade"
-            onRequestClose={() => !isWorking && setApproving(null)}
+            onRequestClose={() => !busy && setApproving(null)}
           >
             <View style={s.overlay}>
               <View style={s.dialog}>
                 <Text style={s.dialogTitle}>Approve prescription</Text>
                 <Text style={s.muted}>
-                  Confirm consultant signature and Humaeli seal before approval.
+                  {hasSignature
+                    ? 'Check your signature, then approve to sign this prescription.'
+                    : 'Sign on the pad to approve this prescription.'}
                 </Text>
-                <View style={s.approvalAssetRow}>
-                  {[
-                    {
-                      key: 'signature',
-                      title: 'Signature',
-                      icon: 'create-outline',
-                      uri: signatureUri,
-                    },
-                    {
-                      key: 'seal',
-                      title: 'Humaeli seal',
-                      icon: 'ribbon-outline',
-                      uri: sealUri,
-                    },
-                  ].map(asset => (
-                    <TouchableOpacity
-                      key={asset.key}
-                      style={s.approvalAssetTile}
-                      onPress={() => pickApprovalAsset(asset.key)}
-                      disabled={isWorking}
-                      activeOpacity={0.82}
-                    >
-                      {asset.uri ? (
-                        <Image
-                          source={{ uri: asset.uri }}
-                          style={s.approvalAssetImage}
-                          resizeMode="contain"
-                        />
-                      ) : (
-                        <View style={s.approvalAssetEmpty}>
-                          <Ionicons name={asset.icon} size={23} color="#2563EB" />
-                        </View>
-                      )}
-                      <Text style={s.approvalAssetTitle}>{asset.title}</Text>
-                      <Text style={s.approvalAssetAction}>
-                        {asset.uri ? 'Change' : 'Add image'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                <TouchableOpacity
+                  style={[s.approvalSignatureBox, !hasSignature && s.approvalSignatureEmpty]}
+                  onPress={() => setPadVisible(true)}
+                  disabled={busy}
+                  activeOpacity={0.85}
+                >
+                  {uploadingSignature ? (
+                    <ActivityIndicator color="#2563EB" style={s.signatureLoader} />
+                  ) : hasSignature ? (
+                    <Image
+                      source={{ uri: signedFile.uri }}
+                      style={s.signatureImage}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <View style={s.signaturePrompt}>
+                      <Ionicons name="create-outline" size={24} color="#2563EB" />
+                      <Text style={s.signaturePromptText}>Tap to sign</Text>
+                    </View>
+                  )}
+                  <View style={s.signatureLine} />
+                  <Text style={s.signatureName}>{signerName}</Text>
+                  {hasSignature && !uploadingSignature && (
+                    <Text style={s.redrawText}>Tap to sign again</Text>
+                  )}
+                </TouchableOpacity>
                 <View style={s.dialogActions}>
                   <TouchableOpacity
                     onPress={() => setApproving(null)}
                     style={s.cancel}
-                    disabled={isWorking}
+                    disabled={busy}
                   >
                     <Text>Cancel</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    disabled={isWorking}
+                    disabled={busy}
                     onPress={confirmApproval}
-                    style={[s.confirmApprove, isWorking && s.disabled]}
+                    style={[s.confirmApprove, busy && s.disabled]}
                   >
-                    {isWorking ? (
+                    {busy ? (
                       <ActivityIndicator size="small" color="#FFFFFF" />
                     ) : (
-                      <Text style={s.confirmText}>Approve</Text>
+                      <Text style={s.confirmText}>
+                        {hasSignature ? 'Approve' : 'Sign'}
+                      </Text>
                     )}
                   </TouchableOpacity>
                 </View>
               </View>
             </View>
           </Modal>
+          <SignaturePad
+            visible={padVisible}
+            signerName={signerName}
+            onCancel={() => setPadVisible(false)}
+            onDone={handleSignatureDrawn}
+          />
+          </>
         );
       })()}
       <Modal
@@ -881,6 +923,114 @@ export default function PrescriptionReviews() {
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F8FAFC' },
+  previewSafeTop: { backgroundColor: '#FFFFFF' },
+  rvSafeTop: { backgroundColor: '#FFFFFF' },
+  rvHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    overflow: 'hidden',
+  },
+  rvHeaderDeco: {
+    position: 'absolute',
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    right: -40,
+    top: -60,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  rvHeaderBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rvTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
+  rvSubtitle: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.85)', marginTop: 1 },
+  rvFilterScroll: { flexGrow: 0, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
+  rvFilters: { flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingVertical: 10 },
+  rvFilter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+  },
+  rvFilterActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
+  rvFilterText: { fontSize: 13, fontWeight: '700', color: '#475569' },
+  rvFilterTextActive: { color: '#FFFFFF' },
+  rvFilterCount: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E2E8F0' },
+  rvFilterCountActive: { backgroundColor: 'rgba(255,255,255,0.25)' },
+  rvFilterCountText: { fontSize: 11, fontWeight: '800', color: '#475569' },
+  rvFilterCountTextActive: { color: '#FFFFFF' },
+  rvList: { padding: 14, gap: 10 },
+  rvCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 11,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  rvCardTop: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  rvPhoto: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rvNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rvName: { flex: 1, fontSize: 15.5, fontWeight: '800', color: '#0F172A' },
+  rvStatus: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  rvStatusText: { fontSize: 10.5, fontWeight: '800', textTransform: 'capitalize' },
+  rvDoctor: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  rvProblem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 9,
+    backgroundColor: '#F1F5FF',
+  },
+  rvProblemText: { flex: 1, fontSize: 13, color: '#1E293B' },
+  rvMedicine: { fontSize: 12.5, color: '#334155', marginTop: 8 },
+  rvMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8 },
+  rvMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  rvMetaText: { fontSize: 11.5, color: '#64748B', fontWeight: '600' },
+  rvActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  rvAction: {
+    flex: 1,
+    height: 34,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderWidth: 1,
+  },
+  rvActionView: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+  rvActionApprove: { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
+  rvActionReject: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  rvActionText: { fontSize: 13, fontWeight: '800' },
+  rvHint: { fontSize: 11.5, color: '#92400E', marginTop: 8, textAlign: 'center' },
   pageHeader: {
     padding: 20,
     backgroundColor: '#FFF',
@@ -1012,14 +1162,15 @@ const s = StyleSheet.create({
   disabled: { opacity: 0.4 },
   modalHeader: {
     padding: 18,
-    paddingTop: 25,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: '#FFF',
   },
   modalTitle: { fontSize: 19, fontWeight: '800', color: '#0F172A' },
-  previewPage: { backgroundColor: '#E9EEF5' },
+  modalTitleLight: { color: '#FFFFFF' },
+  previewRoot: { flex: 1, backgroundColor: '#E9EEF5' },
+  previewPage: { flex: 1, backgroundColor: '#E9EEF5' },
   previewContent: { padding: 14, paddingBottom: 40 },
   sectionLabel: { fontWeight: '800', color: '#334155', marginBottom: 9 },
   themeStrip: { marginBottom: 12 },
@@ -1068,16 +1219,41 @@ const s = StyleSheet.create({
     top: 0,
     opacity: 0.18,
   },
-  docHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderBottomWidth: 3,
-    borderColor: '#2563EB',
-    paddingBottom: 14,
+  rxHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  logo: { width: 52, height: 52, resizeMode: 'contain' },
+  rxBrand: { flex: 1 },
+  rxBrandName: { fontSize: 20, fontWeight: '900', color: '#0F2A5F', letterSpacing: 0.3 },
+  rxBrandSub: { fontSize: 10.5, fontWeight: '700', color: '#64748B', marginTop: 1 },
+  rxMeta: { alignItems: 'flex-end' },
+  rxNumber: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#1D4ED8',
+    backgroundColor: 'rgba(219,234,254,.9)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    overflow: 'hidden',
+    letterSpacing: 0.5,
   },
-  logo: { width: 65, height: 65, resizeMode: 'contain' },
-  doctor: { alignItems: 'flex-end', flex: 1 },
-  doctorName: { fontSize: 19, fontWeight: '800', color: '#172033' },
+  rxMetaText: { fontSize: 10, fontWeight: '700', color: '#64748B', marginTop: 4 },
+  rxRule: {
+    height: 5,
+    borderTopWidth: 2.5,
+    borderBottomWidth: 1,
+    borderColor: '#2563EB',
+    marginTop: 12,
+    marginBottom: 14,
+  },
+  sectionTag: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: '#2563EB',
+    letterSpacing: 1,
+    marginBottom: 3,
+  },
+  prescriber: { marginBottom: 12 },
+  doctorName: { fontSize: 18, fontWeight: '800', color: '#172033' },
   doctorType: {
     color: '#0F766E',
     fontSize: 13,
@@ -1130,57 +1306,68 @@ const s = StyleSheet.create({
   },
   activePill: { color: '#166534', backgroundColor: '#DCFCE7' },
   expiredPill: { color: '#B91C1C', backgroundColor: '#FEE2E2' },
-  identityCard: {
-    alignSelf: 'stretch',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    marginTop: 12,
-    width: '100%',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  identityVerified: { backgroundColor: '#ECFDF5', borderColor: '#86EFAC' },
-  identityUnverified: { backgroundColor: '#FEF2F2', borderColor: '#FCA5A5' },
-  identityIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  identityIconVerified: { backgroundColor: '#16A34A' },
-  identityIconUnverified: { backgroundColor: '#DC2626' },
-  identityTextWrap: { flexShrink: 1 },
-  identityTitle: {
-    fontSize: 13,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-  },
-  identityTitleVerified: { color: '#166534' },
-  identityTitleUnverified: { color: '#B91C1C' },
-  identitySubtitle: {
-    color: '#64748B',
-    fontSize: 10,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  patient: {
+  patientCard: {
     flexDirection: 'row',
     gap: 12,
     alignItems: 'center',
-    padding: 13,
-    backgroundColor: 'rgba(241,245,249,.9)',
-    borderRadius: 10,
-    marginVertical: 18,
+    padding: 12,
+    backgroundColor: 'rgba(241,245,249,.92)',
+    borderRadius: 12,
   },
+  idChip: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginTop: 5,
+  },
+  idChipVerified: { backgroundColor: '#DCFCE7' },
+  idChipPending: { backgroundColor: '#FEF3C7' },
+  idChipText: { fontSize: 10.5, fontWeight: '800' },
+  idChipTextVerified: { color: '#166534' },
+  idChipTextPending: { color: '#B45309' },
+  metaGrid: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  metaCell: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: 'rgba(255,255,255,.92)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  metaLabel: { fontSize: 9, fontWeight: '900', color: '#64748B', letterSpacing: 0.6 },
+  metaValue: { fontSize: 12, fontWeight: '800', color: '#0F172A', marginTop: 2 },
+  metaExpired: { color: '#B91C1C' },
+  complaint: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    backgroundColor: 'rgba(239,246,255,.92)',
+  },
+  complaintText: { fontSize: 14, fontWeight: '700', color: '#172033', lineHeight: 20 },
+  rxTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 18, marginBottom: 4 },
+  rxSymbol: { fontSize: 30, fontWeight: '900', fontStyle: 'italic', color: '#2563EB', lineHeight: 34 },
+  medicineRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  medIndex: { width: 20, fontSize: 14.5, fontWeight: '900', color: '#1E3A8A' },
+  medName: { fontSize: 14.5, fontWeight: '900', color: '#0F172A' },
+  medGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 6, rowGap: 6 },
+  medCell: { width: '50%', paddingRight: 8 },
+  medLabel: { fontSize: 9, fontWeight: '900', color: '#94A3B8', letterSpacing: 0.8 },
+  medValue: { fontSize: 12.5, fontWeight: '700', color: '#334155', marginTop: 1 },
+  instructionsText: { fontSize: 13, color: '#334155', lineHeight: 19 },
+  signatureImage: { width: '100%', height: 64, marginBottom: 2 },
   patientAvatar: {
     width: 56,
     height: 56,
@@ -1192,27 +1379,9 @@ const s = StyleSheet.create({
   },
   patientName: { fontSize: 17, fontWeight: '800', color: '#172033' },
   medicineHeading: {
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '900',
     color: '#172033',
-    marginBottom: 8,
-  },
-  medicineRow: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderColor: '#DBE4EF',
-  },
-  medNumber: {
-    width: 22,
-    height: 22,
-    textAlign: 'center',
-    paddingTop: 2,
-    borderRadius: 11,
-    color: '#FFF',
-    backgroundColor: '#2563EB',
-    fontWeight: '700',
   },
   instructions: {
     marginTop: 18,
@@ -1228,20 +1397,29 @@ const s = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 16,
   },
-  sealImage: {
-    width: 82,
-    height: 82,
-    opacity: 0.9,
+  // Handwritten-style e-signature of the consultant's name.
+  autoSignature: {
+    alignSelf: 'stretch',
+    textAlign: 'center',
+    color: '#1E3A8A',
+    fontSize: 26,
+    lineHeight: 40,
+    fontFamily: Platform.select({ ios: 'Snell Roundhand', android: 'cursive', default: undefined }),
+    fontStyle: 'italic',
+    transform: [{ rotate: '-3deg' }],
+    marginBottom: 2,
   },
+  signedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 5,
+  },
+  signedText: { color: '#16A34A', fontSize: 9.5, fontWeight: '800' },
   signaturePanel: {
     minWidth: 170,
     maxWidth: '68%',
     alignItems: 'center',
-  },
-  signatureImage: {
-    width: '100%',
-    height: 54,
-    marginBottom: 2,
   },
   signatureLine: {
     width: '100%',
@@ -1293,48 +1471,21 @@ const s = StyleSheet.create({
     padding: 18,
   },
   dialogTitle: { fontSize: 19, fontWeight: '800', color: '#0F172A' },
-  approvalAssetRow: {
-    flexDirection: 'row',
-    gap: 10,
+  approvalSignatureEmpty: { borderStyle: 'dashed', borderColor: '#93C5FD', backgroundColor: '#F8FBFF' },
+  signatureLoader: { height: 64 },
+  signaturePrompt: { height: 64, alignItems: 'center', justifyContent: 'center', gap: 4 },
+  signaturePromptText: { color: '#2563EB', fontSize: 13, fontWeight: '800' },
+  redrawText: { color: '#2563EB', fontSize: 11, fontWeight: '800', marginTop: 4 },
+  approvalSignatureBox: {
     marginTop: 14,
-  },
-  approvalAssetTile: {
-    flex: 1,
-    minHeight: 122,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#CBD5E1',
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 10,
-  },
-  approvalAssetImage: {
-    width: '100%',
-    height: 54,
-    marginBottom: 8,
-  },
-  approvalAssetEmpty: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: '#EFF6FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  approvalAssetTitle: {
-    color: '#0F172A',
-    fontSize: 12,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  approvalAssetAction: {
-    color: '#2563EB',
-    fontSize: 11,
-    fontWeight: '900',
-    marginTop: 3,
-    textAlign: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
   reasonInput: {
     minHeight: 100,

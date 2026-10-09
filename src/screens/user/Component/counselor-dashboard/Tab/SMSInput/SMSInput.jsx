@@ -53,6 +53,7 @@ import toImageUri from '../../../../../../utils/imageUri';
 import GradientFill from '../../../../../../components/common/GradientFill';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import ChatSkeleton from "../../../../../../components/common/ChatSkeleton";
+import SignaturePad from '../../../../../../components/SignaturePad';
 import PsychiatristDirectory from '../../../../../../components/common/PsychiatristDirectory';
 import {
   describeCall,
@@ -506,6 +507,7 @@ const SMSInput = ({ navigation, route }) => {
   const [prescriptionInstructions, setPrescriptionInstructions] = useState('');
   const [prescriptionMedicines, setPrescriptionMedicines] = useState([createBlankMedicine()]);
   const [prescriptionSignatureFile, setPrescriptionSignatureFile] = useState(null);
+  const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [prescriptionSealFile, setPrescriptionSealFile] = useState(null);
 
   // Receiving Call States
@@ -1165,21 +1167,18 @@ const SMSInput = ({ navigation, route }) => {
       Alert.alert('Medicine details required', 'Please fill medicine name, dosage, time of day, and when to take.');
       return;
     }
-    let signatureFile = prescriptionSignatureFile;
-    let sealFile = prescriptionSealFile;
+    const signatureFile = prescriptionSignatureFile;
+    const sealFile = prescriptionSealFile;
+    // Signature and seal are added in the form (with a preview) before
+    // sending; never open a picker here and upload without the consultant seeing it.
     if (!currentPrescriptionSignatureUri && !signatureFile) {
-      signatureFile = await pickPrescriptionAsset('signature');
-      if (!signatureFile) {
-        Alert.alert('Signature required', 'Please add consultant signature before sending this prescription.');
-        return;
-      }
+      Alert.alert('Signature required', 'Please draw your signature before sending this prescription.');
+      setShowSignaturePad(true);
+      return;
     }
     if (!currentPrescriptionSealUri && !sealFile) {
-      sealFile = await pickPrescriptionAsset('seal');
-      if (!sealFile) {
-        Alert.alert('Humaeli seal required', 'Please add Humaeli seal before sending this prescription.');
-        return;
-      }
+      Alert.alert('Humaeli seal required', 'Please add Humaeli seal before sending this prescription.');
+      return;
     }
 
     try {
@@ -1458,9 +1457,14 @@ const SMSInput = ({ navigation, route }) => {
       const token = await getAuthToken();
       const apiChatId = getChatIdForAPI();
 
-      await axios.post(
+      if (!apiChatId) {
+        Alert.alert("Error", "Chat ID not found");
+        return;
+      }
+
+      // Backend route is DELETE /api/chat/clear/:chatId (same as web); POST 404s.
+      await axios.delete(
         `${API_BASE_URL}/api/chat/clear/${apiChatId}`,
-        {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
@@ -2475,7 +2479,8 @@ const SMSInput = ({ navigation, route }) => {
                         <TouchableOpacity
                           key={asset.key}
                           style={styles.prescriptionAssetTile}
-                          onPress={() => pickPrescriptionAsset(asset.key)}
+                          // Signature is drawn live on the pad; the seal is still an image.
+                          onPress={() => (asset.key === 'signature' ? setShowSignaturePad(true) : pickPrescriptionAsset(asset.key))}
                           activeOpacity={0.82}
                           disabled={issuingPrescription}
                         >
@@ -2492,7 +2497,9 @@ const SMSInput = ({ navigation, route }) => {
                           )}
                           <Text style={styles.prescriptionAssetName}>{asset.title}</Text>
                           <Text style={styles.prescriptionAssetActionText}>
-                            {asset.uri ? 'Change' : 'Add image'}
+                            {asset.key === 'signature'
+                              ? (asset.uri ? 'Redraw' : 'Draw')
+                              : (asset.uri ? 'Change' : 'Add image')}
                           </Text>
                         </TouchableOpacity>
                       ))}
@@ -2510,6 +2517,15 @@ const SMSInput = ({ navigation, route }) => {
                 </ScrollView>
               </View>
             </KeyboardAvoidingView>
+            <SignaturePad
+              visible={showSignaturePad}
+              signerName={currentCounselor?.fullName || currentCounselor?.name}
+              onCancel={() => setShowSignaturePad(false)}
+              onDone={(file) => {
+                setPrescriptionSignatureFile(file);
+                setShowSignaturePad(false);
+              }}
+            />
           </Modal>
 
           {/* Messages */}

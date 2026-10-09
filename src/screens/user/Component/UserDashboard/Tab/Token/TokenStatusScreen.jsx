@@ -13,7 +13,13 @@ import Text from '../../../../../../components/TranslatedText';
 import { PATIENT } from '../../../../../../theme/palette';
 import api from '../../../../../../axiosConfig';
 import socketService from '../../../../../../services/socketService';
-import { formatTimer, getLiveTokenTiming } from './tokenTiming';
+import {
+  formatQueueStatus,
+  formatTimer,
+  formatWaitLabel,
+  getLiveTokenTiming,
+  getTokenDisplayTime,
+} from './tokenTiming';
 
 const TOKEN_STATUS_ENDPOINT = '/api/appointments/my-token-status';
 const POLL_INTERVAL_MS = 10000;
@@ -38,10 +44,16 @@ const formatAppointmentDateTime = (appointment) => {
 };
 
 const formatEstimatedTurnTime = (value) => {
-  if (!value) return '--';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '--';
+  const date = getTokenDisplayTime(value);
+  if (!date) return '--';
   return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+};
+
+const formatMinuteDifference = (minutes) => {
+  if (minutes == null || !Number.isFinite(Number(minutes))) return '';
+  const value = Math.abs(Math.round(Number(minutes)));
+  if (value === 0) return 'on time';
+  return `${value} min ${Number(minutes) > 0 ? 'late' : 'early'}`;
 };
 
 const getDoctorName = (item) => {
@@ -76,7 +88,45 @@ const getAppointmentId = (item) =>
 const show = (value, suffix = '') => (value != null ? `${value}${suffix}` : '--');
 
 const TERMINAL_STATUSES = ['completed', 'cancelled', 'canceled', 'rejected', 'reject', 'no-show', 'no_show'];
+const TERMINAL_STATUS_SET = new Set(TERMINAL_STATUSES);
 const DOCTOR_STATUS_LABEL = { consulting: 'Consulting', paused: 'Paused', break: 'On break', waiting: 'Not started' };
+
+const normalizeStatus = (value) => String(value || '').toLowerCase();
+
+const isActiveTokenItem = (item) => {
+  const appointment = item?.appointment || {};
+  const token = item?.token || {};
+  return (
+    !TERMINAL_STATUS_SET.has(normalizeStatus(appointment.status)) &&
+    !TERMINAL_STATUS_SET.has(normalizeStatus(token.queueStatus)) &&
+    !appointment.consultationEndedAt &&
+    !appointment.consultation_ended_at &&
+    !appointment.consultationTiming?.endedAt &&
+    !appointment.consultation_timing?.endedAt
+  );
+};
+
+const getTimingMessage = (appointment = {}, queue = {}, liveTiming = {}) => {
+  if (queue.notice) return queue.notice;
+  if (queue.estimateUncertain) {
+    return 'Your number may be called anytime. Please stay near the clinic.';
+  }
+  const relation = queue.timingRelation || appointment.timingRelation;
+  const diff = queue.timingDifferenceMinutes ?? appointment.timingDifferenceMinutes;
+  const wait = formatWaitLabel(liveTiming.waiting);
+  if (liveTiming.waiting != null) {
+    if (relation === 'early') return `Your number may come in ${wait}, about ${Math.abs(Math.round(Number(diff) || 0))} min before the appointment time.`;
+    if (relation === 'late') return `Your number may come in ${wait}, about ${Math.abs(Math.round(Number(diff) || 0))} min after the appointment time.`;
+    return `Your number may come in ${wait}.`;
+  }
+  return 'Waiting time updates with the live clinic queue.';
+};
+
+const getWaitDisplay = (queue = {}, liveTiming = {}) => (
+  queue.estimateUncertain
+    ? (queue.patientsAhead === 1 ? 'Expected shortly' : 'ETA updating')
+    : formatWaitLabel(liveTiming.waiting)
+);
 
 // Turns a raw axios error into something a patient can actually act on,
 // instead of a flat "Could not load token status." for every failure —
@@ -84,6 +134,13 @@ const DOCTOR_STATUS_LABEL = { consulting: 'Consulting', paused: 'Paused', break:
 // differently and call for different next steps.
 const getFriendlyError = (err) => {
   if (err?.message === 'Network Error' || !err?.response) {
+    if (err?.message && err.message !== 'Network Error') {
+      return {
+        icon: 'alert-circle-outline',
+        title: 'Could not load token status',
+        message: err.message,
+      };
+    }
     return {
       icon: 'cloud-offline-outline',
       title: 'No internet connection',
@@ -134,7 +191,14 @@ export default function TokenStatusScreen() {
       if (!silent) setIsLoading(true);
       const response = await api.get(TOKEN_STATUS_ENDPOINT, { headers: { 'Cache-Control': 'no-cache' } });
       if (!mountedRef.current) return;
-      const list = sortByTurn(Array.isArray(response.data?.appointments) ? response.data.appointments : []);
+      if (response.data?.success === false) {
+        throw new Error(response.data?.message || 'Unable to load token status');
+      }
+      const list = sortByTurn(
+        Array.isArray(response.data?.appointments)
+          ? response.data.appointments.filter(isActiveTokenItem)
+          : [],
+      );
       setAppointments(list);
       const serverTime = Date.parse(list[0]?.current?.serverTime);
       if (Number.isFinite(serverTime)) setClockOffset(serverTime - Date.now());
@@ -218,12 +282,18 @@ export default function TokenStatusScreen() {
   const currentData = selectedItem?.current || {};
   const queueData = selectedItem?.queue || {};
   const emergencyData = selectedItem?.emergency || {};
-  const isTerminalAppointment = TERMINAL_STATUSES.includes(appointment.status) || TERMINAL_STATUSES.includes(tokenData.queueStatus);
+  const isTerminalAppointment = selectedItem ? !isActiveTokenItem(selectedItem) : false;
   const liveTiming = getLiveTokenTiming(currentData, queueData, now + clockOffset);
-  const doctorStatusLabel = DOCTOR_STATUS_LABEL[currentData.doctorStatus] || 'Not started';
-  const estimatedWait = liveTiming.waiting != null ? formatTimer(liveTiming.waiting) : show(queueData.estimatedWaitMinutes, ' min');
+  const doctorStatus = normalizeStatus(currentData.doctorStatus);
+  const doctorStatusLabel = DOCTOR_STATUS_LABEL[doctorStatus] || 'Not started';
+  const estimatedWait = getWaitDisplay(queueData, liveTiming);
+  const timingMessage = getTimingMessage(appointment, queueData, liveTiming);
+  const appointmentTiming =
+    appointment.timingLabel ||
+    queueData.timingLabel ||
+    formatMinuteDifference(queueData.timingDifferenceMinutes ?? appointment.timingDifferenceMinutes);
 
-  const statusText = String(appointment.status || tokenData.queueStatus || 'pending');
+  const statusText = formatQueueStatus(appointment.status || tokenData.queueStatus || 'pending');
   const myToken = tokenData.myToken;
   const nowServing = currentData.currentToken;
   const emergencyCount = Number(emergencyData.totalEmergencyPatients || 0);
@@ -379,9 +449,10 @@ export default function TokenStatusScreen() {
                 <View style={s.grow}>
                   <Text style={s.servingLabel}>Now serving</Text>
                   <Text style={s.servingValue}>{nowServing != null ? `#${nowServing}` : '--'}</Text>
+                  {!!appointmentTiming && <Text style={s.servingHint}>{appointmentTiming}</Text>}
                 </View>
                 <View style={s.servingRight}>
-                  <Text style={[s.doctorStatus, (currentData.doctorStatus === 'paused' || currentData.doctorStatus === 'break') && s.doctorStatusWarn]}>
+                  <Text style={[s.doctorStatus, (doctorStatus === 'paused' || doctorStatus === 'break') && s.doctorStatusWarn]}>
                     {doctorStatusLabel}
                   </Text>
                   {!!currentData.consultationStartedAt && <Text style={s.servingTimer}>{formatTimer(liveTiming.elapsed)}</Text>}
@@ -422,9 +493,7 @@ export default function TokenStatusScreen() {
               <View style={s.info}>
                 <Ionicons name="information-circle-outline" size={18} color={PATIENT.primary} />
                 <Text style={s.infoText}>
-                  {liveQueue.estimated
-                    ? 'Queue times are estimated from the live queue and update automatically. Please arrive 15 minutes early.'
-                    : 'Live queue updates automatically. Please arrive 15 minutes before your expected turn.'}
+                  {timingMessage}
                 </Text>
               </View>
             </>
@@ -435,7 +504,10 @@ export default function TokenStatusScreen() {
   );
 }
 
-const fmtClock = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const fmtTokenClock = (value) => {
+  const date = getTokenDisplayTime(value);
+  return date ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+};
 const fmtWait = (mins) => {
   const m = Math.max(0, Math.round(mins));
   if (m < 60) return `${m} min`;
@@ -469,7 +541,7 @@ function buildQueueRows({ selectedItem, queueData, currentData, tokenData, emerg
           emergency,
           mine: Boolean(t.isYou || t.isMine || (token != null && String(token) === String(tokenData.myToken))),
           status: `${t.status || (emergency ? 'Priority' : 'Waiting')}${waitMin != null ? ` • ${fmtWait(waitMin)}` : ''}`,
-          time: turn ? fmtClock(Date.parse(turn)) : '',
+          time: fmtTokenClock(turn),
         };
       }),
     };
@@ -500,7 +572,7 @@ function buildQueueRows({ selectedItem, queueData, currentData, tokenData, emerg
       emergency: false,
       mine: t === my,
       status: `Waiting • ${fmtWait(waitMin)}`,
-      time: fmtClock(myTurnMs + offsetMin * 60000),
+      time: fmtTokenClock(myTurnMs + offsetMin * 60000),
     });
   }
   return { estimated: true, rows };
@@ -602,6 +674,7 @@ const s = StyleSheet.create({
   servingPulse: { position: 'absolute', top: 2, right: 2, width: 10, height: 10, borderRadius: 5, backgroundColor: '#22C55E', borderWidth: 2, borderColor: '#FFFFFF' },
   servingLabel: { fontSize: 13.5, fontWeight: '600', color: '#4B5563' },
   servingValue: { fontSize: 26, fontWeight: '900', color: '#111827', marginTop: 1 },
+  servingHint: { fontSize: 12, fontWeight: '700', color: '#6B7280', marginTop: 2, textTransform: 'capitalize' },
   servingRight: { alignItems: 'flex-end', gap: 4 },
   doctorStatus: { fontSize: 11.5, fontWeight: '800', color: '#2E7D3A', backgroundColor: '#E6F4EA', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10, overflow: 'hidden' },
   doctorStatusWarn: { color: '#B45309', backgroundColor: '#FEF3C7' },

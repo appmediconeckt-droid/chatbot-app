@@ -30,6 +30,7 @@ import { useAutoTranslate } from "../../../../../../hooks/useAutoTranslate";
 import LinearGradient from "react-native-linear-gradient";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DOCTOR, PATIENT } from '../../../../../../theme/palette';
+import { nextSlotTime } from '../../../../../../utils/appointmentTime';
 import { isPsychiatristSpecialization } from '../../../../../../components/common/PsychiatristDirectory';
 
 // Same gradient and direction as the wallet balance card.
@@ -158,7 +159,9 @@ const CounselorDirectoryScreen = ({ navigation }) => {
   const [selectedCounselor, setSelectedCounselor] = useState(null);
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
-  const [bookingDate, setBookingDate] = useState(new Date());
+  // Offered booking time starts on a clean slot (:00/:15/:30/:45) about an
+  // hour ahead, not "now" — that saved odd times like 14:33.
+  const [bookingDate, setBookingDate] = useState(() => nextSlotTime(60));
   const [bookingNotes, setBookingNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userAnonymous, setUserAnonymous] = useState("");
@@ -635,7 +638,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
   };
 
   const resetBookingForm = () => {
-    setBookingDate(new Date());
+    setBookingDate(nextSlotTime(60));
     setBookingNotes("");
     setSelectedCounselor(null);
   };
@@ -777,7 +780,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
   if (isLoading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6366F1" />
+        <ActivityIndicator size="large" color={PATIENT.primary} />
         <Text style={styles.loadingText}>Loading consultants...</Text>
       </View>
     );
@@ -966,7 +969,9 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                   display="default"
                   onChange={(event, selectedDate) => {
                     if (selectedDate) {
-                      setBookingDate(selectedDate);
+                      const picked = new Date(selectedDate);
+                      picked.setSeconds(0, 0);
+                      setBookingDate(picked);
                     }
                   }}
                   minimumDate={new Date()}
@@ -1565,7 +1570,7 @@ const styles = StyleSheet.create({
   retryButton: {
     paddingHorizontal: 20,
     paddingVertical: 8,
-    backgroundColor: "#6366F1",
+    backgroundColor: PATIENT.primary,
     borderRadius: 8,
   },
   retryButtonText: {

@@ -1,20 +1,39 @@
 // Ported from MediconecktApp's CompleteAppointmentScreen; now submits the web
 // dashboard's complete-appointment payload through onSave (parent PATCHes).
 import React, { useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
-import { getConsultationModeInfo, getRemoteConsultationMode, getTokenLabel } from '../api/doctorAppointments';
+import { formatLocalDateKey, getConsultationModeInfo, getRemoteConsultationMode, getTokenLabel } from '../api/doctorAppointments';
 
 const DURATION_TYPES = ['Days', 'Weeks', 'Months'];
 const TIMINGS = ['Morning', 'Afternoon', 'Evening', 'Night'];
 let medicineSeq = 0;
 const nextMedicineId = () => `medicine-${++medicineSeq}`;
 const emptyMedicine = () => ({ id: nextMedicineId(), name: '', dosage: '', timings: [], duration: '', type: 'Days' });
+
+// Vitals are typed on the number keypad. Temperature keeps digits and one
+// decimal point ("37.5"). The keypad has no "/", so blood pressure gets it
+// automatically: 120 then 80 → "120/80" (2-digit systolic like 90/60 when the
+// first digit isn't 1 or 2).
+const formatTemperature = (text) => {
+  const clean = String(text).replace(',', '.').replace(/[^\d.]/g, '');
+  const [whole, ...rest] = clean.split('.');
+  return (rest.length ? `${whole}.${rest.join('').slice(0, 1)}` : whole).slice(0, 5);
+};
+
+const formatBloodPressure = (text) => {
+  const digits = String(text).replace(/\D/g, '').slice(0, 6);
+  const systolicLength = /^[12]/.test(digits) ? 3 : 2;
+  return digits.length > systolicLength
+    ? `${digits.slice(0, systolicLength)}/${digits.slice(systolicLength, systolicLength + 3)}`
+    : digits;
+};
 
 function Field({ label, placeholder, keyboardType, value, onChangeText }) {
   return (
@@ -138,6 +157,25 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
   const [additionalNotes, setAdditionalNotes] = useState('');
   const [followUpRequired, setFollowUpRequired] = useState(false);
   const [followUpDate, setFollowUpDate] = useState('');
+  const [showFollowUpPicker, setShowFollowUpPicker] = useState(false);
+  // Android: open the native dialog imperatively and only take the date on
+  // OK ("set"). An inline picker also fires a "dismissed" event carrying the
+  // old value, which put the previous date (e.g. the 10th) back after picking.
+  const openFollowUpPicker = () => {
+    const value = followUpDate ? new Date(`${followUpDate}T00:00:00`) : new Date();
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value,
+        mode: 'date',
+        minimumDate: new Date(),
+        onChange: (event, selected) => {
+          if (event?.type === 'set' && selected) setFollowUpDate(formatLocalDateKey(selected));
+        },
+      });
+      return;
+    }
+    setShowFollowUpPicker(true);
+  };
   const [saving, setSaving] = useState(false);
   // Ref lock: a double tap must not complete (and create the follow-up) twice.
   const saveLock = useRef(false);
@@ -185,7 +223,12 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
 
   return (
     <View style={styles.screen}>
-      <View style={styles.titleBar}><Text style={styles.title}>Complete Appointment</Text></View>
+      <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.titleBar}>
+        <Text style={styles.title}>Complete Appointment</Text>
+        <TouchableOpacity onPress={onCancel} hitSlop={10} style={styles.closeBtn}>
+          <AppIcon name="x" size={18} color="#FFFFFF" strokeWidth={2.4} />
+        </TouchableOpacity>
+      </LinearGradient>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.patientCard}>
           <View><Text translate={false} style={styles.patientName}>{patient.name}</Text><Text style={styles.patientId}>{getTokenLabel(patient)}</Text></View>
@@ -194,8 +237,8 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
 
         <SectionTitle>Patient Vitals</SectionTitle>
         <View style={styles.twoColumns}>
-          <Field label="Temperature (°C)" placeholder="37.0" keyboardType="decimal-pad" value={temperature} onChangeText={setTemperature} />
-          <Field label="Blood Pressure" placeholder="120/80" value={bloodPressure} onChangeText={setBloodPressure} />
+          <Field label="Temperature (°C)" placeholder="37.0" keyboardType="decimal-pad" value={temperature} onChangeText={(text) => setTemperature(formatTemperature(text))} />
+          <Field label="Blood Pressure" placeholder="120/80" keyboardType="number-pad" value={bloodPressure} onChangeText={(text) => setBloodPressure(formatBloodPressure(text))} />
         </View>
 
         <SectionTitle>Diagnosis *</SectionTitle>
@@ -242,7 +285,31 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
           <Text style={styles.timingText}>Follow-up required</Text>
         </TouchableOpacity>
         {followUpRequired && (
-          <Field label="Follow-up Date (YYYY-MM-DD)" placeholder="2026-10-01" value={followUpDate} onChangeText={setFollowUpDate} />
+          // Tap to pick the date from a calendar (no typing YYYY-MM-DD).
+          <View style={styles.fieldWrap}>
+            <Text style={styles.fieldLabel}>Follow-up Date</Text>
+            <TouchableOpacity style={styles.dateButton} onPress={openFollowUpPicker} activeOpacity={0.8}>
+              <AppIcon name="calendar" size={16} color="#0D9488" strokeWidth={2.1} />
+              <Text style={[styles.dateButtonText, !followUpDate && styles.datePlaceholder]}>
+                {followUpDate
+                  ? new Date(`${followUpDate}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+                  : 'Select follow-up date'}
+              </Text>
+              <AppIcon name="chevron-down" size={15} color="#667085" strokeWidth={2.2} />
+            </TouchableOpacity>
+          </View>
+        )}
+        {Platform.OS === 'ios' && followUpRequired && showFollowUpPicker && (
+          <DateTimePicker
+            value={followUpDate ? new Date(`${followUpDate}T00:00:00`) : new Date()}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'inline' : 'default'}
+            minimumDate={new Date()}
+            onChange={(event, selected) => {
+              if (event?.type === 'dismissed') { setShowFollowUpPicker(false); return; }
+              if (selected) setFollowUpDate(formatLocalDateKey(selected));
+            }}
+          />
         )}
       </ScrollView>
 
@@ -264,8 +331,9 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
 }
 
 const styles = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA', marginHorizontal: 4, borderRadius: 9, overflow: 'hidden' },
-  titleBar: { height: 51, backgroundColor: '#0D9488', justifyContent: 'center', paddingHorizontal: 10, borderTopLeftRadius: 8, borderTopRightRadius: 8 },
+  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  titleBar: { height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14 },
+  closeBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   title: { color: '#FFF', fontSize: 19, lineHeight: 25, fontWeight: '700', letterSpacing: 0.1 },
   scroll: { flex: 1 },
   scrollContent: { padding: 12, paddingBottom: 18 },
@@ -283,6 +351,9 @@ const styles = createDoctorStyles({
   twoColumns: { flexDirection: 'row', gap: 9 },
   fieldWrap: { flex: 1, marginBottom: 12 },
   fieldLabel: { fontSize: 13, lineHeight: 17, fontWeight: '500', color: '#596170', marginBottom: 4 },
+  dateButton: { height: 44, borderWidth: 1, borderColor: '#99E4D8', backgroundColor: '#F0FDFA', borderRadius: 8, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  dateButtonText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#252B35' },
+  datePlaceholder: { color: '#8D96A6', fontWeight: '500' },
   input: { height: 40, borderWidth: 1, borderColor: '#CCD4E1', backgroundColor: '#FFF', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 0, fontSize: 14, fontWeight: '500', color: '#252B35' },
   textArea: { height: 88, borderWidth: 1, borderColor: '#CCD4E1', backgroundColor: '#FFF', borderRadius: 6, padding: 10, fontSize: 14, lineHeight: 19, color: '#252B35', marginBottom: 18 },
   medicineCard: { backgroundColor: '#F8F9FB', borderWidth: 1, borderColor: '#CCD4E1', borderRadius: 7, padding: 10, marginBottom: 12 },

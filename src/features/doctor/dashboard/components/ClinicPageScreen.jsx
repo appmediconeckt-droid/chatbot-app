@@ -4,13 +4,13 @@
 //   GET /api/auth/me?clinic_id&doctor_id          (clinic doctors)
 //   GET /api/appointments?clinic_id&doctor_id     (patient count / departments)
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, ImageBackground, Linking, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ImageBackground, Linking, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { colors, createDoctorStyles, typography } from '../theme';
 import axiosInstance, { API_BASE_URL } from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
-import { unwrapApiArray } from '../api/doctorClinics';
+import { deleteDoctorClinic, unwrapApiArray } from '../api/doctorClinics';
 import { useDoctorBack } from '../useDoctorBack';
 import DoctorClinicSettingsScreen from './DoctorClinicSettingsScreen';
 
@@ -99,6 +99,7 @@ const normalizeClinic = (clinic, index = 0) => {
   return {
     raw: clinic,
     id: pickFirst(clinic.id, clinic.clinic_id, clinic._id, index),
+    deleteId: pickFirst(clinic.id, clinic.clinic_id, clinic.clinicId, clinic._id, clinic.hospital_id, clinic.hospitalId, ''),
     doctorId: pickFirst(clinic.doctor_id, clinic.doctorId, clinic.doctor?.id, clinic.doctor?._id, ''),
     name: pickFirst(clinic.clinic_name, clinic.clinicName, clinic.name, FALLBACK.name),
     subtitle: pickFirst(clinic.type, clinic.category, FALLBACK.subtitle),
@@ -143,6 +144,7 @@ export default function ClinicPageScreen({ onBack }) {
   const [appointments, setAppointments] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
+  const [deletingClinic, setDeletingClinic] = useState(false);
 
   useEffect(() => { getStoredDoctorUser().then((u) => setUser(u || {})); }, []);
 
@@ -234,6 +236,17 @@ export default function ClinicPageScreen({ onBack }) {
   }, [appointments]);
 
   const facilities = useMemo(() => toList(pickFirst(clinic.raw?.facilities, clinic.raw?.services, clinic.raw?.amenities, [])), [clinic]);
+  const activeClinicId = pickFirst(
+    clinic.deleteId,
+    clinic.raw?.id,
+    clinic.raw?.clinic_id,
+    clinic.raw?.clinicId,
+    clinic.raw?._id,
+    clinic.raw?.hospital_id,
+    clinic.raw?.hospitalId,
+    '',
+  );
+  const canDeleteClinic = Boolean(activeClinicId && activeClinicId !== FALLBACK.id);
 
   const stats = [
     { label: 'Doctors', value: normalizedDoctors.length, icon: 'user' },
@@ -247,6 +260,37 @@ export default function ClinicPageScreen({ onBack }) {
     if (!clinics.length) return;
     setActiveIndex((i) => (i + direction + clinics.length) % clinics.length);
     setActiveTab('Overview');
+  };
+
+  const performDeleteClinic = async () => {
+    if (deletingClinic || !activeClinicId || activeClinicId === FALLBACK.id) return;
+    try {
+      setDeletingClinic(true);
+      setError('');
+      await deleteDoctorClinic(activeClinicId);
+      setClinics((rows) => {
+        const remaining = rows.filter((item) => String(pickFirst(item.deleteId, item.id)) !== String(activeClinicId));
+        setActiveIndex((index) => Math.min(index, Math.max(remaining.length - 1, 0)));
+        return remaining;
+      });
+      setActiveTab('Overview');
+      Alert.alert('Clinic deleted', 'Clinic / hospital deleted successfully.');
+    } catch (err) {
+      setError(err?.response?.data?.message || err?.response?.data?.error || 'Clinic could not be deleted. Please try again.');
+    } finally {
+      setDeletingClinic(false);
+    }
+  };
+
+  const handleDeleteClinic = () => {
+    Alert.alert(
+      'Delete Clinic / Hospital',
+      `Delete ${clinic?.name || 'this clinic'}? This cannot be undone. Clinics with staff, appointments or saved timings cannot be deleted.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: performDeleteClinic },
+      ],
+    );
   };
 
   const website = clinic.website && (clinic.website.startsWith('http') ? clinic.website : `https://${clinic.website}`);
@@ -274,6 +318,27 @@ export default function ClinicPageScreen({ onBack }) {
         </Pressable>
         <Text style={s.title}>Clinic</Text>
         <Pressable
+          onPress={handleDeleteClinic}
+          disabled={deletingClinic || !canDeleteClinic}
+          style={({ pressed }) => [
+            s.deleteClinicButton,
+            !canDeleteClinic && s.deleteClinicButtonDisabled,
+            pressed && canDeleteClinic && s.deleteClinicButtonPressed,
+          ]}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Delete clinic"
+        >
+          {deletingClinic ? (
+            <ActivityIndicator size="small" color="#DC2626" />
+          ) : (
+            <AppIcon name="trash" size={16} color={canDeleteClinic ? '#DC2626' : '#9CA3AF'} strokeWidth={2.4} />
+          )}
+          <Text style={[s.deleteClinicText, !canDeleteClinic && s.deleteClinicTextDisabled]}>
+            {deletingClinic ? 'Deleting' : 'Delete'}
+          </Text>
+        </Pressable>
+        <Pressable
           onPress={() => setAddingClinic(true)}
           style={({ pressed }) => [s.addClinicButton, pressed && s.addClinicButtonPressed]}
           hitSlop={6}
@@ -290,6 +355,33 @@ export default function ClinicPageScreen({ onBack }) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadClinics(); }} colors={['#0D9488']} />}
       >
         {!!error && <Text style={s.error}>{error}</Text>}
+        {(clinics.length > 0 || status === 'succeeded') && (
+          <View style={s.managementCard}>
+            <View style={s.managementInfo}>
+              <Text style={s.managementLabel}>Clinic / Hospital</Text>
+              <Text translate={false} style={s.managementName} numberOfLines={1}>{clinic.name}</Text>
+              {!canDeleteClinic && <Text style={s.managementHint}>No deletable clinic id found. Pull down to refresh clinics.</Text>}
+            </View>
+            <Pressable
+              onPress={handleDeleteClinic}
+              disabled={deletingClinic || !canDeleteClinic}
+              style={({ pressed }) => [
+                s.managementDeleteBtn,
+                !canDeleteClinic && s.managementDeleteBtnDisabled,
+                pressed && canDeleteClinic && s.managementDeleteBtnPressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Delete clinic or hospital"
+            >
+              {deletingClinic ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <AppIcon name="trash" size={16} color="#FFFFFF" strokeWidth={2.4} />
+              )}
+              <Text style={s.managementDeleteText}>{deletingClinic ? 'Deleting...' : 'Delete Clinic / Hospital'}</Text>
+            </Pressable>
+          </View>
+        )}
         <ImageBackground
           source={{ uri: imageFailed ? DEFAULT_CLINIC_IMAGE : clinic.image }}
           onError={() => setImageFailed(true)}
@@ -297,6 +389,22 @@ export default function ClinicPageScreen({ onBack }) {
           imageStyle={s.heroImage}
         >
           <View style={s.heroOverlay} />
+          {canDeleteClinic && (
+            <Pressable
+              onPress={handleDeleteClinic}
+              disabled={deletingClinic}
+              style={({ pressed }) => [s.heroDeleteBtn, pressed && s.heroDeleteBtnPressed]}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Delete clinic"
+            >
+              {deletingClinic ? (
+                <ActivityIndicator size="small" color="#DC2626" />
+              ) : (
+                <AppIcon name="trash" size={17} color="#DC2626" strokeWidth={2.4} />
+              )}
+            </Pressable>
+          )}
           <View style={s.heroContent}>
             <View style={s.badgeRow}>
               <Text style={s.openBadge}>Open Now</Text>
@@ -452,14 +560,30 @@ const s = createDoctorStyles({
   header: { height: 62, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },
   backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   title: { flex: 1, fontSize: 22, fontWeight: '800', color: '#0D9488' },
+  deleteClinicButton: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 36, paddingHorizontal: 11, borderRadius: 18, backgroundColor: '#FEF2F2', marginRight: 8 },
+  deleteClinicButtonPressed: { backgroundColor: '#FEE2E2' },
+  deleteClinicButtonDisabled: { backgroundColor: '#F3F4F6' },
+  deleteClinicText: { fontSize: 13.5, fontWeight: '800', color: '#DC2626' },
+  deleteClinicTextDisabled: { color: '#9CA3AF' },
   addClinicButton: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 36, paddingHorizontal: 13, borderRadius: 18, backgroundColor: '#0D9488' },
   addClinicButtonPressed: { backgroundColor: '#0F766E' },
   addClinicText: { fontSize: 13.5, fontWeight: '800', color: '#FFFFFF' },
   content: { padding: 12, paddingBottom: 32 },
   error: { fontSize: 13, color: colors.red, marginBottom: 10 },
+  managementCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#FECACA', borderRadius: 12, padding: 12, marginBottom: 12 },
+  managementInfo: { flex: 1, minWidth: 0 },
+  managementLabel: { fontSize: 11.5, fontWeight: '800', color: '#667085', textTransform: 'uppercase' },
+  managementName: { fontSize: 14.5, fontWeight: '800', color: '#17243A', marginTop: 2 },
+  managementHint: { fontSize: 11.5, color: '#B45309', marginTop: 3 },
+  managementDeleteBtn: { minHeight: 42, borderRadius: 11, backgroundColor: '#DC2626', paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  managementDeleteBtnPressed: { backgroundColor: '#B91C1C' },
+  managementDeleteBtnDisabled: { backgroundColor: '#9CA3AF' },
+  managementDeleteText: { fontSize: 12.5, fontWeight: '800', color: '#FFFFFF' },
   hero: { height: 210, borderRadius: 14, overflow: 'hidden', justifyContent: 'flex-end' },
   heroImage: { borderRadius: 14 },
   heroOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(8, 47, 45, 0.55)' },
+  heroDeleteBtn: { position: 'absolute', top: 12, left: 12, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center' },
+  heroDeleteBtnPressed: { backgroundColor: '#FEE2E2' },
   heroContent: { padding: 14, gap: 4 },
   badgeRow: { flexDirection: 'row', gap: 6, marginBottom: 4 },
   openBadge: { fontSize: 11, fontWeight: '700', color: '#FFF', backgroundColor: '#16A34A', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },

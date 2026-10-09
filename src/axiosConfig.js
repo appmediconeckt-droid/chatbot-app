@@ -7,6 +7,7 @@ import { isTokenExpired } from './utils/tokenExpiry';
 
 const API_ENDPOINTS = {
   // RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
+  //  DevTunnels: 'https://s5jl7g4z-5005.inc1.devtunnels.ms',
   RAILWAY: 'https://humaeli-backend-update-production.up.railway.app',
   DevTunnels: 'https://s5jl7g4z-5002.inc1.devtunnels.ms',
   DevTunnels_5001: 'https://24p1k2bg-5001.inc1.devtunnels.ms',

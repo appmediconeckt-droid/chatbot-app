@@ -12,7 +12,6 @@ import {
   getCallWindow,
   getRemoteConsultationMode,
   getTokenLabel,
-  isConsultationStartOpen,
 } from '../api/doctorAppointments';
 
 const getInitials = (name = '') =>
@@ -20,18 +19,17 @@ const getInitials = (name = '') =>
 
 export default function NextPatientCard({ patient, isActive, onBreak, onStartConsultation, onContinue, onCall }) {
   const remoteMode = getRemoteConsultationMode(patient);
-  // In-person Start unlocks at the slot time (an active one can always continue).
-  const startLocked = Boolean(patient) && !remoteMode && !isActive && !isConsultationStartOpen(patient);
   // Remote: the call window opens 15 min before the slot (see getCallWindow).
+  // In-person Start has no time gate (web parity) — only a break blocks it.
   const callWindow = remoteMode ? getCallWindow(patient) : null;
   const callLocked = Boolean(callWindow) && !callWindow.open;
   const callNotYet = callLocked && callWindow.opensAt && Date.now() < callWindow.opensAt.getTime();
-  const disabled = !patient || onBreak || startLocked || callLocked;
+  const disabled = !patient || onBreak || callLocked;
   const label = callNotYet ? `Call opens at ${formatClockTime(callWindow.opensAt)}`
     : remoteMode === 'video' ? 'Video Call'
       : remoteMode === 'voice' ? 'Voice Call'
-        : startLocked ? `Starts at ${patient.scheduledTime}` : 'Start Consultation';
-  const icon = remoteMode === 'video' ? 'video' : remoteMode === 'voice' ? 'phone' : startLocked ? 'clock' : 'pulse';
+        : 'Start Consultation';
+  const icon = remoteMode === 'video' ? 'video' : remoteMode === 'voice' ? 'phone' : 'pulse';
 
   const handlePress = () => {
     if (!patient) return;

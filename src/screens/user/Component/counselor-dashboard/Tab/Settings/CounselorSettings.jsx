@@ -875,15 +875,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
     {/* Only psychiatrists can review prescriptions they issued. The backend
         /review endpoint additionally scopes records to the authenticated ID. */}
     <Modal statusBarTranslucent navigationBarTranslucent visible={showPrescriptions} animationType="slide" transparent={false} onRequestClose={() => setShowPrescriptions(false)}>
-      <View style={{ flex: 1 }}>
-        <TouchableOpacity
-          onPress={() => setShowPrescriptions(false)}
-          style={{ position: 'absolute', right: 14, top: Math.max(insets.top, 18) + 24, zIndex: 20, width: 42, height: 42, borderRadius: 21, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Feather name="x" size={23} color="#2563EB" />
-        </TouchableOpacity>
-        <PrescriptionReviews />
-      </View>
+      <PrescriptionReviews onClose={() => setShowPrescriptions(false)} />
     </Modal>
 
     {/* Password Modal */}
@@ -1168,11 +1160,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     marginHorizontal: 16,
-    marginTop: 16,
-    paddingHorizontal: 16,
-    height: 48,
+    marginTop: 12,
+    paddingHorizontal: 14,
+    height: 42,
     backgroundColor: '#ffffff',
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#EAEEF3',
   },
@@ -1215,8 +1207,8 @@ const styles = StyleSheet.create({
   /* ── Section ── */
   section: {
     width: '100%',
-    marginBottom: 4,
-    marginTop: 20,
+    marginBottom: 2,
+    marginTop: 14,
   },
   noResults: {
     alignItems: 'center',
@@ -1248,15 +1240,15 @@ const styles = StyleSheet.create({
     letterSpacing: 1.1,
     textTransform: 'uppercase',
     paddingHorizontal: 22,
-    marginBottom: 8,
-    marginTop: 6,
+    marginBottom: 6,
+    marginTop: 2,
   },
 
   /* ── Card ── */
   card: {
     backgroundColor: '#ffffff',
     marginHorizontal: 16,
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#EDF1F6',
     overflow: 'hidden',
@@ -1272,8 +1264,9 @@ const styles = StyleSheet.create({
     width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 15,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    minHeight: 54,
   },
   rowDivider: {
     borderBottomWidth: 1,
@@ -1281,12 +1274,12 @@ const styles = StyleSheet.create({
   },
 
   iconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
+    marginRight: 12,
   },
 
   rowBody: {
@@ -1295,7 +1288,7 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   rowLabel: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontWeight: '600',
     color: '#1E293B',
   },
@@ -1304,9 +1297,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   rowSub: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: '#94A3B8',
-    marginTop: 2,
+    marginTop: 1,
     fontWeight: '500',
   },
   rowTrail: {
