@@ -108,6 +108,23 @@ export const ownBookedKeys = (appointments, doctorId) => {
   return keys;
 };
 
+// The doctor's availability ranges (sessions) on one day, in minutes from
+// midnight IST: [{ start, end, clinicId }]. Used to tell when a session is over.
+export const sessionRangesForDay = ({ ranges, unavailableDates, iso, weekday }) =>
+  rangesForDate(ranges, unavailableDates, null, iso, weekday)
+    .map((range) => ({
+      start: toMinutes(range.start_time),
+      end: toMinutes(range.end_time),
+      clinicId: range.clinic_id ? String(range.clinic_id) : '',
+    }))
+    .filter((r) => r.start != null && r.end != null && r.end > r.start);
+
+// Minutes from midnight (IST) of an appointment's slot, or null.
+export const slotMinutesOfAppointment = (apt) => {
+  const key = slotKeyOfAppointment(apt);
+  return key ? Number(key.split('|')[1]) : null;
+};
+
 // Bookable slots on one day: [{ minutes, time24: 'HH:MM', label: 'h:mm AM' }].
 export const slotsForDay = ({ ranges, unavailableDates, booked, clinicId, iso, weekday }) => {
   const cutoff = iso === todayIndia() ? nowMinutesIndia() : -1;

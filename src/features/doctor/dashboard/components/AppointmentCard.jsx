@@ -60,8 +60,15 @@ export default function AppointmentCard({
     : remoteMode === 'video' ? 'Video Call' : 'Voice Call';
 
   let action = null;
+  const isSkipped = item.status === 'skipped';
+  const isCancelled = item.status === 'cancelled';
   if (isCompleted) {
     action = { label: 'View', ghost: true, onPress: () => onView?.(item) };
+  } else if (isCancelled) {
+    action = null; // session over / cancelled: nothing to start
+  } else if (isSkipped) {
+    // Moved to Next earlier: can be started whenever the doctor is free.
+    action = { label: 'Start Consultation', ghost: false, onPress: () => onStartConsultation?.(item), disabled: sessionBusy || onBreak };
   } else if (!remoteMode && isActive) {
     action = { label: 'Continue', ghost: false, onPress: () => onContinue?.(item), disabled: onBreak };
   } else if (!remoteMode) {
@@ -78,67 +85,75 @@ export default function AppointmentCard({
   const modeStyle = MODE_STYLES[mode.key];
   const meta = item.gender && item.gender !== 'Not specified' ? item.gender : '';
 
+  const tokenNumber = String(getTokenLabel(item) || '').match(/\d+/)?.[0];
+  const detailLine = [
+    isSkipped ? 'Waiting · Next' : '',
+    isCancelled ? (item.isNoShow ? 'Cancelled · No-show' : 'Cancelled') : '',
+    meta,
+    item.issue,
+  ].filter(Boolean).join('  ·  ');
+  const timeLabel = item.isEmergency ? 'Priority' : item.scheduledTime || 'Today';
+
+  // Header: token tile | name + "gender · issue" | time pill.
+  // Footer: how the patient is seen (mode) + any note on the left, actions on
+  // the right — so neither side of the footer is empty.
   return (
     <View style={[styles.card, (highlight || isActive) && styles.cardHighlight, item.isEmergency && !isCompleted && styles.cardEmergency]}>
-      {/* Header: avatar | name + token/gender | consultation mode (top right) */}
       <View style={styles.header}>
-        <View style={styles.avatar}><Text translate={false} style={styles.avatarText}>{getInitials(item.name)}</Text></View>
+        <LinearGradient
+          colors={item.isEmergency && !isCompleted ? ['#F87171', '#DC2626'] : doctorGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.tokenTile}
+        >
+          {item.isEmergency ? (
+            <AppIcon name="warning" size={18} strokeWidth={2.4} color="#FFFFFF" />
+          ) : tokenNumber ? (
+            <Text translate={false} style={styles.tokenTileNumber} numberOfLines={1} adjustsFontSizeToFit>#{tokenNumber}</Text>
+          ) : (
+            <Text translate={false} style={styles.tokenTileInitials}>{getInitials(item.name)}</Text>
+          )}
+          <Text style={styles.tokenTileLabel}>{item.isEmergency ? 'SOS' : 'TOKEN'}</Text>
+        </LinearGradient>
+
         <View style={styles.patientInfo}>
-          <Text translate={false} style={styles.name} numberOfLines={2}>{item.name}</Text>
-          <View style={styles.subRow}>
-            {item.isEmergency ? (
-              <View style={styles.emergencyPill}>
-                <AppIcon name="warning" size={10} strokeWidth={2.4} color="#DC2626" />
-                <Text style={styles.emergencyPillText}>EMERGENCY</Text>
-              </View>
-            ) : (
-              <View style={styles.tokenPill}><Text style={styles.tokenText}>{getTokenLabel(item)}</Text></View>
-            )}
-            {!!meta && <Text style={styles.meta} numberOfLines={1}>{meta}</Text>}
-          </View>
+          <Text translate={false} style={styles.name} numberOfLines={1}>{item.name}</Text>
+          {!!detailLine && (
+            <Text translate={false} style={styles.detail} numberOfLines={1}>{detailLine}</Text>
+          )}
         </View>
-        <View style={[styles.modeBadge, { backgroundColor: modeStyle.bg }]}>
-          <AppIcon name={mode.icon} size={12} strokeWidth={2.2} color={modeStyle.text} />
-          <Text style={[styles.modeText, { color: modeStyle.text }]} numberOfLines={1}>{mode.label}</Text>
+
+        <View style={[styles.timePill, item.isEmergency && styles.timePillEmergency]}>
+          <AppIcon
+            name={item.isEmergency ? 'warning' : 'clock'}
+            size={12}
+            strokeWidth={2.2}
+            color={item.isEmergency ? '#DC2626' : colors.blue}
+          />
+          <Text style={[styles.timeText, item.isEmergency && styles.emergencyTimeText]} numberOfLines={1}>{timeLabel}</Text>
         </View>
       </View>
 
-      {/* Body: complaint, delay / follow-up notes */}
-      <View style={styles.body}>
-        <View style={styles.issueRow}>
-          <View style={styles.issueIcon}>
-            <AppIcon name="pulse" size={13} strokeWidth={2} color={colors.blue} />
-          </View>
-          <Text translate={false} style={styles.issue} numberOfLines={2}>{item.issue}</Text>
-        </View>
-        {item.delayMinutes > 0 && (
-          <Text translate={false} style={styles.delay}>
-            Delayed {item.delayMinutes} min{item.delayReason ? ` - ${item.delayReason}` : ''}
-          </Text>
-        )}
-        {isCompleted && item.followUpRequired && (
-          <Text style={styles.followUp}>
-            Follow-up: {item.followUpDate ? formatFollowUpDate(item.followUpDate) : 'Date not available'}
-          </Text>
-        )}
-      </View>
-
-      {/* Footer: time on the left, action on the right */}
       <View style={styles.footerRow}>
-        {item.isEmergency ? (
-          <View style={styles.timeChip}>
-            <AppIcon name="warning" size={13} strokeWidth={2} color="#DC2626" />
-            <Text style={[styles.timeText, styles.emergencyTimeText]} numberOfLines={1}>Priority</Text>
+        <View style={styles.footerInfo}>
+          <View style={[styles.modeBadge, { backgroundColor: modeStyle.bg }]}>
+            <AppIcon name={mode.icon} size={11} strokeWidth={2.2} color={modeStyle.text} />
+            <Text style={[styles.modeText, { color: modeStyle.text }]} numberOfLines={1}>{mode.label}</Text>
           </View>
-        ) : (
-          <View style={styles.timeChip}>
-            <AppIcon name="clock" size={13} strokeWidth={2} color={colors.muted} />
-            <Text style={styles.timeText} numberOfLines={1}>{item.scheduledTime || 'Today'}</Text>
-          </View>
-        )}
+          {item.delayMinutes > 0 && (
+            <Text translate={false} style={styles.delay} numberOfLines={1}>
+              Delayed {item.delayMinutes} min{item.delayReason ? ` - ${item.delayReason}` : ''}
+            </Text>
+          )}
+          {isCompleted && item.followUpRequired && (
+            <Text style={styles.followUp} numberOfLines={1}>
+              Follow-up: {item.followUpDate ? formatFollowUpDate(item.followUpDate) : 'Date not available'}
+            </Text>
+          )}
+        </View>
 
         <View style={styles.actions}>
-          {!!remoteMode && !isCompleted && (
+          {!!remoteMode && !isCompleted && !isCancelled && (
             <Pressable
               onPress={() => onCall?.(item, remoteMode)}
               disabled={callDisabled}
@@ -161,9 +176,13 @@ export default function AppointmentCard({
               ]}
             >
               {action.ghost ? (
-                <Text style={[styles.buttonText, styles.secondaryButtonText]}>{action.label}</Text>
+                <>
+                  <AppIcon name="eye" size={13} strokeWidth={2.2} color={colors.navy} />
+                  <Text style={[styles.buttonText, styles.secondaryButtonText]}>{action.label}</Text>
+                </>
               ) : (
                 <LinearGradient colors={doctorGradient} {...gradientDirection} style={styles.primaryButtonFill}>
+                  <AppIcon name={isActive ? 'pulse' : 'check'} size={13} strokeWidth={2.4} color="#FFFFFF" />
                   <Text style={[styles.buttonText, styles.primaryButtonText]}>{action.label}</Text>
                 </LinearGradient>
               )}
@@ -176,42 +195,36 @@ export default function AppointmentCard({
 }
 
 const styles = createDoctorStyles({
-  card: { ...shadow, backgroundColor: colors.surface, borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#EEF1F6' },
-  cardHighlight: { borderColor: '#9AE8F8', backgroundColor: '#F7FEFD' },
+  card: { ...shadow, backgroundColor: colors.surface, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 11, marginBottom: 10, borderWidth: 1, borderColor: '#E6F4F1' },
+  cardHighlight: { borderColor: '#5EEAD4', backgroundColor: '#F4FFFC' },
+  cardEmergency: { borderColor: '#FECACA', backgroundColor: '#FFFBFB' },
 
-  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { ...typography.subtitle, fontSize: 15, color: colors.blue },
-  patientInfo: { flex: 1, minWidth: 0, paddingTop: 1 },
-  name: { ...typography.title, fontSize: 16.5, lineHeight: 21, color: colors.ink },
-  subRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
-  tokenPill: { height: 20, paddingHorizontal: 7, borderRadius: 6, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center' },
-  tokenText: { ...typography.label, fontSize: 11.5, lineHeight: 15, color: '#536176' },
-  meta: { ...typography.caption, flexShrink: 1, fontSize: 12.5, lineHeight: 16, color: colors.muted },
-
-  body: { marginTop: 12, gap: 6 },
-  modeBadge: { flexShrink: 0, maxWidth: '46%', flexDirection: 'row', alignItems: 'center', gap: 5, height: 26, paddingHorizontal: 9, borderRadius: 13 },
-  modeText: { ...typography.label, flexShrink: 1, fontSize: 11.5, lineHeight: 15 },
-  issueRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F7F9FC', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
-  issueIcon: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
-  issue: { ...typography.caption, flex: 1, fontSize: 13.5, lineHeight: 18, color: '#394457' },
-  delay: { ...typography.caption, fontSize: 12.5, color: colors.red, marginLeft: 2 },
-  followUp: { ...typography.caption, fontSize: 12.5, color: '#15803D', marginLeft: 2 },
-
-  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEF1F6' },
-  timeChip: { flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  tokenTile: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
+  tokenTileNumber: { fontSize: 18, lineHeight: 21, fontWeight: '900', color: '#FFFFFF' },
+  tokenTileInitials: { fontSize: 15, fontWeight: '900', color: '#FFFFFF' },
+  tokenTileLabel: { fontSize: 8.5, fontWeight: '800', letterSpacing: 0.8, color: 'rgba(255,255,255,0.85)', marginTop: 1 },
+  patientInfo: { flex: 1, minWidth: 0 },
+  name: { ...typography.title, fontSize: 15.5, lineHeight: 20, color: colors.ink },
+  detail: { ...typography.caption, fontSize: 12.5, lineHeight: 17, color: colors.muted, marginTop: 2, textTransform: 'none' },
+  timePill: { flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 4, height: 26, paddingHorizontal: 9, borderRadius: 13, backgroundColor: '#E6F7F5' },
+  timePillEmergency: { backgroundColor: '#FEF2F2' },
+  timeText: { ...typography.label, fontSize: 12, lineHeight: 16, color: colors.navy },
   emergencyTimeText: { color: '#DC2626' },
-  cardEmergency: { borderColor: '#FECACA', borderLeftWidth: 3, borderLeftColor: '#F87171' },
-  emergencyPill: { height: 20, paddingHorizontal: 7, borderRadius: 6, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', flexDirection: 'row', alignItems: 'center', gap: 4 },
-  emergencyPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.3, color: '#DC2626' },
-  timeText: { ...typography.label, fontSize: 13, lineHeight: 17, color: '#394457' },
-  actions: { flexDirection: 'row', gap: 8 },
-  button: { height: 38, borderRadius: 9, flexShrink: 0, overflow: 'hidden' },
-  primaryButtonFill: { height: 38, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  secondaryButton: { borderWidth: 1, borderColor: '#BCC6D6', backgroundColor: '#FFFFFF', paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+
+  footerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F4F7' },
+  footerInfo: { flex: 1, minWidth: 0, gap: 3, alignItems: 'flex-start' },
+  modeBadge: { maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 4, height: 24, paddingHorizontal: 9, borderRadius: 12 },
+  modeText: { ...typography.label, flexShrink: 1, fontSize: 11, lineHeight: 14 },
+  delay: { ...typography.caption, fontSize: 11.5, color: colors.red },
+  followUp: { ...typography.caption, fontSize: 11.5, color: '#15803D' },
+  actions: { flexDirection: 'row', gap: 8, flexShrink: 0 },
+  button: { height: 36, borderRadius: 11, flexShrink: 0, overflow: 'hidden' },
+  primaryButtonFill: { height: 36, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  secondaryButton: { borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
   buttonPressed: { opacity: 0.86, transform: [{ scale: 0.99 }] },
   disabled: { opacity: 0.45 },
-  buttonText: { ...typography.button, fontSize: 14, lineHeight: 18 },
+  buttonText: { ...typography.button, fontSize: 13, lineHeight: 17 },
   primaryButtonText: { color: '#FFFFFF' },
   secondaryButtonText: { color: colors.navy },
 });

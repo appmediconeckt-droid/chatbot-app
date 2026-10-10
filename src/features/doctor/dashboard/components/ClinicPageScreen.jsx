@@ -4,7 +4,7 @@
 //   GET /api/auth/me?clinic_id&doctor_id          (clinic doctors)
 //   GET /api/appointments?clinic_id&doctor_id     (patient count / departments)
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ImageBackground, Linking, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Image, ImageBackground, Linking, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { colors, createDoctorStyles, typography } from '../theme';
@@ -13,6 +13,8 @@ import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
 import { deleteDoctorClinic, unwrapApiArray } from '../api/doctorClinics';
 import { useDoctorBack } from '../useDoctorBack';
 import DoctorClinicSettingsScreen from './DoctorClinicSettingsScreen';
+import DeleteClinicModal from './DeleteClinicModal';
+import { useToast } from '../../../../components/common/ToastProvider';
 
 const DEFAULT_CLINIC_IMAGE = 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&w=1600&q=80';
 const TABS = ['Overview', 'Doctors', 'Departments', 'Facilities', 'Reviews', 'Contact'];
@@ -145,6 +147,10 @@ export default function ClinicPageScreen({ onBack }) {
   const [refreshing, setRefreshing] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [deletingClinic, setDeletingClinic] = useState(false);
+  // Custom confirm popup (DeleteClinicModal) instead of a plain Alert.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const { showToast } = useToast();
 
   useEffect(() => { getStoredDoctorUser().then((u) => setUser(u || {})); }, []);
 
@@ -266,7 +272,7 @@ export default function ClinicPageScreen({ onBack }) {
     if (deletingClinic || !activeClinicId || activeClinicId === FALLBACK.id) return;
     try {
       setDeletingClinic(true);
-      setError('');
+      setDeleteError('');
       await deleteDoctorClinic(activeClinicId);
       setClinics((rows) => {
         const remaining = rows.filter((item) => String(pickFirst(item.deleteId, item.id)) !== String(activeClinicId));
@@ -274,23 +280,19 @@ export default function ClinicPageScreen({ onBack }) {
         return remaining;
       });
       setActiveTab('Overview');
-      Alert.alert('Clinic deleted', 'Clinic / hospital deleted successfully.');
+      setConfirmDeleteOpen(false);
+      showToast('Clinic deleted');
     } catch (err) {
-      setError(err?.response?.data?.message || err?.response?.data?.error || 'Clinic could not be deleted. Please try again.');
+      // Shown inside the popup so the doctor sees why it wasn't deleted.
+      setDeleteError(err?.response?.data?.message || err?.response?.data?.error || 'Clinic could not be deleted. Please try again.');
     } finally {
       setDeletingClinic(false);
     }
   };
 
   const handleDeleteClinic = () => {
-    Alert.alert(
-      'Delete Clinic / Hospital',
-      `Delete ${clinic?.name || 'this clinic'}? This cannot be undone. Clinics with staff, appointments or saved timings cannot be deleted.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: performDeleteClinic },
-      ],
-    );
+    setDeleteError('');
+    setConfirmDeleteOpen(true);
   };
 
   const website = clinic.website && (clinic.website.startsWith('http') ? clinic.website : `https://${clinic.website}`);
@@ -312,32 +314,20 @@ export default function ClinicPageScreen({ onBack }) {
 
   return (
     <View style={s.screen}>
+      <DeleteClinicModal
+        visible={confirmDeleteOpen}
+        clinicName={clinic?.name}
+        clinicAddress={clinic?.fullAddress || clinic?.address}
+        deleting={deletingClinic}
+        error={deleteError}
+        onCancel={() => setConfirmDeleteOpen(false)}
+        onConfirm={performDeleteClinic}
+      />
       <View style={s.header}>
         <Pressable onPress={onBack} style={s.backButton} hitSlop={8}>
           <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
         </Pressable>
         <Text style={s.title}>Clinic</Text>
-        <Pressable
-          onPress={handleDeleteClinic}
-          disabled={deletingClinic || !canDeleteClinic}
-          style={({ pressed }) => [
-            s.deleteClinicButton,
-            !canDeleteClinic && s.deleteClinicButtonDisabled,
-            pressed && canDeleteClinic && s.deleteClinicButtonPressed,
-          ]}
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel="Delete clinic"
-        >
-          {deletingClinic ? (
-            <ActivityIndicator size="small" color="#DC2626" />
-          ) : (
-            <AppIcon name="trash" size={16} color={canDeleteClinic ? '#DC2626' : '#9CA3AF'} strokeWidth={2.4} />
-          )}
-          <Text style={[s.deleteClinicText, !canDeleteClinic && s.deleteClinicTextDisabled]}>
-            {deletingClinic ? 'Deleting' : 'Delete'}
-          </Text>
-        </Pressable>
         <Pressable
           onPress={() => setAddingClinic(true)}
           style={({ pressed }) => [s.addClinicButton, pressed && s.addClinicButtonPressed]}
@@ -355,33 +345,6 @@ export default function ClinicPageScreen({ onBack }) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadClinics(); }} colors={['#0D9488']} />}
       >
         {!!error && <Text style={s.error}>{error}</Text>}
-        {(clinics.length > 0 || status === 'succeeded') && (
-          <View style={s.managementCard}>
-            <View style={s.managementInfo}>
-              <Text style={s.managementLabel}>Clinic / Hospital</Text>
-              <Text translate={false} style={s.managementName} numberOfLines={1}>{clinic.name}</Text>
-              {!canDeleteClinic && <Text style={s.managementHint}>No deletable clinic id found. Pull down to refresh clinics.</Text>}
-            </View>
-            <Pressable
-              onPress={handleDeleteClinic}
-              disabled={deletingClinic || !canDeleteClinic}
-              style={({ pressed }) => [
-                s.managementDeleteBtn,
-                !canDeleteClinic && s.managementDeleteBtnDisabled,
-                pressed && canDeleteClinic && s.managementDeleteBtnPressed,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Delete clinic or hospital"
-            >
-              {deletingClinic ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <AppIcon name="trash" size={16} color="#FFFFFF" strokeWidth={2.4} />
-              )}
-              <Text style={s.managementDeleteText}>{deletingClinic ? 'Deleting...' : 'Delete Clinic / Hospital'}</Text>
-            </Pressable>
-          </View>
-        )}
         <ImageBackground
           source={{ uri: imageFailed ? DEFAULT_CLINIC_IMAGE : clinic.image }}
           onError={() => setImageFailed(true)}
@@ -560,25 +523,11 @@ const s = createDoctorStyles({
   header: { height: 62, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },
   backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   title: { flex: 1, fontSize: 22, fontWeight: '800', color: '#0D9488' },
-  deleteClinicButton: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 36, paddingHorizontal: 11, borderRadius: 18, backgroundColor: '#FEF2F2', marginRight: 8 },
-  deleteClinicButtonPressed: { backgroundColor: '#FEE2E2' },
-  deleteClinicButtonDisabled: { backgroundColor: '#F3F4F6' },
-  deleteClinicText: { fontSize: 13.5, fontWeight: '800', color: '#DC2626' },
-  deleteClinicTextDisabled: { color: '#9CA3AF' },
   addClinicButton: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 36, paddingHorizontal: 13, borderRadius: 18, backgroundColor: '#0D9488' },
   addClinicButtonPressed: { backgroundColor: '#0F766E' },
   addClinicText: { fontSize: 13.5, fontWeight: '800', color: '#FFFFFF' },
   content: { padding: 12, paddingBottom: 32 },
   error: { fontSize: 13, color: colors.red, marginBottom: 10 },
-  managementCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#FECACA', borderRadius: 12, padding: 12, marginBottom: 12 },
-  managementInfo: { flex: 1, minWidth: 0 },
-  managementLabel: { fontSize: 11.5, fontWeight: '800', color: '#667085', textTransform: 'uppercase' },
-  managementName: { fontSize: 14.5, fontWeight: '800', color: '#17243A', marginTop: 2 },
-  managementHint: { fontSize: 11.5, color: '#B45309', marginTop: 3 },
-  managementDeleteBtn: { minHeight: 42, borderRadius: 11, backgroundColor: '#DC2626', paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  managementDeleteBtnPressed: { backgroundColor: '#B91C1C' },
-  managementDeleteBtnDisabled: { backgroundColor: '#9CA3AF' },
-  managementDeleteText: { fontSize: 12.5, fontWeight: '800', color: '#FFFFFF' },
   hero: { height: 210, borderRadius: 14, overflow: 'hidden', justifyContent: 'flex-end' },
   heroImage: { borderRadius: 14 },
   heroOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(8, 47, 45, 0.55)' },

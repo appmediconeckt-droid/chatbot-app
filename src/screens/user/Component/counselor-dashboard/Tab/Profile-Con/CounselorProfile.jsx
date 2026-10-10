@@ -295,7 +295,9 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   const [isEditing, setIsEditing] = useState(startEditing);
   const [editedData, setEditedData] = useState(counselor);
   const [clientsCount, setClientsCount] = useState(0);
-  const [sessionsCount, setSessionsCount] = useState(0);
+  // null until the call history has loaded — shown as '–' instead of a
+  // misleading 0 that later jumps to the real number.
+  const [sessionsCount, setSessionsCount] = useState(null);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const [newLanguage, setNewLanguage] = useState('');
   const [newSpecialization, setNewSpecialization] = useState('');
@@ -374,12 +376,16 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       try {
         const callsRes = await axios.get(`${API_BASE_URL}/api/video/calls/history/${counsellorId}`, { headers });
         const calls = callsRes.data?.calls || callsRes.data?.history || [];
-        setSessionsCount(Array.isArray(calls) ? calls.length : 0);
+        // The history is paginated ({ history, total, page, totalPages }), so
+        // the page length undercounts — prefer the server's total.
+        const total = Number(callsRes.data?.total);
+        setSessionsCount(Number.isFinite(total) ? total : Array.isArray(calls) ? calls.length : 0);
       } catch {
-        // endpoint may not exist — keep 0
+        setSessionsCount(0); // endpoint may not exist
       }
     } catch (e) {
       // non-critical
+      setSessionsCount((current) => current ?? 0);
     }
   };
 
@@ -1497,7 +1503,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
             </View>
             <View style={styles.heroStatDivider} />
             <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatNum}>{sessionsCount}</Text>
+              <Text style={styles.heroStatNum}>{sessionsCount ?? '–'}</Text>
               <Text style={styles.heroStatLabel}>{t('profile:sessions')}</Text>
             </View>
             <View style={styles.heroStatDivider} />

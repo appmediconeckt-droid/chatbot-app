@@ -1,5 +1,5 @@
 // with a plain Alert so it works on iOS too.
-import { Alert } from 'react-native';
+import { Alert, NativeModules, Platform } from 'react-native';
 import RNFS from 'react-native-fs';
 
 const toSafeString = (value) => value ?? '';
@@ -16,6 +16,42 @@ const fileSafeName = (value) =>
     .replace(/^_+|_+$/g, '') || 'Prescription';
 
 let isGeneratingPdf = false;
+
+// The PDF is written to the app's own storage (always writable). A copy goes
+// to the phone's Downloads folder when Android allows it, and the file opens
+// straight away in the phone's PDF viewer (save / share from there) — before,
+// it only sat in the private app folder where the doctor couldn't reach it.
+async function saveAndOpenPdf(appPath, fileName) {
+  let downloadsPath = null;
+  if (Platform.OS === 'android') {
+    try {
+      let target = `${RNFS.DownloadDirectoryPath}/${fileName}.pdf`;
+      for (let copy = 1; (await RNFS.exists(target)) && copy < 100; copy += 1) {
+        target = `${RNFS.DownloadDirectoryPath}/${fileName} (${copy}).pdf`;
+      }
+      await RNFS.copyFile(appPath, target);
+      await RNFS.scanFile(target).catch(() => {});
+      downloadsPath = target;
+    } catch {
+      downloadsPath = null; // scoped storage refused — the viewer below still has it
+    }
+  }
+  let opened = false;
+  try {
+    const opener = NativeModules.PdfFileOpener;
+    if (opener?.open) {
+      await opener.open(appPath);
+      opened = true;
+    }
+  } catch {
+    opened = false;
+  }
+  if (downloadsPath) {
+    Alert.alert('Prescription downloaded', `Saved to Downloads as ${downloadsPath.split('/').pop()}`);
+  } else if (!opened) {
+    Alert.alert('Prescription ready', 'The PDF was created but no PDF viewer app was found on this phone.');
+  }
+}
 
 function buildSimplePdf(lines) {
   const contentLines = lines
@@ -108,7 +144,7 @@ export async function downloadVisitPrescriptionPdf(patient, record) {
       ...wrapText(record?.prescription),
     ].slice(0, 38); // one A4 page
     await RNFS.writeFile(pdfPath, buildSimplePdf(lines), 'utf8');
-    Alert.alert('Prescription downloaded', `Saved to ${pdfPath}`);
+    await saveAndOpenPdf(pdfPath, fileName);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     Alert.alert('PDF failed', message || 'Unable to generate the prescription PDF. Please try again.');

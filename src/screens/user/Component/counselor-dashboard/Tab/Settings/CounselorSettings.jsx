@@ -41,7 +41,7 @@ import {
 import PasswordRequirementChecklist from '../../../../../../components/common/PasswordRequirementChecklist';
 import PsychiatristDirectory from '../../../../../../components/common/PsychiatristDirectory';
 import PrescriptionReviews from '../Prescriptions/PrescriptionReviews';
-import { APP_VERSION } from '../../../../../../constants/appInfo';
+import { APP_VERSION_LABEL } from '../../../../../../constants/appInfo';
 import LanguageSelector from '../../../../../../components/common/LanguageSelector';
 import { LANGUAGES } from '../../../../../../i18n';
 import { useLanguageContext } from '../../../../../../contexts/LanguageContext';
@@ -751,7 +751,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         </View>
         <View style={styles.rowBody}>
           <Text style={styles.rowLabel}>{t('settings:appVersion', 'App Version')}</Text>
-          <Text style={styles.rowSub}>Humaeli v{APP_VERSION}</Text>
+          <Text style={styles.rowSub}>{APP_VERSION_LABEL}</Text>
         </View>
       </View>
 

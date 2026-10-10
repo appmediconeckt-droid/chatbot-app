@@ -55,7 +55,7 @@ export default function NextPatientCard({ patient, isActive, onBreak, onStartCon
         )}
       </View>
       <View style={styles.patient}>
-        <View style={styles.avatar}><Text translate={false} style={styles.avatarText}>{patient ? getInitials(patient.name) : 'NA'}</Text></View>
+        <View style={styles.avatar}>{patient ? <Text translate={false} style={styles.avatarText}>{getInitials(patient.name)}</Text> : <AppIcon name="check" size={18} color="#FFF" strokeWidth={2.4} />}</View>
         <View style={styles.info}>
           <Text translate={false} style={styles.name}>{patient?.name || 'No Patient'}</Text>
           <Text translate={false} style={styles.complaint} numberOfLines={1}>

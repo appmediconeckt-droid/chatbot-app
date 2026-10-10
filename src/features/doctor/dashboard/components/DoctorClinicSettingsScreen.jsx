@@ -3,7 +3,7 @@
 // clinic_photo[]) plus the doctor's existing clinics from
 // GET /api/clinics?doctor_id&role=doctor.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -15,6 +15,7 @@ import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
 import { deleteDoctorClinic, loadDoctorClinics } from '../api/doctorClinics';
+import DeleteClinicModal from './DeleteClinicModal';
 
 // Express error pages come back as HTML strings, not JSON — read either.
 const getApiErrorText = (err, fallback) => {
@@ -43,6 +44,9 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
   const [deletingClinicId, setDeletingClinicId] = useState('');
+  // Clinic waiting for confirmation in the delete popup, and its error.
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     getStoredDoctorUser().then((user) => {
@@ -96,28 +100,22 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
     try {
       setDeletingClinicId(String(clinicId));
       setMessage('');
+      setDeleteError('');
       await deleteDoctorClinic(clinicId);
       setClinics((rows) => rows.filter((item) => String(getClinicDeleteId(item)) !== String(clinicId)));
       showToast('Clinic deleted');
-      setStatus('succeeded');
-      setMessage('Clinic deleted successfully.');
+      setPendingDelete(null);
     } catch (err) {
-      setStatus('failed');
-      setMessage(getApiErrorText(err, 'Clinic could not be deleted. Please try again.'));
+      // Shown inside the popup so the doctor sees why it wasn't deleted.
+      setDeleteError(getApiErrorText(err, 'Clinic could not be deleted. Please try again.'));
     } finally {
       setDeletingClinicId('');
     }
   };
 
   const handleDeleteClinic = (clinic) => {
-    Alert.alert(
-      'Delete Clinic / Hospital',
-      `Delete ${clinic?.name || 'this clinic'}? This cannot be undone. Clinics with staff, appointments or saved timings cannot be deleted.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => performDeleteClinic(clinic) },
-      ],
-    );
+    setDeleteError('');
+    setPendingDelete(clinic);
   };
 
   const handleSave = async () => {
@@ -199,6 +197,15 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
 
   return (
     <View style={s.screen}>
+      <DeleteClinicModal
+        visible={Boolean(pendingDelete)}
+        clinicName={pendingDelete?.name}
+        clinicAddress={pendingDelete?.location}
+        deleting={Boolean(deletingClinicId)}
+        error={deleteError}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => pendingDelete && performDeleteClinic(pendingDelete)}
+      />
       <View style={s.header}>
         <Pressable onPress={onBack} style={s.backButton} hitSlop={8}>
           <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />

@@ -6,12 +6,11 @@ import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
 import axiosInstance from '../../../../axiosConfig';
+import { STRONG_PASSWORD_HINT, passwordRequirements } from '../../../../utils/passwordPolicy';
 
-const REQUIREMENTS = [
-  { key: 'length', label: 'At least 8 characters', test: (v) => v.length >= 8 },
-  { key: 'number', label: 'At least one number', test: (v) => /\d/.test(v) },
-  { key: 'special', label: 'At least one special character', test: (v) => /[^A-Za-z0-9]/.test(v) },
-];
+// Same rules as signup, login and the user / consultant settings
+// (utils/passwordPolicy): 8+ characters, uppercase, lowercase, number, special.
+const REQUIREMENTS = passwordRequirements;
 
 export default function DoctorChangePasswordScreen({ onBack, onPasswordChanged }) {
   const { showToast } = useToast();
@@ -63,7 +62,7 @@ export default function DoctorChangePasswordScreen({ onBack, onPasswordChanged }
         <View style={s.card}>
           <View style={s.infoBox}>
             <Text style={s.infoText}>
-              Your password must be at least 8 characters long and include a combination of numbers, letters, and special characters.
+              {STRONG_PASSWORD_HINT}
             </Text>
           </View>
 

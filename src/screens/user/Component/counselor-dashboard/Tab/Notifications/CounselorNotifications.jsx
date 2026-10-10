@@ -40,8 +40,20 @@ const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'requests', label: 'Requests' },
   { id: 'appointment', label: 'Appointments' },
+  { id: 'call', label: 'Calls' },
   { id: 'payment', label: 'Payments' },
 ];
+
+// Which notification types each filter chip covers — the server uses several
+// names for the same thing (call / voice_call, payment / payout / earning…),
+// so an exact match left call and payout notifications out of every chip.
+const FILTER_TYPES = {
+  appointment: ['appointment', 'booking'],
+  call: ['call', 'voice_call', 'video_call', 'incoming_call', 'missed_call'],
+  payment: ['payment', 'payout', 'earning', 'earnings', 'wallet', 'withdrawal'],
+};
+const matchesFilter = (n, filter) =>
+  (FILTER_TYPES[filter] || [filter]).includes(String(n.type || '').toLowerCase());
 
 // Per-type icon + accent + tint.
 const TYPE_CONFIG = {
@@ -192,7 +204,7 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) =>
     let list;
     if (filter === 'requests') list = [...requests];
     else if (filter === 'all') list = [...requests, ...notifications];
-    else list = notifications.filter((n) => n.type === filter);
+    else list = notifications.filter((n) => matchesFilter(n, filter));
     return list.sort((a, b) => {
       if (filter === 'all' && a.kind !== b.kind) {
         return a.kind === 'request' ? -1 : 1;
@@ -204,7 +216,7 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) =>
   const countFor = (id) => {
     if (id === 'requests') return requests.length;
     if (id === 'all') return unreadCount;
-    return notifications.filter((n) => n.type === id && !n.read).length;
+    return notifications.filter((n) => matchesFilter(n, id) && !n.read).length;
   };
 
   // ── Actions ──

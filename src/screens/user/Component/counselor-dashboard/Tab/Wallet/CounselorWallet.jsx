@@ -485,8 +485,18 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
     return <WalletSkeleton safeEdges={safeEdges} />;
   }
 
+  // The hero card already shows the available balance, and "Available for
+  // payout" below says the same — so this slot shows what was withdrawn.
+  const withdrawnTotal = withdrawals
+    .filter((item) => item.status === 'paid')
+    .reduce((sum, item) => sum + (Number(item.metadata?.netAmount ?? item.amount) || 0), 0);
+  const inFlightCount = withdrawals.filter((item) => item.status === 'pending' || item.status === 'approved').length;
   const summaryCards = [
-    ['Available balance', data?.balance, 'Ready for withdrawal'],
+    [
+      'Withdrawn',
+      withdrawnTotal,
+      inFlightCount ? `${inFlightCount} request(s) in progress` : 'Paid to your bank',
+    ],
     [
       data?.period?.filtered ? t('Earned in selected period') : t('Total earned'),
       data?.totalEarned,
@@ -681,7 +691,11 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
               <View style={{ flex: 1 }}>
                 <Text style={styles.speedTitle}>{t('Standard payout')}</Text>
                 <Text style={styles.speedSub}>
-                  {t('Free')} · {t('Within')} {standardOption.etaDays || 3} {t('business days')}
+                  {/* Only quote a time the server actually gives — payouts are
+                      processed by the team, so the app must not invent one. */}
+                  {standardOption.etaDays
+                    ? `${t('Free')} · ${t('Within')} ${standardOption.etaDays} ${t('business days')}`
+                    : `${t('Free')} · ${t('Processed by our team')}`}
                 </Text>
               </View>
               <Text style={styles.speedTag}>{t('FREE')}</Text>
@@ -693,7 +707,9 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
               <View style={{ flex: 1 }}>
                 <Text style={styles.speedTitle}>{t('Instant payout')}</Text>
                 <Text style={styles.speedSub}>
-                  {t('Money arrives within')} {instantOption.etaMinutes || 30} {t('minutes')}
+                  {instantOption.etaMinutes
+                    ? `${t('Money arrives within')} ${instantOption.etaMinutes} ${t('minutes')}`
+                    : t('Processed on priority')}
                 </Text>
               </View>
               <Text style={styles.speedTag}>

@@ -1,16 +1,14 @@
 // Staff Profile — opened by tapping a staff card in Staff Management.
 // Current Schedule shows the staff member's shift (web shift field); Assign
-// Shift saves a new one with PUT /api/staff/:id. Documents are real files
-// kept on this device (see staffDocuments.js). Edit Profile hands off to
+// Shift saves a new one with PUT /api/staff/:id. Edit Profile hands off to
 // StaffEditProfileScreen via onEdit.
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles } from '../theme';
 import { SHIFTS, isOnShiftNow, shiftInfo, updateStaff } from './staffApi';
-import { addStaffDocument, loadStaffDocuments, openStaffDocument, removeStaffDocument } from './staffDocuments';
 
 const formatLongDate = (isoDate) => {
   if (!isoDate) return '—';
@@ -21,21 +19,12 @@ const formatLongDate = (isoDate) => {
 export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }) {
   const { showToast } = useToast();
   const isActive = member.status === 'Active';
-  const isVerified = member.verification === 'Verified';
   const activity = member.activity ?? [];
   const shift = shiftInfo(member.shift);
   const onShift = isActive && isOnShiftNow(shift.key);
 
   const [shiftSheet, setShiftSheet] = useState(false);
   const [savingShift, setSavingShift] = useState(null);
-  const [documents, setDocuments] = useState([]);
-  const [uploading, setUploading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    loadStaffDocuments(member.rawId).then((list) => { if (!cancelled) setDocuments(list); });
-    return () => { cancelled = true; };
-  }, [member.rawId]);
 
   const assignShift = useCallback(async (nextShift) => {
     if (nextShift === shift.key) {
@@ -64,40 +53,6 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
     }
   }, [member, onUpdated, shift.key, showToast]);
 
-  const uploadDocument = async () => {
-    setUploading(true);
-    try {
-      const list = await addStaffDocument(member.rawId);
-      if (list) {
-        setDocuments(list);
-        showToast('Document added.');
-      }
-    } catch (err) {
-      showToast(err?.message || 'Could not add the document.');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const openDocument = async (doc) => {
-    try {
-      await openStaffDocument(doc);
-    } catch (err) {
-      showToast(err?.message || 'No app found to open this document.');
-    }
-  };
-
-  const deleteDocument = (doc) => {
-    Alert.alert('Remove document', `Remove "${doc.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => setDocuments(await removeStaffDocument(member.rawId, doc.id)),
-      },
-    ]);
-  };
-
   return (
     <View style={s.screen}>
       <View style={s.header}>
@@ -117,10 +72,6 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
           <Text style={s.meta}>{member.id ? `#${String(member.id).replace(/^#/, '')} · ` : ''}{member.department} {member.role}</Text>
 
           <View style={s.badgeRow}>
-            <View style={s.verifiedBadge}>
-              <AppIcon name={isVerified ? 'check-mark' : 'clock'} size={11} color={isVerified ? '#16A34A' : '#B7791F'} strokeWidth={3} />
-              <Text style={[s.verifiedBadgeText, !isVerified && s.pendingBadgeText]}>{member.verification}</Text>
-            </View>
             <View style={[s.statusBadge, !isActive && s.statusBadgeLeave]}>
               <View style={[s.statusDot, !isActive && s.statusDotLeave]} />
               <Text style={[s.statusBadgeText, !isActive && s.statusBadgeTextLeave]}>{member.status}</Text>
@@ -207,31 +158,6 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
             </View>
           ))}
         </View>
-
-        <View style={s.card}>
-          <Text style={s.cardTitle}>Documents</Text>
-          {documents.length === 0 && <Text style={s.emptyHint}>No documents yet. Add ID proof, certificates or contracts.</Text>}
-          {documents.map((doc) => (
-            <Pressable key={doc.id} onPress={() => openDocument(doc)} style={s.documentRow}>
-              <View style={[s.documentIcon, doc.type === 'PDF' && s.documentIconPdf]}>
-                <AppIcon name="file" size={16} color={doc.type === 'PDF' ? '#D2564B' : colors.blue} strokeWidth={1.9} />
-              </View>
-              <View style={s.grow}>
-                <Text translate={false} style={s.documentText} numberOfLines={1}>{doc.name}</Text>
-                <Text style={s.documentSubtext}>{[doc.type, doc.size].filter(Boolean).join(' · ')}</Text>
-              </View>
-              <Pressable onPress={() => deleteDocument(doc)} hitSlop={8} style={s.documentDelete}>
-                <AppIcon name="trash" size={15} color="#98A2B3" strokeWidth={1.9} />
-              </Pressable>
-            </Pressable>
-          ))}
-          <Pressable style={[s.uploadButton, uploading && s.uploadButtonBusy]} onPress={uploadDocument} disabled={uploading}>
-            {uploading
-              ? <ActivityIndicator size="small" color={colors.blue} />
-              : <AppIcon name="upload" size={14} color={colors.blue} strokeWidth={2.2} />}
-            <Text style={s.uploadButtonText}>{uploading ? 'Adding…' : 'Upload Document'}</Text>
-          </Pressable>
-        </View>
       </ScrollView>
 
       <Modal visible={shiftSheet} transparent animationType="fade" onRequestClose={() => !savingShift && setShiftSheet(false)}>
@@ -292,9 +218,6 @@ const s = createDoctorStyles({
   meta: { fontSize: 13, color: '#667085', marginTop: 3 },
 
   badgeRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  verifiedBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#E9FBF0', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
-  verifiedBadgeText: { fontSize: 12, fontWeight: '700', color: '#16A34A' },
-  pendingBadgeText: { color: '#B7791F' },
   statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#E6FFFB', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   statusBadgeLeave: { backgroundColor: '#FFF6E5' },
   statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#16A34A' },
@@ -346,16 +269,6 @@ const s = createDoctorStyles({
   activityTitle: { fontSize: 14.5, fontWeight: '700', color: '#17243A', marginTop: 2 },
   activitySubtitle: { fontSize: 12.5, color: '#667085', marginTop: 2 },
 
-  documentRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EEF1F5' },
-  documentRowLast: { borderBottomWidth: 0, paddingBottom: 0 },
-  documentIcon: { width: 34, height: 34, borderRadius: 9, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
-  documentText: { fontSize: 14, fontWeight: '600', color: '#26364D' },
-  documentSubtext: { fontSize: 12, color: '#8A94A4', marginTop: 2 },
-  documentIconPdf: { backgroundColor: '#FDF1F1' },
-  documentDelete: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
-  uploadButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 44, marginTop: 12, borderRadius: 11, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#9FD8D0', backgroundColor: '#F7FDFC' },
-  uploadButtonBusy: { opacity: 0.7 },
-  uploadButtonText: { fontSize: 13.5, fontWeight: '700', color: colors.blue },
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: '#FFF', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 28 },
   handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: '#D6DCE5', marginBottom: 14 },

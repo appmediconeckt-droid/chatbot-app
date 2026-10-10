@@ -24,6 +24,7 @@ import {
 } from '../../../../../../config';
 import {
   APP_VERSION,
+  APP_VERSION_LABEL,
   LAST_UPDATED,
   PLAY_STORE_ID,
   PLAY_STORE_URL,
@@ -342,7 +343,7 @@ const CounselorHelpSupport = ({ onClose, onOpenEarnings, onOpenProfile }) => {
           activeOpacity={0.82}
         >
           <Text style={s.versionText}>
-            {t('Humaeli Consultant')} · {t('Version')} {APP_VERSION}
+            {APP_VERSION_LABEL}
           </Text>
           <Text style={s.versionSub}>
             {t('Last updated')}: {LAST_UPDATED}

@@ -220,7 +220,8 @@ const AppLockSettings = ({ navigation }) => {
             style={s.statusGradient}
           >
             <View style={s.statusContent}>
-              <MaterialCommunityIcons name="shield-check" size={32} color="#ffffff" />
+              {/* A tick only once a PIN is actually set. */}
+              <MaterialCommunityIcons name={hasPIN ? 'shield-check' : 'shield-alert-outline'} size={32} color="#ffffff" />
               <View style={{ marginLeft: 12, flex: 1 }}>
                 <Text style={s.statusTitle}>
                   {hasPIN ? t('Protected') : t('Not Protected')}

@@ -324,19 +324,42 @@ export const isTodayAppointment = (a) => {
   return !key || key === formatLocalDateKey();
 };
 
+// A completed consultation counts for today when its appointment date — or
+// the moment it was completed — is today. The completed feed returns every
+// day's history, so the dashboard filters it with this.
+export const isCompletedToday = (a) => {
+  const today = formatLocalDateKey();
+  const completedAt = pickFirst(a?.completed_at, a?.completedAt, a?.consultation_ended_at, a?.end_time);
+  if (completedAt && formatLocalDateKey(completedAt) === today) return true;
+  const value = getAppointmentDateValue(a);
+  return Boolean(value) && formatLocalDateKey(value) === today;
+};
+
 export const normalizeAppointmentStatus = (a, forcedStatus) => {
   const raw = pickFirst(forcedStatus, a?.appointment_status, a?.walkin_status, a?.queue_status, a?.status);
   const status = String(raw || 'pending').toLowerCase().trim().replace(/\s+/g, '-');
   if (status === 'completed' || status === 'complete') return 'completed';
   if (status === 'cancelled' || status === 'canceled') return 'cancelled';
+  // The backend's no-show job sets queue_status 'no_show' when an unstarted
+  // appointment expires — it is off the queue, like a cancellation.
+  if (status === 'no_show' || status === 'no-show') return 'cancelled';
   if (status === 'confirmed' || status === 'accepted' || status === 'active') return 'confirmed';
   if (['in-progress', 'in_progress', 'in-consultation', 'in_consultation'].includes(status)) return 'in-progress';
+  // Moved to "Next" from the consent form (queue_status 'skipped').
+  if (status === 'skipped') return 'skipped';
   return 'pending';
 };
 
+// Web "Next" in the consent form: online appointments keep their status and
+// get queue_status 'skipped'; walk-ins take appointment_status (web parity).
+export const getSkipPayload = (appt) =>
+  getAppointmentSource(appt) === 'walkin'
+    ? { appointment_status: 'skipped' }
+    : { queue_status: 'skipped' };
+
 // Works on raw API rows and on formatAppointment() output (both carry status).
-// True once a pending online appointment's slot time has passed. The doctor
-// dashboard drops these from today's queue, same as the web dashboard.
+// True once a pending online appointment's slot time has passed. (The doctor
+// dashboard keeps these in today's queue so a late patient can still be seen.)
 export const isExpiredPendingAppointment = (a, nowMs = Date.now()) => {
   if (normalizeAppointmentStatus(a) !== 'pending') return false;
   // Emergencies have no slot to miss; they wait until the doctor acts.

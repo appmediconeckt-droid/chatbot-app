@@ -2,7 +2,7 @@
 // Profile. Real backend: PATCH /api/staff/:id (see staffApi.js) — Save
 // writes straight to the staff record, and onSave hands the refreshed
 // record back to Staff Management's list.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
@@ -13,24 +13,16 @@ import { colors, createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { roleLabelToKey, updateStaff } from './staffApi';
 import { pickStaffPhoto } from './pickStaffPhoto';
-import { addStaffDocument, loadStaffDocuments, openStaffDocument, removeStaffDocument } from './staffDocuments';
 
 const DEPARTMENTS = ['Nursing', 'Clinical', 'Emergency', 'Pathology', 'Finance', 'Operations', 'Admin', 'General Medicine'];
 const ROLE_TYPES = ['Nurse', 'Medical Assistant', 'Lab Technician', 'Billing', 'Receptionist', 'Housekeeping', 'Supervisor'];
 const EMPLOYMENT_STATUSES = ['Full-Time', 'Part-Time', 'Contract'];
-const TABS = [
-  { key: 'personal', label: 'Personal Info' },
-  { key: 'employment', label: 'Employment' },
-  { key: 'documents', label: 'Documents' },
-];
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 const isValidPhone = (value) => value.replace(/\D/g, '').length >= 10;
 
 export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
   const { showToast } = useToast();
   const scrollRef = useRef(null);
-  const sectionOffsets = useRef({});
-  const [activeTab, setActiveTab] = useState('personal');
   // New photo (data URI) picked on this screen; null = keep the current one.
   const [newPhoto, setNewPhoto] = useState(null);
   const shownPhoto = newPhoto || (member?.hasPhoto ? member.image : null);
@@ -43,31 +35,6 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
     }
   };
   const [picker, setPicker] = useState(null);
-  const [documents, setDocuments] = useState([]);
-  const [uploading, setUploading] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    loadStaffDocuments(member.rawId).then((list) => { if (!cancelled) setDocuments(list); });
-    return () => { cancelled = true; };
-  }, [member.rawId]);
-  const uploadDocument = async () => {
-    setUploading(true);
-    try {
-      const list = await addStaffDocument(member.rawId);
-      if (list) setDocuments(list);
-    } catch (err) {
-      showToast(err?.message || 'Could not add the document.');
-    } finally {
-      setUploading(false);
-    }
-  };
-  const openDocument = async (doc) => {
-    try {
-      await openStaffDocument(doc);
-    } catch (err) {
-      showToast(err?.message || 'No app found to open this document.');
-    }
-  };
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     fullName: member.name ?? '',
@@ -81,19 +48,14 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
   const setField = (field, value) => setForm((current) => ({ ...current, [field]: value }));
 
   const emailValid = isValidEmail(form.email);
-  const phoneValid = isValidPhone(form.phone);
+  // Phone is optional here — staff added from the web may have none on file.
+  const phoneValid = !form.phone.trim() || isValidPhone(form.phone);
   const emailError = form.email.trim().length > 0 && !emailValid ? 'Enter a valid email address.' : '';
   const phoneError = form.phone.trim().length > 0 && !phoneValid ? 'Enter a valid phone number (at least 10 digits).' : '';
 
-  const scrollToSection = (key) => {
-    setActiveTab(key);
-    const y = sectionOffsets.current[key];
-    if (typeof y === 'number') {
-      scrollRef.current?.scrollTo({ y: Math.max(y - 12, 0), animated: true });
-    }
-  };
+  // Validation errors are in Personal Information, at the top.
+  const scrollToTop = () => scrollRef.current?.scrollTo({ y: 0, animated: true });
 
-  const removeDocument = async (docId) => setDocuments(await removeStaffDocument(member.rawId, docId));
 
   const handleSave = async () => {
     const fullName = form.fullName.trim();
@@ -103,12 +65,12 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
     }
     if (!emailValid) {
       showToast('Enter a valid email address before saving.');
-      scrollToSection('personal');
+      scrollToTop();
       return;
     }
     if (!phoneValid) {
       showToast('Enter a valid phone number before saving.');
-      scrollToSection('personal');
+      scrollToTop();
       return;
     }
 
@@ -151,18 +113,6 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
         </Pressable>
       </View>
 
-      <View style={s.tabsRow}>
-        {TABS.map((tab) => {
-          const active = activeTab === tab.key;
-          return (
-            <Pressable key={tab.key} onPress={() => scrollToSection(tab.key)} style={s.tab}>
-              <Text style={[s.tabText, active && s.tabTextActive]}>{tab.label}</Text>
-              {active && <View style={s.tabIndicator} />}
-            </Pressable>
-          );
-        })}
-      </View>
-
       <ScrollView ref={scrollRef} style={s.scrollArea} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <View style={s.photoBlock}>
           <View style={s.avatarWrap}>
@@ -180,43 +130,18 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
           </Pressable>
         </View>
 
-        <View onLayout={(event) => { sectionOffsets.current.personal = event.nativeEvent.layout.y; }}>
+        <View>
           <Text style={s.sectionTitle}>Personal Information</Text>
           <IconField label="Full Name" icon="user" value={form.fullName} onChangeText={(value) => setField('fullName', value)} placeholder="Full name" />
           <IconField label="Email Address" icon="message" value={form.email} onChangeText={(value) => setField('email', value)} placeholder="Email address" keyboardType="email-address" autoCapitalize="none" error={emailError} />
           <IconField label="Phone Number" icon="phone" value={form.phone} onChangeText={(value) => setField('phone', value)} placeholder="Phone number" keyboardType="phone-pad" error={phoneError} />
         </View>
 
-        <View onLayout={(event) => { sectionOffsets.current.employment = event.nativeEvent.layout.y; }}>
+        <View>
           <Text style={s.sectionTitle}>Employment Details</Text>
           <DropdownField label="Department" value={form.department} onPress={() => setPicker('department')} />
           <DropdownField label="Role Type" value={form.role} onPress={() => setPicker('role')} />
           <DropdownField label="Employment Status" value={form.employmentStatus} onPress={() => setPicker('employmentStatus')} />
-        </View>
-
-        <View onLayout={(event) => { sectionOffsets.current.documents = event.nativeEvent.layout.y; }}>
-          <Text style={s.sectionTitle}>Documents &amp; Credentials</Text>
-          {documents.map((doc, index) => (
-            <Pressable key={doc.id} onPress={() => openDocument(doc)} style={[s.documentRow, index === documents.length - 1 && s.documentRowLast]}>
-              <View style={[s.documentIcon, doc.type === 'PDF' && s.documentIconPdf]}>
-                <AppIcon name="file" size={16} color={doc.type === 'PDF' ? '#D2564B' : colors.blue} strokeWidth={1.9} />
-              </View>
-              <View style={s.grow}>
-                <Text translate={false} style={s.documentName} numberOfLines={1}>{doc.name}</Text>
-                <Text style={s.documentMeta}>{[doc.type, doc.size].filter(Boolean).join(' · ')}</Text>
-              </View>
-              <Pressable onPress={() => removeDocument(doc.id)} hitSlop={8} style={s.documentDelete}>
-                <AppIcon name="trash" size={16} color="#B0424A" strokeWidth={1.9} />
-              </Pressable>
-            </Pressable>
-          ))}
-          {documents.length === 0 && <Text style={s.emptyHint}>No documents on file.</Text>}
-          <Pressable style={s.uploadButton} onPress={uploadDocument} disabled={uploading}>
-            {uploading
-              ? <ActivityIndicator size="small" color={colors.blue} />
-              : <AppIcon name="upload" size={14} color={colors.blue} strokeWidth={2.2} />}
-            <Text style={s.uploadButtonText}>{uploading ? 'Adding…' : 'Upload New Document'}</Text>
-          </Pressable>
         </View>
       </ScrollView>
 
@@ -296,11 +221,6 @@ const s = createDoctorStyles({
   saveLinkButton: { paddingHorizontal: 8, height: 36, alignItems: 'center', justifyContent: 'center' },
   saveLinkText: { fontSize: 14.5, fontWeight: '700', color: colors.blue },
 
-  tabsRow: { flexDirection: 'row', backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#DCE1E9' },
-  tab: { flex: 1, alignItems: 'center', paddingVertical: 11 },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#8A94A4' },
-  tabTextActive: { color: colors.blue, fontWeight: '700' },
-  tabIndicator: { position: 'absolute', bottom: -1, height: 2, width: '60%', backgroundColor: colors.blue, borderRadius: 1 },
 
   scrollArea: { flex: 1 },
   content: { padding: 16, paddingBottom: 24 },
@@ -325,17 +245,7 @@ const s = createDoctorStyles({
   fieldValueText: { fontSize: 14, color: '#17243A' },
   fieldPlaceholderText: { fontSize: 14, color: '#9AA4B5' },
 
-  documentRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#EEF1F5' },
-  documentRowLast: { borderBottomWidth: 0 },
-  documentIcon: { width: 36, height: 36, borderRadius: 9, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
-  documentIconPdf: { backgroundColor: '#FDF1F1' },
-  documentName: { fontSize: 14, fontWeight: '600', color: '#26364D' },
-  documentMeta: { fontSize: 12, color: '#8A94A4', marginTop: 2 },
-  documentDelete: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
-  emptyHint: { fontSize: 13, color: '#8E9DB0', paddingVertical: 8 },
 
-  uploadButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 46, borderWidth: 1, borderColor: '#D2DAE6', borderRadius: 10, backgroundColor: '#FFFFFF', marginTop: 14 },
-  uploadButtonText: { fontSize: 13.5, fontWeight: '700', color: colors.blue },
 
   footer: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 16, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#EDF0F4' },
   secondaryButton: { flex: 1, height: 46, borderRadius: 12, borderWidth: 1, borderColor: '#D2DAE6', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },

@@ -17,8 +17,18 @@ import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance, { API_BASE_URL } from '../../../../axiosConfig';
 import { getStoredDoctorUser } from '../api/doctorAppointments';
+import { PUBLIC_WEB_APP_URL } from '../../../../config';
 
 const SERVER_ROOT = API_BASE_URL.replace(/\/+$/, '').replace(/\/api$/, '');
+
+// The dev server builds walk-in links on its own frontend origin
+// (http://localhost:5173/walkin/…), which no patient's phone can open. Share /
+// open those on the public web app instead; real public links pass through.
+const publicWalkinUrl = (url) => {
+  const value = String(url || '');
+  const match = /^https?:\/\/(?:localhost|127\.0\.0\.1|10\.0\.2\.2)(?::\d+)?(\/.*)?$/i.exec(value);
+  return match ? `${PUBLIC_WEB_APP_URL.replace(/\/+$/, '')}${match[1] || ''}` : value;
+};
 // The LED page refreshes every 3s; the in-app preview only needs to look live.
 const PREVIEW_POLL_MS = 5000;
 
@@ -157,7 +167,7 @@ export default function ClinicQrLedSection({ doctorId: doctorIdProp }) {
     if (!selected?.walkinQrUrl) return;
     Share.share({
       title: selected.clinic?.name,
-      message: `Scan or open this link to join today's queue at ${selected.clinic?.name}.\n${selected.walkinQrUrl}`,
+      message: `Scan or open this link to join today's queue at ${selected.clinic?.name}.\n${publicWalkinUrl(selected.walkinQrUrl)}`,
     }).catch(() => {});
   };
 
@@ -263,7 +273,7 @@ export default function ClinicQrLedSection({ doctorId: doctorIdProp }) {
             </Pressable>
             <View style={s.two}>
               <Outline icon="send" text="Share QR" onPress={shareQr} />
-              <Outline icon="globe" text="Open Page" onPress={() => openUrl(selected.walkinQrUrl)} />
+              <Outline icon="globe" text="Open Page" onPress={() => openUrl(publicWalkinUrl(selected.walkinQrUrl))} />
             </View>
           </View>
 

@@ -1089,6 +1089,9 @@ export default function CounselorDashboard() {
         ? res.data.appointments
         : Array.isArray(res.data?.data)
         ? res.data.data
+        // Same shapes the web's normalizeAppointmentList accepts.
+        : Array.isArray(res.data?.data?.appointments)
+        ? res.data.data.appointments
         : [];
       setAppointments(data);
     } catch (err) {
@@ -2136,10 +2139,10 @@ export default function CounselorDashboard() {
       label: t('counselor:appointments', 'Appointments'),
       badge: appointments.filter((a) => a.status === "pending").length,
     },
-    { id: "sessions", icon: "video", label: t('counselor:sessions'), badge: 0 },
+    { id: "sessions", icon: "video", label: t('counselor:sessions', 'Sessions'), badge: 0 },
     // { id: "patients", icon: "users", label: "Patients", badge: 0 },
-    { id: "earnings", icon: "money-bill-wave", label: t('counselor:earnings'), badge: 0 },
-    { id: "settings", icon: "sliders", label: t('settings:settings'), badge: 0 },
+    { id: "earnings", icon: "money-bill-wave", label: t('counselor:earnings', 'Earnings'), badge: 0 },
+    { id: "settings", icon: "sliders", label: t('settings:settings', 'Settings'), badge: 0 },
   ];
 
   const handleTabChange = (tabId, fromMenu = false, options = {}) => {
@@ -2287,14 +2290,6 @@ export default function CounselorDashboard() {
     const confirmedCount = appointments.filter((a) => a.status === "confirmed").length;
     const todayCount = appointments.filter((a) => isSameDay(a.date, now)).length;
 
-    // Greeting
-    const hour = now.getHours();
-    const greeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
-    const firstName = (
-      (counselorData?.name || "").replace(/^Dr\.?\s*/i, "").split(" ")[0] ||
-      counselorData?.name ||
-      "Consultant"
-    ).toUpperCase();
     const counselorPhoto = counselorData?.profilePhoto || null;
     const counselorInitial = (counselorData?.name || "C").charAt(0).toUpperCase();
     const shortHeaderName = (counselorData?.name || "Consultant").replace(/^Dr\.?\s*/i, "").slice(0, 8);
@@ -2328,8 +2323,9 @@ export default function CounselorDashboard() {
 
           <View style={aptStyles.heroTopRow}>
             <View style={{ flex: 1 }}>
-              <Text style={aptStyles.heroGreeting}>{greeting},</Text>
-              <Text style={aptStyles.heroName} numberOfLines={1}>{firstName}</Text>
+              {/* The header already greets by name — the card titles the tab. */}
+              <Text style={aptStyles.heroGreeting}>{t('counselor:yourSchedule', 'Your schedule')}</Text>
+              <Text style={aptStyles.heroName} numberOfLines={1}>{t('counselor:appointments', 'Appointments')}</Text>
               <Text style={aptStyles.heroSubtitle}>
                 {appointments.length} {t('counselor:totalAppointments', 'total appointment(s)')}
               </Text>

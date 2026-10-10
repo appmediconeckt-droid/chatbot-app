@@ -1382,7 +1382,8 @@ export default function CalendarAvailabilityScreen() {
           <Pressable style={s.outlineBtn} onPress={saveDraft}><Text style={s.outlineBtnText}>Save Draft</Text></Pressable>
           <Pressable style={s.generateWrap} onPress={generateAllSlots}>
             <LinearGradient colors={doctorGradient} {...gradientDirection} style={s.generate}>
-              <Text style={s.generateText}>↯ Generate Slots</Text>
+              <AppIcon name="calendar" size={15} color="#FFF" strokeWidth={2.2} />
+              <Text style={s.generateText}>Generate Slots</Text>
             </LinearGradient>
           </Pressable>
         </View>
@@ -1817,7 +1818,7 @@ const s = createDoctorStyles({
   outlineBtnFlex: { flex: 1, height: 44, borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   outlineBtnText: { fontSize: 13, fontWeight: '600', color: '#344054' },
   generateWrap: { flex: 1 },
-  generate: { height: 42, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  generate: { height: 42, borderRadius: 8, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center' },
   generateText: { fontSize: 13.5, fontWeight: '700', color: '#FFF' },
   busyOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(255,255,255,0.45)', alignItems: 'center', justifyContent: 'center' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'flex-end' },

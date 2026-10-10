@@ -11,6 +11,7 @@ import TextInput from '../../../components/TranslatedTextInput';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import { CLINICIAN_GRADIENT } from '../../../theme/palette';
+import { nowMinutesIndia, sessionRangesForDay, slotMinutesOfAppointment, upcomingDays } from '../../../utils/doctorSlots';
 
 import DoctorHeader from '../dashboard/components/layout/DoctorHeader';
 import DoctorBottomNavigation from '../dashboard/navigation/DoctorBottomNavigation';
@@ -31,6 +32,7 @@ import VisitDetailScreen from '../dashboard/components/VisitDetailScreen';
 import CalendarAvailabilityScreen from '../dashboard/components/CalendarAvailabilityScreen';
 import AppointmentsListScreen from '../dashboard/components/AppointmentsListScreen';
 import DoctorProfileQrScreen from '../dashboard/components/DoctorProfileQrScreen';
+import DoctorProfileCardQrScreen from '../dashboard/components/DoctorProfileCardQrScreen';
 import DoctorProfileScreen from '../dashboard/components/DoctorProfileScreen';
 import FollowUpsScreen from '../dashboard/components/FollowUpsScreen';
 import ClinicPageScreen from '../dashboard/components/ClinicPageScreen';
@@ -39,16 +41,20 @@ import NotificationsScreen from '../dashboard/components/NotificationsScreen';
 import DoctorSettingsScreen from '../dashboard/components/DoctorSettingsScreen';
 import OverviewCard from '../dashboard/components/OverviewCard';
 import QueueTabs from '../dashboard/components/QueueTabs';
+import LogoutConfirmModal from '../dashboard/components/LogoutConfirmModal';
 import {
   endBreak,
   fetchActiveBreak,
   formatAppointment,
   formatLocalDateKey,
+  getAppointmentSource,
   getDoctorIdFromUser,
+  getSkipPayload,
+  isEmergencyAppointment,
   getStatusUpdatePayload,
   getStoredDoctorUser,
   getTokenLabel,
-  isExpiredPendingAppointment,
+  isCompletedToday,
   isTodayAppointment,
   loadDoctorAppointmentFeed,
   loadDoctorFollowUps,
@@ -94,7 +100,7 @@ const removeMinutesSuffix = (value) => (value ?? '').replace(' min', '');
 // ------------------------------------------------------------------
 // A real Modal (bottom sheet) so it sits above the header and the bottom bar —
 // the centre QR button used to cover its Start / Cancel buttons.
-function PatientConsentModal({ visible, onClose, onStartConsultation, patient, starting }) {
+function PatientConsentModal({ visible, onClose, onStartConsultation, onNext, nextDisabled = true, patient, starting }) {
   const insets = useSafeAreaInsets();
   const [agreements, setAgreements] = useState({ reviewed: true, tracking: true, responsibility: true, confidentiality: true });
   const toggleAgreement = (key) => setAgreements((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -172,6 +178,15 @@ function PatientConsentModal({ visible, onClose, onStartConsultation, patient, s
             <TouchableOpacity style={consentStyles.cancelButton} onPress={onClose} disabled={starting}>
               <Text style={consentStyles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
+            {/* Web "Next": the patient hasn't come — move them aside and show the next one. */}
+            <TouchableOpacity
+              style={[consentStyles.nextButton, (nextDisabled || starting) && consentStyles.nextButtonDisabled]}
+              onPress={onNext}
+              disabled={nextDisabled || starting}
+            >
+              <Text style={consentStyles.nextButtonText}>Next</Text>
+              <AppIcon name="chevron-right" size={14} color={colors.navy} strokeWidth={2.4} />
+            </TouchableOpacity>
             <TouchableOpacity style={consentStyles.startButtonWrap} onPress={onStartConsultation} disabled={!canStart} activeOpacity={0.85}>
               <LinearGradient
                 colors={canStart ? CLINICIAN_GRADIENT : ['#9CA3AF', '#9CA3AF']}
@@ -182,7 +197,7 @@ function PatientConsentModal({ visible, onClose, onStartConsultation, patient, s
                 {starting
                   ? <ActivityIndicator size="small" color="#FFFFFF" />
                   : <AppIcon name="pulse" size={16} color="#FFFFFF" strokeWidth={2.4} />}
-                <Text style={consentStyles.startButtonText}>{starting ? 'Starting...' : 'Start Consultation'}</Text>
+                <Text style={consentStyles.startButtonText} numberOfLines={1}>{starting ? 'Starting...' : 'Start'}</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -247,11 +262,14 @@ const consentStyles = createDoctorStyles({
   agreementText: { ...typography.body, fontSize: 13.5, color: '#334155', flex: 1, lineHeight: 19 },
 
   footer: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 12, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: colors.line },
-  cancelButton: { flex: 0.8, height: 48, borderRadius: 12, borderWidth: 1, borderColor: '#C9D1DD', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  cancelButton: { flex: 0.9, height: 48, borderRadius: 12, borderWidth: 1, borderColor: '#C9D1DD', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  nextButton: { flex: 0.9, height: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.blue, backgroundColor: '#F0FDFA', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
+  nextButtonDisabled: { opacity: 0.45 },
+  nextButtonText: { ...typography.caption, fontSize: 15, color: colors.navy },
   cancelButtonText: { ...typography.caption, fontSize: 15, color: '#252B35' },
   // Wrapper carries the flex sizing; the LinearGradient carries the pill
   // shape/fill so the gradient corners round correctly.
-  startButtonWrap: { flex: 1.4 },
+  startButtonWrap: { flex: 1.2 },
   startButton: { height: 48, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   startButtonText: { ...typography.caption, fontSize: 15, lineHeight: 18, color: '#FFFFFF', textAlign: 'center' },
 });
@@ -474,11 +492,19 @@ export default function DoctorDashboard({ navigation }) {
     }
   }, [navigation]);
 
+  // Custom logout popup (LogoutConfirmModal) instead of a plain Alert.
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [doctorDisplayName, setDoctorDisplayName] = useState('');
   const confirmLogout = useCallback(() => {
-    Alert.alert('Logout Account', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive', onPress: performLogout },
-    ]);
+    setSidebarVisible(false);
+    setLogoutOpen(true);
+  }, []);
+  const handleConfirmLogout = useCallback(async () => {
+    setLoggingOut(true);
+    await performLogout();
+    setLoggingOut(false);
+    setLogoutOpen(false);
   }, [performLogout]);
 
   const [activeTab, setActiveTab] = useState('Pending');
@@ -506,6 +532,11 @@ export default function DoctorDashboard({ navigation }) {
   //   breakEndMs, breakDurationMs, status: 'started' | 'paused' | 'break' }
   const [activeSession, setActiveSession] = useState(null);
   const [now, setNow] = useState(Date.now());
+  const [cancelledToday, setCancelledToday] = useState([]);
+  // Today's availability sessions (e.g. 11:00–13:00). A patient can be seen
+  // any time during their session — late, or after "Next" — but once the
+  // session is over, anyone not seen yet moves to Cancelled (no-show).
+  const [todayRanges, setTodayRanges] = useState([]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -523,6 +554,7 @@ export default function DoctorDashboard({ navigation }) {
 
   useEffect(() => {
     getStoredDoctorUser().then((user) => {
+      setDoctorDisplayName(String(user?.fullName || user?.name || user?.user?.fullName || '').trim());
       const id = getDoctorIdFromUser(user);
       if (id) {
         setDoctorId(String(id));
@@ -546,11 +578,21 @@ export default function DoctorDashboard({ navigation }) {
       const list = await loadDoctorAppointmentFeed(doctorId);
       setAppointments(
         list
+          // Today's pending appointments stay in the queue even after their
+          // slot time has passed — the doctor can still see a late patient.
           .filter((apt) =>
             isTodayAppointment(apt) &&
-            ['pending', 'confirmed', 'in-progress'].includes(normalizeAppointmentStatus(apt)) &&
-            !isExpiredPendingAppointment(apt))
+            ['pending', 'confirmed', 'in-progress', 'skipped'].includes(normalizeAppointmentStatus(apt)))
           .map((apt) => formatAppointment(apt)),
+      );
+      setCancelledToday(
+        list
+          .filter((apt) => isTodayAppointment(apt) && normalizeAppointmentStatus(apt) === 'cancelled')
+          .map((apt) => ({
+            ...formatAppointment(apt),
+            status: 'cancelled',
+            isNoShow: /no[-_]show/i.test(String(pickFirst(apt?.queue_status, apt?.queueStatus, ''))),
+          })),
       );
 
       let followUpList = [];
@@ -562,7 +604,8 @@ export default function DoctorDashboard({ navigation }) {
 
       setCompleted(
         list
-          .filter((apt) => normalizeAppointmentStatus(apt) === 'completed')
+          // Only today's — the feed returns every day's completed history.
+          .filter((apt) => normalizeAppointmentStatus(apt) === 'completed' && isCompletedToday(apt))
           .map((apt) => {
             const formatted = formatAppointment(apt);
             if (formatted.followUpDate) return formatted;
@@ -619,9 +662,66 @@ export default function DoctorDashboard({ navigation }) {
   };
 
   // ---- consultation ---------------------------------------------------
+  useEffect(() => {
+    if (!doctorId) return undefined;
+    let active = true;
+    axiosInstance.get('/api/availability/available', { params: { doctor_id: doctorId }, timeout: 12000 })
+      .then(({ data }) => {
+        if (!active) return;
+        const today = upcomingDays(1)[0];
+        setTodayRanges(sessionRangesForDay({
+          ranges: data?.availableRanges || data?.existingRanges || data?.data || [],
+          unavailableDates: data?.unavailableDates || [],
+          iso: today.iso,
+          weekday: today.weekday,
+        }));
+      })
+      .catch(() => { /* without sessions nothing is auto-cancelled */ });
+    return () => { active = false; };
+  }, [doctorId, refreshing]);
+
+  // True when the appointment's session has ended and it was never started.
+  // Emergencies and running / completed consultations are never cancelled;
+  // appointments outside any known session are left alone.
+  const isSessionOver = (appt) => {
+    if (!appt || !['pending', 'confirmed', 'skipped'].includes(appt.status)) return false;
+    if (isEmergencyAppointment(appt)) return false;
+    const raw = appt.__raw || appt;
+    if (pickFirst(raw?.consultation_started_at, raw?.consultationStartedAt, raw?.consultation_timing?.startedAt)) return false;
+    const minutes = slotMinutesOfAppointment(raw);
+    if (minutes == null || !todayRanges.length) return false;
+    const clinicId = String(pickFirst(raw?.clinic_id?._id, raw?.clinic_id, raw?.clinicId, '') || '');
+    const session = todayRanges.find((r) => minutes >= r.start && minutes < r.end && (!r.clinicId || !clinicId || r.clinicId === clinicId))
+      || todayRanges.find((r) => minutes >= r.start && minutes < r.end);
+    return Boolean(session) && nowMinutesIndia() >= session.end;
+  };
+
   const handleConsentClick = (appt) => {
     setSelectedPatient(appt);
     setConsentModalVisible(true);
+  };
+
+  // Web handleNextPatient: the patient hasn't come — move them to the "Next"
+  // queue and show the following pending patient in the consent form.
+  const handleNextPatient = async () => {
+    if (!selectedPatient || actionBusy || activeSession?.appt || activeSession?.status === 'break') return;
+    setActionBusy(true);
+    try {
+      await patchAppointment(selectedPatient, getSkipPayload(selectedPatient));
+    } catch (err) {
+      showError(err, 'Unable to move patient to Next.');
+      setActionBusy(false);
+      return;
+    }
+    const skippedId = selectedPatient.id;
+    const next = pendingAppointments.find((appt) => appt.id !== skippedId) || null;
+    setAppointments((prev) => prev.map((a) => (a.id === skippedId ? { ...a, status: 'skipped' } : a)));
+    setSelectedPatient(next);
+    if (!next) {
+      setConsentModalVisible(false);
+      setActiveTab('Next');
+    }
+    setActionBusy(false);
   };
 
   // Marks one appointment in-progress and opens it as the "Currently With"
@@ -629,7 +729,17 @@ export default function DoctorDashboard({ navigation }) {
   const beginConsultation = async (appt) => {
     let saved;
     try {
-      const response = await patchAppointment(appt, getStatusUpdatePayload(appt, 'in-progress'));
+      // Same request as the web (getAppointmentStatusUrl): online appointments
+      // start through PATCH /api/appointments/:id/status. The plain /:id route
+      // can't store "in-progress" (not in the status enum) and fails with 500
+      // "Failed to update appointment"; /status sets queue_status in_progress,
+      // the start time and the timer. Walk-ins keep their own route.
+      const response = getAppointmentSource(appt) === 'walkin'
+        ? await patchAppointment(appt, getStatusUpdatePayload(appt, 'in-progress'))
+        : await axiosInstance.patch(
+          `/api/appointments/${encodeURIComponent(String(appt.apiId || appt.id))}/status`,
+          { status: 'in-progress' },
+        );
       saved = response.data?.appointment || response.data?.data;
     } catch (err) {
       showError(err, 'Checkup could not be started.');
@@ -658,6 +768,11 @@ export default function DoctorDashboard({ navigation }) {
 
   const handleStartConsultation = async () => {
     if (!selectedPatient || actionBusy) return;
+    if (isSessionOver(selectedPatient)) {
+      setConsentModalVisible(false);
+      Alert.alert('Session over', `${selectedPatient.name}'s session has ended, so this appointment moved to Cancelled.`);
+      return;
+    }
     setActionBusy(true);
     const started = await beginConsultation(selectedPatient);
     if (started) {
@@ -897,26 +1012,35 @@ export default function DoctorDashboard({ navigation }) {
   const onBreak = activeSession?.status === 'break';
   // Every queue tab uses the web order (emergency → slot time → token), so the
   // first Pending card — and the Next Patient card — is the next one to call.
-  const pendingAppointments = useMemo(
-    () => sortByToken(appointments.filter((appt) => appt.status === 'pending')),
-    [appointments],
-  );
-  const inProgressAppointments = useMemo(() => [
+  // Patients whose session ended before they were seen → Cancelled (no-show).
+  const liveAppointments = appointments.filter((appt) => !isSessionOver(appt) || appt.id === activeAppt?.id);
+  const cancelledQueue = sortByToken([
+    ...appointments
+      .filter((appt) => appt.id !== activeAppt?.id && isSessionOver(appt))
+      .map((appt) => ({ ...appt, status: 'cancelled', isNoShow: true })),
+    ...cancelledToday,
+  ]);
+  const pendingAppointments = sortByToken(liveAppointments.filter((appt) => appt.status === 'pending'));
+  const inProgressAppointments = [
     // The patient currently being seen stays on top.
     ...(activeAppt ? [activeAppt] : []),
-    ...sortByToken(appointments.filter((appt) => ['confirmed', 'in-progress'].includes(appt.status) && appt.id !== activeAppt?.id)),
-  ], [appointments, activeAppt]);
+    ...sortByToken(liveAppointments.filter((appt) => ['confirmed', 'in-progress'].includes(appt.status) && appt.id !== activeAppt?.id)),
+  ];
   const completedQueue = useMemo(() => sortByToken(completed), [completed]);
+  // Patients moved aside with "Next" in the consent form.
+  const skippedAppointments = sortByToken(liveAppointments.filter((appt) => appt.status === 'skipped'));
   const visibleQueue = activeTab === 'Completed'
     ? completedQueue
-    : activeTab === 'In Progress' ? inProgressAppointments : pendingAppointments;
-  const nextPatient = activeAppt || pendingAppointments[0] || appointments[0] || null;
-  const totalToday = appointments.length + completed.length;
+    : activeTab === 'In Progress' ? inProgressAppointments
+      : activeTab === 'Next' ? skippedAppointments
+        : activeTab === 'Cancelled' ? cancelledQueue : pendingAppointments;
+  const nextPatient = activeAppt || pendingAppointments[0] || skippedAppointments[0] || null;
+  const totalToday = liveAppointments.length + completed.length;
   const averageConsultMin = completed.length
     ? Math.max(1, Math.round(completed.reduce((sum, appt) => sum + (appt.durationMs || 0), 0) / completed.length / 60000))
     : 15;
   const overview = [
-    { title: "Today's\nAppointments", value: String(totalToday || appointments.length), icon: 'calendar' },
+    { title: "Today's\nAppointments", value: String(totalToday), icon: 'calendar' },
     { title: 'Pending\nConsultations', value: String(pendingAppointments.length), icon: 'hourglass' },
     { title: 'Completed\nToday', value: String(completed.length), icon: 'check', neutral: true },
     { title: 'Avg. Consult\nTime', value: String(averageConsultMin), suffix: 'min', icon: 'timer' },
@@ -924,7 +1048,9 @@ export default function DoctorDashboard({ navigation }) {
   const tabCounts = {
     Pending: pendingAppointments.length,
     'In Progress': inProgressAppointments.length,
+    Next: skippedAppointments.length,
     Completed: completed.length,
+    Cancelled: cancelledQueue.length,
   };
 
   // Screen history, like a stack navigator (WhatsApp-style back): opening a
@@ -995,12 +1121,14 @@ export default function DoctorDashboard({ navigation }) {
     Alert.alert('Settings', 'Doctor settings are coming soon.');
   };
 
-  // Header/sidebar's profile avatar opens the doctor profile; the QR card is
-  // reached from the sidebar "QR Code" item or the profile's "Open Card" pill.
+  // Header/sidebar's profile avatar opens the doctor profile. As on the web:
+  // the sidebar "QR Code" item / bottom QR button open the clinic walk-in QR
+  // (profileQr); Settings → Profile QR and the profile's "Open Card" pill open
+  // the doctor's own profile QR (profileCardQr).
   const onProfilePress = () => openScreen('profile');
 
   const openQrCard = () => {
-    openScreen('profileQr');
+    openScreen('profileCardQr');
   };
 
   const handleSidebarProfilePress = () => {
@@ -1075,6 +1203,7 @@ export default function DoctorDashboard({ navigation }) {
           <DoctorBottomNavigation
             active="Patients"
             onChange={(label) => {
+              if (label === 'QR') openScreen('profileQr');
               if (label === 'Home') switchTab('dashboard');
               if (label === 'Calendar') switchTab('calendar');
               if (label === 'Staff') switchTab('staffManagement');
@@ -1093,6 +1222,7 @@ export default function DoctorDashboard({ navigation }) {
           <DoctorBottomNavigation
             active="Calendar"
             onChange={(label) => {
+              if (label === 'QR') openScreen('profileQr');
               if (label === 'Home') switchTab('dashboard');
               if (label === 'Patients') switchTab('patients');
               if (label === 'Staff') switchTab('staffManagement');
@@ -1115,6 +1245,14 @@ export default function DoctorDashboard({ navigation }) {
       return (
         <SafeAreaView style={styles.safeArea}>
           <DoctorProfileScreen onBack={goBack} onOpenCard={openQrCard} />
+        </SafeAreaView>
+      );
+    }
+
+    if (activeScreen === 'profileCardQr') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <DoctorProfileCardQrScreen onBack={goBack} />
         </SafeAreaView>
       );
     }
@@ -1162,6 +1300,7 @@ export default function DoctorDashboard({ navigation }) {
             <DoctorBottomNavigation
               active="Staff"
               onChange={(label) => {
+                if (label === 'QR') openScreen('profileQr');
                 if (label === 'Home') switchTab('dashboard');
                 if (label === 'Calendar') switchTab('calendar');
                 if (label === 'Patients') switchTab('patients');
@@ -1285,6 +1424,8 @@ export default function DoctorDashboard({ navigation }) {
           visible={consentModalVisible}
           onClose={() => setConsentModalVisible(false)}
           onStartConsultation={handleStartConsultation}
+          onNext={handleNextPatient}
+          nextDisabled={!selectedPatient || Boolean(activeSession?.appt) || activeSession?.status === 'break' || selectedPatient?.status === 'skipped'}
           patient={selectedPatient}
           starting={actionBusy}
         />
@@ -1328,6 +1469,7 @@ export default function DoctorDashboard({ navigation }) {
         <DoctorBottomNavigation
           active="Home"
           onChange={(label) => {
+            if (label === 'QR') openScreen('profileQr');
             if (label === 'Patients') switchTab('patients');
             if (label === 'Calendar') switchTab('calendar');
             if (label === 'Staff') switchTab('staffManagement');
@@ -1341,6 +1483,13 @@ export default function DoctorDashboard({ navigation }) {
   return (
     <DoctorBackContext.Provider value={backRegistry}>
       {renderScreen()}
+      <LogoutConfirmModal
+        visible={logoutOpen}
+        doctorName={doctorDisplayName}
+        loggingOut={loggingOut}
+        onCancel={() => setLogoutOpen(false)}
+        onConfirm={handleConfirmLogout}
+      />
       {/* Play Store "update available" reminder, same as the patient and
           consultant dashboards (popup + notification, twice per version). */}
       <UpdateReminderModal variant="doctor" />
@@ -1370,7 +1519,8 @@ const styles = createDoctorStyles({
   safeArea: { flex: 1, backgroundColor: colors.background },
   completeAppointmentOverlay: { position: 'absolute', top: 58, right: 0, bottom: 65, left: 0, zIndex: 20 },
   formModal: { flex: 1, backgroundColor: '#F0FDFA' },
-  content: { paddingHorizontal: 12, paddingTop: 13, paddingBottom: 18 },
+  // Extra bottom room: the raised QR button overlaps the last ~26px.
+  content: { paddingHorizontal: 12, paddingTop: 13, paddingBottom: 48 },
   sectionHeader: { minHeight: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
   breakButton: { height: 28, paddingHorizontal: 11, borderRadius: 15, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: colors.surface },
   breakText: { ...typography.caption, fontSize: 15, color: colors.ink },

@@ -3,13 +3,14 @@
 // see staffApi.js / staffModel.js). Search and role/department/status
 // filtering run client-side over the fetched roster.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import AppIcon from '../icons/AppIcon';
 import CreateStaffScreen from './CreateStaffScreen';
 import StaffProfileScreen from './StaffProfileScreen';
 import StaffEditProfileScreen from './StaffEditProfileScreen';
+import RemoveStaffModal from './RemoveStaffModal';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles } from '../theme';
 import { useDoctorBack } from '../useDoctorBack';
@@ -18,6 +19,7 @@ import { deleteStaff, fetchStaff } from './staffApi';
 const ROLES = ['All', 'Nurse', 'Medical Assistant', 'Lab Technician', 'Billing', 'Housekeeping', 'Supervisor', 'Receptionist'];
 const DEPARTMENTS = ['All', 'Nursing', 'Clinical', 'Emergency', 'Pathology', 'Finance', 'Operations', 'Admin', 'General Medicine', 'General'];
 const STATUSES = ['All', 'Active', 'On Leave', 'Suspended'];
+const PAGE_SIZE = 10;
 
 export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaffProfileOpenChange }) {
   const { showToast } = useToast();
@@ -31,6 +33,11 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
   const [creatingStaff, setCreatingStaff] = useState(false);
   const [viewingMember, setViewingMember] = useState(null);
   const [editingMember, setEditingMember] = useState(null);
+  const [page, setPage] = useState(1);
+  // Staff member waiting for confirmation in the Remove popup.
+  const [pendingRemove, setPendingRemove] = useState(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState('');
 
   const loadStaff = useCallback(async () => {
     try {
@@ -49,26 +56,38 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
     loadStaff();
   }, [loadStaff]);
 
+  // A new search / filter starts again from the first page.
+  useEffect(() => { setPage(1); }, [search, roleFilter, deptFilter, statusFilter]);
+
   useEffect(() => () => onCreateStaffOpenChange?.(false), [onCreateStaffOpenChange]);
   useEffect(() => () => onStaffProfileOpenChange?.(false), [onStaffProfileOpenChange]);
 
   const confirmDelete = (member) => {
-    Alert.alert('Remove Staff Member', `Remove ${member.name} from your staff directory?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteStaff(member.rawId);
-            setStaffList((current) => current.filter((item) => item.rawId !== member.rawId));
-            showToast('Staff member removed');
-          } catch (error) {
-            showToast(error?.response?.data?.message || 'Failed to remove staff member');
-          }
-        },
-      },
-    ]);
+    setRemoveError('');
+    setPendingRemove(member);
+  };
+
+  const closeRemove = () => {
+    if (removing) return;
+    setPendingRemove(null);
+    setRemoveError('');
+  };
+
+  const handleRemove = async () => {
+    const member = pendingRemove;
+    if (!member) return;
+    setRemoving(true);
+    setRemoveError('');
+    try {
+      await deleteStaff(member.rawId);
+      setStaffList((current) => current.filter((item) => item.rawId !== member.rawId));
+      setPendingRemove(null);
+      showToast(`${member.name} removed`);
+    } catch (error) {
+      setRemoveError(error?.response?.data?.message || error?.response?.data?.error || 'Failed to remove staff member. Please try again.');
+    } finally {
+      setRemoving(false);
+    }
   };
 
   useDoctorBack(() => {
@@ -149,6 +168,11 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
     );
   });
 
+  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const first = (safePage - 1) * PAGE_SIZE;
+  const pageRows = visible.slice(first, first + PAGE_SIZE);
+
   const pickerConfig = {
     role: { label: 'Role', options: ROLES, value: roleFilter, onSelect: setRoleFilter },
     dept: { label: 'Department', options: DEPARTMENTS, value: deptFilter, onSelect: setDeptFilter },
@@ -160,14 +184,18 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <View style={s.statsRow}>
           <View style={s.statCard}>
-            <View style={s.statIcon}><AppIcon name="users" size={17} color={colors.blue} strokeWidth={2} /></View>
-            <Text style={s.statValue}>{staffList.length}</Text>
-            <Text style={s.statLabel}>Total Staff</Text>
+            <View style={s.statIcon}><AppIcon name="users" size={14} color={colors.blue} strokeWidth={2} /></View>
+            <View style={s.statBody}>
+              <Text style={s.statValue}>{staffList.length}</Text>
+              <Text style={s.statLabel} numberOfLines={1}>Total Staff</Text>
+            </View>
           </View>
           <View style={s.statCard}>
-            <View style={s.statIcon}><AppIcon name="check" size={17} color={colors.blue} strokeWidth={2} /></View>
-            <Text style={s.statValue}>{activeCount}</Text>
-            <Text style={s.statLabel}>Active Now</Text>
+            <View style={s.statIcon}><AppIcon name="check" size={14} color={colors.blue} strokeWidth={2} /></View>
+            <View style={s.statBody}>
+              <Text style={s.statValue}>{activeCount}</Text>
+              <Text style={s.statLabel} numberOfLines={1}>Active Now</Text>
+            </View>
           </View>
         </View>
 
@@ -206,7 +234,7 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
           <View style={s.empty}><ActivityIndicator color={colors.blue} /></View>
         ) : (
           <View style={s.cards}>
-            {visible.map((member) => (
+            {pageRows.map((member) => (
               <StaffCard
                 key={member.rawId}
                 member={member}
@@ -220,9 +248,32 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
             {visible.length === 0 && (
               <View style={s.empty}><Text style={s.emptyText}>No staff match your search.</Text></View>
             )}
+            {visible.length > 0 && (
+              <View style={s.pagination}>
+                <Text style={s.pageInfo}>Showing {first + 1} to {Math.min(first + PAGE_SIZE, visible.length)} of {visible.length} staff</Text>
+                <View style={s.pageBtns}>
+                  <Pressable disabled={safePage === 1} onPress={() => setPage(safePage - 1)} hitSlop={6} style={[s.pageBtn, safePage === 1 && s.pageBtnDisabled]}>
+                    <AppIcon name="chevron-left" size={15} color={colors.blue} strokeWidth={2.6} />
+                  </Pressable>
+                  <Text translate={false} style={s.pageNow}>{safePage} / {totalPages}</Text>
+                  <Pressable disabled={safePage === totalPages} onPress={() => setPage(safePage + 1)} hitSlop={6} style={[s.pageBtn, safePage === totalPages && s.pageBtnDisabled]}>
+                    <AppIcon name="chevron-right" size={15} color={colors.blue} strokeWidth={2.6} />
+                  </Pressable>
+                </View>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
+
+      <RemoveStaffModal
+        visible={!!pendingRemove}
+        member={pendingRemove}
+        removing={removing}
+        error={removeError}
+        onCancel={closeRemove}
+        onConfirm={handleRemove}
+      />
 
       <Modal visible={picker !== null} transparent animationType="fade" onRequestClose={() => setPicker(null)}>
         <Pressable style={s.overlay} onPress={() => setPicker(null)}>
@@ -269,7 +320,6 @@ function FilterChip({ label, value, onPress }) {
 
 function StaffCard({ member, onPress, onMore }) {
   const isActive = member.status === 'Active';
-  const isVerified = member.verification === 'Verified';
   return (
     <Pressable style={s.card} onPress={onPress}>
       <View style={s.cardTop}>
@@ -287,10 +337,6 @@ function StaffCard({ member, onPress, onMore }) {
 
       <View style={s.deptRow}>
         <Text style={s.deptText}>{member.department}</Text>
-        <View style={s.verifyRow}>
-          <AppIcon name={isVerified ? 'check-mark' : 'clock'} size={12} color={isVerified ? '#16A34A' : '#B7791F'} strokeWidth={2.6} />
-          <Text style={[s.verifyText, isVerified ? s.verifyTextOn : s.verifyTextPending]}>{member.verification}</Text>
-        </View>
       </View>
 
       <View style={s.pillRow}>
@@ -308,23 +354,28 @@ const s = createDoctorStyles({
   screen: { flex: 1, backgroundColor: '#F0FDFA' },
   content: { paddingHorizontal: 14, paddingTop: 16, paddingBottom: 18 },
 
-  statsRow: { flexDirection: 'row', gap: 11, marginBottom: 18 },
+  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   statCard: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#D2DAE6',
-    borderRadius: 14,
-    padding: 13,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     shadowColor: '#17243A',
     shadowOpacity: 0.05,
     shadowRadius: 5,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  statIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  statValue: { fontSize: 22, fontWeight: '800', color: '#17243A' },
-  statLabel: { fontSize: 12, fontWeight: '600', color: '#667085', marginTop: 2 },
+  statIcon: { width: 30, height: 30, borderRadius: 9, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
+  statBody: { flex: 1, minWidth: 0 },
+  statValue: { fontSize: 17, lineHeight: 21, fontWeight: '800', color: '#17243A' },
+  statLabel: { fontSize: 11, fontWeight: '600', color: '#667085' },
 
   titleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
   title: { flex: 1, fontSize: 19, lineHeight: 24, fontWeight: '700', color: colors.blue },
@@ -374,10 +425,6 @@ const s = createDoctorStyles({
   sectionLabel: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.4, color: '#98A2B3', textTransform: 'uppercase', marginTop: 13, marginBottom: 7 },
   deptRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   deptText: { fontSize: 14, fontWeight: '600', color: '#26364D' },
-  verifyRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  verifyText: { fontSize: 12, fontWeight: '700' },
-  verifyTextOn: { color: '#16A34A' },
-  verifyTextPending: { color: '#B7791F' },
 
   pillRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 11 },
   rolePill: { backgroundColor: colors.paleBlue, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
@@ -391,6 +438,13 @@ const s = createDoctorStyles({
   statusText: { fontSize: 11.5, fontWeight: '700' },
   statusTextOn: { color: colors.blue },
   statusTextLeave: { color: '#B7791F' },
+
+  pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
+  pageInfo: { flex: 1, fontSize: 12, color: '#667085' },
+  pageBtns: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  pageBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#C8D1E0', alignItems: 'center', justifyContent: 'center' },
+  pageBtnDisabled: { opacity: 0.4 },
+  pageNow: { fontSize: 12.5, fontWeight: '700', color: '#344054' },
 
   empty: { paddingVertical: 40, alignItems: 'center' },
   emptyText: { fontSize: 14, color: '#8E9DB0' },

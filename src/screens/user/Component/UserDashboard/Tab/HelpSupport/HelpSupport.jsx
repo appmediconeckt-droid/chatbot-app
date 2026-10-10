@@ -21,6 +21,7 @@ import {
 } from '../../../../../../config';
 import {
   APP_VERSION,
+  APP_VERSION_LABEL,
   LAST_UPDATED,
   PLAY_STORE_ID,
   PLAY_STORE_URL,
@@ -292,7 +293,7 @@ const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
 
         {/* Version Info */}
         <View style={s.versionBox}>
-          <Text style={s.versionText}>Humaeli Version {APP_VERSION}</Text>
+          <Text style={s.versionText}>{APP_VERSION_LABEL}</Text>
           <Text style={s.versionSub}>Last updated: {LAST_UPDATED}</Text>
           <TouchableOpacity activeOpacity={0.7} onPress={handleCheckForUpdates}>
             <Text style={s.updateLink}>{t('Check for Updates')}</Text>

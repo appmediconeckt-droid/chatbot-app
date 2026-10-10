@@ -206,7 +206,11 @@ export const createStaff = async (form, photo = null) => {
   const record = pickRecord(data) || {};
   const created = normalizeStaff({ ...body, ...record });
   if (photo) await rememberPhoto(created.rawId, serverPhoto(record) || photo);
-  return normalizeStaff({ ...body, ...record });
+  // The server emails the login details to the new staff member. If it says
+  // the email failed, the screen falls back to showing / sharing them.
+  const emailFlag = [data?.emailSent, data?.mailSent, data?.credentialsSent, data?.email_sent, data?.data?.emailSent]
+    .find((value) => value !== undefined && value !== null);
+  return { ...normalizeStaff({ ...body, ...record }), credentialsEmailed: emailFlag === undefined ? null : Boolean(emailFlag) };
 };
 
 // `changes`: { fullName, clinicId, email, phone, department, role, shift,
@@ -226,7 +230,22 @@ export const updateStaff = async (rawId, changes, photo) => {
     isActive: (changes.status || 'Active') === 'Active',
     ...(photo ? { profilePhoto: photo } : {}),
   };
-  const { data } = await axiosInstance.put(`/api/staff/${rawId}`, body);
+  // Same request as the web (PUT /api/staff/:id). If the server answers
+  // "Cannot PUT" (404 — no such route), retry once as PATCH on the same path.
+  let data;
+  try {
+    ({ data } = await axiosInstance.put(`/api/staff/${rawId}`, body));
+  } catch (err) {
+    if (err?.response?.status !== 404) throw err;
+    try {
+      ({ data } = await axiosInstance.patch(`/api/staff/${rawId}`, body));
+    } catch (patchErr) {
+      if (![404, 405].includes(patchErr?.response?.status)) throw patchErr;
+      const missing = new Error('Staff update is not available on the server yet.');
+      missing.response = { status: 404, data: { message: 'Staff update is not available on the server yet (no update route for /api/staff/:id).' } };
+      throw missing;
+    }
+  }
   const record = pickRecord(data) || {};
   if (photo) await rememberPhoto(rawId, serverPhoto(record) || photo);
   return normalizeStaff({ id: rawId, ...body, ...record });

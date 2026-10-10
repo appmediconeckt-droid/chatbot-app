@@ -156,19 +156,23 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
   const loginEmail = form.email.trim();
   const roleTitle = selectedRoleInfo?.title ?? 'Staff';
 
-  const shareCredentials = () => {
+  const credentialMessage = () => {
     const name = `${form.firstName} ${form.lastName}`.trim();
-    Share.share({
-      title: 'Staff login details',
-      message:
-        `Hi ${name}, your ${roleTitle} account is ready.\n\n` +
-        `Login from the app's main Login page:\n` +
-        `Email: ${loginEmail}\n` +
-        `Password: ${credentials?.password}\n` +
-        `Role: ${roleTitle}\n\n` +
-        'Please change your password after your first login.',
-    }).catch(() => {});
+    return (
+      `Hi ${name}, your ${roleTitle} account is ready.\n\n` +
+      `Login from the app's main Login page:\n` +
+      `Email: ${loginEmail}\n` +
+      `Password: ${credentials?.password}\n` +
+      `Role: ${roleTitle}\n\n` +
+      'Please change your password after your first login.'
+    );
   };
+
+  const shareCredentials = () => {
+    Share.share({ title: 'Staff login details', message: credentialMessage() }).catch(() => {});
+  };
+
+
 
   const finishCreate = () => {
     const created = createdStaff;
@@ -435,7 +439,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
               mono
             />
             <Text style={s.credentialHint}>
-              The staff member signs in on the main Login page with this email and password, and opens the {roleTitle} dashboard.
+              An activation email will be sent to {loginEmail || 'the staff email'} with instructions to set a permanent password. They then sign in on the main Login page and open the {roleTitle} dashboard.
             </Text>
           </View>
 
@@ -553,18 +557,44 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
             <View style={s.successIcon}><AppIcon name="check-mark" size={22} color="#16A34A" strokeWidth={3} /></View>
             <Text style={s.successTitle}>Staff Account Created</Text>
             <Text translate={false} style={s.successSub}>
-              {createdStaff?.name} can now log in as {roleTitle}. Share these details with them. The password is shown only now.
+              {createdStaff?.name} can now log in as {roleTitle}.
             </Text>
-            <View style={s.successCredentials}>
-              <CredentialRow label="Login Email" value={loginEmail} />
-              <CredentialRow label="Login Role" value={roleTitle} />
-              <CredentialRow label="Password" value={credentials?.password} mono />
-            </View>
-            <Pressable onPress={shareCredentials} style={s.successPrimaryWrap}>
-              <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.primaryButton}>
-                <Text style={s.primaryButtonText}>Share Login Details</Text>
-              </LinearGradient>
-            </Pressable>
+            {createdStaff?.credentialsEmailed === false ? (
+              <>
+                {/* The server couldn't email them — show and share instead. */}
+                <View style={s.mailWarn}>
+                  <AppIcon name="warning" size={15} color="#B45309" strokeWidth={2.2} />
+                  <Text style={s.mailWarnText}>The login email couldn't be sent. Share these details with them — the password is shown only now.</Text>
+                </View>
+                <View style={s.successCredentials}>
+                  <CredentialRow label="Login Email" value={loginEmail} />
+                  <CredentialRow label="Login Role" value={roleTitle} />
+                  <CredentialRow label="Password" value={credentials?.password} mono />
+                </View>
+                <Pressable onPress={shareCredentials} style={s.successPrimaryWrap}>
+                  <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.primaryButton}>
+                    <AppIcon name="send" size={15} color="#FFFFFF" strokeWidth={2.2} />
+                    <Text style={s.primaryButtonText}>Share Login Details</Text>
+                  </LinearGradient>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                {/* The server emails the login email + password to the staff member. */}
+                <View style={s.mailSent}>
+                  <View style={s.mailSentIcon}>
+                    <AppIcon name="mail" size={18} color="#0F766E" strokeWidth={2.2} />
+                  </View>
+                  <View style={s.mailSentBody}>
+                    <Text style={s.mailSentTitle}>Activation email sent</Text>
+                    <Text translate={false} style={s.mailSentTo} numberOfLines={1}>{loginEmail}</Text>
+                  </View>
+                </View>
+                <Text style={s.mailSentHint}>
+                  It has instructions to set a permanent password. After that they sign in from the main Login page as {roleTitle}.
+                </Text>
+              </>
+            )}
             <Pressable onPress={finishCreate} style={s.successDone}>
               <Text style={s.secondaryButtonText}>Done</Text>
             </Pressable>
@@ -760,6 +790,14 @@ const s = createDoctorStyles({
   reviewValue: { flex: 1, fontSize: 14, fontWeight: '600', color: '#17243A' },
   rolePill: { alignSelf: 'flex-start', backgroundColor: colors.paleBlue, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   rolePillText: { fontSize: 13, fontWeight: '700', color: colors.blue },
+  mailSent: { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14, padding: 12, borderRadius: 14, backgroundColor: '#F0FDFA', borderWidth: 1, borderColor: '#99E4D8' },
+  mailSentIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#CCFBF1', alignItems: 'center', justifyContent: 'center' },
+  mailSentBody: { flex: 1, minWidth: 0 },
+  mailSentTitle: { fontSize: 14.5, fontWeight: '800', color: '#0F766E' },
+  mailSentTo: { fontSize: 13, color: '#334155', marginTop: 2 },
+  mailSentHint: { fontSize: 12.5, lineHeight: 18, color: '#64748B', textAlign: 'center', marginTop: 10 },
+  mailWarn: { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 12, padding: 10, borderRadius: 12, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' },
+  mailWarnText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: '#92400E' },
   credentialRow: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#EDF0F4' },
   credentialMono: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', letterSpacing: 1 },
   credentialHint: { fontSize: 12, lineHeight: 17, color: '#667085', marginTop: 10 },
@@ -787,7 +825,7 @@ const s = createDoctorStyles({
   secondaryButton: { flex: 1, height: 46, borderRadius: 12, borderWidth: 1, borderColor: '#D2DAE6', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
   secondaryButtonText: { fontSize: 15, fontWeight: '700', color: '#3C4759' },
   primaryWrap: { flex: 1, borderRadius: 12, overflow: 'hidden' },
-  primaryButton: { height: 46, alignItems: 'center', justifyContent: 'center' },
+  primaryButton: { height: 46, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center' },
   primaryButtonText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
 
   overlay: { flex: 1, backgroundColor: 'rgba(18,28,45,.35)', justifyContent: 'flex-end' },

@@ -61,7 +61,7 @@ const buildAppointmentPatients = (appointments) => {
       name: pickFirst(appointment.patient_name, patient.name, patient.full_name, patient.fullName, patient.patient_name, 'Unnamed Patient'),
       age: pickFirst(appointment.age, patient.age, 'N/A'),
       gender: pickFirst(appointment.gender, patient.gender),
-      phone: pickFirst(appointment.phone_number, appointment.phone, patient.phone_number, patient.phone, patient.mobile, 'N/A'),
+      phone: pickFirst(appointment.phone_number, appointment.phoneNumber, appointment.phone, appointment.patient_phone, patient.phoneNumber, patient.phone_number, patient.phone, patient.mobile, patient.patient_phone, 'N/A'),
       lastVisit: appointmentDate,
       issue: pickFirst(appointment.symptoms, appointment.health_issue, appointment.problem, appointment.reason, appointment.notes, 'N/A'),
     };

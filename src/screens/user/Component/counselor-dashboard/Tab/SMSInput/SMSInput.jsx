@@ -249,7 +249,7 @@ const ChatAvatar = ({ avatarUrl, avatar, name, size = 40, style }) => {
     return (
       <Image
         source={{ uri: avatarUrl }}
-        style={[{ width: size, height: size, borderRadius: size / 2 }, style]}
+        style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#CFE8FB' }, style]}
         onError={() => setFailed(true)}
       />
     );
@@ -634,6 +634,9 @@ const SMSInput = ({ navigation, route }) => {
         counselorIdValue = await AsyncStorage.getItem("counsellorId") ||
           await AsyncStorage.getItem("counselorId");
       }
+      // Start the chat with the stored id right away — waiting for /auth/me
+      // first put a whole extra round trip in front of loading the messages.
+      if (counselorIdValue) setCounselorId(counselorIdValue);
       try {
         const token = await getAuthToken();
         if (token) {
@@ -749,8 +752,12 @@ const SMSInput = ({ navigation, route }) => {
     }
   }, []);
 
+  // The system picker takes a second or two to appear — show a spinner on
+  // the + button meanwhile so the tap visibly registered.
+  const [pickingAttachment, setPickingAttachment] = useState(false);
   const handlePickAttachment = useCallback(async () => {
-    if (isSending) return;
+    if (isSending || pickingAttachment) return;
+    setPickingAttachment(true);
     try {
       const [picked] = await pick();
       if (!picked?.uri) return;
@@ -762,8 +769,10 @@ const SMSInput = ({ navigation, route }) => {
       });
     } catch (error) {
       if (error?.code !== 'OPERATION_CANCELED') Alert.alert('Attachment', 'Failed to pick file.');
+    } finally {
+      setPickingAttachment(false);
     }
-  }, [isSending]);
+  }, [isSending, pickingAttachment]);
 
   // ─── Message fetching & storage ─────────────────────────────────────────
   const saveMessagesToLocalStorage = async (messagesToSave) => {
@@ -790,11 +799,13 @@ const SMSInput = ({ navigation, route }) => {
       const savedChats = JSON.parse(await AsyncStorage.getItem("smsChats") || "[]");
       const chatIdToLoad = getChatIdForAPI();
       const savedChat = savedChats.find(chat => chat.chatId === chatIdToLoad);
-      if (savedChat && savedChat.messages) {
+      if (savedChat && Array.isArray(savedChat.messages) && savedChat.messages.length) {
         setMessages(savedChat.messages);
         if (savedChat.chatStatus) setChatStatus(savedChat.chatStatus);
+        return true;
       }
     } catch (error) {}
+    return false;
   };
 
   const fetchMessagesFromAPI = async () => {
@@ -1718,6 +1729,12 @@ const SMSInput = ({ navigation, route }) => {
         if (alive && cached) setCallHistory(JSON.parse(cached) || []);
       } catch (_) { /* cache is best-effort */ }
 
+      // Show the last saved copy of this thread straight away (the API over the
+      // dev tunnel can take several seconds); the fetch below then refreshes it.
+      if (await loadMessagesFromLocalStorage()) {
+        if (alive) setTimelineReady(true);
+      }
+
       // In parallel, not one-after-the-other, and the gate opens only when both
       // are done. try/finally so a rejected request opens the gate too - the
       // error branch below the skeleton is what should be shown then, not an
@@ -2267,7 +2284,7 @@ const SMSInput = ({ navigation, route }) => {
                     avatar={userDetails.avatar}
                     name={USER_NAME}
                     size={40}
-                    style={{ borderWidth: 2, borderColor: '#FFFFFF' }}
+                    style={{ borderWidth: 2, borderColor: '#CFE8FB' }}
                   />
                   <View style={[styles.activeDot, { backgroundColor: resolveOnlineStatus(selectedUser) ? "#22C55E" : "#9CA3AF" }]} />
                 </View>
@@ -2306,6 +2323,15 @@ const SMSInput = ({ navigation, route }) => {
               <Ionicons name="alert-circle" size={20} color="#ba1a1a" />
               <Text style={styles.errorText}>{callError}</Text>
               <TouchableOpacity onPress={() => setCallError(null)}><Ionicons name="close" size={20} color="#ba1a1a" /></TouchableOpacity>
+            </View>
+          )}
+
+          {/* "Refresh Messages" (or a background refresh) in progress — the
+              thread is already on screen, so a slim bar instead of the skeleton. */}
+          {timelineReady && isLoadingMessages && (
+            <View style={styles.refreshingBar}>
+              <ActivityIndicator size="small" color="#2563EB" />
+              <Text style={styles.refreshingText}>{t('Refreshing messages…')}</Text>
             </View>
           )}
 
@@ -2587,8 +2613,10 @@ const SMSInput = ({ navigation, route }) => {
                 </View>
               )}
               <View style={styles.inputGroup}>
-                <TouchableOpacity style={styles.attachBtn} onPress={handlePickAttachment} disabled={isSending}>
-                  <Ionicons name="add" size={22} color="#2563EB" />
+                <TouchableOpacity style={styles.attachBtn} onPress={handlePickAttachment} disabled={isSending || pickingAttachment}>
+                  {pickingAttachment
+                    ? <ActivityIndicator size="small" color="#2563EB" />
+                    : <Ionicons name="add" size={22} color="#2563EB" />}
                 </TouchableOpacity>
                 <View style={styles.inputWrapper}>
                   <TextInput
@@ -2861,6 +2889,8 @@ const styles = StyleSheet.create({
   attachmentPreviewText: { flex: 1, color: '#111827', fontSize: 12, fontWeight: '500' },
   inputGroupDisabled: { opacity: 0.7 },
   inputGroup: { width: '100%', flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
+  refreshingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 6, backgroundColor: '#EFF6FF', borderBottomWidth: 1, borderBottomColor: '#DBEAFE' },
+  refreshingText: { fontSize: 12.5, fontWeight: '600', color: '#1D4ED8' },
   attachBtn: { width: 42, height: 42, borderRadius: 21, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E8EFFB' },
   inputWrapper: {
     flex: 1,

@@ -186,9 +186,11 @@ export default function PatientsScreen({ onPatientPress }) {
         <View style={s.stats}>
           {stats.map((item) => (
             <View key={item.label} style={s.stat}>
-              <View style={[s.statIcon, s[`tone_${item.tone}`]]}><AppIcon name={item.icon} size={15} color={TONE_FG[item.tone]} /></View>
-              <Text translate={false} style={s.statValue}>{item.value}</Text>
-              <Text style={s.statLabel}>{item.label}</Text>
+              <View style={[s.statIcon, s[`tone_${item.tone}`]]}><AppIcon name={item.icon} size={14} color={TONE_FG[item.tone]} /></View>
+              <View style={s.statBody}>
+                <Text translate={false} style={s.statValue}>{item.value}</Text>
+                <Text style={s.statLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{item.label}</Text>
+              </View>
             </View>
           ))}
         </View>
@@ -332,15 +334,16 @@ const s = createDoctorStyles({
   headRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title: { fontSize: 19, fontWeight: '800', color: '#17243A' },
   subtitle: { fontSize: 12.5, color: '#667085', marginTop: 2 },
-  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
-  stat: { width: '48.6%', backgroundColor: '#FFF', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#E3EEEC' },
-  statIcon: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  stat: { width: '48.6%', flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: '#FFF', borderRadius: 12, paddingVertical: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: '#E3EEEC' },
+  statIcon: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  statBody: { flex: 1, minWidth: 0 },
   tone_teal: { backgroundColor: '#CCFBF1' },
   tone_blue: { backgroundColor: '#E0F2FE' },
   tone_red: { backgroundColor: '#FEE2E2' },
   tone_slate: { backgroundColor: '#EEF2F6' },
-  statValue: { fontSize: 22, fontWeight: '800', color: '#17243A', marginTop: 8 },
-  statLabel: { fontSize: 12, color: '#667085' },
+  statValue: { fontSize: 17, fontWeight: '800', color: '#17243A', lineHeight: 21 },
+  statLabel: { fontSize: 11, color: '#667085' },
   section: { fontSize: 16, fontWeight: '800', color: '#17243A', marginTop: 18, marginBottom: 10 },
   search: { height: 46, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CDE7E3', borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12 },
   searchInput: { flex: 1, fontSize: 14, color: '#17243A', paddingVertical: 0 },

@@ -93,7 +93,9 @@ const ChatListAvatar = ({ avatarUrl, avatar, name }) => {
 };
 
 const avatarStyles = StyleSheet.create({
-  img: { width: 52, height: 52, borderRadius: 26, resizeMode: 'cover' },
+  // The photo sits inside a soft-blue ring (avatarWrapper): cartoon avatars
+  // with a white background otherwise had no visible circle at all.
+  img: { width: 46, height: 46, borderRadius: 23, resizeMode: 'cover', backgroundColor: '#FFFFFF' },
   fallback: { width: 52, height: 52, borderRadius: 26, justifyContent: 'center', alignItems: 'center' },
   fallbackText: { fontSize: 26 },
 });
@@ -755,6 +757,9 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 26,
     overflow: 'hidden',
+    backgroundColor: '#CFE8FB',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   onlineBadge: {
     position: 'absolute',

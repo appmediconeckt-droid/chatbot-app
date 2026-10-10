@@ -8,7 +8,7 @@ import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
-import { API_BASE_URL } from '../../../../axiosConfig';
+import { API_BASE_URL, TUNNEL_HEADERS } from '../../../../axiosConfig';
 import { launchImageLibrary } from 'react-native-image-picker';
 import LocationPicker from './LocationPicker';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
@@ -89,7 +89,7 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
 
       const result = await fetch(`${API_BASE_URL}/api/auth/update/${userId}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: { ...TUNNEL_HEADERS, Authorization: `Bearer ${accessToken}` },
         body: formData,
       });
       const data = await result.json().catch(() => ({}));

@@ -148,17 +148,30 @@ const LocationGate = ({ navigation, route }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Leave this screen exactly once. The mount check (permission already
+  // granted) and an "Allow" tap could both run captureAndProceed, and a slow
+  // GPS fix made the second one reset the stack to the dashboard much later —
+  // closing whatever the user had opened by then (e.g. a chat).
+  const proceededRef = useRef(false);
+  const proceed = () => {
+    if (proceededRef.current) return;
+    proceededRef.current = true;
+    enterAuthenticatedRoute(navigation, destination, destinationParams);
+  };
+
   const captureAndProceed = async () => {
+    if (proceededRef.current) return;
     setPhase('locating');
     try {
       await captureAndSendLocation('login');
     } catch (err) {
       console.warn('[LocationGate] location capture failed:', err?.message);
     }
-    enterAuthenticatedRoute(navigation, destination, destinationParams);
+    proceed();
   };
 
   const handleAllow = async () => {
+    if (proceededRef.current || phase === 'locating' || phase === 'requesting') return;
     setPhase('requesting');
     const result = await requestLocationPermission();
 
@@ -175,7 +188,7 @@ const LocationGate = ({ navigation, route }) => {
   // User skips — go to dashboard WITHOUT location, but only after at least one attempt.
   // On the very first idle state we don't show skip yet (give 1 persuasion round).
   const handleSkip = () => {
-    enterAuthenticatedRoute(navigation, destination, destinationParams);
+    proceed();
   };
 
   const handleOpenSettings = () => {

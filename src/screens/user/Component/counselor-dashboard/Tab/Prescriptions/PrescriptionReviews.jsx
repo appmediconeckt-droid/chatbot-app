@@ -709,6 +709,10 @@ export default function PrescriptionReviews({ onClose } = {}) {
               const practitioner = getPractitioner(item);
               const canReview = Boolean(item.hasPatientPhoto);
               const isVerified = item.verificationStatus === 'verified';
+              const isRejected = item.verificationStatus === 'rejected';
+              // An approved (or already rejected) prescription can't be rejected
+              // again by a stray tap.
+              const rejectLocked = !canReview || isVerified || isRejected;
               return (
                 <View key={id} style={s.rvCard}>
                   <View style={s.rvCardTop}>
@@ -768,12 +772,12 @@ export default function PrescriptionReviews({ onClose } = {}) {
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      disabled={!canReview || workingId === id}
-                      style={[s.rvAction, s.rvActionReject, !canReview && s.disabled]}
+                      disabled={rejectLocked || workingId === id}
+                      style={[s.rvAction, s.rvActionReject, rejectLocked && s.disabled]}
                       onPress={() => setRejecting(item)}
                     >
                       <Ionicons name="close-circle-outline" size={16} color="#B91C1C" />
-                      <Text style={[s.rvActionText, { color: '#B91C1C' }]}>Reject</Text>
+                      <Text style={[s.rvActionText, { color: '#B91C1C' }]}>{isRejected ? 'Rejected' : 'Reject'}</Text>
                     </TouchableOpacity>
                   </View>
                   {!canReview && (

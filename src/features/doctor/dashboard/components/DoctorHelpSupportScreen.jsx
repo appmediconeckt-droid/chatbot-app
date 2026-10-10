@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { SUPPORT_EMAIL, SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_TEL } from '../../../../config';
-import { APP_VERSION, APP_VERSION_CODE, PLAY_STORE_ID, PLAY_STORE_URL } from '../../../../constants/appInfo';
+import { APP_VERSION, APP_VERSION_CODE, APP_VERSION_LABEL, PLAY_STORE_ID, PLAY_STORE_URL } from '../../../../constants/appInfo';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -18,15 +18,15 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 const FAQS = [
   {
     q: 'When can I start a consultation?',
-    a: 'Start Consultation is available for the next patient in the Pending queue at any time, unless another consultation is running or you are on a break. Video and voice calls open 15 minutes before the slot and stay available until 90 minutes after it.',
+    a: 'Start Consultation is available for the next patient in the Pending queue at any time, unless another consultation is running or you are on a break. If a patient has not arrived, tap Next in the consent form: they move to the Next tab and the following patient comes up — you can start them from the Next tab later. Video and voice calls open 15 minutes before the slot and stay available until 90 minutes after it.',
   },
   {
     q: 'What does the coloured badge on a queue card mean?',
-    a: 'It shows how the patient is being seen: In-clinic Visit, Walk-in Visit, Video Consultation or Voice Consultation. The tabs above the queue show whether it is Pending, In Progress or Completed.',
+    a: 'It shows how the patient is being seen: In-clinic Visit, Walk-in Visit, Video Consultation or Voice Consultation. The tabs above the queue show whether it is Pending, In Progress, Next (moved aside) or Completed.',
   },
   {
     q: 'How is Today\'s Appointment Queue ordered?',
-    a: 'By token number, lowest first. The first Pending card, and the Next Patient card, is always the next token to call. Appointments without a token come after the tokened ones, in time order.',
+    a: 'Emergencies come first. Everyone else is in order of their slot time, and by token number when the time is the same. The first Pending card, and the Next Patient card, is always the next patient to call.',
   },
   {
     q: 'An appointment\'s time has passed — where did it go?',
@@ -192,7 +192,7 @@ export default function DoctorHelpSupportScreen({ onBack, onOpenNotifications, o
           </Pressable>
         </View>
 
-        <Text style={s.footer}>Humaeli Doctor · Version {APP_VERSION}</Text>
+        <Text style={s.footer}>{APP_VERSION_LABEL}</Text>
       </ScrollView>
     </View>
   );

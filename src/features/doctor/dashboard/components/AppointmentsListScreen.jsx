@@ -7,7 +7,7 @@
 // GET /api/walkin-appointments for this doctor, merged. Delete goes to the
 // matching table (getAppointmentApiPath).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Image, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
@@ -15,7 +15,6 @@ import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles, doctorGradient, gradientDirection, shadow } from '../theme';
 import axiosInstance from '../../../../axiosConfig';
-import toImageUri from '../../../../utils/imageUri';
 import {
   formatAppointment,
   formatLocalDateKey,
@@ -79,18 +78,21 @@ const mapAppointment = (raw) => {
   const appt = formatAppointment(raw);
   const patient = raw?.patient && typeof raw.patient === 'object' ? raw.patient : {};
   const mode = appt.consultationMode;
-  const gender = String(appt.gender || '');
+  // QR / walk-in bookings put the real patient in the notes
+  // ("Patient: Name | Phone: … | Gender: male") — the account that booked can
+  // be someone else's, so prefer those details.
+  const notes = String(raw?.notes || '');
+  const notesName = (/Patient:\s*([^|.\r\n]+)/i.exec(notes)?.[1] || '').trim();
+  const notesGender = (/Gender:\s*([A-Za-z]+)/i.exec(notes)?.[1] || '').trim();
+  const gender = String(notesGender || appt.gender || '');
+  const name = notesName || appt.name;
   return {
     key: appt.id,
     id: appt.apiId,
     rawId: String(pickFirst(raw?._id, raw?.id, '') || ''),
     apiPath: getAppointmentApiPath(appt),
     doctorId: pickFirst(raw?.doctor_id, raw?.doctorId, raw?.doctor?.id, raw?.doctor?._id),
-    name: appt.name,
-    photo: toImageUri(pickFirst(
-      patient?.profilePhoto?.url, patient?.profilePhoto, patient?.photo,
-      raw?.patient_photo, raw?.patientPhoto,
-    )),
+    name,
     age: pickFirst(raw?.age, raw?.patient_age, raw?.patientAge, patient?.age),
     gender: /not specified/i.test(gender) ? '' : gender,
     token: appt.tokenNumber != null ? String(appt.tokenNumber) : '',
@@ -406,13 +408,11 @@ function AppointmentListCard({ item, serial, highlighted, onLayout, onDelete }) 
             {item.isEmergency ? 'SOS' : item.token ? `#${item.token}` : '—'}
           </Text>
         </View>
-        {item.photo ? (
-          <Image source={{ uri: item.photo }} style={s.avatarImg} />
-        ) : (
-          <View style={s.avatar}>
-            <Text translate={false} style={s.avatarText}>{getInitials(item.name)}</Text>
-          </View>
-        )}
+        {/* Patients only have cartoon avatars (never a real photo), which often
+            don't match their gender — show initials in a gender colour instead. */}
+        <View style={[s.avatar, /^f/i.test(item.gender) ? s.avatarFemale : /^m/i.test(item.gender) ? s.avatarMale : null]}>
+          <Text translate={false} style={s.avatarText}>{getInitials(item.name)}</Text>
+        </View>
         <View style={s.grow}>
           <Text translate={false} style={[s.name, muted && s.nameMuted]} numberOfLines={1}>{item.name}</Text>
           {!!info && <Text translate={false} style={s.metaLine} numberOfLines={1}>{info}</Text>}
@@ -497,9 +497,10 @@ const s = createDoctorStyles({
   tokenCol: { width: 34, alignItems: 'center' },
   serial: { fontSize: 10.5, color: '#94A3B8', fontWeight: '600' },
   tokenText: { fontSize: 14, fontWeight: '800', color: colors.navy },
-  avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.blue, alignItems: 'center', justifyContent: 'center' },
-  avatarImg: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#F1F5F9' },
-  avatarText: { fontSize: 14, fontWeight: '800', color: '#FFFFFF' },
+  avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.blue, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 12, fontWeight: '800', color: '#FFFFFF' },
+  avatarMale: { backgroundColor: '#3B82F6' },
+  avatarFemale: { backgroundColor: '#EC4899' },
   name: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
   nameMuted: { color: '#475569' },
   metaLine: { fontSize: 12, color: '#64748B', marginTop: 2 },

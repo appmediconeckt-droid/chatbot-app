@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { DOCTOR } from '../../../../../../theme/palette';
+import { APP_VERSION_LABEL } from '../../../../../../constants/appInfo';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import {
   SUPPORT_EMAIL,
@@ -156,7 +157,7 @@ const CounselorPrivacyPolicy = ({
   onClose,
   palette = DOCTOR,
   safeAreaEdges = ['top', 'bottom'],
-  footerLabel = 'Humaeli Consultant App v2.4.1',
+  footerLabel = APP_VERSION_LABEL,
   emailSubject = 'Privacy question - Humaeli Consultant',
   content = COUNSELOR_CONTENT,
 }) => {

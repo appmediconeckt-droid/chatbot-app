@@ -23,6 +23,27 @@ const readFirst = (source, paths) => {
   return "";
 };
 
+// Avatars picked without a background (or with white) rendered as a bare
+// cartoon on a white card, while others carry DiceBear's soft-blue circle.
+// Give every DiceBear avatar that same circle and full-size figure so they
+// all look alike.
+const DICEBEAR_BG = "b6e3f4";
+const withDicebearBackground = (url) => {
+  const bg = /[?&]backgroundColor(?:%5B%5D|\[\])?=([^&]*)/i.exec(url);
+  const value = bg ? decodeURIComponent(bg[1]).toLowerCase() : "";
+  let next = url;
+  if (!value || value === "ffffff" || value === "transparent") {
+    next = next.replace(/([?&])backgroundColor(?:%5B%5D|\[\])?=[^&]*&?/gi, "$1").replace(/[?&]$/, "");
+    next += `${next.includes("?") ? "&" : "?"}backgroundColor=${DICEBEAR_BG}`;
+  }
+  if (!/[?&]radius=/i.test(next)) next += "&radius=50";
+  // Some pickers saved scale=85 (+ translate) — the figure then stopped short
+  // of the circle's bottom edge instead of filling it like the others.
+  const [base, query = ""] = next.split("?");
+  const kept = query.split("&").filter((part) => part && !/^(scale|translateX|translateY)=/i.test(part));
+  return kept.length ? `${base}?${kept.join("&")}` : base;
+};
+
 const normalizeAvatarUrl = (value, allowAnyHttpUrl = false) => {
   const raw =
     typeof value === "string"
@@ -55,9 +76,11 @@ const normalizeAvatarUrl = (value, allowAnyHttpUrl = false) => {
 
   const normalizedUrl = parsed.toString();
   if (parsed.hostname === "api.dicebear.com") {
-    return normalizedUrl
-      .replace(/\/svg(?=\?)/i, "/png")
-      .replace(/\/svg\//i, "/png/");
+    return withDicebearBackground(
+      normalizedUrl
+        .replace(/\/svg(?=\?)/i, "/png")
+        .replace(/\/svg\//i, "/png/"),
+    );
   }
 
   return normalizedUrl;

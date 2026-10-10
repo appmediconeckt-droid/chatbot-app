@@ -29,7 +29,7 @@ const STATUSES = [
 
 const toTimeValue = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 const displayDate = (key) =>
-  key ? new Date(`${key}T00:00:00`).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '';
+  key ? new Date(`${key}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '';
 const displayTime = (hhmm) => {
   if (!hhmm) return '';
   const [h, m] = hhmm.split(':').map(Number);

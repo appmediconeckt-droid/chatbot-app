@@ -14,7 +14,7 @@ import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN } from '../../../../theme/palette';
-import { APP_VERSION } from '../../../../constants/appInfo';
+import { APP_VERSION_LABEL } from '../../../../constants/appInfo';
 import { DOCTOR_PRIVACY_CONTENT } from '../doctorPrivacyContent';
 import { useDoctorBack } from '../useDoctorBack';
 import DoctorChangePasswordScreen from './DoctorChangePasswordScreen';
@@ -78,7 +78,7 @@ export default function DoctorPrivacySecurityScreen({ onBack, navigation, onLogo
         palette={CLINICIAN}
         // The dashboard already wraps this screen in a SafeAreaView.
         safeAreaEdges={[]}
-        footerLabel={`Humaeli Doctor · Version ${APP_VERSION}`}
+        footerLabel={APP_VERSION_LABEL}
         emailSubject="Privacy question - Humaeli Doctor"
         content={DOCTOR_PRIVACY_CONTENT}
       />
