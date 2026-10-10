@@ -73,16 +73,23 @@ const mergeAppointmentLists = (...lists) => {
   return [...records.values(), ...withoutId];
 };
 
+// Same four requests as the web feed (appointmentFeed.js): the server now
+// marks unattended appointments cancelled / no-show itself, and those rows
+// come back through the appointment_status=cancelled list.
 export const loadDoctorAppointmentFeed = async (doctorId) => {
   const params = { doctor_id: doctorId };
-  const [online, walkins, completed] = await Promise.all([
+  const [online, walkins, completed, cancelled] = await Promise.all([
     axiosInstance.get('/api/appointments', { params }),
     axiosInstance.get('/api/walkin-appointments', { params }),
     axiosInstance.get('/api/appointments', { params: { ...params, appointment_status: 'completed' } }),
+    // Optional: an older server without this filter must not break the queue.
+    axiosInstance.get('/api/appointments', { params: { ...params, appointment_status: 'cancelled' } })
+      .catch(() => ({ data: [] })),
   ]);
   return mergeAppointmentLists(
     normalizeApiList(online.data),
     normalizeApiList(completed.data),
+    normalizeApiList(cancelled.data),
     normalizeApiList(walkins.data).map((item) => ({ ...item, __appointmentSource: 'walkin' })),
   );
 };
@@ -315,6 +322,13 @@ export const isEmergencyAppointment = (a) => {
     || raw?.is_emergency === true || raw?.isEmergency === true || Number(raw?.is_emergency) === 1;
 };
 
+// Booked for today by its own date — unlike isTodayAppointment, an open
+// emergency from another day doesn't count (used for the Cancelled list).
+export const isScheduledToday = (a) => {
+  const value = getAppointmentDateValue(a?.__raw || a);
+  return Boolean(value) && formatLocalDateKey(value) === formatLocalDateKey();
+};
+
 export const isTodayAppointment = (a) => {
   // An open emergency belongs in today's queue whatever day it was sent.
   if (isEmergencyAppointment(a)) return true;
@@ -335,19 +349,79 @@ export const isCompletedToday = (a) => {
   return Boolean(value) && formatLocalDateKey(value) === today;
 };
 
+const statusKey = (value) => String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+
+// Web getAppointmentCancellationState (appointmentFeed.js). A persisted
+// cancellation wins over stale queue metadata; a completed lifecycle wins
+// over an old cancelled queue flag; a running consultation is never a no-show.
+export const getAppointmentCancellationState = (a = {}) => {
+  const raw = a?.__raw || a;
+  const status = statusKey(getAppointmentSource(raw) === 'walkin'
+    ? pickFirst(raw.appointment_status, raw.status, raw.walkin_status)
+    : pickFirst(raw.status, raw.appointment_status, raw.walkin_status));
+  const queueStatus = statusKey(pickFirst(raw.queue_status, raw.queueStatus));
+  if (['canceled', 'cancelled'].includes(status)) return { cancelled: true, noShow: false, completed: false };
+  if (['completed', 'complete', 'done'].includes(status)) return { cancelled: false, noShow: false, completed: true };
+  if (['canceled', 'cancelled'].includes(queueStatus)) return { cancelled: true, noShow: false, completed: false };
+  if (['in_progress', 'in_consultation', 'consulting', 'serving'].includes(status)
+    || ['completed', 'in_progress', 'in_consultation'].includes(queueStatus)) {
+    return { cancelled: false, noShow: false, completed: false };
+  }
+  return { cancelled: false, completed: false, noShow: status === 'no_show' || queueStatus === 'no_show' || Boolean(a?.isNoShow) };
+};
+
+// Web normalizeAppointmentStatus: the cancellation / completion history first,
+// then queue_status (Next = 'skipped', backend no-show job = 'no_show'), then
+// the appointment / walk-in status. A no-show is shown under Cancelled.
 export const normalizeAppointmentStatus = (a, forcedStatus) => {
-  const raw = pickFirst(forcedStatus, a?.appointment_status, a?.walkin_status, a?.queue_status, a?.status);
-  const status = String(raw || 'pending').toLowerCase().trim().replace(/\s+/g, '-');
+  if (!forcedStatus) {
+    const history = getAppointmentCancellationState(a);
+    if (history.cancelled) return 'cancelled';
+    if (history.completed) return 'completed';
+    const queue = statusKey(pickFirst(a?.queue_status, a?.queueStatus));
+    if (['in_progress', 'in_consultation'].includes(queue)) return 'in-progress';
+    if (queue === 'no_show') return 'cancelled';
+    if (queue === 'skipped') return 'skipped';
+    if (queue === 'completed') return 'completed';
+    if (queue === 'cancelled' || queue === 'canceled') return 'cancelled';
+  }
+  const status = statusKey(pickFirst(forcedStatus, a?.appointment_status, a?.walkin_status, a?.status) || 'pending');
   if (status === 'completed' || status === 'complete') return 'completed';
   if (status === 'cancelled' || status === 'canceled') return 'cancelled';
-  // The backend's no-show job sets queue_status 'no_show' when an unstarted
-  // appointment expires — it is off the queue, like a cancellation.
-  if (status === 'no_show' || status === 'no-show') return 'cancelled';
-  if (status === 'confirmed' || status === 'accepted' || status === 'active') return 'confirmed';
-  if (['in-progress', 'in_progress', 'in-consultation', 'in_consultation'].includes(status)) return 'in-progress';
-  // Moved to "Next" from the consent form (queue_status 'skipped').
+  if (status === 'no_show') return 'cancelled';
   if (status === 'skipped') return 'skipped';
+  if (status === 'confirmed' || status === 'accepted' || status === 'active') return 'confirmed';
+  if (['in_progress', 'in_consultation'].includes(status)) return 'in-progress';
   return 'pending';
+};
+
+// Web isAppointmentStartTimeReached: walk-ins and emergencies can start at
+// once; a booked appointment from its slot time on.
+const clockMinutes = (value) => {
+  const m = String(value || '').trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
+  if (!m) return null;
+  let hours = Number(m[1]);
+  const minutes = Number(m[2]);
+  const meridiem = m[3]?.toUpperCase();
+  if (minutes > 59 || hours > (meridiem ? 12 : 23) || (meridiem && hours < 1)) return null;
+  if (meridiem === 'PM' && hours !== 12) hours += 12;
+  if (meridiem === 'AM' && hours === 12) hours = 0;
+  return hours * 60 + minutes;
+};
+
+export const isAppointmentStartTimeReached = (appt, nowMs = Date.now()) => {
+  const raw = appt?.__raw || appt || {};
+  if (getAppointmentSource(raw) === 'walkin') return true;
+  if (isEmergencyAppointment(raw)) return true;
+  const dateKey = String(pickFirst(raw.appointment_date, raw.appointmentDate, raw.date, raw.scheduled_date, raw.scheduledDate) || '').slice(0, 10);
+  const minutes = clockMinutes(pickFirst(
+    raw.appointment_time, raw.appointmentTime, raw.slot_start_time, raw.slotStartTime,
+    raw.slot_time, raw.slotTime, raw.bookedSlotTime, raw.time,
+  ));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || minutes == null) return false;
+  const day = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(day.getTime())) return false;
+  return day.getTime() + minutes * 60000 <= nowMs;
 };
 
 // Web "Next" in the consent form: online appointments keep their status and

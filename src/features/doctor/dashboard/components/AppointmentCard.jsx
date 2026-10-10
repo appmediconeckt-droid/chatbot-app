@@ -40,12 +40,14 @@ export default function AppointmentCard({
   item,
   isActive,
   highlight,
-  primary, // first pending row → "Start Consultation"
+  showStart, // web shouldShowStartConsultation → "Start Consultation", else "View"
+  canStart, // web canStartConsultation (slot time / queue turn / Next)
   sessionBusy, // another consultation running
   onBreak,
   onStartConsultation,
   onContinue,
   onView,
+  onPrescription, // completed rows: open the consultation prescription
   onCall,
 }) {
   const remoteMode = getRemoteConsultationMode(item);
@@ -72,12 +74,13 @@ export default function AppointmentCard({
   } else if (!remoteMode && isActive) {
     action = { label: 'Continue', ghost: false, onPress: () => onContinue?.(item), disabled: onBreak };
   } else if (!remoteMode) {
-    // Web parity: Start is only blocked by a running consultation or a break.
+    // Web parity: "Start Consultation" for the first two in line or once the
+    // slot time is reached; disabled until the queue turn / slot time.
     action = {
-      label: primary ? 'Start Consultation' : 'View',
-      ghost: !primary,
+      label: showStart ? 'Start Consultation' : 'View',
+      ghost: !showStart,
       onPress: () => onStartConsultation?.(item),
-      disabled: sessionBusy || onBreak,
+      disabled: sessionBusy || onBreak || (showStart && !canStart),
     };
   }
 
@@ -161,6 +164,17 @@ export default function AppointmentCard({
             >
               <AppIcon name={remoteMode === 'video' ? 'video' : 'phone'} size={13} strokeWidth={2} color={colors.navy} />
               <Text style={[styles.buttonText, styles.secondaryButtonText]}>{callLabel}</Text>
+            </Pressable>
+          )}
+          {/* Web parity: a completed row offers View and Prescription. */}
+          {isCompleted && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => onPrescription?.(item)}
+              style={({ pressed }) => [styles.button, styles.secondaryButton, pressed && styles.buttonPressed]}
+            >
+              <AppIcon name="file" size={13} strokeWidth={2.2} color={colors.navy} />
+              <Text style={[styles.buttonText, styles.secondaryButtonText]}>Prescription</Text>
             </Pressable>
           )}
           {action && (

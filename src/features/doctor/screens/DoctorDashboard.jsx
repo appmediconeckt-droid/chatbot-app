@@ -11,7 +11,6 @@ import TextInput from '../../../components/TranslatedTextInput';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import { CLINICIAN_GRADIENT } from '../../../theme/palette';
-import { nowMinutesIndia, sessionRangesForDay, slotMinutesOfAppointment, upcomingDays } from '../../../utils/doctorSlots';
 
 import DoctorHeader from '../dashboard/components/layout/DoctorHeader';
 import DoctorBottomNavigation from '../dashboard/navigation/DoctorBottomNavigation';
@@ -42,6 +41,7 @@ import DoctorSettingsScreen from '../dashboard/components/DoctorSettingsScreen';
 import OverviewCard from '../dashboard/components/OverviewCard';
 import QueueTabs from '../dashboard/components/QueueTabs';
 import LogoutConfirmModal from '../dashboard/components/LogoutConfirmModal';
+import ConsultationPrescriptionModal from '../dashboard/components/ConsultationPrescriptionModal';
 import {
   endBreak,
   fetchActiveBreak,
@@ -50,11 +50,13 @@ import {
   getAppointmentSource,
   getDoctorIdFromUser,
   getSkipPayload,
-  isEmergencyAppointment,
   getStatusUpdatePayload,
   getStoredDoctorUser,
   getTokenLabel,
+  getAppointmentCancellationState,
+  isAppointmentStartTimeReached,
   isCompletedToday,
+  isScheduledToday,
   isTodayAppointment,
   loadDoctorAppointmentFeed,
   loadDoctorFollowUps,
@@ -100,7 +102,7 @@ const removeMinutesSuffix = (value) => (value ?? '').replace(' min', '');
 // ------------------------------------------------------------------
 // A real Modal (bottom sheet) so it sits above the header and the bottom bar —
 // the centre QR button used to cover its Start / Cancel buttons.
-function PatientConsentModal({ visible, onClose, onStartConsultation, onNext, nextDisabled = true, patient, starting }) {
+function PatientConsentModal({ visible, onClose, onStartConsultation, onNext, nextDisabled = true, startBlockedText = '', patient, starting }) {
   const insets = useSafeAreaInsets();
   const [agreements, setAgreements] = useState({ reviewed: true, tracking: true, responsibility: true, confidentiality: true });
   const toggleAgreement = (key) => setAgreements((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -108,7 +110,7 @@ function PatientConsentModal({ visible, onClose, onStartConsultation, onNext, ne
   const name = patient?.name ?? '';
   const initials = String(name).split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || 'P';
   const gender = patient?.gender && !/not specified/i.test(patient.gender) ? patient.gender : '';
-  const canStart = allChecked && !starting;
+  const canStart = allChecked && !starting && !startBlockedText;
   return (
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
       <View style={consentStyles.backdrop}>
@@ -174,6 +176,12 @@ function PatientConsentModal({ visible, onClose, onStartConsultation, onNext, ne
             </View>
           </ScrollView>
 
+          {!!startBlockedText && (
+            <View style={consentStyles.blockedHint}>
+              <AppIcon name="clock" size={14} color="#B45309" strokeWidth={2.2} />
+              <Text style={consentStyles.blockedHintText}>{startBlockedText}</Text>
+            </View>
+          )}
           <View style={consentStyles.footer}>
             <TouchableOpacity style={consentStyles.cancelButton} onPress={onClose} disabled={starting}>
               <Text style={consentStyles.cancelButtonText}>Cancel</Text>
@@ -261,6 +269,8 @@ const consentStyles = createDoctorStyles({
   checkboxChecked: { backgroundColor: colors.blue, borderColor: colors.blue },
   agreementText: { ...typography.body, fontSize: 13.5, color: '#334155', flex: 1, lineHeight: 19 },
 
+  blockedHint: { flexDirection: 'row', alignItems: 'center', gap: 7, marginHorizontal: 14, marginTop: 8, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: '#FFFBEB' },
+  blockedHintText: { flex: 1, fontSize: 12.5, color: '#92400E', fontWeight: '600' },
   footer: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 12, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: colors.line },
   cancelButton: { flex: 0.9, height: 48, borderRadius: 12, borderWidth: 1, borderColor: '#C9D1DD', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
   nextButton: { flex: 0.9, height: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.blue, backgroundColor: '#F0FDFA', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
@@ -496,6 +506,8 @@ export default function DoctorDashboard({ navigation }) {
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [doctorDisplayName, setDoctorDisplayName] = useState('');
+  // Completed queue row whose prescription is open (web SummaryModal).
+  const [prescriptionAppointment, setPrescriptionAppointment] = useState(null);
   const confirmLogout = useCallback(() => {
     setSidebarVisible(false);
     setLogoutOpen(true);
@@ -532,11 +544,10 @@ export default function DoctorDashboard({ navigation }) {
   //   breakEndMs, breakDurationMs, status: 'started' | 'paused' | 'break' }
   const [activeSession, setActiveSession] = useState(null);
   const [now, setNow] = useState(Date.now());
+  // Today's cancelled / no-show appointments. The server decides these now
+  // (web: "queue membership is determined by server status, never session
+  // time") — the app no longer cancels anyone on its own.
   const [cancelledToday, setCancelledToday] = useState([]);
-  // Today's availability sessions (e.g. 11:00–13:00). A patient can be seen
-  // any time during their session — late, or after "Next" — but once the
-  // session is over, anyone not seen yet moves to Cancelled (no-show).
-  const [todayRanges, setTodayRanges] = useState([]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -587,11 +598,11 @@ export default function DoctorDashboard({ navigation }) {
       );
       setCancelledToday(
         list
-          .filter((apt) => isTodayAppointment(apt) && normalizeAppointmentStatus(apt) === 'cancelled')
+          .filter((apt) => isScheduledToday(apt) && normalizeAppointmentStatus(apt) === 'cancelled')
           .map((apt) => ({
             ...formatAppointment(apt),
             status: 'cancelled',
-            isNoShow: /no[-_]show/i.test(String(pickFirst(apt?.queue_status, apt?.queueStatus, ''))),
+            isNoShow: getAppointmentCancellationState(apt).noShow,
           })),
       );
 
@@ -662,40 +673,6 @@ export default function DoctorDashboard({ navigation }) {
   };
 
   // ---- consultation ---------------------------------------------------
-  useEffect(() => {
-    if (!doctorId) return undefined;
-    let active = true;
-    axiosInstance.get('/api/availability/available', { params: { doctor_id: doctorId }, timeout: 12000 })
-      .then(({ data }) => {
-        if (!active) return;
-        const today = upcomingDays(1)[0];
-        setTodayRanges(sessionRangesForDay({
-          ranges: data?.availableRanges || data?.existingRanges || data?.data || [],
-          unavailableDates: data?.unavailableDates || [],
-          iso: today.iso,
-          weekday: today.weekday,
-        }));
-      })
-      .catch(() => { /* without sessions nothing is auto-cancelled */ });
-    return () => { active = false; };
-  }, [doctorId, refreshing]);
-
-  // True when the appointment's session has ended and it was never started.
-  // Emergencies and running / completed consultations are never cancelled;
-  // appointments outside any known session are left alone.
-  const isSessionOver = (appt) => {
-    if (!appt || !['pending', 'confirmed', 'skipped'].includes(appt.status)) return false;
-    if (isEmergencyAppointment(appt)) return false;
-    const raw = appt.__raw || appt;
-    if (pickFirst(raw?.consultation_started_at, raw?.consultationStartedAt, raw?.consultation_timing?.startedAt)) return false;
-    const minutes = slotMinutesOfAppointment(raw);
-    if (minutes == null || !todayRanges.length) return false;
-    const clinicId = String(pickFirst(raw?.clinic_id?._id, raw?.clinic_id, raw?.clinicId, '') || '');
-    const session = todayRanges.find((r) => minutes >= r.start && minutes < r.end && (!r.clinicId || !clinicId || r.clinicId === clinicId))
-      || todayRanges.find((r) => minutes >= r.start && minutes < r.end);
-    return Boolean(session) && nowMinutesIndia() >= session.end;
-  };
-
   const handleConsentClick = (appt) => {
     setSelectedPatient(appt);
     setConsentModalVisible(true);
@@ -768,9 +745,14 @@ export default function DoctorDashboard({ navigation }) {
 
   const handleStartConsultation = async () => {
     if (!selectedPatient || actionBusy) return;
-    if (isSessionOver(selectedPatient)) {
-      setConsentModalVisible(false);
-      Alert.alert('Session over', `${selectedPatient.name}'s session has ended, so this appointment moved to Cancelled.`);
+    // Web handleStartFromConsent: start in queue order / from the slot time.
+    if (!canStartAppointment(selectedPatient)) {
+      Alert.alert(
+        'Not yet',
+        activeSession?.appt || activeSession?.status === 'break'
+          ? 'Finish the current consultation or break before starting another appointment.'
+          : `Consultation can start at ${selectedPatient.scheduledTime || 'the appointment time'}.`,
+      );
       return;
     }
     setActionBusy(true);
@@ -1012,14 +994,9 @@ export default function DoctorDashboard({ navigation }) {
   const onBreak = activeSession?.status === 'break';
   // Every queue tab uses the web order (emergency → slot time → token), so the
   // first Pending card — and the Next Patient card — is the next one to call.
-  // Patients whose session ended before they were seen → Cancelled (no-show).
-  const liveAppointments = appointments.filter((appt) => !isSessionOver(appt) || appt.id === activeAppt?.id);
-  const cancelledQueue = sortByToken([
-    ...appointments
-      .filter((appt) => appt.id !== activeAppt?.id && isSessionOver(appt))
-      .map((appt) => ({ ...appt, status: 'cancelled', isNoShow: true })),
-    ...cancelledToday,
-  ]);
+  // Queue membership comes from the server status only (web parity).
+  const liveAppointments = appointments;
+  const cancelledQueue = sortByToken(cancelledToday.filter((appt) => appt.id !== activeAppt?.id));
   const pendingAppointments = sortByToken(liveAppointments.filter((appt) => appt.status === 'pending'));
   const inProgressAppointments = [
     // The patient currently being seen stays on top.
@@ -1029,6 +1006,24 @@ export default function DoctorDashboard({ navigation }) {
   const completedQueue = useMemo(() => sortByToken(completed), [completed]);
   // Patients moved aside with "Next" in the consent form.
   const skippedAppointments = sortByToken(liveAppointments.filter((appt) => appt.status === 'skipped'));
+  // Web canStartConsultation / shouldShowStartConsultation: a patient can be
+  // started once their slot time is reached, or when they're first in line
+  // after someone was seen or moved to Next; walk-ins, emergencies and "Next"
+  // patients any time — never during another consultation or a break.
+  const pendingIndexOf = (appt) => pendingAppointments.findIndex((item) => item.id === appt?.id);
+  const isQueueTurnAvailable = (appt) => (completed.length > 0 || skippedAppointments.length > 0) && pendingIndexOf(appt) === 0;
+  const canStartAppointment = (appt) =>
+    Boolean(appt) &&
+    ['pending', 'confirmed', 'skipped'].includes(appt.status) &&
+    !activeAppt &&
+    !onBreak &&
+    (appt.status === 'skipped' || isAppointmentStartTimeReached(appt, now) || isQueueTurnAvailable(appt));
+  const shouldShowStart = (appt) => {
+    if (activeTab === 'Next') return appt?.status === 'skipped';
+    if (activeTab !== 'Pending' || !['pending', 'confirmed'].includes(appt?.status)) return false;
+    const index = pendingIndexOf(appt);
+    return isAppointmentStartTimeReached(appt, now) || (index >= 0 && index < 2);
+  };
   const visibleQueue = activeTab === 'Completed'
     ? completedQueue
     : activeTab === 'In Progress' ? inProgressAppointments
@@ -1373,6 +1368,7 @@ export default function DoctorDashboard({ navigation }) {
             onStartConsultation={handleConsentClick}
             onContinue={handleChecked}
             onCall={handleCall}
+            startLocked={Boolean(nextPatient) && !activeAppt && !canStartAppointment(nextPatient)}
           />
 
           {activeSession?.appt && (
@@ -1400,12 +1396,14 @@ export default function DoctorDashboard({ navigation }) {
                 item={item}
                 isActive={activeAppt?.id === item.id}
                 highlight={index === 0}
-                primary={index === 0 && activeTab === 'Pending'}
+                showStart={shouldShowStart(item)}
+                canStart={canStartAppointment(item)}
                 sessionBusy={Boolean(activeSession?.appt)}
                 onBreak={onBreak}
                 onStartConsultation={handleConsentClick}
                 onContinue={handleChecked}
                 onView={(appt) => setEditingAppointment(appt)}
+                onPrescription={(appt) => setPrescriptionAppointment(appt)}
                 onCall={handleCall}
               />
             ))
@@ -1426,6 +1424,13 @@ export default function DoctorDashboard({ navigation }) {
           onStartConsultation={handleStartConsultation}
           onNext={handleNextPatient}
           nextDisabled={!selectedPatient || Boolean(activeSession?.appt) || activeSession?.status === 'break' || selectedPatient?.status === 'skipped'}
+          startBlockedText={
+            selectedPatient && !canStartAppointment(selectedPatient)
+              ? activeSession?.appt || activeSession?.status === 'break'
+                ? 'Finish the current consultation before starting another.'
+                : `Consultation can start at ${selectedPatient.scheduledTime || 'the appointment time'}.`
+              : ''
+          }
           patient={selectedPatient}
           starting={actionBusy}
         />
@@ -1483,6 +1488,12 @@ export default function DoctorDashboard({ navigation }) {
   return (
     <DoctorBackContext.Provider value={backRegistry}>
       {renderScreen()}
+      <ConsultationPrescriptionModal
+        visible={Boolean(prescriptionAppointment)}
+        appointment={prescriptionAppointment}
+        doctorName={doctorDisplayName}
+        onClose={() => setPrescriptionAppointment(null)}
+      />
       <LogoutConfirmModal
         visible={logoutOpen}
         doctorName={doctorDisplayName}
