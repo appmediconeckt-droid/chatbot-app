@@ -14,8 +14,7 @@ import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
-import { deleteDoctorClinic, loadDoctorClinics } from '../api/doctorClinics';
-import DeleteClinicModal from './DeleteClinicModal';
+import { loadDoctorClinics } from '../api/doctorClinics';
 
 // Express error pages come back as HTML strings, not JSON — read either.
 const getApiErrorText = (err, fallback) => {
@@ -43,10 +42,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
   const [photos, setPhotos] = useState([]);
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
-  const [deletingClinicId, setDeletingClinicId] = useState('');
-  // Clinic waiting for confirmation in the delete popup, and its error.
-  const [pendingDelete, setPendingDelete] = useState(null);
-  const [deleteError, setDeleteError] = useState('');
+  const [clinicsOpen, setClinicsOpen] = useState(false);
 
   useEffect(() => {
     getStoredDoctorUser().then((user) => {
@@ -81,41 +77,6 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
     setPhone('');
     setAddress('');
     setPhotos([]);
-  };
-
-  const getClinicDeleteId = (clinic) => pickFirst(
-    clinic?.deleteId,
-    clinic?.raw?._id,
-    clinic?.raw?.clinic_id,
-    clinic?.raw?.clinicId,
-    clinic?.raw?.id,
-    clinic?.raw?.hospital_id,
-    clinic?.raw?.hospitalId,
-    '',
-  );
-
-  const performDeleteClinic = async (clinic) => {
-    const clinicId = getClinicDeleteId(clinic);
-    if (!clinicId || deletingClinicId) return;
-    try {
-      setDeletingClinicId(String(clinicId));
-      setMessage('');
-      setDeleteError('');
-      await deleteDoctorClinic(clinicId);
-      setClinics((rows) => rows.filter((item) => String(getClinicDeleteId(item)) !== String(clinicId)));
-      showToast('Clinic deleted');
-      setPendingDelete(null);
-    } catch (err) {
-      // Shown inside the popup so the doctor sees why it wasn't deleted.
-      setDeleteError(getApiErrorText(err, 'Clinic could not be deleted. Please try again.'));
-    } finally {
-      setDeletingClinicId('');
-    }
-  };
-
-  const handleDeleteClinic = (clinic) => {
-    setDeleteError('');
-    setPendingDelete(clinic);
   };
 
   const handleSave = async () => {
@@ -197,15 +158,6 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
 
   return (
     <View style={s.screen}>
-      <DeleteClinicModal
-        visible={Boolean(pendingDelete)}
-        clinicName={pendingDelete?.name}
-        clinicAddress={pendingDelete?.location}
-        deleting={Boolean(deletingClinicId)}
-        error={deleteError}
-        onCancel={() => setPendingDelete(null)}
-        onConfirm={() => pendingDelete && performDeleteClinic(pendingDelete)}
-      />
       <View style={s.header}>
         <Pressable onPress={onBack} style={s.backButton} hitSlop={8}>
           <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
@@ -216,50 +168,53 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
         </View>
       </View>
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <Section icon="briefcase" label="Your Clinics">
-          {loadingClinics ? (
-            <ActivityIndicator color="#0D9488" />
-          ) : clinics.length === 0 ? (
-            <Text style={s.hint}>No clinics added yet.</Text>
-          ) : (
-            clinics.map((clinic, index) => {
-              const clinicId = getClinicDeleteId(clinic);
-              const isDeleting = deletingClinicId === String(clinicId);
-              return (
-              <View key={clinic.id} style={[s.clinicItem, index === clinics.length - 1 && s.clinicRowLast]}>
-                <View style={s.clinicRow}>
-                <View style={s.logoThumb}><AppIcon name="briefcase" size={18} color="#0D9488" strokeWidth={1.8} /></View>
-                <View style={s.flex}>
-                  <Text translate={false} style={s.clinicName}>{clinic.name}</Text>
-                  <Text translate={false} style={s.hint}>{clinic.location}{clinic.phone ? ` • ${clinic.phone}` : ''}</Text>
-                  {!clinicId && <Text style={s.deleteHint}>No clinic id found. Pull down to refresh.</Text>}
-                </View>
-                </View>
-                <Pressable
-                  onPress={() => handleDeleteClinic(clinic)}
-                  disabled={!clinicId || isDeleting}
-                  style={({ pressed }) => [
-                    s.deleteClinicBtn,
-                    !clinicId && s.deleteClinicBtnDisabled,
-                    pressed && clinicId && s.deleteClinicBtnPressed,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Delete ${clinic.name}`}
-                >
-                  {isDeleting ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <AppIcon name="trash" size={16} color={clinicId ? '#FFFFFF' : '#9CA3AF'} strokeWidth={2} />
-                  )}
-                  <Text style={[s.deleteClinicText, !clinicId && s.deleteClinicTextDisabled]}>
-                    {isDeleting ? 'Deleting...' : 'Delete Clinic / Hospital'}
-                  </Text>
-                </Pressable>
-              </View>
-              );
-            })
+        {/* Saved clinics as a dropdown: collapsed it's one line with the
+            count, so the Add Clinic form below is what the screen leads with. */}
+        <View style={s.section}>
+          <Pressable
+            onPress={() => setClinicsOpen((open) => !open)}
+            style={({ pressed }) => [s.dropdownHead, clinicsOpen && s.dropdownHeadOpen, pressed && s.dropdownPressed]}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: clinicsOpen }}
+          >
+            <View style={s.dropdownIcon}><AppIcon name="briefcase" size={16} color="#0D9488" strokeWidth={1.9} /></View>
+            <View style={s.flex}>
+              <Text style={s.dropdownTitle}>Your Clinics</Text>
+              <Text translate={false} style={s.dropdownSub} numberOfLines={1}>
+                {loadingClinics ? 'Loading…' : clinics.length ? clinics.map((c) => c.name).join(', ') : 'No clinics added yet'}
+              </Text>
+            </View>
+            {!loadingClinics && clinics.length > 0 && (
+              <View style={s.countPill}><Text style={s.countPillText}>{clinics.length}</Text></View>
+            )}
+            <View style={clinicsOpen && s.chevronUp}>
+              <AppIcon name="chevron-down" size={16} color="#475467" strokeWidth={2.4} />
+            </View>
+          </Pressable>
+          {clinicsOpen && (
+            <View style={s.dropdownBody}>
+              {loadingClinics ? (
+                <ActivityIndicator color="#0D9488" />
+              ) : clinics.length === 0 ? (
+                <Text style={s.hint}>No clinics added yet.</Text>
+              ) : (
+                // Deleting a clinic is done from Clinic Profile (the trash icon on
+                // the clinic photo) only — this list just shows what's saved.
+                clinics.map((clinic, index) => (
+                  <View key={clinic.id} style={[s.clinicItem, index === clinics.length - 1 && s.clinicRowLast]}>
+                    <View style={s.clinicRow}>
+                    <View style={s.logoThumb}><AppIcon name="briefcase" size={18} color="#0D9488" strokeWidth={1.8} /></View>
+                    <View style={s.flex}>
+                      <Text translate={false} style={s.clinicName}>{clinic.name}</Text>
+                      <Text translate={false} style={s.hint}>{clinic.location}{clinic.phone ? ` • ${clinic.phone}` : ''}</Text>
+                    </View>
+                    </View>
+                  </View>
+                ))
+              )}
+            </View>
           )}
-        </Section>
+        </View>
 
         <Section icon="plus" label="Add Clinic">
           <Field label="Clinic Name" value={clinicName} onChangeText={setClinicName} placeholder="Enter clinic name" />
@@ -343,18 +298,22 @@ const s = createDoctorStyles({
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10, marginLeft: 2 },
   sectionLabel: { fontSize: 14, fontWeight: '700', color: '#17243A' },
   card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 14, padding: 14, shadowColor: '#17243A', shadowOpacity: 0.05, shadowRadius: 6, elevation: 1 },
+  dropdownHead: { flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#C8D1DF', borderRadius: 14, paddingHorizontal: 13, paddingVertical: 11, shadowColor: '#17243A', shadowOpacity: 0.05, shadowRadius: 6, elevation: 1 },
+  dropdownHeadOpen: { borderColor: '#5EC9BC', borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
+  dropdownPressed: { backgroundColor: '#F6FBFA' },
+  dropdownIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: '#E6F7F5', alignItems: 'center', justifyContent: 'center' },
+  dropdownTitle: { fontSize: 14.5, fontWeight: '800', color: '#17243A' },
+  dropdownSub: { fontSize: 12, color: '#667085', marginTop: 1 },
+  countPill: { minWidth: 24, height: 24, borderRadius: 12, paddingHorizontal: 7, backgroundColor: '#CCFBF1', alignItems: 'center', justifyContent: 'center' },
+  countPillText: { fontSize: 12, fontWeight: '800', color: '#0F766E' },
+  chevronUp: { transform: [{ rotate: '180deg' }] },
+  dropdownBody: { backgroundColor: '#FFF', borderWidth: 1, borderTopWidth: 0, borderColor: '#5EC9BC', borderBottomLeftRadius: 14, borderBottomRightRadius: 14, paddingHorizontal: 14, paddingVertical: 4 },
   clinicItem: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EEF1F5' },
   clinicRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   clinicRowLast: { borderBottomWidth: 0 },
   clinicName: { fontSize: 15, fontWeight: '800', color: '#17243A' },
   hint: { fontSize: 12.5, color: '#667085' },
   logoThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#F0FDFA', alignItems: 'center', justifyContent: 'center' },
-  deleteHint: { fontSize: 11.5, color: '#B45309', marginTop: 3 },
-  deleteClinicBtn: { minHeight: 42, borderRadius: 11, backgroundColor: '#DC2626', marginTop: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  deleteClinicBtnPressed: { backgroundColor: '#B91C1C' },
-  deleteClinicBtnDisabled: { backgroundColor: '#F3F4F6' },
-  deleteClinicText: { fontSize: 12.5, fontWeight: '800', color: '#FFFFFF' },
-  deleteClinicTextDisabled: { color: '#9CA3AF' },
   field: { marginBottom: 14 },
   fieldLabel: { fontSize: 12.5, fontWeight: '700', color: '#344054', marginBottom: 6 },
   fieldInputWrap: { flexDirection: 'row', alignItems: 'center', minHeight: 44, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, paddingHorizontal: 12, gap: 8 },
