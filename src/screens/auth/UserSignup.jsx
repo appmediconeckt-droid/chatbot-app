@@ -1352,7 +1352,7 @@ const UserSignup = ({ navigation, route }) => {
 
   const scrollContainerStyle = {
     ...styles.scrollContent,
-    justifyContent: isLogin ? 'center' : 'flex-start',
+    justifyContent: 'flex-start',
     paddingHorizontal: isCompact ? 12 : 16,
     paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 62 : 76),
     paddingBottom: (isLogin ? (isCompact ? 44 : 60) : (isCompact ? 14 : 20)) + keyboardInset,
@@ -1361,7 +1361,7 @@ const UserSignup = ({ navigation, route }) => {
     styles.panel,
     {
       maxWidth: isTablet ? 480 : 440,
-      height: undefined,
+      height: isLogin ? undefined : signupPanelHeight,
       paddingHorizontal: isCompact ? 16 : 22,
       paddingVertical: signupPanelPaddingY,
       borderRadius: isCompact ? 28 : 40,
@@ -1377,9 +1377,13 @@ const UserSignup = ({ navigation, route }) => {
   ];
   const formScrollStyle = [
     styles.formScroll,
+    !isLogin && styles.signupFormScroll,
+    !isLogin && { height: signupFormHeight },
   ];
   const formContentStyle = [
     styles.formPanel,
+    !isLogin && styles.signupFormPanel,
+    !isLogin && { paddingBottom: (isCompact ? 18 : 24) + keyboardInset },
   ];
 
   return (
@@ -1394,15 +1398,15 @@ const UserSignup = ({ navigation, route }) => {
             </TouchableOpacity>
 
             <ScrollView
-              ref={scrollRef}
+              ref={isLogin ? scrollRef : null}
               contentContainerStyle={scrollContainerStyle}
               showsVerticalScrollIndicator={false}
-              onLayout={handleKeyboardAwareScrollLayout}
-              onScroll={handleKeyboardAwareScroll}
+              onLayout={isLogin ? handleKeyboardAwareScrollLayout : undefined}
+              onScroll={isLogin ? handleKeyboardAwareScroll : undefined}
               scrollEventThrottle={16}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              scrollEnabled
+              scrollEnabled={isLogin}
               pointerEvents={isAnyModalVisible ? 'none' : 'auto'}
             >
               <Animated.View style={[panelStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -1413,11 +1417,16 @@ const UserSignup = ({ navigation, route }) => {
                 </View>
 
                 <ScrollView
+                  ref={!isLogin ? scrollRef : null}
                   style={formScrollStyle}
                   contentContainerStyle={formContentStyle}
-                  showsVerticalScrollIndicator={false}
+                  showsVerticalScrollIndicator={!isLogin}
+                  onLayout={!isLogin ? handleKeyboardAwareScrollLayout : undefined}
+                  onScroll={!isLogin ? handleKeyboardAwareScroll : undefined}
+                  scrollEventThrottle={16}
                   keyboardShouldPersistTaps="handled"
-                  scrollEnabled={false}
+                  nestedScrollEnabled
+                  scrollEnabled={!isLogin}
                 >
                   {!isLogin && (
                     <>{renderInput(0, 'fullName', 'account-outline', 'Full Name')}{renderInput(1, 'anonymous', 'incognito-circle', 'Anonymous Name')}</>

@@ -16,6 +16,12 @@ let workingPathIndex = null; // index into PATHS once a URL answered
 let unsupported = false; // true once every URL returned 404
 let probePromise = null; // shared first probe so parallel cards don't all 404
 
+export const __resetAvailabilitySubscriptionStateForTests = () => {
+  workingPathIndex = null;
+  unsupported = false;
+  probePromise = null;
+};
+
 const unsupportedError = () => Object.assign(
   new Error('Online notifications are not available on this server yet.'),
   { code: 'UNSUPPORTED' },

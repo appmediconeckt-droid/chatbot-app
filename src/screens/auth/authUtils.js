@@ -6,7 +6,7 @@ import { API_BASE_URL, TUNNEL_HEADERS } from "../../axiosConfig";
 // take longer than Axios' old 30s limit. Keep auth requests below the UI-level
 // loading state, but do not abort a valid OTP send while the backend is still
 // waiting for SMTP.
-const PUBLIC_AUTH_TIMEOUT_MS = 120000;
+export const PUBLIC_AUTH_TIMEOUT_MS = 120000;
 
 export const setUserEmail = async (email) => {
   await AsyncStorage.setItem("userEmail", email);
@@ -78,6 +78,13 @@ export const getApiErrorMessage = (error, fallback) => {
   if (error?.code === 'ECONNABORTED') return 'The server took too long to respond. Please try again.';
   if (!error?.response) {
     const detail = error?.userMessage || error?.message;
+    const lowLevelNetworkError =
+      /network error/i.test(detail || '') ||
+      /could not open .*connection/i.test(detail || '') ||
+      /failed to connect/i.test(detail || '');
+    if (lowLevelNetworkError) {
+      return 'Could not reach the server. Check your internet connection and try again.';
+    }
     return detail
       ? `Could not reach the server. ${detail}`
       : 'Could not reach the server. Check your internet connection and try again.';

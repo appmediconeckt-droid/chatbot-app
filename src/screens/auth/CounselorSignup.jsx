@@ -715,7 +715,7 @@ const CounselorSignup = ({ navigation, route }) => {
 
   const scrollContainerStyle = {
     ...styles.scrollContent,
-    justifyContent: isLogin ? 'center' : 'flex-start',
+    justifyContent: 'flex-start',
     paddingHorizontal: isCompact ? 12 : 16,
     paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 62 : 76),
     paddingBottom: (isLogin ? (isCompact ? 44 : 60) : (isCompact ? 14 : 20)) + keyboardInset,
@@ -735,7 +735,7 @@ const CounselorSignup = ({ navigation, route }) => {
     styles.panel,
     {
       maxWidth: isTablet ? 480 : 440,
-      height: undefined,
+      height: isLogin ? undefined : signupPanelHeight,
       paddingHorizontal: isCompact ? 16 : 22,
       paddingVertical: signupPanelPaddingY,
       borderRadius: isCompact ? 28 : 40,
@@ -743,9 +743,13 @@ const CounselorSignup = ({ navigation, route }) => {
   ];
   const formScrollStyle = [
     styles.formScroll,
+    !isLogin && styles.signupFormScroll,
+    !isLogin && { height: signupFormHeight },
   ];
   const formContentStyle = [
     styles.formPanel,
+    !isLogin && styles.signupFormPanel,
+    !isLogin && { paddingBottom: (isCompact ? 18 : 24) + keyboardInset },
   ];
 
   return (
@@ -757,15 +761,15 @@ const CounselorSignup = ({ navigation, route }) => {
           <View style={styles.flex}>
             <TouchableOpacity style={styles.backBtn} onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.replace('RoleSelector'))}><Icon name="chevron-left" size={28} color="#0F172A" /></TouchableOpacity>
             <ScrollView
-              ref={scrollRef}
+              ref={isLogin ? scrollRef : null}
               contentContainerStyle={scrollContainerStyle}
               showsVerticalScrollIndicator={false}
-              onLayout={handleKeyboardAwareScrollLayout}
-              onScroll={handleKeyboardAwareScroll}
+              onLayout={isLogin ? handleKeyboardAwareScrollLayout : undefined}
+              onScroll={isLogin ? handleKeyboardAwareScroll : undefined}
               scrollEventThrottle={16}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              scrollEnabled
+              scrollEnabled={isLogin}
             >
               <Animated.View style={[panelStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                 <View style={styles.header}>
@@ -786,11 +790,16 @@ const CounselorSignup = ({ navigation, route }) => {
                   </Animated.View>
                 )} */}
                 <ScrollView
+                  ref={!isLogin ? scrollRef : null}
                   style={formScrollStyle}
                   contentContainerStyle={formContentStyle}
-                  showsVerticalScrollIndicator={false}
+                  showsVerticalScrollIndicator={!isLogin}
+                  onLayout={!isLogin ? handleKeyboardAwareScrollLayout : undefined}
+                  onScroll={!isLogin ? handleKeyboardAwareScroll : undefined}
+                  scrollEventThrottle={16}
                   keyboardShouldPersistTaps="handled"
-                  scrollEnabled={false}
+                  nestedScrollEnabled
+                  scrollEnabled={!isLogin}
                 >
                   {!isLogin ? (
                     <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderPhoneInput(3)}{renderDateOfBirthInput(4)}{renderInput(5, 'age', 'calendar-account-outline', 'Age', { editable: false, placeholder: 'Age will be calculated' })}
