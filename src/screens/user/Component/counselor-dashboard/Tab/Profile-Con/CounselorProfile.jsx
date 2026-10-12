@@ -28,6 +28,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import safeVibrate from '../../../../../../utils/safeVibrate';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
+import { getCounselorRating } from '../../../../../../services/ratingService';
 import { isPsychiatristSpecialization } from '../../../../../../components/common/PsychiatristDirectory';
 import CountryPhoneInput from '../../../../../../components/common/CountryPhoneInput';
 import { useToast } from '../../../../../../components/common/ToastProvider';
@@ -529,6 +530,15 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
           getAuthResponseCounsellorId(response?.data) ||
           counsellorId;
 
+        // Real aggregate rating. The profile payload itself does not include it,
+        // so this used to render a dummy 0.0; pull the actual average + count.
+        let ratingInfo = { averageRating: 0, totalRatings: 0 };
+        try {
+          if (resolvedId) ratingInfo = await getCounselorRating(resolvedId);
+        } catch (e) {
+          // non-critical - keep zeros (shown as "New")
+        }
+
         const profilePhotoUrl = resolveAssetUrl(
           userData.profilePhoto ||
             userData.profilePhotoUrl ||
@@ -577,7 +587,8 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
           prescriptionSealUrl,
           certifications: Array.isArray(userData.certifications) ? userData.certifications : [],
           aboutMe: userData.aboutMe || userData.bio || '',
-          rating: userData.rating || 0,
+          rating: Number(ratingInfo?.averageRating) || 0,
+          totalRatings: Number(ratingInfo?.totalRatings) || 0,
           totalSessions: userData.totalSessions || 0,
           activeClients: userData.activeClients || 0,
           qualification: userData.qualification || '',
@@ -1498,7 +1509,9 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
           {/* Stats strip */}
           <View style={styles.heroStats}>
             <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatNum}>{counselor.rating?.toFixed(1) || '0.0'}</Text>
+              <Text style={styles.heroStatNum}>
+                {counselor.totalRatings > 0 ? Number(counselor.rating).toFixed(1) : t('counselor:newRating', 'New')}
+              </Text>
               <Text style={styles.heroStatLabel}>{t('profile:rating')}</Text>
             </View>
             <View style={styles.heroStatDivider} />

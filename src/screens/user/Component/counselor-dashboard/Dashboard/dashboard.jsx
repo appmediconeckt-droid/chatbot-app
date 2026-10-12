@@ -27,6 +27,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios, { API_BASE_URL } from "../../../../../axiosConfig";
 import { getAuthToken, getCounsellorId } from "../../../../auth/authUtils";
 import socketService from "../../../../../services/socketService";
+import { getCounselorRating } from "../../../../../services/ratingService";
 import { launchImageLibrary } from 'react-native-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
@@ -2045,6 +2046,16 @@ export default function CounselorDashboard() {
         // non-critical - keep 0
       }
 
+      // Real aggregate rating. /api/auth/me does not carry it, which is why this
+      // used to fall back to a dummy 4.5; pull the actual average + count from
+      // the ratings service instead.
+      let ratingInfo = { averageRating: 0, totalRatings: 0 };
+      try {
+        ratingInfo = await getCounselorRating(storedCounsellorId);
+      } catch (e) {
+        // non-critical - keep zeros (shown as "New")
+      }
+
       setCounselorData({
         name: data.fullName || data.name,
         specialization: Array.isArray(data.specialization)
@@ -2052,7 +2063,8 @@ export default function CounselorDashboard() {
           : data.specialization,
         experience: parseInt(data.experience) || null,
         patients: acceptedChatsCount,
-        rating: data.rating || 4.5,
+        rating: Number(ratingInfo?.averageRating) || 0,
+        totalRatings: Number(ratingInfo?.totalRatings) || 0,
         email: data.email,
         phoneNumber: data.phoneNumber,
         dateOfBirth: data.dateOfBirth,
@@ -2778,7 +2790,9 @@ export default function CounselorDashboard() {
                   <View style={styles.ratingBadge}>
                     <Icon name="star" size={11} color="#FBBF24" />
                     <Text style={styles.ratingText}>
-                      {counselorData?.rating || "4.5"}
+                      {counselorData?.totalRatings > 0
+                        ? Number(counselorData.rating).toFixed(1)
+                        : t('counselor:newRating', 'New')}
                     </Text>
                   </View>
                   {counselorData?.experience ? (
@@ -2959,7 +2973,9 @@ export default function CounselorDashboard() {
                     <View style={styles.ratingBadge}>
                       <Icon name="star" size={11} color="#FBBF24" />
                       <Text style={styles.ratingText}>
-                        {counselorData?.rating || "4.5"}
+                        {counselorData?.totalRatings > 0
+                        ? Number(counselorData.rating).toFixed(1)
+                        : t('counselor:newRating', 'New')}
                       </Text>
                     </View>
                     {counselorData?.experience ? (

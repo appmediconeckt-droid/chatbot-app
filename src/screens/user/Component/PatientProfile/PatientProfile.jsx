@@ -1218,9 +1218,15 @@ const PatientProfile = ({ onProfileUpdate }) => {
       transparent={true}
       onRequestClose={handleCancelEdit}
     >
-      <View style={styles.modalOverlay}>
+      <KeyboardAvoidingView
+        style={styles.modalOverlay}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        {/* maxHeight (not a fixed height) + a shrinkable ScrollView let the
+            sheet give room to the keyboard: the scroll area shrinks while the
+            header and the Save footer stay pinned and visible. */}
         <View style={[styles.modalContainer, {
-          height: viewportHeight * 0.9,
+          maxHeight: viewportHeight * 0.9,
           paddingBottom: Math.max(insets.bottom, 12),
         }]}>
           <View style={styles.modalHeader}>
@@ -1230,7 +1236,12 @@ const PatientProfile = ({ onProfileUpdate }) => {
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.modalScroll}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.modalScrollContent}
+          >
             <View style={styles.modalBody}>
               {/* Avatar */}
               <View style={styles.formSection}>
@@ -1592,7 +1603,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
           </View>
         </View>
         {renderNotification()}
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 
@@ -2425,6 +2436,14 @@ const styles = StyleSheet.create({
   },
   modalBody: {
     padding: 24,
+  },
+  // flexShrink lets the scroll area give up height to the keyboard so the
+  // header and Save footer stay on screen instead of being pushed under it.
+  modalScroll: {
+    flexShrink: 1,
+  },
+  modalScrollContent: {
+    paddingBottom: 8,
   },
   modalFooter: {
     flexDirection: "row",

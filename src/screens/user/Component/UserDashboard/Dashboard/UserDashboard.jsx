@@ -1141,6 +1141,18 @@ const counselorDisplayName = (apt) => {
   return /^(dr\.?|doctor)\s/i.test(name) ? name : `Dr. ${name}`;
 };
 
+// Experience can arrive as a bare number (4) or a string ("4 years"). Always
+// render it with the unit (TranslatedText localizes the word), and return '' —
+// not a fake fallback — when it's missing.
+const formatExperience = (value) => {
+  if (value == null || value === '') return '';
+  const str = String(value).trim();
+  if (/year|yr|साल|वर्ष/i.test(str)) return str; // already carries a unit
+  const n = parseFloat(str);
+  if (!Number.isFinite(n)) return str;
+  return `${n} ${n === 1 ? 'year' : 'years'}`;
+};
+
 const sheetStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.4)', justifyContent: 'flex-end' },
   backdrop: { flex: 1 },
@@ -1560,14 +1572,27 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     {apt?.counselor?.specialization || t('Mental Wellness Specialist')}
                   </Text>
                   <View style={styles.aptMetaRow}>
-                    <Ionicons name="briefcase-outline" size={12} color={PATIENT.textSecondary} />
-                    <Text style={styles.aptMetaText}>
-                      {apt?.counselor?.experience || '4 years'}
-                    </Text>
-                    <Ionicons name="star" size={12} color="#F5A623" style={{ marginLeft: 10 }} />
-                    <Text style={styles.aptMetaText}>
-                      {(Number(apt?.counselor?.rating) || 4.9).toFixed(1)}
-                    </Text>
+                    {!!formatExperience(apt?.counselor?.experience) && (
+                      <>
+                        <Ionicons name="briefcase-outline" size={12} color={PATIENT.textSecondary} />
+                        <Text style={styles.aptMetaText}>
+                          {formatExperience(apt?.counselor?.experience)}
+                        </Text>
+                      </>
+                    )}
+                    {Number(apt?.counselor?.rating) > 0 ? (
+                      <>
+                        <Ionicons name="star" size={12} color="#F5A623" style={{ marginLeft: 10 }} />
+                        <Text style={styles.aptMetaText}>
+                          {Number(apt.counselor.rating).toFixed(1)}
+                        </Text>
+                      </>
+                    ) : (
+                      <View style={styles.newRatingBadge}>
+                        <Ionicons name="sparkles-outline" size={10} color="#2563EB" />
+                        <Text style={styles.newRatingText}>{t('counselor:newRating', 'New')}</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
                 <View style={[styles.aptStatusPill, getStatusStyle(apt.status)]}>
@@ -1709,14 +1734,27 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     {selectedApt?.counselor?.specialization || "Mental Wellness Specialist"}
                   </Text>
                   <View style={sheetStyles.docMetaRow}>
-                    <Ionicons name="briefcase-outline" size={12} color={PATIENT.textSecondary} />
-                    <Text style={sheetStyles.docMetaText}>
-                      {selectedApt?.counselor?.experience || "4 years"}
-                    </Text>
-                    <Ionicons name="star" size={12} color="#F5A623" style={{ marginLeft: 10 }} />
-                    <Text style={sheetStyles.docMetaText}>
-                      {(Number(selectedApt?.counselor?.rating) || 4.9).toFixed(1)}
-                    </Text>
+                    {!!formatExperience(selectedApt?.counselor?.experience) && (
+                      <>
+                        <Ionicons name="briefcase-outline" size={12} color={PATIENT.textSecondary} />
+                        <Text style={sheetStyles.docMetaText}>
+                          {formatExperience(selectedApt?.counselor?.experience)}
+                        </Text>
+                      </>
+                    )}
+                    {Number(selectedApt?.counselor?.rating) > 0 ? (
+                      <>
+                        <Ionicons name="star" size={12} color="#F5A623" style={{ marginLeft: 10 }} />
+                        <Text style={sheetStyles.docMetaText}>
+                          {Number(selectedApt.counselor.rating).toFixed(1)}
+                        </Text>
+                      </>
+                    ) : (
+                      <View style={styles.newRatingBadge}>
+                        <Ionicons name="sparkles-outline" size={10} color="#2563EB" />
+                        <Text style={styles.newRatingText}>{t('counselor:newRating', 'New')}</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
                 <View style={sheetStyles.confirmPill}>
@@ -4556,6 +4594,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: PATIENT.textSecondary,
     fontWeight: "500",
+  },
+  // Small "New" pill shown instead of a score for not-yet-rated consultants.
+  newRatingBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    marginLeft: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+  },
+  newRatingText: {
+    fontSize: 10.5,
+    color: "#2563EB",
+    fontWeight: "700",
   },
   aptStatusPill: {
     flexDirection: "row",

@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -49,6 +50,40 @@ const GoogleProfileCompletionModal = ({
   const [focusedField, setFocusedField] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [keyboardInset, setKeyboardInset] = useState(0);
+  const scrollRef = useRef(null);
+  const scrollHeightRef = useRef(0);
+
+  const scrollCardIntoView = () => {
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+  };
+
+  // Android: the modal is edge-to-edge (translucent bars), so the window does not
+  // resize for the keyboard. Add the covered area as scroll space below the card
+  // and scroll so the inputs and Save button sit above the keyboard.
+  useEffect(() => {
+    if (!visible || Platform.OS !== 'android') return undefined;
+
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+      const keyboardTop = e?.endCoordinates?.screenY;
+      const scrollHeight = scrollHeightRef.current;
+      const inset =
+        scrollHeight && keyboardTop
+          ? Math.max(0, scrollHeight - keyboardTop)
+          : e?.endCoordinates?.height || 0;
+      setKeyboardInset(inset);
+      scrollCardIntoView();
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardInset(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+      setKeyboardInset(0);
+    };
+  }, [visible]);
 
   useEffect(() => {
     if (!visible) return;
@@ -156,8 +191,18 @@ const GoogleProfileCompletionModal = ({
         style={styles.overlay}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          ref={scrollRef}
+          style={styles.scroll}
+          contentContainerStyle={[
+            styles.scrollContent,
+            keyboardInset > 0 && { paddingBottom: 22 + keyboardInset },
+          ]}
+          onLayout={(e) => {
+            scrollHeightRef.current = e.nativeEvent.layout.height;
+          }}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          bounces={false}
         >
           <View style={styles.card}>
             <View style={[styles.iconWrap, { backgroundColor: `${accentColor}14` }]}>
@@ -213,7 +258,10 @@ const GoogleProfileCompletionModal = ({
                   setError('');
                 }}
                 focused={focusedField === 'phone'}
-                onFocus={() => setFocusedField('phone')}
+                onFocus={() => {
+                  setFocusedField('phone');
+                  if (keyboardInset > 0) scrollCardIntoView();
+                }}
                 onBlur={() => setFocusedField('')}
                 accentColor={accentColor}
                 containerStyle={styles.phoneInputWrapper}
@@ -250,6 +298,9 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.66)',
+  },
+  scroll: {
+    flex: 1,
   },
   scrollContent: {
     flexGrow: 1,

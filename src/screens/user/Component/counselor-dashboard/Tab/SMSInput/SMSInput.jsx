@@ -1247,19 +1247,52 @@ const SMSInput = ({ navigation, route }) => {
       }
 
       const note = `Prescription created for ${USER_NAME}. Please check the Prescription tab.`;
-      await sendMessageToAPI({ messageContent: note }).catch(() => {});
+      // Post the note as a REAL chat message so it reaches the patient through
+      // the normal chat pipeline (socket + history) and shows as a bubble in
+      // BOTH chatboxes — not only as a push notification. Mirror the normal
+      // send: an optimistic bubble, then swap in the server message (real id) so
+      // it survives reloads and dedups with the socket echo. The old code sent
+      // with `.catch(() => {})`, so a failed send left the patient with only a
+      // push notification and nothing in either chatbox, then showed a popup.
+      const tempId = `temp_rx_${Date.now()}`;
+      shouldAutoScrollRef.current = true;
       setMessages(prev => [...prev, {
-        id: `temp_rx_${Date.now()}`,
+        id: tempId,
         text: note,
         sender: 'me',
         senderRole: 'counsellor',
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         createdAt: new Date().toISOString(),
-        status: 'sent',
+        status: 'sending',
+        isTemporary: true,
       }]);
       resetPrescriptionForm();
       setShowPrescriptionModal(false);
-      Alert.alert('Prescription sent', 'Prescription has been sent to the patient.');
+      try {
+        const sentMsg = await sendMessageToAPI({ messageContent: note });
+        setMessages(prev => {
+          const confirmedId = sentMsg?.id || sentMsg?._id || sentMsg?.messageId;
+          const socketAlreadyAdded = confirmedId && prev.some(m => !m.isTemporary && (m.id === confirmedId || m.messageId === sentMsg?.messageId));
+          if (socketAlreadyAdded) return prev.filter(m => m.id !== tempId);
+          const withoutTemp = prev.filter(m => m.id !== tempId);
+          if (!sentMsg) return withoutTemp;
+          return [...withoutTemp, {
+            id: confirmedId,
+            messageId: sentMsg.messageId,
+            text: sentMsg.content,
+            sender: 'me',
+            senderRole: 'counsellor',
+            time: new Date(sentMsg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            fullTime: sentMsg.createdAt,
+            isRead: sentMsg.isRead,
+            status: 'sent',
+          }];
+        });
+      } catch (noteErr) {
+        // Flag the bubble as failed rather than silently dropping it.
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'error' } : m));
+        console.warn('Failed to post prescription note to chat:', noteErr?.message);
+      }
     } catch (error) {
       Alert.alert(
         'Prescription failed',
