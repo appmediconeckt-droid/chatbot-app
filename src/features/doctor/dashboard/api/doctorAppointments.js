@@ -501,6 +501,7 @@ export const formatAppointment = (a, forcedStatus) => {
     __appointmentSource: appointmentSource,
     id: `${appointmentSource}-${apiId}`,
     apiId,
+    doctorId: pickFirst(a?.doctor_id, a?.doctorId, a?.doctor?.id, a?.doctor?._id),
     appointmentSource,
     appointmentType: appointmentSource === 'walkin' ? 'Walk-in' : 'Online',
     consultationMode: String(pickFirst(a?.consultation_mode, a?.consultationMode, a?.mode, 'in-clinic')).toLowerCase(),
@@ -637,15 +638,88 @@ export const formatClockTime = (date) =>
 // ---- writes ---------------------------------------------------------------
 
 export const getAppointmentApiPath = (appt) =>
-  `/api/${getAppointmentSource(appt) === 'walkin' ? 'walkin-appointments' : 'appointments'}/${appt.apiId || appt.id}`;
+  `/api/${getAppointmentSource(appt) === 'walkin' ? 'walkin-appointments' : 'appointments'}/${encodeURIComponent(String(appt.apiId || appt.id))}`;
 
-// Walk-ins take `status` (lowercase); online appointments take `appointment_status`.
-export const getStatusUpdatePayload = (appt, status, extraFields = {}) =>
-  getAppointmentSource(appt) === 'walkin'
-    ? { ...extraFields, status: status.toLowerCase() }
-    : { ...extraFields, appointment_status: status };
+const normalizeWriteStatus = (status) => String(status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 
-export const patchAppointment = (appt, body) => axiosInstance.patch(getAppointmentApiPath(appt), body);
+const getWalkinWriteStatus = (status) => {
+  const value = normalizeWriteStatus(status);
+  if (value === 'in_progress') return 'in_consultation';
+  if (value === 'complete') return 'completed';
+  if (value === 'canceled') return 'cancelled';
+  return value;
+};
+
+const getWalkinStatusCandidates = (status) => {
+  const value = normalizeWriteStatus(status);
+  if (value === 'in_progress') return ['in_consultation', 'IN_CONSULTATION', 'in-progress', 'in_progress', 'IN_PROGRESS'];
+  if (value === 'completed' || value === 'complete') return ['completed', 'COMPLETED', 'complete', 'COMPLETE'];
+  if (value === 'cancelled' || value === 'canceled') return ['cancelled', 'cancelled', 'CANCELLED', 'canceled', 'CANCELED'];
+  if (value === 'skipped') return ['skipped', 'SKIPPED'];
+  return [getWalkinWriteStatus(status), String(status || '').trim()].filter(Boolean);
+};
+
+// Walk-ins use the walk-in queue lifecycle (`in_consultation`), while online
+// appointments keep the appointment lifecycle used by /api/appointments.
+export const getStatusUpdatePayload = (appt, status, extraFields = {}) => {
+  if (getAppointmentSource(appt) !== 'walkin') {
+    return { ...extraFields, appointment_status: status };
+  }
+  const walkinStatus = getWalkinWriteStatus(status);
+  return {
+    ...extraFields,
+    status: walkinStatus,
+    ...(appt?.doctorId ? { doctor_id: appt.doctorId } : {}),
+  };
+};
+
+const uniquePayloads = (payloads) => {
+  const seen = new Set();
+  return payloads.filter((payload) => {
+    const key = JSON.stringify(payload);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const buildWalkinPatchPayloads = (appt, body = {}) => {
+  const status = pickFirst(body.status, body.appointment_status, body.appointmentStatus, body.walkin_status, body.walkinStatus);
+  if (!status) return [body];
+  const base = { ...body };
+  delete base.status;
+  delete base.appointment_status;
+  delete base.appointmentStatus;
+  delete base.walkin_status;
+  delete base.walkinStatus;
+  const doctorId = pickFirst(base.doctor_id, base.doctorId, appt?.doctorId, appt?.__raw?.doctor_id, appt?.__raw?.doctorId);
+  const withDoctor = doctorId ? { ...base, doctor_id: doctorId } : base;
+  return uniquePayloads(
+    getWalkinStatusCandidates(status).flatMap((candidate) => [
+      { ...withDoctor, status: candidate },
+      { ...withDoctor, appointment_status: candidate },
+      { ...withDoctor, walkin_status: candidate },
+    ]),
+  );
+};
+
+export const patchAppointment = async (appt, body) => {
+  const path = getAppointmentApiPath(appt);
+  if (getAppointmentSource(appt) !== 'walkin') return axiosInstance.patch(path, body);
+
+  const payloads = buildWalkinPatchPayloads(appt, body);
+  let lastError = null;
+  for (const payload of payloads) {
+    try {
+      return await axiosInstance.patch(path, payload);
+    } catch (err) {
+      lastError = err;
+      const statusCode = err?.response?.status;
+      if (statusCode !== 400 && statusCode !== 422) throw err;
+    }
+  }
+  throw lastError;
+};
 
 // Breaks: server returns snake_case { id, started_at, expected_end_at }.
 export const parseServerBreak = (payload) => {
