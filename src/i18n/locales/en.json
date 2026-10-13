@@ -421,6 +421,8 @@
     "netbanking": "NetBanking",
     "walletPayment": "Wallet",
     "premiumHealth": "PREMIUM HEALTH",
+    "humaeliWallet": "Humaeli Wallet",
+    "securedByRazorpay": "Payments secured by Razorpay",
     "confirmAndAdd": "Confirm and Add"
   },
   "appointment": {

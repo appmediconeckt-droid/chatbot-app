@@ -10,6 +10,7 @@
 // Modal itself) so it always sits on top of that sheet on iOS and Android.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, Pressable, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -46,6 +47,9 @@ const labelPosition = (index) => {
 };
 
 export default function TimePickerSheet({ visible, title = 'Select time', value, fallback, onCancel, onConfirm }) {
+  // Sheets here render inside Modals, which draw under the system navigation
+  // bar (edge-to-edge) — pad them by its height so their buttons stay visible.
+  const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState(() => parse(value, fallback));
   const [mode, setMode] = useState('hour'); // 'hour' | 'minute'
   const dialRef = useRef(null);
@@ -108,7 +112,7 @@ export default function TimePickerSheet({ visible, title = 'Select time', value,
   return (
     <View style={s.overlay}>
       <Pressable style={s.backdrop} onPress={onCancel} />
-      <View style={s.sheet}>
+      <View style={[s.sheet, { paddingBottom: 18 + insets.bottom }]}>
         <View style={s.handle} />
         <View style={s.headerRow}>
           <View style={s.titleRow}>

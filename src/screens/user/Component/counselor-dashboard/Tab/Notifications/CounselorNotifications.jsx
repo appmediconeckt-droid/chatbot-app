@@ -11,7 +11,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import Text from '../../../../../../components/TranslatedText';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import axiosInstance from '../../../../../../axiosConfig';
@@ -125,6 +125,9 @@ const normalizeRequest = (r) => ({
 });
 
 const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) => {
+  // Explicit insets: this screen opens inside a Modal, where SafeAreaView can
+  // report 0 on Android and leave content under the status/navigation bars.
+  const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   const [filter, setFilter] = useState('all');
   const [requests, setRequests] = useState([]);
@@ -359,7 +362,7 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) =>
   };
 
   return (
-    <SafeAreaView style={s.root} edges={['top', 'bottom']}>
+    <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" backgroundColor={C.surface} />
 
       <View style={s.header}>
@@ -439,7 +442,7 @@ const CounselorNotifications = ({ onClose, onChanged, onOpenChat, onAction }) =>
           )}
         </ScrollView>
       )}
-    </SafeAreaView>
+    </View>
   );
 };
 

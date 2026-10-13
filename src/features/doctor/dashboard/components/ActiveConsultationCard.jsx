@@ -124,7 +124,9 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
 }
 
 const s = createDoctorStyles({
-  card: { backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1, borderColor: '#E3E8F0', padding: 12, marginBottom: 14, shadowColor: '#17243A', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
+  // marginTop keeps it off the overview cards above it — without it the card sat
+  // flush against them and read as stuck to the section above.
+  card: { backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1, borderColor: '#E3E8F0', padding: 12, marginTop: 22, shadowColor: '#17243A', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   dot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: colors.blue },

@@ -2,7 +2,7 @@
 // Profile, Clinic, Payment, Profile QR, Change Password (POST /auth/changePassword,
 // then sign out), Logout, Help & Support, Privacy, Delete Account (DELETE /auth/delete).
 import React, { useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, View } from 'react-native';
 import { loadPublicProfileLink } from '../api/doctorPublicProfile';
 import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
@@ -76,21 +76,24 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
 
   const confirmDeleteAccount = () => {
     Alert.alert(
-      'Delete Account',
-      'This permanently deletes your account. This cannot be undone. Continue?',
+      'Delete your account?',
+      'Your account and all of its data will be permanently deleted. You will be signed out, and this cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: 'Delete permanently',
           style: 'destructive',
           onPress: async () => {
             try {
               setDeleting(true);
               await axiosInstance.delete('/api/auth/delete');
-              Alert.alert('Account deleted', 'Your account has been deleted.');
+              Alert.alert('Account deleted', 'Your account has been permanently deleted.');
               onForceLogout?.({ skipServerLogout: true });
             } catch (error) {
-              Alert.alert('Error', error?.response?.data?.message || 'Account delete failed');
+              Alert.alert(
+                'Could not delete account',
+                error?.response?.data?.message || 'Something went wrong. Please try again.',
+              );
             } finally {
               setDeleting(false);
             }
@@ -236,13 +239,39 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
         <View style={s.card}>{renderRows(ACCOUNT_ROWS)}</View>
         <Pressable onPress={handleLogout} style={s.logout}>
           <AppIcon name="logout" size={17} color="#DC2626" strokeWidth={2} />
-          <Text style={s.logoutText}>Log Out</Text>
+          <Text style={s.logoutText}>Logout</Text>
         </Pressable>
         <Text style={[s.section, s.sectionSpaced]}>More</Text>
         <View style={s.card}>{renderRows(MORE_ROWS)}</View>
-        <Pressable onPress={confirmDeleteAccount} style={s.deleteBtn} disabled={deleting}>
-          <Text style={s.deleteText}>{deleting ? 'Deleting...' : 'Delete Account'}</Text>
-        </Pressable>
+        <Text style={[s.section, s.sectionSpaced, s.dangerSection]}>Danger Zone</Text>
+        <View style={s.dangerCard}>
+          <View style={s.dangerHeader}>
+            <View style={s.dangerIcon}>
+              <AppIcon name="warning" size={19} color="#DC2626" strokeWidth={2} />
+            </View>
+            <View style={s.rowBody}>
+              <Text style={s.dangerTitle}>Delete Account</Text>
+              <Text style={s.dangerText}>
+                Permanently delete your account and all of its data. This action cannot be undone.
+              </Text>
+            </View>
+          </View>
+          <Pressable
+            onPress={confirmDeleteAccount}
+            disabled={deleting}
+            style={({ pressed }) => [s.deleteBtn, pressed && s.deleteBtnPressed, deleting && s.deleteBtnDisabled]}
+            accessibilityRole="button"
+            accessibilityLabel="Delete account"
+            accessibilityState={{ disabled: deleting, busy: deleting }}
+          >
+            {deleting ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <AppIcon name="trash" size={17} color="#FFF" strokeWidth={2} />
+            )}
+            <Text style={s.deleteText}>{deleting ? 'Deleting account...' : 'Delete Account'}</Text>
+          </Pressable>
+        </View>
       </ScrollView>
     </View>
   );
@@ -288,6 +317,33 @@ const s = createDoctorStyles({
   logoutText: { fontSize: 15, fontWeight: '700', color: '#DC2626' },
   sectionSpaced: { marginTop: 24 },
   infoIntro: { fontSize: 14, lineHeight: 20, color: '#475467', marginBottom: 14 },
-  deleteBtn: { alignItems: 'center', justifyContent: 'center', height: 46, marginTop: 16 },
-  deleteText: { fontSize: 14, fontWeight: '700', color: '#DC2626', textDecorationLine: 'underline' },
+  dangerSection: { color: '#B42318' },
+  dangerCard: {
+    backgroundColor: '#FFF',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 14,
+    padding: 14,
+    shadowColor: '#7F1D1D',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  dangerHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  dangerIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center' },
+  dangerTitle: { fontSize: 15, fontWeight: '700', color: '#17243A' },
+  dangerText: { fontSize: 12.5, lineHeight: 18, color: '#667085', marginTop: 2 },
+  deleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#DC2626',
+    marginTop: 14,
+  },
+  deleteBtnPressed: { backgroundColor: '#B91C1C' },
+  deleteBtnDisabled: { opacity: 0.7 },
+  deleteText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
 });

@@ -22,6 +22,7 @@ class MainApplication : Application(), ReactApplication {
           add(ScreenshotPreventPackage())
           add(PdfFileOpenerPackage())
           add(PrescriptionPrintPackage())
+          add(ReverseGeocoderPackage())
         },
     )
   }

@@ -12,16 +12,18 @@
 // Requests go through plain axios (no login token), exactly like the web page,
 // so a refusal here can never trigger the app's sign-out-on-401 handling.
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../../../../components/TranslatedText';
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import PATIENT from '../../../../../../theme/palette';
-import { API_BASE_URL } from '../../../../../../axiosConfig';
+import api, { API_BASE_URL } from '../../../../../../axiosConfig';
+import { toImageUri } from '../../../../../../utils/imageUri';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 
 const API = `${API_BASE_URL.replace(/\/+$/, '').replace(/\/api$/, '')}/api`;
@@ -29,7 +31,6 @@ const GENDERS = [
   { value: 'male', label: 'Male' },
   { value: 'female', label: 'Female' },
   { value: 'other', label: 'Other' },
-  { value: 'prefer-not-to-say', label: 'Prefer not to say' },
 ];
 
 const pick = (...values) => values.find((v) => v !== undefined && v !== null && String(v).trim() !== '');
@@ -64,6 +65,15 @@ const formatTime = (key) => {
   if (!key) return '';
   const [h, m] = key.split(':').map(Number);
   return `${h % 12 || 12}:${pad(m)} ${h >= 12 ? 'PM' : 'AM'}`;
+};
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const formatDateKey = (key) => {
+  const [y, m, d] = String(key || '').split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return `${WEEKDAYS[date.getUTCDay()]}, ${MONTHS_SHORT[m - 1]} ${d}`;
 };
 
 const SLOT_BOOKED_MESSAGE = 'This slot is already booked. Please choose another time.';
@@ -101,7 +111,7 @@ const buildDaySlots = (ranges, date) => {
     const duration = Number(range.slot_duration);
     if (start === null || end === null || !Number.isInteger(duration) || duration < 1 || end <= start) return;
     for (let minute = start; minute + duration <= end; minute += duration) {
-      if (!slots.has(minute)) slots.set(minute, { minutes: minute, duration });
+      if (!slots.has(minute)) slots.set(minute, { minutes: minute, duration, clinicId: range.clinic_id || null });
     }
   });
   return [...slots.values()]
@@ -115,9 +125,12 @@ const SLOT_GROUPS = [
   { label: 'Evening', icon: 'moon-outline', test: (m) => m >= 1020 },
 ];
 
-const emptyForm = { patientName: '', contactNumber: '', problem: '', dateOfBirth: '', location: '', gender: '', appointmentTime: '', email: '' };
+const emptyForm = { patientName: '', contactNumber: '', problem: '', dateOfBirth: '', location: '', gender: '', appointmentTime: '', email: '', priority: 'normal', emergencyReason: '' };
 
 export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', onClose }) {
+  // Explicit insets: SafeAreaView inside this Modal (its own Android window)
+  // could report 0, leaving the submit button under the navigation bar.
+  const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState({});
@@ -132,6 +145,8 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
   const [slotsError, setSlotsError] = useState('');
   const [slotsReload, setSlotsReload] = useState(0);
   const [bookedTime, setBookedTime] = useState('');
+  const [bookedClinicId, setBookedClinicId] = useState(null);
+  const [clinics, setClinics] = useState([]);
   const visitRecorded = useRef(null);
 
   // Fresh form for every scan, pre-filled from the signed-in patient's profile.
@@ -141,6 +156,7 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
     setApiError('');
     setToken('');
     setBookedTime('');
+    setBookedClinicId(null);
     (async () => {
       let user = {};
       try { user = JSON.parse((await AsyncStorage.getItem('userData')) || '{}') || {}; } catch { user = {}; }
@@ -183,6 +199,20 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
   }, [visible, doctorId, source]);
 
   useEffect(() => { if (!visible) visitRecorded.current = null; }, [visible]);
+
+  // The doctor's clinics, so the confirmation can name the booked slot's clinic.
+  useEffect(() => {
+    if (!visible || !doctorId) return undefined;
+    let active = true;
+    setClinics([]);
+    api.get('/api/clinics', { params: { doctor_id: doctorId } })
+      .then(({ data }) => {
+        if (!active) return;
+        setClinics(Array.isArray(data) ? data : data?.clinics || data?.data || []);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [visible, doctorId]);
 
   // Doctor's availability + every booked slot (walk-in and online), re-read
   // every SLOT_REFRESH_MS while the form is open.
@@ -264,6 +294,10 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
     if (!form.location.trim()) next.location = 'Location or address is required';
     if (!form.gender) next.gender = 'Gender is required';
     if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) next.email = 'Enter a valid email';
+    if (form.priority === 'emergency') {
+      const reason = form.emergencyReason.trim();
+      if (reason.length < 10 || reason.length > 1000) next.emergencyReason = 'Describe the emergency in 10 to 1000 characters';
+    }
     if (!form.appointmentTime) next.appointmentTime = 'Please choose a time slot';
     else if (isTimeBooked(form.appointmentTime)) next.appointmentTime = SLOT_BOOKED_MESSAGE;
     setErrors(next);
@@ -277,6 +311,7 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
       return;
     }
     const age = calculateAge(form.dateOfBirth);
+    const isEmergency = form.priority === 'emergency';
     const payload = {
       patient_name: form.patientName.trim(),
       phone_number: form.contactNumber.trim(),
@@ -292,14 +327,30 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
       email: form.email.trim() || undefined,
       status: 'booked',
       booking_source: source,
+      // Emergency rides on this booking's own token (the slot chosen above);
+      // the doctor's queue puts emergency tokens first.
+      ...(isEmergency ? { priority: 'emergency', is_emergency: true, emergency_reason: form.emergencyReason.trim() } : {}),
     };
     try {
       setSubmitting(true);
       setApiError('');
-      const response = await axios.post(`${API}/walkin-appointments`, payload, { headers: { 'Content-Type': 'application/json' } });
+      const url = `${API}/walkin-appointments`;
+      const options = { headers: { 'Content-Type': 'application/json' } };
+      let response;
+      try {
+        response = await axios.post(url, payload, options);
+      } catch (firstError) {
+        // The walk-in API's own priority field may only take Low / Med / High.
+        // Keep the emergency flag + reason and retry once with High rather
+        // than losing the patient's booking.
+        const firstMessage = String(firstError?.response?.data?.message || firstError?.response?.data?.error || '');
+        if (!isEmergency || firstError?.response?.status !== 400 || !/priority|enum|valid/i.test(firstMessage)) throw firstError;
+        response = await axios.post(url, { ...payload, priority: 'High' }, options);
+      }
       const created = response.data?.data || response.data?.appointment || response.data || {};
       const tokenValue = pick(created.token_number, created.tokenNumber, created.walkin_token, created.queue_token, created.token, created.id, 'Booked');
       setBookedTime(form.appointmentTime);
+      setBookedClinicId(selectedSlot?.clinicId || null);
       Keyboard.dismiss();
       setToken(String(tokenValue));
     } catch (error) {
@@ -329,11 +380,28 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
     ? (Array.isArray(doctor.specialization) ? doctor.specialization.join(', ') : doctor.specialization || '')
     : '';
   const age = calculateAge(form.dateOfBirth);
+  const doctorPhoto = doctor
+    ? toImageUri(pick(doctor.profilePhoto, doctor.profile_photo, doctor.profileImage, doctor.photo, doctor.image, doctor.avatar))
+    : null;
+  const bookedClinic = (bookedClinicId
+    && clinics.find((clinic) => String(pick(clinic._id, clinic.id)) === String(bookedClinicId)))
+    || (clinics.length === 1 ? clinics[0] : null);
+  const clinicSource = bookedClinic
+    || (doctor ? pick(doctor.clinic, Array.isArray(doctor.clinics) ? doctor.clinics[0] : undefined) : undefined);
+  const clinicName = typeof clinicSource === 'string'
+    ? clinicSource
+    : pick(clinicSource?.clinic_name, clinicSource?.name, clinicSource?.clinicName, doctor?.clinic_name, doctor?.clinicName, '') || '';
+  const clinicAddress = clinicSource && typeof clinicSource === 'object'
+    ? pick(typeof clinicSource.location === 'string' ? clinicSource.location : undefined, clinicSource.address, clinicSource.city, '') || ''
+    : '';
+  const isEmergencyForm = form.priority === 'emergency';
+  const tokenLabel = /^\d+$/.test(token) ? `#${token}` : token;
+  const bookedWhen = [formatDateKey(todayIndia()), bookedTime && formatTime(bookedTime)].filter(Boolean).join(' at ');
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <SafeAreaView style={s.screen} edges={['top', 'bottom']}>
+      <View style={[s.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={s.header}>
           <Pressable onPress={onClose} style={s.backBtn} hitSlop={10}>
             <Ionicons name="chevron-back" size={22} color="#0F172A" />
@@ -342,24 +410,69 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
         </View>
 
         {token ? (
-          <View style={s.successWrap}>
-            <View style={s.successIcon}>
-              <Ionicons name="checkmark" size={40} color="#FFFFFF" />
+          <ScrollView contentContainerStyle={s.successWrap} showsVerticalScrollIndicator={false}>
+            <View style={s.successHalo}>
+              <LinearGradient
+                colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={s.successIcon}
+              >
+                <Ionicons name="checkmark" size={30} color="#FFFFFF" />
+              </LinearGradient>
             </View>
             <Text style={s.successTitle}>Appointment Confirmed!</Text>
-            {!!doctorName && <Text style={s.successDoctor} translate={false}>{doctorName}</Text>}
-            <View style={s.tokenCard}>
-              <Text style={s.tokenLabel}>YOUR TOKEN</Text>
-              <Text style={s.tokenValue} translate={false}>{/^\d+$/.test(token) ? `#${token}` : token}</Text>
-              {!!bookedTime && (
-                <Text style={s.tokenTime}>Today, <Text translate={false}>{formatTime(bookedTime)}</Text></Text>
+            <Text style={s.successSub}>
+              Token Number: <Text translate={false} style={s.successSubStrong}>{tokenLabel}</Text>
+            </Text>
+
+            <View style={s.summaryCard}>
+              <View style={s.summaryDoctor}>
+                {doctorPhoto ? (
+                  <Image source={{ uri: doctorPhoto }} style={s.summaryAvatar} />
+                ) : (
+                  <View style={[s.summaryAvatar, s.summaryAvatarFallback]}>
+                    <Ionicons name="medkit" size={20} color={PATIENT.primary} />
+                  </View>
+                )}
+                <View style={s.flex}>
+                  <Text style={s.summaryDoctorName} numberOfLines={1} translate={false}>{doctorName || 'Doctor'}</Text>
+                  {!!specialization && <Text style={s.summaryDoctorSpec} numberOfLines={1}>{specialization}</Text>}
+                </View>
+              </View>
+              <View style={s.summaryDivider} />
+              {!!form.patientName.trim() && (
+                <SummaryRow label="Patient" value={form.patientName.trim()} />
               )}
+              {!!bookedWhen && <SummaryRow label="Date & Time" value={bookedWhen} />}
+              {!!clinicName && <SummaryRow label="Clinic" value={clinicName} sub={clinicAddress} />}
+              {isEmergencyForm && <SummaryRow label="Type" value="Emergency" />}
+              <View style={s.summaryRow}>
+                <Text style={s.summaryLabel}>{isEmergencyForm ? 'Emergency Token' : 'Token'}</Text>
+                <View style={[s.tokenPill, isEmergencyForm && s.tokenPillDanger]}>
+                  <Text style={[s.tokenPillText, isEmergencyForm && s.tokenPillTextDanger]} translate={false}>{tokenLabel}</Text>
+                </View>
+              </View>
             </View>
-            <Text style={s.successNote}>Show this token at the clinic reception. Carry a valid ID and any past reports.</Text>
-            <Pressable onPress={onClose} style={s.primaryBtn}>
-              <Text style={s.primaryBtnText}>Done</Text>
+
+            <Text style={s.successNote}>
+              {isEmergencyForm
+                ? 'Your token is marked as an emergency — the doctor sees it first. Show it at the clinic reception right away.'
+                : 'Show this token at the clinic reception. Carry a valid ID and any past reports.'}
+            </Text>
+
+            <Pressable onPress={onClose} style={s.doneBtnWrap}>
+              <LinearGradient
+                colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={s.doneBtn}
+              >
+                <Ionicons name="home-outline" size={18} color="#FFFFFF" />
+                <Text style={s.primaryBtnText}>Done / Back to Home</Text>
+              </LinearGradient>
             </Pressable>
-          </View>
+          </ScrollView>
         ) : (
           <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
@@ -388,6 +501,35 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
               </Field>
               <Field label="Medical Problem *" error={errors.problem}>
                 <TextInput style={[s.input, s.multiline]} value={form.problem} onChangeText={(v) => update('problem', v)} placeholder="Describe your problem" placeholderTextColor="#94A3B8" multiline textAlignVertical="top" />
+              </Field>
+              <Field label="Appointment Type" error={errors.emergencyReason}>
+                <View style={s.typeRow}>
+                  <Pressable onPress={() => update('priority', 'normal')} style={[s.typeBtn, !isEmergencyForm && s.typeBtnOn]}>
+                    <Ionicons name="calendar-outline" size={16} color={!isEmergencyForm ? '#FFFFFF' : PATIENT.primary} />
+                    <Text style={[s.typeText, !isEmergencyForm && s.typeTextOn]}>Regular</Text>
+                  </Pressable>
+                  <Pressable onPress={() => update('priority', 'emergency')} style={[s.typeBtn, s.typeBtnDanger, isEmergencyForm && s.typeBtnDangerOn]}>
+                    <Ionicons name="alert-circle-outline" size={16} color={isEmergencyForm ? '#FFFFFF' : '#DC2626'} />
+                    <Text style={[s.typeText, s.typeTextDanger, isEmergencyForm && s.typeTextOn]}>Emergency</Text>
+                  </Pressable>
+                </View>
+                {isEmergencyForm && (
+                  <>
+                    <TextInput
+                      style={[s.input, s.multiline, s.emergencyInput]}
+                      value={form.emergencyReason}
+                      onChangeText={(v) => update('emergencyReason', v)}
+                      placeholder="Why is this an emergency? (at least 10 characters)"
+                      placeholderTextColor="#94A3B8"
+                      multiline
+                      maxLength={1000}
+                      textAlignVertical="top"
+                    />
+                    <Text style={s.emergencyHelp}>
+                      Your token — from the time slot you pick below — is marked as an emergency, so the doctor sees it at the top of the queue.
+                    </Text>
+                  </>
+                )}
               </Field>
 
               <View style={s.row}>
@@ -513,8 +655,20 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
         {picker && Platform.OS === 'ios' && (
           <Pressable onPress={() => setPicker(null)} style={s.iosDone}><Text style={s.primaryBtnText}>Done</Text></Pressable>
         )}
-      </SafeAreaView>
+      </View>
     </Modal>
+  );
+}
+
+function SummaryRow({ label, value, sub }) {
+  return (
+    <View style={s.summaryRow}>
+      <Text style={s.summaryLabel}>{label}</Text>
+      <View style={s.flex}>
+        <Text style={s.summaryValue} translate={false}>{value}</Text>
+        {!!sub && <Text style={s.summarySub} translate={false}>{sub}</Text>}
+      </View>
+    </View>
   );
 }
 
@@ -545,6 +699,16 @@ const s = StyleSheet.create({
   label: { fontSize: 12.5, fontWeight: '700', color: '#334155', marginBottom: 6 },
   input: { minHeight: 46, borderWidth: 1, borderColor: '#D5DCE5', borderRadius: 11, backgroundColor: '#FFFFFF', paddingHorizontal: 12, fontSize: 14.5, color: '#0F172A' },
   multiline: { minHeight: 92, paddingTop: 11 },
+  typeRow: { flexDirection: 'row', gap: 10 },
+  typeBtn: { flex: 1, height: 44, borderRadius: 12, borderWidth: 1, borderColor: '#BBE7CC', backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  typeBtnOn: { backgroundColor: PATIENT.primary, borderColor: PATIENT.primary },
+  typeBtnDanger: { borderColor: '#FECACA' },
+  typeBtnDangerOn: { backgroundColor: '#DC2626', borderColor: '#DC2626' },
+  typeText: { fontSize: 14, fontWeight: '800', color: PATIENT.primary },
+  typeTextDanger: { color: '#DC2626' },
+  typeTextOn: { color: '#FFFFFF' },
+  emergencyInput: { marginTop: 10, borderColor: '#FECACA' },
+  emergencyHelp: { fontSize: 12, lineHeight: 17, color: '#B42318', marginTop: 6 },
   multilineShort: { minHeight: 70, paddingTop: 11 },
   selectInput: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   readOnly: { backgroundColor: '#F1F5F9' },
@@ -577,7 +741,6 @@ const s = StyleSheet.create({
   slotTextBooked: { color: '#94A3B8', textDecorationLine: 'line-through' },
   selectedBox: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 4, padding: 10, borderRadius: 10, backgroundColor: '#ECFDF3', borderWidth: 1, borderColor: '#BDE8CD' },
   selectedText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#05603A' },
-  tokenTime: { fontSize: 13.5, fontWeight: '600', color: '#64748B', marginTop: 4 },
   errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FEF3F2', borderWidth: 1, borderColor: '#FECDCA', borderRadius: 10, padding: 11, marginTop: 16 },
   errorBoxText: { flex: 1, fontSize: 13, color: '#B42318' },
   primaryBtn: { height: 50, borderRadius: 14, backgroundColor: PATIENT.primary, alignItems: 'center', justifyContent: 'center', marginTop: 20, alignSelf: 'stretch' },
@@ -586,13 +749,29 @@ const s = StyleSheet.create({
   expect: { fontSize: 12, color: '#64748B', textAlign: 'center', marginTop: 10 },
   // Centred in the area under the header; the extra bottom padding lifts it
   // to the screen's visual centre instead of sitting low.
-  successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingTop: 24, paddingBottom: 96 },
-  successIcon: { width: 76, height: 76, borderRadius: 38, backgroundColor: PATIENT.primary, alignItems: 'center', justifyContent: 'center' },
-  successTitle: { fontSize: 21, fontWeight: '800', color: '#0F172A', marginTop: 16 },
-  successDoctor: { fontSize: 14, color: '#64748B', marginTop: 4 },
-  tokenCard: { marginTop: 22, paddingVertical: 18, paddingHorizontal: 40, borderRadius: 18, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#BDE8CD', alignItems: 'center' },
-  tokenLabel: { fontSize: 11.5, fontWeight: '800', letterSpacing: 1, color: '#64748B' },
-  tokenValue: { fontSize: 40, fontWeight: '900', color: PATIENT.primary, marginTop: 4 },
-  successNote: { fontSize: 13, color: '#64748B', textAlign: 'center', marginTop: 16, lineHeight: 19 },
+  successWrap: { flexGrow: 1, alignItems: 'center', justifyContent: 'flex-start', paddingHorizontal: 20, paddingTop: 32, paddingBottom: 40 },
+  successHalo: { width: 96, height: 96, borderRadius: 48, backgroundColor: '#DCF7E5', alignItems: 'center', justifyContent: 'center' },
+  successIcon: { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center' },
+  successTitle: { fontSize: 24, fontWeight: '900', color: '#0F172A', marginTop: 18, textAlign: 'center' },
+  successSub: { fontSize: 14, color: '#64748B', marginTop: 6 },
+  successSubStrong: { fontWeight: '800', color: '#0F172A' },
+  summaryCard: { alignSelf: 'stretch', marginTop: 22, backgroundColor: '#FFFFFF', borderRadius: 18, borderWidth: 1, borderColor: '#E3F1E8', padding: 16, shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
+  summaryDoctor: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  summaryAvatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#E6F6EC' },
+  summaryAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
+  summaryDoctorName: { fontSize: 16.5, fontWeight: '800', color: '#0F172A' },
+  summaryDoctorSpec: { fontSize: 13, color: '#64748B', marginTop: 2 },
+  summaryDivider: { height: 1, backgroundColor: '#EDF1F5', marginVertical: 14 },
+  summaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 8 },
+  summaryLabel: { fontSize: 13.5, color: '#64748B' },
+  summaryValue: { fontSize: 13.5, fontWeight: '700', color: '#0F172A', textAlign: 'right' },
+  summarySub: { fontSize: 12, color: '#64748B', textAlign: 'right', marginTop: 2 },
+  tokenPill: { paddingHorizontal: 14, paddingVertical: 5, borderRadius: 999, backgroundColor: '#DCF7E5' },
+  tokenPillText: { fontSize: 14, fontWeight: '900', color: PATIENT.primary },
+  tokenPillDanger: { backgroundColor: '#FEE2E2' },
+  tokenPillTextDanger: { color: '#DC2626' },
+  successNote: { fontSize: 13, color: '#64748B', textAlign: 'center', marginTop: 18, lineHeight: 19, paddingHorizontal: 8 },
+  doneBtnWrap: { alignSelf: 'stretch', marginTop: 20, borderRadius: 14, overflow: 'hidden' },
+  doneBtn: { height: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   iosDone: { alignSelf: 'stretch', marginHorizontal: 16, marginBottom: 12, height: 46, borderRadius: 12, backgroundColor: PATIENT.primary, alignItems: 'center', justifyContent: 'center' },
 });

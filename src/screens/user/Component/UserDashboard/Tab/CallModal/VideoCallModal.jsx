@@ -206,6 +206,7 @@ const SelfParticipantView = ({ style, ...props }) => (
 
 // ─── Custom bottom control bar (Figma: dark translucent rounded sheet) ────────
 const VideoControls = ({ onHangupCallHandler }) => {
+  const insets = useSafeAreaInsets();
   const { useMicrophoneState, useCameraState } = useCallStateHooks();
   const { microphone, isMute } = useMicrophoneState();
   const { camera, isMute: isCamOff } = useCameraState();
@@ -218,7 +219,7 @@ const VideoControls = ({ onHangupCallHandler }) => {
   };
 
   return (
-    <View style={styles.controlsWrap}>
+    <View style={[styles.controlsWrap, { paddingBottom: Math.max(Platform.OS === 'ios' ? 32 : 22, insets.bottom + 12) }]}>
       <View style={styles.controlsBar}>
         <View style={styles.controlsRow}>
           <TouchableOpacity
@@ -272,6 +273,7 @@ const VideoControls = ({ onHangupCallHandler }) => {
 };
 
 const VideoConnectingPreview = ({ onHangup, participantName, participantPhoto, isCounselor, isOutgoing }) => {
+  const insets = useSafeAreaInsets();
   const initial = String(participantName || 'U').trim().charAt(0).toUpperCase() || 'U';
 
   return (
@@ -291,7 +293,7 @@ const VideoConnectingPreview = ({ onHangup, participantName, participantPhoto, i
         </View>
       </View>
 
-      <View style={styles.controlsWrap}>
+      <View style={[styles.controlsWrap, { paddingBottom: Math.max(Platform.OS === 'ios' ? 32 : 22, insets.bottom + 12) }]}>
         <View style={styles.controlsBar}>
           <View style={styles.controlsRow}>
             <TouchableOpacity style={[styles.vcBtn, styles.vcBtnDisabled]} disabled>
@@ -937,6 +939,7 @@ const styles = StyleSheet.create({
     width: 118,
     height: 162,
     borderRadius: 18,
+    overflow: 'hidden',
     marginHorizontal: 14,
   },
   pipCard: {

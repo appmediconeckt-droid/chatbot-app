@@ -13,6 +13,7 @@ import {
   Dimensions,
   Animated,
   Platform,
+  Pressable,
   RefreshControl,
   Vibration,
   useWindowDimensions,
@@ -617,9 +618,11 @@ const ChatInterface = ({ setActiveTab, onOpenCounselor }) => {
     const animatedStyle = {
       transform: [{ scale: pressedItemId.current === item.id ? scaleAnim : 1 }],
     };
+    // Press feedback is a background tint, never an opacity fade: fading the
+    // parent of an elevated, rounded card makes Android draw the card's
+    // shadow as a hard rectangle inside it while the press lasts.
     return (
-      <TouchableOpacity
-        activeOpacity={0.7}
+      <Pressable
         onPress={() => item.isNearbyDiscovery
           ? (onOpenCounselor ? onOpenCounselor(item.name) : handleStartNewChat())
           : handleItemPress(item)}
@@ -627,7 +630,8 @@ const ChatInterface = ({ setActiveTab, onOpenCounselor }) => {
         onPressOut={handleLongPressEnd}
         delayLongPress={500}
       >
-        <Animated.View style={[styles.chatItem, animatedStyle]}>
+        {({ pressed }) => (
+        <Animated.View style={[styles.chatItem, pressed && styles.chatItemPressed, animatedStyle]}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatarWrapper}>
               {renderAvatar(item)}
@@ -667,7 +671,8 @@ const ChatInterface = ({ setActiveTab, onOpenCounselor }) => {
             )}
           </View>
         </Animated.View>
-      </TouchableOpacity>
+        )}
+      </Pressable>
     );
   };
 
@@ -1044,6 +1049,9 @@ const styles = {
     shadowOpacity: 0.05,
     shadowRadius: 10,
     elevation: 2,
+  },
+  chatItemPressed: {
+    backgroundColor: '#F1F5F3',
   },
   avatarContainer: {
     position: 'relative',

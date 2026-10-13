@@ -7,6 +7,11 @@
 // and details.
 import axiosInstance from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from './doctorAppointments';
+import {
+  getDoctorMedicines,
+  getDoctorTests,
+  unpackConsultationNotes,
+} from '../../../../utils/consultationDetails';
 
 const unwrapApiArray = (payload) => {
   if (Array.isArray(payload)) return payload;
@@ -99,42 +104,37 @@ const getProblem = (a) => pickFirst(
   'General consultation',
 );
 
-const parseMedicines = (value) => {
-  if (Array.isArray(value)) return value;
-  if (typeof value !== 'string' || !value.trim()) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const formatMedicines = (a) => {
-  if (a.medicine && String(a.medicine).trim()) return String(a.medicine).trim();
-  const medicines = parseMedicines(a.medicines);
+// One line per medicine, for the PDF fallback and anything that wants text.
+const formatMedicines = (a, medicines) => {
   if (!medicines.length) return pickFirst(a.tablets, a.medication, 'N/A');
   return medicines.map((m) => {
-    const timing = Array.isArray(m.timings) && m.timings.length ? m.timings.join(', ') : 'Timing not specified';
-    const duration = m.durationValue ? ` - ${m.durationValue} ${m.durationType || 'days'}` : '';
-    return `${m.name || 'Medicine'}${m.dosage ? ` - ${m.dosage}` : ''} (${timing})${duration}`;
+    const timing = m.timings.length ? ` (${m.timings.join(', ')})` : '';
+    const duration = m.duration ? ` - ${m.duration}` : '';
+    return `${m.name}${m.dosage ? ` - ${m.dosage}` : ''}${timing}${duration}`;
   }).join('\n');
 };
 
-const getMedicineDuration = (a) => {
-  const durations = parseMedicines(a.medicines)
-    .filter((m) => m.durationValue)
-    .map((m) => `${m.durationValue} ${m.durationType || 'Days'}`);
+const getMedicineDuration = (a, medicines) => {
+  const durations = [...new Set(medicines.map((m) => m.duration).filter(Boolean))];
   return durations.length ? durations.join(', ') : pickFirst(a.days, a.duration, 'N/A');
 };
+
+const text = (value) => (value === undefined || value === null ? '' : String(value).trim());
 
 const hasFollowUp = (a) => {
   const v = pickFirst(a.follow_up_required, a.followUpRequired);
   return v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true' || Boolean(a.follow_up_date || a.followUpDate);
 };
 
-const normalizeRecord = (a, doctorName) => {
+const normalizeRecord = (raw, doctorName) => {
+  // The doctor's consultation (medicines, tests, advice, follow-up…) is packed
+  // as JSON in `notes` — the patient's Prescriptions screen unpacks it the
+  // same way, so both sides show the same visit.
+  const a = unpackConsultationNotes(raw);
   const createdAt = pickFirst(a.appointment_date, a.date, a.created_at, a.createdAt);
+  const medicines = getDoctorMedicines(a);
+  const advice = text(pickFirst(a.advice, a.instructions, a.prescription));
+  const priority = text(pickFirst(a.priority, '')).toLowerCase();
   return {
     id: pickFirst(a.id, a._id),
     sortKey: new Date(createdAt || 0).getTime() || 0,
@@ -142,12 +142,22 @@ const normalizeRecord = (a, doctorName) => {
     time: formatTime(pickFirst(a.appointment_time, a.time, createdAt)),
     ...appointmentVitals(a),
     problem: getProblem(a),
-    diagnosis: pickFirst(a.diagnosis, 'N/A'),
-    tablets: formatMedicines(a),
-    days: getMedicineDuration(a),
+    diagnosis: pickFirst(text(a.diagnosis), 'N/A'),
+    medicines,
+    tablets: formatMedicines(a, medicines),
+    days: getMedicineDuration(a, medicines),
+    tests: getDoctorTests(a),
+    advice,
+    additionalNotes: text(pickFirst(a.additional_notes, a.additionalNotes)),
+    // What the patient wrote when booking (never the packed consultation).
+    patientNotes: text(a.notes),
     doctor: appointmentDoctorName(a, doctorName),
-    prescription: pickFirst(a.prescription, a.advice, a.additional_notes, a.additionalNotes, a.notes, 'N/A'),
+    prescription: advice || 'N/A',
     followUp: hasFollowUp(a) ? formatDate(pickFirst(a.follow_up_date, a.followUpDate, a.follow_up, a.followUp)) : 'Not required',
+    consultationMode: text(pickFirst(a.consultation_mode, a.consultationMode, a.mode)),
+    tokenNumber: text(pickFirst(a.token_number, a.tokenNumber, a.token_no, a.token)),
+    isEmergency: priority === 'emergency' || a.is_emergency === true || String(a.is_emergency) === 'true',
+    emergencyReason: text(pickFirst(a.emergency_reason, a.emergencyReason)),
     status: String(pickFirst(a.appointment_status, a.status, '')).toLowerCase(),
     bookingSource: String(pickFirst(a.booking_source, a.bookingSource, '')).toLowerCase(),
   };

@@ -16,6 +16,7 @@ import {
   getPhoneMaxLengthForCountryCode,
   normalizeLocalPhoneNumber,
 } from '../../utils/countryCodes';
+import { KeyboardSheetOverlay } from './KeyboardSheet';
 
 const CountryPhoneInput = ({
   value,
@@ -109,7 +110,8 @@ const CountryPhoneInput = ({
         navigationBarTranslucent
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        {/* Lifts the dialog above the keyboard (edge-to-edge modals don't resize). */}
+        <KeyboardSheetOverlay style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Select country code</Text>
@@ -162,7 +164,7 @@ const CountryPhoneInput = ({
               }
             />
           </View>
-        </View>
+        </KeyboardSheetOverlay>
       </Modal>
     </>
   );
@@ -222,6 +224,7 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   modalCard: {
+    flexShrink: 1,
     width: '100%',
     maxWidth: 430,
     maxHeight: '82%',

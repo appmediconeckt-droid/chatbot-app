@@ -10,6 +10,7 @@ import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { formatLocalDateKey, getConsultationModeInfo, getRemoteConsultationMode, getTokenLabel } from '../api/doctorAppointments';
+import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 
 const DURATION_TYPES = ['Days', 'Weeks', 'Months'];
 const TIMINGS = ['Morning', 'Afternoon', 'Evening', 'Night'];
@@ -146,6 +147,15 @@ const defaultFollowUpDate = (medicines, patient) => {
 // Diagnosis, advice and every medicine are required, so the prescription is
 // always recorded (and downloadable as PDF) before a visit is marked complete.
 export default function CompleteAppointmentScreen({ patient, onCancel, onSave }) {
+  // Signup-style keyboard handling: the form scrolls above the keyboard and the
+  // focused field is scrolled into view (the window does not resize, edge-to-edge).
+  const {
+    scrollRef: kbScrollRef,
+    frameInset: kbInset,
+    scrollFocusedInputIntoView: kbFocus,
+    handleKeyboardAwareScroll: kbOnScroll,
+    handleKeyboardAwareScrollLayout: kbOnLayout,
+  } = useKeyboardAwareScroll({ frameIsScroll: true });
   const isVisit = !getRemoteConsultationMode(patient);
   const modeInfo = getConsultationModeInfo(patient);
   const [temperature, setTemperature] = useState(patient.temperature ? String(patient.temperature) : '');
@@ -229,7 +239,7 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
           <AppIcon name="x" size={18} color="#FFFFFF" strokeWidth={2.4} />
         </TouchableOpacity>
       </LinearGradient>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} ref={kbScrollRef} contentContainerStyle={[styles.scrollContent, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
         <View style={styles.patientCard}>
           <View><Text translate={false} style={styles.patientName}>{patient.name}</Text><Text style={styles.patientId}>{getTokenLabel(patient)}</Text></View>
           <View style={styles.badge}><Text style={styles.badgeText}>{isVisit ? modeInfo.label.toUpperCase() : 'CONSULTATION'}</Text></View>

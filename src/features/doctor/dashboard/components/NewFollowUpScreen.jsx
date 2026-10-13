@@ -15,6 +15,7 @@ import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { formatLocalDateKey } from '../api/doctorAppointments';
 import { apiErrorMessage, createFollowUp, normalizeDateInput, updateFollowUp } from '../api/doctorFollowUps';
+import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 
 const TYPES = [
   { value: 'routine', label: 'Routine' },
@@ -47,6 +48,15 @@ const pickerDate = (key, hhmm) => {
 };
 
 export default function NewFollowUpScreen({ doctor, patients = [], followUp, onBack, onSaved }) {
+  // Signup-style keyboard handling: the form scrolls above the keyboard and the
+  // focused field is scrolled into view (the window does not resize, edge-to-edge).
+  const {
+    scrollRef: kbScrollRef,
+    frameInset: kbInset,
+    scrollFocusedInputIntoView: kbFocus,
+    handleKeyboardAwareScroll: kbOnScroll,
+    handleKeyboardAwareScrollLayout: kbOnLayout,
+  } = useKeyboardAwareScroll({ frameIsScroll: true });
   const editing = Boolean(followUp);
   const [patientId, setPatientId] = useState(followUp?.patientId || '');
   const [followUpDate, setFollowUpDate] = useState(editing ? normalizeDateInput(followUp.followUpDate) : '');
@@ -115,7 +125,7 @@ export default function NewFollowUpScreen({ doctor, patients = [], followUp, onB
         </Pressable>
         <Text style={s.title}>{editing ? 'Edit Follow-up' : 'New Follow-up'}</Text>
       </View>
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={kbScrollRef} contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
         <Label text="PATIENT" />
         <Select
           value={patientLabel}

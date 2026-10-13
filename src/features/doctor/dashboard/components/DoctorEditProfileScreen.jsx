@@ -17,10 +17,15 @@ import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 // form reserves the keyboard's height at the bottom and scrolls the focused
 // field into view — every field (down to Location) stays reachable.
 const KeyboardFocusContext = React.createContext(undefined);
+const GENDER_OPTIONS = ['male', 'female', 'other'];
 
 function toInitial(profile) {
   return {
     fullName: profile?.fullName || '',
+    email: profile?.email || '',
+    phoneNumber: profile?.phoneNumber || profile?.phoneNum || profile?.phone || '',
+    age: profile?.age != null ? String(profile.age) : '',
+    gender: String(profile?.gender || '').trim().toLowerCase(),
     qualification: profile?.qualification || '',
     experience: profile?.experience != null ? String(profile.experience) : '',
     languages: Array.isArray(profile?.languages) ? profile.languages.join(', ') : '',
@@ -53,6 +58,15 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
 
   const handleSave = async () => {
     if (!form.fullName.trim()) return showToast('Full name is required');
+    if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) {
+      return showToast('Enter a valid email address');
+    }
+    if (form.phoneNumber.trim() && !/^\d{7,15}$/.test(form.phoneNumber.replace(/\D/g, ''))) {
+      return showToast('Enter a valid phone number');
+    }
+    if (form.age.trim() && Number.isNaN(Number(form.age))) {
+      return showToast('Age must be a number');
+    }
     if (form.experience && Number.isNaN(Number(form.experience))) {
       return showToast('Experience must be a number');
     }
@@ -69,6 +83,14 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
 
       const formData = new FormData();
       formData.append('fullName', form.fullName.trim());
+      if (form.email.trim()) formData.append('email', form.email.trim().toLowerCase());
+      const phoneDigits = form.phoneNumber.replace(/\D/g, '');
+      if (phoneDigits) {
+        formData.append('phoneNumber', phoneDigits);
+        formData.append('phoneNum', phoneDigits);
+      }
+      if (form.age.trim()) formData.append('age', String(Number(form.age)));
+      if (form.gender) formData.append('gender', form.gender.toLowerCase());
       if (form.qualification.trim()) formData.append('qualification', form.qualification.trim());
       if (form.experience) formData.append('experience', String(Number(form.experience)));
       if (form.summary.trim()) formData.append('aboutMe', form.summary.trim());
@@ -147,11 +169,34 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
 
         <Section icon="user" label="Overview">
           <Field label="Full Name" value={form.fullName} onChangeText={set('fullName')} />
-          <Field label="Qualification" value={form.qualification} onChangeText={set('qualification')} />
-          <View style={s.fieldRow}>
-            <Field label="Experience (Years)" value={form.experience} onChangeText={set('experience')} keyboardType="numeric" half />
-            <Field label="Languages" value={form.languages} onChangeText={set('languages')} half />
+          <Field label="Email" value={form.email} onChangeText={set('email')} keyboardType="email-address" autoCapitalize="none" />
+          <Field label="Phone Number" value={form.phoneNumber} onChangeText={(value) => set('phoneNumber')(value.replace(/\D/g, '').slice(0, 15))} keyboardType="phone-pad" />
+          <View style={s.field}>
+            <Text style={s.fieldLabel}>Gender</Text>
+            <View style={s.genderRow}>
+              {GENDER_OPTIONS.map((item) => {
+                const active = form.gender === item;
+                return (
+                  <Pressable
+                    key={item}
+                    onPress={() => set('gender')(item)}
+                    style={[s.genderChip, active && s.genderChipActive]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active }}
+                  >
+                    {active && <AppIcon name="check-mark" size={14} color="#FFF" strokeWidth={2.6} />}
+                    <Text style={[s.genderText, active && s.genderTextActive]}>{item.charAt(0).toUpperCase() + item.slice(1)}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
+          <View style={s.fieldRow}>
+            <Field label="Age" value={form.age} onChangeText={(value) => set('age')(value.replace(/\D/g, '').slice(0, 3))} keyboardType="number-pad" half />
+            <Field label="Experience (Years)" value={form.experience} onChangeText={(value) => set('experience')(value.replace(/\D/g, '').slice(0, 2))} keyboardType="number-pad" half />
+          </View>
+          <Field label="Qualification" value={form.qualification} onChangeText={set('qualification')} />
+          <Field label="Languages" value={form.languages} onChangeText={set('languages')} />
         </Section>
 
         <Section icon="file" label="Professional Summary">
@@ -191,7 +236,7 @@ function Section({ icon, label, children }) {
   );
 }
 
-function Field({ label, value, onChangeText, half, keyboardType }) {
+function Field({ label, value, onChangeText, half, keyboardType, autoCapitalize }) {
   const onFocus = useContext(KeyboardFocusContext);
   return (
     <View style={[s.field, half && s.fieldHalf]}>
@@ -202,6 +247,7 @@ function Field({ label, value, onChangeText, half, keyboardType }) {
         style={s.fieldInput}
         placeholderTextColor="#94A3B8"
         keyboardType={keyboardType}
+        autoCapitalize={autoCapitalize}
         onFocus={onFocus}
       />
     </View>
@@ -295,6 +341,11 @@ const s = createDoctorStyles({
   fieldRow: { flexDirection: 'row', gap: 10 },
   fieldLabel: { fontSize: 12.5, fontWeight: '700', color: '#344054', marginBottom: 6 },
   fieldInput: { height: 44, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, paddingHorizontal: 12, fontSize: 13.5, color: '#17243A' },
+  genderRow: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: 12, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0' },
+  genderChip: { flex: 1, height: 40, borderRadius: 9, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  genderChipActive: { backgroundColor: '#0D9488' },
+  genderText: { fontSize: 14, fontWeight: '700', color: '#475467' },
+  genderTextActive: { color: '#FFF' },
 
   summaryInput: { minHeight: 90, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, padding: 12, fontSize: 13.5, lineHeight: 19, color: '#17243A', textAlignVertical: 'top' },
 

@@ -21,6 +21,7 @@ import {
   loadDoctorAppointments,
   openPatientChat,
 } from '../api/doctorChat';
+import { KeyboardSheet, KeyboardSheetOverlay, KeyboardSheetScroll } from '../../../../components/common/KeyboardSheet';
 
 const FILTERS = [
   ['all', 'All'],
@@ -250,8 +251,9 @@ export default function PatientCommunicationsScreen({ navigation, onChatOpenChan
 
       {/* Remote Consultation — Check & Complete Appointment */}
       <Modal visible={Boolean(consult)} transparent animationType="slide" onRequestClose={() => setConsult(null)}>
-        <View style={s.modalOverlay}>
-          <View style={s.modalSheet}>
+        {/* Signup-style: header + actions fixed, fields scroll above the keyboard. */}
+        <KeyboardSheetOverlay style={s.modalOverlay}>
+          <KeyboardSheet style={s.modalSheet}>
             <View style={s.modalHead}>
               <View style={s.flex}>
                 <Text style={s.modalEyebrow}>REMOTE CONSULTATION</Text>
@@ -260,7 +262,7 @@ export default function PatientCommunicationsScreen({ navigation, onChatOpenChan
               </View>
               <Pressable onPress={() => setConsult(null)} hitSlop={8}><AppIcon name="x" size={18} color="#667085" /></Pressable>
             </View>
-            <ScrollView style={s.modalScroll} keyboardShouldPersistTaps="handled">
+            <KeyboardSheetScroll style={s.modalScroll}>
               <Text style={s.fieldLabel}>Diagnosis <Text style={s.required}>*</Text></Text>
               <TextInput style={s.textArea} multiline textAlignVertical="top" value={consultForm.diagnosis} onChangeText={(v) => setConsultForm((f) => ({ ...f, diagnosis: v }))} placeholder="Clinical diagnosis and findings" placeholderTextColor="#9AA4B5" />
               <Text style={s.fieldLabel}>Medicine / Prescription <Text style={s.required}>*</Text></Text>
@@ -288,7 +290,7 @@ export default function PatientCommunicationsScreen({ navigation, onChatOpenChan
                   <TextInput style={s.input} value={test.instructions} onChangeText={(v) => updateTest(index, 'instructions', v)} placeholder="Instructions (e.g. fasting)" placeholderTextColor="#9AA4B5" />
                 </View>
               ))}
-            </ScrollView>
+            </KeyboardSheetScroll>
             <View style={s.modalActions}>
               <Pressable style={s.cancelBtn} onPress={() => setConsult(null)}><Text style={s.cancelText}>Cancel</Text></Pressable>
               <Pressable style={s.saveWrap} onPress={saveConsult} disabled={savingConsult}>
@@ -297,8 +299,8 @@ export default function PatientCommunicationsScreen({ navigation, onChatOpenChan
                 </LinearGradient>
               </Pressable>
             </View>
-          </View>
-        </View>
+          </KeyboardSheet>
+        </KeyboardSheetOverlay>
       </Modal>
     </View>
   );
@@ -395,7 +397,7 @@ const s = createDoctorStyles({
   modalEyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 0.6, color: '#0D9488' },
   modalTitle: { fontSize: 17, fontWeight: '800', color: '#17243A', marginTop: 2 },
   modalSub: { fontSize: 12.5, color: '#667085', marginTop: 3 },
-  modalScroll: { flexGrow: 0 },
+  modalScroll: { flexGrow: 0, flexShrink: 1 },
   fieldLabel: { fontSize: 13, fontWeight: '700', color: '#344054', marginTop: 10, marginBottom: 6 },
   required: { color: '#DC2626' },
   textArea: { minHeight: 64, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 12, padding: 10, fontSize: 13.5, color: '#17243A' },

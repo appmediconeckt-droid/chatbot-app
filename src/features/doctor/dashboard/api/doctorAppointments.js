@@ -4,6 +4,7 @@
 // normalization and payloads, so both clients read and write identically.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../../../../axiosConfig';
+import { isPatientAccountDeleted } from '../../../../utils/deletedAccount';
 
 export const pickFirst = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== '');
@@ -86,12 +87,14 @@ export const loadDoctorAppointmentFeed = async (doctorId) => {
     axiosInstance.get('/api/appointments', { params: { ...params, appointment_status: 'cancelled' } })
       .catch(() => ({ data: [] })),
   ]);
+  // Drop rows left behind by deleted patient accounts so they never reach the
+  // queue, the overview counts or the appointments list as "Unknown".
   return mergeAppointmentLists(
     normalizeApiList(online.data),
     normalizeApiList(completed.data),
     normalizeApiList(cancelled.data),
     normalizeApiList(walkins.data).map((item) => ({ ...item, __appointmentSource: 'walkin' })),
-  );
+  ).filter((a) => !isPatientAccountDeleted(a));
 };
 
 export const loadDoctorFollowUps = async (doctorId) => {
@@ -378,6 +381,20 @@ export const normalizeAppointmentStatus = (a, forcedStatus) => {
     const history = getAppointmentCancellationState(a);
     if (history.cancelled) return 'cancelled';
     if (history.completed) return 'completed';
+    // A consultation that has started and not ended IS in progress, even when
+    // the row's own status still reads pending/confirmed — the server records
+    // the lifecycle in the consultation_* fields. Without this the appointment
+    // stayed in the Pending tab and offered "Start Consultation" again for a
+    // consultation that was already running.
+    const startedAt = pickFirst(
+      a?.consultation_started_at, a?.consultationStartedAt,
+      a?.consultation_timing?.startedAt, a?.consultationTiming?.startedAt,
+    );
+    const endedAt = pickFirst(
+      a?.consultation_ended_at, a?.consultationEndedAt,
+      a?.consultation_timing?.endedAt, a?.consultationTiming?.endedAt,
+    );
+    if (startedAt && !endedAt) return 'in-progress';
     const queue = statusKey(pickFirst(a?.queue_status, a?.queueStatus));
     if (['in_progress', 'in_consultation'].includes(queue)) return 'in-progress';
     if (queue === 'no_show') return 'cancelled';

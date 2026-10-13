@@ -16,6 +16,7 @@ import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
+import { KeyboardSheetOverlay, KeyboardSheetScroll } from '../../../../components/common/KeyboardSheet';
 
 const STATUS_META = {
   waiting: { label: 'Waiting', color: '#C85B20', bg: '#FFF3E9' },
@@ -350,14 +351,17 @@ export default function WalkInAppointmentsScreen({ onBack }) {
         </LinearGradient>
       </Pressable>
       <Modal visible={registerVisible} transparent animationType="fade" onRequestClose={closeModal}>
-        <View style={styles.modalOverlay}>
+        {/* Signup-style: the card sits above the keyboard, its header stays
+            fixed and the form scrolls (focused field scrolled into view). */}
+        <KeyboardSheetOverlay style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={closeModal} />
-          <ScrollView style={styles.modalCard} contentContainerStyle={styles.modalCardContent} keyboardShouldPersistTaps="handled">
-            <View style={styles.modalHeader}>
+          <View style={[styles.modalCard, styles.modalCardShell]}>
+            <View style={[styles.modalHeader, styles.modalHeaderFixed]}>
               <View style={styles.modalHeaderIcon}><AppIcon name="user" size={19} color="#0D9488" strokeWidth={2} /></View>
               <View style={styles.modalHeading}><Text style={styles.modalTitle}>New Walk-in Appointment</Text><Text style={styles.modalSubtitle}>Register a new walk-in patient</Text></View>
               <Pressable style={styles.modalClose} onPress={closeModal}><AppIcon name="x" size={18} color="#667085" /></Pressable>
             </View>
+            <KeyboardSheetScroll style={styles.modalBody} contentContainerStyle={styles.modalBodyContent}>
             <View style={styles.sectionHeading}><Text style={styles.sectionHeadingText}>PERSONAL DETAILS</Text><View style={styles.sectionLine} /></View>
             <Text style={styles.formLabel}>Patient Name <Text style={styles.required}>*</Text></Text>
             <View style={[styles.formInputRow, !!errors.name && styles.inputError]}>
@@ -425,8 +429,9 @@ export default function WalkInAppointmentsScreen({ onBack }) {
               </LinearGradient>
             </Pressable>
             <Pressable style={styles.cancelButton} onPress={closeModal}><Text style={styles.cancelText}>Cancel</Text></Pressable>
-          </ScrollView>
-        </View>
+            </KeyboardSheetScroll>
+          </View>
+        </KeyboardSheetOverlay>
       </Modal>
     </View>
   );
@@ -481,6 +486,11 @@ const styles = createDoctorStyles({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(18,28,45,0.38)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   modalCard: { width: '100%', maxWidth: 420, maxHeight: '90%', flexGrow: 0, backgroundColor: '#FFF', borderRadius: 14, shadowColor: '#17243A', shadowOpacity: 0.18, shadowRadius: 16, shadowOffset: { width: 0, height: 7 }, elevation: 10 },
   modalCardContent: { padding: 18 },
+  // Keyboard-aware card: shrinks above the keyboard; header fixed, body scrolls.
+  modalCardShell: { flexShrink: 1, overflow: 'hidden' },
+  modalHeaderFixed: { paddingHorizontal: 18, paddingTop: 18, marginBottom: 12 },
+  modalBody: { flexGrow: 0, flexShrink: 1 },
+  modalBodyContent: { paddingHorizontal: 18, paddingBottom: 18 },
   modalHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   modalHeaderIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: '#EAF2FF', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   modalHeading: { flex: 1 },

@@ -11,8 +11,18 @@ import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
 import ClinicQrLedSection from './ClinicQrLedSection';
+import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 
 export default function DoctorProfileQrScreen({ onBack }) {
+  // Signup-style keyboard handling: the form scrolls above the keyboard and the
+  // focused field is scrolled into view (the window does not resize, edge-to-edge).
+  const {
+    scrollRef: kbScrollRef,
+    frameInset: kbInset,
+    scrollFocusedInputIntoView: kbFocus,
+    handleKeyboardAwareScroll: kbOnScroll,
+    handleKeyboardAwareScrollLayout: kbOnLayout,
+  } = useKeyboardAwareScroll({ frameIsScroll: true });
   const [doctorId, setDoctorId] = useState(null);
 
   useEffect(() => {
@@ -30,7 +40,7 @@ export default function DoctorProfileQrScreen({ onBack }) {
         </Pressable>
         <Text style={s.title}>QR Code</Text>
       </View>
-      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView  showsVerticalScrollIndicator={false} ref={kbScrollRef} contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
         <ClinicQrLedSection doctorId={doctorId} />
       </ScrollView>
     </View>

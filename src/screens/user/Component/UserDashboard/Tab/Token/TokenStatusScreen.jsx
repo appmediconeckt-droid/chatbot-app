@@ -106,20 +106,14 @@ const isActiveTokenItem = (item) => {
   );
 };
 
-// "My Token" is the live CLINIC queue — a physical OPD/walk-in token number plus
-// "Now serving". Online video/voice consultations are scheduled by time and
-// never get a queue token (the API returns myToken: null, source: "online"), so
-// they'd render here as a meaningless "#--" card. Keep only in-person items;
-// online consults have their own appointment flow.
-const isClinicQueueItem = (item) => {
-  const a = item?.appointment || {};
-  const source = normalizeStatus(a.source || a.appointmentSource || a.booking_source || a.bookingSource);
-  if (source === 'online') return false;
-  if (String(a.appointmentId || a._id || '').toLowerCase().startsWith('online:')) return false;
-  const mode = normalizeStatus(a.consultationMode || a.consultation_mode);
-  if (mode.includes('video') || mode.includes('voice') || mode.includes('phone')) return false;
-  return true;
-};
+// "My Token" shows the live queue, so an appointment belongs here only once the
+// backend has actually assigned it a token number. Keying on the token itself is
+// what makes this correct: `source: "online"` only means the appointment was
+// booked in the app rather than as a walk-in — it does NOT mean a video consult,
+// so it must never be used to exclude anything (doing so hid real tokens).
+// Remote video/voice consults are scheduled by time and never get a token, so
+// they drop out naturally here instead of rendering a meaningless "#--" card.
+const hasQueueToken = (item) => item?.token?.myToken != null;
 
 const getTimingMessage = (appointment = {}, queue = {}, liveTiming = {}) => {
   if (queue.notice) return queue.notice;
@@ -211,7 +205,7 @@ export default function TokenStatusScreen() {
       }
       const list = sortByTurn(
         Array.isArray(response.data?.appointments)
-          ? response.data.appointments.filter((item) => isActiveTokenItem(item) && isClinicQueueItem(item))
+          ? response.data.appointments.filter((item) => isActiveTokenItem(item) && hasQueueToken(item))
           : [],
       );
       setAppointments(list);

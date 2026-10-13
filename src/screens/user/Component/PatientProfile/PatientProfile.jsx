@@ -8,6 +8,7 @@ import {
   Modal,
   ActivityIndicator,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   StyleSheet,
   useWindowDimensions,
@@ -35,6 +36,7 @@ import LinearGradient from "react-native-linear-gradient";
 import { toImageUri } from '../../../../utils/imageUri';
 import useLanguageRender from '../../../../hooks/useLanguageRender';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getKeyboardLift, isButtonNavigation } from '../../../../utils/keyboardLift';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
 import {
   getPhoneLengthLabel,
@@ -57,6 +59,24 @@ const PatientProfile = ({ onProfileUpdate }) => {
   const { t } = useLanguageRender();
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  // Android keyboard height while the Edit Profile sheet is open (see
+  // renderEditModal). Cleared on keyboardDidHide, so the sheet always drops
+  // back to the bottom edge once the keyboard closes.
+  const [editKeyboardHeight, setEditKeyboardHeight] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !isEditing) {
+      setEditKeyboardHeight(0);
+      return undefined;
+    }
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      setEditKeyboardHeight(event?.endCoordinates?.height || 0);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setEditKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [isEditing]);
   const [profileImage, setProfileImage] = useState(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
@@ -1216,11 +1236,29 @@ const PatientProfile = ({ onProfileUpdate }) => {
       visible={isEditing}
       animationType="slide"
       transparent={true}
+      statusBarTranslucent
+      navigationBarTranslucent
       onRequestClose={handleCancelEdit}
     >
+      {/* Android: KeyboardAvoidingView's "height" mode shrinks the overlay for
+          the keyboard but does not always restore it when the keyboard
+          closes, leaving a gap under the sheet. The keyboard space is a plain
+          paddingBottom instead (getKeyboardLift, utils/keyboardLift — right on
+          gesture and 3-button navigation), cleared on keyboardDidHide. iOS keeps
+          KeyboardAvoidingView. */}
       <KeyboardAvoidingView
-        style={styles.modalOverlay}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={[
+          styles.modalOverlay,
+          Platform.OS === 'android' && {
+            paddingBottom: getKeyboardLift(editKeyboardHeight, insets.bottom),
+          },
+          // 3-button navigation: with the keyboard up the sheet fills the rest
+          // of the screen, so keep its header clear of the status bar.
+          editKeyboardHeight > 0 && isButtonNavigation(insets.bottom) && {
+            paddingTop: insets.top + 8,
+          },
+        ]}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         {/* maxHeight (not a fixed height) + a shrinkable ScrollView let the
             sheet give room to the keyboard: the scroll area shrinks while the
@@ -2405,6 +2443,7 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
+    flexShrink: 1,
     width: '100%',
     maxWidth: 720,
     alignSelf: 'center',

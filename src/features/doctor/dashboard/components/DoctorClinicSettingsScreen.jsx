@@ -15,6 +15,7 @@ import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
 import { loadDoctorClinics } from '../api/doctorClinics';
+import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 
 // Express error pages come back as HTML strings, not JSON — read either.
 const getApiErrorText = (err, fallback) => {
@@ -32,6 +33,15 @@ const isUnexpectedFileFieldError = (err) =>
   /Unexpected (file )?field|LIMIT_UNEXPECTED_FILE/i.test(getApiErrorText(err, ''));
 
 export default function DoctorClinicSettingsScreen({ onBack }) {
+  // Signup-style keyboard handling: the form scrolls above the keyboard and the
+  // focused field is scrolled into view (the window does not resize, edge-to-edge).
+  const {
+    scrollRef: kbScrollRef,
+    frameInset: kbInset,
+    scrollFocusedInputIntoView: kbFocus,
+    handleKeyboardAwareScroll: kbOnScroll,
+    handleKeyboardAwareScrollLayout: kbOnLayout,
+  } = useKeyboardAwareScroll({ frameIsScroll: true });
   const { showToast } = useToast();
   const [doctorId, setDoctorId] = useState('');
   const [clinics, setClinics] = useState([]);
@@ -167,7 +177,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
           <Text style={s.subtitle}>Add clinic contact information, location and photos</Text>
         </View>
       </View>
-      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView  showsVerticalScrollIndicator={false} ref={kbScrollRef} contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
         {/* Saved clinics as a dropdown: collapsed it's one line with the
             count, so the Add Clinic form below is what the screen leads with. */}
         <View style={s.section}>

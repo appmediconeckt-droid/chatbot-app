@@ -16,6 +16,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import TextInput from '../../../../../../components/TranslatedTextInput';
+import { getKeyboardLift } from '../../../../../../utils/keyboardLift';
 import Text from '../../../../../../components/TranslatedText';
 import socketService from '../../../../../../services/socketService';
 import axios from "axios";
@@ -609,7 +610,7 @@ const ChatBox = () => {
       keyboardVisibleRef.current = true;
       if (Platform.OS === 'android') {
         const keyboardHeight = event?.endCoordinates?.height || 0;
-        setKeyboardInset(Math.max(0, keyboardHeight - insets.bottom));
+        setKeyboardInset(getKeyboardLift(keyboardHeight, insets.bottom));
       }
       if (shouldAutoScrollRef.current) {
         requestAnimationFrame(() => scrollToBottom(true));

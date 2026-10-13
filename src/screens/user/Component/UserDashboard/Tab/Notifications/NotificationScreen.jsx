@@ -11,7 +11,7 @@ import {
   Image,
 } from 'react-native';
 import Text from '../../../../../../components/TranslatedText';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
@@ -83,6 +83,9 @@ const relativeTime = (iso, t = (s) => s) => {
 };
 
 const NotificationScreen = ({ onClose, onAction }) => {
+  // Explicit insets: this screen opens inside a Modal, where SafeAreaView can
+  // report 0 on Android and leave content under the status/navigation bars.
+  const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   const [filter, setFilter] = useState('all');
   const [items, setItems] = useState([]);
@@ -201,7 +204,7 @@ const NotificationScreen = ({ onClose, onAction }) => {
   };
 
   return (
-    <SafeAreaView style={s.root} edges={['top', 'bottom']}>
+    <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" backgroundColor={PATIENT.surface} />
 
       {/* Header */}
@@ -339,7 +342,7 @@ const NotificationScreen = ({ onClose, onAction }) => {
           )}
         </ScrollView>
       )}
-    </SafeAreaView>
+    </View>
   );
 };
 

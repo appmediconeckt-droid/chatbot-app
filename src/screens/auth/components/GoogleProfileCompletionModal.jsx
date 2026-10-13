@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../components/TranslatedText';
 import TextInput from '../../../components/TranslatedTextInput';
 import CountryPhoneInput from '../../../components/common/CountryPhoneInput';
@@ -23,7 +24,12 @@ import {
   splitInternationalPhoneNumber,
 } from '../../../utils/countryCodes';
 
-const readUserId = (user) => user?._id || user?.id || user?.userId || null;
+const FOCUSED_INPUT_GAP = 16;
+const FORM_PAD_BOTTOM = 6;
+const CARD_SCREEN_GAP = 120;
+const SAVE_BUTTON_GRADIENT = ['#006B2C', '#01CE54'];
+
+const readUserId =(user) => user?._id || user?.id || user?.userId || null;
 
 export const needsGoogleUserProfileCompletion = (user, isCounselor = false) => {
   if (isCounselor) return false;
@@ -43,6 +49,7 @@ const GoogleProfileCompletionModal = ({
   user,
   onComplete,
   accentColor = '#00652C',
+  gradientColors = SAVE_BUTTON_GRADIENT,
 }) => {
   const [anonymous, setAnonymous] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -51,39 +58,109 @@ const GoogleProfileCompletionModal = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [keyboardInset, setKeyboardInset] = useState(0);
-  const scrollRef = useRef(null);
-  const scrollHeightRef = useRef(0);
+  const [formHeight, setFormHeight] = useState(0);
+  const formFrameRef = useRef(null);
+  const formScrollRef = useRef(null);
+  const formContentRef = useRef(null);
+  const anonymousFieldRef = useRef(null);
+  const saveButtonRef = useRef(null);
+  const scrollTargetRef = useRef(null);
+  const formScrollHeightRef = useRef(0);
+  const formScrollYRef = useRef(0);
+  const keyboardInsetRef = useRef(0);
+  const scrollTimerRef = useRef(null);
+  // Screen (not window) height, so the card size never changes when the
+  // activity window resizes for the keyboard behind the modal.
+  const maxCardHeight = Dimensions.get('screen').height - CARD_SCREEN_GAP;
 
-  const scrollCardIntoView = () => {
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+  // Same as the Signup screen: the card and its header stay put, the fields
+  // scroll inside the card, the keyboard-covered part of the form becomes extra
+  // scroll space, and the focused field (or the Save button for the last
+  // field) is scrolled just above the keyboard inside the form.
+  const scrollTargetIntoView = useCallback(() => {
+    const target = scrollTargetRef.current?.current;
+    const content = formContentRef.current;
+    const scrollView = formScrollRef.current;
+    if (!target || !content || !scrollView || !keyboardInsetRef.current) return;
+
+    target.measureLayout(
+      content,
+      (_x, y, _width, height) => {
+        const top = y;
+        const bottom = top + height;
+        const visibleHeight = Math.max(
+          60,
+          formScrollHeightRef.current - keyboardInsetRef.current,
+        );
+        const currentY = formScrollYRef.current;
+        let nextY = currentY;
+
+        if (bottom + FOCUSED_INPUT_GAP > currentY + visibleHeight) {
+          nextY = bottom + FOCUSED_INPUT_GAP - visibleHeight;
+        } else if (top - FOCUSED_INPUT_GAP < currentY) {
+          nextY = Math.max(0, top - FOCUSED_INPUT_GAP);
+        }
+
+        if (Math.abs(nextY - currentY) > 2) {
+          scrollView.scrollTo({ y: nextY, animated: true });
+        }
+      },
+      () => {},
+    );
+  }, []);
+
+  const scheduleScrollIntoView = useCallback(
+    (delay = Platform.OS === 'ios' ? 60 : 120) => {
+      clearTimeout(scrollTimerRef.current);
+      scrollTimerRef.current = setTimeout(scrollTargetIntoView, delay);
+    },
+    [scrollTargetIntoView],
+  );
+
+  const focusField = (field, targetRef) => {
+    setFocusedField(field);
+    scrollTargetRef.current = targetRef;
+    if (keyboardInsetRef.current > 0) scheduleScrollIntoView();
   };
 
-  // Android: the modal is edge-to-edge (translucent bars), so the window does not
-  // resize for the keyboard. Add the covered area as scroll space below the card
-  // and scroll so the inputs and Save button sit above the keyboard.
+  // The modal is edge-to-edge (translucent bars), so its window is not resized
+  // for the keyboard. Reserve exactly the part of the form the keyboard covers.
   useEffect(() => {
-    if (!visible || Platform.OS !== 'android') return undefined;
+    if (!visible) return undefined;
 
-    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
       const keyboardTop = e?.endCoordinates?.screenY;
-      const scrollHeight = scrollHeightRef.current;
-      const inset =
-        scrollHeight && keyboardTop
-          ? Math.max(0, scrollHeight - keyboardTop)
-          : e?.endCoordinates?.height || 0;
-      setKeyboardInset(inset);
-      scrollCardIntoView();
+      const applyInset = (inset) => {
+        keyboardInsetRef.current = inset;
+        setKeyboardInset(inset);
+        scheduleScrollIntoView();
+      };
+
+      const frame = formFrameRef.current;
+      if (!frame || !keyboardTop) {
+        applyInset(e?.endCoordinates?.height || 0);
+        return;
+      }
+      frame.measureInWindow((_x, y, _width, height) => {
+        applyInset(Math.max(0, y + height - keyboardTop));
+      });
     });
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      keyboardInsetRef.current = 0;
       setKeyboardInset(0);
     });
 
     return () => {
+      clearTimeout(scrollTimerRef.current);
       showSub.remove();
       hideSub.remove();
+      keyboardInsetRef.current = 0;
       setKeyboardInset(0);
     };
-  }, [visible]);
+  }, [visible, scheduleScrollIntoView]);
 
   useEffect(() => {
     if (!visible) return;
@@ -186,110 +263,136 @@ const GoogleProfileCompletionModal = ({
       navigationBarTranslucent
       onRequestClose={() => {}}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.overlay}
-      >
-        <ScrollView
-          ref={scrollRef}
-          style={styles.scroll}
-          contentContainerStyle={[
-            styles.scrollContent,
-            keyboardInset > 0 && { paddingBottom: 22 + keyboardInset },
-          ]}
-          onLayout={(e) => {
-            scrollHeightRef.current = e.nativeEvent.layout.height;
-          }}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
-          <View style={styles.card}>
-            <View style={[styles.iconWrap, { backgroundColor: `${accentColor}14` }]}>
-              <Icon name="incognito-circle" size={34} color={accentColor} />
-            </View>
-            <Text style={styles.title}>Complete anonymous chat profile</Text>
-            <Text style={styles.subtitle}>
-              Add the name and phone number used for your patient chat profile.
-            </Text>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Anonymous Name</Text>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  focusedField === 'anonymous' && { borderColor: accentColor },
-                ]}
-              >
-                <Icon
-                  name="incognito-circle-outline"
-                  size={20}
-                  color={focusedField === 'anonymous' ? accentColor : '#64748b'}
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  value={anonymous}
-                  onChangeText={(value) => {
-                    setAnonymous(value);
-                    setError('');
-                  }}
-                  onFocus={() => setFocusedField('anonymous')}
-                  onBlur={() => setFocusedField('')}
-                  placeholder="Anonymous Name"
-                  placeholderTextColor="#94a3b8"
-                  style={styles.textInput}
-                  autoCapitalize="words"
-                  editable={!saving}
-                />
-              </View>
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Phone Number</Text>
-              <CountryPhoneInput
-                value={phoneNumber}
-                countryCode={phoneCountryCode}
-                onChangePhoneNumber={(value) => {
-                  setPhoneNumber(value);
-                  setError('');
-                }}
-                onChangeCountryCode={(code) => {
-                  setPhoneCountryCode(code);
-                  setError('');
-                }}
-                focused={focusedField === 'phone'}
-                onFocus={() => {
-                  setFocusedField('phone');
-                  if (keyboardInset > 0) scrollCardIntoView();
-                }}
-                onBlur={() => setFocusedField('')}
-                accentColor={accentColor}
-                containerStyle={styles.phoneInputWrapper}
-                inputStyle={styles.phoneTextInput}
-              />
-            </View>
-
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-            <TouchableOpacity
-              activeOpacity={0.9}
-              onPress={handleSave}
-              disabled={saving}
-              style={[
-                styles.saveButton,
-                { backgroundColor: accentColor, shadowColor: accentColor },
-                saving && styles.saveButtonDisabled,
-              ]}
-            >
-              {saving ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.saveButtonText}>Save & Continue</Text>
-              )}
-            </TouchableOpacity>
+      <View style={styles.overlay}>
+        <View style={[styles.card, { maxHeight: maxCardHeight }]}>
+          <View style={[styles.iconWrap, { backgroundColor: `${accentColor}14` }]}>
+            <Icon name="incognito-circle" size={34} color={accentColor} />
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          <Text style={styles.title}>Complete anonymous chat profile</Text>
+          <Text style={styles.subtitle}>
+            Add the name and phone number used for your patient chat profile.
+          </Text>
+
+          {/* Fixed-height frame: the keyboard padding grows the scroll content,
+              never the card, so the card does not move. */}
+          <View
+            ref={formFrameRef}
+            collapsable={false}
+            style={[styles.formFrame, formHeight > 0 && { height: formHeight }]}
+          >
+            <ScrollView
+              ref={formScrollRef}
+              contentContainerStyle={[
+                styles.formContent,
+                keyboardInset > 0 && {
+                  paddingBottom: FORM_PAD_BOTTOM + keyboardInset,
+                },
+              ]}
+              onLayout={(e) => {
+                formScrollHeightRef.current = e.nativeEvent.layout.height;
+                if (keyboardInsetRef.current > 0) scheduleScrollIntoView(40);
+              }}
+              onContentSizeChange={(_width, height) => {
+                if (keyboardInsetRef.current > 0) return;
+                const next = Math.ceil(height);
+                setFormHeight((prev) => (Math.abs(prev - next) > 1 ? next : prev));
+              }}
+              onScroll={(e) => {
+                formScrollYRef.current = e.nativeEvent.contentOffset.y;
+              }}
+              scrollEventThrottle={16}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+            >
+              <View ref={formContentRef} collapsable={false}>
+                <View ref={anonymousFieldRef} collapsable={false} style={styles.field}>
+                  <Text style={styles.label}>Anonymous Name</Text>
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      focusedField === 'anonymous' && { borderColor: accentColor },
+                    ]}
+                  >
+                    <Icon
+                      name="incognito-circle-outline"
+                      size={20}
+                      color={focusedField === 'anonymous' ? accentColor : '#64748b'}
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      value={anonymous}
+                      onChangeText={(value) => {
+                        setAnonymous(value);
+                        setError('');
+                      }}
+                      onFocus={() => focusField('anonymous', anonymousFieldRef)}
+                      onBlur={() => setFocusedField('')}
+                      placeholder="Anonymous Name"
+                      placeholderTextColor="#94a3b8"
+                      style={styles.textInput}
+                      autoCapitalize="words"
+                      editable={!saving}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.field}>
+                  <Text style={styles.label}>Phone Number</Text>
+                  <CountryPhoneInput
+                    value={phoneNumber}
+                    countryCode={phoneCountryCode}
+                    onChangePhoneNumber={(value) => {
+                      setPhoneNumber(value);
+                      setError('');
+                    }}
+                    onChangeCountryCode={(code) => {
+                      setPhoneCountryCode(code);
+                      setError('');
+                    }}
+                    focused={focusedField === 'phone'}
+                    // Last field: bring the Save button into view too.
+                    onFocus={() => focusField('phone', saveButtonRef)}
+                    onBlur={() => setFocusedField('')}
+                    accentColor={accentColor}
+                    containerStyle={styles.phoneInputWrapper}
+                    inputStyle={styles.phoneTextInput}
+                  />
+                </View>
+
+                {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+                <View ref={saveButtonRef} collapsable={false}>
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    onPress={handleSave}
+                    disabled={saving}
+                    style={[
+                      styles.saveButtonWrap,
+                      { shadowColor: accentColor },
+                      saving && styles.saveButtonDisabled,
+                    ]}
+                  >
+                    {/* Same brand gradient as the Signup "Create Account" button. */}
+                    <LinearGradient
+                      colors={gradientColors}
+                      start={{ x: 0, y: 0.5 }}
+                      end={{ x: 1, y: 0.5 }}
+                      style={styles.saveButton}
+                    >
+                      {saving ? (
+                        <ActivityIndicator color="#fff" />
+                      ) : (
+                        <Text style={styles.saveButtonText}>Save & Continue</Text>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </View>
     </Modal>
   );
 };
@@ -298,15 +401,16 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.66)',
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 22,
+  },
+  formFrame: {
+    flexShrink: 1,
+    minHeight: 0,
+  },
+  formContent: {
+    paddingBottom: FORM_PAD_BOTTOM,
   },
   card: {
     width: '100%',
@@ -396,15 +500,20 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 14,
   },
+  saveButtonWrap: {
+    width: '100%',
+    borderRadius: 16,
+    backgroundColor: '#006B2C',
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 5,
+  },
   saveButton: {
     width: '100%',
     height: 54,
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    elevation: 5,
   },
   saveButtonDisabled: {
     opacity: 0.65,

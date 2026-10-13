@@ -11,7 +11,7 @@
 // The base profile created at signup arrives via `route.params.doctorProfileBase`
 // and is handed on to DoctorDashboard unchanged (cached as `doctorMockProfile`,
 // the key DoctorDashboard reads — see DoctorSignup.jsx).
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, TouchableOpacity, StatusBar, Animated, Easing, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -206,23 +206,23 @@ const ART = { welcome: WelcomeArt, calendar: CalendarArt, queue: QueueArt, recor
 // ---------------------------------------------------------------------------
 // One slide: parallax on the illustration and text, driven by scrollX.
 // ---------------------------------------------------------------------------
-const Slide = ({ slide, index, scrollX, float, t, pulse, pop }) => {
-  const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
+const Slide = ({ slide, index, scrollX, float, t, pulse, pop, pageWidth }) => {
+  const inputRange = [(index - 1) * pageWidth, index * pageWidth, (index + 1) * pageWidth];
   const artStyle = {
     opacity: scrollX.interpolate({ inputRange, outputRange: [0, 1, 0], extrapolate: 'clamp' }),
     transform: [
-      { translateX: scrollX.interpolate({ inputRange, outputRange: [width * 0.4, 0, -width * 0.4], extrapolate: 'clamp' }) },
+      { translateX: scrollX.interpolate({ inputRange, outputRange: [pageWidth * 0.4, 0, -pageWidth * 0.4], extrapolate: 'clamp' }) },
       { scale: scrollX.interpolate({ inputRange, outputRange: [0.8, 1, 0.8], extrapolate: 'clamp' }) },
     ],
   };
   const textStyle = (depth) => ({
     opacity: scrollX.interpolate({ inputRange, outputRange: [0, 1, 0], extrapolate: 'clamp' }),
-    transform: [{ translateX: scrollX.interpolate({ inputRange, outputRange: [width * depth, 0, -width * depth], extrapolate: 'clamp' }) }],
+    transform: [{ translateX: scrollX.interpolate({ inputRange, outputRange: [pageWidth * depth, 0, -pageWidth * depth], extrapolate: 'clamp' }) }],
   });
   const Art = ART[slide.key];
 
   return (
-    <View style={s.slide}>
+    <View style={[s.slide, { width: pageWidth }]}>
       <Animated.View style={[s.artArea, artStyle]}>
         <Art float={float} t={t} pulse={pulse} pop={pop} />
       </Animated.View>
@@ -246,22 +246,6 @@ const Slide = ({ slide, index, scrollX, float, t, pulse, pop }) => {
   );
 };
 
-// Pill-shaped active dot that stretches between pages as you swipe.
-const Dot = ({ index, scrollX }) => {
-  const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
-  return (
-    <Animated.View
-      style={[
-        s.dot,
-        {
-          opacity: scrollX.interpolate({ inputRange, outputRange: [0.35, 1, 0.35], extrapolate: 'clamp' }),
-          transform: [{ scaleX: scrollX.interpolate({ inputRange, outputRange: [1, 3, 1], extrapolate: 'clamp' }) }],
-        },
-      ]}
-    />
-  );
-};
-
 const DoctorOnboarding = ({ navigation, route }) => {
   const { t } = useLanguageRender();
   const [page, setPage] = useState(0);
@@ -271,8 +255,12 @@ const DoctorOnboarding = ({ navigation, route }) => {
   const intro = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current; // halo breathing
   const pop = useRef(new Animated.Value(1)).current; // cards pop on each new slide
-  const nudge = useRef(new Animated.Value(0)).current; // "Next" arrow hint
-  const press = useRef(new Animated.Value(1)).current; // button press
+  // Real pager width from onLayout. The module-level window width can differ
+  // slightly from the pager's actual width on some phones; slides then didn't
+  // add up to whole pages and swiping to the last slide snapped back to the 3rd.
+  const [pageWidth, setPageWidth] = useState(width);
+  const pageWidthRef = useRef(width);
+  const pageRef = useRef(0);
   const isLast = page === SLIDES.length - 1;
 
   useEffect(() => {
@@ -282,10 +270,10 @@ const DoctorOnboarding = ({ navigation, route }) => {
       Animated.timing(value, { toValue: 1, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
       Animated.timing(value, { toValue: 0, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
     ]));
-    const loops = [back(float, 850), back(pulse, 1200), back(nudge, 450)];
+    const loops = [back(float, 850), back(pulse, 1200)];
     loops.forEach((l) => l.start());
     return () => loops.forEach((l) => l.stop());
-  }, [float, intro, nudge, pulse]);
+  }, [float, intro, pulse]);
 
   // Each time a new slide settles, its illustration cards pop in.
   useEffect(() => {
@@ -293,12 +281,14 @@ const DoctorOnboarding = ({ navigation, route }) => {
     Animated.spring(pop, { toValue: 1, speed: 22, bounciness: 11, useNativeDriver: true }).start();
   }, [page, pop]);
 
-  const pressTo = (toValue) => Animated.spring(press, { toValue, speed: 40, bounciness: 8, useNativeDriver: true }).start();
-
   const finishOnboarding = useCallback(() => {
     const destination = route?.params?.destination || 'DoctorDashboard';
     const destinationParams = route?.params?.destinationParams || {};
-    const profile = route?.params?.doctorProfileBase || {};
+    const profile = route?.params?.doctorProfileBase;
+    if (!profile) {
+      enterAuthenticatedRoute(navigation, destination, destinationParams);
+      return;
+    }
     AsyncStorage.setItem('doctorMockProfile', JSON.stringify(profile)).catch(() => {});
     enterAuthenticatedRoute(navigation, destination, { ...destinationParams, doctorProfile: profile });
   }, [navigation, route?.params]);
@@ -308,19 +298,36 @@ const DoctorOnboarding = ({ navigation, route }) => {
       finishOnboarding();
       return;
     }
-    scrollRef.current?.scrollTo({ x: (page + 1) * width, animated: true });
-  }, [finishOnboarding, isLast, page]);
+    scrollRef.current?.scrollTo({ x: (page + 1) * pageWidth, animated: true });
+  }, [finishOnboarding, isLast, page, pageWidth]);
 
-  const onScroll = Animated.event(
+  // Created once: a new native-driven Animated.event on every render (the page
+  // changes mid-swipe) re-attached the scroll handler during the gesture.
+  const onScroll = useMemo(() => Animated.event(
     [{ nativeEvent: { contentOffset: { x: scrollX } } }],
     {
       useNativeDriver: true,
       listener: (e) => {
-        const next = Math.round(e.nativeEvent.contentOffset.x / width);
+        const next = Math.min(
+          SLIDES.length - 1,
+          Math.max(0, Math.round(e.nativeEvent.contentOffset.x / pageWidthRef.current)),
+        );
+        pageRef.current = next;
         setPage((prev) => (prev === next ? prev : next));
       },
     },
-  );
+  ), [scrollX]);
+
+  const onPagerLayout = useCallback((e) => {
+    const nextWidth = e.nativeEvent.layout.width;
+    if (!nextWidth || Math.abs(nextWidth - pageWidthRef.current) < 0.5) return;
+    pageWidthRef.current = nextWidth;
+    setPageWidth(nextWidth);
+    // Keep the current slide in place after the width correction.
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ x: pageRef.current * nextWidth, animated: false });
+    });
+  }, []);
 
   return (
     <SafeAreaView style={s.container} edges={['top', 'bottom']}>
@@ -335,11 +342,9 @@ const DoctorOnboarding = ({ navigation, route }) => {
           <LinearGradient colors={GRADIENT} style={s.brandMark}><Icon name="stethoscope" size={14} color="#FFF" /></LinearGradient>
           <Text style={s.brandText}>Humaeli <Text style={s.brandSub}>{t('for Doctors')}</Text></Text>
         </View>
-        {!isLast ? (
-          <TouchableOpacity onPress={finishOnboarding} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Text style={s.skipText}>{t('Skip')}</Text>
-          </TouchableOpacity>
-        ) : <View />}
+        <TouchableOpacity onPress={finishOnboarding} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Text style={s.skipText}>{t('Skip')}</Text>
+        </TouchableOpacity>
       </View>
 
       <Animated.ScrollView
@@ -351,35 +356,32 @@ const DoctorOnboarding = ({ navigation, route }) => {
         showsHorizontalScrollIndicator={false}
         scrollEventThrottle={16}
         onScroll={onScroll}
+        onLayout={onPagerLayout}
         style={[s.pager, { opacity: intro, transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }] }]}
       >
         {SLIDES.map((slide, index) => (
-          <Slide key={slide.key} slide={slide} index={index} scrollX={scrollX} float={float} t={t} pulse={pulse} pop={index === page ? pop : undefined} />
+          <Slide key={slide.key} slide={slide} index={index} pageWidth={pageWidth} scrollX={scrollX} float={float} t={t} pulse={pulse} pop={index === page ? pop : undefined} />
         ))}
       </Animated.ScrollView>
 
-      <View style={s.footer}>
-        <View style={s.dots}>
-          {SLIDES.map((slide, index) => <Dot key={slide.key} index={index} scrollX={scrollX} />)}
-        </View>
-        <Animated.View style={[s.ctaWrap, { transform: [{ scale: press }] }]}>
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={goNext}
-            onPressIn={() => pressTo(0.95)}
-            onPressOut={() => pressTo(1)}
-          >
-            <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.cta}>
-              <Text style={s.ctaText}>{isLast ? t('Go to Dashboard') : t('Next')}</Text>
-              <Animated.View
-                style={[s.ctaIcon, !isLast && { transform: [{ translateX: nudge.interpolate({ inputRange: [0, 1], outputRange: [0, 4] }) }] }]}
-              >
-                <Ionicons name={isLast ? 'checkmark' : 'arrow-forward'} size={17} color={CLINICIAN.gradientFrom} />
-              </Animated.View>
-            </LinearGradient>
-          </TouchableOpacity>
-        </Animated.View>
+      <View style={s.dotsContainer}>
+        {SLIDES.map((slide, index) => (
+          <View
+            key={slide.key}
+            style={[
+              s.dot,
+              index === page ? s.dotActive : s.dotInactive,
+            ]}
+          />
+        ))}
       </View>
+
+      <TouchableOpacity activeOpacity={0.85} onPress={goNext} style={s.buttonWrapper}>
+        <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.nextBtn}>
+          <Text style={s.nextBtnText}>{isLast ? t('Get Started') : t('Next')}</Text>
+          {!isLast && <Ionicons name="arrow-forward" size={20} color="#ffffff" />}
+        </LinearGradient>
+      </TouchableOpacity>
     </SafeAreaView>
   );
 };
@@ -400,7 +402,9 @@ const s = createDoctorStyles({
   skipText: { fontSize: 14, fontWeight: '700', color: '#64748B' },
 
   pager: { flex: 1 },
-  slide: { width, flex: 1, paddingHorizontal: 24 },
+  // No flex: 1 — in a horizontal pager that flexes the width (flexBasis 0),
+  // overriding the exact page width. Height fills via cross-axis stretch.
+  slide: { paddingHorizontal: 24 },
   artArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   textArea: { paddingBottom: 8, alignItems: 'center' },
 
@@ -458,13 +462,13 @@ const s = createDoctorStyles({
   point: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CCFBF1' },
   pointText: { fontSize: 12, fontWeight: '700', color: '#0F766E' },
 
-  footer: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 14 },
-  dots: { flexDirection: 'row', justifyContent: 'center', gap: 14, marginBottom: 16 },
+  dotsContainer: { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 20 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: CLINICIAN.primary },
-  ctaWrap: { borderRadius: 16, ...CARD_SHADOW, shadowColor: CLINICIAN.gradientFrom, shadowOpacity: 0.3 },
-  cta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, borderRadius: 16, paddingVertical: 15 },
-  ctaText: { fontSize: 16, fontWeight: '800', color: '#FFFFFF' },
-  ctaIcon: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  dotActive: { backgroundColor: CLINICIAN.primary, width: 24 },
+  dotInactive: { backgroundColor: '#cbd5e1', width: 8 },
+  buttonWrapper: { paddingHorizontal: 20, marginBottom: 20 },
+  nextBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 14 },
+  nextBtnText: { fontSize: 16, fontWeight: '800', color: '#FFFFFF' },
 });
 
 export default DoctorOnboarding;

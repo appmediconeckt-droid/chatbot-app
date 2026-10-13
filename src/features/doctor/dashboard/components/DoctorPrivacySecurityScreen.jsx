@@ -168,7 +168,7 @@ export default function DoctorPrivacySecurityScreen({ onBack, navigation, onLogo
 
         <Pressable onPress={onLogout} style={s.logoutBtn}>
           <AppIcon name="logout" size={17} color="#FFF" strokeWidth={2} />
-          <Text style={s.logoutText}>Log Out of This Device</Text>
+          <Text style={s.logoutText}>Logout</Text>
         </Pressable>
       </ScrollView>
     </View>

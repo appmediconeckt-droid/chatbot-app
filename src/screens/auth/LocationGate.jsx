@@ -10,6 +10,7 @@ import {
   StatusBar,
   ScrollView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../../components/TranslatedText';
 import { PermissionsAndroid } from 'react-native';
 import { captureAndSendLocation } from '../../utils/locationHelper';
@@ -78,6 +79,7 @@ const REASONS = [
 // phase: idle | requesting | locating | denied | never_ask_again
 const LocationGate = ({ navigation, route }) => {
   const { t } = useLanguageRender();
+  const insets = useSafeAreaInsets();
   const { destination, destinationParams = {} } = route.params;
 
   // Role → theme: counselor = blue, doctor/staff = teal (doctor dashboard),
@@ -283,7 +285,8 @@ const LocationGate = ({ navigation, route }) => {
       <View style={[styles.blobBottomLeft, { backgroundColor: C.blob2 }]} />
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        style={styles.scroll}
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + 46 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -314,6 +317,12 @@ const LocationGate = ({ navigation, route }) => {
         </Text>
 
         {renderWarningBanner()}
+      </ScrollView>
+
+      {/* Actions pinned to the bottom, above the system navigation bar
+          (3-button nav bars covered them when they sat at the end of the
+          scroll content on edge-to-edge Android). */}
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 6 }]}>
         {renderPrimaryButton()}
         {renderSkipButton()}
 
@@ -323,7 +332,7 @@ const LocationGate = ({ navigation, route }) => {
             Skipping will limit your experience. You can enable location anytime in Settings.
           </Text>
         )}
-      </ScrollView>
+      </View>
     </View>
   );
 };
@@ -354,13 +363,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#a7f3d0',
     opacity: 0.4,
   },
+  scroll: {
+    flex: 1,
+  },
   content: {
     flexGrow: 1,
     paddingHorizontal: 24,
     paddingTop: 70,
-    paddingBottom: 48,
+    paddingBottom: 12,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  footer: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    alignItems: 'center',
   },
   pinCircle: {
     width: 100,

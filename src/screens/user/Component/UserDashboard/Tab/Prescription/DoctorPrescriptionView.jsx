@@ -6,7 +6,6 @@ import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Modal,
   Platform,
   Pressable,
@@ -30,6 +29,15 @@ import {
   printPrescription,
 } from '../../../../../../utils/printPrescription';
 import { displayDownloadNotification } from '../../../../../../services/notificationService';
+import { PrescriptionPaper } from '../../../counselor-dashboard/Tab/Prescriptions/PrescriptionReviews';
+import { doctorRxToPaper } from '../../../../../../utils/prescriptionPaper';
+import {
+  DEFAULT_PRESCRIPTION_THEME_ID,
+  getPrescriptionFestivalTheme,
+} from '../../../../../../utils/prescriptionFestivalThemes';
+
+// Doctor prescriptions have no theme picker — the default page background.
+const DOCTOR_PAPER_THEME = getPrescriptionFestivalTheme(DEFAULT_PRESCRIPTION_THEME_ID);
 
 // Patient-side screens use the green patient gradient; only the role badge
 // says whether a doctor or a psychiatrist wrote the prescription.
@@ -39,32 +47,6 @@ const THEME = {
   soft: '#F0FDF4',
   border: '#BBF7D0',
 };
-
-const ROLE_BADGES = {
-  doctor: { label: 'Doctor', icon: 'medkit', color: '#006B2C' },
-  psychiatrist: {
-    label: 'Psychiatrist',
-    icon: 'chatbubble-ellipses',
-    color: '#7E22CE',
-  },
-};
-
-const TIMING_ICONS = {
-  morning: 'sunny-outline',
-  afternoon: 'partly-sunny-outline',
-  evening: 'cloudy-night-outline',
-  night: 'moon-outline',
-};
-
-const getInitials = (name = '') =>
-  name
-    .replace(/^dr\.?\s*/i, '')
-    .split(' ')
-    .filter(Boolean)
-    .map(w => w[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase() || 'DR';
 
 const formatLongDate = value => {
   if (!value) return '—';
@@ -76,41 +58,6 @@ const formatLongDate = value => {
     year: 'numeric',
   });
 };
-
-// "in 6 days" / "tomorrow" / "today" / "was 2 days ago" for the follow-up.
-const relativeDays = value => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  date.setHours(0, 0, 0, 0);
-  const days = Math.round((date - today) / 86400000);
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Tomorrow';
-  if (days > 1) return `In ${days} days`;
-  return days === -1 ? 'Was yesterday' : `Was ${-days} days ago`;
-};
-
-const InfoCell = ({ label, value }) => (
-  <View style={styles.infoCell}>
-    <Text style={styles.infoLabel}>{label}</Text>
-    <Text translate={false} style={styles.infoValue} numberOfLines={2}>
-      {value || '—'}
-    </Text>
-  </View>
-);
-
-const Section = ({ icon, title, theme, children }) => (
-  <View style={styles.section}>
-    <View style={styles.sectionHead}>
-      <Ionicons name={icon} size={15} color={theme.accent} />
-      <Text style={[styles.sectionTitle, { color: theme.accent }]}>
-        {title}
-      </Text>
-    </View>
-    {children}
-  </View>
-);
 
 // A Modal is its own native window, so it gets its own SafeAreaProvider: the
 // insets are then measured for this window (status bar + navigation bar).
@@ -135,8 +82,6 @@ export default function DoctorPrescriptionView({ rx, onClose }) {
     </Modal>
   );
 }
-
-const HUMAELI_LOGO = require('../../../../../../image/HumaeliIcon.png');
 
 // Plain-text copy of one visit's prescription for the share sheet
 // (WhatsApp, email, Drive…).
@@ -241,15 +186,6 @@ function PrescriptionContent({ rx: group, onClose }) {
     }
   };
   const theme = THEME;
-  const role = ROLE_BADGES[rx.kind] || ROLE_BADGES.doctor;
-  const mode = String(rx.consultationMode || '').toLowerCase();
-  const modeLabel = mode.includes('chat')
-    ? 'Chat'
-    : mode.includes('video')
-    ? 'Video'
-    : mode.includes('voice') || mode.includes('phone')
-    ? 'Voice'
-    : 'In-clinic';
 
   return (
     <View style={styles.root}>
@@ -323,295 +259,14 @@ function PrescriptionContent({ rx: group, onClose }) {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.paper}>
-          {/* Hospital / clinic letterhead */}
-          <LinearGradient
-            colors={theme.gradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.letterhead}
-          >
-            <View style={styles.logoWrap}>
-              <Image source={HUMAELI_LOGO} style={styles.logo} />
-            </View>
-            <View style={styles.letterheadText}>
-              <Text
-                translate={false}
-                style={styles.clinicName}
-                numberOfLines={2}
-              >
-                {rx.clinic?.name || 'Humaeli Health'}
-              </Text>
-              {rx.clinic?.location ? (
-                <View style={styles.clinicLine}>
-                  <Ionicons name="location-outline" size={12} color="#E8FFF0" />
-                  <Text
-                    translate={false}
-                    style={styles.clinicLineText}
-                    numberOfLines={2}
-                  >
-                    {rx.clinic.location}
-                  </Text>
-                </View>
-              ) : (
-                <Text style={styles.clinicLineText}>Digital Prescription</Text>
-              )}
-              {!!rx.clinic?.phone && (
-                <View style={styles.clinicLine}>
-                  <Ionicons name="call-outline" size={12} color="#E8FFF0" />
-                  <Text translate={false} style={styles.clinicLineText}>
-                    {rx.clinic.phone}
-                  </Text>
-                </View>
-              )}
-            </View>
-          </LinearGradient>
-
-          {/* Doctor */}
-          <View style={styles.doctorRow}>
-            <View style={[styles.avatar, { backgroundColor: theme.soft }]}>
-              <Text
-                translate={false}
-                style={[styles.avatarText, { color: theme.accent }]}
-              >
-                {getInitials(rx.doctorName)}
-              </Text>
-            </View>
-            <View style={styles.letterheadText}>
-              <Text
-                translate={false}
-                style={styles.doctorName}
-                numberOfLines={2}
-              >
-                {rx.doctorName}
-              </Text>
-              <Text
-                translate={false}
-                style={styles.specialization}
-                numberOfLines={1}
-              >
-                {rx.specialization}
-              </Text>
-            </View>
-            <View style={[styles.roleBadge, { borderColor: role.color }]}>
-              <Ionicons name={role.icon} size={11} color={role.color} />
-              <Text style={[styles.roleBadgeText, { color: role.color }]}>
-                {role.label}
-              </Text>
-            </View>
-          </View>
-          <View style={[styles.doubleRule, { borderColor: theme.accent }]} />
-
-          {/* Patient / visit details */}
-          <View style={styles.infoGrid}>
-            <InfoCell label="Patient" value={rx.patientName || 'You'} />
-            <InfoCell label="Date" value={formatLongDate(rx.date)} />
-            <InfoCell label="Consultation" value={modeLabel} />
-            {/* Chat prescriptions have no queue token; show the Rx number instead. */}
-            {rx.tokenNumber || !rx.rxNumber ? (
-              <InfoCell
-                label="Token"
-                value={rx.tokenNumber ? `#${rx.tokenNumber}` : '—'}
-              />
-            ) : (
-              <InfoCell label="Rx No." value={rx.rxNumber} />
-            )}
-          </View>
-
-          <View style={styles.dashed} />
-
-          {!!rx.complaint && (
-            <Section
-              icon="chatbox-ellipses-outline"
-              title="Complaint"
-              theme={theme}
-            >
-              <Text translate={false} style={styles.bodyText}>
-                {rx.complaint}
-              </Text>
-            </Section>
-          )}
-
-          {!!rx.diagnosis && (
-            <Section icon="pulse-outline" title="Diagnosis" theme={theme}>
-              <View
-                style={[
-                  styles.diagnosisBox,
-                  { backgroundColor: theme.soft, borderColor: theme.border },
-                ]}
-              >
-                <Text translate={false} style={styles.diagnosisText}>
-                  {rx.diagnosis}
-                </Text>
-              </View>
-            </Section>
-          )}
-
-          {/* ℞ medicines */}
-          <View style={styles.rxHead}>
-            <Text style={[styles.rxSymbol, { color: theme.accent }]}>℞</Text>
-            <View style={styles.rxHeadText}>
-              <Text style={styles.rxTitle}>Medicines</Text>
-              <Text style={styles.rxCount}>
-                {rx.medicines.length}{' '}
-                {rx.medicines.length === 1 ? 'item' : 'items'}
-              </Text>
-            </View>
-          </View>
-
-          {rx.medicines.length === 0 ? (
-            <Text style={styles.emptyText}>No medicines prescribed.</Text>
-          ) : (
-            rx.medicines.map((medicine, index) => (
-              <View key={`${rx.id}-med-${index}`} style={styles.medicine}>
-                <View
-                  style={[styles.medIndex, { backgroundColor: theme.soft }]}
-                >
-                  <Text style={[styles.medIndexText, { color: theme.accent }]}>
-                    {index + 1}
-                  </Text>
-                </View>
-                <View style={styles.medBody}>
-                  <View style={styles.medTopRow}>
-                    <Text translate={false} style={styles.medName}>
-                      {medicine.name}
-                    </Text>
-                    {!!medicine.duration && (
-                      <View style={styles.durationPill}>
-                        <Ionicons
-                          name="time-outline"
-                          size={12}
-                          color="#475569"
-                        />
-                        <Text translate={false} style={styles.durationText}>
-                          {medicine.duration}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  {!!medicine.dosage && (
-                    <Text translate={false} style={styles.medDosage}>
-                      {medicine.dosage}
-                    </Text>
-                  )}
-                  {medicine.timings.length > 0 && (
-                    <View style={styles.timingRow}>
-                      {medicine.timings.map(timing => (
-                        <View
-                          key={timing}
-                          style={[
-                            styles.timingChip,
-                            { borderColor: theme.border },
-                          ]}
-                        >
-                          <Ionicons
-                            name={
-                              TIMING_ICONS[timing.toLowerCase()] ||
-                              'alarm-outline'
-                            }
-                            size={12}
-                            color={theme.accent}
-                          />
-                          <Text
-                            style={[styles.timingText, { color: theme.accent }]}
-                          >
-                            {timing}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                </View>
-              </View>
-            ))
-          )}
-
-          {!!rx.advice && (
-            <Section icon="bulb-outline" title="Advice" theme={theme}>
-              <View style={styles.adviceBox}>
-                <Text translate={false} style={styles.bodyText}>
-                  {rx.advice}
-                </Text>
-              </View>
-            </Section>
-          )}
-
-          {rx.tests.length > 0 && (
-            <Section
-              icon="flask-outline"
-              title="Recommended tests"
-              theme={theme}
-            >
-              {rx.tests.map(test => (
-                <View key={test} style={styles.testRow}>
-                  <View
-                    style={[styles.testDot, { backgroundColor: theme.accent }]}
-                  />
-                  <Text translate={false} style={styles.bodyText}>
-                    {test}
-                  </Text>
-                </View>
-              ))}
-            </Section>
-          )}
-
-          {!!rx.additionalNotes && (
-            <Section
-              icon="document-text-outline"
-              title="Doctor's notes"
-              theme={theme}
-            >
-              <Text translate={false} style={styles.bodyText}>
-                {rx.additionalNotes}
-              </Text>
-            </Section>
-          )}
-
-          {!!rx.followUpDate && (
-            <LinearGradient
-              colors={[theme.soft, '#FFFFFF']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={[styles.followUp, { borderColor: theme.border }]}
-            >
-              <View
-                style={[styles.followUpIcon, { backgroundColor: theme.accent }]}
-              >
-                <Ionicons name="calendar" size={18} color="#FFFFFF" />
-              </View>
-              <View style={styles.followUpTextWrap}>
-                <Text style={styles.followUpLabel}>Follow-up visit</Text>
-                <Text translate={false} style={styles.followUpDate}>
-                  {formatLongDate(rx.followUpDate)}
-                </Text>
-              </View>
-              <Text style={[styles.followUpRelative, { color: theme.accent }]}>
-                {relativeDays(rx.followUpDate)}
-              </Text>
-            </LinearGradient>
-          )}
-
-          {/* Signature footer */}
-          <View style={styles.footer}>
-            <View style={styles.signature}>
-              <Text
-                translate={false}
-                style={[styles.signatureName, { color: theme.accent }]}
-              >
-                {rx.doctorName}
-              </Text>
-              <View style={styles.signatureLine} />
-              <Text style={styles.signatureLabel}>Signature</Text>
-            </View>
-            <View style={styles.verified}>
-              <Ionicons name="shield-checkmark" size={14} color="#16A34A" />
-              <Text style={styles.verifiedText}>
-                Digitally issued by Humaeli
-              </Text>
-            </View>
-          </View>
-        </View>
-
+        {/* Same prescription page as the psychiatrist preview (PrescriptionPaper),
+            filled with this visit; doctor-only parts (diagnosis, advice, tests,
+            notes, follow-up) use the paper's complaint / instruction styles. */}
+        <PrescriptionPaper
+          {...doctorRxToPaper(rx)}
+          themeImage={DOCTOR_PAPER_THEME.image}
+          patientName={rx.patientName || 'You'}
+        />
         <View style={styles.disclaimer}>
           <Ionicons
             name="information-circle-outline"

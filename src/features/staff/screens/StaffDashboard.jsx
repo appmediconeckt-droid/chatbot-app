@@ -85,7 +85,7 @@ export default function StaffDashboard({ navigation }) {
   const firstName = staff.firstName || staff.name.split(' ')[0] || 'there';
 
   return (
-    <SafeAreaView style={s.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={s.safeArea} edges={['top', 'left', 'right', 'bottom']}>
       <ScrollView
         contentContainerStyle={s.content}
         showsVerticalScrollIndicator={false}

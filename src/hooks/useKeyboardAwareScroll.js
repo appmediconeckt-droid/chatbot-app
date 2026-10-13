@@ -6,17 +6,33 @@ import { Dimensions, findNodeHandle, Keyboard, Platform, TextInput, UIManager } 
 // that the window did not already lose, so keyboard space is never counted twice.
 const FOCUSED_INPUT_GAP = 28;
 
-const useKeyboardAwareScroll = () => {
+// Optional `frameRef`: a view wrapping a scroll view that does not reach the
+// bottom of the screen (e.g. a form scrolling inside a card). `frameInset` is
+// then only the part of that frame the keyboard covers, rather than the full
+// keyboard height; without `frameRef` it equals `keyboardInset`.
+// `frameIsScroll: true` measures the scroll view itself instead (for a
+// ScrollView that ends above the screen bottom, e.g. above a tab bar).
+const useKeyboardAwareScroll = ({ frameRef, frameIsScroll = false } = {}) => {
   const scrollRef = useRef(null);
   const baseHeightRef = useRef(Dimensions.get('window').height);
   const focusedInputHandleRef = useRef(null);
+  // The input that was focused when focusedInputHandleRef was last set.
+  const requestedByInputRef = useRef(null);
   const keyboardInsetRef = useRef(0);
+  const frameInsetRef = useRef(0);
   const keyboardOpenRef = useRef(false);
   const scrollOffsetYRef = useRef(0);
   const scrollViewHeightRef = useRef(0);
   const scrollTimerRef = useRef(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
+  // Where the keyboard's top edge actually is, in screen coordinates (0 when
+  // it is hidden). The app is edge-to-edge, so window and screen coordinates
+  // match — Modals included — which makes this the one measurement that is
+  // correct whether Android resized the window for the keyboard or simply
+  // overlaid it. Useful for a panel that must end exactly above it.
+  const [keyboardTop, setKeyboardTop] = useState(0);
+  const [frameInset, setFrameInset] = useState(0);
 
   const clearScrollTimer = useCallback(() => {
     if (scrollTimerRef.current) {
@@ -55,7 +71,7 @@ const useKeyboardAwareScroll = () => {
           const viewportHeight = scrollViewHeightRef.current || Dimensions.get('window').height;
           const visibleHeight = Math.max(
             80,
-            viewportHeight - (Platform.OS === 'android' ? keyboardInsetRef.current : 0)
+            viewportHeight - (Platform.OS === 'android' || frameRef || frameIsScroll ? frameInsetRef.current : 0)
           );
           const currentY = scrollOffsetYRef.current;
           const inputTop = y;
@@ -78,7 +94,7 @@ const useKeyboardAwareScroll = () => {
     } catch (_error) {
       fallbackScrollToKeyboard(inputNode, animated);
     }
-  }, [fallbackScrollToKeyboard]);
+  }, [fallbackScrollToKeyboard, frameRef, frameIsScroll]);
 
   const scheduleScrollFocusedInputIntoView = useCallback((animated = true, delay) => {
     clearScrollTimer();
@@ -101,21 +117,59 @@ const useKeyboardAwareScroll = () => {
       // Inputs inside child components (e.g. a location search box) don't call
       // scrollFocusedInputIntoView themselves — pick up whichever input
       // actually opened the keyboard so it is still scrolled into view.
+      // Only when focus actually moved: if the focused input already asked
+      // for a different target (e.g. password -> Login button), keep it.
       const focusedInput = TextInput.State?.currentlyFocusedInput?.();
-      if (focusedInput) focusedInputHandleRef.current = focusedInput;
+      if (focusedInput && focusedInput !== requestedByInputRef.current) {
+        focusedInputHandleRef.current = focusedInput;
+        requestedByInputRef.current = focusedInput;
+      }
 
       keyboardInsetRef.current = nextInset;
       keyboardOpenRef.current = true;
       setKeyboardInset(nextInset);
+      setKeyboardTop(event?.endCoordinates?.screenY
+        || Math.max(0, Dimensions.get('window').height - nextInset));
       setKeyboardOpen(true);
-      scheduleScrollFocusedInputIntoView(false, Platform.OS === 'ios' ? 60 : 80);
+
+      const applyFrameInset = inset => {
+        frameInsetRef.current = inset;
+        setFrameInset(inset);
+        scheduleScrollFocusedInputIntoView(false, Platform.OS === 'ios' ? 60 : 80);
+      };
+      const frame = frameRef?.current || (frameIsScroll ? scrollRef.current : null);
+      const screenY = event?.endCoordinates?.screenY;
+      if (screenY && frame?.measure) {
+        // The keyboard's screenY is in screen coordinates, so measure the frame
+        // in screen coordinates too (pageY). measureInWindow is relative to
+        // the app window, which on some phones (vivo, Android 12 — the
+        // 3-button-navigation ones here) starts below the status bar: mixing
+        // the two left the overlap short by the status-bar height and the
+        // focused field behind the keyboard. Where the window spans the whole
+        // screen (OPPO, Android 15) pageY equals the window y, so nothing
+        // changes there.
+        frame.measure((_x, _y, _width, height, _pageX, pageY) => {
+          applyFrameInset(Math.max(0, pageY + height - screenY));
+        });
+      } else if (frame?.measureInWindow) {
+        frame.measureInWindow((_x, y, _width, height) => {
+          applyFrameInset(screenY
+            ? Math.max(0, y + height - screenY)
+            : Math.max(0, Math.min(nextInset, y + height - (Dimensions.get('window').height - nextInset))));
+        });
+      } else {
+        applyFrameInset(nextInset);
+      }
     });
 
     const hideSub = Keyboard.addListener(hideEvent, () => {
       baseHeightRef.current = Dimensions.get('window').height;
       keyboardInsetRef.current = 0;
+      frameInsetRef.current = 0;
+      setFrameInset(0);
       keyboardOpenRef.current = false;
       setKeyboardInset(0);
+      setKeyboardTop(0);
       setKeyboardOpen(false);
     });
 
@@ -124,12 +178,13 @@ const useKeyboardAwareScroll = () => {
       showSub.remove();
       hideSub.remove();
     };
-  }, [clearScrollTimer, scheduleScrollFocusedInputIntoView]);
+  }, [clearScrollTimer, scheduleScrollFocusedInputIntoView, frameRef, frameIsScroll]);
 
   const scrollFocusedInputIntoView = useCallback(event => {
     const nativeHandle = event?.target;
     if (!nativeHandle) return;
     focusedInputHandleRef.current = nativeHandle;
+    requestedByInputRef.current = TextInput.State?.currentlyFocusedInput?.() || null;
 
     // Wait for the keyboard/inset relayout before calculating the destination.
     scheduleScrollFocusedInputIntoView(true);
@@ -150,6 +205,8 @@ const useKeyboardAwareScroll = () => {
     scrollRef,
     keyboardOpen,
     keyboardInset,
+    keyboardTop,
+    frameInset,
     scrollFocusedInputIntoView,
     handleKeyboardAwareScroll,
     handleKeyboardAwareScrollLayout,

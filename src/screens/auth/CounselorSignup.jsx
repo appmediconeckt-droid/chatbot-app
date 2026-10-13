@@ -66,6 +66,7 @@ const CounselorSignup = ({ navigation, route }) => {
   const {
     scrollRef,
     keyboardInset,
+    keyboardTop,
     scrollFocusedInputIntoView,
     handleKeyboardAwareScroll,
     handleKeyboardAwareScrollLayout,
@@ -367,7 +368,9 @@ const CounselorSignup = ({ navigation, route }) => {
             destination: 'LocationGate',
             destinationParams: { destination: 'CounselorDashboard' },
           }), 1500);
-        } else if (response.data?.requiresLogin) {
+        } else {
+          // No session yet (requiresLogin): the onboarding tour still runs for
+          // the new account, then the common Login screen opens on this role.
           setFormData(prev => ({
             ...prev,
             password: '',
@@ -375,7 +378,10 @@ const CounselorSignup = ({ navigation, route }) => {
           }));
           setEmailVerified(false);
           setEmailVerificationToken('');
-          setTimeout(() => setIsLogin(true), 1200);
+          setTimeout(() => navigation.replace('CounselorOnboarding', {
+            destination: 'Login',
+            destinationParams: { role: 'counselor' },
+          }), 1200);
         }
       } else {
         showNotification(response.data?.message || 'Signup failed', 'error');
@@ -629,11 +635,11 @@ const CounselorSignup = ({ navigation, route }) => {
           styles.inputWrapper,
           isMetricField && styles.metricInputWrapper,
           isFocused && styles.inputWrapperFocused,
-          isMultiline && { height: 'auto', minHeight: 70, alignItems: 'flex-start', paddingTop: 10 }
+          isMultiline && styles.multilineInputWrapper
         ]}>
-          <Icon name={icon} size={20} color={isFocused ? '#004AC6' : '#64748b'} style={[styles.inputIcon, isMultiline && { marginTop: 4 }]} />
+          <Icon name={icon} size={20} color={isFocused ? '#004AC6' : '#64748b'} style={styles.inputIcon} />
           <TextInput
-            style={[styles.textInput, isMetricField && styles.metricTextInput, isMultiline && { height: 'auto', minHeight: 50, textAlignVertical: 'top' }]}
+            style={[styles.textInput, isMetricField && styles.metricTextInput, isMultiline && styles.multilineTextInput]}
             value={formData[name]}
             onChangeText={(text) => handleChange(name, text)}
             onFocus={(event) => {
@@ -727,6 +733,53 @@ const CounselorSignup = ({ navigation, route }) => {
   const signupPanelPaddingY = isCompact ? 18 : 22;
   const signupLogoSize = isCompact ? 64 : 80;
   const signupHeaderHeight = signupLogoSize + (isCompact ? 68 : 74);
+  const [otpBodyHeight, setOtpBodyHeight] = useState(0);
+  const otpScrollRef = useRef(null);
+  const [otpKeyboardOverlap, setOtpKeyboardOverlap] = useState(0);
+  useEffect(() => {
+    if (!showOtpModal.show || !keyboardTop) {
+      setOtpKeyboardOverlap(0);
+      return undefined;
+    }
+    // Re-measured whenever the keyboard or the body height changes. The
+    // keyboard may already be up from the email field when the popup opens,
+    // so this cannot wait for a keyboard event of the popup's own.
+    const frame = requestAnimationFrame(() => {
+      otpScrollRef.current?.measureInWindow?.((_x, y, _width, scrollHeight) => {
+        setOtpKeyboardOverlap(Math.max(0, Math.ceil(y + scrollHeight - keyboardTop)));
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [showOtpModal.show, keyboardTop, otpBodyHeight]);
+  // The popup is centred in the screen and never moves — not when it opens and
+  // not when the keyboard comes up. Nothing about this padding depends on the
+  // keyboard: reserving a keyboard strip here used to lift the whole card off
+  // centre, and because tapping Verify does not blur the email field the
+  // form's keyboard was still up as the card mounted, so the very first open
+  // painted pre-lifted.
+  //
+  // The keyboard is handled inside the card instead, exactly like the signup
+  // card handles it: the icon/title header stays fixed, and the body — OTP
+  // field, resend, Verify, Cancel — scrolls. Its content gets bottom padding
+  // equal to just the part of the scroll the keyboard covers, so Cancel can be
+  // scrolled up to sit right above the keyboard and no further. The full
+  // keyboard height would overshoot: the card is centred, so the keyboard only
+  // covers its lower part, and the rest became empty scroll after Cancel.
+  //
+  // Like the signup form's scroll (signupFormHeight), this scroll has a fixed
+  // height: the body's own height, measured without the keyboard padding. A
+  // ScrollView without one grows with its content, so the keyboard padding
+  // would stretch the whole card instead of only adding scroll range.
+  const otpOverlayPadBottom = isCompact ? 16 : 22;
+  const otpScrollPadBottom = isCompact ? 4 : 8;
+  const otpScrollStyle = [
+    styles.modalScroll,
+    otpBodyHeight > 0 && { height: otpBodyHeight + otpScrollPadBottom },
+  ];
+  const otpScrollContentStyle = [
+    styles.modalScrollContent,
+    { paddingBottom: otpScrollPadBottom + otpKeyboardOverlap },
+  ];
   const signupFormHeight = Math.max(
     260,
     signupPanelHeight - (signupPanelPaddingY * 2) - signupHeaderHeight
@@ -805,7 +858,8 @@ const CounselorSignup = ({ navigation, route }) => {
                     <>{renderInput(1, 'fullName', 'account-outline', 'Full Name')}{renderInput(2, 'email', 'email-outline', 'Email Address', { keyboardType: 'email-address', autoCapitalize: 'none' }, 'email')}{renderPhoneInput(3)}{renderDateOfBirthInput(4)}{renderInput(5, 'age', 'calendar-account-outline', 'Age', { editable: false, placeholder: 'Age will be calculated' })}
                       <Animated.View key="gender-section" style={{ opacity: fieldAnims[6] }}><Text style={styles.sectionLabel}>{t('Gender')}</Text><View style={styles.genderRow}>{genderOptions.map(g => (<TouchableOpacity key={g} style={[styles.genderBtn, formData.gender === g && styles.genderBtnSelected]} onPress={() => handleChange('gender', g)}><Text style={[styles.genderText, formData.gender === g && styles.genderTextSelected]}>{g}</Text></TouchableOpacity>))}</View></Animated.View>
                       {renderInput(7, 'qualification', 'school-outline', 'Qualification')}{renderInput(8, 'specialization', 'certificate-outline', 'Specialization')}
-                      <View style={styles.row}><View style={{ flex: 1 }}>{renderInput(9, 'experience', 'briefcase-clock-outline', 'Years')}</View><View style={{ flex: 1.5 }}>{renderInput(10, 'location', 'map-marker-radius-outline', 'City')}</View></View>
+                      {renderInput(9, 'experience', 'briefcase-clock-outline', 'Years of Experience', { keyboardType: 'number-pad', maxLength: 2 })}
+                      {renderInput(10, 'location', 'map-marker-radius-outline', 'City')}
                       <Animated.View key="mode-section" style={{ opacity: fieldAnims[11] }}><Text style={styles.sectionLabel}>{t('Consultation Mode')}</Text><View style={styles.tagRow}>{consultationModes.map(m => (<TouchableOpacity key={m} style={[styles.tag, formData.consultationMode.includes(m) && styles.tagSelected]} onPress={() => toggleListItem('consultationMode', m)}><Text style={[styles.tagText, formData.consultationMode.includes(m) && styles.tagTextSelected]}>{m}</Text></TouchableOpacity>))}</View></Animated.View>
                       <Animated.View key="lang-section" style={{ opacity: fieldAnims[12] }}><Text style={styles.sectionLabel}>{t('Languages')}</Text><View style={styles.tagRow}>{languageOptions.map(l => (<TouchableOpacity key={l} style={[styles.tag, formData.languages.includes(l) && styles.tagSelected]} onPress={() => toggleListItem('languages', l)}><Text style={[styles.tagText, formData.languages.includes(l) && styles.tagTextSelected]}>{l}</Text></TouchableOpacity>))}</View></Animated.View>
                       {renderInput(13, 'aboutMe', 'account-details-outline', 'About Me', { multiline: true })}
@@ -881,17 +935,18 @@ const CounselorSignup = ({ navigation, route }) => {
                       mode={isLogin ? 'signin' : 'signup'}
                       disabled={isLoading}
                       locationEvent={isLogin ? 'login' : 'signup'}
-                      onSuccess={({ isCounselor }) => {
+                      onSuccess={({ isCounselor, isNewUser }) => {
                         sendLocationSilently(isLogin ? 'login' : 'signup');
                         const dashboardDestination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
                         setTimeout(() => {
-                          if (isLogin) {
+                          if (isLogin && isNewUser !== true) {
                             // Existing account signing in with Google — no tour.
                             enterAuthenticatedRoute(navigation, dashboardDestination);
                             return;
                           }
-                          // Was on the "Create Account" tab — new Google signup,
-                          // same onboarding tour as an email/password signup.
+                          // A new Google account ("Create Account" tab, or the
+                          // backend says it was just created) — same onboarding
+                          // tour as an email/password signup.
                           navigation.replace('CounselorOnboarding', {
                             destination: dashboardDestination,
                           });
@@ -921,11 +976,31 @@ const CounselorSignup = ({ navigation, route }) => {
           navigationBarTranslucent
           onRequestClose={closeOtpModal}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+          {/* The OTP field autoFocuses, so the keyboard is up the whole time this
+              popup is open. The popup itself does not move: the icon/title
+              header stays fixed and the body — OTP field, resend, Verify Consultant and
+              Cancel — scrolls inside the card, the same shape the signup
+              card uses for its form. */}
+          <View style={[styles.modalOverlay, { paddingBottom: otpOverlayPadBottom }]}>
+            <View style={[styles.modalContent, styles.otpCard]}>
               <View style={[styles.modalIcon, { backgroundColor: '#f0fdf4' }]}><Icon name="email-fast-outline" size={40} color="#004AC6" /></View>
               <Text style={styles.modalTitle}>Verify Your Email</Text>
               <Text style={styles.modalSub}>Enter code sent to {showOtpModal.value}</Text>
+
+              <ScrollView
+                ref={otpScrollRef}
+                style={otpScrollStyle}
+                contentContainerStyle={otpScrollContentStyle}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+                scrollEventThrottle={16}
+                nestedScrollEnabled
+                bounces={false}
+              >
+              <View
+                style={styles.otpBody}
+                onLayout={(event) => setOtpBodyHeight(Math.ceil(event.nativeEvent.layout.height))}
+              >
               <TextInput key={`${showOtpModal.type}:${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`} style={styles.otpInput} value={otpCode} onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="number-pad" maxLength={6} autoFocus />
               <View style={styles.otpResendRow}>
                 {otpResendTimer > 0 ? (
@@ -952,13 +1027,15 @@ const CounselorSignup = ({ navigation, route }) => {
               </View>
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
               <TouchableOpacity
-                style={[styles.modalActionBtn, (isVerifyingOtp || otpCode.length !== 6) && styles.modalActionBtnDisabled]}
+                style={[styles.modalActionBtn, styles.otpPrimaryBtn, (isVerifyingOtp || otpCode.length !== 6) && styles.modalActionBtnDisabled]}
                 onPress={handleVerifyOtp}
                 disabled={isVerifyingOtp || otpCode.length !== 6}
               >
                 {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Consultant')}</Text>}
               </TouchableOpacity>
               <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Cancel')}</Text></TouchableOpacity>
+              </View>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -1081,6 +1158,8 @@ const styles = StyleSheet.create({
   phoneInputWrapper: { height: 58, paddingHorizontal: 16 },
   inputWrapperFocused: { borderColor: '#004AC6', backgroundColor: '#ffffff' },
   inputIcon: { marginRight: 8 },
+  multilineInputWrapper: { height: 'auto', minHeight: 70, paddingVertical: 8 },
+  multilineTextInput: { minHeight: 50, textAlignVertical: 'center' },
   textInput: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
   metricTextInput: { fontSize: 15, fontWeight: '600' },
   phoneTextInput: { fontSize: 15 },
@@ -1092,7 +1171,6 @@ const styles = StyleSheet.create({
   errorText: { color: '#ef4444', fontSize: 11, marginTop: 4, marginLeft: 16, fontWeight: '600' },
   passwordHint: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 4, marginLeft: 16, fontWeight: '600' },
   passwordChecklist: { marginLeft: 16, marginRight: 4 },
-  row: { flexDirection: 'row', gap: 12 },
   sectionLabel: { fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
   tag: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: '#f1f5f9', borderWidth: 1.5, borderColor: 'transparent' },
@@ -1125,9 +1203,18 @@ const styles = StyleSheet.create({
   genderTextSelected: { color: '#004AC6' },
   modalOverlay: { flex: 1, width: '100%', minHeight: '100%', backgroundColor: 'rgba(15,23,42,0.64)', justifyContent: 'center', alignItems: 'center', padding: 22 },
   modalContent: { backgroundColor: '#fff', borderRadius: 26, padding: 28, width: '100%', maxWidth: 390, alignItems: 'center', borderWidth: 1, borderColor: '#DBEAFE', shadowColor: '#0B2F6B', shadowOpacity: 0.18, shadowRadius: 24, elevation: 14 },
-  modalIcon: { width: 68, height: 68, borderRadius: 34, justifyContent: 'center', alignItems: 'center', marginBottom: 18 },
+  // The card takes only the height the overlay leaves it (the keyboard's
+  // strip is already reserved there), and the body gives up that height
+  // first — the header and the card's own padding never shrink.
+  otpCard: { maxHeight: '100%' },
+  modalScroll: { width: '100%', flexShrink: 1 },
+  modalScrollContent: { alignItems: 'center' },
+  otpBody: { width: '100%', alignItems: 'center' },
+  // A little air between the OTP field and the Verify button.
+  otpPrimaryBtn: { marginTop: 8 },
+  modalIcon: { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
   modalTitle: { fontSize: 22, fontWeight: '900', color: '#0F172A', marginBottom: 8, textAlign: 'center' },
-  modalSub: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 21, marginBottom: 22 },
+  modalSub: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 21, marginBottom: 18 },
   modalActionBtn: { width: '100%', height: 54, borderRadius: 16, backgroundColor: '#004AC6', justifyContent: 'center', alignItems: 'center', shadowColor: '#004AC6', shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
   modalActionBtnDisabled: { backgroundColor: '#94A3B8', shadowOpacity: 0, elevation: 0 },
   modalActionText: { color: '#fff', fontSize: 16, fontWeight: '800' },

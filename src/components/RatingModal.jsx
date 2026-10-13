@@ -14,6 +14,7 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import StarRating from "./StarRating";
 import { toImageUri } from '../utils/imageUri';
 import useLanguageRender from '../hooks/useLanguageRender';
+import { KeyboardSheetOverlay } from './common/KeyboardSheet';
 
 // Short helper labels shown under the stars to make the choice feel rewarding.
 const STAR_LABELS = ["", "Poor", "Fair", "Good", "Very good", "Excellent"];
@@ -89,7 +90,8 @@ const RatingModal = ({
       animationType="fade"
       onRequestClose={() => !busy && onClose?.()}
     >
-      <View style={styles.overlay}>
+      {/* Lifts the dialog above the keyboard (edge-to-edge modals don't resize). */}
+        <KeyboardSheetOverlay style={styles.overlay}>
         <View style={styles.card}>
           {success ? (
             <View style={styles.successWrap}>
@@ -206,7 +208,7 @@ const RatingModal = ({
             </>
           )}
         </View>
-      </View>
+      </KeyboardSheetOverlay>
     </Modal>
   );
 };

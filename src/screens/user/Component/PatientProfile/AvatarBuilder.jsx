@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../../../../components/TranslatedText';
 import LinearGradient from "react-native-linear-gradient";
 import { PATIENT_GRADIENT, GRADIENT_DIRECTION } from "../../../../theme/palette";
@@ -347,6 +348,9 @@ async function generateAiAvatar(photoBase64, token) {
 }
 
 const AvatarBuilder = ({ visible, onSelect, onClose }) => {
+  // The sheet sits in a Modal that draws under the navigation bar (edge-to-edge);
+  // pad its footer so the action buttons stay above it.
+  const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   const [opts, setOpts]           = useState({ ...DEFAULT });
   const [activeTab, setActiveTab] = useState("skin");
@@ -682,7 +686,7 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
           )}
 
           {phase === "result" && !analyzing && (
-            <View style={S.footer}>
+            <View style={[S.footer, { paddingBottom: 16 + insets.bottom }]}>
               <TouchableOpacity style={S.retakeBtn} onPress={handleRetake}>
                 <Text style={S.retakeText}>↩ Retake</Text>
               </TouchableOpacity>

@@ -53,7 +53,7 @@ import {
   postPublicAuthEndpointWithOtpRetry,
 } from './authUtils';
 
-import { enterAuthenticatedRoute } from '../../utils/authSession';
+import { clearStoredSession, enterAuthenticatedRoute } from '../../utils/authSession';
 const genderOptions = ['Male', 'Female', 'Other'];
 const consultationModes = ['Online', 'Offline', 'Both'];
 const languageOptions = ['Hindi', 'English', 'Gujarati', 'Marathi', 'Tamil', 'Telugu', 'Bengali', 'Punjabi'];
@@ -96,6 +96,11 @@ const persistDoctorSession = async (data, email) => {
   socketService.connect().catch(() => {});
   return true;
 };
+
+const clearDoctorSignupSession = async () => {
+  await clearStoredSession();
+  await AsyncStorage.multiRemove(['doctorMockProfile', 'doctorMockSession']);
+};
 // ───────────────────────────────────────────────────────────────────────────────
 
 const DoctorSignup = ({ navigation, route }) => {
@@ -108,6 +113,7 @@ const DoctorSignup = ({ navigation, route }) => {
   const {
     scrollRef,
     keyboardInset,
+    keyboardTop,
     scrollFocusedInputIntoView,
     handleKeyboardAwareScroll,
     handleKeyboardAwareScrollLayout,
@@ -339,15 +345,21 @@ const DoctorSignup = ({ navigation, route }) => {
       };
 
       const response = await postPublicAuthEndpoint('complete-registration', payload);
-      const doctorProfile = response.data?.user || response.data?.data?.user || payload;
-
       if (response.data?.success !== false) {
-        const hasSession = await persistDoctorSession(response.data, email);
-        showNotification(response.data?.message || t('Account created! Let’s finish your professional profile.'));
-        setTimeout(() => enterAuthenticatedRoute(navigation, 'DoctorOnboarding', {
-          destination: 'DoctorDashboard',
-          doctorProfileBase: doctorProfile,
-        }), hasSession ? 1000 : 1500);
+        await clearDoctorSignupSession();
+        setFormData((prev) => ({
+          ...prev,
+          password: '',
+          confirmPassword: '',
+        }));
+        setEmailVerified(false);
+        setEmailVerificationToken('');
+        showNotification(t('Account created! Please login to continue.'));
+        // Onboarding tour for the new account, then the common Login screen.
+        setTimeout(() => navigation.replace('DoctorOnboarding', {
+          destination: 'Login',
+          destinationParams: { role: 'doctor' },
+        }), 1200);
       } else {
         showNotification(response.data?.message || t('Signup failed'), 'error');
       }
@@ -468,6 +480,10 @@ const DoctorSignup = ({ navigation, route }) => {
       return;
     }
 
+    // Google sign-in has already created the session — for a brand-new
+    // account as much as an existing one — so both go straight to the
+    // dashboard, same as on the user and consultant pages. Only an
+    // email/password signup is sent to the common Login screen.
     const email = user?.email || '';
     const hasSession = await persistDoctorSession({
       user,
@@ -477,18 +493,21 @@ const DoctorSignup = ({ navigation, route }) => {
       showNotification(t('Google sign-in did not create a session'), 'error');
       return;
     }
-
-    if (isLogin && !isNewUser) {
-      showNotification(t('Welcome back, Doctor!'));
-      setTimeout(() => enterAuthenticatedRoute(navigation, 'DoctorDashboard'), 700);
-      return;
-    }
-
-    showNotification(t('Account created with Google!'));
-    setTimeout(() => enterAuthenticatedRoute(navigation, 'DoctorOnboarding', {
-      destination: 'DoctorDashboard',
-      doctorProfileBase: user,
-    }), 900);
+    const isNewAccount = !isLogin || isNewUser === true;
+    showNotification(isNewAccount ? t('Account created! Welcome, Doctor!') : t('Welcome back, Doctor!'));
+    setTimeout(() => {
+      if (!isNewAccount) {
+        enterAuthenticatedRoute(navigation, 'DoctorDashboard');
+        return;
+      }
+      // New Google account: the same onboarding tour as the user and
+      // consultant pages, then the dashboard. The signed-in user is passed
+      // as the profile so the tour keeps the doctor's name it saves.
+      navigation.replace('DoctorOnboarding', {
+        destination: 'DoctorDashboard',
+        doctorProfileBase: user || {},
+      });
+    }, 700);
   };
 
   const renderInput = (index, name, icon, placeholder, options = {}, verifyType = null) => {
@@ -497,10 +516,10 @@ const DoctorSignup = ({ navigation, route }) => {
     const isVerified = verifyType === 'email' && emailVerified;
     return (
       <Animated.View key={`doctor-input-${name}`} style={[styles.inputField, { opacity: fieldAnims[index], transform: [{ translateY: fieldAnims[index].interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }]}>
-        <View style={[styles.inputWrapper, isFocused && styles.inputWrapperFocused, isMultiline && { height: 'auto', minHeight: 70, alignItems: 'flex-start', paddingTop: 10 }]}>
-          <Icon name={icon} size={20} color={isFocused ? CLINICIAN.primary : '#64748b'} style={[styles.inputIcon, isMultiline && { marginTop: 4 }]} />
+        <View style={[styles.inputWrapper, isFocused && styles.inputWrapperFocused, isMultiline && styles.multilineInputWrapper]}>
+          <Icon name={icon} size={20} color={isFocused ? CLINICIAN.primary : '#64748b'} style={styles.inputIcon} />
           <TextInput
-            style={[styles.textInput, isMultiline && { height: 'auto', minHeight: 50, textAlignVertical: 'top' }]}
+            style={[styles.textInput, isMultiline && styles.multilineTextInput]}
             value={formData[name]}
             onChangeText={(text) => handleChange(name, text)}
             onFocus={(event) => { setFocusedField(name); scrollFocusedInputIntoView(event); }}
@@ -587,6 +606,53 @@ const DoctorSignup = ({ navigation, route }) => {
   const signupPanelPaddingY = isCompact ? 18 : 22;
   const signupLogoSize = isCompact ? 64 : 80;
   const signupHeaderHeight = signupLogoSize + (isCompact ? 68 : 74);
+  const [otpBodyHeight, setOtpBodyHeight] = useState(0);
+  const otpScrollRef = useRef(null);
+  const [otpKeyboardOverlap, setOtpKeyboardOverlap] = useState(0);
+  useEffect(() => {
+    if (!showOtpModal.show || !keyboardTop) {
+      setOtpKeyboardOverlap(0);
+      return undefined;
+    }
+    // Re-measured whenever the keyboard or the body height changes. The
+    // keyboard may already be up from the email field when the popup opens,
+    // so this cannot wait for a keyboard event of the popup's own.
+    const frame = requestAnimationFrame(() => {
+      otpScrollRef.current?.measureInWindow?.((_x, y, _width, scrollHeight) => {
+        setOtpKeyboardOverlap(Math.max(0, Math.ceil(y + scrollHeight - keyboardTop)));
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [showOtpModal.show, keyboardTop, otpBodyHeight]);
+  // The popup is centred in the screen and never moves — not when it opens and
+  // not when the keyboard comes up. Nothing about this padding depends on the
+  // keyboard: reserving a keyboard strip here used to lift the whole card off
+  // centre, and because tapping Verify does not blur the email field the
+  // form's keyboard was still up as the card mounted, so the very first open
+  // painted pre-lifted.
+  //
+  // The keyboard is handled inside the card instead, exactly like the signup
+  // card handles it: the icon/title header stays fixed, and the body — OTP
+  // field, resend, Verify, Cancel — scrolls. Its content gets bottom padding
+  // equal to just the part of the scroll the keyboard covers, so Cancel can be
+  // scrolled up to sit right above the keyboard and no further. The full
+  // keyboard height would overshoot: the card is centred, so the keyboard only
+  // covers its lower part, and the rest became empty scroll after Cancel.
+  //
+  // Like the signup form's scroll (signupFormHeight), this scroll has a fixed
+  // height: the body's own height, measured without the keyboard padding. A
+  // ScrollView without one grows with its content, so the keyboard padding
+  // would stretch the whole card instead of only adding scroll range.
+  const otpOverlayPadBottom = isCompact ? 16 : 22;
+  const otpScrollPadBottom = isCompact ? 4 : 8;
+  const otpScrollStyle = [
+    styles.modalScroll,
+    otpBodyHeight > 0 && { height: otpBodyHeight + otpScrollPadBottom },
+  ];
+  const otpScrollContentStyle = [
+    styles.modalScrollContent,
+    { paddingBottom: otpScrollPadBottom + otpKeyboardOverlap },
+  ];
   const signupFormHeight = Math.max(260, signupPanelHeight - signupPanelPaddingY * 2 - signupHeaderHeight);
   const panelStyle = [
     styles.panel,
@@ -661,10 +727,8 @@ const DoctorSignup = ({ navigation, route }) => {
                       </Animated.View>
                       {renderInput(7, 'qualification', 'school-outline', t('Medical Qualification'))}
                       {renderInput(8, 'specialization', 'certificate-outline', t('Medical Specialization'))}
-                      <View style={styles.row}>
-                        <View style={{ flex: 1 }}>{renderInput(9, 'experience', 'briefcase-clock-outline', t('Years'))}</View>
-                        <View style={{ flex: 1.5 }}>{renderInput(10, 'location', 'map-marker-radius-outline', t('City'))}</View>
-                      </View>
+                      {renderInput(9, 'experience', 'briefcase-clock-outline', t('Years of Experience'), { keyboardType: 'number-pad', maxLength: 2 })}
+                      {renderInput(10, 'location', 'map-marker-radius-outline', t('City'))}
                       <Animated.View key="mode-section" style={{ opacity: fieldAnims[11] }}>
                         <Text style={styles.sectionLabel}>{t('Consultation Mode')}</Text>
                         <View style={styles.tagRow}>
@@ -799,13 +863,33 @@ const DoctorSignup = ({ navigation, route }) => {
           navigationBarTranslucent
           onRequestClose={closeOtpModal}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+          {/* The OTP field autoFocuses, so the keyboard is up the whole time this
+              popup is open. The popup itself does not move: the icon/title
+              header stays fixed and the body — OTP field, resend, Verify Email and
+              Cancel — scrolls inside the card, the same shape the signup
+              card uses for its form. */}
+          <View style={[styles.modalOverlay, { paddingBottom: otpOverlayPadBottom }]}>
+            <View style={[styles.modalContent, styles.otpCard]}>
               <View style={styles.modalIcon}>
                 <Icon name="email-fast-outline" size={40} color={CLINICIAN.primary} />
               </View>
               <Text style={styles.modalTitle}>{t('Verify Your Email')}</Text>
               <Text style={styles.modalSub}>{t('Enter code sent to')} {showOtpModal.value}</Text>
+
+              <ScrollView
+                ref={otpScrollRef}
+                style={otpScrollStyle}
+                contentContainerStyle={otpScrollContentStyle}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+                scrollEventThrottle={16}
+                nestedScrollEnabled
+                bounces={false}
+              >
+              <View
+                style={styles.otpBody}
+                onLayout={(event) => setOtpBodyHeight(Math.ceil(event.nativeEvent.layout.height))}
+              >
               <TextInput
                 key={`${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`}
                 style={styles.otpInput}
@@ -831,7 +915,7 @@ const DoctorSignup = ({ navigation, route }) => {
               </View>
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
               <TouchableOpacity
-                style={[styles.modalActionBtn, (isVerifyingOtp || otpCode.length !== 6) && styles.modalActionBtnDisabled]}
+                style={[styles.modalActionBtn, styles.otpPrimaryBtn, (isVerifyingOtp || otpCode.length !== 6) && styles.modalActionBtnDisabled]}
                 onPress={handleVerifyOtp}
                 disabled={isVerifyingOtp || otpCode.length !== 6}
               >
@@ -840,6 +924,8 @@ const DoctorSignup = ({ navigation, route }) => {
               <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}>
                 <Text style={styles.cancelText}>{t('Cancel')}</Text>
               </TouchableOpacity>
+              </View>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -877,6 +963,8 @@ const styles = createDoctorStyles({
   phoneInputWrapper: { height: 58, paddingHorizontal: 16 },
   inputWrapperFocused: { borderColor: CLINICIAN.primary, backgroundColor: '#ffffff' },
   inputIcon: { marginRight: 8 },
+  multilineInputWrapper: { height: 'auto', minHeight: 70, paddingVertical: 8 },
+  multilineTextInput: { minHeight: 50, textAlignVertical: 'center' },
   textInput: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
   phoneTextInput: { fontSize: 15 },
   datePickerText: { flex: 1, color: '#1e293b', fontSize: 15, fontWeight: '600' },
@@ -884,7 +972,6 @@ const styles = createDoctorStyles({
   errorText: { color: '#ef4444', fontSize: 11, marginTop: 4, marginLeft: 16, fontWeight: '600' },
   passwordHint: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 4, marginLeft: 16, fontWeight: '600' },
   passwordChecklist: { marginLeft: 16, marginRight: 4 },
-  row: { flexDirection: 'row', gap: 12 },
   sectionLabel: { fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
   tag: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: '#f1f5f9', borderWidth: 1.5, borderColor: 'transparent' },
@@ -917,9 +1004,18 @@ const styles = createDoctorStyles({
 
   modalOverlay: { flex: 1, width: '100%', minHeight: '100%', backgroundColor: 'rgba(15,23,42,0.64)', justifyContent: 'center', alignItems: 'center', padding: 22 },
   modalContent: { backgroundColor: '#fff', borderRadius: 26, padding: 28, width: '100%', maxWidth: 390, alignItems: 'center', borderWidth: 1, borderColor: '#DBEAFE', shadowColor: '#0B2F6B', shadowOpacity: 0.18, shadowRadius: 24, elevation: 14 },
-  modalIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: '#F0FDFA', justifyContent: 'center', alignItems: 'center', marginBottom: 18 },
+  // The card takes only the height the overlay leaves it (the keyboard's
+  // strip is already reserved there), and the body gives up that height
+  // first — the header and the card's own padding never shrink.
+  otpCard: { maxHeight: '100%' },
+  modalScroll: { width: '100%', flexShrink: 1 },
+  modalScrollContent: { alignItems: 'center' },
+  otpBody: { width: '100%', alignItems: 'center' },
+  // A little air between the OTP field and the Verify button.
+  otpPrimaryBtn: { marginTop: 8 },
+  modalIcon: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#F0FDFA', justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
   modalTitle: { fontSize: 22, fontWeight: '900', color: '#0F172A', marginBottom: 8, textAlign: 'center' },
-  modalSub: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 21, marginBottom: 22 },
+  modalSub: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 21, marginBottom: 18 },
   modalActionBtn: { width: '100%', height: 54, borderRadius: 16, backgroundColor: CLINICIAN.primary, justifyContent: 'center', alignItems: 'center', shadowColor: CLINICIAN.primary, shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
   modalActionBtnDisabled: { backgroundColor: '#94A3B8', shadowOpacity: 0, elevation: 0 },
   modalActionText: { color: '#fff', fontSize: 16, fontWeight: '800' },

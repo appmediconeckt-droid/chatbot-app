@@ -2,7 +2,8 @@
 // Adaptation: the profile card reads the real (mock) doctor name/specialization
 // from AsyncStorage instead of the source's hardcoded "Vikas Sharma".
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Modal, Pressable, ScrollView, View } from 'react-native';
+import { Animated, Easing, Modal, Platform, Pressable, ScrollView, StatusBar, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DoctorAvatar from './layout/DoctorAvatar';
 import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
@@ -56,11 +57,14 @@ export default function DoctorSidebar({
   onNavigate,
   onProfilePress,
   onLogout,
-  todayTotal = 0,
-  todayCompleted = 0,
-  onViewSchedule,
 }) {
-  const todayPending = Math.max(0, todayTotal - todayCompleted);
+  // The translucent Modal draws under the status bar AND the navigation bar
+  // (edge-to-edge), so reserve both — Logout was half hidden behind 3-button
+  // nav bars.
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === 'android'
+    ? Math.max(insets.top, StatusBar.currentHeight || 0)
+    : insets.top;
   const [selectedItem, setSelectedItem] = useState(activeItem ?? null);
   const [doctorName, setDoctorName] = useState('Doctor');
   const [specialization, setSpecialization] = useState('');
@@ -106,7 +110,7 @@ export default function DoctorSidebar({
   }, [visible, openAnim]);
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.root}>
         <Animated.View style={[styles.backdrop, { opacity: openAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolate: 'clamp' }) }]}>
           <Pressable style={styles.backdropTap} onPress={onClose} />
@@ -114,6 +118,7 @@ export default function DoctorSidebar({
         <Animated.View
           style={[
             styles.panel,
+            { paddingTop: topInset + 12 },
             {
               opacity: openAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 1, 1], extrapolate: 'clamp' }),
               transform: [
@@ -172,23 +177,9 @@ export default function DoctorSidebar({
                 })}
               </View>
             ))}
-
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => (onViewSchedule ? onViewSchedule() : onNavigate('appointments'))}
-              style={styles.scheduleCard}
-            >
-              <View style={styles.scheduleHeaderRow}>
-                <AppIcon name="clock" size={14} color={colors.blue} strokeWidth={2} />
-                <Text style={styles.scheduleTitle}>Today's Schedule</Text>
-              </View>
-              <Text style={styles.scheduleCount}>{todayTotal} Appointments</Text>
-              <Text style={styles.scheduleBreakdown}>{todayPending} pending · {todayCompleted} completed</Text>
-              <Text style={styles.scheduleLink}>View schedule →</Text>
-            </Pressable>
           </ScrollView>
 
-          <View style={styles.footer}>
+          <View style={[styles.footer, { paddingBottom: insets.bottom + 18 }]}>
             <LanguageSelector
               userId={doctorId}
               role="doctor"
@@ -210,7 +201,7 @@ export default function DoctorSidebar({
               <View style={styles.logoutIconBox}>
                 <AppIcon name="logout" size={19} strokeWidth={1.8} color="#D92D36" />
               </View>
-              <Text style={styles.logoutText}>Logout Account</Text>
+              <Text style={styles.logoutText}>Logout</Text>
             </Pressable>
           </View>
         </Animated.View>
@@ -243,12 +234,6 @@ const styles = createDoctorStyles({
   iconBox: { width: 32, height: 32, borderRadius: 9, backgroundColor: '#F3F6FA', alignItems: 'center', justifyContent: 'center' },
   itemText: { ...typography.body, fontSize: 15, lineHeight: 20, color: '#10213F', flex: 1 },
   selectedItemText: { ...typography.caption, fontSize: 15, lineHeight: 20, flex: 1 },
-  scheduleCard: { marginTop: 20, backgroundColor: colors.paleBlue, borderWidth: 1, borderColor: '#BFF8F6', borderRadius: 14, padding: 14 },
-  scheduleHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
-  scheduleTitle: { ...typography.caption, fontSize: 12.5, color: colors.blue },
-  scheduleCount: { ...typography.title, fontSize: 19, color: '#10213F' },
-  scheduleBreakdown: { ...typography.body, fontSize: 12.5, color: '#7D879B', marginTop: 2 },
-  scheduleLink: { ...typography.caption, fontSize: 12.5, color: colors.blue, marginTop: 8 },
   footer: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 18, borderTopWidth: 1, borderTopColor: '#E8ECF1' },
   languageItem: { marginBottom: 4 },
   languageIconBox: { width: 32, height: 32, borderRadius: 9, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },

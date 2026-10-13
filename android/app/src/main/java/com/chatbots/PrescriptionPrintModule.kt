@@ -67,6 +67,7 @@ class PrescriptionPrintModule(private val reactContext: ReactApplicationContext)
     val safeName = (fileName ?: "Prescription").replace(Regex("[^A-Za-z0-9_-]+"), "_").trim('_')
       .ifBlank { "Prescription" }
     val output = File(File(reactContext.cacheDir, "prescriptions"), "$safeName.pdf")
+    output.parentFile?.mkdirs()
     renderHtml(reactContext, html, promise) { view ->
       val jobName = safeName
       PdfFileWriter.write(

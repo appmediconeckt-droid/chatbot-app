@@ -649,6 +649,7 @@ const UserSignup = ({ navigation, route }) => {
   const {
     scrollRef,
     keyboardInset,
+    keyboardTop,
     scrollFocusedInputIntoView,
     handleKeyboardAwareScroll,
     handleKeyboardAwareScrollLayout,
@@ -691,6 +692,7 @@ const UserSignup = ({ navigation, route }) => {
   const [googleProfileCompletion, setGoogleProfileCompletion] = useState({
     visible: false,
     isCounselor: false,
+    isNewUser: false,
     user: null,
   });
 
@@ -941,7 +943,9 @@ const UserSignup = ({ navigation, route }) => {
             destination: 'LocationGate',
             destinationParams: { destination: 'UserDashboard' },
           }), 1500);
-        } else if (response.data?.requiresLogin) {
+        } else {
+          // No session yet (requiresLogin): the onboarding tour still runs for
+          // the new account, then the common Login screen opens on this role.
           setFormData(prev => ({
             ...prev,
             password: '',
@@ -949,7 +953,10 @@ const UserSignup = ({ navigation, route }) => {
           }));
           setEmailVerified(false);
           setEmailVerificationToken('');
-          setTimeout(() => setIsLogin(true), 1200);
+          setTimeout(() => navigation.replace('UserOnboarding', {
+            destination: 'Login',
+            destinationParams: { role: 'user' },
+          }), 1200);
         }
       } else {
         showNotification(response.data?.message || 'Registration failed', 'error');
@@ -1161,17 +1168,18 @@ const UserSignup = ({ navigation, route }) => {
     setTimeout(() => setNotification({ show: false, message: '', type: '' }), displayDuration);
   };
 
-  const continueAfterGoogleAuth = (isCounselor, delay = 600) => {
+  const continueAfterGoogleAuth = (isCounselor, isNewUser, delay = 600) => {
     sendLocationSilently(isLogin ? 'login' : 'signup');
     const dashboardDestination = isCounselor ? 'CounselorDashboard' : 'UserDashboard';
     setTimeout(() => {
-      if (isLogin) {
+      if (isLogin && isNewUser !== true) {
         // Existing account signing in with Google — no tour.
         enterAuthenticatedRoute(navigation, 'LocationGate', { destination: dashboardDestination });
         return;
       }
-      // Was on the "Create Account" tab — this is a new Google signup, so it
-      // gets the same onboarding tour as an email/password signup.
+      // A new Google account ("Create Account" tab, or the backend says the
+      // account was just created) gets the same onboarding tour as an
+      // email/password signup.
       if (isCounselor) {
         navigation.replace('CounselorOnboarding', {
           destination: 'LocationGate',
@@ -1186,28 +1194,30 @@ const UserSignup = ({ navigation, route }) => {
     }, delay);
   };
 
-  const handleGoogleSuccess = ({ isCounselor, user }) => {
+  const handleGoogleSuccess = ({ isCounselor, user, isNewUser }) => {
     if (needsGoogleUserProfileCompletion(user, isCounselor)) {
       setGoogleProfileCompletion({
         visible: true,
         isCounselor,
+        isNewUser,
         user,
       });
       return;
     }
 
-    continueAfterGoogleAuth(isCounselor);
+    continueAfterGoogleAuth(isCounselor, isNewUser);
   };
 
   const handleGoogleProfileComplete = () => {
-    const isCounselor = googleProfileCompletion.isCounselor;
+    const { isCounselor, isNewUser } = googleProfileCompletion;
     setGoogleProfileCompletion({
       visible: false,
       isCounselor: false,
+      isNewUser: false,
       user: null,
     });
     showNotification('Anonymous profile saved!');
-    continueAfterGoogleAuth(isCounselor, 350);
+    continueAfterGoogleAuth(isCounselor, isNewUser, 350);
   };
 
   const handleChange = useCallback((name, value) => {
@@ -1345,6 +1355,53 @@ const UserSignup = ({ navigation, route }) => {
   const signupPanelPaddingY = isCompact ? 18 : 22;
   const signupLogoSize = isCompact ? 64 : 80;
   const signupHeaderHeight = signupLogoSize + (isCompact ? 70 : 76);
+  const [otpBodyHeight, setOtpBodyHeight] = useState(0);
+  const otpScrollRef = useRef(null);
+  const [otpKeyboardOverlap, setOtpKeyboardOverlap] = useState(0);
+  useEffect(() => {
+    if (!showOtpModal.show || !keyboardTop) {
+      setOtpKeyboardOverlap(0);
+      return undefined;
+    }
+    // Re-measured whenever the keyboard or the body height changes. The
+    // keyboard may already be up from the email field when the popup opens,
+    // so this cannot wait for a keyboard event of the popup's own.
+    const frame = requestAnimationFrame(() => {
+      otpScrollRef.current?.measureInWindow?.((_x, y, _width, scrollHeight) => {
+        setOtpKeyboardOverlap(Math.max(0, Math.ceil(y + scrollHeight - keyboardTop)));
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [showOtpModal.show, keyboardTop, otpBodyHeight]);
+  // The popup is centred in the screen and never moves — not when it opens and
+  // not when the keyboard comes up. Nothing about this padding depends on the
+  // keyboard: reserving a keyboard strip here used to lift the whole card off
+  // centre, and because tapping Verify does not blur the email field the
+  // form's keyboard was still up as the card mounted, so the very first open
+  // painted pre-lifted.
+  //
+  // The keyboard is handled inside the card instead, exactly like the signup
+  // card handles it: the icon/title header stays fixed, and the body — OTP
+  // field, resend, Verify, Cancel — scrolls. Its content gets bottom padding
+  // equal to just the part of the scroll the keyboard covers, so Cancel can be
+  // scrolled up to sit right above the keyboard and no further. The full
+  // keyboard height would overshoot: the card is centred, so the keyboard only
+  // covers its lower part, and the rest became empty scroll after Cancel.
+  //
+  // Like the signup form's scroll (signupFormHeight), this scroll has a fixed
+  // height: the body's own height, measured without the keyboard padding. A
+  // ScrollView without one grows with its content, so the keyboard padding
+  // would stretch the whole card instead of only adding scroll range.
+  const otpOverlayPadBottom = isCompact ? 16 : 22;
+  const otpScrollPadBottom = isCompact ? 4 : 8;
+  const otpScrollStyle = [
+    styles.modalScroll,
+    otpBodyHeight > 0 && { height: otpBodyHeight + otpScrollPadBottom },
+  ];
+  const otpScrollContentStyle = [
+    styles.modalScrollContent,
+    { paddingBottom: otpScrollPadBottom + otpKeyboardOverlap },
+  ];
   const signupFormHeight = Math.max(
     260,
     signupPanelHeight - (signupPanelPaddingY * 2) - signupHeaderHeight
@@ -1549,11 +1606,31 @@ const UserSignup = ({ navigation, route }) => {
           navigationBarTranslucent
           onRequestClose={closeOtpModal}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+          {/* The OTP field autoFocuses, so the keyboard is up the whole time this
+              popup is open. The popup itself does not move: the icon/title
+              header stays fixed and the body — OTP field, resend, Verify Now and
+              Go Back — scrolls inside the card, the same shape the signup
+              card uses for its form. */}
+          <View style={[styles.modalOverlay, { paddingBottom: otpOverlayPadBottom }]}>
+            <View style={[styles.modalContent, styles.otpCard]}>
               <View style={[styles.modalIcon, { backgroundColor: '#f5f7ff' }]}><Icon name="email-fast-outline" size={40} color="#00652C" /></View>
               <Text style={styles.modalTitle}>Verify Your Email</Text>
               <Text style={styles.modalSub}>Enter the code sent to {showOtpModal.value}</Text>
+
+              <ScrollView
+                ref={otpScrollRef}
+                style={otpScrollStyle}
+                contentContainerStyle={otpScrollContentStyle}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+                scrollEventThrottle={16}
+                nestedScrollEnabled
+                bounces={false}
+              >
+              <View
+                style={styles.otpBody}
+                onLayout={(event) => setOtpBodyHeight(Math.ceil(event.nativeEvent.layout.height))}
+              >
               <TextInput key={`${showOtpModal.type}:${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`} style={styles.otpInput} value={otpCode} onChangeText={(value) => setOtpCode(value.replace(/\D/g, ''))} placeholder={t('000000')} placeholderTextColor="#94a3b8" keyboardType="number-pad" maxLength={6} autoFocus />
               <View style={styles.otpResendRow}>
                 {otpResendTimer > 0 ? (
@@ -1580,13 +1657,15 @@ const UserSignup = ({ navigation, route }) => {
               </View>
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
               <TouchableOpacity
-                style={[styles.modalActionBtn, (isVerifyingOtp || otpCode.length !== 6) && styles.modalActionBtnDisabled]}
+                style={[styles.modalActionBtn, styles.otpPrimaryBtn, (isVerifyingOtp || otpCode.length !== 6) && styles.modalActionBtnDisabled]}
                 onPress={handleVerifyOtp}
                 disabled={isVerifyingOtp || otpCode.length !== 6}
               >
                 {isVerifyingOtp ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalActionText}>{t('Verify Now')}</Text>}
               </TouchableOpacity>
               <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}><Text style={styles.cancelText}>{t('Go Back')}</Text></TouchableOpacity>
+              </View>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -1755,9 +1834,18 @@ const styles = StyleSheet.create({
   notificationTextError: { color: '#991B1B' },
   modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.64)', justifyContent: 'center', alignItems: 'center', padding: 22, zIndex: 30 },
   modalContent: { backgroundColor: '#fff', borderRadius: 26, padding: 28, width: '100%', maxWidth: 390, alignItems: 'center', borderWidth: 1, borderColor: '#DDF4E6', shadowColor: '#052E16', shadowOpacity: 0.18, shadowRadius: 24, elevation: 14 },
-  modalIcon: { width: 68, height: 68, borderRadius: 34, justifyContent: 'center', alignItems: 'center', marginBottom: 18 },
+  // The card takes only the height the overlay leaves it (the keyboard's
+  // strip is already reserved there), and the body gives up that height
+  // first — the header and the card's own padding never shrink.
+  otpCard: { maxHeight: '100%' },
+  modalScroll: { width: '100%', flexShrink: 1 },
+  modalScrollContent: { alignItems: 'center' },
+  otpBody: { width: '100%', alignItems: 'center' },
+  // A little air between the OTP field and the Verify button.
+  otpPrimaryBtn: { marginTop: 8 },
+  modalIcon: { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
   modalTitle: { fontSize: 22, fontWeight: '900', color: '#0F172A', marginBottom: 8, textAlign: 'center' },
-  modalSub: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 21, marginBottom: 22 },
+  modalSub: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 21, marginBottom: 18 },
   modalActionBtn: { width: '100%', height: 54, borderRadius: 16, backgroundColor: '#00652C', justifyContent: 'center', alignItems: 'center', shadowColor: '#00652C', shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
   modalActionBtnDisabled: { backgroundColor: '#94A3B8', shadowOpacity: 0, elevation: 0 },
   modalActionText: { color: '#fff', fontSize: 16, fontWeight: '800' },

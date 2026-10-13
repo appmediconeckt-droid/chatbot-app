@@ -10,6 +10,7 @@ import {
   Animated,
   NativeModules,
   TurboModuleRegistry,
+  findNodeHandle,
 } from 'react-native';
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import Text from '../../../../../../components/TranslatedText';
@@ -17,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import useKeyboardAwareScroll from '../../../../../../hooks/useKeyboardAwareScroll';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import RazorpayCheckout from 'react-native-razorpay';
 import axiosInstance from '../../../../../../axiosConfig';
@@ -88,19 +90,17 @@ const WalletDashboard = ({ userData = {}, navigation, initialTab = 'add-money' }
     ifsc: '',
     bankName: '',
   });
-  const scrollRef = useRef(null);
-  // Y offset of the tab strip inside the scroll content, captured on layout.
-  const tabsYRef = useRef(0);
-
-  // The card's "Add Funds" / "View History" buttons also scroll the selected
-  // tab into view, so the action feels immediate from the top wallet card.
-  const goToTab = (tab) => {
-    setActiveTab(tab);
-    scrollRef.current?.scrollTo({
-      y: Math.max(0, tabsYRef.current - 12),
-      animated: true,
-    });
-  };
+  // Signup-style keyboard handling: the page scrolls above the keyboard (the
+  // window doesn't resize, edge-to-edge) and the focused field is scrolled
+  // into view. The amount field brings "Confirm and Add" into view with it.
+  const payBtnRef = useRef(null);
+  const {
+    scrollRef: kbScrollRef,
+    frameInset: kbInset,
+    scrollFocusedInputIntoView: kbFocus,
+    handleKeyboardAwareScroll: kbOnScroll,
+    handleKeyboardAwareScrollLayout: kbOnLayout,
+  } = useKeyboardAwareScroll({ frameIsScroll: true });
 
   useEffect(() => {
     fetchWalletData();
@@ -421,40 +421,24 @@ const WalletDashboard = ({ userData = {}, navigation, initialTab = 'add-money' }
       <View style={styles.cardGlowTwo} />
 
       <View style={styles.cardHeader}>
-        <View style={styles.premiumBadge}>
-          <MaterialIcons name="verified" size={13} color="#ffffff" />
-          <Text style={styles.premiumBadgeText}>{t('wallet:premiumHealth', 'PREMIUM HEALTH')}</Text>
+        <View style={styles.cardBrandIcon}>
+          <MaterialIcons name="account-balance-wallet" size={17} color="#ffffff" />
         </View>
-        {/* <MaterialIcons name="wifi" size={20} color="rgba(255,255,255,0.85)" /> */}
+        <Text style={styles.cardBrandName}>{t('wallet:humaeliWallet', 'Humaeli Wallet')}</Text>
       </View>
 
       <TranslatedMessageBubble text={t('wallet:availableBalance')} style={styles.balanceLabel} />
-      <Text style={styles.balanceAmount}>{formatCurrency(balance)}</Text>
+      <Text style={styles.balanceAmount} numberOfLines={1} adjustsFontSizeToFit>
+        {formatCurrency(balance)}
+      </Text>
 
       <View style={styles.cardFooter}>
-        <Text style={styles.cardNumber}>.... .... .... 4242</Text>
+        <MaterialIcons name="lock-outline" size={14} color="rgba(255,255,255,0.85)" />
+        <Text style={styles.cardFooterText}>
+          {t('wallet:securedByRazorpay', 'Payments secured by Razorpay')}
+        </Text>
       </View>
 
-      <ScrollView
-        horizontal
-        nestedScrollEnabled
-        showsHorizontalScrollIndicator={false}
-        style={styles.cardButtonsScroller}
-        contentContainerStyle={styles.cardButtonsRow}
-      >
-        <TouchableOpacity style={styles.primaryMiniAction} onPress={() => goToTab('add-money')}>
-          <MaterialIcons name="add" size={17} color={PATIENT.primary} />
-          <Text style={styles.primaryMiniActionText}>{t('wallet:addFunds')}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.ghostMiniAction} onPress={() => goToTab('transactions')}>
-          <MaterialIcons name="history" size={16} color="#ffffff" />
-          <Text style={styles.ghostMiniActionText}>{t('wallet:viewHistory')}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.ghostMiniAction} onPress={() => goToTab('refund')}>
-          <MaterialIcons name="account-balance" size={16} color="#ffffff" />
-          <Text style={styles.ghostMiniActionText}>Refund</Text>
-        </TouchableOpacity>
-      </ScrollView>
     </LinearGradient>
   );
 
@@ -489,6 +473,11 @@ const WalletDashboard = ({ userData = {}, navigation, initialTab = 'add-money' }
           keyboardType="numeric"
           value={amount}
           onChangeText={setAmount}
+          onFocus={() => {
+            // Target the pay button, not the field, so both stay visible.
+            const handle = findNodeHandle(payBtnRef.current);
+            if (handle) kbFocus({ target: handle });
+          }}
         />
       </View>
 
@@ -515,21 +504,23 @@ const WalletDashboard = ({ userData = {}, navigation, initialTab = 'add-money' }
         </Text>
       </View>
 
-      <PatientGradientButton
-        style={[styles.payBtn, loading && styles.payBtnDisabled]}
-        onPress={handlePayment}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" size="small" />
-        ) : (
-          <Text style={styles.payBtnText}>
-            {amount
-              ? `${t('wallet:confirmAndAdd', 'Confirm and Add')} ₹${amount}`
-              : t('wallet:confirmAndAddFunds')}
-          </Text>
-        )}
-      </PatientGradientButton>
+      <View ref={payBtnRef} collapsable={false}>
+        <PatientGradientButton
+          style={[styles.payBtn, loading && styles.payBtnDisabled]}
+          onPress={handlePayment}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={styles.payBtnText}>
+              {amount
+                ? `${t('wallet:confirmAndAdd', 'Confirm and Add')} ₹${amount}`
+                : t('wallet:confirmAndAddFunds')}
+            </Text>
+          )}
+        </PatientGradientButton>
+      </View>
     </View>
   );
 
@@ -719,9 +710,17 @@ const WalletDashboard = ({ userData = {}, navigation, initialTab = 'add-money' }
     <View style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#F9F9FF" />
       <ScrollView
-        ref={scrollRef}
+        ref={kbScrollRef}
         style={styles.container}
-        contentContainerStyle={[styles.content, { paddingBottom: Math.max(120, insets.bottom + 96) }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: kbInset > 0 ? kbInset + 24 : Math.max(120, insets.bottom + 96) },
+        ]}
+        onScroll={kbOnScroll}
+        onLayout={kbOnLayout}
+        onFocusCapture={kbFocus}
+        scrollEventThrottle={16}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         bounces
       >
@@ -736,10 +735,7 @@ const WalletDashboard = ({ userData = {}, navigation, initialTab = 'add-money' }
         {/* Both tabs render the same tree with the same metrics - only the
             gradient stops and text colour change - so switching can't resize
             them. Gradient matches the balance card above. */}
-        <View
-          style={styles.tabs}
-          onLayout={(e) => { tabsYRef.current = e.nativeEvent.layout.y; }}
-        >
+        <View style={styles.tabs}>
           <TouchableOpacity
             style={styles.tabBtnWrap}
             onPress={() => setActiveTab('add-money')}
@@ -858,20 +854,19 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     elevation: 8,
   },
-  premiumBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
+  cardBrandIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     backgroundColor: 'rgba(255,255,255,0.18)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  premiumBadgeText: {
+  cardBrandName: {
     color: '#ffffff',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.6,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   cardGlowOne: {
     position: 'absolute',
@@ -893,9 +888,9 @@ const styles = StyleSheet.create({
   },
   cardHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    gap: 10,
+    marginBottom: 18,
   },
   chip: {
     width: 40,
@@ -940,15 +935,17 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   cardFooter: {
-    marginTop: 10,
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.18)',
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    alignItems: 'center',
+    gap: 6,
   },
-  cardNumber: {
-    color: 'rgba(255,255,255,0.9)',
-    letterSpacing: 1.2,
-    fontSize: 13,
+  cardFooterText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 12,
     fontWeight: '500',
   },
   expiryLabel: {
@@ -961,46 +958,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginTop: 2,
-  },
-  cardButtonsScroller: {
-    marginTop: 16,
-  },
-  cardButtonsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingRight: 8,
-  },
-  primaryMiniAction: {
-    flexShrink: 0,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  primaryMiniActionText: {
-    color: PATIENT.primary,
-    fontWeight: '700',
-    fontSize: 12,
-  },
-  ghostMiniAction: {
-    flexShrink: 0,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  ghostMiniActionText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 12,
   },
   statsGrid: {
     flexDirection: 'row',

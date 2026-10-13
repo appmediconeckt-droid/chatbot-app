@@ -4,6 +4,7 @@
 // via DELETE { doctor_id }, plus the web's status / type / search filters.
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
@@ -75,6 +76,9 @@ const toCard = (fu) => {
 };
 
 export default function FollowUpsScreen({ onBack }) {
+  // Bottom sheets live in Modals, which draw under the system navigation
+  // bar (edge-to-edge) — pad them by its height so their last row stays visible.
+  const insets = useSafeAreaInsets();
   const { showToast } = useToast();
   const [doctor, setDoctor] = useState(null);
   const [patients, setPatients] = useState([]);
@@ -325,7 +329,7 @@ export default function FollowUpsScreen({ onBack }) {
       {/* Options sheet for the Status / Type dropdowns */}
       <Modal visible={openFilter !== null} transparent animationType="fade" onRequestClose={() => setOpenFilter(null)}>
         <Pressable style={s.sheetOverlay} onPress={() => setOpenFilter(null)}>
-          <View style={s.sheet}>
+          <View style={[s.sheet, { paddingBottom: 28 + insets.bottom }]}>
             <View style={s.sheetHandle} />
             <Text style={s.sheetTitle}>{openFilter === 'type' ? 'Follow-up type' : 'Follow-up status'}</Text>
             {(openFilter === 'type' ? TYPE_FILTERS : STATUS_FILTERS).map(([value, label]) => {

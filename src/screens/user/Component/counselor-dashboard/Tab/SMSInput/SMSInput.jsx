@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
-  ScrollView,
   StyleSheet,
   TouchableOpacity,
   FlatList,
@@ -42,6 +41,7 @@ import useRingtone, { INCOMING_RING_TIMEOUT_MS } from '../../../../../../hooks/u
 import { isGlobalCallUiActive } from '../../../../../../services/callNotificationBridge';
 import { displayMissedCallNotification } from '../../../../../../services/notificationService';
 import useScreenshotPrevent from '../../../../../../utils/useScreenshotPrevent';
+import { getKeyboardLift } from '../../../../../../utils/keyboardLift';
 import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
 import VideoCallModal from '../../../UserDashboard/Tab/CallModal/VideoCallModal';
 import VoiceCallModal from '../../../UserDashboard/Tab/CallModal/VoiceCallModal';
@@ -66,6 +66,7 @@ import {
 import { useSpeechToText } from '../../../../../../hooks/useSpeechToText';
 import { DEFAULT_PRESCRIPTION_THEME_ID } from '../../../../../../utils/prescriptionFestivalThemes';
 import { DEFAULT_PRESCRIPTION_VALID_DAYS } from '../../../../../../utils/prescriptionValidity';
+import { KeyboardSheet, KeyboardSheetOverlay, KeyboardSheetScroll } from '../../../../../../components/common/KeyboardSheet';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -584,6 +585,14 @@ const SMSInput = ({ navigation, route }) => {
   const userDetails = getUserDetailsFromSelected();
   const USER_ID = userDetails.id;
   const USER_NAME = userDetails.name;
+  const USER_PHOTO =
+    toImageUri(userDetails.avatarUrl) ||
+    toImageUri(selectedUser?.profilePhoto) ||
+    toImageUri(selectedUser?.profilePicture) ||
+    toImageUri(selectedUser?.image) ||
+    toImageUri(selectedUser?.Image) ||
+    toImageUri(selectedUser?.avatarUrl) ||
+    null;
   const canIssuePrescription = isPsychiatristSpecialization(
     currentCounselor?.specialization || currentCounselor?.specializations,
   );
@@ -1560,6 +1569,8 @@ const SMSInput = ({ navigation, route }) => {
           roomId: streamRoomId,
           streamCallId: streamRoomId,
           name: USER_NAME,
+          profilePic: USER_PHOTO,
+          avatarUrl: USER_PHOTO,
           type: "video",
           callType: "video",
           status: "ringing",
@@ -1611,6 +1622,8 @@ const SMSInput = ({ navigation, route }) => {
           roomId: streamRoomId,
           streamCallId: streamRoomId,
           name: USER_NAME,
+          profilePic: USER_PHOTO,
+          avatarUrl: USER_PHOTO,
           type: "voice",
           callType: "audio",
           status: "ringing",
@@ -1674,7 +1687,14 @@ const SMSInput = ({ navigation, route }) => {
           type: modalType,
           callType: modalType,
           status: response.data?.status || acceptedPayload?.status || "active",
-          profilePic: remoteParticipant?.profilePhoto || remoteParticipant?.image || incomingCallData.image || null,
+          profilePic:
+            toImageUri(remoteParticipant?.profilePhoto) ||
+            toImageUri(remoteParticipant?.profilePicture) ||
+            toImageUri(remoteParticipant?.image) ||
+            toImageUri(remoteParticipant?.avatarUrl) ||
+            toImageUri(remoteParticipant?.avatar) ||
+            toImageUri(incomingCallData.image) ||
+            null,
           apiCallData: acceptedPayload,
           initiator: acceptedPayload?.initiator || incomingCallData.initiator,
           receiver: acceptedPayload?.receiver || incomingCallData.receiver,
@@ -2054,7 +2074,7 @@ const SMSInput = ({ navigation, route }) => {
       keyboardVisibleRef.current = true;
       if (Platform.OS === 'android') {
         const keyboardHeight = event?.endCoordinates?.height || 0;
-        setKeyboardInset(Math.max(0, keyboardHeight - insets.bottom));
+        setKeyboardInset(getKeyboardLift(keyboardHeight, insets.bottom));
       }
       if (shouldAutoScrollRef.current) {
         requestAnimationFrame(() => scrollToBottom(true));
@@ -2396,7 +2416,8 @@ const SMSInput = ({ navigation, route }) => {
           </Modal>
 
           <Modal transparent={false} visible={showPsychiatristPicker} animationType="slide" onRequestClose={() => setShowPsychiatristPicker(false)}>
-            <SafeAreaView style={styles.psychiatristModalSafe}>
+            {/* Explicit insets: SafeAreaView inside a Modal can report 0 on Android. */}
+            <View style={[styles.psychiatristModalSafe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
               <PsychiatristDirectory
                 title="Psychiatrists"
                 subtitle={`Choose psychiatrist for ${USER_NAME || 'this patient'}`}
@@ -2405,12 +2426,13 @@ const SMSInput = ({ navigation, route }) => {
                 onClose={() => setShowPsychiatristPicker(false)}
                 onSelect={handleSelectPsychiatrist}
               />
-            </SafeAreaView>
+            </View>
           </Modal>
 
           <Modal transparent visible={showPrescriptionModal} animationType="slide" onRequestClose={() => !issuingPrescription && setShowPrescriptionModal(false)}>
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.prescriptionOverlay}>
-              <View style={[styles.prescriptionSheet, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+            {/* Signup-style: header fixed, fields scroll above the keyboard. */}
+            <KeyboardSheetOverlay style={styles.prescriptionOverlay}>
+              <KeyboardSheet style={styles.prescriptionSheet} bottomPadding={14}>
                 <View style={styles.prescriptionHeader}>
                   <View>
                     <Text style={styles.prescriptionKicker}>Patient prescription</Text>
@@ -2422,7 +2444,7 @@ const SMSInput = ({ navigation, route }) => {
                   </TouchableOpacity>
                 </View>
 
-                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <KeyboardSheetScroll style={styles.prescriptionScroll} showsVerticalScrollIndicator={false}>
                   <Text style={styles.rxLabel}>Patient problem *</Text>
                   <TextInput
                     style={[styles.rxInput, styles.rxTextArea]}
@@ -2574,9 +2596,9 @@ const SMSInput = ({ navigation, route }) => {
                       {issuingPrescription ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.rxSendText}>Send Prescription</Text>}
                     </TouchableOpacity>
                   </View>
-                </ScrollView>
-              </View>
-            </KeyboardAvoidingView>
+                </KeyboardSheetScroll>
+              </KeyboardSheet>
+            </KeyboardSheetOverlay>
             <SignaturePad
               visible={showSignaturePad}
               signerName={currentCounselor?.fullName || currentCounselor?.name}
@@ -3131,6 +3153,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
     justifyContent: 'flex-end',
   },
+  // Prescription form body: shrinks above the keyboard so the fields scroll.
+  prescriptionScroll: { flexGrow: 0, flexShrink: 1 },
   prescriptionSheet: {
     maxHeight: '92%',
     backgroundColor: '#FFFFFF',

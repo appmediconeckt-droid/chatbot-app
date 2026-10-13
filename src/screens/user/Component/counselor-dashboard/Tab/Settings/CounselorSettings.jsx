@@ -45,6 +45,8 @@ import { APP_VERSION_LABEL } from '../../../../../../constants/appInfo';
 import LanguageSelector from '../../../../../../components/common/LanguageSelector';
 import { LANGUAGES } from '../../../../../../i18n';
 import { useLanguageContext } from '../../../../../../contexts/LanguageContext';
+import { KeyboardSheet, KeyboardSheetOverlay, KeyboardSheetScroll } from '../../../../../../components/common/KeyboardSheet';
+import { getKeyboardCover } from '../../../../../../utils/keyboardLift';
 
 const TERMS_URL = 'https://humaeli.com/terms-of-use/';
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -579,10 +581,13 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         items: s.items.filter((it) => String(it.label).toLowerCase().includes(sq)),
       })).filter((s) => s.items.length > 0)
     : SECTIONS;
-  const passwordSheetMaxHeight = pwKeyboardInset
-    ? Math.max(260, SCREEN_HEIGHT - pwKeyboardInset - insets.top - 16)
+  // The sheet runs to the bottom edge of a translucent Modal, so it reserves
+  // everything the keyboard covers there (see utils/keyboardLift).
+  const pwKeyboardCover = getKeyboardCover(pwKeyboardInset, insets.bottom);
+  const passwordSheetMaxHeight = pwKeyboardCover
+    ? Math.max(260, SCREEN_HEIGHT - pwKeyboardCover - insets.top - 16)
     : isTablet ? '80%' : '90%';
-  const passwordSheetBottomGap = Platform.OS === 'android' ? pwKeyboardInset : 0;
+  const passwordSheetBottomGap = Platform.OS === 'android' ? pwKeyboardCover : 0;
   const passwordBodyBottomPadding = Math.max(insets.bottom + 20, pwKeyboardInset ? 44 : 20);
 
   return (
@@ -755,14 +760,14 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         </View>
       </View>
 
-      {/* Sign Out */}
+      {/* Logout */}
       <TouchableOpacity
         style={styles.signOutBtn}
         onPress={onLogout}
         activeOpacity={0.85}
       >
         <Feather name="log-out" size={18} color="#ffffff" />
-        <Text style={styles.signOutText}>{t('counselor:signOut')}</Text>
+        <Text style={styles.signOutText}>{t('auth:logout')}</Text>
       </TouchableOpacity>
 
       <Text style={styles.footer}>© 2026 Humaeli. All rights reserved.</Text>
@@ -772,8 +777,8 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
 
     {/* Feedback Modal */}
     <Modal statusBarTranslucent navigationBarTranslucent visible={feedbackModal} animationType="slide" transparent onRequestClose={() => setFeedbackModal(false)}>
-      <KeyboardAvoidingView style={pwStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={[pwStyles.sheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+      <KeyboardSheetOverlay style={pwStyles.overlay}>
+        <KeyboardSheet style={pwStyles.sheet} bottomPadding={12}>
           <View style={pwStyles.sheetHeader}>
             <View>
               <Text style={pwStyles.sheetTitle}>Send Feedback</Text>
@@ -784,7 +789,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={pwStyles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <KeyboardSheetScroll style={pwStyles.feedbackScroll} contentContainerStyle={pwStyles.body} showsVerticalScrollIndicator={false}>
             {!!feedbackNotice.msg && (
               <View style={[pwStyles.notice, feedbackNotice.type === 'error' ? pwStyles.noticeError : pwStyles.noticeSuccess]}>
                 <Feather name={feedbackNotice.type === 'error' ? 'alert-circle' : 'check-circle'} size={14} color={feedbackNotice.type === 'error' ? '#dc2626' : '#16a34a'} />
@@ -835,9 +840,9 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                 <><Feather name="send" size={16} color="#fff" /><Text style={pwStyles.submitText}>Submit</Text></>
               )}
             </TouchableOpacity>
-          </ScrollView>
-        </View>
-      </KeyboardAvoidingView>
+          </KeyboardSheetScroll>
+        </KeyboardSheet>
+      </KeyboardSheetOverlay>
     </Modal>
 
     {/* Help & Support */}
@@ -1520,6 +1525,8 @@ const skel = StyleSheet.create({
 });
 
 const pwStyles = StyleSheet.create({
+  // Feedback sheet body: shrinks above the keyboard so the fields scroll.
+  feedbackScroll: { flexGrow: 0, flexShrink: 1 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(4,47,46,0.5)',

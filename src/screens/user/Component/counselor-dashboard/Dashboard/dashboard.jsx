@@ -28,6 +28,7 @@ import axios, { API_BASE_URL } from "../../../../../axiosConfig";
 import { getAuthToken, getCounsellorId } from "../../../../auth/authUtils";
 import socketService from "../../../../../services/socketService";
 import { getCounselorRating } from "../../../../../services/ratingService";
+import { isPatientAccountDeleted } from "../../../../../utils/deletedAccount";
 import { launchImageLibrary } from 'react-native-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
@@ -1094,7 +1095,9 @@ export default function CounselorDashboard() {
         : Array.isArray(res.data?.data?.appointments)
         ? res.data.data.appointments
         : [];
-      setAppointments(data);
+      // A deleted patient account leaves its appointments behind with no patient
+      // record, which showed up as an "Unknown" entry that can't be acted on.
+      setAppointments(data.filter((apt) => !isPatientAccountDeleted(apt)));
     } catch (err) {
       console.error("Error fetching appointments:", err);
     } finally {
@@ -2876,7 +2879,7 @@ export default function CounselorDashboard() {
               >
                 <Feather name="log-out" size={18} color="#e53935" />
                 <Text style={[styles.navLabel, styles.navLabelLogout]}>
-                  {t('counselor:signOut')}
+                  {t('auth:logout')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -2933,6 +2936,14 @@ export default function CounselorDashboard() {
         {isMobile && showMobileMenu && (
           <View style={[styles.mobileMenuOverlay, { top: mobileHeaderHeight }]}>
             <View style={styles.mobileMenu}>
+              {/* Scrollable, with the system nav bar height reserved at the
+                  bottom: the panel runs edge-to-edge, so on short phones and
+                  3-button nav bars Sign Out was cut off or sat under the bar. */}
+              <ScrollView
+                style={styles.mobileMenuScroll}
+                contentContainerStyle={{ paddingBottom: dashboardBottomInset + 24 }}
+                showsVerticalScrollIndicator={false}
+              >
 
               {/* Profile */}
               <View style={styles.sidebarHeader}>
@@ -3054,9 +3065,9 @@ export default function CounselorDashboard() {
                 ))}
               </View>
 
-              {/* Divider + Sign Out inline with nav */}
+              {/* Divider + Logout inline with nav */}
               <View style={styles.mobileNavDivider} />
-              <View style={{ paddingHorizontal: 14, paddingBottom: 24 }}>
+              <View style={styles.mobileSignOutWrap}>
                 <TouchableOpacity
                   style={[styles.mobileNavItem, styles.mobileNavItemLogout]}
                   onPress={() => {
@@ -3067,10 +3078,11 @@ export default function CounselorDashboard() {
                 >
                   <Feather name="log-out" size={24} color="#e53935" />
                   <Text style={[styles.mobileNavLabel, styles.mobileNavLabelLogout]}>
-                    {t('counselor:signOut')}
+                    {t('auth:logout')}
                   </Text>
                 </TouchableOpacity>
               </View>
+              </ScrollView>
 
             </View>
           </View>
@@ -3292,9 +3304,9 @@ export default function CounselorDashboard() {
                 <View style={styles.logoutIconWrap}>
                   <Feather name="log-out" size={26} color="#DC2626" />
                 </View>
-                <Text style={styles.logoutTitle}>{t('counselor:signOutQuestion')}</Text>
+                <Text style={styles.logoutTitle}>{t('auth:logout')}</Text>
                 <Text style={styles.logoutText}>
-                  {t('counselor:signOutMessage')}
+                  {t('settings:logoutConfirm')}
                 </Text>
                 <View style={styles.modalActions}>
                   <TouchableOpacity
@@ -3308,7 +3320,7 @@ export default function CounselorDashboard() {
                     onPress={handleLogout}
                   >
                     <Feather name="log-out" size={15} color="#ffffff" />
-                    <Text style={styles.confirmBtnText}>{t('counselor:signOut')}</Text>
+                    <Text style={styles.confirmBtnText}>{t('auth:logout')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -4777,6 +4789,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: "rgba(0,0,0,0.5)",
     zIndex: 997,
+  },
+  mobileMenuScroll: {
+    flex: 1,
+  },
+  mobileSignOutWrap: {
+    paddingHorizontal: 14,
   },
   mobileMenu: {
     position: "absolute",

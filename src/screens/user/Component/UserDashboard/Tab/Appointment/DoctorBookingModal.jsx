@@ -175,7 +175,6 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   const [booking, setBooking] = useState(false);
   const [bookError, setBookError] = useState('');
   const [token, setToken] = useState(null);
-  const [requestId, setRequestId] = useState('');
   const [patientInfo, setPatientInfo] = useState(null);
   const isEmergency = priority === 'emergency';
 
@@ -194,7 +193,6 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
     setPaymentMethod('Cash');
     setBookError('');
     setToken(null);
-    setRequestId('');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, doctorId]);
 
@@ -401,23 +399,27 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   const totalFee = (Number(selectedClinic?.fee) || 0) + (Number(selectedMode?.fee) || 0);
 
   // Regular bookings happen at the chosen clinic, so the location is the
-  // clinic address (read-only). Emergency requests keep an editable location.
+  // clinic address (read-only) — an emergency is a token at the clinic too.
   useEffect(() => {
-    if (selectedClinic?.address && !isEmergency) setLocation(selectedClinic.address);
+    if (selectedClinic?.address) setLocation(selectedClinic.address);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedClinic?.id, isEmergency]);
+  }, [selectedClinic?.id]);
 
   const pt = patientInfo || {};
   const patientName = pickFirst(pt.full_name, pt.fullName, pt.name, 'You');
   const dateStr = selectedDate ? `${selectedDate.day}, ${selectedDate.label}` : '';
-  const emergencyReady = Boolean(doctorId && selectedClinicId && !booking
-    && emergencyReason.trim().length >= 10 && emergencyReason.trim().length <= 1000);
-  const canContinue = !!selectedDate && !!selectedTime && hasClinics && !!location.trim();
+  // An emergency is a normal token booking (date + slot → token number)
+  // flagged 'emergency' with a reason — there is no emergency without a token.
+  // The doctor's queue then puts that token first.
+  const emergencyReasonOk = emergencyReason.trim().length >= 10 && emergencyReason.trim().length <= 1000;
+  const canContinue = !!selectedDate && !!selectedTime && hasClinics && !!location.trim()
+    && (!isEmergency || emergencyReasonOk);
 
   const confirmBooking = async () => {
     if (booking) return;
-    if (isEmergency && !emergencyReady) {
-      setBookError('Select a clinic and describe the emergency in 10 to 1000 characters.');
+    if (isEmergency && !emergencyReasonOk) {
+      setStep('select');
+      setBookError('Describe the emergency in 10 to 1000 characters.');
       return;
     }
     if (!hasClinics) {
@@ -425,7 +427,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       return;
     }
     // The slot may have passed while the user was on the payment step.
-    if (!isEmergency && !slotsForDate(selectedDate).some((x) => x.time === selectedTime)) {
+    if (!slotsForDate(selectedDate).some((x) => x.time === selectedTime)) {
       setSelectedTime(null);
       setStep('select');
       setBookError('That time slot has already passed. Please choose an upcoming slot.');
@@ -435,16 +437,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
     setBookError('');
     const formattedTime = to24Hour(selectedTime);
     const patientId = pickFirst(await AsyncStorage.getItem('userId'), pt._id, pt.id);
-    const payload = isEmergency
-      ? {
-        counselorId: doctorId,
-        clinic_id: selectedClinic.id,
-        priority: 'emergency',
-        emergency_reason: emergencyReason.trim(),
-        patient_location: (location || selectedClinic.address || '').trim() || null,
-        consultation_mode: 'in-clinic',
-      }
-      : {
+    const payload = {
         doctor_id: doctorId,
         counselorId: doctorId,
         patient_id: patientId,
@@ -462,12 +455,12 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
         notes: `Consultation: ${selectedMode.name} at ${selectedClinic.name}. Location: ${location.trim()}`,
         booking_source: 'online',
         priority,
+        ...(isEmergency ? { emergency_reason: emergencyReason.trim(), is_emergency: true } : {}),
       };
     try {
       const res = await api.post('/api/appointments', payload);
       const data = res.data?.data || res.data || {};
       setToken(pickFirst(data.token, data.token_number, data.queue_token, data.appointment?.token_number) ?? null);
-      setRequestId(String(pickFirst(data._id, data.id, data.appointment?._id, '')));
       setStep('success');
       onBooked?.();
     } catch (err) {
@@ -510,23 +503,25 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
 
   const renderSuccess = () => (
     <View style={s.screen}>
-      {header(isEmergency ? 'Request Sent' : 'Booked', '')}
+      {header('Booked', '')}
       <ScrollView contentContainerStyle={s.content}>
         <View style={s.successHero}>
           <View style={s.successIcon}><GradientFill /><Ionicons name="checkmark" size={38} color="#FFF" /></View>
-          <Text style={s.successTitle}>{isEmergency ? 'Emergency Appointment Requested' : 'Appointment Booked Successfully!'}</Text>
+          <Text style={s.successTitle}>{isEmergency ? 'Emergency Appointment Booked' : 'Appointment Booked Successfully!'}</Text>
           <Text style={s.successSub}>
             {isEmergency
-              ? 'Your emergency request has been sent to the clinic for the doctor and care team to review. The clinic will confirm consultation timing.'
+              ? 'Your token is marked as an emergency — the doctor sees it at the top of the queue. Please reach the clinic as soon as you can.'
               : 'A confirmation notification with all the details has been generated for you.'}
           </Text>
         </View>
-        <LinearGradient colors={PATIENT_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.tokenCard}>
+        <LinearGradient colors={isEmergency ? ['#DC2626', '#EF4444'] : PATIENT_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.tokenCard}>
           <View style={s.flex}>
-            <Text style={s.tokenLabel}><Ionicons name="ticket-outline" size={13} color="#FFF" /> {isEmergency ? 'Request Status' : 'Token Number'}</Text>
-            <Text style={s.tokenNote}>{isEmergency ? `Request ID: ${requestId}` : 'Arrive 15 minutes early'}</Text>
+            <Text style={s.tokenLabel}>
+              <Ionicons name={isEmergency ? 'alert-circle' : 'ticket-outline'} size={13} color="#FFF" /> {isEmergency ? 'Emergency Token' : 'Token Number'}
+            </Text>
+            <Text style={s.tokenNote}>{isEmergency ? 'Priority — seen first by the doctor' : 'Arrive 15 minutes early'}</Text>
           </View>
-          <Text style={s.tokenNum}>{isEmergency ? 'Sent' : token != null ? `#${token}` : 'Pending'}</Text>
+          <Text style={s.tokenNum}>{token != null ? `#${token}` : 'Pending'}</Text>
         </LinearGradient>
         <View style={s.card}>
           <Row icon="person-outline" label="Patient" value={patientName} />
@@ -534,9 +529,10 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
           <Row icon="business-outline" label="Clinic" value={selectedClinic.name} />
           <Row icon="location-outline" label="Location" value={location || selectedClinic.address} />
           <Row icon={selectedMode.icon} label="Consultation Mode" value={selectedMode.name} />
-          <Row icon="calendar-outline" label="Date" value={isEmergency ? 'Requested today' : dateStr} />
-          <Row icon="time-outline" label="Time" value={isEmergency ? 'Clinic will confirm' : selectedTime} last />
-          {!isEmergency && <View style={s.totalRow}><Text style={s.totalLabel}>Total Fee</Text><Text style={s.totalValue}>₹{totalFee}</Text></View>}
+          {isEmergency && <Row icon="alert-circle-outline" label="Emergency" value={emergencyReason.trim()} />}
+          <Row icon="calendar-outline" label="Date" value={dateStr} />
+          <Row icon="time-outline" label="Time" value={selectedTime} last />
+          <View style={s.totalRow}><Text style={s.totalLabel}>Total Fee</Text><Text style={s.totalValue}>₹{totalFee}</Text></View>
         </View>
         <Text style={s.closingNote}>You can follow your token live in the Token tab. Closing shortly…</Text>
         <GradientButton label="Done" icon="checkmark" onPress={onClose} />
@@ -555,6 +551,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
           <Row icon="business-outline" label="Clinic" value={selectedClinic.name} />
           <Row icon="location-outline" label="Location" value={location} />
           <Row icon={selectedMode.icon} label="Mode" value={selectedMode.name} />
+          {isEmergency && <Row icon="alert-circle-outline" label="Emergency" value={emergencyReason.trim()} />}
           <Row icon="calendar-outline" label="Date" value={dateStr} />
           <Row icon="time-outline" label="Time" value={selectedTime} last />
         </View>
@@ -698,15 +695,15 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
         <View style={s.card}>
           <Text style={s.cardTitle}>Appointment Type</Text>
           <View style={s.typeRow}>
-            <Pressable style={[s.typeBtn, !isEmergency && s.typeBtnActive]} onPress={() => { setPriority('normal'); setSelectedTime(null); }} disabled={booking}>
+            <Pressable style={[s.typeBtn, !isEmergency && s.typeBtnActive]} onPress={() => setPriority('normal')} disabled={booking}>
               {!isEmergency && <GradientFill />}
               <Ionicons name="calendar-outline" size={16} color={!isEmergency ? '#FFF' : PATIENT.primary} />
               <Text style={[s.typeText, !isEmergency && s.typeTextActive]}>Regular</Text>
             </Pressable>
-            <Pressable style={[s.typeBtn, isEmergency && s.typeBtnEmergency]} onPress={() => { setPriority('emergency'); setSelectedTime(null); setSelectedModeId('in-clinic'); }} disabled={booking}>
+            <Pressable style={[s.typeBtn, isEmergency && s.typeBtnEmergency]} onPress={() => { setPriority('emergency'); setSelectedModeId('in-clinic'); }} disabled={booking}>
               {isEmergency && <GradientFill danger />}
               <Ionicons name="alert-circle-outline" size={16} color={isEmergency ? '#FFF' : '#DC2626'} />
-              <Text style={[s.typeText, s.typeTextEmergency, isEmergency && s.typeTextActive]}>Emergency — send now</Text>
+              <Text style={[s.typeText, s.typeTextEmergency, isEmergency && s.typeTextActive]}>Emergency</Text>
             </Pressable>
           </View>
           {isEmergency && (
@@ -723,7 +720,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
                 textAlignVertical="top"
               />
               <Text style={s.helpText}>
-                {emergencyReason.trim().length}/1000 · at least 10 characters. No date, time slot or payment is needed. Your request alerts the doctor and the clinic's nurse/reception team, who confirm the timing.
+                {emergencyReason.trim().length}/1000 · at least 10 characters. Choose a date and time slot below to get your token — it is marked as an emergency, so the doctor sees it at the top of the queue. Emergency is for clinic visits only.
               </Text>
             </View>
           )}
@@ -731,18 +728,14 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
 
         {/* Location */}
         <View style={s.card}>
-          <Text style={s.fieldLabel}><Ionicons name="location-outline" size={13} color={PATIENT.primary} /> {isEmergency ? 'Your Location (optional)' : 'Appointment Location'}</Text>
-          {isEmergency ? (
-            <TextInput style={s.input} value={location} onChangeText={setLocation} placeholder="Enter area, address or clinic location" placeholderTextColor="#94A3B8" />
-          ) : (
-            <View style={s.inputLocked}>
-              <Text style={s.inputLockedText} numberOfLines={2}>{location || selectedClinic?.address || 'Clinic address'}</Text>
-            </View>
-          )}
+          <Text style={s.fieldLabel}><Ionicons name="location-outline" size={13} color={PATIENT.primary} /> Appointment Location</Text>
+          <View style={s.inputLocked}>
+            <Text style={s.inputLockedText} numberOfLines={2}>{location || selectedClinic?.address || 'Clinic address'}</Text>
+          </View>
         </View>
 
-        {/* Date + time */}
-        {!isEmergency && (
+        {/* Date + time — an emergency needs a slot as well: that slot is its token. */}
+        {(
           <View style={s.card}>
             <View style={s.dateHead}>
               <Text style={s.cardTitle}>Choose Appointment Date</Text>
@@ -808,26 +801,21 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       </ScrollView>
 
       <View style={s.footer}>
-        {!isEmergency && (
-          <View style={s.footerSummary}>
-            <Text style={s.footerSummaryText} numberOfLines={1}>
-              {selectedDate && selectedTime ? `${dateStr} • ${selectedTime}` : 'Select a date and time'}
-            </Text>
-            <Text style={s.footerFee}>₹{totalFee}.00</Text>
-          </View>
-        )}
-        {isEmergency ? (
-          <GradientButton
-            label={booking ? 'Sending Emergency Request…' : 'Send Emergency Request'}
-            icon="alert-circle"
-            danger
-            onPress={confirmBooking}
-            disabled={!emergencyReady || clinicsLoading}
-            loading={booking}
-          />
-        ) : (
-          <GradientButton label="Confirm Selection" icon="arrow-forward" onPress={() => canContinue && setStep('payment')} disabled={!canContinue} />
-        )}
+        <View style={s.footerSummary}>
+          <Text style={s.footerSummaryText} numberOfLines={1}>
+            {selectedDate && selectedTime
+              ? `${isEmergency ? 'Emergency · ' : ''}${dateStr} • ${selectedTime}`
+              : 'Select a date and time'}
+          </Text>
+          <Text style={s.footerFee}>₹{totalFee}.00</Text>
+        </View>
+        <GradientButton
+          label={isEmergency && !emergencyReasonOk ? 'Describe the emergency' : 'Confirm Selection'}
+          icon="arrow-forward"
+          danger={isEmergency}
+          onPress={() => canContinue && setStep('payment')}
+          disabled={!canContinue}
+        />
       </View>
     </View>
   );

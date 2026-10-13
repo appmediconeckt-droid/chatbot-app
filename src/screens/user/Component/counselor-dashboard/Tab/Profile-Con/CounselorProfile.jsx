@@ -17,6 +17,7 @@ import {
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import Text from '../../../../../../components/TranslatedText';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import useKeyboardAwareScroll from '../../../../../../hooks/useKeyboardAwareScroll';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -233,6 +234,13 @@ const getAuthResponseCounsellorId = (raw = {}) =>
 
 const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   const navigation = useNavigation();
+  const {
+    scrollRef: kbScrollRef,
+    frameInset: kbInset,
+    scrollFocusedInputIntoView: kbFocus,
+    handleKeyboardAwareScroll: kbOnScroll,
+    handleKeyboardAwareScrollLayout: kbOnLayout,
+  } = useKeyboardAwareScroll({ frameIsScroll: true });
   const { t: tLanguage } = useTranslation();
   const { t } = useLanguageRender();
   const { showToast } = useToast();
@@ -1432,12 +1440,22 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
+        ref={kbScrollRef}
         style={styles.scrollView}
-        showsVerticalScrollIndicator={false} 
+        showsVerticalScrollIndicator={false}
+        // Signup-style keyboard handling on Android too (KeyboardAvoidingView
+        // above is iOS-only): the form scrolls above the keyboard and the
+        // focused field is scrolled into view.
         contentContainerStyle={[
           styles.scrollContent,
           isEditing && styles.scrollContentEditing,
+          Platform.OS === 'android' && kbInset > 0 && { paddingBottom: kbInset + 24 },
         ]}
+        onScroll={kbOnScroll}
+        onLayout={kbOnLayout}
+        onFocusCapture={kbFocus}
+        scrollEventThrottle={16}
+        keyboardShouldPersistTaps="handled"
       >
         {/* FULL WIDTH - NO SIDE SPACING */}
         <View style={styles.fullWidth}>

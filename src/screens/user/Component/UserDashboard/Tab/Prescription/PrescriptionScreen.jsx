@@ -1,5 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  getDoctorMedicines,
+  getDoctorTests,
+  splitTimings,
+  unpackConsultationNotes,
+} from '../../../../../../utils/consultationDetails';
+import {
   ActivityIndicator,
   Alert,
   Image,
@@ -159,87 +165,11 @@ const SOURCE_BADGES = {
   },
 };
 
-const parseJsonArray = value => {
-  if (Array.isArray(value)) return value;
-  if (typeof value !== 'string' || !value.trim().startsWith('[')) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const splitTimings = value =>
-  (Array.isArray(value) ? value : String(value || '').split(','))
-    .map(t => String(t).trim())
-    .filter(t => t && t !== 'Select timing');
-
-// The doctor form's text line: "Name - 1 Tablet (Morning, Night) - 5 days".
-const MEDICINE_LINE = /^(.+?) - (.+?) \((.*?)\) - (.+)$/;
-
-// Doctor medicines as { name, dosage, timings[], duration }: the structured
-// list from the Complete Appointment form, else parsed from the text lines
-// older consultations (and the current Railway backend) keep.
-const getDoctorMedicines = appt => {
-  const structured = parseJsonArray(appt?.medicines)
-    .filter(m => m?.name)
-    .map(m => {
-      const durationValue = m.durationValue ?? m.duration;
-      return {
-        name: m.name,
-        dosage: m.dosage || '',
-        timings: splitTimings(m.timings || m.timeOfDay || m.timing),
-        duration: durationValue
-          ? `${durationValue} ${String(m.durationType || '').toLowerCase()}`.trim()
-          : '',
-      };
-    });
-  if (structured.length) return structured;
-  return String(appt?.medicine || '')
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
-    .map(line => {
-      const match = line.match(MEDICINE_LINE);
-      if (!match) return { name: line, dosage: '', timings: [], duration: '' };
-      return {
-        name: match[1].trim(),
-        dosage: match[2] === 'Dosage' ? '' : match[2].trim(),
-        timings: splitTimings(match[3]),
-        duration: match[4].includes('?') ? '' : match[4].trim(),
-      };
-    });
-};
-
-const getDoctorTests = appt => {
-  const tests = parseJsonArray(appt?.recommended_tests || appt?.recommendedTests)
-    .map(t => t?.testName)
-    .filter(Boolean);
-  if (tests.length) return tests;
-  return appt?.testName ? [appt.testName] : [];
-};
 
 const isCompletedAppointment = appt =>
   [appt?.status, appt?.appointment_status, appt?.queue_status]
     .map(s => String(s || '').toLowerCase())
     .includes('completed');
-
-// The backend keeps the doctor's consultation details (medicine, follow-up,
-// tests, notes) packed as JSON in `notes`. Newer backends unpack it in the
-// response; older ones send it raw, so unpack it here too.
-const unpackConsultationNotes = appt => {
-  if (typeof appt?.notes !== 'string') return appt;
-  try {
-    const packed = JSON.parse(appt.notes);
-    if (packed?.__doctorConsultation === 1) {
-      return { ...appt, ...packed.details, notes: packed.originalNotes };
-    }
-  } catch {
-    // Plain-text patient notes.
-  }
-  return appt;
-};
 
 // A completed doctor appointment → prescription card data. Null when the
 // doctor completed without writing anything (the "Complete" skip).
@@ -795,6 +725,9 @@ const PrescriptionScreen = () => {
           <SourceBadge kind={rx.kind} />
         </View>
 
+        {/* Chips wrap onto a second line when the row runs out of room, and
+            View never shrinks — they used to run into each other on narrow
+            phones once a follow-up date was shown. */}
         <View style={styles.doctorFooter}>
           <View style={styles.footerInfo}>
             {rx.visits?.length > 1 && (
@@ -803,18 +736,20 @@ const PrescriptionScreen = () => {
                 <Text style={styles.visitsChipText}>{rx.visits.length} visits</Text>
               </View>
             )}
-            <Ionicons name="medical-outline" size={13} color="#64748B" />
-            <Text style={styles.medCount}>{medicineCount}</Text>
+            <View style={styles.medCountWrap}>
+              <Ionicons name="medical-outline" size={13} color="#64748B" />
+              <Text style={styles.medCount}>{medicineCount}</Text>
+            </View>
             {!!rx.followUpDate && (
               <View style={styles.followUpChip}>
                 <Ionicons name="calendar-outline" size={12} color="#006B2C" />
                 <Text style={styles.followUpChipText}>
-                  {formatDate(rx.followUpDate)}
+                  Follow-up · {formatDate(rx.followUpDate)}
                 </Text>
               </View>
             )}
           </View>
-          <View style={styles.viewLink}>
+          <View style={[styles.viewLink, { backgroundColor: badge.bg }]}>
             <Text style={[styles.viewLinkText, { color: badge.text }]}>View</Text>
             <Ionicons name="chevron-forward" size={14} color={badge.text} />
           </View>
@@ -1130,16 +1065,16 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
   },
-  footerInfo: { flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  footerInfo: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 6 },
+  medCountWrap: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   followUpChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     borderRadius: 999,
     backgroundColor: '#F0FDF4',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    marginLeft: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
   followUpChipText: { color: '#166534', fontSize: 11.5, fontWeight: '800' },
   medCount: { color: '#64748B', fontSize: 12, fontWeight: '700' },
@@ -1150,11 +1085,20 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: '#006B2C',
     paddingHorizontal: 8,
-    paddingVertical: 2,
-    marginRight: 4,
+    paddingVertical: 3,
   },
   visitsChipText: { color: '#FFFFFF', fontSize: 11.5, fontWeight: '800' },
-  viewLink: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  viewLink: {
+    flexShrink: 0,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingLeft: 12,
+    paddingRight: 8,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
   viewLinkText: { fontSize: 13, fontWeight: '900' },
   rxIcon: {
     width: 38,

@@ -179,7 +179,7 @@ const CounselorOnboarding = ({ navigation, route, previewMode = false, onPreview
   };
 
   return (
-    <SafeAreaView style={s.container} edges={['top']}>
+    <SafeAreaView style={s.container} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor={DOCTOR.backgroundTint} />
 
       {/* Header */}

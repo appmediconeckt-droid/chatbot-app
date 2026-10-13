@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import Text from '../../../../../../components/TranslatedText';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
@@ -37,6 +37,9 @@ const HELPLINE_DIRECTORY = 'https://findahelpline.com';
 // onOpenTab / onOpenAiChat come from UserDashboard. CounselorSettings mounts
 // this screen without them, so every use is guarded with a working fallback.
 const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
+  // Explicit insets: this screen opens inside a Modal, where SafeAreaView can
+  // report 0 on Android and leave content under the status/navigation bars.
+  const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   const [expandedIndices, setExpandedIndices] = useState(new Set());
 
@@ -183,7 +186,7 @@ const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
   };
 
   return (
-    <SafeAreaView style={s.container} edges={['top', 'bottom']}>
+    <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
       {/* Header */}
@@ -302,7 +305,7 @@ const HelpSupport = ({ onClose, onOpenTab, onOpenAiChat }) => {
 
         <View style={{ height: 20 }} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 

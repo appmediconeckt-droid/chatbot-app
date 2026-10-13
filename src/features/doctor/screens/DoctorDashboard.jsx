@@ -17,7 +17,6 @@ import DoctorBottomNavigation from '../dashboard/navigation/DoctorBottomNavigati
 import { colors, typography, createDoctorStyles } from '../dashboard/theme';
 import AppIcon from '../dashboard/icons/AppIcon';
 import AppointmentCard from '../dashboard/components/AppointmentCard';
-import NextPatientCard from '../dashboard/components/NextPatientCard';
 import ActiveConsultationCard from '../dashboard/components/ActiveConsultationCard';
 import EditCompletedAppointmentScreen from '../dashboard/components/EditCompletedAppointmentScreen';
 import CompleteAppointmentScreen from '../dashboard/components/CompleteAppointmentScreen';
@@ -72,10 +71,24 @@ import VoiceCallModal from '../../../screens/user/Component/UserDashboard/Tab/Ca
 import axiosInstance from '../../../axiosConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import socketService from '../../../services/socketService';
+import useLiveRefresh from '../../../hooks/useLiveRefresh';
 import { clearAccountLocalData } from '../../../utils/authSession';
 import UpdateReminderModal from '../../../components/UpdateReminderModal';
+import { KeyboardSheetOverlay } from '../../../components/common/KeyboardSheet';
+import { useToast } from '../../../components/common/ToastProvider';
 
 const { width } = Dimensions.get('window');
+
+// Same events the counsellor dashboard refreshes on, so a booking shows up on
+// the doctor's queue as soon as the server announces it.
+const APPOINTMENT_REFRESH_EVENTS = [
+  'appointment-booked',
+  'appointment-new',
+  'appointment-updated',
+  'appointment-status-changed',
+  'appointment-confirmed',
+  'appointment-cancelled',
+];
 
 const sidebarRoutes = {
   appointments: 'appointments',
@@ -387,7 +400,8 @@ function BreakModal({ visible, onClose, onStartBreak }) {
   const durations = ['10 min', '15 min', '30 min', 'Custom'];
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={modalStyles.overlay}>
+      {/* Lifts the dialog above the keyboard while typing custom minutes. */}
+      <KeyboardSheetOverlay style={modalStyles.overlay}>
         <View style={modalStyles.content}>
           <View style={modalStyles.headerBlock}>
             <View style={modalStyles.headerRow}>
@@ -449,7 +463,7 @@ function BreakModal({ visible, onClose, onStartBreak }) {
             <Text style={modalStyles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </KeyboardSheetOverlay>
     </Modal>
   );
 }
@@ -483,6 +497,15 @@ const modalStyles = createDoctorStyles({
 // MAIN SCREEN
 // ------------------------------------------------------------------
 export default function DoctorDashboard({ navigation }) {
+  // Full-screen form Modals pad by these directly: SafeAreaView inside a
+  // Modal (its own Android window) can report 0 insets.
+  const modalInsets = useSafeAreaInsets();
+  const { setToastRole } = useToast();
+
+  useEffect(() => {
+    setToastRole('doctor');
+  }, [setToastRole]);
+
   // Same flow as the web DoctorLayout logout: tell the server to invalidate the
   // session (POST /api/auth/logout, refresh token in body), then ALWAYS clear the
   // local session and go back to the role selector, even if the request fails.
@@ -536,6 +559,9 @@ export default function DoctorDashboard({ navigation }) {
   const [doctorId, setDoctorId] = useState(null);
   const [appointments, setAppointments] = useState([]); // today's pending/confirmed/in-progress
   const [completed, setCompleted] = useState([]);
+  // Today's completed only drives the counters; the Completed tab lists them all.
+  const [completedAll, setCompletedAll] = useState([]);
+  const fetchInFlightRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -581,21 +607,58 @@ export default function DoctorDashboard({ navigation }) {
     Alert.alert('Error', message);
   }, []);
 
+  // activeSession is local state, so reopening the dashboard mid-consultation
+  // used to lose it: the live consultation card vanished and the patient's queue
+  // row offered "Start Consultation" again instead of Continue / Complete.
+  // Rebuild it from the server's consultation_* fields, mirroring the shape
+  // beginConsultation writes. Never clobbers a session already in hand.
+  const restoreRunningConsultation = useCallback((liveList) => {
+    setActiveSession((current) => {
+      if (current?.appt || current?.status === 'break') return current;
+      const running = liveList.find((appt) => appt.status === 'in-progress');
+      if (!running) return current;
+      const raw = running.__raw || {};
+      const timing = raw.consultation_timing || raw.consultationTiming || {};
+      const pauses = Array.isArray(timing.pauses) ? timing.pauses : [];
+      const openPause = pauses.find((pause) => !pause.endedAt);
+      const startedAt = Date.parse(timing.startedAt || raw.consultation_started_at || raw.actual_start_at);
+      return {
+        appt: running,
+        startTime: Number.isFinite(startedAt) ? startedAt : Date.now(),
+        accumulatedPauseMs: pauses.reduce(
+          (total, pause) => total + (pause.endedAt ? Math.max(0, Date.parse(pause.endedAt) - Date.parse(pause.startedAt)) : 0),
+          0,
+        ),
+        pauseStartMs: openPause ? Date.parse(openPause.startedAt) : null,
+        breakStartMs: null,
+        breakEndMs: null,
+        breakDurationMs: null,
+        status: openPause ? 'paused' : 'started',
+      };
+    });
+  }, []);
+
   const fetchAppointments = useCallback(async ({ silent } = {}) => {
-    if (!doctorId) return;
+    // Both early returns must release the pull-to-refresh spinner, since
+    // onRefresh turns it on before calling this.
+    if (!doctorId) { setRefreshing(false); return; }
+    // Polls, socket bursts and pull-to-refresh can all land together — don't
+    // stack duplicate feed requests on top of each other.
+    if (fetchInFlightRef.current) { setRefreshing(false); return; }
+    fetchInFlightRef.current = true;
     if (!silent) setLoading(true);
     setError(null);
     try {
       const list = await loadDoctorAppointmentFeed(doctorId);
-      setAppointments(
-        list
-          // Today's pending appointments stay in the queue even after their
-          // slot time has passed — the doctor can still see a late patient.
-          .filter((apt) =>
-            isTodayAppointment(apt) &&
-            ['pending', 'confirmed', 'in-progress', 'skipped'].includes(normalizeAppointmentStatus(apt)))
-          .map((apt) => formatAppointment(apt)),
-      );
+      const liveAppointmentList = list
+        // Today's pending appointments stay in the queue even after their
+        // slot time has passed — the doctor can still see a late patient.
+        .filter((apt) =>
+          isTodayAppointment(apt) &&
+          ['pending', 'confirmed', 'in-progress', 'skipped'].includes(normalizeAppointmentStatus(apt)))
+        .map((apt) => formatAppointment(apt));
+      setAppointments(liveAppointmentList);
+      restoreRunningConsultation(liveAppointmentList);
       setCancelledToday(
         list
           .filter((apt) => isScheduledToday(apt) && normalizeAppointmentStatus(apt) === 'cancelled')
@@ -613,38 +676,52 @@ export default function DoctorDashboard({ navigation }) {
         console.warn('Follow-up history could not be loaded separately:', followUpError?.message);
       }
 
-      setCompleted(
-        list
-          // Only today's — the feed returns every day's completed history.
-          .filter((apt) => normalizeAppointmentStatus(apt) === 'completed' && isCompletedToday(apt))
-          .map((apt) => {
-            const formatted = formatAppointment(apt);
-            if (formatted.followUpDate) return formatted;
-            const match = followUpList.find((item) => {
-              const fuApptId = pickFirst(item?.appointment_id, item?.appointmentId);
-              const fuPatient = item?.patient || item?.patient_details || {};
-              const fuPatientId = pickFirst(item?.patient_id, item?.patientId, fuPatient?.id, fuPatient?._id);
-              return (
-                (fuApptId && String(fuApptId) === String(formatted.apiId)) ||
-                (fuPatientId && formatted.patientId && String(fuPatientId) === String(formatted.patientId))
-              );
-            });
-            const matchedDate = pickFirst(match?.follow_up_date, match?.followUpDate, match?.followup_date, match?.date);
-            return matchedDate
-              ? { ...formatted, followUpRequired: true, followUpDate: formatLocalDateKey(matchedDate) }
-              : formatted;
-          }),
-      );
+      // The feed returns every day's completed history. Keep the whole list for
+      // the Completed tab, and derive today's for the counters and averages.
+      const allCompleted = list
+        .filter((apt) => normalizeAppointmentStatus(apt) === 'completed')
+        .map((apt) => {
+          const formatted = formatAppointment(apt);
+          if (formatted.followUpDate) return formatted;
+          const match = followUpList.find((item) => {
+            const fuApptId = pickFirst(item?.appointment_id, item?.appointmentId);
+            const fuPatient = item?.patient || item?.patient_details || {};
+            const fuPatientId = pickFirst(item?.patient_id, item?.patientId, fuPatient?.id, fuPatient?._id);
+            return (
+              (fuApptId && String(fuApptId) === String(formatted.apiId)) ||
+              (fuPatientId && formatted.patientId && String(fuPatientId) === String(formatted.patientId))
+            );
+          });
+          const matchedDate = pickFirst(match?.follow_up_date, match?.followUpDate, match?.followup_date, match?.date);
+          return matchedDate
+            ? { ...formatted, followUpRequired: true, followUpDate: formatLocalDateKey(matchedDate) }
+            : formatted;
+        });
+
+      setCompletedAll(allCompleted);
+      setCompleted(allCompleted.filter((item) => isCompletedToday(item.__raw)));
     } catch (err) {
       console.error('Error fetching appointments:', err?.message);
       setError(err?.response?.data?.message || err?.response?.data?.error || 'Error loading appointments. Please check if the server is running.');
     } finally {
+      fetchInFlightRef.current = false;
       setLoading(false);
       setRefreshing(false);
     }
-  }, [doctorId]);
+  }, [doctorId, restoreRunningConsultation]);
 
   useEffect(() => { fetchAppointments(); }, [fetchAppointments]);
+
+  // New bookings used to appear only after a remount (switching tabs), because
+  // nothing refreshed the doctor's feed while the dashboard sat open. This keeps
+  // it live: the socket events update it instantly, and the hook's own interval
+  // (plus a refresh when the app returns to the foreground) is the fallback for
+  // when an event is missed or the doctor isn't in the emitting room. It only
+  // runs while this screen is focused and the app is active.
+  useLiveRefresh(
+    () => fetchAppointments({ silent: true }),
+    APPOINTMENT_REFRESH_EVENTS,
+  );
 
   // Restore an active server break after reload / login.
   useEffect(() => {
@@ -879,7 +956,11 @@ export default function DoctorDashboard({ navigation }) {
         follow_up_date: formData.followUpDate,
         doctor_id: doctorId,
       });
-      setCompleted((prev) => prev.map((a) => (a.id === editingAppointment.id ? { ...a, ...formData } : a)));
+      const applyEdit = (prev) =>
+        prev.map((a) => (a.id === editingAppointment.id ? { ...a, ...formData } : a));
+      setCompleted(applyEdit);
+      // The Completed tab reads the full history, so it needs the edit too.
+      setCompletedAll(applyEdit);
       setEditingAppointment(null);
     } catch (err) {
       showError(err, 'Appointment could not be updated.');
@@ -1003,7 +1084,18 @@ export default function DoctorDashboard({ navigation }) {
     ...(activeAppt ? [activeAppt] : []),
     ...sortByToken(liveAppointments.filter((appt) => ['confirmed', 'in-progress'].includes(appt.status) && appt.id !== activeAppt?.id)),
   ];
-  const completedQueue = useMemo(() => sortByToken(completed), [completed]);
+  // Full completed history: newest day first, normal queue order within a day.
+  const completedQueue = useMemo(() => {
+    const byDay = new Map();
+    completedAll.forEach((appt) => {
+      const key = formatLocalDateKey(appt.appointmentDate) || '';
+      if (!byDay.has(key)) byDay.set(key, []);
+      byDay.get(key).push(appt);
+    });
+    return [...byDay.keys()]
+      .sort((a, b) => String(b).localeCompare(String(a)))
+      .flatMap((key) => sortByToken(byDay.get(key)));
+  }, [completedAll]);
   // Patients moved aside with "Next" in the consent form.
   const skippedAppointments = sortByToken(liveAppointments.filter((appt) => appt.status === 'skipped'));
   // Web canStartConsultation / shouldShowStartConsultation: a patient can be
@@ -1035,16 +1127,23 @@ export default function DoctorDashboard({ navigation }) {
     ? Math.max(1, Math.round(completed.reduce((sum, appt) => sum + (appt.durationMs || 0), 0) / completed.length / 60000))
     : 15;
   const overview = [
-    { title: "Today's\nAppointments", value: String(totalToday), icon: 'calendar' },
-    { title: 'Pending\nConsultations', value: String(pendingAppointments.length), icon: 'hourglass' },
-    { title: 'Completed\nToday', value: String(completed.length), icon: 'check', neutral: true },
-    { title: 'Avg. Consult\nTime', value: String(averageConsultMin), suffix: 'min', icon: 'timer' },
+    { title: "Today's Appointments", value: String(totalToday), icon: 'calendar', tone: 'teal' },
+    { title: 'Pending Consultations', value: String(pendingAppointments.length), icon: 'hourglass', tone: 'amber' },
+    { title: 'Completed Today', value: String(completed.length), icon: 'check', tone: 'green' },
+    { title: 'Avg. Consult Time', value: String(averageConsultMin), suffix: 'min', icon: 'timer', tone: 'indigo' },
   ];
+
+  // Overview heading at the top of Home: today's date, no greeting.
+  const today = new Date();
+  const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const todayLabel = `${WEEKDAYS[today.getDay()]}, ${today.getDate()} ${MONTHS[today.getMonth()]}`;
   const tabCounts = {
     Pending: pendingAppointments.length,
     'In Progress': inProgressAppointments.length,
     Next: skippedAppointments.length,
-    Completed: completed.length,
+    // Matches the tab's list, which is the full history (not just today).
+    Completed: completedQueue.length,
     Cancelled: cancelledQueue.length,
   };
 
@@ -1138,12 +1237,6 @@ export default function DoctorDashboard({ navigation }) {
       onClose={() => setSidebarVisible(false)}
       onNavigate={handleSidebarNavigate}
       onProfilePress={handleSidebarProfilePress}
-      todayTotal={totalToday}
-      todayCompleted={completed.length}
-      onViewSchedule={() => {
-        openScreen('appointments');
-        setTimeout(() => setSidebarVisible(false), 120);
-      }}
       onLogout={confirmLogout}
     />
   );
@@ -1256,6 +1349,17 @@ export default function DoctorDashboard({ navigation }) {
       return (
         <SafeAreaView style={styles.safeArea}>
           <DoctorProfileQrScreen onBack={goBack} />
+          {/* QR Code is the middle bottom tab, so the tab bar stays visible
+              here like on Home / Patients / Calendar / Staff. */}
+          <DoctorBottomNavigation
+            active="QR"
+            onChange={(label) => {
+              if (label === 'Home') switchTab('dashboard');
+              if (label === 'Patients') switchTab('patients');
+              if (label === 'Calendar') switchTab('calendar');
+              if (label === 'Staff') switchTab('staffManagement');
+            }}
+          />
           {renderSidebar()}
         </SafeAreaView>
       );
@@ -1343,10 +1447,16 @@ export default function DoctorDashboard({ navigation }) {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.blue]} />}
         >
-          <View style={styles.sectionHeader}>
-            <Text style={styles.eyebrow}>OVERVIEW</Text>
+          <View style={styles.overviewHeader}>
+            <View style={styles.overviewCopy}>
+              <Text style={styles.overviewTitle}>Today's Overview</Text>
+              <View style={styles.overviewDateRow}>
+                <AppIcon name="calendar" size={13} strokeWidth={2} color={colors.muted} />
+                <Text style={styles.overviewDate}>{todayLabel}</Text>
+              </View>
+            </View>
             <Pressable onPress={() => setBreakModalVisible(true)} style={styles.breakButton}>
-              <AppIcon name="coffee" size={15} strokeWidth={1.8} color="#52617A" />
+              <AppIcon name="coffee" size={15} strokeWidth={2} color="#B45309" />
               <Text style={styles.breakText}>Take Break</Text>
             </Pressable>
           </View>
@@ -1361,16 +1471,6 @@ export default function DoctorDashboard({ navigation }) {
             ))}
           </View>
 
-          <NextPatientCard
-            patient={nextPatient}
-            isActive={Boolean(activeAppt) && nextPatient?.id === activeAppt?.id}
-            onBreak={onBreak}
-            onStartConsultation={handleConsentClick}
-            onContinue={handleChecked}
-            onCall={handleCall}
-            startLocked={Boolean(nextPatient) && !activeAppt && !canStartAppointment(nextPatient)}
-          />
-
           {activeSession?.appt && (
             <ActiveConsultationCard
               session={activeSession}
@@ -1381,13 +1481,24 @@ export default function DoctorDashboard({ navigation }) {
             />
           )}
 
-          <Text style={styles.heading}>Today's Appointment Queue</Text>
+          <View style={styles.queueHeader}>
+            <View style={styles.overviewCopy}>
+              <Text style={styles.heading}>Appointment Queue</Text>
+              <Text style={styles.sectionHint}>Sorted by current workflow</Text>
+            </View>
+            <View style={styles.queueIcon}>
+              <AppIcon name="users" size={18} strokeWidth={2} color="#FFFFFF" />
+            </View>
+          </View>
           <QueueTabs active={activeTab} onChange={setActiveTab} counts={tabCounts} />
 
           {visibleQueue.length === 0 ? (
             <View style={styles.empty}>
-              <AppIcon name="calendar" size={26} strokeWidth={1.6} color={colors.muted} />
-              <Text style={styles.emptyText}>No appointments in this queue</Text>
+              <View style={styles.emptyIcon}>
+                <AppIcon name="calendar" size={22} strokeWidth={1.8} color={colors.blue} />
+              </View>
+              <Text style={styles.emptyTitle}>No appointments here</Text>
+              <Text style={styles.emptyHint}>Appointments in this queue will show up here.</Text>
             </View>
           ) : (
             visibleQueue.map((item, index) => (
@@ -1444,7 +1555,7 @@ export default function DoctorDashboard({ navigation }) {
           navigationBarTranslucent
           onRequestClose={() => setCompleteAppointmentVisible(false)}
         >
-          <SafeAreaView style={styles.formModal} edges={['top', 'bottom']}>
+          <View style={[styles.formModal, { paddingTop: modalInsets.top, paddingBottom: modalInsets.bottom }]}>
             {completeAppointmentVisible && activeSession?.appt && (
               <CompleteAppointmentScreen
                 patient={activeSession.appt}
@@ -1452,7 +1563,7 @@ export default function DoctorDashboard({ navigation }) {
                 onSave={saveCompleteForm}
               />
             )}
-          </SafeAreaView>
+          </View>
         </Modal>
         <Modal
           visible={Boolean(editingAppointment)}
@@ -1461,7 +1572,7 @@ export default function DoctorDashboard({ navigation }) {
           navigationBarTranslucent
           onRequestClose={() => setEditingAppointment(null)}
         >
-          <SafeAreaView style={styles.formModal} edges={['top', 'bottom']}>
+          <View style={[styles.formModal, { paddingTop: modalInsets.top, paddingBottom: modalInsets.bottom }]}>
             {editingAppointment && (
               <EditCompletedAppointmentScreen
                 appointment={editingAppointment}
@@ -1469,7 +1580,7 @@ export default function DoctorDashboard({ navigation }) {
                 onSave={saveEditedAppointment}
               />
             )}
-          </SafeAreaView>
+          </View>
         </Modal>
         <DoctorBottomNavigation
           active="Home"
@@ -1531,15 +1642,26 @@ const styles = createDoctorStyles({
   completeAppointmentOverlay: { position: 'absolute', top: 58, right: 0, bottom: 65, left: 0, zIndex: 20 },
   formModal: { flex: 1, backgroundColor: '#F0FDFA' },
   // Extra bottom room: the raised QR button overlaps the last ~26px.
-  content: { paddingHorizontal: 12, paddingTop: 13, paddingBottom: 48 },
-  sectionHeader: { minHeight: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
-  breakButton: { height: 28, paddingHorizontal: 11, borderRadius: 15, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: colors.surface },
-  breakText: { ...typography.caption, fontSize: 15, color: colors.ink },
-  eyebrow: { ...typography.title, fontSize: 17, color: '#3C4759', letterSpacing: 0.4 },
+  content: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 54 },
+  breakButton: { height: 38, paddingHorizontal: 14, borderRadius: 19, borderWidth: 1, borderColor: '#FCD9A6', flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: '#FFF7E6' },
+  breakText: { ...typography.caption, fontSize: 14, color: '#92400E' },
+  sectionHint: { ...typography.body, fontSize: 12, lineHeight: 16, color: colors.muted, marginTop: 3 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
-  heading: { ...typography.subtitle, fontSize: 18, color: colors.ink, marginBottom: 10 },
-  empty: { height: 140, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  overviewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 },
+  overviewCopy: { flex: 1 },
+  overviewTitle: { ...typography.title, fontSize: 20, lineHeight: 25, color: colors.ink },
+  overviewDateRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
+  overviewDate: { ...typography.body, fontSize: 13, lineHeight: 17, color: colors.muted },
+  // marginTop separates the queue from the overview grid above it — without it
+  // the heading sat flush against the cards.
+  queueHeader: { marginTop: 22, marginBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  queueIcon: { width: 38, height: 38, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.blue },
+  heading: { ...typography.subtitle, fontSize: 18, lineHeight: 23, color: colors.ink },
+  empty: { minHeight: 150, alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 20, backgroundColor: '#FFFFFF', borderRadius: 18, borderWidth: 1, borderColor: '#DDF2EF', marginTop: 12 },
   emptyText: { ...typography.body, fontSize: 15, color: colors.muted, textAlign: 'center' },
+  emptyIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: '#E6FFFB', alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  emptyTitle: { ...typography.subtitle, fontSize: 15, lineHeight: 20, color: colors.ink },
+  emptyHint: { ...typography.body, fontSize: 13, lineHeight: 18, color: colors.muted, textAlign: 'center', paddingHorizontal: 24 },
   centerState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10 },
   errorTitle: { ...typography.subtitle, fontSize: 17, color: colors.red },
   retryButton: { marginTop: 6, paddingHorizontal: 22, height: 40, borderRadius: 8, borderWidth: 1, borderColor: colors.red, alignItems: 'center', justifyContent: 'center' },

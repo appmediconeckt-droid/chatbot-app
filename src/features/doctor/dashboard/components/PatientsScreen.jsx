@@ -109,7 +109,7 @@ export default function PatientsScreen({ onPatientPress }) {
     { label: 'Total Patients', value: all.length, icon: 'users', tone: 'teal' },
     { label: 'New Admissions', value: all.filter((p) => p.records.length === 1).length, icon: 'user', tone: 'blue' },
     { label: 'Pending Reports', value: all.reduce((n, p) => n + p.records.filter((r) => r.diagnosis === 'N/A').length, 0), icon: 'file', tone: 'red' },
-    { label: "Today's Appointments", value: all.reduce((n, p) => n + p.records.filter((r) => r.date === today).length, 0), icon: 'calendar', tone: 'slate' },
+    { label: "Today's Appointments", value: all.reduce((n, p) => n + p.records.filter((r) => r.date === today).length, 0), icon: 'calendar', tone: 'indigo' },
   ];
 
   const filterConfig = {
@@ -185,17 +185,22 @@ export default function PatientsScreen({ onPatientPress }) {
 
         <View style={s.stats}>
           {stats.map((item) => (
-            <View key={item.label} style={s.stat}>
-              <View style={[s.statIcon, s[`tone_${item.tone}`]]}><AppIcon name={item.icon} size={14} color={TONE_FG[item.tone]} /></View>
+            <View key={item.label} style={[s.stat, { borderColor: TONES[item.tone].border }]}>
+              <View style={[s.statIcon, { backgroundColor: TONES[item.tone].fg }]}>
+                <AppIcon name={item.icon} size={19} color="#FFFFFF" strokeWidth={2.2} />
+              </View>
               <View style={s.statBody}>
                 <Text translate={false} style={s.statValue}>{item.value}</Text>
-                <Text style={s.statLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{item.label}</Text>
+                <Text style={s.statLabel} numberOfLines={2}>{item.label}</Text>
               </View>
             </View>
           ))}
         </View>
 
-        <Text style={s.section}>Patients Directory</Text>
+        <View style={s.sectionRow}>
+          <Text style={s.section}>Patients Directory</Text>
+          <Text translate={false} style={s.countPill}>{all.length} {all.length === 1 ? 'patient' : 'patients'}</Text>
+        </View>
         <View style={s.search}>
           <AppIcon name="search" size={16} color="#0D9488" />
           <TextInput value={search} onChangeText={setSearch} placeholder="Search patient by name or phone" placeholderTextColor="#94A3B8" style={s.searchInput} />
@@ -234,21 +239,32 @@ export default function PatientsScreen({ onPatientPress }) {
         ) : (
           <>
             {pageRows.map((p) => (
-              <Pressable key={p.id} onPress={() => onPatientPress?.(p)} style={({ pressed }) => [s.card, pressed && s.pressed]}>
+              // Press feedback is a tint, not an opacity fade (fading an elevated
+              // card makes Android draw its shadow as a rectangle).
+              <Pressable key={p.id} onPress={() => onPatientPress?.(p)} style={({ pressed }) => [s.card, pressed && s.cardPressed]}>
                 <View style={s.cardTop}>
-                  <View style={s.avatar}><Text translate={false} style={s.avatarText}>{p.name.charAt(0).toUpperCase()}</Text></View>
+                  <View style={[s.avatar, { backgroundColor: avatarColor(p.name) }]}>
+                    <Text translate={false} style={s.avatarText}>{p.name.charAt(0).toUpperCase()}</Text>
+                  </View>
                   <View style={s.flex}>
                     <Text translate={false} style={s.name} numberOfLines={1}>{p.name}</Text>
-                    <Text style={s.meta}>{p.age !== 'N/A' ? `${p.age} yrs` : 'Age N/A'} • {p.gender}</Text>
+                    <View style={s.metaRow}>
+                      <Text style={s.metaChip}>{p.age !== 'N/A' ? `${p.age} yrs` : 'Age N/A'}</Text>
+                      {p.gender !== 'N/A' && <Text style={s.metaChip}>{p.gender}</Text>}
+                      {p.bloodGroup !== 'N/A' && <Text translate={false} style={s.blood}>{p.bloodGroup}</Text>}
+                    </View>
                   </View>
-                  {p.bloodGroup !== 'N/A' && <Text translate={false} style={s.blood}>{p.bloodGroup}</Text>}
-                </View>
-                <View style={s.contactRow}>
-                  <AppIcon name="phone" size={13} color="#0D9488" />
-                  <Text translate={false} style={s.contactText}>{p.phone}</Text>
+                  <AppIcon name="chevron-right" size={18} color="#98A2B3" strokeWidth={2.2} />
                 </View>
                 <View style={s.cardFooter}>
-                  <Text style={s.lastVisit}>Last visit: {p.lastVisit}</Text>
+                  <View style={s.footerItem}>
+                    <AppIcon name="phone" size={13} color="#0D9488" />
+                    <Text translate={false} style={s.contactText}>{p.phone}</Text>
+                  </View>
+                  <View style={s.footerItem}>
+                    <AppIcon name="calendar" size={13} color="#64748B" />
+                    <Text style={s.lastVisit}>{p.lastVisit}</Text>
+                  </View>
                   <Text style={s.visits}>{p.records.length} {p.records.length === 1 ? 'Visit' : 'Visits'}</Text>
                 </View>
               </Pressable>
@@ -296,7 +312,21 @@ export default function PatientsScreen({ onPatientPress }) {
   );
 }
 
-const TONE_FG = { teal: '#0D9488', blue: '#0369A1', red: '#DC2626', slate: '#475467' };
+// Patient avatars: a steady colour per name, so the list isn't all one tone.
+const AVATAR_COLORS = ['#0D9488', '#4F46E5', '#D97706', '#0369A1', '#E11D48', '#7C3AED'];
+const avatarColor = (name = '') => {
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) % 997;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+};
+
+// Stat tiles: a solid icon colour and a light border in the same hue.
+const TONES = {
+  teal: { fg: '#0D9488', border: '#B7EDE5' },
+  blue: { fg: '#0369A1', border: '#BFDDF2' },
+  red: { fg: '#DC2626', border: '#F8C9C9' },
+  indigo: { fg: '#4F46E5', border: '#CFD5FB' },
+};
 
 function FilterChip({ chipRef, label, value, active, openDirection, onPress }) {
   const open = Boolean(openDirection);
@@ -328,24 +358,21 @@ function FilterChip({ chipRef, label, value, active, openDirection, onPress }) {
 const s = createDoctorStyles({
   screen: { flex: 1, backgroundColor: '#F0FDFA' },
   flex: { flex: 1 },
-  pressed: { opacity: 0.85 },
   disabled: { opacity: 0.4 },
   content: { padding: 14, paddingBottom: 28 },
   headRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title: { fontSize: 19, fontWeight: '800', color: '#17243A' },
   subtitle: { fontSize: 12.5, color: '#667085', marginTop: 2 },
-  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  stat: { width: '48.6%', flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: '#FFF', borderRadius: 12, paddingVertical: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: '#E3EEEC' },
-  statIcon: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  stats: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10, marginTop: 14 },
+  stat: { width: '48.5%', minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFF', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 12, borderWidth: 1, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 1 },
+  statIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   statBody: { flex: 1, minWidth: 0 },
-  tone_teal: { backgroundColor: '#CCFBF1' },
-  tone_blue: { backgroundColor: '#E0F2FE' },
-  tone_red: { backgroundColor: '#FEE2E2' },
-  tone_slate: { backgroundColor: '#EEF2F6' },
-  statValue: { fontSize: 17, fontWeight: '800', color: '#17243A', lineHeight: 21 },
-  statLabel: { fontSize: 11, color: '#667085' },
-  section: { fontSize: 16, fontWeight: '800', color: '#17243A', marginTop: 18, marginBottom: 10 },
-  search: { height: 46, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CDE7E3', borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12 },
+  statValue: { fontSize: 22, fontWeight: '800', color: '#17243A', lineHeight: 26 },
+  statLabel: { fontSize: 12, lineHeight: 15, fontWeight: '600', color: '#667085', marginTop: 1 },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 10 },
+  section: { fontSize: 17, fontWeight: '800', color: '#17243A' },
+  countPill: { fontSize: 12, fontWeight: '800', color: '#0F766E', backgroundColor: '#CCFBF1', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, overflow: 'hidden' },
+  search: { height: 48, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CDE7E3', borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1 },
   searchInput: { flex: 1, fontSize: 14, color: '#17243A', paddingVertical: 0 },
   filters: { flexDirection: 'row', gap: 8, paddingTop: 10, paddingBottom: 4 },
   chip: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, height: 46, borderRadius: 12, borderWidth: 1, borderColor: '#D5DAE3', backgroundColor: '#FFF', paddingHorizontal: 10 },
@@ -374,18 +401,20 @@ const s = createDoctorStyles({
   clearText: { fontSize: 13, fontWeight: '800', color: '#0D9488' },
   empty: { alignItems: 'center', gap: 8, paddingVertical: 36 },
   emptyText: { fontSize: 13, color: '#667085', textAlign: 'center' },
-  card: { backgroundColor: '#FFF', borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#E3EEEC', shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  card: { backgroundColor: '#FFF', borderRadius: 18, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#E3EEEC', shadowColor: '#0F172A', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  cardPressed: { backgroundColor: '#F6FBFA' },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#CCFBF1', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 18, fontWeight: '800', color: '#0F766E' },
-  name: { fontSize: 16, fontWeight: '800', color: '#17243A' },
-  meta: { fontSize: 12.5, color: '#667085', marginTop: 2 },
-  blood: { fontSize: 12, fontWeight: '800', color: '#BE123C', backgroundColor: '#FFE4E6', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10, overflow: 'hidden' },
-  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
-  contactText: { fontSize: 13, color: '#344054' },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#EEF3F2' },
-  lastVisit: { fontSize: 12, color: '#667085' },
-  visits: { fontSize: 12, fontWeight: '800', color: '#0F766E', backgroundColor: '#F0FDFA', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
+  avatar: { width: 50, height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 20, fontWeight: '800', color: '#FFFFFF' },
+  name: { fontSize: 16.5, fontWeight: '800', color: '#17243A' },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 5 },
+  metaChip: { fontSize: 11.5, fontWeight: '700', color: '#475467', backgroundColor: '#F1F5F9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, overflow: 'hidden' },
+  blood: { fontSize: 11.5, fontWeight: '800', color: '#BE123C', backgroundColor: '#FFE4E6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, overflow: 'hidden' },
+  footerItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  contactText: { fontSize: 12.5, fontWeight: '600', color: '#344054' },
+  cardFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', rowGap: 8, columnGap: 10, marginTop: 12, paddingTop: 11, borderTopWidth: 1, borderTopColor: '#EEF3F2' },
+  lastVisit: { fontSize: 12.5, color: '#667085' },
+  visits: { fontSize: 12, fontWeight: '800', color: '#FFFFFF', backgroundColor: '#0D9488', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, overflow: 'hidden' },
   pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
   pageInfo: { flex: 1, fontSize: 12, color: '#667085' },
   pageBtns: { flexDirection: 'row', alignItems: 'center', gap: 8 },

@@ -34,6 +34,7 @@ import {
   saveMySignature,
 } from '../../../../../../utils/consultantSignature';
 import SignaturePad from '../../../../../../components/SignaturePad';
+import { KeyboardSheetOverlay } from '../../../../../../components/common/KeyboardSheet';
 
 const statusColors = {
   verified: ['#DCFCE7', '#166534'],
@@ -120,6 +121,208 @@ export const PrescriptionPreview = props => (
   </Modal>
 );
 
+// The prescription page itself — letterhead, prescriber, patient, complaint,
+// ℞ medicines, notes, signature. Shared by the psychiatrist preview here and
+// the doctor prescription view on the patient side, so both read the same.
+// Optional extras (clinicLine, sections, notes) stay hidden when empty.
+//   medicines: [{ key, name, details: [[LABEL, value], …] }]
+//   sections:  [{ tag, text }] — shown like the chief complaint (diagnosis…)
+//   notes:     [{ tag, text }] — shown like the instructions (advice, tests…)
+// identityVerified: true / false shows the identity chip; undefined hides it.
+export const PrescriptionPaper = ({
+  themeImage,
+  rxNumber,
+  issuedLabel,
+  brandSub = 'Mental Health · Digital Prescription',
+  clinicLine,
+  practitioner,
+  practitionerId,
+  patientName,
+  photoUri,
+  identityVerified,
+  complaint,
+  sections = [],
+  medicines = [],
+  notes = [],
+  signatureUri,
+}) => {
+  const [paperSize, setPaperSize] = useState({ width: 0, height: 0 });
+  const showIdentity = typeof identityVerified === 'boolean';
+  return (
+    <View
+      style={s.paper}
+      onLayout={({ nativeEvent }) => {
+        const { width, height } = nativeEvent.layout;
+        setPaperSize(current =>
+          current.width === width && current.height === height
+            ? current
+            : { width, height },
+        );
+      }}
+    >
+      {!!themeImage && paperSize.width > 0 && paperSize.height > 0 && (
+        <Image
+          source={themeImage}
+          style={[
+            s.watermark,
+            { width: paperSize.width, height: paperSize.height },
+          ]}
+          resizeMode="stretch"
+        />
+      )}
+      {/* 1 · Letterhead */}
+      <View style={s.rxHead}>
+        <Image
+          source={require('../../../../../../image/HumaeliIcon.png')}
+          style={s.logo}
+        />
+        <View style={s.rxBrand}>
+          <Text style={s.rxBrandName}>Humaeli</Text>
+          <Text style={s.rxBrandSub}>{brandSub}</Text>
+          {!!clinicLine && (
+            <Text translate={false} style={s.rxBrandSub} numberOfLines={2}>
+              {clinicLine}
+            </Text>
+          )}
+        </View>
+        <View style={s.rxMeta}>
+          {!!rxNumber && <Text style={s.rxNumber}>{rxNumber}</Text>}
+          {!!issuedLabel && <Text style={s.rxMetaText}>{issuedLabel}</Text>}
+        </View>
+      </View>
+      <View style={s.rxRule} />
+
+      {/* 2 · Prescriber */}
+      <View style={s.prescriber}>
+        <Text style={s.sectionTag}>PRESCRIBED BY</Text>
+        <Text style={s.doctorName}>{practitioner.name}</Text>
+        <Text style={s.doctorType}>{practitioner.type}</Text>
+        {!!practitionerId && (
+          <Text style={s.practitionerId}>Practitioner ID: {practitionerId}</Text>
+        )}
+      </View>
+
+      {/* 3 · Patient */}
+      <View style={s.patientCard}>
+        <View style={s.patientAvatar}>
+          {photoUri ? (
+            <Image source={{ uri: photoUri }} style={s.fill} />
+          ) : (
+            <Ionicons name="person" size={30} color="#2563EB" />
+          )}
+        </View>
+        <View style={s.flex}>
+          <Text style={s.sectionTag}>PATIENT</Text>
+          <Text style={s.patientName}>{patientName}</Text>
+          {showIdentity && (
+            <View
+              style={[
+                s.idChip,
+                identityVerified ? s.idChipVerified : s.idChipPending,
+              ]}
+            >
+              <Ionicons
+                name={identityVerified ? 'shield-checkmark' : 'time-outline'}
+                size={12}
+                color={identityVerified ? '#166534' : '#B45309'}
+              />
+              <Text
+                style={[
+                  s.idChipText,
+                  identityVerified ? s.idChipTextVerified : s.idChipTextPending,
+                ]}
+              >
+                {identityVerified ? 'Identity verified' : 'Identity pending'}
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* 4 · Chief complaint (+ diagnosis etc. in the same style) */}
+      {!!complaint && (
+        <View style={s.complaint}>
+          <Text style={s.sectionTag}>CHIEF COMPLAINT</Text>
+          <Text style={s.complaintText}>{complaint}</Text>
+        </View>
+      )}
+      {sections.filter(section => section.text).map(section => (
+        <View key={section.tag} style={s.complaint}>
+          <Text style={s.sectionTag}>{section.tag}</Text>
+          <Text style={s.complaintText}>{section.text}</Text>
+        </View>
+      ))}
+
+      {/* 5 · ℞ Medicines */}
+      <View style={s.rxTitleRow}>
+        <Text style={s.rxSymbol}>℞</Text>
+        <Text style={s.medicineHeading}>Medicines</Text>
+      </View>
+      {medicines.length === 0 ? (
+        <Text style={s.muted}>No medicines prescribed.</Text>
+      ) : (
+        medicines.map((medicine, index) => (
+          <View key={medicine.key || index} style={s.medicineRow}>
+            <Text style={s.medIndex}>{index + 1}.</Text>
+            <View style={s.flex}>
+              <Text style={s.medName}>{medicine.name}</Text>
+              {medicine.details?.length > 0 && (
+                <View style={s.medGrid}>
+                  {medicine.details.map(([label, value]) => (
+                    <View key={label} style={s.medCell}>
+                      <Text style={s.medLabel}>{label}</Text>
+                      <Text style={s.medValue}>{value}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          </View>
+        ))
+      )}
+
+      {/* 6 · Instructions (+ advice, tests, notes, follow-up) */}
+      {notes.filter(note => note.text).map(note => (
+        <View key={note.tag} style={s.instructions}>
+          <Text style={s.sectionTag}>{note.tag}</Text>
+          <Text style={s.instructionsText}>{note.text}</Text>
+        </View>
+      ))}
+
+      {/* 7 · Signature — the prescriber's drawn signature; without one their
+          name, digitally signed. */}
+      <View style={s.signatureBlock}>
+        <View style={s.signaturePanel}>
+          {signatureUri ? (
+            <Image
+              source={{ uri: signatureUri }}
+              style={s.signatureImage}
+              resizeMode="contain"
+            />
+          ) : (
+            <Text style={s.autoSignature} numberOfLines={1} adjustsFontSizeToFit>
+              {practitioner.name}
+            </Text>
+          )}
+          <View style={s.signatureLine} />
+          <Text style={s.signatureName}>{practitioner.name}</Text>
+          <Text style={s.signatureType}>{practitioner.type}</Text>
+          <View style={s.signedRow}>
+            <Ionicons name="checkmark-circle" size={11} color="#16A34A" />
+            <Text style={s.signedText}>
+              Digitally signed
+              {issuedLabel ? ` · ${issuedLabel}` : ''}
+            </Text>
+          </View>
+        </View>
+      </View>
+      <Text style={s.footer}>
+        Issued through Humaeli · www.humaeli.com · support@humaeli.com
+      </Text>
+    </View>
+  );
+};
+
 const PrescriptionPreviewBody = ({
   item,
   photoUri,
@@ -129,7 +332,6 @@ const PrescriptionPreviewBody = ({
   showThemePicker = true,
   headerGradient,
 }) => {
-  const [paperSize, setPaperSize] = useState({ width: 0, height: 0 });
   const theme = getPrescriptionFestivalTheme(getThemeId(item));
   const practitioner = getPractitioner(item);
   const validity = getPrescriptionValidity(item);
@@ -214,216 +416,36 @@ const PrescriptionPreviewBody = ({
             {saving && <ActivityIndicator color="#2563EB" />}
           </>
         )}
-        <View
-          style={s.paper}
-          onLayout={({ nativeEvent }) => {
-            const { width, height } = nativeEvent.layout;
-            setPaperSize(current =>
-              current.width === width && current.height === height
-                ? current
-                : { width, height },
-            );
-          }}
-        >
-          {paperSize.width > 0 && paperSize.height > 0 && (
-            <Image
-              source={theme.image}
-              style={[
-                s.watermark,
-                { width: paperSize.width, height: paperSize.height },
-              ]}
-              resizeMode="stretch"
-            />
-          )}
-          {/* 1 · Letterhead */}
-          <View style={s.rxHead}>
-            <Image
-              source={require('../../../../../../image/HumaeliIcon.png')}
-              style={s.logo}
-            />
-            <View style={s.rxBrand}>
-              <Text style={s.rxBrandName}>Humaeli</Text>
-              <Text style={s.rxBrandSub}>Mental Health · Digital Prescription</Text>
-            </View>
-            <View style={s.rxMeta}>
-              {!!rxNumber && <Text style={s.rxNumber}>{rxNumber}</Text>}
-              {!!validity.issuedLabel && (
-                <Text style={s.rxMetaText}>{validity.issuedLabel}</Text>
-              )}
-            </View>
-          </View>
-          <View style={s.rxRule} />
-
-          {/* 2 · Prescriber */}
-          <View style={s.prescriber}>
-            <Text style={s.sectionTag}>PRESCRIBED BY</Text>
-            <Text style={s.doctorName}>{practitioner.name}</Text>
-            <Text style={s.doctorType}>{practitioner.type}</Text>
-            {!!practitionerId && (
-              <Text style={s.practitionerId}>Practitioner ID: {practitionerId}</Text>
-            )}
-          </View>
-          {/* <Text style={s.digital}>DIGITAL PRESCRIPTION</Text> */}
-          {/* <View style={s.validityBox}>
-            <View style={s.validityItem}>
-              <Text style={s.validityLabel}>Valid until</Text>
-              <Text
-                style={[
-                  s.validityValue,
-                  validity.isExpired && s.validityExpired,
-                ]}
-              >
-                {validity.validUntilLabel}
-              </Text>
-            </View>
-            <Text
-              style={[
-                s.validityPill,
-                validity.isExpired ? s.expiredPill : s.activePill,
-              ]}
-            >
-              {validity.isExpired ? 'Expired' : `${validity.validDays} days`}
-            </Text>
-          </View> */}
-          {/* 3 · Patient */}
-          <View style={s.patientCard}>
-            <View style={s.patientAvatar}>
-              {photoUri ? (
-                <Image source={{ uri: photoUri }} style={s.fill} />
-              ) : (
-                <Ionicons name="person" size={30} color="#2563EB" />
-              )}
-            </View>
-            <View style={s.flex}>
-              <Text style={s.sectionTag}>PATIENT</Text>
-              <Text style={s.patientName}>
-                {item?.patient?.name || 'Anonymous patient'}
-              </Text>
-              <View
-                style={[
-                  s.idChip,
-                  isIdentityVerified ? s.idChipVerified : s.idChipPending,
-                ]}
-              >
-                <Ionicons
-                  name={isIdentityVerified ? 'shield-checkmark' : 'time-outline'}
-                  size={12}
-                  color={isIdentityVerified ? '#166534' : '#B45309'}
-                />
-                <Text
-                  style={[
-                    s.idChipText,
-                    isIdentityVerified ? s.idChipTextVerified : s.idChipTextPending,
-                  ]}
-                >
-                  {isIdentityVerified ? 'Identity verified' : 'Identity pending'}
-                </Text>
-              </View>
-            </View>
-          </View>
-          <View style={s.metaGrid}>
-            <View style={s.metaCell}>
-              <Text style={s.metaLabel}>DATE ISSUED</Text>
-              <Text style={s.metaValue}>{validity.issuedLabel || '—'}</Text>
-            </View>
-            <View style={s.metaCell}>
-              <Text style={s.metaLabel}>VALID UNTIL</Text>
-              <Text style={[s.metaValue, validity.isExpired && s.metaExpired]}>
-                {validity.validUntilLabel || '—'}
-              </Text>
-            </View>
-          </View>
-
-          {/* 4 · Chief complaint */}
-          {!!cleanText(item?.problem) && (
-            <View style={s.complaint}>
-              <Text style={s.sectionTag}>CHIEF COMPLAINT</Text>
-              <Text style={s.complaintText}>{item.problem}</Text>
-            </View>
-          )}
-
-          {/* 5 · ℞ Medicines */}
-          <View style={s.rxTitleRow}>
-            <Text style={s.rxSymbol}>℞</Text>
-            <Text style={s.medicineHeading}>Medicines</Text>
-          </View>
-          {medicines.length === 0 ? (
-            <Text style={s.muted}>No medicines prescribed.</Text>
-          ) : (
-            medicines.map((medicine, index) => {
-              // Plain prescription format: numbered name, then a label/value
-              // grid (no coloured badges).
-              const details = [
-                ['DOSE', cleanText(medicine.dosage)],
-                ['WHEN', getMedicineTimeLabel(medicine)
-                  .split(',')
-                  .map(slot => slot.trim())
-                  .filter(Boolean)
-                  .map(slot => slot.charAt(0).toUpperCase() + slot.slice(1))
-                  .join(' · ')],
-                ['FOOD', cleanText(medicine.timing)],
-                ['DURATION', cleanText(medicine.duration)],
-              ].filter(([, value]) => value);
-              return (
-                <View key={`${medicine.name}-${index}`} style={s.medicineRow}>
-                  <Text style={s.medIndex}>{index + 1}.</Text>
-                  <View style={s.flex}>
-                    <Text style={s.medName}>{medicine.name || medicine.medicine}</Text>
-                    {details.length > 0 && (
-                      <View style={s.medGrid}>
-                        {details.map(([label, value]) => (
-                          <View key={label} style={s.medCell}>
-                            <Text style={s.medLabel}>{label}</Text>
-                            <Text style={s.medValue}>{value}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-                  </View>
-                </View>
-              );
-            })
-          )}
-
-          {/* 6 · Instructions */}
-          {!!item?.instructions && (
-            <View style={s.instructions}>
-              <Text style={s.sectionTag}>INSTRUCTIONS</Text>
-              <Text style={s.instructionsText}>{item.instructions}</Text>
-            </View>
-          )}
-
-          {/* 7 · Signature — the consultant's drawn signature; older
-              prescriptions without one show their name, digitally signed. */}
-          <View style={s.signatureBlock}>
-            <View style={s.signaturePanel}>
-              {signatureUri ? (
-                <Image
-                  source={{ uri: signatureUri }}
-                  style={s.signatureImage}
-                  resizeMode="contain"
-                />
-              ) : (
-                <Text style={s.autoSignature} numberOfLines={1} adjustsFontSizeToFit>
-                  {practitioner.name}
-                </Text>
-              )}
-              <View style={s.signatureLine} />
-              <Text style={s.signatureName}>{practitioner.name}</Text>
-              <Text style={s.signatureType}>{practitioner.type}</Text>
-              <View style={s.signedRow}>
-                <Ionicons name="checkmark-circle" size={11} color="#16A34A" />
-                <Text style={s.signedText}>
-                  Digitally signed
-                  {validity.issuedLabel ? ` · ${validity.issuedLabel}` : ''}
-                </Text>
-              </View>
-            </View>
-          </View>
-          <Text style={s.footer}>
-            Issued through Humaeli · www.humaeli.com · support@humaeli.com
-          </Text>
-        </View>
+        <PrescriptionPaper
+          themeImage={theme.image}
+          rxNumber={rxNumber}
+          issuedLabel={validity.issuedLabel}
+          practitioner={practitioner}
+          practitionerId={practitionerId}
+          patientName={item?.patient?.name || 'Anonymous patient'}
+          photoUri={photoUri}
+          identityVerified={isIdentityVerified}
+          complaint={cleanText(item?.problem) ? item.problem : ''}
+          medicines={medicines.map((medicine, index) => ({
+            key: `${medicine.name}-${index}`,
+            name: medicine.name || medicine.medicine,
+            // Plain prescription format: numbered name, then a label/value
+            // grid (no coloured badges).
+            details: [
+              ['DOSE', cleanText(medicine.dosage)],
+              ['WHEN', getMedicineTimeLabel(medicine)
+                .split(',')
+                .map(slot => slot.trim())
+                .filter(Boolean)
+                .map(slot => slot.charAt(0).toUpperCase() + slot.slice(1))
+                .join(' · ')],
+              ['FOOD', cleanText(medicine.timing)],
+              ['DURATION', cleanText(medicine.duration)],
+            ].filter(([, value]) => value),
+          }))}
+          notes={item?.instructions ? [{ tag: 'INSTRUCTIONS', text: item.instructions }] : []}
+          signatureUri={signatureUri}
+        />
       </ScrollView>
     </View>
   );
@@ -889,7 +911,8 @@ export default function PrescriptionReviews({ onClose } = {}) {
         animationType="fade"
         onRequestClose={() => setRejecting(null)}
       >
-        <View style={s.overlay}>
+        {/* Lifts the dialog above the keyboard while typing the reason. */}
+        <KeyboardSheetOverlay style={s.overlay}>
           <View style={s.dialog}>
             <Text style={s.dialogTitle}>Reject patient photo</Text>
             <Text style={s.muted}>Please enter the reason for rejection.</Text>
@@ -919,7 +942,7 @@ export default function PrescriptionReviews({ onClose } = {}) {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardSheetOverlay>
       </Modal>
     </View>
   );
@@ -1333,19 +1356,6 @@ const s = StyleSheet.create({
   idChipText: { fontSize: 10.5, fontWeight: '800' },
   idChipTextVerified: { color: '#166534' },
   idChipTextPending: { color: '#B45309' },
-  metaGrid: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  metaCell: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: 'rgba(255,255,255,.92)',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  metaLabel: { fontSize: 9, fontWeight: '900', color: '#64748B', letterSpacing: 0.6 },
-  metaValue: { fontSize: 12, fontWeight: '800', color: '#0F172A', marginTop: 2 },
-  metaExpired: { color: '#B91C1C' },
   complaint: {
     marginTop: 14,
     padding: 12,

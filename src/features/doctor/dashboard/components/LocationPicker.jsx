@@ -1,36 +1,72 @@
 // Location picker for the doctor profile. Three ways to set the address:
-//   1. "Use my current location" — GPS via the app's location helper; the
-//      backend (/api/location/update) reverse-geocodes it to an address.
-//      Falls back to OpenStreetMap reverse geocoding if the server returns none.
+//   1. "Use my current location" — a fresh GPS fix, turned into an address by
+//      the phone's own Geocoder (native ReverseGeocoder module: Google data,
+//      names the area and pincode). Falls back to OpenStreetMap reverse
+//      geocoding where that module isn't available (iOS, or an older build).
 //   2. Search — type a place and pick one of the live suggestions
 //      (OpenStreetMap Nominatim, India first).
 //   3. Type it manually.
 // "View on map" opens the chosen address in Google Maps.
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, NativeModules, Pressable, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import AppIcon from '../icons/AppIcon';
 import { colors, createDoctorStyles } from '../theme';
-import { captureAndSendLocation, getCurrentPosition } from '../../../../utils/locationHelper';
+import { getCurrentPosition } from '../../../../utils/locationHelper';
 
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
 const HEADERS = { 'Accept-Language': 'en', 'User-Agent': 'HumaeliApp/1.0 (support@humaeli.com)' };
 
-// "Street, Area, City, State" from a Nominatim result.
+// Joins address parts in order, dropping blanks and repeats, and puts the
+// pincode after the last part ("…, Madhya Pradesh 452010").
+const joinAddress = (parts, postcode) => {
+  const unique = parts
+    .map((part) => String(part || '').trim())
+    .filter((part, index, all) => part && all.indexOf(part) === index);
+  if (unique.length && postcode) unique[unique.length - 1] = `${unique[unique.length - 1]} ${postcode}`;
+  return unique.join(', ');
+};
+
+// "Street, Area, City, State PIN" from a Nominatim result. Indian areas often
+// come as quarter / residential / neighbourhood rather than suburb.
 const shortAddress = (item) => {
   const a = item?.address || {};
   const parts = [
-    a.road || a.neighbourhood,
-    a.suburb || a.village || a.town,
-    a.city || a.city_district || a.county || a.state_district,
+    a.road,
+    a.neighbourhood || a.residential || a.quarter || a.hamlet,
+    a.suburb,
+    a.city || a.town || a.village || a.county || a.state_district,
     a.state,
-  ].filter(Boolean);
-  const unique = parts.filter((p, i) => parts.indexOf(p) === i);
-  return unique.length >= 2 ? unique.join(', ') : String(item?.display_name || '').split(', ').slice(0, 4).join(', ');
+  ];
+  const text = joinAddress(parts, a.postcode);
+  return text.split(', ').length >= 2 ? text : String(item?.display_name || '').split(', ').slice(0, 4).join(', ');
+};
+
+// "Street, Area, City, State PIN" from the phone's Geocoder ('' if none).
+const nativeAddress = (a) => {
+  if (!a) return '';
+  const street = a.thoroughfare && !/unnamed road/i.test(a.thoroughfare) ? a.thoroughfare : '';
+  const text = joinAddress([street, a.subLocality, a.locality || a.subAdminArea, a.adminArea], a.postalCode);
+  if (a.subLocality || !a.addressLine) return text;
+  // No area field: the full line usually still names it — drop the country
+  // and any Google plus code ("XQ2V+7G").
+  return String(a.addressLine)
+    .split(', ')
+    .filter((part) => part && part !== a.countryName && !/^[A-Z0-9]{4,}\+[A-Z0-9]{2,}$/.test(part))
+    .join(', ');
 };
 
 const reverseGeocode = async (latitude, longitude) => {
+  const geocoder = NativeModules.ReverseGeocoder;
+  if (geocoder?.reverse) {
+    try {
+      const address = nativeAddress(await geocoder.reverse(latitude, longitude));
+      if (address) return address;
+    } catch {
+      // no network / no Geocoder backend — fall through to OpenStreetMap
+    }
+  }
   const res = await fetch(`${NOMINATIM}/reverse?format=json&addressdetails=1&lat=${latitude}&lon=${longitude}`, { headers: HEADERS });
   if (!res.ok) throw new Error('Could not look up this location');
   return shortAddress(await res.json());
@@ -87,22 +123,8 @@ export default function LocationPicker({ value, onChange, label = 'Location / Ad
   const useCurrentLocation = async () => {
     setLocating(true);
     try {
-      let address = '';
-      let coords = null;
-      try {
-        const result = await captureAndSendLocation('profile');
-        const current = result?.data?.current || {};
-        address = current.address || [current.city, current.state].filter(Boolean).join(', ');
-        const c = current.coordinates;
-        if (Array.isArray(c) && c.length === 2) coords = { latitude: c[1], longitude: c[0] };
-      } catch (serverErr) {
-        // Permission problems must surface; server problems fall back to GPS + OSM.
-        if (serverErr?.kind === 'permission' || serverErr?.kind === 'blocked') throw serverErr;
-      }
-      if (!address) {
-        coords = coords || await getCurrentPosition();
-        address = await reverseGeocode(coords.latitude, coords.longitude);
-      }
+      const coords = await getCurrentPosition({ fresh: true, timeout: 26000 });
+      const address = await reverseGeocode(coords.latitude, coords.longitude);
       if (!address) throw new Error('Could not find an address for your location.');
       choose(address);
     } catch (err) {

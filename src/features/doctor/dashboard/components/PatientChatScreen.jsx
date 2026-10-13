@@ -174,7 +174,7 @@ export default function PatientChatScreen({ name, avatar, onBack, onProfilePress
       </View>
       <Modal visible={picker !== null} transparent animationType="fade" onRequestClose={() => setPicker(null)}>
         <Pressable style={s.overlay} onPress={() => setPicker(null)}>
-          <View style={s.sheet}>
+          <View style={[s.sheet, { paddingBottom: 28 + insets.bottom }]}>
             <View style={s.handle} />
             {picker === 'emoji' ? (
               <>

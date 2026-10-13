@@ -144,22 +144,25 @@ export const getCurrentPosition = (options = {}) =>
     //   showLocationDialog: true         — prompt user to enable Location if off
     //   forceLocationManager: false      — use Play Services Fused (recommended)
 
-    // Attempt 1: cached / low-accuracy, accepts very stale fix.
-    try {
-      GeolocationLib.getCurrentPosition(
-        onPos('cached-low'),
-        onErr('cached-low'),
-        {
-          enableHighAccuracy: false,
-          timeout: 15000,
-          maximumAge: 3600000,
-          forceRequestLocation: true,
-          showLocationDialog: true,
-          forceLocationManager: false,
-        },
-      );
-    } catch (e) {
-      console.warn('[location] cached-low threw:', e?.message);
+    // Attempt 1: cached / low-accuracy, accepts stale fixes. Some flows, like
+    // profile address capture, need a fresh precise fix, so they can opt out.
+    if (!options.fresh) {
+      try {
+        GeolocationLib.getCurrentPosition(
+          onPos('cached-low'),
+          onErr('cached-low'),
+          {
+            enableHighAccuracy: false,
+            timeout: 15000,
+            maximumAge: 3600000,
+            forceRequestLocation: true,
+            showLocationDialog: true,
+            forceLocationManager: false,
+          },
+        );
+      } catch (e) {
+        console.warn('[location] cached-low threw:', e?.message);
+      }
     }
 
     // Attempt 2: fresh high-accuracy GPS fix (the one Fused does best).
@@ -170,7 +173,7 @@ export const getCurrentPosition = (options = {}) =>
         {
           enableHighAccuracy: true,
           timeout: 18000,
-          maximumAge: 60000,
+          maximumAge: options.fresh ? 0 : 60000,
           forceRequestLocation: true,
           showLocationDialog: true,
           forceLocationManager: false,

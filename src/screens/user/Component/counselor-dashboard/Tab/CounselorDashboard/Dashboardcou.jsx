@@ -15,6 +15,7 @@ import {
 import Text from '../../../../../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance, { API_BASE_URL } from '../../../../../../axiosConfig';
+import { isPatientAccountDeleted } from '../../../../../../utils/deletedAccount';
 import socketService from '../../../../../../services/socketService';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -64,7 +65,9 @@ const Dashboard = () => {
         : Array.isArray(aptRes.data?.data)
         ? aptRes.data.data
         : [];
-      setAppointments(data);
+      // Hide rows left behind by deleted patient accounts (they had no patient
+      // record and showed as an "Unknown" entry).
+      setAppointments(data.filter((apt) => !isPatientAccountDeleted(apt)));
     } catch (err) {
       console.error('Dashboard fetch error:', err);
     } finally {

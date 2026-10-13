@@ -30,6 +30,13 @@ import { useAutoTranslate } from "../../../../../../hooks/useAutoTranslate";
 import LinearGradient from "react-native-linear-gradient";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DOCTOR, PATIENT } from '../../../../../../theme/palette';
+import { getCachedLocationSummary } from '../../../../../../utils/locationHelper';
+import {
+  formatDistance,
+  getDistanceToProfessional,
+  getUserCoords,
+  isNearby,
+} from '../../../../../../utils/nearby';
 import { nextSlotTime } from '../../../../../../utils/appointmentTime';
 import { isPsychiatristSpecialization } from '../../../../../../components/common/PsychiatristDirectory';
 
@@ -151,6 +158,9 @@ const CounselorDirectoryScreen = ({ navigation }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchLocation, setSearchLocation] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  // The user's own coordinates, so "Nearby" is a real distance and not a guess
+  // from the free-text location box above it.
+  const [userCoords, setUserCoords] = useState(null);
   const [sortBy, setSortBy] = useState("online");
   const [counselorsData, setCounselorsData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -266,6 +276,9 @@ const CounselorDirectoryScreen = ({ navigation }) => {
           email: c.email,
           phone: c.phoneNumber,
           location: c.location || "Online",
+          // Carried through so Nearby can measure an actual distance; the
+          // directory payload keeps coordinates under locationData.current.
+          locationData: c.locationData,
           languages: c.languages || [],
           aboutMe: c.aboutMe,
           qualification: c.qualification,
@@ -379,16 +392,46 @@ const CounselorDirectoryScreen = ({ navigation }) => {
     setRefreshing(false);
   }, [fetchCounselors]);
 
+  // Location the app already captured for this user (cached by locationHelper
+  // after /api/location/update).
+  useEffect(() => {
+    let active = true;
+    getCachedLocationSummary()
+      .then((summary) => { if (active) setUserCoords(getUserCoords(summary)); })
+      .catch(() => { /* Nearby just stays unavailable */ });
+    return () => { active = false; };
+  }, []);
+
+  // Real distance per professional, attached once so the chip, the sort and the
+  // card badge all read the same number.
+  const counselorsWithDistance = useMemo(
+    () => counselorsData.map((counselor) => {
+      const km = getDistanceToProfessional(userCoords, counselor);
+      return { ...counselor, distanceKm: km, distanceLabel: formatDistance(km), isNearby: isNearby(km) };
+    }),
+    [counselorsData, userCoords],
+  );
+
+  // Only offer Nearby when we know where the user is and someone is in range.
+  const hasNearbyAvailable = Boolean(userCoords) && counselorsWithDistance.some((c) => c.isNearby);
+
+  // If Nearby stops being available while it's selected its chip disappears,
+  // which would leave an empty list and no chip to switch off. Fall back to All.
+  useEffect(() => {
+    if (selectedCategory === 'nearby' && !hasNearbyAvailable) setSelectedCategory('all');
+  }, [selectedCategory, hasNearbyAvailable]);
+
   const statusFilterChips = useMemo(() => ([
     { id: 'all', label: t('common:all', 'All') },
+    ...(hasNearbyAvailable ? [{ id: 'nearby', label: t('common:nearby', 'Nearby') }] : []),
     { id: 'online', label: t('common:online', 'Online') },
     { id: 'offline', label: t('common:offline', 'Offline') },
     { id: 'doctor', label: t('common:doctor', 'Doctor') },
     { id: 'consultant', label: t('common:consultant', 'Consultant') },
-  ]), [t]);
+  ]), [t, hasNearbyAvailable]);
 
   const filteredAndSortedCounselors = useMemo(() => {
-    let filtered = counselorsData.filter((counselor) => {
+    let filtered = counselorsWithDistance.filter((counselor) => {
       const name = (counselor.name || "").toLowerCase();
       const specialization = (counselor.specialization || "").toLowerCase();
       const aboutMe = (counselor.aboutMe || "").toLowerCase();
@@ -405,6 +448,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       
       const matchesCategory =
         selectedCategory === "all" ||
+        (selectedCategory === "nearby" && counselor.isNearby) ||
         (selectedCategory === "online" && counselor.online) ||
         (selectedCategory === "offline" && !counselor.online) ||
         (selectedCategory === "doctor" && counselor.isDoctor) ||
@@ -414,6 +458,12 @@ const CounselorDirectoryScreen = ({ navigation }) => {
     });
 
     filtered.sort((a, b) => {
+      // Under Nearby, closest first regardless of the chosen sort — that is
+      // what the filter is for.
+      if (selectedCategory === "nearby") {
+        const byDistance = (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity);
+        if (byDistance) return byDistance;
+      }
       if (sortBy === "online") return Number(b.online) - Number(a.online);
       if (sortBy === "rating") return (b.rating || 0) - (a.rating || 0);
       if (sortBy === "experience") return (b.experience || 0) - (a.experience || 0);
@@ -422,7 +472,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
     });
 
     return filtered;
-  }, [counselorsData, searchTerm, searchLocation, selectedCategory, sortBy]);
+  }, [counselorsWithDistance, searchTerm, searchLocation, selectedCategory, sortBy]);
 
   const handleImageError = (counselorId) => {
     setImageErrors(prev => ({ ...prev, [counselorId]: true }));
@@ -691,9 +741,16 @@ const CounselorDirectoryScreen = ({ navigation }) => {
                 style={styles.ratingRow}
               />
             )}
-            {location !== "Online" && (
-              <Text style={styles.locationText}>📍 {location}</Text>
-            )}
+            <View style={styles.locationRow}>
+              {location !== "Online" && (
+                <Text style={styles.locationText}>📍 {location}</Text>
+              )}
+              {counselor.isNearby && (
+                <View style={styles.nearbyBadge}>
+                  <Text style={styles.nearbyBadgeText}>{counselor.distanceLabel} away</Text>
+                </View>
+              )}
+            </View>
           </View>
 
           <View style={[styles.statusPill, { backgroundColor: `${statusMeta.color}1A` }]}>
@@ -1406,6 +1463,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#94A3B8",
     marginTop: 2,
+  },
+  locationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  // Distance pill, only rendered when the professional is actually within range.
+  nearbyBadge: {
+    marginTop: 2,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: PATIENT.backgroundTint,
+    borderWidth: 1,
+    borderColor: "#D6EEDC",
+  },
+  nearbyBadgeText: {
+    fontSize: 10.5,
+    color: PATIENT.primary,
+    fontWeight: "700",
   },
   availabilityBadge: {
     paddingHorizontal: 10,

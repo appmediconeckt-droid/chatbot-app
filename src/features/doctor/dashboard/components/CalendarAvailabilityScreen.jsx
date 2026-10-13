@@ -15,6 +15,7 @@
 // app: AsyncStorage `doctorAvailability:<doctorId>:<clinicId>`).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
@@ -22,6 +23,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import TimePickerSheet from './TimePickerSheet';
+import { KeyboardSheet, KeyboardSheetOverlay, KeyboardSheetScroll } from '../../../../components/common/KeyboardSheet';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles, doctorGradient, gradientDirection } from '../theme';
 import axiosInstance from '../../../../axiosConfig';
@@ -265,6 +267,9 @@ const apiMessage = (error, fallback) => error?.response?.data?.message || error?
 // screen
 // ---------------------------------------------------------------------------
 export default function CalendarAvailabilityScreen() {
+  // Sheets here render inside Modals, which draw under the system navigation
+  // bar (edge-to-edge) — pad them by its height so their buttons stay visible.
+  const insets = useSafeAreaInsets();
   const { showToast } = useToast();
   const [doctorId, setDoctorId] = useState('');
   const [currentDate, setCurrentDate] = useState(() => new Date());
@@ -1003,7 +1008,7 @@ export default function CalendarAvailabilityScreen() {
   const renderRangeEditor = () => (rangeEdit ? (
     <View style={s.editOverlay}>
       <Pressable style={s.editBackdrop} onPress={() => setRangeEdit(null)} />
-      <View style={s.editCard}>
+      <View style={[s.editCard, { paddingBottom: 16 + insets.bottom }]}>
         <View style={s.modalHeader}>
           <View style={s.flex}>
             <Text style={s.modalTitle}>Edit time range</Text>
@@ -1124,27 +1129,29 @@ export default function CalendarAvailabilityScreen() {
         </Pressable>
       </View>
 
-      <Pressable style={s.clinicBar} onPress={() => setShowClinicDropdown(true)}>
-        <View style={[s.clinicDot, { backgroundColor: selectedClinic?.color || colors.blue }]} />
-        <Text translate={false} style={s.clinicBarText} numberOfLines={1}>
-          {apiStatus === 'loading' ? 'Loading clinics…' : selectedClinic?.name || 'Add a clinic to get started'}
-        </Text>
-        <AppIcon name="chevron-down" size={14} color="#667085" />
-      </Pressable>
-
-      <View style={s.tabs}>
-        {[
-          ['recurring', 'Recurring Schedule'],
-          ['specific', 'Specific Dates'],
-          ['unavailable', 'Exceptions / Unavailable'],
-        ].map(([key, label]) => (
-          <Pressable key={key} style={[s.tab, activeCalendarTab === key && s.tabActive]} onPress={() => setActiveCalendarTab(key)}>
-            <Text style={[s.tabText, activeCalendarTab === key && s.tabTextActive]}>{label}</Text>
-          </Pressable>
-        ))}
-      </View>
-
+      {/* Only the header above and the action bar below stay fixed — the
+          clinic picker, tabs, calendar and availability all scroll. */}
       <ScrollView style={s.flex} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        <Pressable style={s.clinicBar} onPress={() => setShowClinicDropdown(true)}>
+          <View style={[s.clinicDot, { backgroundColor: selectedClinic?.color || colors.blue }]} />
+          <Text translate={false} style={s.clinicBarText} numberOfLines={1}>
+            {apiStatus === 'loading' ? 'Loading clinics…' : selectedClinic?.name || 'Add a clinic to get started'}
+          </Text>
+          <AppIcon name="chevron-down" size={14} color="#667085" />
+        </Pressable>
+
+        <View style={s.tabs}>
+          {[
+            ['recurring', 'Recurring Schedule'],
+            ['specific', 'Specific Dates'],
+            ['unavailable', 'Exceptions / Unavailable'],
+          ].map(([key, label]) => (
+            <Pressable key={key} style={[s.tab, activeCalendarTab === key && s.tabActive]} onPress={() => setActiveCalendarTab(key)}>
+              <Text style={[s.tabText, activeCalendarTab === key && s.tabTextActive]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+
         <Text style={s.tabHelp}>
           {activeCalendarTab === 'recurring' && 'Select weekdays to create a schedule that repeats every week.'}
           {activeCalendarTab === 'specific' && 'Select a calendar date to add or update slots for that date.'}
@@ -1409,10 +1416,12 @@ export default function CalendarAvailabilityScreen() {
 
       {/* Clinic dropdown */}
       <Modal visible={showClinicDropdown} transparent animationType="slide" onRequestClose={() => setShowClinicDropdown(false)}>
-        <View style={s.modalOverlay}>
-          <View style={s.modalSheet}>
+        {/* Signup-style keyboard handling: title and Close stay fixed, the
+            clinic list + new-clinic form scroll above the keyboard. */}
+        <KeyboardSheetOverlay style={s.modalOverlay}>
+          <KeyboardSheet style={s.modalSheet}>
             <Text style={s.modalTitle}>Select Clinic</Text>
-            <ScrollView style={s.clinicList}>
+            <KeyboardSheetScroll style={s.sheetBody}>
               {clinics.map((clinic) => {
                 const active = String(clinic.id) === String(selectedClinic?.id);
                 return (
@@ -1427,7 +1436,6 @@ export default function CalendarAvailabilityScreen() {
                 );
               })}
               {!clinics.length && apiStatus !== 'loading' && <Text style={s.emptyNote}>No clinics yet — add your first one below.</Text>}
-            </ScrollView>
             {showNewClinicForm ? (
               <View style={s.newClinicForm}>
                 <TextInput style={s.input} placeholder="Clinic name" placeholderTextColor="#94A3B8" value={newClinic.name} onChangeText={(v) => setNewClinic((p) => ({ ...p, name: v }))} />
@@ -1461,17 +1469,18 @@ export default function CalendarAvailabilityScreen() {
                 <Text style={s.addLink}>Add a new clinic</Text>
               </Pressable>
             )}
+            </KeyboardSheetScroll>
             <Pressable style={s.modalClose} onPress={() => { setShowClinicDropdown(false); setShowNewClinicForm(false); }}>
               <Text style={s.modalCloseText}>Close</Text>
             </Pressable>
-          </View>
-        </View>
+          </KeyboardSheet>
+        </KeyboardSheetOverlay>
       </Modal>
 
       {/* Add Time Ranges (multi-range) */}
       <Modal visible={showAddTimeModal} transparent animationType="slide" onRequestClose={() => (picker ? setPicker(null) : rangeEdit ? setRangeEdit(null) : setShowAddTimeModal(false))}>
         <View style={s.modalOverlay}>
-          <View style={s.modalSheet}>
+          <View style={[s.modalSheet, { paddingBottom: 16 + insets.bottom }]}>
             <View style={s.modalHeader}>
               <View style={s.flex}>
                 <Text style={s.modalTitle}>Add Time Ranges</Text>
@@ -1554,8 +1563,8 @@ export default function CalendarAvailabilityScreen() {
 
       {/* Date editor: Saved Slots + Add Slot + Save Slot / unavailable */}
       <Modal visible={editingTarget?.type === 'date'} transparent animationType="slide" onRequestClose={() => (picker ? setPicker(null) : rangeEdit ? setRangeEdit(null) : setEditingTarget(null))}>
-        <View style={s.modalOverlay}>
-          <View style={s.modalSheet}>
+        <KeyboardSheetOverlay style={s.modalOverlay}>
+          <KeyboardSheet style={s.modalSheet}>
             {editingTarget?.type === 'date' && (
               <>
                 <View style={s.modalHeader}>
@@ -1565,7 +1574,7 @@ export default function CalendarAvailabilityScreen() {
                   </View>
                   <Pressable onPress={() => setEditingTarget(null)} hitSlop={8}><AppIcon name="x" size={18} color="#667085" /></Pressable>
                 </View>
-                <ScrollView style={s.modalScroll} keyboardShouldPersistTaps="handled">
+                <KeyboardSheetScroll style={s.modalScroll}>
                   {activeCalendarTab === 'unavailable' && (
                     <View>
                       <Text style={s.fieldLabel}>Unavailable reason</Text>
@@ -1629,7 +1638,7 @@ export default function CalendarAvailabilityScreen() {
                       )}
                     </>
                   )}
-                </ScrollView>
+                </KeyboardSheetScroll>
                 <View style={s.modalActions}>
                   <Pressable style={s.outlineBtnFlex} onPress={() => setEditingTarget(null)}><Text style={s.outlineBtnText}>Close</Text></Pressable>
                   {activeCalendarTab === 'specific' && !editingInfo?.blocked && (
@@ -1644,11 +1653,11 @@ export default function CalendarAvailabilityScreen() {
                 </View>
               </>
             )}
-          </View>
+          </KeyboardSheet>
           {renderRangeEditor()}
           {renderTimePicker('newRange')}
           {renderTimePicker('edit')}
-        </View>
+        </KeyboardSheetOverlay>
       </Modal>
     </View>
   );
@@ -1724,15 +1733,15 @@ const s = createDoctorStyles({
   subtitle: { fontSize: 12, color: '#667085', marginTop: 2 },
   clearAllBtn: { height: 34, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5', alignItems: 'center', justifyContent: 'center' },
   clearAllText: { fontSize: 13, fontWeight: '700', color: '#DC2626' },
-  clinicBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D7DEE9', paddingHorizontal: 14, height: 42 },
+  clinicBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D7DEE9', paddingHorizontal: 14, height: 42, marginHorizontal: -10 },
   clinicDot: { width: 10, height: 10, borderRadius: 5 },
   clinicBarText: { flex: 1, fontSize: 13.5, fontWeight: '700', color: '#17243A' },
-  tabs: { flexDirection: 'row', backgroundColor: '#E6F4F1', margin: 10, marginBottom: 0, padding: 4, borderRadius: 14, gap: 4 },
+  tabs: { flexDirection: 'row', backgroundColor: '#E6F4F1', marginTop: 10, marginBottom: 10, padding: 4, borderRadius: 14, gap: 4 },
   tab: { flex: 1, paddingVertical: 9, alignItems: 'center', justifyContent: 'center', borderRadius: 11, paddingHorizontal: 4 },
   tabActive: { backgroundColor: '#FFF', shadowColor: '#0F766E', shadowOpacity: 0.15, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
   tabText: { fontSize: 12, fontWeight: '600', color: '#667085', textAlign: 'center' },
   tabTextActive: { color: colors.blue, fontWeight: '800' },
-  content: { padding: 10, paddingBottom: 16 },
+  content: { paddingHorizontal: 10, paddingBottom: 16 },
   tabHelp: { fontSize: 12.5, color: '#475467', marginBottom: 8, marginHorizontal: 2 },
   apiNote: { fontSize: 12.5, color: '#B45309', backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 8, padding: 8, marginBottom: 8 },
   card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CAD3E1', borderRadius: 10, padding: 12, marginBottom: 12 },
@@ -1825,7 +1834,7 @@ const s = createDoctorStyles({
   modalSheet: { backgroundColor: '#FFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, maxHeight: '88%' },
   modalHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
   modalTitle: { fontSize: 17, fontWeight: '800', color: '#17243A' },
-  modalScroll: { flexGrow: 0 },
+  modalScroll: { flexGrow: 0, flexShrink: 1 },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 12 },
   modalClose: { marginTop: 12, alignItems: 'center', paddingVertical: 6 },
   modalCloseText: { fontSize: 13.5, fontWeight: '700', color: '#667085' },
@@ -1879,6 +1888,8 @@ const s = createDoctorStyles({
   durationChipTextActive: { color: '#FFF' },
   textArea: { minHeight: 80, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, padding: 10, fontSize: 13.5, color: '#17243A' },
   clinicList: { maxHeight: 280 },
+  // Scrolling body of a keyboard-aware sheet (shrinks above the keyboard).
+  sheetBody: { flexGrow: 0, flexShrink: 1 },
   clinicRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#EEF1F5', borderRadius: 8 },
   clinicRowActive: { backgroundColor: '#F0FDFA' },
   clinicRowName: { fontSize: 14, fontWeight: '700', color: '#17243A' },

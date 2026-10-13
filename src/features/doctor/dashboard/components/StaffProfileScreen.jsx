@@ -4,6 +4,7 @@
 // StaffEditProfileScreen via onEdit.
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
@@ -17,6 +18,9 @@ const formatLongDate = (isoDate) => {
 };
 
 export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }) {
+  // Bottom sheets live in Modals, which draw under the system navigation
+  // bar (edge-to-edge) — pad them by its height so their last row stays visible.
+  const insets = useSafeAreaInsets();
   const { showToast } = useToast();
   const isActive = member.status === 'Active';
   const activity = member.activity ?? [];
@@ -162,7 +166,7 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
 
       <Modal visible={shiftSheet} transparent animationType="fade" onRequestClose={() => !savingShift && setShiftSheet(false)}>
         <Pressable style={s.overlay} onPress={() => !savingShift && setShiftSheet(false)}>
-          <Pressable style={s.sheet} onPress={() => {}}>
+          <Pressable style={[s.sheet, { paddingBottom: 28 + insets.bottom }]} onPress={() => {}}>
             <View style={s.handle} />
             <Text style={s.sheetTitle}>Assign Shift</Text>
             <Text translate={false} style={s.sheetSub}>Choose the shift for {member.name}.</Text>

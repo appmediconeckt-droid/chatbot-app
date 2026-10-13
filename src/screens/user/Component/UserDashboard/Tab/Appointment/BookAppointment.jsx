@@ -1,5 +1,5 @@
 // CounselorRequestChat.js - React Native Version
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -14,10 +14,11 @@ import {
   Platform,
   useWindowDimensions,
   Animated,
+  Keyboard,
 } from 'react-native';
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import Text from '../../../../../../components/TranslatedText';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
@@ -30,6 +31,13 @@ import PATIENT from '../../../../../../theme/palette';
 import PatientGradientButton from '../../../../../../components/common/PatientGradientButton';
 import DoctorBookingModal from './DoctorBookingModal';
 import { toImageUri } from '../../../../../../utils/imageUri';
+import { getCachedLocationSummary } from '../../../../../../utils/locationHelper';
+import {
+  formatDistance,
+  getDistanceToProfessional,
+  getUserCoords,
+  isNearby,
+} from '../../../../../../utils/nearby';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import socketService from '../../../../../../services/socketService';
 import useLiveRefresh from '../../../../../../hooks/useLiveRefresh';
@@ -46,6 +54,13 @@ const WALLET_GRADIENT = ['#006B2C', '#01CE54'];
 const TRANSPARENT_GRADIENT = ['transparent', 'transparent'];
 const GRADIENT_START = { x: 0, y: 0.5 };
 const GRADIENT_END = { x: 1, y: 0.5 };
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const QUICK_BOOKING_DAYS = 14;
+const DAY_CHIP_STRIDE = 64; // styles.dayChip width (56) + styles.dayStrip gap (8)
+const isSameDay = (a, b) => a.getFullYear() === b.getFullYear()
+  && a.getMonth() === b.getMonth()
+  && a.getDate() === b.getDate();
 
 const CounselorListSkeleton = () => {
   const anim = useRef(new Animated.Value(0)).current;
@@ -148,6 +163,9 @@ const CounselorRequestChat = ({
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
+  // The user's own coordinates, so "nearby" can mean an actual distance.
+  const [userCoords, setUserCoords] = useState(null);
+  const isFocused = useIsFocused();
   const [showBookingModal, setShowBookingModal] = useState(false);
   // Doctors book through the web's clinic / slot flow (DoctorBookingModal).
   const [doctorForBooking, setDoctorForBooking] = useState(null);
@@ -159,6 +177,37 @@ const CounselorRequestChat = ({
     return nextSlot;
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const dayStripRef = useRef(null);
+  // Android: the booking popup had no keyboard handling, so the Clinical
+  // Notes box opened behind the keyboard (seen on 3-button-navigation
+  // phones). The overlay is padded by exactly the part of it the keyboard
+  // covers, measured in screen coordinates (pageY vs the keyboard's screenY)
+  // so the window's own offset can't skew it; where the system already made
+  // room for the keyboard that overlap is 0 and nothing moves.
+  const bookingOverlayRef = useRef(null);
+  const bookingScrollRef = useRef(null);
+  const [bookingKeyboardPad, setBookingKeyboardPad] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !showBookingModal) {
+      setBookingKeyboardPad(0);
+      return undefined;
+    }
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      const keyboardTop = event?.endCoordinates?.screenY;
+      const overlay = bookingOverlayRef.current;
+      if (!keyboardTop || !overlay?.measure) return;
+      overlay.measure((_x, _y, _width, height, _pageX, pageY) => {
+        setBookingKeyboardPad(Math.max(0, Math.round(pageY + height - keyboardTop)));
+        // Notes sits near the end of the card: bring it and the buttons up.
+        setTimeout(() => bookingScrollRef.current?.scrollToEnd({ animated: true }), 120);
+      });
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setBookingKeyboardPad(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [showBookingModal]);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [bookingNotes, setBookingNotes] = useState('');
   const [paymentConfig, setPaymentConfig] = useState({
@@ -361,6 +410,9 @@ const CounselorRequestChat = ({
         languages: c.languages,
         consultationFee: c.consultationFee ?? c.fee ?? c.consultation_fee,
         qualification: c.qualification,
+        // Carried through so the Nearby filter can measure a real distance; the
+        // directory payload keeps the coordinates under locationData.current.
+        locationData: c.locationData,
       }));
 
       setCounselors(formattedCounselors);
@@ -375,6 +427,17 @@ const CounselorRequestChat = ({
   useLiveRefresh(() => fetchCounselors(true), [
     'presence-update', 'chat-list-update', 'chat-status-update', 'counselor-directory-updated',
   ]);
+
+  // Read the location the app already captured for this user (locationHelper
+  // caches it after /api/location/update). Re-read on focus so a location set
+  // elsewhere starts driving the Nearby filter without a restart.
+  useEffect(() => {
+    let active = true;
+    getCachedLocationSummary()
+      .then((summary) => { if (active) setUserCoords(getUserCoords(summary)); })
+      .catch(() => { /* nearby simply stays unavailable */ });
+    return () => { active = false; };
+  }, [isFocused]);
 
   useEffect(() => {
     let active = true;
@@ -576,8 +639,26 @@ const CounselorRequestChat = ({
   const bookingTimeLabel = bookingDateTime.toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
+    hour12: true,
   });
+
+  // Next two weeks as one-tap date chips; any later date goes through "More"
+  // (the native calendar). Rebuilt each render so it never goes stale.
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const quickBookingDays = Array.from({ length: QUICK_BOOKING_DAYS }, (_, index) => {
+    const day = new Date(todayStart);
+    day.setDate(todayStart.getDate() + index);
+    return day;
+  });
+  const bookingDayInStrip = quickBookingDays.some((day) => isSameDay(day, bookingDateTime));
+  // Android opened the strip scrolled to its end, hiding the selected date —
+  // bring the selected chip (or More, for a later date) into view instead.
+  const scrollDayStripToSelected = () => {
+    const selectedIndex = quickBookingDays.findIndex((day) => isSameDay(day, bookingDateTime));
+    const index = selectedIndex === -1 ? QUICK_BOOKING_DAYS : selectedIndex;
+    dayStripRef.current?.scrollTo({ x: Math.max(0, (index - 1) * DAY_CHIP_STRIDE), animated: false });
+  };
 
   const handleDateChange = (event, selectedDate) => {
     if (Platform.OS === 'android') {
@@ -849,6 +930,12 @@ const CounselorRequestChat = ({
                   <Text style={styles.cardMetaText}>{Number(item.rating).toFixed(1)}</Text>
                 </>
               )}
+              {item.isNearby && (
+                <View style={styles.nearbyBadge}>
+                  <Ionicons name="location" size={10} color={PATIENT.primary} />
+                  <Text style={styles.nearbyBadgeText}>{item.distanceLabel}</Text>
+                </View>
+              )}
             </View>
           </View>
 
@@ -985,7 +1072,22 @@ const CounselorRequestChat = ({
     </TouchableOpacity>
   );
 
-  const filteredCounselors = counselors.filter((counselor) => {
+  // Real distance from the user to each professional, attached once so the
+  // search, the Nearby chip and the card badge all agree.
+  const counselorsWithDistance = useMemo(
+    () => counselors.map((counselor) => {
+      const distanceKmValue = getDistanceToProfessional(userCoords, counselor);
+      return {
+        ...counselor,
+        distanceKm: distanceKmValue,
+        distanceLabel: formatDistance(distanceKmValue),
+        isNearby: isNearby(distanceKmValue),
+      };
+    }),
+    [counselors, userCoords],
+  );
+
+  const filteredCounselors = counselorsWithDistance.filter((counselor) => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
 
@@ -996,7 +1098,8 @@ const CounselorRequestChat = ({
       counselor.experience,
       Number(counselor.rating) > 0 ? `${counselor.rating} rating` : '',
       Number(counselor.rating) >= 4.5 ? 'top rated' : '',
-      counselor.location ? 'nearby' : '',
+      // Only an actually-close professional answers to "nearby" now.
+      counselor.isNearby ? `nearby ${counselor.distanceLabel}` : '',
       counselor.available ? 'online available' : 'offline unavailable',
     ]
       .filter(Boolean)
@@ -1007,9 +1110,18 @@ const CounselorRequestChat = ({
   });
 
   // Only status chips are shown here; specialties and other labels remain searchable.
+  // Nearby only appears once we know where the user is — an always-visible chip
+  // that can only ever return nothing is worse than no chip.
+  const hasNearbyAvailable = Boolean(userCoords) && counselorsWithDistance.some((c) => c.isNearby);
+  // Its chip is hidden when unavailable, so a stale 'nearby' selection would
+  // strand the user on an empty list with nothing to toggle off.
+  useEffect(() => {
+    if (activeFilter === 'nearby' && !hasNearbyAvailable) setActiveFilter('all');
+  }, [activeFilter, hasNearbyAvailable]);
   const filterChips = (() => {
     return [
       { id: 'all', label: t('common:all', 'All') },
+      ...(hasNearbyAvailable ? [{ id: 'nearby', label: t('common:nearby', 'Nearby') }] : []),
       { id: 'online', label: t('common:online', 'Online') },
       { id: 'offline', label: t('common:offline', 'Offline') },
       { id: 'doctor', label: t('appointment:doctors', 'Doctors') },
@@ -1030,6 +1142,7 @@ const CounselorRequestChat = ({
 
   const chipFiltered = filteredCounselors.filter((c) => {
     if (activeFilter === 'all') return true;
+    if (activeFilter === 'nearby') return c.isNearby;
     if (activeFilter === 'online') return !!c.available;
     if (activeFilter === 'offline') return !c.available;
     if (activeFilter === 'doctor') return c.role === 'doctor';
@@ -1038,6 +1151,11 @@ const CounselorRequestChat = ({
   });
 
   const sortedCounselors = [...chipFiltered].sort((a, b) => {
+    // Under Nearby, closest first — that's the whole point of the filter.
+    if (activeFilter === 'nearby') {
+      const byDistance = (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity);
+      if (byDistance) return byDistance;
+    }
     if (a.available !== b.available) return a.available ? -1 : 1;
     return (Number(b.rating) || 0) - (Number(a.rating) || 0);
   });
@@ -1368,8 +1486,16 @@ const CounselorRequestChat = ({
         transparent={true}
         onRequestClose={() => setShowBookingModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { width: Math.min(screenWidth * 0.92, 520), maxHeight: screenHeight * 0.82 }]}>
+        <View
+          ref={bookingOverlayRef}
+          collapsable={false}
+          style={[
+            styles.modalOverlay,
+            // keyboard open: the card fills the space left, so keep it clear of the status bar too
+            bookingKeyboardPad > 0 && { paddingBottom: bookingKeyboardPad, paddingTop: insets.top + 8 },
+          ]}
+        >
+          <View style={[styles.modalContent, styles.modalContentShrink, { width: Math.min(screenWidth * 0.92, 520), maxHeight: screenHeight * 0.82 }]}>
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.modalTitleSmall}>Book Appointment with</Text>
@@ -1385,29 +1511,74 @@ const CounselorRequestChat = ({
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView ref={bookingScrollRef} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <View style={styles.modalInfo}>
                 <Text style={styles.modalSectionTitle}>{t('appointment:appointmentDate', 'Appointment Date & Time')}</Text>
-                <View style={styles.dateTimeRow}>
-                  <TouchableOpacity
-                    style={styles.dateTimeCard}
-                    onPress={() => {
-                      setShowDatePicker((prev) => !prev);
-                      if (Platform.OS === 'ios') {
-                        setShowTimePicker(false);
-                      }
-                    }}
-                    activeOpacity={0.85}
+                <View style={styles.dateTimeBlock}>
+                  <View style={styles.dateTimeLabelRow}>
+                    <Ionicons name="calendar-outline" size={14} color={PATIENT.primary} />
+                    <Text style={styles.dateTimeLabel}>{t('appointment:date', 'Date')}</Text>
+                  </View>
+                  <ScrollView
+                    ref={dayStripRef}
+                    horizontal
+                    nestedScrollEnabled
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.dayStrip}
+                    onContentSizeChange={scrollDayStripToSelected}
                   >
-                    <View style={styles.dateTimeCardHeader}>
-                      <Ionicons name="calendar-outline" size={15} color={PATIENT.primary} />
-                      <Text style={styles.dateTimeCardLabel}>{t('appointment:date', 'Date')}</Text>
-                    </View>
-                    <Text style={styles.dateTimeCardValue}>{bookingDateLabel}</Text>
-                  </TouchableOpacity>
+                    {quickBookingDays.map((day, index) => {
+                      const active = isSameDay(day, bookingDateTime);
+                      return (
+                        <TouchableOpacity
+                          key={day.toDateString()}
+                          style={[styles.dayChip, active && styles.dayChipActive]}
+                          onPress={() => handleDateChange({ type: 'set' }, day)}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={[styles.dayChipWeek, active && styles.dayChipTextActive]}>
+                            {index === 0 ? 'Today' : WEEKDAY_SHORT[day.getDay()]}
+                          </Text>
+                          <Text translate={false} style={[styles.dayChipDate, active && styles.dayChipTextActive]}>
+                            {day.getDate()}
+                          </Text>
+                          <Text style={[styles.dayChipMonth, active && styles.dayChipTextActive]}>
+                            {MONTH_SHORT[day.getMonth()]}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                    {/* Later dates: the native calendar. Shows the picked
+                        date once one beyond the strip is chosen. */}
+                    <TouchableOpacity
+                      style={[styles.dayChip, styles.dayChipMore, !bookingDayInStrip && styles.dayChipActive]}
+                      onPress={() => {
+                        setShowDatePicker((prev) => !prev);
+                        if (Platform.OS === 'ios') {
+                          setShowTimePicker(false);
+                        }
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name="calendar-outline"
+                        size={18}
+                        color={bookingDayInStrip ? PATIENT.primary : '#ffffff'}
+                      />
+                      <Text style={[styles.dayChipMonth, !bookingDayInStrip && styles.dayChipTextActive]}>
+                        {bookingDayInStrip
+                          ? 'More'
+                          : `${bookingDateTime.getDate()} ${MONTH_SHORT[bookingDateTime.getMonth()]}`}
+                      </Text>
+                    </TouchableOpacity>
+                  </ScrollView>
 
+                  <View style={[styles.dateTimeLabelRow, styles.timeLabelRow]}>
+                    <Ionicons name="time-outline" size={14} color={PATIENT.primary} />
+                    <Text style={styles.dateTimeLabel}>{t('appointment:time', 'Time')}</Text>
+                  </View>
                   <TouchableOpacity
-                    style={styles.dateTimeCard}
+                    style={[styles.timeCard, showTimePicker && styles.timeCardActive]}
                     onPress={() => {
                       setShowTimePicker((prev) => !prev);
                       if (Platform.OS === 'ios') {
@@ -1416,12 +1587,20 @@ const CounselorRequestChat = ({
                     }}
                     activeOpacity={0.85}
                   >
-                    <View style={styles.dateTimeCardHeader}>
-                      <Ionicons name="time-outline" size={15} color={PATIENT.primary} />
-                      <Text style={styles.dateTimeCardLabel}>{t('appointment:time', 'Time')}</Text>
+                    <View style={styles.timeIcon}>
+                      <Ionicons name="time-outline" size={18} color={PATIENT.primary} />
                     </View>
-                    <Text style={styles.dateTimeCardValue}>{bookingTimeLabel}</Text>
+                    <Text style={styles.timeValue}>{bookingTimeLabel}</Text>
+                    <Text style={styles.timeChange}>Change</Text>
+                    <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
                   </TouchableOpacity>
+
+                  <View style={styles.bookingSummary}>
+                    <Ionicons name="checkmark-circle" size={16} color={PATIENT.primary} />
+                    <Text style={styles.bookingSummaryText}>
+                      {bookingDateLabel} · {bookingTimeLabel}
+                    </Text>
+                  </View>
                 </View>
 
                 {(showDatePicker || showTimePicker) && Platform.OS === 'ios' ? (
@@ -1744,6 +1923,24 @@ const styles = {
     fontSize: 12,
     color: PATIENT.textSecondary,
     fontWeight: '500',
+  },
+  // Distance pill, shown only when the professional is actually within range.
+  nearbyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginLeft: 12,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: PATIENT.backgroundTint,
+    borderWidth: 1,
+    borderColor: '#D6EEDC',
+  },
+  nearbyBadgeText: {
+    fontSize: 10.5,
+    color: PATIENT.primary,
+    fontWeight: '700',
   },
   statusPill: {
     flexDirection: 'row',
@@ -2412,6 +2609,10 @@ const styles = {
     justifyContent: 'center',
     alignItems: 'center',
   },
+  // Lets the booking card give up height when the keyboard pads the overlay.
+  modalContentShrink: {
+    flexShrink: 1,
+  },
   modalContent: {
     backgroundColor: '#ffffff',
     borderRadius: 20,
@@ -2569,34 +2770,120 @@ const styles = {
     fontWeight: '700',
     marginBottom: 10,
   },
-  dateTimeRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  dateTimeCard: {
-    flex: 1,
+  dateTimeBlock: {
     borderWidth: 1,
     borderColor: '#e6ebf1',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderRadius: 16,
+    padding: 12,
     backgroundColor: '#f8fafc',
   },
-  dateTimeCardHeader: {
+  dateTimeLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     marginBottom: 8,
   },
-  dateTimeCardLabel: {
+  timeLabelRow: {
+    marginTop: 14,
+  },
+  dateTimeLabel: {
     fontSize: 12,
+    color: '#64748b',
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  dayStrip: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  dayChip: {
+    width: 56,
+    paddingVertical: 9,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 1,
+  },
+  dayChipActive: {
+    backgroundColor: PATIENT.primary,
+    borderColor: PATIENT.primary,
+  },
+  dayChipMore: {
+    width: 64,
+    gap: 4,
+    borderStyle: 'dashed',
+    borderColor: '#9fd8b4',
+  },
+  dayChipWeek: {
+    fontSize: 11,
     color: '#64748b',
     fontWeight: '600',
   },
-  dateTimeCardValue: {
-    fontSize: 14,
+  dayChipDate: {
+    fontSize: 18,
+    lineHeight: 22,
     color: '#0f172a',
+    fontWeight: '800',
+  },
+  dayChipMonth: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  dayChipTextActive: {
+    color: '#ffffff',
+  },
+  timeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#ffffff',
+  },
+  timeCardActive: {
+    borderColor: PATIENT.primary,
+  },
+  timeIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#e8f7ee',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeValue: {
+    flex: 1,
+    fontSize: 16,
+    color: '#0f172a',
+    fontWeight: '800',
+  },
+  timeChange: {
+    fontSize: 13,
+    color: PATIENT.primary,
     fontWeight: '700',
+  },
+  bookingSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#e8f7ee',
+  },
+  bookingSummaryText: {
+    flex: 1,
+    fontSize: 12.5,
+    color: '#14532d',
+    fontWeight: '600',
   },
   pickerWrap: {
     marginTop: 10,

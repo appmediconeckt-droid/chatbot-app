@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import Text from '../../../../../../components/TranslatedText';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -168,6 +168,9 @@ const CHECKLIST = [
 const LAST_UPDATED = 'July 2026';
 
 const PrivacyPolicy = ({ onClose, onOpenTab, onOpenHelpSupport, onOpenRefund }) => {
+  // Explicit insets: this screen opens inside a Modal, where SafeAreaView can
+  // report 0 on Android and leave content under the status/navigation bars.
+  const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   const [C, setC] = useState(PATIENT);
   const [role, setRole] = useState('user');
@@ -290,7 +293,7 @@ const PrivacyPolicy = ({ onClose, onOpenTab, onOpenHelpSupport, onOpenRefund }) 
   return (
     <View style={[s.root, { backgroundColor: C.backgroundTint }]}>
       <StatusBar barStyle="dark-content" backgroundColor={C.backgroundTint} />
-      <SafeAreaView edges={['top', 'bottom']} style={{ backgroundColor: '#fff' }}>
+      <View style={[s.headerSafe, { paddingTop: insets.top }]}>
         <View style={s.header}>
           <TouchableOpacity onPress={onClose} style={s.headerBtn} hitSlop={12}>
             <Ionicons name="chevron-back" size={24} color="#0f172a" />
@@ -300,9 +303,9 @@ const PrivacyPolicy = ({ onClose, onOpenTab, onOpenHelpSupport, onOpenRefund }) 
             <Text style={s.headerSub}>{t('Learn how Humaeli collects, uses, and protects your personal information')}</Text>
           </View>
         </View>
-      </SafeAreaView>
+      </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={s.scroll} contentContainerStyle={[s.content, { paddingBottom: 42 + insets.bottom }]} showsVerticalScrollIndicator={false}>
         {/* ── Protected hero ──────────────────────────────────────────────── */}
         <LinearGradient
           colors={[C.gradientFrom, C.gradientTo]}
@@ -505,6 +508,7 @@ const s = StyleSheet.create({
   headerTitle: { color: '#0f172a', fontSize: 18, fontWeight: '800' },
   headerSub: { color: '#94A3B8', fontSize: 11.5, lineHeight: 15, marginTop: 2, paddingRight: 20 },
   scroll: { flex: 1 },
+  headerSafe: { backgroundColor: '#fff' },
   content: { padding: 16, paddingBottom: 42 },
 
   // Hero

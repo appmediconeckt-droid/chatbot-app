@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import { Modal, NativeModules, Pressable, StatusBar, StyleSheet, Text, TurboModuleRegistry, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import PATIENT from '../../../../../../theme/palette';
 
@@ -45,10 +45,13 @@ export default function QrScannerScreen({ visible, onClose, onScanned }) {
 }
 
 function CameraUnavailable({ onClose }) {
+  // Explicit insets: this screen opens inside a Modal, where SafeAreaView can
+  // report 0 on Android and leave content under the status/navigation bars.
+  const insets = useSafeAreaInsets();
   return (
     <View style={s.screen}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
-      <SafeAreaView style={s.overlay} edges={['top', 'bottom']}>
+      <View style={[s.overlay, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={s.header}>
           <Pressable onPress={onClose} style={s.iconBtn} hitSlop={10}>
             <Ionicons name="close" size={24} color="#FFF" />
@@ -67,7 +70,7 @@ function CameraUnavailable({ onClose }) {
             <Text style={s.permissionBtnText}>Close</Text>
           </Pressable>
         </View>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

@@ -4,6 +4,7 @@
 // filtering run client-side over the fetched roster.
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import AppIcon from '../icons/AppIcon';
@@ -22,6 +23,9 @@ const STATUSES = ['All', 'Active', 'On Leave', 'Suspended'];
 const PAGE_SIZE = 10;
 
 export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaffProfileOpenChange }) {
+  // Bottom sheets live in Modals, which draw under the system navigation
+  // bar (edge-to-edge) — pad them by its height so their last row stays visible.
+  const insets = useSafeAreaInsets();
   const { showToast } = useToast();
   const [staffList, setStaffList] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -277,7 +281,7 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
 
       <Modal visible={picker !== null} transparent animationType="fade" onRequestClose={() => setPicker(null)}>
         <Pressable style={s.overlay} onPress={() => setPicker(null)}>
-          <View style={s.sheet}>
+          <View style={[s.sheet, { paddingBottom: 28 + insets.bottom }]}>
             <View style={s.handle} />
             {pickerConfig && (
               <>

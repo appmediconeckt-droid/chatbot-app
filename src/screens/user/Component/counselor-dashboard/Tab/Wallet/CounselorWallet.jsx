@@ -23,6 +23,7 @@ import { DOCTOR } from '../../../../../../theme/palette';
 import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
 import GradientFill from '../../../../../../components/common/GradientFill';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import useKeyboardAwareScroll from '../../../../../../hooks/useKeyboardAwareScroll';
 
 // Payout-domain statuses returned by the backend (`normalizeWithdrawalStatus`).
 const STATUS_META = {
@@ -272,6 +273,13 @@ const Pagination = ({ page, total, onChange }) => {
 
 const CounselorWallet = ({ onClose, embedded = false }) => {
   const { t } = useLanguageRender();
+  const {
+    scrollRef: kbScrollRef,
+    frameInset: kbInset,
+    scrollFocusedInputIntoView: kbFocus,
+    handleKeyboardAwareScroll: kbOnScroll,
+    handleKeyboardAwareScrollLayout: kbOnLayout,
+  } = useKeyboardAwareScroll({ frameIsScroll: true });
   const safeEdges = embedded ? ['bottom'] : ['top', 'bottom'];
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -532,7 +540,14 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
       ) : null}
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        ref={kbScrollRef}
+        // Signup-style: the withdrawal form scrolls above the keyboard and the
+        // focused field is scrolled into view.
+        contentContainerStyle={[styles.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]}
+        onScroll={kbOnScroll}
+        onLayout={kbOnLayout}
+        onFocusCapture={kbFocus}
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}

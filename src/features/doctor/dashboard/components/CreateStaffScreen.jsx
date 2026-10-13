@@ -8,6 +8,7 @@
 // the staff dashboard for their role.
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Share, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
@@ -20,6 +21,7 @@ import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { getDatePickerValue, toDateOnlyString } from '../../../../utils/dateOfBirth';
 import { createStaff, fetchClinics, generateStaffPassword } from './staffApi';
 import { pickStaffPhoto } from './pickStaffPhoto';
+import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 
 // Role `key`s are the backend role ids the web sends (docStaffRoleCards).
 const ROLES = [
@@ -82,6 +84,18 @@ const blankForm = {
 };
 
 export default function CreateStaffScreen({ onCancel, onCreated }) {
+  // Signup-style keyboard handling: the form scrolls above the keyboard and the
+  // focused field is scrolled into view (the window does not resize, edge-to-edge).
+  const {
+    scrollRef: kbScrollRef,
+    frameInset: kbInset,
+    scrollFocusedInputIntoView: kbFocus,
+    handleKeyboardAwareScroll: kbOnScroll,
+    handleKeyboardAwareScrollLayout: kbOnLayout,
+  } = useKeyboardAwareScroll({ frameIsScroll: true });
+  // Bottom sheets live in Modals, which draw under the system navigation
+  // bar (edge-to-edge) — pad them by its height so their last row stays visible.
+  const insets = useSafeAreaInsets();
   const { showToast } = useToast();
   const [step, setStep] = useState(1);
   const [selectedRole, setSelectedRole] = useState(null);
@@ -281,7 +295,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
       </View>
 
       {step === 1 && (
-        <ScrollView style={s.scrollArea} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        <ScrollView style={s.scrollArea} showsVerticalScrollIndicator={false} ref={kbScrollRef} contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
           <Text style={s.subheading}>Choose a staff role to begin creating a new account.</Text>
           <View style={s.grid}>
             {ROLES.map((role) => {
@@ -308,7 +322,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
       )}
 
       {step === 2 && (
-        <ScrollView style={s.scrollArea} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        <ScrollView style={s.scrollArea} showsVerticalScrollIndicator={false} ref={kbScrollRef} contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
           <Text style={s.subheading}>Fill in the staff member&apos;s personal and professional details.</Text>
 
           <SectionHeader title="Clinic" />
@@ -359,7 +373,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
       )}
 
       {step === 3 && (
-        <ScrollView style={s.scrollArea} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        <ScrollView style={s.scrollArea} showsVerticalScrollIndicator={false} ref={kbScrollRef} contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
           <View style={s.reviewCard}>
             <View style={s.reviewCardHeader}>
               <View style={s.reviewCardTitleRow}>
@@ -524,7 +538,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
 
       <Modal visible={picker !== null} transparent animationType="fade" onRequestClose={() => setPicker(null)}>
         <Pressable style={s.overlay} onPress={() => setPicker(null)}>
-          <View style={s.sheet}>
+          <View style={[s.sheet, { paddingBottom: 28 + insets.bottom }]}>
             <View style={s.handle} />
             {dropdownConfig && (
               <>

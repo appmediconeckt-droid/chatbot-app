@@ -47,6 +47,7 @@ import {
 
 // Vertical inset of the login scroll content.
 const SCROLL_PAD_V = 24;
+const LOGIN_FORM_PAD_BOTTOM = 4;
 
 const Login = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
@@ -68,13 +69,18 @@ const Login = ({ navigation, route }) => {
   // which is what previously dragged the whole card (and its logo) up past
   // the fixed back button. The header and every section below it can now
   // stay full-size and visible at all times.
+  // The form scrolls inside the card (like Signup); frameInset is only the
+  // part of that form the keyboard actually covers.
+  const loginFormFrameRef = useRef(null);
+  const [loginFormHeight, setLoginFormHeight] = useState(0);
   const {
     scrollRef,
     keyboardInset,
+    frameInset,
     scrollFocusedInputIntoView,
     handleKeyboardAwareScroll,
     handleKeyboardAwareScrollLayout,
-  } = useKeyboardAwareScroll();
+  } = useKeyboardAwareScroll({ frameRef: loginFormFrameRef });
   const fpModalScrollRef = useRef(null);
   // Password is the last field before the Login button — bringing only the
   // password field into view left the button itself sitting under the
@@ -743,20 +749,22 @@ const Login = ({ navigation, route }) => {
   // button" offset would, so the card reads as sitting comfortably in the
   // upper-middle of the screen rather than pinned to the top.
   //
-  // This no longer shrinks while the keyboard is open. The header used to
-  // hide then so the whole (shorter) card could be scrolled into view above
-  // the keyboard — but useKeyboardAwareScroll only ever scrolls the
-  // currently focused input into view, never the whole card, so the back
-  // button's clearance here is never touched regardless of keyboard state.
+  // The card never moves with the keyboard: the form scrolls inside it
+  // (like Signup), so the back button's clearance is never touched.
+  const loginCardTop = Math.max(insets.top, 12) + (isCompact ? 88 : 108);
   const scrollContainerStyle = {
     ...styles.scrollContainer,
     justifyContent: 'flex-start',
-    paddingTop: Math.max(insets.top, 12) + (isCompact ? 88 : 108),
-    // Pushes the card's bottom (Login / Create account)
-    // clear of the keyboard on devices where the window doesn't resize for it.
-    paddingBottom: SCROLL_PAD_V + keyboardInset,
+    paddingTop: loginCardTop,
+    paddingBottom: SCROLL_PAD_V,
     paddingHorizontal: isCompact ? 14 : 20,
   };
+  // Keeps the whole card on screen on short phones — the form inside then
+  // scrolls instead of the card running off the bottom.
+  const loginCardMaxHeight = Math.max(
+    280,
+    windowHeight - loginCardTop - SCROLL_PAD_V - insets.bottom
+  );
   // No boxed card anymore — everything floats directly on the AuthBackground
   // mesh, matching the reference design. Wider than before (was 400/440) for
   // a more confident, professional presence — still capped so it doesn't
@@ -802,21 +810,19 @@ const Login = ({ navigation, route }) => {
         </LanguageSelector>
       </View>
       <ScrollView
-        ref={scrollRef}
         contentContainerStyle={scrollContainerStyle}
-        onLayout={handleKeyboardAwareScrollLayout}
-        onScroll={handleKeyboardAwareScroll}
-        scrollEventThrottle={16}
         // Without this the first tap while the keyboard is open only dismisses
         // it, so Login and the footer actions needed two taps.
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        // The form scrolls inside the card (like Signup), not the page.
+        scrollEnabled={false}
       >
         <Animated.View style={[loginCardStyle, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           {/* Form Section — floating white card holding the brand header and
               the whole form, so the inputs stay crisp and readable against
               the colored mesh background. */}
-          <View style={styles.formCard}>
+          <View style={[styles.formCard, { maxHeight: loginCardMaxHeight }]}>
             {/* Header — logo, brand name and tagline, always full-size and
                 visible. Keyboard avoidance below only ever scrolls the
                 focused input into view, so this never needs to shrink or
@@ -829,153 +835,182 @@ const Login = ({ navigation, route }) => {
               <Text style={[styles.brandName, { color: C.primary }]}>{t('Humaeli')}</Text>
               <Text style={styles.subtitle}>{t('Sign in to continue')}</Text>
             </View>
-            {/* Email Input */}
-            <View style={[styles.inputWrapper, focusedField === 'email' && { borderColor: C.primary, shadowColor: C.primary, shadowOpacity: 0.16 }]}>
-              <Ionicons
-                name="mail-outline"
-                size={19}
-                color={focusedField === 'email' ? C.primary : '#94a3b8'}
-                style={styles.inputIcon}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder={t('auth:enterEmail')}
-                placeholderTextColor="#a1a9b8"
-                value={email}
-                onChangeText={(text) => {
-                  setEmail(text);
-                  setErrorMessage('');
-                }}
-                onFocus={(event) => {
-                  setFocusedField('email');
-                  scrollFocusedInputIntoView(event);
-                }}
-                onBlur={() => setFocusedField(null)}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-                editable={!isLoading}
-              />
-            </View>
-
-            {/* Password Input */}
-            <View style={[styles.inputWrapper, styles.inputWrapperSpaced, focusedField === 'password' && { borderColor: C.primary, shadowColor: C.primary, shadowOpacity: 0.16 }]}>
-              <Ionicons
-                name="lock-closed-outline"
-                size={19}
-                color={focusedField === 'password' ? C.primary : '#94a3b8'}
-                style={styles.inputIcon}
-              />
-              <TextInput
-                style={[styles.input, styles.passwordInput]}
-                placeholder={t('auth:enterPassword')}
-                placeholderTextColor="#a1a9b8"
-                value={password}
-                onChangeText={(text) => {
-                  setPassword(text);
-                  setErrorMessage('');
-                }}
-                onFocus={() => {
-                  setFocusedField('password');
-                  // Target the Login button, not this field itself — see
-                  // the loginButtonRef comment above.
-                  const handle = findNodeHandle(loginButtonRef.current);
-                  if (handle) scrollFocusedInputIntoView({ target: handle });
-                }}
-                onBlur={() => setFocusedField(null)}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                editable={!isLoading}
-              />
-              <TouchableOpacity
-                style={styles.eyeIcon}
-                onPress={() => setShowPassword(!showPassword)}
-                accessibilityRole="button"
-                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-              >
-                <Ionicons
-                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color="#94a3b8"
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* Options */}
-            <View style={styles.optionsContainer}>
-              <TouchableOpacity
-                style={styles.checkboxContainer}
-                onPress={() => setRememberMe(!rememberMe)}
-              >
-                <View style={[
-                  styles.checkbox,
-                  rememberMe && styles.checkboxChecked,
-                  rememberMe && { backgroundColor: C.primary, borderColor: C.primary },
-                ]}>
-                  {rememberMe && <Text style={styles.checkmark}>✓</Text>}
-                </View>
-                <Text style={styles.checkboxLabel}>{t('Remember me')}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  console.log('FORGOT PASSWORD TAPPED - opening modal');
-                  setShowForgotPasswordModal(true);
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                activeOpacity={0.6}
-              >
-                <Text style={[styles.forgotPassword, { color: C.primary }]}>{t('auth:forgotPassword')}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Login Button — brand gradient, matching the Humaeli icon's blue. */}
-            <TouchableOpacity
-              ref={loginButtonRef}
-              style={[
-                styles.loginButtonWrap,
-                { shadowColor: C.primary },
-                (!email || !password || isLoading) && styles.loginButtonDisabled,
-              ]}
-              onPress={handleLogin}
-              disabled={!email || !password || isLoading}
-              activeOpacity={0.88}
+            {/* Same as Signup: the header stays fixed and the form scrolls
+                inside the card. The frame keeps a fixed height, so the
+                keyboard padding only grows the scroll content — the card
+                itself never moves or resizes when the keyboard opens. */}
+            <View
+              ref={loginFormFrameRef}
+              collapsable={false}
+              style={[styles.loginFormFrame, loginFormHeight > 0 && { height: loginFormHeight }]}
             >
-              <LinearGradient
-                colors={(!email || !password || isLoading) ? ['#cbd1dc', '#b7bfcc'] : buttonGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.loginButton}
+              <ScrollView
+                ref={scrollRef}
+                contentContainerStyle={[
+                  styles.loginFormContent,
+                  frameInset > 0 && { paddingBottom: LOGIN_FORM_PAD_BOTTOM + frameInset },
+                ]}
+                onLayout={handleKeyboardAwareScrollLayout}
+                onScroll={handleKeyboardAwareScroll}
+                onContentSizeChange={(_width, contentHeight) => {
+                  if (frameInset > 0) return;
+                  const next = Math.ceil(contentHeight);
+                  setLoginFormHeight((prev) => (Math.abs(prev - next) > 1 ? next : prev));
+                }}
+                scrollEventThrottle={16}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
               >
-                {isLoading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.loginButtonText}>{t('auth:login')}</Text>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
+                {/* Email Input */}
+                <View style={[styles.inputWrapper, focusedField === 'email' && { borderColor: C.primary, shadowColor: C.primary, shadowOpacity: 0.16 }]}>
+                  <Ionicons
+                    name="mail-outline"
+                    size={19}
+                    color={focusedField === 'email' ? C.primary : '#94a3b8'}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder={t('auth:enterEmail')}
+                    placeholderTextColor="#a1a9b8"
+                    value={email}
+                    onChangeText={(text) => {
+                      setEmail(text);
+                      setErrorMessage('');
+                    }}
+                    onFocus={(event) => {
+                      setFocusedField('email');
+                      scrollFocusedInputIntoView(event);
+                    }}
+                    onBlur={() => setFocusedField(null)}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoComplete="email"
+                    editable={!isLoading}
+                  />
+                </View>
 
-            {/* Error Message */}
-            {errorMessage ? (
-              <View style={[styles.errorContainer, { marginTop: 16 }]}>
-                <Ionicons name="alert-circle" size={18} color="#DC2626" style={styles.errorIcon} />
-                <Text translate={false} style={styles.errorText}>{errorMessage}</Text>
-              </View>
-            ) : null}
+                {/* Password Input */}
+                <View style={[styles.inputWrapper, styles.inputWrapperSpaced, focusedField === 'password' && { borderColor: C.primary, shadowColor: C.primary, shadowOpacity: 0.16 }]}>
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={19}
+                    color={focusedField === 'password' ? C.primary : '#94a3b8'}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    style={[styles.input, styles.passwordInput]}
+                    placeholder={t('auth:enterPassword')}
+                    placeholderTextColor="#a1a9b8"
+                    value={password}
+                    onChangeText={(text) => {
+                      setPassword(text);
+                      setErrorMessage('');
+                    }}
+                    onFocus={() => {
+                      setFocusedField('password');
+                      // Target the Login button, not this field itself — see
+                      // the loginButtonRef comment above.
+                      const handle = findNodeHandle(loginButtonRef.current);
+                      if (handle) scrollFocusedInputIntoView({ target: handle });
+                    }}
+                    onBlur={() => setFocusedField(null)}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    editable={!isLoading}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeIcon}
+                    onPress={() => setShowPassword(!showPassword)}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={20}
+                      color="#94a3b8"
+                    />
+                  </TouchableOpacity>
+                </View>
 
-            {/* Success Message */}
-            {successMessage ? (
-              <View style={styles.successContainer}>
-                <Text style={styles.successText}>{successMessage}</Text>
-              </View>
-            ) : null}
+                {/* Options */}
+                <View style={styles.optionsContainer}>
+                  <TouchableOpacity
+                    style={styles.checkboxContainer}
+                    onPress={() => setRememberMe(!rememberMe)}
+                  >
+                    <View style={[
+                      styles.checkbox,
+                      rememberMe && styles.checkboxChecked,
+                      rememberMe && { backgroundColor: C.primary, borderColor: C.primary },
+                    ]}>
+                      {rememberMe && <Text style={styles.checkmark}>✓</Text>}
+                    </View>
+                    <Text style={styles.checkboxLabel}>{t('Remember me')}</Text>
+                  </TouchableOpacity>
 
-            {/* Sign Up Link */}
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>{t('auth:dontHaveAccount')} </Text>
-              <TouchableOpacity onPress={() => navigation.navigate('RoleSelector')}>
-                <Text style={[styles.signUpLink, { color: C.primary }]}> {t('auth:signup')}</Text>
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      console.log('FORGOT PASSWORD TAPPED - opening modal');
+                      setShowForgotPasswordModal(true);
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    activeOpacity={0.6}
+                  >
+                    <Text style={[styles.forgotPassword, { color: C.primary }]}>{t('auth:forgotPassword')}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Login Button — brand gradient, matching the Humaeli icon's blue. */}
+                <TouchableOpacity
+                  ref={loginButtonRef}
+                  style={[
+                    styles.loginButtonWrap,
+                    { shadowColor: C.primary },
+                    (!email || !password || isLoading) && styles.loginButtonDisabled,
+                  ]}
+                  onPress={handleLogin}
+                  disabled={!email || !password || isLoading}
+                  activeOpacity={0.88}
+                >
+                  <LinearGradient
+                    colors={(!email || !password || isLoading) ? ['#cbd1dc', '#b7bfcc'] : buttonGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.loginButton}
+                  >
+                    {isLoading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.loginButtonText}>{t('auth:login')}</Text>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+
+                {/* Error Message */}
+                {errorMessage ? (
+                  <View style={[styles.errorContainer, { marginTop: 16 }]}>
+                    <Ionicons name="alert-circle" size={18} color="#DC2626" style={styles.errorIcon} />
+                    <Text translate={false} style={styles.errorText}>{errorMessage}</Text>
+                  </View>
+                ) : null}
+
+                {/* Success Message */}
+                {successMessage ? (
+                  <View style={styles.successContainer}>
+                    <Text style={styles.successText}>{successMessage}</Text>
+                  </View>
+                ) : null}
+
+                {/* Sign Up Link */}
+                <View style={styles.footer}>
+                  <Text style={styles.footerText}>{t('auth:dontHaveAccount')} </Text>
+                  <TouchableOpacity onPress={() => navigation.navigate('RoleSelector')}>
+                    <Text style={[styles.signUpLink, { color: C.primary }]}> {t('auth:signup')}</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
           </View>
         </Animated.View>
@@ -1476,6 +1511,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 22,
     elevation: 8,
+  },
+  // Scroll area for the form inside the card. Pulled out to the card's edges
+  // (content padded back in) so input focus glows aren't clipped at the sides.
+  loginFormFrame: {
+    flexShrink: 1,
+    minHeight: 0,
+    marginHorizontal: -22,
+  },
+  loginFormContent: {
+    paddingHorizontal: 22,
+    paddingTop: 4,
+    paddingBottom: LOGIN_FORM_PAD_BOTTOM,
   },
   // Soft pill inputs living inside the card — subtle border by default,
   // brand-colored glow on focus for a premium feel.

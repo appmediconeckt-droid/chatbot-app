@@ -7,12 +7,22 @@ import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
 import axiosInstance from '../../../../axiosConfig';
 import { STRONG_PASSWORD_HINT, passwordRequirements } from '../../../../utils/passwordPolicy';
+import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 
 // Same rules as signup, login and the user / consultant settings
 // (utils/passwordPolicy): 8+ characters, uppercase, lowercase, number, special.
 const REQUIREMENTS = passwordRequirements;
 
 export default function DoctorChangePasswordScreen({ onBack, onPasswordChanged }) {
+  // Signup-style keyboard handling: the form scrolls above the keyboard and the
+  // focused field is scrolled into view (the window does not resize, edge-to-edge).
+  const {
+    scrollRef: kbScrollRef,
+    frameInset: kbInset,
+    scrollFocusedInputIntoView: kbFocus,
+    handleKeyboardAwareScroll: kbOnScroll,
+    handleKeyboardAwareScrollLayout: kbOnLayout,
+  } = useKeyboardAwareScroll({ frameIsScroll: true });
   const { showToast } = useToast();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -58,7 +68,7 @@ export default function DoctorChangePasswordScreen({ onBack, onPasswordChanged }
         </Pressable>
         <Text style={s.title}>Change Password</Text>
       </View>
-      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+      <ScrollView  showsVerticalScrollIndicator={false} ref={kbScrollRef} contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
         <View style={s.card}>
           <View style={s.infoBox}>
             <Text style={s.infoText}>

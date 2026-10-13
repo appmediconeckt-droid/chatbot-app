@@ -23,7 +23,7 @@ export default function LogoutConfirmModal({ visible, doctorName, loggingOut = f
             <AppIcon name="logout" size={26} color="#FFFFFF" strokeWidth={2.2} />
           </LinearGradient>
 
-          <Text style={s.title}>Log out?</Text>
+          <Text style={s.title}>Logout</Text>
           <Text style={s.subtitle}>
             {doctorName ? `You're signed in as ${doctorName}.` : "You're signed in on this phone."}
           </Text>
@@ -53,7 +53,7 @@ export default function LogoutConfirmModal({ visible, doctorName, loggingOut = f
               ) : (
                 <AppIcon name="logout" size={15} color="#FFFFFF" strokeWidth={2.4} />
               )}
-              <Text style={s.logoutText}>{loggingOut ? 'Logging out…' : 'Log out'}</Text>
+              <Text style={s.logoutText}>{loggingOut ? 'Logging out...' : 'Logout'}</Text>
             </Pressable>
           </View>
         </View>

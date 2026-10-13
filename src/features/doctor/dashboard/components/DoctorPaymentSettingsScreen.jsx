@@ -12,6 +12,7 @@ import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
+import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 
 const DEFAULT_SETTINGS = {
   onlinePayment: true,
@@ -31,6 +32,15 @@ const METHODS = [
 ];
 
 export default function DoctorPaymentSettingsScreen({ onBack }) {
+  // Signup-style keyboard handling: the form scrolls above the keyboard and the
+  // focused field is scrolled into view (the window does not resize, edge-to-edge).
+  const {
+    scrollRef: kbScrollRef,
+    frameInset: kbInset,
+    scrollFocusedInputIntoView: kbFocus,
+    handleKeyboardAwareScroll: kbOnScroll,
+    handleKeyboardAwareScrollLayout: kbOnLayout,
+  } = useKeyboardAwareScroll({ frameIsScroll: true });
   const { showToast } = useToast();
   const [storageKey, setStorageKey] = useState(null);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
@@ -93,7 +103,7 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
           <Text style={s.subtitle}>Choose how patients can pay for appointments and consultations.</Text>
         </View>
       </View>
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={kbScrollRef} contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
         <View style={s.secure}>
           <AppIcon name="shield" size={14} color="#0D9488" />
           <Text style={s.secureText}>Secure settings</Text>

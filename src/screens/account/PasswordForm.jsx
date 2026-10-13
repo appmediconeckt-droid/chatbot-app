@@ -14,6 +14,7 @@ import Text from '../../components/TranslatedText';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 import {
   getPasswordStrength,
@@ -46,6 +47,9 @@ const modeContent = {
 };
 
 const PasswordForm = ({ mode = 'change', onSubmit }) => {
+  // Edge-to-edge: keep the header clear of the status bar and the submit
+  // button clear of the navigation bar.
+  const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   const { scrollRef, keyboardInset, scrollFocusedInputIntoView } = useKeyboardAwareScroll();
   const copy = modeContent[mode] || modeContent.change;
@@ -162,6 +166,7 @@ const PasswordForm = ({ mode = 'change', onSubmit }) => {
         style={styles.container}
         contentContainerStyle={[
           styles.content,
+          { paddingTop: 20 + insets.top, paddingBottom: 20 + insets.bottom },
           Platform.OS === 'android' && keyboardInset ? { paddingBottom: keyboardInset + 28 } : null,
         ]}
         keyboardShouldPersistTaps="handled"

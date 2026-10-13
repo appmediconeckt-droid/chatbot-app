@@ -11,7 +11,7 @@ import {
   Easing,
 } from 'react-native';
 import Text from '../../../../../../components/TranslatedText';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import InCallManager from 'react-native-incall-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -20,6 +20,7 @@ import { API_BASE_URL } from '../../../../../../axiosConfig';
 import useRingtone from '../../../../../../hooks/useRingtone';
 import { useScreenshotPreventModal } from '../../../../../../utils/useScreenshotPrevent';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import toImageUri from '../../../../../../utils/imageUri';
 import { joinStreamCall } from './streamCallUtils';
 
 import {
@@ -156,7 +157,7 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
 
   const displayName = callerName || 'Participant';
   // Counselor sees anonymous user — never show real photo
-  const showPhoto = !isCounselor && callerProfilePic;
+  const showPhoto = callerProfilePic;
 
   // Stop any residual ringtone the moment AudioCallUI mounts regardless of side
   useEffect(() => {
@@ -292,9 +293,7 @@ const AudioCallUI = ({ onLocalHangup, onRemoteEnded, callerName, callerProfilePi
     return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   };
 
-  const isValidUrl = (str) =>
-    typeof str === 'string' && (str.startsWith('http://') || str.startsWith('https://'));
-  const profilePhotoUrl = showPhoto && isValidUrl(callerProfilePic) ? callerProfilePic : null;
+  const profilePhotoUrl = showPhoto ? toImageUri(callerProfilePic) : null;
   const displayInitial = (displayName?.charAt(0) || 'U').toUpperCase();
 
   const t = isCounselor ? counselorTheme : userTheme;
@@ -427,10 +426,7 @@ const VoiceConnectingPreview = ({ onHangup, callerName, callerProfilePic, isCoun
   const { t: tr } = useLanguageRender();
   const theme = isCounselor ? counselorTheme : userTheme;
   const displayName = callerName || 'Participant';
-  const canShowPhoto =
-    !isCounselor &&
-    typeof callerProfilePic === 'string' &&
-    (callerProfilePic.startsWith('http://') || callerProfilePic.startsWith('https://'));
+  const profilePhotoUrl = toImageUri(callerProfilePic);
   const displayInitial = (displayName?.charAt(0) || 'U').toUpperCase();
 
   return (
@@ -441,8 +437,8 @@ const VoiceConnectingPreview = ({ onHangup, callerName, callerProfilePic, isCoun
           <View style={[styles.ripple, { borderColor: theme.brand, opacity: 0.18, transform: [{ scale: 1.22 }] }]} />
           <View style={styles.avatarRing}>
             <View style={[styles.avatarCircle, { backgroundColor: theme.tint }]}>
-              {canShowPhoto ? (
-                <Image source={{ uri: callerProfilePic }} style={styles.avatarImage} />
+              {profilePhotoUrl ? (
+                <Image source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
               ) : (
                 <Text style={[styles.avatarText, { color: theme.brand }]}>{displayInitial}</Text>
               )}
@@ -498,6 +494,9 @@ const VoiceConnectingPreview = ({ onHangup, callerName, callerProfilePic, isCoun
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) => {
+  // Explicit insets: SafeAreaView inside this Modal (its own Android window)
+  // could report 0, leaving the call controls under the navigation bar.
+  const insets = useSafeAreaInsets();
   const { t: tr } = useLanguageRender();
   useScreenshotPreventModal(isOpen);
   const [client, setClient] = useState(null);
@@ -523,6 +522,18 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
   // photo shown, and the close cross that should not be there.
   const isCounselorView = /counsell?o?u?r/i.test(String(callData?.currentUserType || ''));
   const displayName = resolveCallDisplayName(callData, isCounselorView);
+  const callerProfilePic =
+    toImageUri(callData?.profilePic) ||
+    toImageUri(callData?.avatarUrl) ||
+    toImageUri(callData?.image) ||
+    toImageUri(callData?.from?.profilePhoto) ||
+    toImageUri(callData?.from?.profilePicture) ||
+    toImageUri(callData?.from?.image) ||
+    toImageUri(callData?.from?.avatarUrl) ||
+    toImageUri(callData?.from?.avatar) ||
+    toImageUri(callData?.apiCallData?.initiator?.profilePhoto) ||
+    toImageUri(callData?.apiCallData?.receiver?.profilePhoto) ||
+    null;
 
   const cleanup = useCallback(async (endForAll = false) => {
     if (cleaningUpRef.current) return;
@@ -767,7 +778,7 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
       navigationBarTranslucent
       onRequestClose={handleClose}
     >
-      <SafeAreaView style={[styles.container, { backgroundColor: '#ffffff' }]}>
+      <View style={[styles.container, { backgroundColor: '#ffffff', paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
         {!!error && !loading && (
@@ -789,7 +800,7 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
             <VoiceConnectingPreview
               onHangup={() => handleClose(true)}
               callerName={displayName}
-              callerProfilePic={callData?.profilePic || null}
+              callerProfilePic={callerProfilePic}
               isCounselor={isCounselorView}
             />
           )}
@@ -811,7 +822,7 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
                   onLocalHangup={() => handleClose(true)}
                   onRemoteEnded={() => handleClose(false)}
                   callerName={displayName}
-                  callerProfilePic={callData?.profilePic || null}
+                  callerProfilePic={callerProfilePic}
                   isOutgoing={callData?.isIncoming !== true}
                   isCounselor={isCounselorView}
                 />
@@ -819,7 +830,7 @@ const VoiceCallModal = ({ isOpen, onClose, callData, currentUser, onEndCall }) =
             </StreamVideo>
           )}
         </View>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 };

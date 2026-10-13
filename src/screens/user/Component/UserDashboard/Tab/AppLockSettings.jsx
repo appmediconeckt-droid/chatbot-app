@@ -198,7 +198,7 @@ const AppLockSettings = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={[s.container, { backgroundColor: C.backgroundTint }]} edges={['top']}>
+    <SafeAreaView style={[s.container, { backgroundColor: C.backgroundTint }]} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor={C.backgroundTint} />
 
       {/* Header */}

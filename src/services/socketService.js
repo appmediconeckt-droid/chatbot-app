@@ -26,6 +26,10 @@ class SocketService {
     this._connectionPromise = null;
     this._reconnectAttempts = 0;
     this._appStateSub = null;
+    // Registered up front, not only after a first successful connect: a resume
+    // has to be able to recover a session whose very first connect failed
+    // (no network at launch, token not written yet, server briefly down).
+    this._setupAppState();
   }
 
   async connect() {
@@ -136,7 +140,7 @@ class SocketService {
           this._connectionPromise = null;
           this._socket = socket;
           this._setupPersistentListeners(socket);
-          this._setupAppState(socket);
+          this._setupAppState();
           resolve(socket);
         };
 
@@ -194,12 +198,19 @@ class SocketService {
 
   // Reconnect when the app returns to foreground (RN equivalent of
   // browser visibilitychange).
-  _setupAppState(socket) {
+  // Presence is "socket is connected", so coming back to the foreground without
+  // a live socket means the user silently shows as offline to everyone else.
+  // This used to call connect() on the socket instance captured at setup time,
+  // and was only ever registered AFTER a successful connect — so a socket that
+  // died, or one that never connected at all, could never recover on resume.
+  // Re-establishing through this.connect() builds a fresh socket with a fresh
+  // token instead.
+  _setupAppState() {
     this._teardownAppState();
     this._appStateSub = AppState.addEventListener('change', (state) => {
-      if (state === 'active' && !socket.connected) {
-        socket.connect();
-      }
+      if (state !== 'active') return;
+      if (this._socket?.connected) return;
+      this.connect().catch(() => { /* offline until the next resume/screen */ });
     });
   }
 

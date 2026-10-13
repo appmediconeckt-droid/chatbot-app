@@ -76,6 +76,7 @@ import HealthVitalsCard from "../Tab/HealthVitals/HealthVitalsCard";
 import { isPsychiatristSpecialization } from "../../../../../components/common/PsychiatristDirectory";
 import { toImageUri } from "../../../../../utils/imageUri";
 import { clearAccountLocalData } from "../../../../../utils/authSession";
+import { isProfessionalAccountDeleted } from "../../../../../utils/deletedAccount";
 import AiMicButton from "../../../../../components/AiMicButton";
 import { useSpeechToText } from "../../../../../hooks/useSpeechToText";
 import useLiveRefresh from '../../../../../hooks/useLiveRefresh';
@@ -1141,6 +1142,64 @@ const counselorDisplayName = (apt) => {
   return /^(dr\.?|doctor)\s/i.test(name) ? name : `Dr. ${name}`;
 };
 
+// How long the consultation actually ran, from the fields the API really sends.
+// This used to read camelCase names (actualDuration / talkTime / startTime …)
+// that the payload never contains, so every lookup missed and it fell through to
+// a hard-coded "45". Pauses are subtracted so the figure is real talk time.
+const getActualDurationMinutes = (apt) => {
+  const timing = apt?.consultation_timing || apt?.consultationTiming || {};
+  const startedAt = apt?.consultation_started_at ?? apt?.consultationStartedAt
+    ?? apt?.actual_start_at ?? apt?.actualStartAt ?? timing.startedAt;
+  const endedAt = apt?.consultation_ended_at ?? apt?.consultationEndedAt
+    ?? apt?.actual_end_at ?? apt?.actualEndAt ?? timing.endedAt;
+  const start = Date.parse(startedAt);
+  const end = Date.parse(endedAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  const pausedMs = (Array.isArray(timing.pauses) ? timing.pauses : []).reduce((sum, pause) => {
+    const from = Date.parse(pause?.startedAt ?? pause?.pausedAt ?? pause?.from);
+    const to = Date.parse(pause?.endedAt ?? pause?.resumedAt ?? pause?.to);
+    return Number.isFinite(from) && Number.isFinite(to) && to > from ? sum + (to - from) : sum;
+  }, 0);
+  return Math.max(0, end - start - pausedMs) / 60000;
+};
+
+// Clock time the consultation actually ended. The "Ended" stamp used to print
+// the appointment's scheduled time, so a 14:45 booking that really ran until
+// 14:57 still read "Ended 14:45".
+const getActualEndDate = (apt) => {
+  const timing = apt?.consultation_timing || apt?.consultationTiming || {};
+  const endedAt = apt?.consultation_ended_at ?? apt?.consultationEndedAt
+    ?? apt?.actual_end_at ?? apt?.actualEndAt ?? timing.endedAt;
+  const ms = Date.parse(endedAt);
+  return Number.isFinite(ms) ? new Date(ms) : null;
+};
+
+// The slot the doctor gave — what to show before the consultation has happened.
+const getScheduledDurationMinutes = (apt) => {
+  const explicit = Number(
+    apt?.expected_duration_minutes ?? apt?.expectedDurationMinutes
+    ?? apt?.slot_duration_minutes ?? apt?.slotDurationMinutes ?? apt?.duration,
+  );
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const start = Date.parse(apt?.estimated_start_at ?? apt?.estimatedStartAt ?? apt?.scheduledTime);
+  const end = Date.parse(apt?.estimated_end_at ?? apt?.estimatedEndAt);
+  if (Number.isFinite(start) && Number.isFinite(end) && end > start) return (end - start) / 60000;
+  return null;
+};
+
+// "10 minutes" / "1 minute" / "40 sec" / "1 hour 5 min" — and a dash rather than
+// an invented number when the data genuinely isn't there.
+const formatDurationLabel = (minutes) => {
+  if (minutes == null || !Number.isFinite(minutes)) return '—';
+  if (minutes < 1) return `${Math.max(1, Math.round(minutes * 60))} sec`;
+  const total = Math.round(minutes);
+  if (total < 60) return `${total} ${total === 1 ? 'minute' : 'minutes'}`;
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  const hourLabel = `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+  return rest ? `${hourLabel} ${rest} min` : hourLabel;
+};
+
 // Experience can arrive as a bare number (4) or a string ("4 years"). Always
 // render it with the unit (TranslatedText localizes the word), and return '' —
 // not a fake fallback — when it's missing.
@@ -1290,7 +1349,10 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     try {
       if (!silent) setLoadingAppointments(true);
       const response = await axiosInstance.get('/api/appointments');
-      const apts = Array.isArray(response.data) ? response.data : [];
+      const rawApts = Array.isArray(response.data) ? response.data : [];
+      // A deleted consultant/doctor account leaves its appointments behind with
+      // no professional record, so they rendered as a nameless placeholder card.
+      const apts = rawApts.filter((apt) => !isProfessionalAccountDeleted(apt));
       if (apts.length > 0) {
         console.log('📋 APPOINTMENT DATA STRUCTURE:', JSON.stringify(apts[0], null, 2));
       }
@@ -1377,25 +1439,27 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     displayApts = displayApts.filter((apt) => apt.status === "completed");
   }
 
+  const isCanceledStatus = (status) => status === "canceled" || status === "cancelled";
+
   const getStatusStyle = (status) => {
     if (status === "confirmed") return styles.aptStatusConfirmed;
     if (status === "completed") return styles.aptStatusCompleted;
-    if (status === "canceled") return styles.aptStatusCanceled;
+    if (isCanceledStatus(status)) return styles.aptStatusCanceled;
     return styles.aptStatusPending;
   };
 
   const getStatusTextColor = (status) => {
     if (status === "confirmed") return PATIENT.primary;
     if (status === "completed") return PATIENT.primary;
-    if (status === "canceled") return "#B91C1C";
+    if (isCanceledStatus(status)) return "#B91C1C";
     return "#C2410C";
   };
 
-  const getAccentColor = (status) => {
-    if (status === "confirmed") return PATIENT.primary;
-    if (status === "completed") return PATIENT.gradientFrom;
-    if (status === "canceled") return "#EF4444";
-    return "#F97316";
+  const getStatusIcon = (status) => {
+    if (status === "confirmed") return "checkmark-circle";
+    if (status === "completed") return "checkmark-done-circle";
+    if (isCanceledStatus(status)) return "close-circle";
+    return "time";
   };
 
   const getAvatarSrc = (apt) => {
@@ -1421,7 +1485,15 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const modeLabel = selectedIsClinicVisit
     ? t('In-Clinic Visit')
     : selectedApt?.mode || selectedApt?.sessionType || "Video Call";
-  const durationLabel = selectedApt?.duration ? `${selectedApt.duration} Minutes` : "45 Minutes";
+  const actualDurationMinutes = getActualDurationMinutes(selectedApt);
+  const slotDurationMinutes = getScheduledDurationMinutes(selectedApt);
+  const isCompletedApt = statusLower === 'completed';
+  // Once it's done, show how long it actually ran; before that, show the slot
+  // length the doctor gave. Never a hard-coded figure.
+  const durationMinutes = isCompletedApt
+    ? (actualDurationMinutes ?? slotDurationMinutes)
+    : slotDurationMinutes;
+  const durationLabel = formatDurationLabel(durationMinutes);
   const aptTime = aptDate?.getTime?.() ?? NaN;
   const hasValidAptTime = Number.isFinite(aptTime);
   const sessionHasStarted = hasValidAptTime && aptTime <= Date.now();
@@ -1430,20 +1502,14 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const isPast = TERMINAL_APT_STATUSES.has(normalizeAptStatus(statusLower))
     || (!selectedIsClinicVisit && sessionHasStarted && !isUnscheduledEmergency(selectedApt));
   const isJoinDisabled = !sessionHasStarted || statusLower === "completed" || statusLower === "canceled";
-  // Extract real talk duration from appointment data
-  const getTalkDuration = () => {
-    if (selectedApt?.actualDuration) return selectedApt.actualDuration;
-    if (selectedApt?.talkTime) return selectedApt.talkTime;
-    if (selectedApt?.callDuration) return selectedApt.callDuration;
-    if (selectedApt?.sessionDuration) return selectedApt.sessionDuration;
-    if (selectedApt?.startTime && selectedApt?.endTime) {
-      const start = new Date(selectedApt.startTime).getTime();
-      const end = new Date(selectedApt.endTime).getTime();
-      return Math.round((end - start) / 60000); // Convert to minutes
-    }
-    return selectedApt?.duration || "45";
-  };
-  const talkDuration = getTalkDuration();
+  // Real talk time for the "Session Completed" banner.
+  const talkTimeLabel = formatDurationLabel(actualDurationMinutes ?? slotDurationMinutes);
+  // Only claim "Ended" when a real end time exists; otherwise say what the time
+  // actually is (the booked slot) instead of mislabelling it as the end.
+  const actualEndDate = getActualEndDate(selectedApt);
+  const endedTimeLabel = actualEndDate
+    ? actualEndDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : timeLabel;
 
   // ---- Live token queue (clinic visits only) ----
   const clinicQueue = useClinicQueue(selectedApt, showDetailsModal && selectedIsClinicVisit && !isPast);
@@ -1556,7 +1622,13 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             </Text>
           </View>
         ) : (
-          displayApts.map((apt) => (
+          displayApts.map((apt) => {
+            const aptStatus = String(apt.status || 'pending').toLowerCase();
+            const aptHasDate = Number.isFinite(Date.parse(apt.date));
+            const aptDateObj = aptHasDate ? new Date(apt.date) : null;
+            const aptExperience = formatExperience(apt?.counselor?.experience);
+            const aptSpecialization = String(apt?.counselor?.specialization || '').trim();
+            return (
             <View key={apt._id} style={styles.appointmentCard}>
               <View style={styles.appointmentCardHeader}>
                 <View style={styles.aptAvatarWrap}>
@@ -1569,14 +1641,14 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     </Text>
                   </View>
                   <Text style={styles.appointmentSpecialization} numberOfLines={1}>
-                    {apt?.counselor?.specialization || t('Mental Wellness Specialist')}
+                    {aptSpecialization || t('Mental Wellness Specialist')}
                   </Text>
                   <View style={styles.aptMetaRow}>
-                    {!!formatExperience(apt?.counselor?.experience) && (
+                    {!!aptExperience && (
                       <>
                         <Ionicons name="briefcase-outline" size={12} color={PATIENT.textSecondary} />
                         <Text style={styles.aptMetaText}>
-                          {formatExperience(apt?.counselor?.experience)}
+                          {aptExperience}
                         </Text>
                       </>
                     )}
@@ -1588,53 +1660,63 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                         </Text>
                       </>
                     ) : (
-                      <View style={styles.newRatingBadge}>
-                        <Ionicons name="sparkles-outline" size={10} color="#2563EB" />
+                      <View style={[styles.newRatingBadge, !aptExperience && styles.newRatingBadgeFirst]}>
+                        <Ionicons name="sparkles" size={10} color={PATIENT.gradientTo} />
                         <Text style={styles.newRatingText}>{t('counselor:newRating', 'New')}</Text>
                       </View>
                     )}
                   </View>
                 </View>
-                <View style={[styles.aptStatusPill, getStatusStyle(apt.status)]}>
+                <View style={[styles.aptStatusPill, getStatusStyle(aptStatus)]}>
                   <Ionicons
-                    name={apt.status === 'canceled' ? 'close-circle' : 'checkmark-circle'}
-                    size={11}
-                    color={getStatusTextColor(apt.status)}
+                    name={getStatusIcon(aptStatus)}
+                    size={12}
+                    color={getStatusTextColor(aptStatus)}
                   />
-                  <Text style={[styles.aptStatusText, { color: getStatusTextColor(apt.status) }]}>
-                    {apt.status || "pending"}
+                  <Text style={[styles.aptStatusText, { color: getStatusTextColor(aptStatus) }]}>
+                    {aptStatus}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.aptDivider} />
-
-              <View style={styles.appointmentDateRow}>
-                <View style={styles.aptDateIconWrap}>
-                  <MaterialIcons name="event" size={15} color={PATIENT.primary} />
+              {/* Date & time in a soft tinted strip, each with a small label. */}
+              <View style={styles.aptInfoStrip}>
+                <View style={styles.aptInfoItem}>
+                  <View style={styles.aptDateIconWrap}>
+                    <MaterialIcons name="event" size={16} color={PATIENT.primary} />
+                  </View>
+                  <View style={styles.aptInfoTextWrap}>
+                    <Text style={styles.aptInfoLabel}>{t('Date')}</Text>
+                    <Text style={styles.appointmentDateText} numberOfLines={1}>
+                      {aptDateObj
+                        ? aptDateObj.toLocaleDateString("en-US", {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                          // Year only when it isn't this year, so the date fits.
+                          ...(aptDateObj.getFullYear() !== new Date().getFullYear() && { year: "numeric" }),
+                        })
+                        : t('Emergency request')}
+                    </Text>
+                  </View>
                 </View>
-                <Text style={styles.appointmentDateText}>
-                  {Number.isFinite(Date.parse(apt.date))
-                    ? new Date(apt.date).toLocaleDateString("en-US", {
-                      weekday: "short",
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })
-                    : t('Emergency request')}
-                </Text>
-                <View style={styles.aptTimeDot} />
-                <View style={styles.aptDateIconWrap}>
-                  <MaterialIcons name="access-time" size={15} color={PATIENT.primary} />
+                <View style={styles.aptInfoDivider} />
+                <View style={styles.aptInfoItem}>
+                  <View style={styles.aptDateIconWrap}>
+                    <MaterialIcons name="access-time" size={16} color={PATIENT.primary} />
+                  </View>
+                  <View style={styles.aptInfoTextWrap}>
+                    <Text style={styles.aptInfoLabel}>{t('Time')}</Text>
+                    <Text style={styles.appointmentDateText} numberOfLines={1}>
+                      {isUnscheduledEmergency(apt) || !aptHasDate
+                        ? t('Clinic will confirm')
+                        : new Date(apt.date).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                    </Text>
+                  </View>
                 </View>
-                <Text style={styles.appointmentDateText}>
-                  {isUnscheduledEmergency(apt) || !Number.isFinite(Date.parse(apt.date))
-                    ? t('Clinic will confirm')
-                    : new Date(apt.date).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                </Text>
               </View>
 
               <View style={styles.appointmentActionRow}>
@@ -1676,7 +1758,8 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 )}
               </View>
             </View>
-          ))
+            );
+          })
         )}
       </ScrollView>
 
@@ -1731,7 +1814,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     </Text>
                   </View>
                   <Text style={sheetStyles.docSpec} numberOfLines={1}>
-                    {selectedApt?.counselor?.specialization || "Mental Wellness Specialist"}
+                    {String(selectedApt?.counselor?.specialization || '').trim() || t('Mental Wellness Specialist')}
                   </Text>
                   <View style={sheetStyles.docMetaRow}>
                     {!!formatExperience(selectedApt?.counselor?.experience) && (
@@ -1750,8 +1833,13 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                         </Text>
                       </>
                     ) : (
-                      <View style={styles.newRatingBadge}>
-                        <Ionicons name="sparkles-outline" size={10} color="#2563EB" />
+                      <View
+                        style={[
+                          styles.newRatingBadge,
+                          !formatExperience(selectedApt?.counselor?.experience) && styles.newRatingBadgeFirst,
+                        ]}
+                      >
+                        <Ionicons name="sparkles" size={10} color={PATIENT.gradientTo} />
                         <Text style={styles.newRatingText}>{t('counselor:newRating', 'New')}</Text>
                       </View>
                     )}
@@ -1873,12 +1961,14 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                       {selectedIsClinicVisit ? t('Visit') : t('Session Completed')}
                     </Text>
                     <Text style={sheetStyles.pastValue}>
-                      {selectedIsClinicVisit ? statusCap : `Talk time: ${talkDuration} mins`}
+                      {selectedIsClinicVisit ? statusCap : `${t('Talk time')}: ${talkTimeLabel}`}
                     </Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
-                    <Text style={sheetStyles.pastDay}>{t('Ended')}</Text>
-                    <Text style={sheetStyles.pastTime}>{timeLabel}</Text>
+                    <Text style={sheetStyles.pastDay}>
+                      {actualEndDate ? t('Ended') : t('Scheduled')}
+                    </Text>
+                    <Text style={sheetStyles.pastTime}>{endedTimeLabel}</Text>
                   </View>
                 </View>
               )}
@@ -1913,7 +2003,9 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   <View style={[sheetStyles.gridIcon, { backgroundColor: "#FEF3E2" }]}>
                     <MaterialIcons name="timer" size={18} color="#F59E0B" />
                   </View>
-                  <Text style={sheetStyles.gridLabel}>{t('DURATION')}</Text>
+                  <Text style={sheetStyles.gridLabel}>
+                    {isCompletedApt ? t('DURATION') : t('SLOT DURATION')}
+                  </Text>
                   <Text style={sheetStyles.gridValue} numberOfLines={2}>{durationLabel}</Text>
                 </View>
               </View>
@@ -2016,6 +2108,7 @@ export default function UserDashboard() {
     ? (navInsets.bottom <= 80 ? navInsets.bottom : 0)
     : navInsets.bottom;
   const dashboardBottomInset = Math.max(androidStableBottomInset, androidNavInsetFallback, 0);
+  const sidebarTopInset = Platform.OS === 'android' ? androidStatusInset : navInsets.top;
   const bottomNavHeight = (Platform.OS === 'ios' ? 84 : 68) + dashboardBottomInset;
   const bottomNavPaddingBottom = (Platform.OS === 'ios' ? 20 : 6) + dashboardBottomInset;
   const aiButtonBottom = (Platform.OS === "ios" ? 42 : 28) + dashboardBottomInset;
@@ -3503,9 +3596,18 @@ export default function UserDashboard() {
         onRequestClose={handleSidebarBack}
       >
         <View style={styles.sidebarRoot} pointerEvents="auto">
-          <SafeAreaView
-            style={styles.sidebar}
-            edges={['top', 'bottom', 'left']}
+          {/* Explicit insets instead of SafeAreaView: inside this translucent
+              Modal (its own Android window) SafeAreaView reported a 0 top
+              inset, so the user card sat under the status bar icons. */}
+          <View
+            style={[
+              styles.sidebar,
+              {
+                paddingTop: sidebarTopInset + 12,
+                paddingBottom: dashboardBottomInset + 12,
+                paddingLeft: navInsets.left + 14,
+              },
+            ]}
           >
             {/* User card — green gradient */}
             <LinearGradient
@@ -3612,11 +3714,11 @@ export default function UserDashboard() {
                 <View style={styles.sbLogoutIcon}>
                   <Ionicons name="log-out-outline" size={19} color="#ffffff" />
                 </View>
-                <Text style={styles.sbLogoutText}>{t('settings:logoutAccount')}</Text>
+                <Text style={styles.sbLogoutText}>{t('auth:logout')}</Text>
                 <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />
               </TouchableOpacity>
             </View>
-          </SafeAreaView>
+          </View>
 
           <TouchableOpacity
             style={styles.sidebarBackdrop}
@@ -4537,31 +4639,77 @@ const styles = StyleSheet.create({
   // Card
   appointmentCard: {
     backgroundColor: PATIENT.surface,
-    borderRadius: 18,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#E8F1EC",
     overflow: "hidden",
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
+    shadowColor: "#0B3B1F",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  // Thin status-coloured strip on the card's left edge.
+  // Soft tinted strip holding the date and time.
+  aptInfoStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginLeft: 18,
+    marginRight: 14,
+    marginTop: 14,
+    marginBottom: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: "#F3FBF6",
+    borderWidth: 1,
+    borderColor: "#E1F4E8",
+  },
+  aptInfoItem: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0,
+  },
+  aptInfoTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  aptInfoLabel: {
+    fontSize: 10.5,
+    color: PATIENT.textMuted,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 1,
+  },
+  aptInfoDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    backgroundColor: "#D7EFE0",
+    marginHorizontal: 10,
   },
   appointmentCardHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    paddingHorizontal: 14,
-    paddingTop: 14,
+    paddingLeft: 18,
+    paddingRight: 14,
+    paddingTop: 16,
   },
   aptAvatarWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     overflow: "hidden",
     backgroundColor: "#E6F6EC",
+    borderWidth: 2,
+    borderColor: "#DCF5E6",
   },
   appointmentAvatar: {
-    width: 52,
-    height: 52,
+    width: "100%",
+    height: "100%",
   },
   appointmentMetaColumn: {
     flex: 1,
@@ -4574,15 +4722,15 @@ const styles = StyleSheet.create({
   },
   appointmentDoctorName: {
     color: PATIENT.text,
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 15.5,
+    fontWeight: "800",
     flexShrink: 1,
   },
   appointmentSpecialization: {
     color: PATIENT.textSecondary,
-    fontSize: 12,
+    fontSize: 12.5,
     marginTop: 2,
-    fontWeight: "400",
+    fontWeight: "500",
   },
   aptMetaRow: {
     flexDirection: "row",
@@ -4604,40 +4752,50 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 999,
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "#ECFDF3",
     borderWidth: 1,
-    borderColor: "#BFDBFE",
+    borderColor: "#BBF7D0",
+  },
+  // No experience before it: sit flush with the row start.
+  newRatingBadgeFirst: {
+    marginLeft: 0,
   },
   newRatingText: {
     fontSize: 10.5,
-    color: "#2563EB",
-    fontWeight: "700",
+    color: PATIENT.primary,
+    fontWeight: "800",
+    letterSpacing: 0.2,
   },
   aptStatusPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 9,
-    height: 24,
+    paddingHorizontal: 10,
+    height: 26,
     borderRadius: 999,
+    borderWidth: 1,
   },
   aptStatusText: {
-    fontSize: 10,
+    fontSize: 11,
     textTransform: "capitalize",
-    fontWeight: "700",
+    fontWeight: "800",
     letterSpacing: 0.2,
   },
   aptStatusPending: {
-    backgroundColor: "#FFF4E5",
+    backgroundColor: "#FFF7ED",
+    borderColor: "#FED7AA",
   },
   aptStatusConfirmed: {
-    backgroundColor: "#E6F6EC",
+    backgroundColor: "#ECFDF3",
+    borderColor: "#BBF7D0",
   },
   aptStatusCompleted: {
     backgroundColor: "#E6F6EC",
+    borderColor: "#C6EBD4",
   },
   aptStatusCanceled: {
-    backgroundColor: "#FEE2E2",
+    backgroundColor: "#FEF2F2",
+    borderColor: "#FECACA",
   },
 
   aptDivider: {
@@ -4654,10 +4812,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   aptDateIconWrap: {
-    width: 22,
-    height: 22,
-    borderRadius: 7,
-    backgroundColor: "#E6F6EC",
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -4669,34 +4827,35 @@ const styles = StyleSheet.create({
     marginHorizontal: 6,
   },
   appointmentDateText: {
-    color: PATIENT.textSecondary,
-    fontSize: 12,
-    fontWeight: "500",
+    color: PATIENT.text,
+    fontSize: 12.5,
+    fontWeight: "700",
   },
   appointmentActionRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 14,
-    paddingBottom: 14,
+    paddingLeft: 18,
+    paddingRight: 14,
+    paddingBottom: 16,
   },
   appointmentDetailsBtn: {
     flex: 1,
-    height: 40,
+    height: 42,
     paddingHorizontal: 12,
-    borderWidth: 1.4,
-    borderColor: PATIENT.primary,
-    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#BFE9CF",
+    borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
     flexDirection: "row",
     gap: 6,
-    backgroundColor: PATIENT.surface,
+    backgroundColor: "#F0FAF4",
   },
   appointmentDetailsText: {
     color: PATIENT.primary,
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 13.5,
+    fontWeight: "800",
   },
   appointmentBookBtn: {
     flex: 1,
@@ -4719,10 +4878,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   aptActionIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: "#E6F6EC",
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: "#F0FAF4",
+    borderWidth: 1,
+    borderColor: "#BFE9CF",
     justifyContent: "center",
     alignItems: "center",
   },

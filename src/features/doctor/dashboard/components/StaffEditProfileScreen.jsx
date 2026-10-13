@@ -4,6 +4,7 @@
 // record back to Staff Management's list.
 import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
@@ -13,6 +14,7 @@ import { colors, createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { roleLabelToKey, updateStaff } from './staffApi';
 import { pickStaffPhoto } from './pickStaffPhoto';
+import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 
 const DEPARTMENTS = ['Nursing', 'Clinical', 'Emergency', 'Pathology', 'Finance', 'Operations', 'Admin', 'General Medicine'];
 const ROLE_TYPES = ['Nurse', 'Medical Assistant', 'Lab Technician', 'Billing', 'Receptionist', 'Housekeeping', 'Supervisor'];
@@ -21,6 +23,18 @@ const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 const isValidPhone = (value) => value.replace(/\D/g, '').length >= 10;
 
 export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
+  // Signup-style keyboard handling: the form scrolls above the keyboard and the
+  // focused field is scrolled into view (the window does not resize, edge-to-edge).
+  const {
+    scrollRef: kbScrollRef,
+    frameInset: kbInset,
+    scrollFocusedInputIntoView: kbFocus,
+    handleKeyboardAwareScroll: kbOnScroll,
+    handleKeyboardAwareScrollLayout: kbOnLayout,
+  } = useKeyboardAwareScroll({ frameIsScroll: true });
+  // Bottom sheets live in Modals, which draw under the system navigation
+  // bar (edge-to-edge) — pad them by its height so their last row stays visible.
+  const insets = useSafeAreaInsets();
   const { showToast } = useToast();
   const scrollRef = useRef(null);
   // New photo (data URI) picked on this screen; null = keep the current one.
@@ -113,7 +127,7 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
         </Pressable>
       </View>
 
-      <ScrollView ref={scrollRef} style={s.scrollArea} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={s.scrollArea} showsVerticalScrollIndicator={false} ref={(node) => { scrollRef.current = node; kbScrollRef.current = node; }} contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
         <View style={s.photoBlock}>
           <View style={s.avatarWrap}>
             <View style={s.avatarCircle}>
@@ -158,7 +172,7 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
 
       <Modal visible={picker !== null} transparent animationType="fade" onRequestClose={() => setPicker(null)}>
         <Pressable style={s.overlay} onPress={() => setPicker(null)}>
-          <View style={s.sheet}>
+          <View style={[s.sheet, { paddingBottom: 28 + insets.bottom }]}>
             <View style={s.handle} />
             {dropdownConfig && (
               <>

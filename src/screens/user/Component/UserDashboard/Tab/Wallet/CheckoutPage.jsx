@@ -36,7 +36,7 @@ const CheckoutPage = ({ navigation, route }) => {
   ];
 
   return (
-    <SafeAreaView style={s.container} edges={['top']}>
+    <SafeAreaView style={s.container} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor={PATIENT.backgroundTint} />
 
       {/* Header */}

@@ -77,6 +77,8 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
   const consultationMode = Array.isArray(profile?.consultationMode) ? profile.consultationMode : [];
   const displayName = profile?.fullName ? `Dr. ${profile.fullName}` : 'Doctor';
   const photoUrl = getDoctorPhotoUrl(profile);
+  const phoneNumber = profile?.phoneNumber || profile?.phoneNum || profile?.phone || '';
+  const gender = profile?.gender ? String(profile.gender).charAt(0).toUpperCase() + String(profile.gender).slice(1) : '';
 
   // Same Google Maps search link as LocationPicker's "View on map": opens the
   // Maps app when installed, otherwise the browser. Uses coordinates when the
@@ -134,6 +136,10 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
         </View>
 
         <Section icon="user" label="Overview">
+          <InfoRow label="Email" value={profile?.email || '—'} />
+          <InfoRow label="Phone" value={phoneNumber || '—'} />
+          <InfoRow label="Age" value={profile?.age != null ? `${profile.age} Years` : '—'} />
+          <InfoRow label="Gender" value={gender || '—'} />
           <InfoRow label="Qualification" value={profile?.qualification || '—'} />
           <InfoRow label="Experience" value={profile?.experience != null ? `${profile.experience}+ Years` : '—'} />
           <InfoRow label="Language" value={languages.length ? languages.join(', ') : '—'} last />

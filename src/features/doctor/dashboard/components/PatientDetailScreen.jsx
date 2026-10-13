@@ -97,6 +97,18 @@ export default function PatientDetailScreen({ patient, onBack, onVisitPress }) {
                   </View>
                 </View>
                 <Text translate={false} style={s.problem} numberOfLines={2}>{record.problem}</Text>
+                {/* What the doctor recorded for this visit, at a glance. */}
+                <View style={s.summary}>
+                  {record.isEmergency && <Text style={[s.summaryChip, s.summaryDanger]}>Emergency</Text>}
+                  {!!record.tokenNumber && <Text translate={false} style={s.summaryChip}>Token #{record.tokenNumber}</Text>}
+                  {record.diagnosis !== 'N/A' && <Text translate={false} style={s.summaryChip} numberOfLines={1}>Dx: {record.diagnosis}</Text>}
+                  {record.medicines?.length > 0 && (
+                    <Text style={s.summaryChip}>{record.medicines.length} {record.medicines.length === 1 ? 'medicine' : 'medicines'}</Text>
+                  )}
+                  {record.tests?.length > 0 && (
+                    <Text style={s.summaryChip}>{record.tests.length} {record.tests.length === 1 ? 'test' : 'tests'}</Text>
+                  )}
+                </View>
                 <View style={s.visitMeta}>
                   <Text translate={false} style={s.doctor} numberOfLines={1}>👨‍⚕️ {record.doctor}</Text>
                   <Text translate={false} style={[s.followUp, record.followUp === 'Not required' && s.followUpNone]}>Follow-up: {record.followUp}</Text>
@@ -165,6 +177,9 @@ const s = createDoctorStyles({
   doctor: { flex: 1, fontSize: 12.5, color: '#475467' },
   followUp: { fontSize: 11.5, fontWeight: '800', color: '#B45309', backgroundColor: '#FEF3C7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
   followUpNone: { color: '#667085', backgroundColor: '#F1F5F9' },
+  summary: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  summaryChip: { maxWidth: '100%', fontSize: 11.5, fontWeight: '700', color: '#0F766E', backgroundColor: '#E6FBF8', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, overflow: 'hidden' },
+  summaryDanger: { color: '#DC2626', backgroundColor: '#FEE2E2' },
   viewRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 5, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#EEF3F2' },
   viewText: { fontSize: 13, fontWeight: '800', color: '#0D9488' },
   pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },

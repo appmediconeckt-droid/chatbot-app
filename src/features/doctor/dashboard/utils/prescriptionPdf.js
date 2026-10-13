@@ -1,8 +1,12 @@
 // with a plain Alert so it works on iOS too.
 import { Alert, NativeModules, Platform } from 'react-native';
 import RNFS from 'react-native-fs';
+import { buildPrescriptionPaperHtml, doctorRxToPaper } from '../../../../utils/prescriptionPaper';
 
-const toSafeString = (value) => value ?? '';
+// Always a string: visit records carry numbers too (age, pulse, days…), and
+// calling .trim()/.replace() on a number threw 'undefined is not a function',
+// which failed both the HTML PDF and its simple-PDF fallback.
+const toSafeString = (value) => (value === null || value === undefined ? '' : String(value));
 
 const isAscii = (value) => /^[\x20-\x7E]*$/.test(toSafeString(value));
 const sanitizePdfText = (value) =>
@@ -17,11 +21,87 @@ const fileSafeName = (value) =>
 
 let isGeneratingPdf = false;
 
+const display = (value, fallback = 'N/A') => {
+  const text = toSafeString(value).trim();
+  return text && text !== 'undefined' && text !== 'null' ? text : fallback;
+};
+
+const normalizeMedicineList = (record = {}) => {
+  if (Array.isArray(record.medicines) && record.medicines.length) {
+    return record.medicines.map((medicine) => ({
+      name: display(medicine.name || medicine.medicine),
+      dosage: display(medicine.dosage),
+      timing: display(
+        Array.isArray(medicine.timeOfDay || medicine.timings)
+          ? (medicine.timeOfDay || medicine.timings).filter(Boolean).join(', ')
+          : medicine.timeOfDay || medicine.timings || medicine.timing || medicine.when,
+      ),
+      duration: display(
+        medicine.duration || [medicine.durationValue, medicine.durationType].filter(Boolean).join(' '),
+      ),
+    }));
+  }
+
+  const medication = display(record.tablets || record.medicine || record.medication, '');
+  if (!medication) return [];
+  return medication
+    .split(/[;\n]/)
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .map((name) => ({
+      name,
+      dosage: 'N/A',
+      timing: 'N/A',
+      duration: display(record.days || record.duration),
+    }));
+};
+
+// Same page as the patient's prescription view and the psychiatrist preview
+// (utils/prescriptionPaper): this visit is mapped onto the shared paper.
+const buildVisitPrescriptionHtml = (patient = {}, record = {}) => {
+  const real = (value) => {
+    const text = display(value, '');
+    return text === 'N/A' ? '' : text;
+  };
+  const tests = Array.isArray(record.tests || record.recommendedTests)
+    ? (record.tests || record.recommendedTests).filter(Boolean)
+    : [];
+  const age = real(patient.age);
+  const gender = real(patient.gender);
+  const paper = doctorRxToPaper({
+    id: record.id,
+    rxNumber: record.id ? `RX-${String(record.id).slice(-6).toUpperCase()}` : '',
+    date: record.date,
+    doctorName: real(record.doctor) || 'Doctor',
+    patientName: real(patient.name) || 'Patient',
+    complaint: real(record.problem),
+    diagnosis: real(record.diagnosis),
+    medicines: normalizeMedicineList(record).map((medicine) => ({
+      name: medicine.name,
+      dosage: real(medicine.dosage),
+      timings: real(medicine.timing) ? [real(medicine.timing)] : [],
+      duration: real(medicine.duration),
+    })),
+    advice: real(record.advice || record.prescription || record.instructions),
+    tests,
+    additionalNotes: real(record.notes || record.additionalNotes || record.additional_notes),
+    followUpDate: real(record.followUp) && !/not required/i.test(record.followUp) ? record.followUp : '',
+  });
+  if (age || gender) {
+    const extra = [age && `${age} yrs`, gender].filter(Boolean).join(', ');
+    paper.patientName = `${paper.patientName}  (${extra})`;
+  }
+  return buildPrescriptionPaperHtml(paper);
+};
+
 // The PDF is written to the app's own storage (always writable). A copy goes
 // to the phone's Downloads folder when Android allows it, and the file opens
 // straight away in the phone's PDF viewer (save / share from there) — before,
 // it only sat in the private app folder where the doctor couldn't reach it.
 async function saveAndOpenPdf(appPath, fileName) {
+  if (!appPath || typeof appPath !== 'string') {
+    throw new Error('Prescription PDF could not be created.');
+  }
   let downloadsPath = null;
   if (Platform.OS === 'android') {
     try {
@@ -117,31 +197,45 @@ export async function downloadVisitPrescriptionPdf(patient, record) {
     const name = isAscii(patient?.name) && patient?.name ? patient.name : 'Patient';
     const fileName = `Prescription_${fileSafeName(name)}_${fileSafeName(record?.date)}`;
     const pdfPath = `${RNFS.DocumentDirectoryPath}/${fileName}.pdf`;
+
+    const nativePdf = NativeModules.PrescriptionPrint;
+    if (nativePdf?.createPdf) {
+      try {
+        const nativePath = await nativePdf.createPdf(buildVisitPrescriptionHtml(patient, record), fileName);
+        if (nativePath && typeof nativePath === 'string' && await RNFS.exists(nativePath)) {
+          await saveAndOpenPdf(nativePath, fileName);
+          return;
+        }
+      } catch (nativeError) {
+        console.warn('HTML prescription PDF failed, using simple PDF fallback:', nativeError?.message || nativeError);
+      }
+    }
+
     const lines = [
       'MEDICAL PRESCRIPTION',
       `Prescription ID: RX-${record?.id ?? ''}    Generated: ${new Date().toLocaleDateString()}`,
       '',
       'PATIENT INFORMATION',
-      `Name: ${name}    Age/Gender: ${patient?.age} years, ${patient?.gender}`,
-      `Phone: ${patient?.phone}    Blood Group: ${patient?.bloodGroup}`,
+      `Name: ${name}    Age/Gender: ${display(patient?.age)} years, ${display(patient?.gender)}`,
+      `Phone: ${display(patient?.phone)}    Blood Group: ${display(patient?.bloodGroup)}`,
       '',
       'VISIT DETAILS',
-      `Date: ${record?.date}    Time: ${record?.time}`,
-      `Doctor: ${record?.doctor}    Follow-up: ${record?.followUp}`,
+      `Date: ${display(record?.date)}    Time: ${display(record?.time)}`,
+      `Doctor: ${display(record?.doctor, 'Doctor')}    Follow-up: ${display(record?.followUp, 'Not required')}`,
       '',
       'MEDICAL INFORMATION',
-      ...wrapText(`Problem: ${record?.problem}`),
-      ...wrapText(`Diagnosis: ${record?.diagnosis}`),
+      ...wrapText(`Problem: ${display(record?.problem)}`),
+      ...wrapText(`Diagnosis: ${display(record?.diagnosis)}`),
       '',
       'VITAL SIGNS',
-      `Blood Pressure: ${record?.bp} mmHg    Pulse Rate: ${record?.pulse} bpm    Temperature: ${record?.temperature}`,
+      `Blood Pressure: ${display(record?.bp)} mmHg    Pulse Rate: ${display(record?.pulse)} bpm    Temperature: ${display(record?.temperature)}`,
       '',
       'PRESCRIPTION',
-      ...wrapText(`Medication: ${record?.tablets}`),
-      `Duration: ${record?.days}`,
+      ...wrapText(`Medication: ${display(record?.tablets)}`),
+      `Duration: ${display(record?.days)}`,
       '',
       "DOCTOR'S INSTRUCTIONS",
-      ...wrapText(record?.prescription),
+      ...wrapText(display(record?.prescription)),
     ].slice(0, 38); // one A4 page
     await RNFS.writeFile(pdfPath, buildSimplePdf(lines), 'utf8');
     await saveAndOpenPdf(pdfPath, fileName);
