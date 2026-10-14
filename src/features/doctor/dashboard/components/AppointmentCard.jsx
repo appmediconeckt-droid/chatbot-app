@@ -95,7 +95,10 @@ export default function AppointmentCard({
     meta,
     item.issue,
   ].filter(Boolean).join('  ·  ');
-  const timeLabel = item.isEmergency ? 'Priority' : item.scheduledTime || 'Today';
+  const isLiveEmergency = item.isEmergency && !isCompleted && !isCancelled;
+  const timeLabel = item.scheduledTime && item.scheduledTime !== 'Emergency'
+    ? item.scheduledTime
+    : item.isEmergency ? 'Priority' : 'Today';
 
   // Header: token tile | name + "gender · issue" | time pill.
   // Footer: how the patient is seen (mode) + any note on the left, actions on
@@ -109,12 +112,12 @@ export default function AppointmentCard({
           end={{ x: 1, y: 1 }}
           style={styles.tokenTile}
         >
-          {item.isEmergency ? (
-            <AppIcon name="warning" size={18} strokeWidth={2.4} color="#FFFFFF" />
-          ) : tokenNumber ? (
+          {tokenNumber ? (
             <Text translate={false} style={styles.tokenTileNumber} numberOfLines={1} adjustsFontSizeToFit>#{tokenNumber}</Text>
           ) : (
-            <Text translate={false} style={styles.tokenTileInitials}>{getInitials(item.name)}</Text>
+            item.isEmergency
+              ? <AppIcon name="warning" size={18} strokeWidth={2.4} color="#FFFFFF" />
+              : <Text translate={false} style={styles.tokenTileInitials}>{getInitials(item.name)}</Text>
           )}
           <Text style={styles.tokenTileLabel}>{item.isEmergency ? 'SOS' : 'TOKEN'}</Text>
         </LinearGradient>
@@ -139,9 +142,17 @@ export default function AppointmentCard({
 
       <View style={styles.footerRow}>
         <View style={styles.footerInfo}>
-          <View style={[styles.modeBadge, { backgroundColor: modeStyle.bg }]}>
-            <AppIcon name={mode.icon} size={11} strokeWidth={2.2} color={modeStyle.text} />
-            <Text style={[styles.modeText, { color: modeStyle.text }]} numberOfLines={1}>{mode.label}</Text>
+          <View style={styles.badgeRow}>
+            {isLiveEmergency && (
+              <View style={styles.emergencyBadge}>
+                <AppIcon name="warning" size={11} strokeWidth={2.4} color="#FFFFFF" />
+                <Text style={styles.emergencyBadgeText} numberOfLines={1}>Emergency</Text>
+              </View>
+            )}
+            <View style={[styles.modeBadge, { backgroundColor: modeStyle.bg }]}>
+              <AppIcon name={mode.icon} size={11} strokeWidth={2.2} color={modeStyle.text} />
+              <Text style={[styles.modeText, { color: modeStyle.text }]} numberOfLines={1}>{mode.label}</Text>
+            </View>
           </View>
           {item.delayMinutes > 0 && (
             <Text translate={false} style={styles.delay} numberOfLines={1}>
@@ -228,6 +239,9 @@ const styles = createDoctorStyles({
 
   footerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F4F7' },
   footerInfo: { flex: 1, minWidth: 0, gap: 3, alignItems: 'flex-start' },
+  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, maxWidth: '100%' },
+  emergencyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 24, paddingHorizontal: 9, borderRadius: 12, backgroundColor: '#DC2626' },
+  emergencyBadgeText: { ...typography.label, fontSize: 11, lineHeight: 14, color: '#FFFFFF', fontWeight: '800' },
   modeBadge: { maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 4, height: 24, paddingHorizontal: 9, borderRadius: 12 },
   modeText: { ...typography.label, flexShrink: 1, fontSize: 11, lineHeight: 14 },
   delay: { ...typography.caption, fontSize: 11.5, color: colors.red },

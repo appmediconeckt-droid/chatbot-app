@@ -19,6 +19,22 @@ import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 const KeyboardFocusContext = React.createContext(undefined);
 const GENDER_OPTIONS = ['male', 'female', 'other'];
 
+// Same values as Doctor Signup (stored lowercased in an array).
+const CONSULTATION_MODES = [
+  { value: 'online', label: 'Online', icon: 'video' },
+  { value: 'offline', label: 'Offline', icon: 'home' },
+  { value: 'both', label: 'Both', icon: 'globe' },
+];
+
+// The saved list as one choice: "both" when it says so, or names online and offline.
+const toConsultationMode = (value) => {
+  const list = (Array.isArray(value) ? value : String(value || '').split(','))
+    .map((m) => String(m).trim().toLowerCase())
+    .filter(Boolean);
+  if (list.includes('both') || (list.includes('online') && list.includes('offline'))) return 'both';
+  return list.find((m) => m === 'online' || m === 'offline') || '';
+};
+
 function toInitial(profile) {
   return {
     fullName: profile?.fullName || '',
@@ -29,6 +45,7 @@ function toInitial(profile) {
     qualification: profile?.qualification || '',
     experience: profile?.experience != null ? String(profile.experience) : '',
     languages: Array.isArray(profile?.languages) ? profile.languages.join(', ') : '',
+    consultationMode: toConsultationMode(profile?.consultationMode ?? profile?.consultation_mode),
     summary: profile?.aboutMe || '',
     location: profile?.location || '',
   };
@@ -100,6 +117,7 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
         .map((v) => v.trim())
         .filter(Boolean);
       if (languagesArr.length) formData.append('languages', JSON.stringify(languagesArr));
+      if (form.consultationMode) formData.append('consultationMode', JSON.stringify([form.consultationMode]));
       if (specialization.length) formData.append('specialization', JSON.stringify(specialization));
       if (photo?.uri) {
         formData.append('profilePhoto', {
@@ -197,6 +215,26 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
           </View>
           <Field label="Qualification" value={form.qualification} onChangeText={set('qualification')} />
           <Field label="Languages" value={form.languages} onChangeText={set('languages')} />
+          <View style={s.field}>
+            <Text style={s.fieldLabel}>Consultation Mode</Text>
+            <View style={s.genderRow}>
+              {CONSULTATION_MODES.map((item) => {
+                const active = form.consultationMode === item.value;
+                return (
+                  <Pressable
+                    key={item.value}
+                    onPress={() => set('consultationMode')(item.value)}
+                    style={[s.genderChip, active && s.genderChipActive]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active }}
+                  >
+                    <AppIcon name={active ? 'check-mark' : item.icon} size={14} color={active ? '#FFF' : '#475467'} strokeWidth={active ? 2.6 : 2} />
+                    <Text style={[s.genderText, active && s.genderTextActive]}>{item.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
         </Section>
 
         <Section icon="file" label="Professional Summary">

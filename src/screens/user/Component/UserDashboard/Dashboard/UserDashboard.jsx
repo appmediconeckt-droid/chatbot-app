@@ -54,6 +54,7 @@ import CallHistory from "../Tab/Callls/CallHistory";
 import PatientProfile from "../../PatientProfile/PatientProfile";
 import AvatarPicker from "../../PatientProfile/AvatarPicker";
 import RatingPrompt from '../../../../../components/RatingPrompt';
+import RatingModal from '../../../../../components/RatingModal';
 import UpdateReminderModal from '../../../../../components/UpdateReminderModal';
 import { loadUserLanguage } from '../../../../../i18n';
 import AutoTranslatedText from '../../../../../components/AutoTranslatedText';
@@ -1296,6 +1297,40 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const [countdown, setCountdown] = useState("");
   const [doctorIds, setDoctorIds] = useState(() => new Set());
   const socketRef = useRef(null);
+  // Web MyAppointments "Rate Doctor": a completed doctor appointment can be
+  // rated once — POST /api/appointments/:id/doctor-rating { rating, review }.
+  const [ratingApt, setRatingApt] = useState(null);
+  const [ratingBusy, setRatingBusy] = useState(false);
+  const [ratingError, setRatingError] = useState("");
+  const [ratingSuccess, setRatingSuccess] = useState(false);
+  const openDoctorRating = (apt) => {
+    setRatingError("");
+    setRatingSuccess(false);
+    setRatingApt(apt);
+  };
+  const submitDoctorRating = async ({ rating, review }) => {
+    if (ratingBusy || !ratingApt?._id) return;
+    setRatingBusy(true);
+    setRatingError("");
+    try {
+      const { data } = await axiosInstance.post(
+        `/api/appointments/${encodeURIComponent(ratingApt._id)}/doctor-rating`,
+        { rating, review: String(review || "").trim() },
+        { timeout: 15000 },
+      );
+      const saved = data?.doctorRating || { stars: rating, review };
+      setAppointments((rows) => rows.map((row) => (row._id === ratingApt._id ? { ...row, doctorRating: saved } : row)));
+      setRatingSuccess(true);
+      setTimeout(() => setRatingApt(null), 1500);
+    } catch (err) {
+      const status = err?.response?.status;
+      setRatingError(status === 404
+        ? t('Doctor rating is not available on the server yet. Please try again later.')
+        : err?.response?.data?.error || err?.response?.data?.message || t('Rating could not be saved. Please try again.'));
+    } finally {
+      setRatingBusy(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -1737,7 +1772,26 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     consultation. Consultant cards show just View Details (their
                     video, voice and chat are inside the details sheet), and a
                     doctor's in-clinic visit is in person. */}
-                {isDoctorAppointment(apt, doctorIds) && !isDoctorClinicVisit(apt) && (
+                {isDoctorAppointment(apt, doctorIds) && aptStatus === 'completed' && (
+                  <TouchableOpacity
+                    style={[styles.aptRateBtn, apt.doctorRating && styles.aptRateBtnDone]}
+                    onPress={() => openDoctorRating(apt)}
+                    disabled={Boolean(apt.doctorRating)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={apt.doctorRating ? 'checkmark-circle' : 'star'}
+                      size={15}
+                      color={apt.doctorRating ? PATIENT.primary : '#D97706'}
+                    />
+                    <Text style={[styles.aptRateText, apt.doctorRating && styles.aptRateTextDone]} numberOfLines={1}>
+                      {apt.doctorRating
+                        ? `${t('Rated')} (${Number(apt.doctorRating.stars ?? apt.doctorRating.rating) || 0}/5)`
+                        : t('Rate Doctor')}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {isDoctorAppointment(apt, doctorIds) && !isDoctorClinicVisit(apt) && aptStatus !== 'completed' && (
                   <>
                     <TouchableOpacity
                       style={styles.aptActionIconBtn}
@@ -1762,6 +1816,21 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
           })
         )}
       </ScrollView>
+
+      {ratingApt && (
+        <RatingModal
+          key={ratingApt._id}
+          visible
+          professionalType="doctor"
+          counselorName={ratingApt?.counselor?.fullName || ratingApt?.counselor?.name || t('your doctor')}
+          counselorPhoto={ratingApt?.counselor?.profilePhoto}
+          submitting={ratingBusy}
+          success={ratingSuccess}
+          error={ratingError}
+          onSubmit={submitDoctorRating}
+          onClose={() => { if (!ratingBusy) setRatingApt(null); }}
+        />
+      )}
 
       <Modal statusBarTranslucent navigationBarTranslucent
         transparent={true}
@@ -2174,9 +2243,12 @@ export default function UserDashboard() {
           const info = data?.data || {};
           const doctorId = info.doctorId || info.doctor?.id;
           if (!doctorId) throw new Error('missing doctor');
+          // The QR belongs to ONE clinic — book there, never at another one.
+          const clinicId = info.clinicId || info.clinic_id || info.clinic?._id || info.clinic?.id;
           setWalkInBooking({
             doctorId: String(doctorId),
-            clinicId: info.clinicId || info.clinic?.id ? String(info.clinicId || info.clinic.id) : null,
+            clinicId: clinicId ? String(clinicId) : null,
+            clinicName: String(info.clinicName || info.clinic?.name || info.clinic?.clinic_name || ''),
             source: 'qr',
           });
         })
@@ -3464,6 +3536,7 @@ export default function UserDashboard() {
         visible={Boolean(walkInBooking)}
         doctorId={walkInBooking?.doctorId}
         clinicId={walkInBooking?.clinicId}
+        clinicName={walkInBooking?.clinicName}
         source={walkInBooking?.source}
         onClose={() => setWalkInBooking(null)}
       />
@@ -4876,6 +4949,31 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 13,
     fontWeight: "700",
+  },
+  aptRateBtn: {
+    flex: 1,
+    height: 42,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "#FCD9A8",
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    backgroundColor: "#FFF8EC",
+  },
+  aptRateBtnDone: {
+    borderColor: "#BFE9CF",
+    backgroundColor: "#F0FAF4",
+  },
+  aptRateText: {
+    color: "#B45309",
+    fontSize: 13.5,
+    fontWeight: "800",
+  },
+  aptRateTextDone: {
+    color: PATIENT.primary,
   },
   aptActionIconBtn: {
     width: 42,

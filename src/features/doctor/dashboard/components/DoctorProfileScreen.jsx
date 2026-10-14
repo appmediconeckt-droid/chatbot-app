@@ -11,6 +11,21 @@ import axiosInstance from '../../../../axiosConfig';
 import DoctorEditProfileScreen from './DoctorEditProfileScreen';
 import { getDoctorInitials, getDoctorPhotoUrl, saveDoctorUser } from '../api/doctorAppointments';
 
+// Consultation mode may come back as a list, or as the JSON / comma text a
+// multipart profile update saved it as.
+const readModeList = (value) => {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  const text = String(value || '').trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+  } catch {
+    // plain text
+  }
+  return text.split(',').map((m) => m.trim()).filter(Boolean);
+};
+
 export default function DoctorProfileScreen({ onBack, onOpenCard }) {
   const { showToast } = useToast();
   const [editing, setEditing] = useState(false);
@@ -74,7 +89,7 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
 
   const specialization = Array.isArray(profile?.specialization) ? profile.specialization : [];
   const languages = Array.isArray(profile?.languages) ? profile.languages : [];
-  const consultationMode = Array.isArray(profile?.consultationMode) ? profile.consultationMode : [];
+  const consultationMode = readModeList(profile?.consultationMode ?? profile?.consultation_mode);
   const displayName = profile?.fullName ? `Dr. ${profile.fullName}` : 'Doctor';
   const photoUrl = getDoctorPhotoUrl(profile);
   const phoneNumber = profile?.phoneNumber || profile?.phoneNum || profile?.phone || '';
@@ -159,7 +174,7 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
 
         {consultationMode.length > 0 && (
           <Section icon="clock" label="Availability">
-            <InfoRow label="Consultation Mode" value={consultationMode.join(', ')} last />
+            <InfoRow label="Consultation Mode" value={consultationMode.map((m) => m.charAt(0).toUpperCase() + m.slice(1)).join(', ')} last />
           </Section>
         )}
 

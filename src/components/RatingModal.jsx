@@ -47,6 +47,10 @@ const GRADIENT_END = { x: 1, y: 0.5 };
  *   onRemindLater    () => void
  *   onNeverAskAgain  () => void
  *   onClose          () => void   (X / back = remind later by default)
+ *   professionalType 'consultant' | 'doctor'   (title wording)
+ *   error            string    shown above Submit (e.g. the server refused)
+ * Remind later / Never ask again only show when their handlers are passed —
+ * the doctor rating (web MyAppointments "Rate Doctor") has neither.
  */
 const RatingModal = ({
   visible,
@@ -58,6 +62,8 @@ const RatingModal = ({
   onRemindLater,
   onNeverAskAgain,
   onClose,
+  professionalType = "consultant",
+  error = "",
 }) => {
   const { t } = useLanguageRender();
   const [rating, setRating] = useState(0);
@@ -133,7 +139,9 @@ const RatingModal = ({
                 )}
               </View>
 
-              <Text style={styles.title}>{t('Rate your consultant')}</Text>
+              <Text style={styles.title}>
+                {professionalType === "doctor" ? t('Rate your doctor') : t('Rate your consultant')}
+              </Text>
               <Text style={styles.subtitle}>
                 How was your experience with{" "}
                 <Text style={styles.counselorName}>{counselorName}</Text>?
@@ -167,6 +175,8 @@ const RatingModal = ({
                 editable={!busy}
               />
 
+              {!!error && <Text style={styles.errorText}>{error}</Text>}
+
               {/* Submit */}
               <TouchableOpacity
                 style={styles.submitBtn}
@@ -189,22 +199,27 @@ const RatingModal = ({
               </TouchableOpacity>
 
               {/* Remind me later */}
-              <TouchableOpacity
-                style={styles.laterBtn}
-                onPress={() => !busy && onRemindLater?.()}
-                disabled={busy}
-              >
-                <Text style={styles.laterText}>{t('Remind me later')}</Text>
-              </TouchableOpacity>
+              {!!onRemindLater && (
+                <TouchableOpacity
+                  style={styles.laterBtn}
+                  onPress={() => !busy && onRemindLater?.()}
+                  disabled={busy}
+                >
+                  <Text style={styles.laterText}>{t('Remind me later')}</Text>
+                </TouchableOpacity>
+              )}
 
               {/* Never ask again */}
-              <TouchableOpacity
-                style={styles.neverBtn}
-                onPress={() => !busy && onNeverAskAgain?.()}
-                disabled={busy}
-              >
-                <Text style={styles.neverText}>{t('Never ask again')}</Text>
-              </TouchableOpacity>
+              {!!onNeverAskAgain && (
+                <TouchableOpacity
+                  style={styles.neverBtn}
+                  onPress={() => !busy && onNeverAskAgain?.()}
+                  disabled={busy}
+                >
+                  <Text style={styles.neverText}>{t('Never ask again')}</Text>
+                </TouchableOpacity>
+              )}
+              {!onRemindLater && !onNeverAskAgain && <View style={styles.bottomSpacer} />}
             </>
           )}
         </View>
@@ -307,6 +322,17 @@ const styles = StyleSheet.create({
   inputFocused: {
     borderColor: "#01CE54",
     backgroundColor: "#fff",
+  },
+  errorText: {
+    width: "100%",
+    color: "#B42318",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  bottomSpacer: {
+    height: 6,
   },
   submitBtn: {
     width: "100%",

@@ -22,6 +22,27 @@ const DEPARTMENTS = ['All', 'Nursing', 'Clinical', 'Emergency', 'Pathology', 'Fi
 const STATUSES = ['All', 'Active', 'On Leave', 'Suspended'];
 const PAGE_SIZE = 10;
 
+// Stat tiles: a solid icon colour and a light border in the same hue.
+const TONES = {
+  teal: { fg: '#0D9488', border: '#B7EDE5' },
+  green: { fg: '#16A34A', border: '#BBF0CC' },
+};
+
+// Staff status colours (pill + the dot on the avatar).
+const STATUS_TONES = {
+  Active: { fg: '#047857', bg: '#D1FAE5', dot: '#16A34A' },
+  'On Leave': { fg: '#B45309', bg: '#FEF3C7', dot: '#F59E0B' },
+  Suspended: { fg: '#B42318', bg: '#FEE4E2', dot: '#DC2626' },
+};
+
+// Avatar fallback: a steady colour per name, like the Patients tab.
+const AVATAR_COLORS = ['#0D9488', '#4F46E5', '#D97706', '#0369A1', '#E11D48', '#7C3AED'];
+const avatarColor = (name = '') => {
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) % 997;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+};
+
 export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaffProfileOpenChange }) {
   // Bottom sheets live in Modals, which draw under the system navigation
   // bar (edge-to-edge) — pad them by its height so their last row stays visible.
@@ -187,20 +208,20 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
     <View style={s.screen}>
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <View style={s.statsRow}>
-          <View style={s.statCard}>
-            <View style={s.statIcon}><AppIcon name="users" size={14} color={colors.blue} strokeWidth={2} /></View>
-            <View style={s.statBody}>
-              <Text style={s.statValue}>{staffList.length}</Text>
-              <Text style={s.statLabel} numberOfLines={1}>Total Staff</Text>
+          {[
+            { label: 'Total Staff', value: staffList.length, icon: 'users', tone: TONES.teal },
+            { label: 'Active Now', value: activeCount, icon: 'check', tone: TONES.green },
+          ].map((item) => (
+            <View key={item.label} style={[s.statCard, { borderColor: item.tone.border }]}>
+              <View style={[s.statIcon, { backgroundColor: item.tone.fg }]}>
+                <AppIcon name={item.icon} size={19} color="#FFFFFF" strokeWidth={2.2} />
+              </View>
+              <View style={s.statBody}>
+                <Text translate={false} style={s.statValue}>{item.value}</Text>
+                <Text style={s.statLabel} numberOfLines={1}>{item.label}</Text>
+              </View>
             </View>
-          </View>
-          <View style={s.statCard}>
-            <View style={s.statIcon}><AppIcon name="check" size={14} color={colors.blue} strokeWidth={2} /></View>
-            <View style={s.statBody}>
-              <Text style={s.statValue}>{activeCount}</Text>
-              <Text style={s.statLabel} numberOfLines={1}>Active Now</Text>
-            </View>
-          </View>
+          ))}
         </View>
 
         <View style={s.titleRow}>
@@ -323,31 +344,47 @@ function FilterChip({ label, value, onPress }) {
 }
 
 function StaffCard({ member, onPress, onMore }) {
-  const isActive = member.status === 'Active';
+  const tone = STATUS_TONES[member.status] || STATUS_TONES.Active;
+  const initial = String(member.name || '?').trim().charAt(0).toUpperCase();
+  const subline = [member.id, member.email].filter(Boolean).join('  ·  ');
   return (
-    <Pressable style={s.card} onPress={onPress}>
+    // Press feedback is a tint, not an opacity fade (fading an elevated card
+    // makes Android draw its shadow as a rectangle).
+    <Pressable style={({ pressed }) => [s.card, pressed && s.cardPressed]} onPress={onPress}>
       <View style={s.cardTop}>
-        <Image source={{ uri: member.image }} style={s.avatar} />
+        <View style={s.avatarWrap}>
+          {member.image ? (
+            <Image source={{ uri: member.image }} style={s.avatar} />
+          ) : (
+            <View style={[s.avatar, s.avatarFallback, { backgroundColor: avatarColor(member.name) }]}>
+              <Text translate={false} style={s.avatarText}>{initial}</Text>
+            </View>
+          )}
+          <View style={[s.avatarDot, { backgroundColor: tone.dot }]} />
+        </View>
         <View style={s.identity}>
           <Text translate={false} style={s.name} numberOfLines={1}>{member.name}</Text>
-          <Text translate={false} style={s.subline} numberOfLines={1}>{member.email} · {member.id}</Text>
+          {!!subline && <Text translate={false} style={s.subline} numberOfLines={1}>{subline}</Text>}
         </View>
-        <Pressable onPress={onMore} hitSlop={8} style={s.moreButton}>
-          <AppIcon name="more" size={17} color="#8A94A4" />
+        <Pressable onPress={onMore} hitSlop={8} style={({ pressed }) => [s.moreButton, pressed && s.moreButtonPressed]}>
+          <AppIcon name="more" size={16} color="#667085" />
         </Pressable>
       </View>
 
-      <Text style={s.sectionLabel}>Department &amp; Role</Text>
-
-      <View style={s.deptRow}>
-        <Text style={s.deptText}>{member.department}</Text>
-      </View>
-
       <View style={s.pillRow}>
-        <View style={s.rolePill}><Text style={s.rolePillText}>{member.role}</Text></View>
-        <View style={[s.statusPill, isActive ? s.statusOn : s.statusLeave]}>
-          <View style={[s.statusDot, isActive ? s.dotOn : s.dotLeave]} />
-          <Text style={[s.statusText, isActive ? s.statusTextOn : s.statusTextLeave]}>{member.status}</Text>
+        <View style={s.rolePill}>
+          <AppIcon name="briefcase" size={11} color={colors.blue} strokeWidth={2.2} />
+          <Text style={s.rolePillText} numberOfLines={1}>{member.role}</Text>
+        </View>
+        {!!member.department && (
+          <View style={s.deptPill}>
+            <AppIcon name="home" size={11} color="#4F46E5" strokeWidth={2.2} />
+            <Text style={s.deptPillText} numberOfLines={1}>{member.department}</Text>
+          </View>
+        )}
+        <View style={[s.statusPill, { backgroundColor: tone.bg }]}>
+          <View style={[s.statusDot, { backgroundColor: tone.dot }]} />
+          <Text style={[s.statusText, { color: tone.fg }]}>{member.status}</Text>
         </View>
       </View>
     </Pressable>
@@ -358,28 +395,28 @@ const s = createDoctorStyles({
   screen: { flex: 1, backgroundColor: '#F0FDFA' },
   content: { paddingHorizontal: 14, paddingTop: 16, paddingBottom: 18 },
 
-  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   statCard: {
     flex: 1,
+    minHeight: 84,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 9,
+    gap: 10,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#D2DAE6',
-    borderRadius: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    shadowColor: '#17243A',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    shadowColor: '#0F172A',
     shadowOpacity: 0.05,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
   },
-  statIcon: { width: 30, height: 30, borderRadius: 9, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
+  statIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   statBody: { flex: 1, minWidth: 0 },
-  statValue: { fontSize: 17, lineHeight: 21, fontWeight: '800', color: '#17243A' },
-  statLabel: { fontSize: 11, fontWeight: '600', color: '#667085' },
+  statValue: { fontSize: 22, lineHeight: 26, fontWeight: '800', color: '#17243A' },
+  statLabel: { fontSize: 12, lineHeight: 15, fontWeight: '600', color: '#667085', marginTop: 1 },
 
   titleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
   title: { flex: 1, fontSize: 19, lineHeight: 24, fontWeight: '700', color: colors.blue },
@@ -410,38 +447,37 @@ const s = createDoctorStyles({
   card: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#D2DAE6',
-    borderRadius: 14,
-    padding: 14,
-    shadowColor: '#17243A',
+    borderColor: '#E3EEEC',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    shadowColor: '#0F172A',
     shadowOpacity: 0.05,
-    shadowRadius: 6,
+    shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    elevation: 1,
   },
-  cardTop: { flexDirection: 'row', alignItems: 'center' },
-  avatar: { width: 46, height: 46, borderRadius: 23, marginRight: 11 },
-  identity: { flex: 1 },
-  name: { fontSize: 15.5, fontWeight: '700', color: '#12213A' },
-  subline: { fontSize: 12, color: '#7B8493', marginTop: 2 },
-  moreButton: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  cardPressed: { backgroundColor: '#F6FBFA' },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  avatarWrap: { width: 50, height: 50 },
+  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#EEF2F6' },
+  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 20, fontWeight: '800', color: '#FFFFFF' },
+  avatarDot: { position: 'absolute', right: 0, bottom: 0, width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: '#FFFFFF' },
+  identity: { flex: 1, minWidth: 0 },
+  name: { fontSize: 16, fontWeight: '800', color: '#12213A' },
+  subline: { fontSize: 12.5, color: '#7B8493', marginTop: 2 },
+  moreButton: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F6F9' },
+  moreButtonPressed: { backgroundColor: '#E6EAF0' },
 
-  sectionLabel: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.4, color: '#98A2B3', textTransform: 'uppercase', marginTop: 13, marginBottom: 7 },
-  deptRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  deptText: { fontSize: 14, fontWeight: '600', color: '#26364D' },
-
-  pillRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 11 },
-  rolePill: { backgroundColor: colors.paleBlue, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
-  rolePillText: { fontSize: 12, fontWeight: '700', color: colors.blue },
-  statusPill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
-  statusOn: { backgroundColor: '#E6FFFB' },
-  statusLeave: { backgroundColor: '#FFF6E5' },
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7, marginTop: 12 },
+  rolePill: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: '100%', backgroundColor: colors.paleBlue, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  rolePillText: { flexShrink: 1, fontSize: 12, fontWeight: '700', color: colors.blue },
+  deptPill: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: '100%', backgroundColor: '#EEF2FF', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  deptPillText: { flexShrink: 1, fontSize: 12, fontWeight: '700', color: '#4338CA' },
+  statusPill: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
-  dotOn: { backgroundColor: '#16A34A' },
-  dotLeave: { backgroundColor: colors.amber },
-  statusText: { fontSize: 11.5, fontWeight: '700' },
-  statusTextOn: { color: colors.blue },
-  statusTextLeave: { color: '#B7791F' },
+  statusText: { fontSize: 12, fontWeight: '700' },
 
   pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
   pageInfo: { flex: 1, fontSize: 12, color: '#667085' },

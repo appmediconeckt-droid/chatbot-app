@@ -7,6 +7,7 @@
 //   DELETE /api/followups/:id  { doctor_id }
 import axiosInstance from '../../../../axiosConfig';
 import { formatLocalDateKey, getDoctorIdFromUser, getStoredDoctorUser, normalizeApiList, pickFirst } from './doctorAppointments';
+import { stripEmergencyTag } from '../../../../utils/emergencyTag';
 
 const getPatient = (record) => record?.patient || record?.patient_details || {};
 const getDoctor = (record) => record?.doctor || record?.doctor_details || {};
@@ -63,7 +64,7 @@ const buildAppointmentPatients = (appointments) => {
       gender: pickFirst(appointment.gender, patient.gender),
       phone: pickFirst(appointment.phone_number, appointment.phoneNumber, appointment.phone, appointment.patient_phone, patient.phoneNumber, patient.phone_number, patient.phone, patient.mobile, patient.patient_phone, 'N/A'),
       lastVisit: appointmentDate,
-      issue: pickFirst(appointment.symptoms, appointment.health_issue, appointment.problem, appointment.reason, appointment.notes, 'N/A'),
+      issue: pickFirst(stripEmergencyTag(appointment.symptoms), appointment.health_issue, appointment.problem, appointment.reason, appointment.notes, 'N/A'),
     };
     const existing = map.get(String(patientId));
     if (!existing || new Date(appointmentDate) > new Date(existing.lastVisit || 0)) map.set(String(patientId), record);

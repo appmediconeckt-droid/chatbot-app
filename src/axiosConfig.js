@@ -9,7 +9,8 @@ const API_ENDPOINTS = {
   // RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
   RAILWAY: 'https://humaeli-backend-update-production.up.railway.app',
   // DevTunnels: 'https://s5jl7g4z-5002.inc1.devtunnels.ms',
-  // DevTunnels: 'https://m429gbrg-5006.inc1.devtunnels.ms',
+  // The web dashboard's backend (doctor rating, walk-in statuses, …).
+  DEVTUNNEL_5006: 'https://m429gbrg-5006.inc1.devtunnels.ms',
   // DevTunnels: 'https://s5jl7g4z-5005.inc1.devtunnels.ms',
   // DevTunnels: 'https://m429gbrg-5003.inc1.devtunnels.ms',
   LOCAL_ADB_5002: 'http://127.0.0.1:5002',
@@ -18,8 +19,9 @@ const API_ENDPOINTS = {
   LOCAL_3000: 'http://localhost:3000',
 };
 
+// Dev builds (Metro) use the same backend as the web; release builds stay on Railway.
 export const API_BASE_URL = __DEV__
-  ? API_ENDPOINTS.RAILWAY
+  ? API_ENDPOINTS.DEVTUNNEL_5006
   : API_ENDPOINTS.RAILWAY;
 export const AI_REALTIME_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
 export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')

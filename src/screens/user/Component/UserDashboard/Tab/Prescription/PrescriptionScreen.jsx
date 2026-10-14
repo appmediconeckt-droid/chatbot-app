@@ -29,6 +29,7 @@ import axiosInstance, {
 import { PATIENT_GRADIENT } from '../../../../../../theme/palette';
 import { PrescriptionPreview } from '../../../counselor-dashboard/Tab/Prescriptions/PrescriptionReviews';
 import DoctorPrescriptionView from './DoctorPrescriptionView';
+import { stripEmergencyTag } from '../../../../../../utils/emergencyTag';
 
 const normalizeList = payload => {
   const list =
@@ -219,7 +220,7 @@ const toDoctorPrescription = (rawAppt, issuers) => {
     patientName: patient.fullName || patient.name || '',
     tokenNumber: appt.token_number,
     consultationMode: appt.consultation_mode,
-    complaint: appt.symptoms || appt.notes || '',
+    complaint: stripEmergencyTag(appt.symptoms) || appt.notes || '',
     date:
       appt.consultation_ended_at || appt.updatedAt || appt.date || appt.createdAt,
     diagnosis: appt.diagnosis,
@@ -292,7 +293,7 @@ const linkChatToAppointment = (rx, appointments) => {
     tokenNumber: match.token_number ?? match.tokenNumber ?? rx.tokenNumber,
     clinicId: String(match.clinic_id?._id || match.clinic_id || rx.clinicId || ''),
     consultationMode: match.consultation_mode || rx.consultationMode,
-    complaint: rx.complaint || match.symptoms || '',
+    complaint: rx.complaint || stripEmergencyTag(match.symptoms) || '',
   };
 };
 

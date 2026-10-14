@@ -827,7 +827,15 @@ export default function CalendarAvailabilityScreen() {
 
   const generateAllSlots = () => {
     const final = [];
+    // Only today onwards: past dates (and today's slots whose time has gone)
+    // can't be booked, so they never show in the preview.
+    const nowDate = new Date();
+    const todayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
+    const nowTime = `${String(nowDate.getHours()).padStart(2, '0')}:${String(nowDate.getMinutes()).padStart(2, '0')}`;
     for (let d = 1; d <= getDaysInMonth(month, year); d += 1) {
+      const dayStart = new Date(year, month, d).getTime();
+      if (dayStart < todayStart) continue;
+      const isToday = dayStart === todayStart;
       const dateKey = formatDateKey(year, month, d);
       const info = availabilityDateMap[dateKey] || {};
       const weekly = availabilityWeekdayMap[new Date(year, month, d).getDay()] || [];
@@ -838,11 +846,16 @@ export default function CalendarAvailabilityScreen() {
       const ranges = (info.ranges || []).length ? info.ranges : weekly;
       const filtered = ranges.filter((r) => !r.clinicId || String(r.clinicId) === String(selectedClinic?.id));
       const slots = filtered.flatMap((r) => generateSlotsForRange(year, month, d, r));
-      const unique = Array.from(new Map(slots.map((s) => [s.time, s])).values()).sort((a, b) => a.time.localeCompare(b.time));
+      const unique = Array.from(new Map(slots.map((s) => [s.time, s])).values())
+        .filter((slot) => !isToday || slot.time > nowTime)
+        .sort((a, b) => a.time.localeCompare(b.time));
       if (unique.length) final.push({ date: dateKey, slots: unique });
     }
     setSlotPreview(final);
-    if (!final.length) {
+    const lastDayStart = new Date(year, month, getDaysInMonth(month, year)).getTime();
+    if (!final.length && lastDayStart < todayStart) {
+      Alert.alert('Calendar', 'This month has already passed. Slots can only be generated for today and future dates.');
+    } else if (!final.length) {
       Alert.alert('Calendar', `No valid time ranges found for ${selectedClinic?.name || 'the selected hospital'}. Please add Start Time, End Time and Slot Duration first.`);
     }
   };

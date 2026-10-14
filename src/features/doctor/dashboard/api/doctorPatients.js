@@ -12,6 +12,8 @@ import {
   getDoctorTests,
   unpackConsultationNotes,
 } from '../../../../utils/consultationDetails';
+import { isPatientAccountDeleted } from '../../../../utils/deletedAccount';
+import { parseEmergencySymptoms, stripEmergencyTag } from '../../../../utils/emergencyTag';
 
 const unwrapApiArray = (payload) => {
   if (Array.isArray(payload)) return payload;
@@ -45,7 +47,10 @@ const getPatient = (a) => ({
   ...asObject(a.user), ...asObject(a.patient_data), ...asObject(a.patient_details),
   ...asObject(a.patient_id), ...asObject(a.patient),
 });
-const getPatientId = (a) => {
+// The patient's account id — never the appointment's own id. Walk-ins have
+// no account, and falling back to the booking id made every walk-in visit a
+// separate "patient".
+const getPatientAccountId = (a) => {
   const p = getPatient(a);
   // Never fall back to an object: String({}) is "[object Object]", which used
   // to merge every patient with a populated patient_id into one.
@@ -53,8 +58,17 @@ const getPatientId = (a) => {
     p.id, p._id, p.user_id,
     typeof a.patient_id === 'string' || typeof a.patient_id === 'number' ? a.patient_id : undefined,
     a.patientId, typeof a.patient === 'string' ? a.patient : undefined,
-    a.id, a._id,
   );
+};
+
+// Same person without an account id: same phone number (last 10 digits) and
+// same name. The name is part of it so family members sharing one phone stay
+// separate.
+const getPhoneIdentity = (details) => {
+  const digits = String(details.phone || '').replace(/\D/g, '').slice(-10);
+  const name = String(details.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (digits.length < 10 || !name || name === 'unknown patient') return null;
+  return `${digits}|${name}`;
 };
 
 const ageFromBirthDate = (value, today = new Date()) => {
@@ -100,7 +114,7 @@ const appointmentDoctorName = (a, doctorName) => {
   return pickFirst(doctor.fullName, doctor.full_name, doctor.name, a.doctor_name, doctorName, 'Doctor');
 };
 const getProblem = (a) => pickFirst(
-  a.problem, a.symptoms, a.reason, a.issue, a.health_issue, a.healthIssue, a.description, a.consultation_reason,
+  a.problem, stripEmergencyTag(a.symptoms), a.reason, a.issue, a.health_issue, a.healthIssue, a.description, a.consultation_reason,
   'General consultation',
 );
 
@@ -156,8 +170,9 @@ const normalizeRecord = (raw, doctorName) => {
     followUp: hasFollowUp(a) ? formatDate(pickFirst(a.follow_up_date, a.followUpDate, a.follow_up, a.followUp)) : 'Not required',
     consultationMode: text(pickFirst(a.consultation_mode, a.consultationMode, a.mode)),
     tokenNumber: text(pickFirst(a.token_number, a.tokenNumber, a.token_no, a.token)),
-    isEmergency: priority === 'emergency' || a.is_emergency === true || String(a.is_emergency) === 'true',
-    emergencyReason: text(pickFirst(a.emergency_reason, a.emergencyReason)),
+    isEmergency: priority === 'emergency' || a.is_emergency === true || String(a.is_emergency) === 'true'
+      || parseEmergencySymptoms(a.symptoms).isEmergency,
+    emergencyReason: text(pickFirst(a.emergency_reason, a.emergencyReason, parseEmergencySymptoms(a.symptoms).reason)),
     status: String(pickFirst(a.appointment_status, a.status, '')).toLowerCase(),
     bookingSource: String(pickFirst(a.booking_source, a.bookingSource, '')).toLowerCase(),
   };
@@ -167,11 +182,24 @@ const MISSING = ['N/A', 'Unknown Patient', '', undefined, null];
 
 const buildPatients = (appointments, doctorName) => {
   const byPatient = new Map();
+  // Account id / phone+name → the patient key they belong to, so a patient's
+  // walk-ins and app bookings all land on one card.
+  const keyByAccount = new Map();
+  const keyByPhone = new Map();
   appointments.forEach((a) => {
     const details = patientDetails(a);
-    const patientId = String(getPatientId(a));
+    const accountId = getPatientAccountId(a);
+    const accountKey = accountId !== undefined ? String(accountId) : null;
+    const phoneKey = getPhoneIdentity(details);
+    const patientId = (accountKey && keyByAccount.get(accountKey))
+      || (phoneKey && keyByPhone.get(phoneKey))
+      || accountKey
+      || (phoneKey ? `phone:${phoneKey}` : `visit:${pickFirst(a.id, a._id)}`);
+    if (accountKey && !keyByAccount.has(accountKey)) keyByAccount.set(accountKey, patientId);
+    if (phoneKey && !keyByPhone.has(phoneKey)) keyByPhone.set(phoneKey, patientId);
     const record = normalizeRecord(a, doctorName);
     const existing = byPatient.get(patientId) || { id: patientId, ...details, records: [] };
+    if (accountKey && !existing.accountId) existing.accountId = accountKey;
     // A later visit may carry details an earlier one lacked (web does the same).
     ['name', 'age', 'gender', 'phone', 'bloodGroup'].forEach((field) => {
       if (MISSING.includes(existing[field]) && !MISSING.includes(details[field])) existing[field] = details[field];
@@ -222,13 +250,16 @@ export async function loadDoctorPatients() {
   const walkins = responses[1].status === 'fulfilled'
     ? unwrapApiArray(responses[1].value.data).filter(belongsToDoctor) : [];
 
-  const patients = buildPatients([...online, ...walkins], doctorName);
+  // Visits of deleted patient accounts are not shown (same as the queue).
+  const patients = buildPatients([...online, ...walkins].filter((a) => !isPatientAccountDeleted(a)), doctorName);
   // Patients booked through the app show their current account name. QR
   // bookings keep the name given at booking: walk-ins have no account at all,
   // and a patient whose visits are all QR bookings is left as booked.
   const namesById = new Map(accountsResult.map((acc) => [acc.id, acc.fullName]));
   return patients.map((p) => {
     const allQr = p.records.length > 0 && p.records.every((r) => r.bookingSource === 'qr');
-    return namesById.has(p.id) && !allQr ? { ...p, name: namesById.get(p.id) } : p;
-  });
+    const accountId = p.accountId || p.id;
+    return namesById.has(accountId) && !allQr ? { ...p, name: namesById.get(accountId) } : p;
+  // A patient with no name left anywhere is a deleted account: don't list it.
+  }).filter((p) => p.name && p.name !== 'Unknown Patient');
 }

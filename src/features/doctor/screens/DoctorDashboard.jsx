@@ -562,6 +562,7 @@ export default function DoctorDashboard({ navigation }) {
   // Today's completed only drives the counters; the Completed tab lists them all.
   const [completedAll, setCompletedAll] = useState([]);
   const fetchInFlightRef = useRef(false);
+  const skippedAppointmentIdsRef = useRef(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -656,7 +657,15 @@ export default function DoctorDashboard({ navigation }) {
         .filter((apt) =>
           isTodayAppointment(apt) &&
           ['pending', 'confirmed', 'in-progress', 'skipped'].includes(normalizeAppointmentStatus(apt)))
-        .map((apt) => formatAppointment(apt));
+        .map((apt) => formatAppointment(apt))
+        .map((appt) => {
+          if (!skippedAppointmentIdsRef.current.has(appt.id)) return appt;
+          if (['completed', 'cancelled', 'in-progress'].includes(appt.status)) {
+            skippedAppointmentIdsRef.current.delete(appt.id);
+            return appt;
+          }
+          return { ...appt, status: 'skipped', queueStatus: 'skipped' };
+        });
       setAppointments(liveAppointmentList);
       restoreRunningConsultation(liveAppointmentList);
       setCancelledToday(
@@ -760,16 +769,22 @@ export default function DoctorDashboard({ navigation }) {
   const handleNextPatient = async () => {
     if (!selectedPatient || actionBusy || activeSession?.appt || activeSession?.status === 'break') return;
     setActionBusy(true);
+    let saved;
     try {
-      await patchAppointment(selectedPatient, getSkipPayload(selectedPatient));
+      const response = await patchAppointment(selectedPatient, getSkipPayload(selectedPatient));
+      saved = response.data?.appointment || response.data?.data;
     } catch (err) {
       showError(err, 'Unable to move patient to Next.');
       setActionBusy(false);
       return;
     }
     const skippedId = selectedPatient.id;
+    skippedAppointmentIdsRef.current.add(skippedId);
     const next = pendingAppointments.find((appt) => appt.id !== skippedId) || null;
-    setAppointments((prev) => prev.map((a) => (a.id === skippedId ? { ...a, status: 'skipped' } : a)));
+    const skippedPatient = saved
+      ? { ...formatAppointment({ ...saved, __appointmentSource: selectedPatient.appointmentSource }), status: 'skipped' }
+      : { ...selectedPatient, status: 'skipped' };
+    setAppointments((prev) => prev.map((a) => (a.id === skippedId ? skippedPatient : a)));
     setSelectedPatient(next);
     if (!next) {
       setConsentModalVisible(false);
@@ -816,6 +831,7 @@ export default function DoctorDashboard({ navigation }) {
       status: openPause ? 'paused' : 'started',
     });
     setAppointments((prev) => prev.map((a) => (a.id === appt.id ? { ...a, status: 'in-progress' } : a)));
+    skippedAppointmentIdsRef.current.delete(appt.id);
     setActiveTab('In Progress');
     return true;
   };
@@ -824,12 +840,7 @@ export default function DoctorDashboard({ navigation }) {
     if (!selectedPatient || actionBusy) return;
     // Web handleStartFromConsent: start in queue order / from the slot time.
     if (!canStartAppointment(selectedPatient)) {
-      Alert.alert(
-        'Not yet',
-        activeSession?.appt || activeSession?.status === 'break'
-          ? 'Finish the current consultation or break before starting another appointment.'
-          : `Consultation can start at ${selectedPatient.scheduledTime || 'the appointment time'}.`,
-      );
+      Alert.alert('Not yet', startBlockedReason(selectedPatient));
       return;
     }
     setActionBusy(true);
@@ -1098,10 +1109,11 @@ export default function DoctorDashboard({ navigation }) {
   }, [completedAll]);
   // Patients moved aside with "Next" in the consent form.
   const skippedAppointments = sortByToken(liveAppointments.filter((appt) => appt.status === 'skipped'));
-  // Web canStartConsultation / shouldShowStartConsultation: a patient can be
-  // started once their slot time is reached, or when they're first in line
-  // after someone was seen or moved to Next; walk-ins, emergencies and "Next"
-  // patients any time — never during another consultation or a break.
+  // Strict queue order: only the patient at the top of Pending (emergencies
+  // sort first) can be started. Once that token is started, completed or
+  // moved to Next, the following one moves up and becomes startable. "Next"
+  // patients can be started whenever the doctor is free — never during
+  // another consultation or a break.
   const pendingIndexOf = (appt) => pendingAppointments.findIndex((item) => item.id === appt?.id);
   const isQueueTurnAvailable = (appt) => (completed.length > 0 || skippedAppointments.length > 0) && pendingIndexOf(appt) === 0;
   const canStartAppointment = (appt) =>
@@ -1109,12 +1121,24 @@ export default function DoctorDashboard({ navigation }) {
     ['pending', 'confirmed', 'skipped'].includes(appt.status) &&
     !activeAppt &&
     !onBreak &&
-    (appt.status === 'skipped' || isAppointmentStartTimeReached(appt, now) || isQueueTurnAvailable(appt));
+    (appt.status === 'skipped'
+      || (appt.status === 'pending' && pendingIndexOf(appt) === 0)
+      || (appt.status === 'confirmed' && (isAppointmentStartTimeReached(appt, now) || isQueueTurnAvailable(appt))));
+  // Every waiting card shows Start Consultation; only the top one is enabled.
   const shouldShowStart = (appt) => {
     if (activeTab === 'Next') return appt?.status === 'skipped';
-    if (activeTab !== 'Pending' || !['pending', 'confirmed'].includes(appt?.status)) return false;
-    const index = pendingIndexOf(appt);
-    return isAppointmentStartTimeReached(appt, now) || (index >= 0 && index < 2);
+    return activeTab === 'Pending' && ['pending', 'confirmed'].includes(appt?.status);
+  };
+  // Why a patient can't be started yet (alert + consent form hint).
+  const startBlockedReason = (appt) => {
+    if (activeSession?.appt || activeSession?.status === 'break') {
+      return 'Finish the current consultation or break before starting another appointment.';
+    }
+    const top = pendingAppointments[0];
+    if (appt?.status === 'pending' && top && top.id !== appt.id) {
+      return `${getTokenLabel(top)} (${top.name}) is first in the queue. Start it or move it to Next first.`;
+    }
+    return `Consultation can start at ${appt?.scheduledTime || 'the appointment time'}.`;
   };
   const visibleQueue = activeTab === 'Completed'
     ? completedQueue
@@ -1537,9 +1561,7 @@ export default function DoctorDashboard({ navigation }) {
           nextDisabled={!selectedPatient || Boolean(activeSession?.appt) || activeSession?.status === 'break' || selectedPatient?.status === 'skipped'}
           startBlockedText={
             selectedPatient && !canStartAppointment(selectedPatient)
-              ? activeSession?.appt || activeSession?.status === 'break'
-                ? 'Finish the current consultation before starting another.'
-                : `Consultation can start at ${selectedPatient.scheduledTime || 'the appointment time'}.`
+              ? startBlockedReason(selectedPatient)
               : ''
           }
           patient={selectedPatient}

@@ -5,6 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../../../../axiosConfig';
 import { isPatientAccountDeleted } from '../../../../utils/deletedAccount';
+import { parseEmergencySymptoms, stripEmergencyTag } from '../../../../utils/emergencyTag';
 
 export const pickFirst = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== '');
@@ -79,6 +80,7 @@ const mergeAppointmentLists = (...lists) => {
 // come back through the appointment_status=cancelled list.
 export const loadDoctorAppointmentFeed = async (doctorId) => {
   const params = { doctor_id: doctorId };
+  await loadWalkinQueueState();
   const [online, walkins, completed, cancelled] = await Promise.all([
     axiosInstance.get('/api/appointments', { params }),
     axiosInstance.get('/api/walkin-appointments', { params }),
@@ -93,7 +95,7 @@ export const loadDoctorAppointmentFeed = async (doctorId) => {
     normalizeApiList(online.data),
     normalizeApiList(completed.data),
     normalizeApiList(cancelled.data),
-    normalizeApiList(walkins.data).map((item) => ({ ...item, __appointmentSource: 'walkin' })),
+    normalizeApiList(walkins.data).map((item) => withWalkinQueueState({ ...item, __appointmentSource: 'walkin' })),
   ).filter((a) => !isPatientAccountDeleted(a));
 };
 
@@ -322,7 +324,10 @@ const getBookedDateTime = (a) => {
 export const isEmergencyAppointment = (a) => {
   const raw = a?.__raw || a;
   return String(pickFirst(raw?.priority, raw?.appointment_priority, raw?.appointmentPriority, '')).toLowerCase() === 'emergency'
-    || raw?.is_emergency === true || raw?.isEmergency === true || Number(raw?.is_emergency) === 1;
+    || raw?.is_emergency === true || raw?.isEmergency === true || Number(raw?.is_emergency) === 1
+    || String(raw?.is_emergency) === 'true'
+    // QR walk-ins: the walk-in API keeps only symptoms, which carry the tag.
+    || parseEmergencySymptoms(raw?.symptoms).isEmergency;
 };
 
 // Booked for today by its own date — unlike isTodayAppointment, an open
@@ -473,11 +478,11 @@ export const isConsultationStartOpen = (appt, nowMs = Date.now()) => {
   return !dt || dt.getTime() <= nowMs;
 };
 
-// Emergencies show "Emergency" instead of a time everywhere.
+// An emergency token keeps its slot time; only a slotless emergency reads 'Emergency'.
 const formatAppointmentTime = (a) => {
-  if (isEmergencyAppointment(a)) return 'Emergency';
   const start = resolveScheduledStart(a);
   if (start) return start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (isEmergencyAppointment(a)) return 'Emergency';
   return getAppointmentTimeValue(a) || 'Today';
 };
 
@@ -514,8 +519,11 @@ export const formatAppointment = (a, forcedStatus) => {
     ),
     gender: pickFirst(a?.gender, a?.patient_gender, patient?.gender, 'Not specified'),
     isEmergency: isEmergencyAppointment(a),
-    emergencyReason: pickFirst(a?.emergency_reason, a?.emergencyReason),
-    issue: pickFirst(a?.emergency_reason, a?.emergencyReason, a?.reason, a?.issue, a?.symptoms, a?.description, 'General Checkup'),
+    emergencyReason: pickFirst(a?.emergency_reason, a?.emergencyReason, parseEmergencySymptoms(a?.symptoms).reason),
+    issue: pickFirst(
+      a?.emergency_reason, a?.emergencyReason, parseEmergencySymptoms(a?.symptoms).reason,
+      a?.reason, a?.issue, stripEmergencyTag(a?.symptoms), a?.description, 'General Checkup',
+    ),
     scheduledTime: formatAppointmentTime(a),
     status: normalizeAppointmentStatus(a, forcedStatus),
     phone: pickFirst(
@@ -588,7 +596,7 @@ export const sortByToken = (list = []) => [...list].sort(compareByToken);
 // Readable label only — never a code cut from the database id (that produced
 // meaningless labels like "Pa58" for appointments without a token).
 export const getTokenLabel = (appt) => {
-  if (isEmergencyAppointment(appt)) return 'Emergency';
+  if (isEmergencyAppointment(appt)) return appt?.tokenNumber ? `Emergency #${appt.tokenNumber}` : 'Emergency';
   if (appt?.tokenNumber) return `Token #${appt.tokenNumber}`;
   if (appt?.appointmentNo) return appt.appointmentNo;
   return getAppointmentSource(appt) === 'walkin' ? 'Walk-in' : 'No token';
@@ -652,7 +660,9 @@ const getWalkinWriteStatus = (status) => {
 
 const getWalkinStatusCandidates = (status) => {
   const value = normalizeWriteStatus(status);
-  if (value === 'in_progress') return ['in_consultation', 'IN_CONSULTATION', 'in-progress', 'in_progress', 'IN_PROGRESS'];
+  // The web sends 'in-progress' for a walk-in start; the walk-in model's enum
+  // rejects in_consultation, so that comes last.
+  if (value === 'in_progress' || value === 'in_consultation') return ['in-progress', 'in_progress', 'IN_PROGRESS', 'in_consultation', 'IN_CONSULTATION'];
   if (value === 'completed' || value === 'complete') return ['completed', 'COMPLETED', 'complete', 'COMPLETE'];
   if (value === 'cancelled' || value === 'canceled') return ['cancelled', 'cancelled', 'CANCELLED', 'canceled', 'CANCELED'];
   if (value === 'skipped') return ['skipped', 'SKIPPED'];
@@ -698,25 +708,107 @@ const buildWalkinPatchPayloads = (appt, body = {}) => {
     getWalkinStatusCandidates(status).flatMap((candidate) => [
       { ...withDoctor, status: candidate },
       { ...withDoctor, appointment_status: candidate },
-      { ...withDoctor, walkin_status: candidate },
     ]),
   );
+};
+
+// ---- walk-in queue state kept on this device ----------------------------------
+// The deployed walk-in model's appointment_status only takes booked / pending /
+// confirmed / completed / cancelled: "skipped", "in-progress" and
+// "in_consultation" are rejected with a 400 (the backend adds them, but that
+// isn't deployed yet). Both are tried on the server first; when refused, a
+// walk-in moved to Next, or whose consultation was started, is remembered on
+// this device for the day, and the feed adds the matching queue_status /
+// consultation_started_at to the row. Any status the server does save
+// (start / skip / complete / cancel) clears it.
+const WALKIN_QUEUE_KEY = 'doctorWalkinQueueState';
+let walkinQueue = {}; // { [walk-in id]: { day, state: 'skipped' | 'in-progress', startedAt } }
+const walkinKey = (a) => String(pickFirst(a?.apiId, a?.__raw?._id, a?.__raw?.id, a?._id, a?.id) ?? '');
+const saveWalkinQueue = () =>
+  AsyncStorage.setItem(WALKIN_QUEUE_KEY, JSON.stringify(walkinQueue)).catch(() => {});
+
+export const loadWalkinQueueState = async () => {
+  try {
+    walkinQueue = JSON.parse((await AsyncStorage.getItem(WALKIN_QUEUE_KEY)) || '{}') || {};
+  } catch {
+    walkinQueue = {};
+  }
+  const today = formatLocalDateKey();
+  walkinQueue = Object.fromEntries(Object.entries(walkinQueue).filter(([, entry]) => entry?.day === today));
+};
+
+const setWalkinQueueState = (appt, state) => {
+  const key = walkinKey(appt);
+  if (!key) return null;
+  if (state) {
+    walkinQueue[key] = { day: formatLocalDateKey(), state, startedAt: state === 'in-progress' ? new Date().toISOString() : null };
+  } else if (walkinQueue[key]) {
+    delete walkinQueue[key];
+  } else {
+    return null;
+  }
+  saveWalkinQueue();
+  return walkinQueue[key] || null;
+};
+
+// A still-booked walk-in row with this device's Next / started state applied.
+const withWalkinQueueState = (row) => {
+  const entry = walkinQueue[walkinKey(row)];
+  if (!entry) return row;
+  const status = statusKey(pickFirst(row.appointment_status, row.status));
+  if (status && !['booked', 'pending', 'waiting'].includes(status)) {
+    // Completed / cancelled on the server: the local state is done with.
+    delete walkinQueue[walkinKey(row)];
+    saveWalkinQueue();
+    return row;
+  }
+  if (entry.state === 'skipped') return { ...row, queue_status: 'skipped' };
+  if (entry.state === 'in-progress') return { ...row, consultation_started_at: entry.startedAt || new Date().toISOString() };
+  return row;
+};
+
+// The saved row's status, to check the server really applied a change: the
+// walk-in API answers 200 even for fields it ignores.
+const savedWalkinStatus = (response) => {
+  const saved = response?.data?.data || response?.data?.appointment || response?.data;
+  const value = pickFirst(saved?.appointment_status, saved?.status);
+  return value === undefined ? null : normalizeWriteStatus(value);
 };
 
 export const patchAppointment = async (appt, body) => {
   const path = getAppointmentApiPath(appt);
   if (getAppointmentSource(appt) !== 'walkin') return axiosInstance.patch(path, body);
 
+  const requested = pickFirst(body?.status, body?.appointment_status, body?.appointmentStatus, body?.walkin_status, body?.walkinStatus);
+  const requestedKey = requested ? normalizeWriteStatus(requested) : '';
+
   const payloads = buildWalkinPatchPayloads(appt, body);
   let lastError = null;
   for (const payload of payloads) {
     try {
-      return await axiosInstance.patch(path, payload);
+      const response = await axiosInstance.patch(path, payload);
+      const wanted = pickFirst(payload.status, payload.appointment_status);
+      const saved = savedWalkinStatus(response);
+      if (wanted && saved && saved !== normalizeWriteStatus(wanted)) {
+        lastError = new Error('The clinic server did not save this status change.');
+        continue;
+      }
+      if (requested) setWalkinQueueState(appt, null);
+      return response;
     } catch (err) {
       lastError = err;
       const statusCode = err?.response?.status;
       if (statusCode !== 400 && statusCode !== 422) throw err;
     }
+  }
+  // Next / start refused by the server: keep it on this device (see walkinQueue).
+  if (requestedKey === 'skipped') {
+    setWalkinQueueState(appt, 'skipped');
+    return { data: { success: true, localOnly: true } };
+  }
+  if (requestedKey === 'in_progress' || requestedKey === 'in_consultation') {
+    const entry = setWalkinQueueState(appt, 'in-progress');
+    return { data: { success: true, localOnly: true, data: { consultation_started_at: entry?.startedAt } } };
   }
   throw lastError;
 };

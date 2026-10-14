@@ -16,6 +16,7 @@ import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
+import { stripEmergencyTag } from '../../../../utils/emergencyTag';
 import { KeyboardSheetOverlay, KeyboardSheetScroll } from '../../../../components/common/KeyboardSheet';
 
 const STATUS_META = {
@@ -55,7 +56,7 @@ const normalizeWalkin = (item) => ({
     item.visitor_name, item.visitorName, item.name, item.full_name, ''),
   phone: pickFirst(item.phone_number, item.phone, item.contact_number, ''),
   gender: item.gender || 'Not specified',
-  problem: pickFirst(item.problem, item.symptoms, item.reason, item.description, ''),
+  problem: pickFirst(item.problem, stripEmergencyTag(item.symptoms), item.reason, item.description, ''),
   status: normalizeStatus(pickFirst(item.appointment_status, item.appointmentStatus, item.walkin_status, item.queue_status, item.status)),
   createdAt: pickFirst(item.created_at, item.createdAt, item.date, item.appointment_date),
   time: pickFirst(item.time, item.appointment_time),

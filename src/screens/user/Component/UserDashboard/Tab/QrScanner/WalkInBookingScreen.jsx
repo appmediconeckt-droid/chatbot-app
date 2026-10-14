@@ -25,6 +25,7 @@ import PATIENT from '../../../../../../theme/palette';
 import api, { API_BASE_URL } from '../../../../../../axiosConfig';
 import { toImageUri } from '../../../../../../utils/imageUri';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import { tagEmergencySymptoms } from '../../../../../../utils/emergencyTag';
 
 const API = `${API_BASE_URL.replace(/\/+$/, '').replace(/\/api$/, '')}/api`;
 const GENDERS = [
@@ -119,6 +120,16 @@ const buildDaySlots = (ranges, date) => {
     .map((slot, index) => ({ ...slot, time: minutesToKey(slot.minutes), token: index + 1 }));
 };
 
+// A clinic record's ids: availability ranges store the clinic's _id, while
+// /api/qr/walkin and older rows may name it by id / clinic_id.
+const clinicIdsOf = (clinic) => (clinic && typeof clinic === 'object'
+  ? [clinic._id, clinic.id, clinic.clinic_id, clinic.clinicId].filter((v) => v !== undefined && v !== null && v !== '').map(String)
+  : []);
+const clinicNameOf = (clinic) => String(pick(clinic?.clinic_name, clinic?.name, clinic?.clinicName, '') || '');
+const clinicAddressOf = (clinic) => String(pick(
+  typeof clinic?.location === 'string' ? clinic.location : undefined, clinic?.address, clinic?.city, '',
+) || '');
+
 const SLOT_GROUPS = [
   { label: 'Morning', icon: 'sunny-outline', test: (m) => m < 720 },
   { label: 'Afternoon', icon: 'partly-sunny-outline', test: (m) => m >= 720 && m < 1020 },
@@ -127,7 +138,9 @@ const SLOT_GROUPS = [
 
 const emptyForm = { patientName: '', contactNumber: '', problem: '', dateOfBirth: '', location: '', gender: '', appointmentTime: '', email: '', priority: 'normal', emergencyReason: '' };
 
-export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', onClose }) {
+export default function WalkInBookingScreen({
+  visible, doctorId, clinicId: scannedClinicId = null, clinicName: scannedClinicName = '', source = 'qr', onClose,
+}) {
   // Explicit insets: SafeAreaView inside this Modal (its own Android window)
   // could report 0, leaving the submit button under the navigation bar.
   const insets = useSafeAreaInsets();
@@ -147,6 +160,9 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
   const [bookedTime, setBookedTime] = useState('');
   const [bookedClinicId, setBookedClinicId] = useState(null);
   const [clinics, setClinics] = useState([]);
+  // Picked by the patient only when the QR doesn't name a clinic and the
+  // doctor has more than one.
+  const [chosenClinicId, setChosenClinicId] = useState(null);
   const visitRecorded = useRef(null);
 
   // Fresh form for every scan, pre-filled from the signed-in patient's profile.
@@ -157,6 +173,7 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
     setToken('');
     setBookedTime('');
     setBookedClinicId(null);
+    setChosenClinicId(null);
     (async () => {
       let user = {};
       try { user = JSON.parse((await AsyncStorage.getItem('userData')) || '{}') || {}; } catch { user = {}; }
@@ -241,10 +258,40 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
     return () => { active = false; clearInterval(timer); };
   }, [visible, doctorId, slotsReload]);
 
+  // The clinic this walk-in is for: the one the scanned QR names (each clinic
+  // has its own QR), else the patient's pick, else the doctor's only clinic.
+  // Only that clinic's slots are offered — never another clinic's.
+  const scannedClinic = scannedClinicId
+    ? clinics.find((c) => clinicIdsOf(c).includes(String(scannedClinicId)))
+      || (scannedClinicName ? clinics.find((c) => clinicNameOf(c).trim().toLowerCase() === String(scannedClinicName).trim().toLowerCase()) : null)
+    : null;
+  const activeClinic = scannedClinicId
+    ? scannedClinic || null
+    : chosenClinicId
+      ? clinics.find((c) => clinicIdsOf(c).includes(String(chosenClinicId))) || null
+      : clinics.length === 1 ? clinics[0] : null;
+  const activeClinicIds = new Set([
+    ...(scannedClinicId ? [String(scannedClinicId)] : []),
+    ...clinicIdsOf(activeClinic),
+  ]);
+  const activeClinicId = activeClinic ? clinicIdsOf(activeClinic)[0] : scannedClinicId ? String(scannedClinicId) : null;
+  const activeClinicName = activeClinic ? clinicNameOf(activeClinic) : String(scannedClinicName || '');
+  const needsClinicChoice = !scannedClinicId && clinics.length > 1 && !activeClinic;
+  const inActiveClinic = (clinicId) => !clinicId || !activeClinicIds.size || activeClinicIds.has(String(clinicId));
+
   const today = todayIndia();
   const dayOff = availability.unavailableDates.some((item) =>
-    !item?.clinic_id && String(item?.date || item?.unavailable_date || item).slice(0, 10) === today);
-  const daySlots = dayOff ? [] : buildDaySlots(availability.ranges, today);
+    inActiveClinic(item?.clinic_id) && String(item?.date || item?.unavailable_date || item).slice(0, 10) === today);
+  // Tokens are numbered across the doctor's whole day (as the backend does);
+  // the slots offered are only the active clinic's.
+  const tokenByMinute = new Map(buildDaySlots(availability.ranges, today).map((slot) => [slot.minutes, slot.token]));
+  const daySlots = dayOff || needsClinicChoice ? [] : buildDaySlots(
+    availability.ranges.filter((range) => inActiveClinic(range.clinic_id)), today,
+  ).map((slot) => ({
+    ...slot,
+    token: tokenByMinute.get(slot.minutes) ?? slot.token,
+    clinicId: slot.clinicId || activeClinicId,
+  }));
   const bookedMinutes = new Set(availability.bookedSlots
     .filter((slot) => String(slot?.date || '').slice(0, 10) === today)
     .map((slot) => toMinutes(slot.time))
@@ -298,6 +345,7 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
       const reason = form.emergencyReason.trim();
       if (reason.length < 10 || reason.length > 1000) next.emergencyReason = 'Describe the emergency in 10 to 1000 characters';
     }
+    if (needsClinicChoice) next.clinic = 'Please choose the clinic you are visiting';
     if (!form.appointmentTime) next.appointmentTime = 'Please choose a time slot';
     else if (isTimeBooked(form.appointmentTime)) next.appointmentTime = SLOT_BOOKED_MESSAGE;
     setErrors(next);
@@ -312,11 +360,23 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
     }
     const age = calculateAge(form.dateOfBirth);
     const isEmergency = form.priority === 'emergency';
+    // The signed-in patient's account, so the doctor's Patients tab groups
+    // this visit with their other bookings.
+    let patientAccountId = null;
+    try {
+      const stored = JSON.parse((await AsyncStorage.getItem('userData')) || '{}') || {};
+      patientAccountId = pick(await AsyncStorage.getItem('userId'), stored._id, stored.id) || null;
+    } catch {
+      patientAccountId = null;
+    }
     const payload = {
       patient_name: form.patientName.trim(),
       phone_number: form.contactNumber.trim(),
-      symptoms: form.problem.trim(),
+      // The walk-in API drops priority / is_emergency / emergency_reason, so
+      // an emergency is also tagged into symptoms for the doctor's queue.
+      symptoms: isEmergency ? tagEmergencySymptoms(form.problem, form.emergencyReason) : form.problem.trim(),
       doctor_id: doctorId,
+      ...(patientAccountId ? { patient_id: String(patientAccountId) } : {}),
       date_of_birth: form.dateOfBirth,
       age: age ? Number(age) : undefined,
       location: form.location.trim(),
@@ -327,6 +387,8 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
       email: form.email.trim() || undefined,
       status: 'booked',
       booking_source: source,
+      // The clinic whose QR was scanned (or the one picked) — the visit is booked there.
+      ...(activeClinicId ? { clinic_id: activeClinicId } : {}),
       // Emergency rides on this booking's own token (the slot chosen above);
       // the doctor's queue puts emergency tokens first.
       ...(isEmergency ? { priority: 'emergency', is_emergency: true, emergency_reason: form.emergencyReason.trim() } : {}),
@@ -344,13 +406,21 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
         // Keep the emergency flag + reason and retry once with High rather
         // than losing the patient's booking.
         const firstMessage = String(firstError?.response?.data?.message || firstError?.response?.data?.error || '');
-        if (!isEmergency || firstError?.response?.status !== 400 || !/priority|enum|valid/i.test(firstMessage)) throw firstError;
-        response = await axios.post(url, { ...payload, priority: 'High' }, options);
+        if (firstError?.response?.status !== 400) throw firstError;
+        if (/clinic_id/i.test(firstMessage) && /not allowed|unknown/i.test(firstMessage)) {
+          // An older walk-in API that doesn't take clinic_id: book without it.
+          const { clinic_id: _unused, ...withoutClinic } = payload;
+          response = await axios.post(url, withoutClinic, options);
+        } else if (isEmergency && /priority|enum|valid/i.test(firstMessage)) {
+          response = await axios.post(url, { ...payload, priority: 'High' }, options);
+        } else {
+          throw firstError;
+        }
       }
       const created = response.data?.data || response.data?.appointment || response.data || {};
       const tokenValue = pick(created.token_number, created.tokenNumber, created.walkin_token, created.queue_token, created.token, created.id, 'Booked');
       setBookedTime(form.appointmentTime);
-      setBookedClinicId(selectedSlot?.clinicId || null);
+      setBookedClinicId(activeClinicId || selectedSlot?.clinicId || null);
       Keyboard.dismiss();
       setToken(String(tokenValue));
     } catch (error) {
@@ -383,14 +453,14 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
   const doctorPhoto = doctor
     ? toImageUri(pick(doctor.profilePhoto, doctor.profile_photo, doctor.profileImage, doctor.photo, doctor.image, doctor.avatar))
     : null;
-  const bookedClinic = (bookedClinicId
-    && clinics.find((clinic) => String(pick(clinic._id, clinic.id)) === String(bookedClinicId)))
+  const bookedClinic = activeClinic
+    || (bookedClinicId && clinics.find((clinic) => clinicIdsOf(clinic).includes(String(bookedClinicId))))
     || (clinics.length === 1 ? clinics[0] : null);
   const clinicSource = bookedClinic
     || (doctor ? pick(doctor.clinic, Array.isArray(doctor.clinics) ? doctor.clinics[0] : undefined) : undefined);
   const clinicName = typeof clinicSource === 'string'
     ? clinicSource
-    : pick(clinicSource?.clinic_name, clinicSource?.name, clinicSource?.clinicName, doctor?.clinic_name, doctor?.clinicName, '') || '';
+    : pick(clinicSource?.clinic_name, clinicSource?.name, clinicSource?.clinicName, activeClinicName, doctor?.clinic_name, doctor?.clinicName, '') || '';
   const clinicAddress = clinicSource && typeof clinicSource === 'object'
     ? pick(typeof clinicSource.location === 'string' ? clinicSource.location : undefined, clinicSource.address, clinicSource.city, '') || ''
     : '';
@@ -491,6 +561,49 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
                   )}
                 </View>
               </View>
+              {scannedClinicId || clinics.length === 1 ? (
+                <View style={s.clinicCard}>
+                  <View style={s.clinicIcon}>
+                    <Ionicons name="business" size={18} color={PATIENT.primary} />
+                  </View>
+                  <View style={s.flex}>
+                    <Text style={s.clinicLabel}>{scannedClinicId ? 'Clinic · Scanned QR' : 'Clinic'}</Text>
+                    <Text style={s.clinicName} numberOfLines={1} translate={false}>{activeClinicName || 'Clinic'}</Text>
+                    {!!clinicAddressOf(activeClinic) && (
+                      <Text style={s.clinicAddress} numberOfLines={2} translate={false}>{clinicAddressOf(activeClinic)}</Text>
+                    )}
+                  </View>
+                  {!!scannedClinicId && <Ionicons name="qr-code-outline" size={18} color={PATIENT.primary} />}
+                </View>
+              ) : clinics.length > 1 ? (
+                <Field label="Which clinic are you visiting? *" error={errors.clinic}>
+                  <View style={s.clinicChoices}>
+                    {clinics.map((clinic) => {
+                      const id = clinicIdsOf(clinic)[0];
+                      const on = Boolean(activeClinic) && clinicIdsOf(activeClinic)[0] === id;
+                      return (
+                        <Pressable
+                          key={id}
+                          onPress={() => {
+                            setChosenClinicId(id);
+                            setForm((current) => ({ ...current, appointmentTime: '' }));
+                            setErrors((current) => ({ ...current, clinic: '', appointmentTime: '' }));
+                          }}
+                          style={[s.clinicChoice, on && s.clinicChoiceOn]}
+                        >
+                          <Ionicons name="business-outline" size={16} color={on ? '#FFFFFF' : PATIENT.primary} />
+                          <View style={s.flex}>
+                            <Text style={[s.clinicChoiceName, on && s.clinicChoiceTextOn]} numberOfLines={1} translate={false}>{clinicNameOf(clinic) || 'Clinic'}</Text>
+                            {!!clinicAddressOf(clinic) && (
+                              <Text style={[s.clinicChoiceAddress, on && s.clinicChoiceTextOn]} numberOfLines={1} translate={false}>{clinicAddressOf(clinic)}</Text>
+                            )}
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </Field>
+              ) : null}
               <Text style={s.intro}>Fill in your details to get your appointment token.</Text>
 
               <Field label="Patient Name *" error={errors.patientName}>
@@ -576,6 +689,12 @@ export default function WalkInBookingScreen({ visible, doctorId, source = 'qr', 
                     <Pressable onPress={() => setSlotsReload((n) => n + 1)} style={s.retryBtn}>
                       <Text style={s.retryText}>Retry</Text>
                     </Pressable>
+                  </View>
+                ) : needsClinicChoice ? (
+                  <View style={s.slotState}>
+                    <Ionicons name="business-outline" size={26} color="#94A3B8" />
+                    <Text style={s.slotStateTitle}>Choose a clinic first</Text>
+                    <Text style={s.slotStateText}>Pick the clinic above to see its slots for today.</Text>
                   </View>
                 ) : !freeSlots.length ? (
                   <View style={s.slotState}>
@@ -695,6 +814,17 @@ const s = StyleSheet.create({
   doctorName: { fontSize: 16, fontWeight: '800', color: '#0F172A' },
   doctorSpec: { fontSize: 12.5, color: '#64748B', marginTop: 2 },
   intro: { fontSize: 13, color: '#64748B', marginTop: 12, marginBottom: 6 },
+  clinicCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#F0FBF4', borderRadius: 14, borderWidth: 1, borderColor: '#BBE7CC', padding: 12, marginTop: 10 },
+  clinicIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  clinicLabel: { fontSize: 11.5, fontWeight: '700', color: '#15803D', textTransform: 'uppercase', letterSpacing: 0.3 },
+  clinicName: { fontSize: 15, fontWeight: '800', color: '#0F172A', marginTop: 1 },
+  clinicAddress: { fontSize: 12.5, color: '#64748B', marginTop: 2 },
+  clinicChoices: { gap: 8 },
+  clinicChoice: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: '#BBE7CC', borderRadius: 12, backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingVertical: 10 },
+  clinicChoiceOn: { backgroundColor: PATIENT.primary, borderColor: PATIENT.primary },
+  clinicChoiceName: { fontSize: 14, fontWeight: '800', color: '#0F172A' },
+  clinicChoiceAddress: { fontSize: 12, color: '#64748B', marginTop: 1 },
+  clinicChoiceTextOn: { color: '#FFFFFF' },
   field: { marginTop: 12 },
   label: { fontSize: 12.5, fontWeight: '700', color: '#334155', marginBottom: 6 },
   input: { minHeight: 46, borderWidth: 1, borderColor: '#D5DCE5', borderRadius: 11, backgroundColor: '#FFFFFF', paddingHorizontal: 12, fontSize: 14.5, color: '#0F172A' },
