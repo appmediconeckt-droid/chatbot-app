@@ -4,11 +4,11 @@
 //   GET  /api/auth/getUser/:id                     patient info
 //   GET  /api/clinics?doctor_id                    doctor's clinics
 //   GET  /api/availability/available?doctor_id     slots (fallback /api/availability/ranges)
-//   POST /api/appointments                         book (normal or emergency) → token number
+//   POST /api/appointments                         book a regular doctor appointment
 // Steps: 1 select (clinic, mode, type, location, date, time) → 2 review &
 // payment → 3 success with the token number.
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
@@ -159,8 +159,6 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   const [step, setStep] = useState('select'); // select | payment | success
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
-  const [priority, setPriority] = useState('normal');
-  const [emergencyReason, setEmergencyReason] = useState('');
   const [selectedClinicId, setSelectedClinicId] = useState(null);
   const [selectedModeId, setSelectedModeId] = useState('in-clinic');
   const [clinicOpen, setClinicOpen] = useState(false);
@@ -176,7 +174,6 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   const [bookError, setBookError] = useState('');
   const [token, setToken] = useState(null);
   const [patientInfo, setPatientInfo] = useState(null);
-  const isEmergency = priority === 'emergency';
 
   // Reset everything each time the sheet opens for a doctor.
   useEffect(() => {
@@ -184,8 +181,6 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
     setStep('select');
     setSelectedDate(null);
     setSelectedTime(null);
-    setPriority('normal');
-    setEmergencyReason('');
     setSelectedModeId('in-clinic');
     setClinicOpen(false);
     setModeOpen(false);
@@ -399,7 +394,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   const totalFee = (Number(selectedClinic?.fee) || 0) + (Number(selectedMode?.fee) || 0);
 
   // Regular bookings happen at the chosen clinic, so the location is the
-  // clinic address (read-only) — an emergency is a token at the clinic too.
+  // clinic address (read-only).
   useEffect(() => {
     if (selectedClinic?.address) setLocation(selectedClinic.address);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -408,20 +403,10 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   const pt = patientInfo || {};
   const patientName = pickFirst(pt.full_name, pt.fullName, pt.name, 'You');
   const dateStr = selectedDate ? `${selectedDate.day}, ${selectedDate.label}` : '';
-  // An emergency is a normal token booking (date + slot → token number)
-  // flagged 'emergency' with a reason — there is no emergency without a token.
-  // The doctor's queue then puts that token first.
-  const emergencyReasonOk = emergencyReason.trim().length >= 10 && emergencyReason.trim().length <= 1000;
-  const canContinue = !!selectedDate && !!selectedTime && hasClinics && !!location.trim()
-    && (!isEmergency || emergencyReasonOk);
+  const canContinue = !!selectedDate && !!selectedTime && hasClinics && !!location.trim();
 
   const confirmBooking = async () => {
     if (booking) return;
-    if (isEmergency && !emergencyReasonOk) {
-      setStep('select');
-      setBookError('Describe the emergency in 10 to 1000 characters.');
-      return;
-    }
     if (!hasClinics) {
       setBookError('This doctor has no clinic available, so the appointment cannot be booked.');
       return;
@@ -454,8 +439,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
         payment_method: paymentMethod,
         notes: `Consultation: ${selectedMode.name} at ${selectedClinic.name}. Location: ${location.trim()}`,
         booking_source: 'online',
-        priority,
-        ...(isEmergency ? { emergency_reason: emergencyReason.trim(), is_emergency: true } : {}),
+        priority: 'normal',
       };
     try {
       const res = await api.post('/api/appointments', payload);
@@ -507,19 +491,15 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       <ScrollView contentContainerStyle={s.content}>
         <View style={s.successHero}>
           <View style={s.successIcon}><GradientFill /><Ionicons name="checkmark" size={38} color="#FFF" /></View>
-          <Text style={s.successTitle}>{isEmergency ? 'Emergency Appointment Booked' : 'Appointment Booked Successfully!'}</Text>
-          <Text style={s.successSub}>
-            {isEmergency
-              ? 'Your token is marked as an emergency — the doctor sees it at the top of the queue. Please reach the clinic as soon as you can.'
-              : 'A confirmation notification with all the details has been generated for you.'}
-          </Text>
+          <Text style={s.successTitle}>Appointment Booked Successfully!</Text>
+          <Text style={s.successSub}>A confirmation notification with all the details has been generated for you.</Text>
         </View>
-        <LinearGradient colors={isEmergency ? ['#DC2626', '#EF4444'] : PATIENT_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.tokenCard}>
+        <LinearGradient colors={PATIENT_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.tokenCard}>
           <View style={s.flex}>
             <Text style={s.tokenLabel}>
-              <Ionicons name={isEmergency ? 'alert-circle' : 'ticket-outline'} size={13} color="#FFF" /> {isEmergency ? 'Emergency Token' : 'Token Number'}
+              <Ionicons name="ticket-outline" size={13} color="#FFF" /> Token Number
             </Text>
-            <Text style={s.tokenNote}>{isEmergency ? 'Priority — seen first by the doctor' : 'Arrive 15 minutes early'}</Text>
+            <Text style={s.tokenNote}>Arrive 15 minutes early</Text>
           </View>
           <Text style={s.tokenNum}>{token != null ? `#${token}` : 'Pending'}</Text>
         </LinearGradient>
@@ -529,7 +509,6 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
           <Row icon="business-outline" label="Clinic" value={selectedClinic.name} />
           <Row icon="location-outline" label="Location" value={location || selectedClinic.address} />
           <Row icon={selectedMode.icon} label="Consultation Mode" value={selectedMode.name} />
-          {isEmergency && <Row icon="alert-circle-outline" label="Emergency" value={emergencyReason.trim()} />}
           <Row icon="calendar-outline" label="Date" value={dateStr} />
           <Row icon="time-outline" label="Time" value={selectedTime} last />
           <View style={s.totalRow}><Text style={s.totalLabel}>Total Fee</Text><Text style={s.totalValue}>₹{totalFee}</Text></View>
@@ -551,7 +530,6 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
           <Row icon="business-outline" label="Clinic" value={selectedClinic.name} />
           <Row icon="location-outline" label="Location" value={location} />
           <Row icon={selectedMode.icon} label="Mode" value={selectedMode.name} />
-          {isEmergency && <Row icon="alert-circle-outline" label="Emergency" value={emergencyReason.trim()} />}
           <Row icon="calendar-outline" label="Date" value={dateStr} />
           <Row icon="time-outline" label="Time" value={selectedTime} last />
         </View>
@@ -669,62 +647,26 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
         </Selector>
 
         {/* Mode selector */}
-        {!isEmergency && (
-          <Selector
-            eyebrow="CONSULTATION MODE"
-            icon={selectedMode.icon.replace('-outline', '')}
-            value={selectedMode.name}
-            open={modeOpen}
-            onToggle={() => { setModeOpen((o) => !o); setClinicOpen(false); }}
-          >
-            {MODES.map((m) => (
-              <Pressable key={m.id} style={[s.option, selectedModeId === m.id && s.optionActive]} onPress={() => { setSelectedModeId(m.id); setModeOpen(false); }}>
-                <View style={s.modeIcon}><Ionicons name={m.icon} size={18} color={PATIENT.primary} /></View>
-                <View style={s.flex}>
-                  <Text style={s.optionName}>{m.name}</Text>
-                  <Text style={s.optionSub}>{m.desc}</Text>
-                  <Text style={s.optionFee}>Additional Fee: ₹{m.fee}</Text>
-                </View>
-                {selectedModeId === m.id && <Ionicons name="checkmark-circle" size={20} color={PATIENT.primary} />}
-              </Pressable>
-            ))}
-          </Selector>
-        )}
-
-        {/* Appointment type */}
-        <View style={s.card}>
-          <Text style={s.cardTitle}>Appointment Type</Text>
-          <View style={s.typeRow}>
-            <Pressable style={[s.typeBtn, !isEmergency && s.typeBtnActive]} onPress={() => setPriority('normal')} disabled={booking}>
-              {!isEmergency && <GradientFill />}
-              <Ionicons name="calendar-outline" size={16} color={!isEmergency ? '#FFF' : PATIENT.primary} />
-              <Text style={[s.typeText, !isEmergency && s.typeTextActive]}>Regular</Text>
+        {/* Consultation mode */}
+        <Selector
+          eyebrow="CONSULTATION MODE"
+          icon={selectedMode.icon.replace('-outline', '')}
+          value={selectedMode.name}
+          open={modeOpen}
+          onToggle={() => { setModeOpen((o) => !o); setClinicOpen(false); }}
+        >
+          {MODES.map((m) => (
+            <Pressable key={m.id} style={[s.option, selectedModeId === m.id && s.optionActive]} onPress={() => { setSelectedModeId(m.id); setModeOpen(false); }}>
+              <View style={s.modeIcon}><Ionicons name={m.icon} size={18} color={PATIENT.primary} /></View>
+              <View style={s.flex}>
+                <Text style={s.optionName}>{m.name}</Text>
+                <Text style={s.optionSub}>{m.desc}</Text>
+                <Text style={s.optionFee}>Additional Fee: ₹{m.fee}</Text>
+              </View>
+              {selectedModeId === m.id && <Ionicons name="checkmark-circle" size={20} color={PATIENT.primary} />}
             </Pressable>
-            <Pressable style={[s.typeBtn, isEmergency && s.typeBtnEmergency]} onPress={() => { setPriority('emergency'); setSelectedModeId('in-clinic'); }} disabled={booking}>
-              {isEmergency && <GradientFill danger />}
-              <Ionicons name="alert-circle-outline" size={16} color={isEmergency ? '#FFF' : '#DC2626'} />
-              <Text style={[s.typeText, s.typeTextEmergency, isEmergency && s.typeTextActive]}>Emergency</Text>
-            </Pressable>
-          </View>
-          {isEmergency && (
-            <View style={s.emergencyBox}>
-              <Text style={s.fieldLabel}>Reason for emergency *</Text>
-              <TextInput
-                style={s.textArea}
-                value={emergencyReason}
-                onChangeText={setEmergencyReason}
-                placeholder="Describe why you need an urgent appointment"
-                placeholderTextColor="#94A3B8"
-                multiline
-                maxLength={1000}
-                textAlignVertical="top"
-              />
-              <Text style={s.helpText}>
-                {emergencyReason.trim().length}/1000 · at least 10 characters. Choose a date and time slot below to get your token — it is marked as an emergency, so the doctor sees it at the top of the queue. Emergency is for clinic visits only.
-              </Text>
-            </View>
-          )}
-        </View>
+          ))}
+        </Selector>
 
         {/* Location */}
         <View style={s.card}>
@@ -734,7 +676,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
           </View>
         </View>
 
-        {/* Date + time — an emergency needs a slot as well: that slot is its token. */}
+        {/* Date + time */}
         {(
           <View style={s.card}>
             <View style={s.dateHead}>
@@ -804,15 +746,14 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
         <View style={s.footerSummary}>
           <Text style={s.footerSummaryText} numberOfLines={1}>
             {selectedDate && selectedTime
-              ? `${isEmergency ? 'Emergency · ' : ''}${dateStr} • ${selectedTime}`
+              ? `${dateStr} • ${selectedTime}`
               : 'Select a date and time'}
           </Text>
           <Text style={s.footerFee}>₹{totalFee}.00</Text>
         </View>
         <GradientButton
-          label={isEmergency && !emergencyReasonOk ? 'Describe the emergency' : 'Confirm Selection'}
+          label="Confirm Selection"
           icon="arrow-forward"
-          danger={isEmergency}
           onPress={() => canContinue && setStep('payment')}
           disabled={!canContinue}
         />
@@ -948,17 +889,7 @@ const s = StyleSheet.create({
   tag_blue: { color: '#1D4ED8', backgroundColor: '#EFF6FF' },
   tag_gray: { color: '#475569', backgroundColor: '#F1F5F9' },
   tag_green: { color: '#15803D', backgroundColor: '#DCFCE7' },
-  typeRow: { flexDirection: 'row', gap: 8 },
-  typeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11, borderRadius: 12, borderWidth: 1.5, borderColor: '#D1D5DB', paddingHorizontal: 6 },
-  typeBtnActive: { borderColor: 'transparent', overflow: 'hidden' },
-  typeBtnEmergency: { borderColor: 'transparent', overflow: 'hidden' },
-  typeText: { fontSize: 13, fontWeight: '800', color: PATIENT.primary, flexShrink: 1 },
-  typeTextEmergency: { color: '#DC2626' },
-  typeTextActive: { color: '#FFF' },
-  emergencyBox: { marginTop: 12, backgroundColor: '#FEF2F2', borderRadius: 12, padding: 11 },
   fieldLabel: { fontSize: 13, fontWeight: '800', color: '#0F172A', marginBottom: 7 },
-  textArea: { minHeight: 90, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#FECACA', borderRadius: 10, padding: 10, fontSize: 14, color: '#0F172A' },
-  helpText: { fontSize: 11.5, lineHeight: 16, color: '#7F1D1D', marginTop: 6 },
   input: { height: 46, borderWidth: 1.5, borderColor: '#E2E8F0', borderRadius: 12, paddingHorizontal: 12, fontSize: 14, color: '#0F172A' },
   inputLocked: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderColor: '#E2E8F0', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#F8FAFC' },
   inputLockedText: { flex: 1, fontSize: 14, color: '#334155', fontWeight: '600' },

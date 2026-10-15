@@ -5,8 +5,10 @@
 //   consult   PATCH /api/(walkin-)appointments/:id  in-progress / pause / resume / completed
 //   breaks    GET /api/doctor-breaks/active, POST /start, PATCH /:id/end
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { resetToLoginScreen } from '../../../navigationRef';
 import { ActivityIndicator, Alert, BackHandler, Dimensions, Modal, Pressable, RefreshControl, ScrollView, ToastAndroid, TouchableOpacity, View } from 'react-native';
 import Text from '../../../components/TranslatedText';
+import VitalsSummary from '../../../components/VitalsSummary';
 import TextInput from '../../../components/TranslatedTextInput';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -166,6 +168,7 @@ function PatientConsentModal({ visible, onClose, onStartConsultation, onNext, ne
               <InfoTile icon="pulse" label="Issue" value={patient?.issue || '—'} wide />
             </View>
 
+            <VitalsSummary appointment={patient} />
             <Text style={consentStyles.sectionTitle}>Agreement</Text>
             <View style={consentStyles.agreementBox}>
               {[
@@ -508,7 +511,8 @@ export default function DoctorDashboard({ navigation }) {
 
   // Same flow as the web DoctorLayout logout: tell the server to invalidate the
   // session (POST /api/auth/logout, refresh token in body), then ALWAYS clear the
-  // local session and go back to the role selector, even if the request fails.
+  // local session and go to the common Login screen (never the Sign Up flow),
+  // even if the request fails.
   const performLogout = useCallback(async ({ skipServerLogout } = {}) => {
     try {
       if (!skipServerLogout) {
@@ -521,7 +525,7 @@ export default function DoctorDashboard({ navigation }) {
       try { socketService.disconnect(); } catch (e) { /* ignore */ }
       try { await clearAccountLocalData(); } catch (e) { /* ignore */ }
       setSidebarVisible(false);
-      navigation.replace('RoleSelector');
+      resetToLoginScreen(navigation);
     }
   }, [navigation]);
 
@@ -615,7 +619,11 @@ export default function DoctorDashboard({ navigation }) {
   // beginConsultation writes. Never clobbers a session already in hand.
   const restoreRunningConsultation = useCallback((liveList) => {
     setActiveSession((current) => {
-      if (current?.appt || current?.status === 'break') return current;
+      if (current?.appt) {
+        const latest = liveList.find(appt => appt.id === current.appt.id);
+        return latest ? { ...current, appt: latest } : current;
+      }
+      if (current?.status === 'break') return current;
       const running = liveList.find((appt) => appt.status === 'in-progress');
       if (!running) return current;
       const raw = running.__raw || {};
@@ -667,6 +675,7 @@ export default function DoctorDashboard({ navigation }) {
           return { ...appt, status: 'skipped', queueStatus: 'skipped' };
         });
       setAppointments(liveAppointmentList);
+      setSelectedPatient(current => current ? liveAppointmentList.find(appt => appt.id === current.id) || current : current);
       restoreRunningConsultation(liveAppointmentList);
       setCancelledToday(
         list

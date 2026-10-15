@@ -1,16 +1,3 @@
-// Walk-in booking opened straight from a doctor's QR code (patient side).
-// Native version of the web form at /walk-in-appointment
-// (chatbot/src/Component/DoctorDashboard/Walk-in/AppointmentForm.jsx), with
-// the same public endpoints and payload:
-//   GET  /api/auth/doctor-qr/:doctorId          doctor shown at the top
-//   POST /api/auth/doctor-qr/:doctorId/visits   records the QR visit
-//   GET  /api/availability/available?doctor_id  today's slots + bookedSlots
-//   POST /api/walkin-appointments               books it, returns the token
-// Walk-in is for today only: the patient picks one of today's free slots. Each
-// slot carries its token, numbered like the backend's buildDaySlots (first slot
-// of the day = token 1), and slots other patients hold are shown as booked.
-// Requests go through plain axios (no login token), exactly like the web page,
-// so a refusal here can never trigger the app's sign-out-on-401 handling.
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,7 +12,6 @@ import PATIENT from '../../../../../../theme/palette';
 import api, { API_BASE_URL } from '../../../../../../axiosConfig';
 import { toImageUri } from '../../../../../../utils/imageUri';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
-import { tagEmergencySymptoms } from '../../../../../../utils/emergencyTag';
 
 const API = `${API_BASE_URL.replace(/\/+$/, '').replace(/\/api$/, '')}/api`;
 const GENDERS = [
@@ -94,13 +80,15 @@ const toMinutes = (value) => {
 const minutesToKey = (minutes) => `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
 const isUnavailableFlag = (range) => range.is_unavailable === true || Number(range.is_unavailable) === 1;
 
-// Mirrors the backend's buildDaySlots (appointmentSlotService.js): every slot of
-// the day across all of the doctor's ranges, merged by start time, and
-// token = position in the day, so a given time always has the same token.
+// Every slot of the day across the given ranges, merged by start time (a
+// date-specific range and the same weekly range give one slot each). Tokens
+// restart at 1 in every session (availability range), as the backend issues
+// them: with sessions 12:31–13:31 and 17:00–18:00, 17:45 is token 4, not 8.
 const buildDaySlots = (ranges, date) => {
   const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
   const slots = new Map();
-  ranges.forEach((range) => {
+  // Earliest range first, so a slot belongs to the session that starts first.
+  [...ranges].sort((a, b) => (toMinutes(a.start_time) ?? 0) - (toMinutes(b.start_time) ?? 0)).forEach((range) => {
     if (isUnavailableFlag(range)) return;
     const specificDate = String(range.availability_date || range.date || '').slice(0, 10);
     const applies = specificDate
@@ -112,12 +100,17 @@ const buildDaySlots = (ranges, date) => {
     const duration = Number(range.slot_duration);
     if (start === null || end === null || !Number.isInteger(duration) || duration < 1 || end <= start) return;
     for (let minute = start; minute + duration <= end; minute += duration) {
-      if (!slots.has(minute)) slots.set(minute, { minutes: minute, duration, clinicId: range.clinic_id || null });
+      if (!slots.has(minute)) slots.set(minute, { minutes: minute, duration, clinicId: range.clinic_id || null, session: start });
     }
   });
+  const perSession = new Map();
   return [...slots.values()]
     .sort((a, b) => a.minutes - b.minutes)
-    .map((slot, index) => ({ ...slot, time: minutesToKey(slot.minutes), token: index + 1 }));
+    .map((slot) => {
+      const token = (perSession.get(slot.session) || 0) + 1;
+      perSession.set(slot.session, token);
+      return { ...slot, time: minutesToKey(slot.minutes), token };
+    });
 };
 
 // A clinic record's ids: availability ranges store the clinic's _id, while
@@ -136,7 +129,7 @@ const SLOT_GROUPS = [
   { label: 'Evening', icon: 'moon-outline', test: (m) => m >= 1020 },
 ];
 
-const emptyForm = { patientName: '', contactNumber: '', problem: '', dateOfBirth: '', location: '', gender: '', appointmentTime: '', email: '', priority: 'normal', emergencyReason: '' };
+const emptyForm = { patientName: '', contactNumber: '', problem: '', dateOfBirth: '', location: '', gender: '', appointmentTime: '', email: '' };
 
 export default function WalkInBookingScreen({
   visible, doctorId, clinicId: scannedClinicId = null, clinicName: scannedClinicName = '', source = 'qr', onClose,
@@ -282,14 +275,14 @@ export default function WalkInBookingScreen({
   const today = todayIndia();
   const dayOff = availability.unavailableDates.some((item) =>
     inActiveClinic(item?.clinic_id) && String(item?.date || item?.unavailable_date || item).slice(0, 10) === today);
-  // Tokens are numbered across the doctor's whole day (as the backend does);
-  // the slots offered are only the active clinic's.
-  const tokenByMinute = new Map(buildDaySlots(availability.ranges, today).map((slot) => [slot.minutes, slot.token]));
+  // Only the active clinic's slots are offered, and each clinic numbers its own
+  // tokens from 1 — the token the booking returns. Numbering across the
+  // doctor's whole day counted the other clinic's slots too, so a doctor with
+  // two matching schedules saw "Token 8" on a slot that booked as token 4.
   const daySlots = dayOff || needsClinicChoice ? [] : buildDaySlots(
     availability.ranges.filter((range) => inActiveClinic(range.clinic_id)), today,
   ).map((slot) => ({
     ...slot,
-    token: tokenByMinute.get(slot.minutes) ?? slot.token,
     clinicId: slot.clinicId || activeClinicId,
   }));
   const bookedMinutes = new Set(availability.bookedSlots
@@ -341,10 +334,6 @@ export default function WalkInBookingScreen({
     if (!form.location.trim()) next.location = 'Location or address is required';
     if (!form.gender) next.gender = 'Gender is required';
     if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) next.email = 'Enter a valid email';
-    if (form.priority === 'emergency') {
-      const reason = form.emergencyReason.trim();
-      if (reason.length < 10 || reason.length > 1000) next.emergencyReason = 'Describe the emergency in 10 to 1000 characters';
-    }
     if (needsClinicChoice) next.clinic = 'Please choose the clinic you are visiting';
     if (!form.appointmentTime) next.appointmentTime = 'Please choose a time slot';
     else if (isTimeBooked(form.appointmentTime)) next.appointmentTime = SLOT_BOOKED_MESSAGE;
@@ -359,7 +348,6 @@ export default function WalkInBookingScreen({
       return;
     }
     const age = calculateAge(form.dateOfBirth);
-    const isEmergency = form.priority === 'emergency';
     // The signed-in patient's account, so the doctor's Patients tab groups
     // this visit with their other bookings.
     let patientAccountId = null;
@@ -372,9 +360,7 @@ export default function WalkInBookingScreen({
     const payload = {
       patient_name: form.patientName.trim(),
       phone_number: form.contactNumber.trim(),
-      // The walk-in API drops priority / is_emergency / emergency_reason, so
-      // an emergency is also tagged into symptoms for the doctor's queue.
-      symptoms: isEmergency ? tagEmergencySymptoms(form.problem, form.emergencyReason) : form.problem.trim(),
+      symptoms: form.problem.trim(),
       doctor_id: doctorId,
       ...(patientAccountId ? { patient_id: String(patientAccountId) } : {}),
       date_of_birth: form.dateOfBirth,
@@ -389,9 +375,6 @@ export default function WalkInBookingScreen({
       booking_source: source,
       // The clinic whose QR was scanned (or the one picked) — the visit is booked there.
       ...(activeClinicId ? { clinic_id: activeClinicId } : {}),
-      // Emergency rides on this booking's own token (the slot chosen above);
-      // the doctor's queue puts emergency tokens first.
-      ...(isEmergency ? { priority: 'emergency', is_emergency: true, emergency_reason: form.emergencyReason.trim() } : {}),
     };
     try {
       setSubmitting(true);
@@ -402,17 +385,12 @@ export default function WalkInBookingScreen({
       try {
         response = await axios.post(url, payload, options);
       } catch (firstError) {
-        // The walk-in API's own priority field may only take Low / Med / High.
-        // Keep the emergency flag + reason and retry once with High rather
-        // than losing the patient's booking.
         const firstMessage = String(firstError?.response?.data?.message || firstError?.response?.data?.error || '');
         if (firstError?.response?.status !== 400) throw firstError;
         if (/clinic_id/i.test(firstMessage) && /not allowed|unknown/i.test(firstMessage)) {
           // An older walk-in API that doesn't take clinic_id: book without it.
           const { clinic_id: _unused, ...withoutClinic } = payload;
           response = await axios.post(url, withoutClinic, options);
-        } else if (isEmergency && /priority|enum|valid/i.test(firstMessage)) {
-          response = await axios.post(url, { ...payload, priority: 'High' }, options);
         } else {
           throw firstError;
         }
@@ -464,7 +442,6 @@ export default function WalkInBookingScreen({
   const clinicAddress = clinicSource && typeof clinicSource === 'object'
     ? pick(typeof clinicSource.location === 'string' ? clinicSource.location : undefined, clinicSource.address, clinicSource.city, '') || ''
     : '';
-  const isEmergencyForm = form.priority === 'emergency';
   const tokenLabel = /^\d+$/.test(token) ? `#${token}` : token;
   const bookedWhen = [formatDateKey(todayIndia()), bookedTime && formatTime(bookedTime)].filter(Boolean).join(' at ');
 
@@ -516,19 +493,16 @@ export default function WalkInBookingScreen({
               )}
               {!!bookedWhen && <SummaryRow label="Date & Time" value={bookedWhen} />}
               {!!clinicName && <SummaryRow label="Clinic" value={clinicName} sub={clinicAddress} />}
-              {isEmergencyForm && <SummaryRow label="Type" value="Emergency" />}
               <View style={s.summaryRow}>
-                <Text style={s.summaryLabel}>{isEmergencyForm ? 'Emergency Token' : 'Token'}</Text>
-                <View style={[s.tokenPill, isEmergencyForm && s.tokenPillDanger]}>
-                  <Text style={[s.tokenPillText, isEmergencyForm && s.tokenPillTextDanger]} translate={false}>{tokenLabel}</Text>
+                <Text style={s.summaryLabel}>Token</Text>
+                <View style={s.tokenPill}>
+                  <Text style={s.tokenPillText} translate={false}>{tokenLabel}</Text>
                 </View>
               </View>
             </View>
 
             <Text style={s.successNote}>
-              {isEmergencyForm
-                ? 'Your token is marked as an emergency — the doctor sees it first. Show it at the clinic reception right away.'
-                : 'Show this token at the clinic reception. Carry a valid ID and any past reports.'}
+              Show this token at the clinic reception. Carry a valid ID and any past reports.
             </Text>
 
             <Pressable onPress={onClose} style={s.doneBtnWrap}>
@@ -614,35 +588,6 @@ export default function WalkInBookingScreen({
               </Field>
               <Field label="Medical Problem *" error={errors.problem}>
                 <TextInput style={[s.input, s.multiline]} value={form.problem} onChangeText={(v) => update('problem', v)} placeholder="Describe your problem" placeholderTextColor="#94A3B8" multiline textAlignVertical="top" />
-              </Field>
-              <Field label="Appointment Type" error={errors.emergencyReason}>
-                <View style={s.typeRow}>
-                  <Pressable onPress={() => update('priority', 'normal')} style={[s.typeBtn, !isEmergencyForm && s.typeBtnOn]}>
-                    <Ionicons name="calendar-outline" size={16} color={!isEmergencyForm ? '#FFFFFF' : PATIENT.primary} />
-                    <Text style={[s.typeText, !isEmergencyForm && s.typeTextOn]}>Regular</Text>
-                  </Pressable>
-                  <Pressable onPress={() => update('priority', 'emergency')} style={[s.typeBtn, s.typeBtnDanger, isEmergencyForm && s.typeBtnDangerOn]}>
-                    <Ionicons name="alert-circle-outline" size={16} color={isEmergencyForm ? '#FFFFFF' : '#DC2626'} />
-                    <Text style={[s.typeText, s.typeTextDanger, isEmergencyForm && s.typeTextOn]}>Emergency</Text>
-                  </Pressable>
-                </View>
-                {isEmergencyForm && (
-                  <>
-                    <TextInput
-                      style={[s.input, s.multiline, s.emergencyInput]}
-                      value={form.emergencyReason}
-                      onChangeText={(v) => update('emergencyReason', v)}
-                      placeholder="Why is this an emergency? (at least 10 characters)"
-                      placeholderTextColor="#94A3B8"
-                      multiline
-                      maxLength={1000}
-                      textAlignVertical="top"
-                    />
-                    <Text style={s.emergencyHelp}>
-                      Your token — from the time slot you pick below — is marked as an emergency, so the doctor sees it at the top of the queue.
-                    </Text>
-                  </>
-                )}
               </Field>
 
               <View style={s.row}>
@@ -829,16 +774,6 @@ const s = StyleSheet.create({
   label: { fontSize: 12.5, fontWeight: '700', color: '#334155', marginBottom: 6 },
   input: { minHeight: 46, borderWidth: 1, borderColor: '#D5DCE5', borderRadius: 11, backgroundColor: '#FFFFFF', paddingHorizontal: 12, fontSize: 14.5, color: '#0F172A' },
   multiline: { minHeight: 92, paddingTop: 11 },
-  typeRow: { flexDirection: 'row', gap: 10 },
-  typeBtn: { flex: 1, height: 44, borderRadius: 12, borderWidth: 1, borderColor: '#BBE7CC', backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  typeBtnOn: { backgroundColor: PATIENT.primary, borderColor: PATIENT.primary },
-  typeBtnDanger: { borderColor: '#FECACA' },
-  typeBtnDangerOn: { backgroundColor: '#DC2626', borderColor: '#DC2626' },
-  typeText: { fontSize: 14, fontWeight: '800', color: PATIENT.primary },
-  typeTextDanger: { color: '#DC2626' },
-  typeTextOn: { color: '#FFFFFF' },
-  emergencyInput: { marginTop: 10, borderColor: '#FECACA' },
-  emergencyHelp: { fontSize: 12, lineHeight: 17, color: '#B42318', marginTop: 6 },
   multilineShort: { minHeight: 70, paddingTop: 11 },
   selectInput: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   readOnly: { backgroundColor: '#F1F5F9' },
@@ -898,8 +833,6 @@ const s = StyleSheet.create({
   summarySub: { fontSize: 12, color: '#64748B', textAlign: 'right', marginTop: 2 },
   tokenPill: { paddingHorizontal: 14, paddingVertical: 5, borderRadius: 999, backgroundColor: '#DCF7E5' },
   tokenPillText: { fontSize: 14, fontWeight: '900', color: PATIENT.primary },
-  tokenPillDanger: { backgroundColor: '#FEE2E2' },
-  tokenPillTextDanger: { color: '#DC2626' },
   successNote: { fontSize: 13, color: '#64748B', textAlign: 'center', marginTop: 18, lineHeight: 19, paddingHorizontal: 8 },
   doneBtnWrap: { alignSelf: 'stretch', marginTop: 20, borderRadius: 14, overflow: 'hidden' },
   doneBtn: { height: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },

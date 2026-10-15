@@ -9,7 +9,7 @@ import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles } from '../theme';
-import { SHIFTS, isOnShiftNow, shiftInfo, updateStaff } from './staffApi';
+import { DEFAULT_SHIFT_TIMES, SHIFTS, isOnShiftNow, shiftInfo, shiftTimeLabel, updateStaff } from './staffApi';
 
 const formatLongDate = (isoDate) => {
   if (!isoDate) return '—';
@@ -25,7 +25,9 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
   const isActive = member.status === 'Active';
   const activity = member.activity ?? [];
   const shift = shiftInfo(member.shift);
-  const onShift = isActive && isOnShiftNow(shift.key);
+  const onShift = isActive && isOnShiftNow(shift.key, new Date(), member.shiftStartTime, member.shiftEndTime);
+  // The exact timings the doctor set (web shift_start_time / shift_end_time).
+  const shiftTimes = shiftTimeLabel(member.shiftStartTime, member.shiftEndTime) || shift.label;
 
   const [shiftSheet, setShiftSheet] = useState(false);
   const [savingShift, setSavingShift] = useState(null);
@@ -45,9 +47,18 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
         department: member.department,
         role: member.role,
         shift: nextShift,
+        // A new shift starts with its usual hours (edit them in Edit Profile).
+        shiftStartTime: DEFAULT_SHIFT_TIMES[nextShift]?.[0],
+        shiftEndTime: DEFAULT_SHIFT_TIMES[nextShift]?.[1],
         status: member.status,
       });
-      onUpdated?.({ ...member, ...updated, shift: updated.shift || nextShift });
+      onUpdated?.({
+        ...member,
+        ...updated,
+        shift: updated.shift || nextShift,
+        shiftStartTime: DEFAULT_SHIFT_TIMES[nextShift]?.[0] || updated.shiftStartTime,
+        shiftEndTime: DEFAULT_SHIFT_TIMES[nextShift]?.[1] || updated.shiftEndTime,
+      });
       setShiftSheet(false);
       showToast(`${member.name} assigned to the ${nextShift} shift.`);
     } catch (err) {
@@ -132,7 +143,7 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
             <View style={s.scheduleIcon}><AppIcon name="clock" size={16} color={colors.blue} strokeWidth={2} /></View>
             <View style={s.grow}>
               <Text style={s.scheduleTitle}>{shift.key} Shift</Text>
-              <Text style={s.scheduleTime}>{shift.label}</Text>
+              <Text style={s.scheduleTime}>{shiftTimes}</Text>
             </View>
             <View style={s.scheduleRight}>
               <Text style={s.scheduleDay}>Daily</Text>

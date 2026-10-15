@@ -3,7 +3,8 @@
 // writes straight to the staff record, and onSave hands the refreshed
 // record back to Staff Management's list.
 import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
@@ -12,7 +13,16 @@ import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
-import { roleLabelToKey, updateStaff } from './staffApi';
+import { DEFAULT_SHIFT_TIMES, SHIFTS, formatClock12, roleLabelToKey, updateStaff } from './staffApi';
+
+// "HH:MM" ↔ Date for the time picker.
+const timeToDate = (value) => {
+  const [h, m] = String(value || '09:00').split(':').map(Number);
+  const d = new Date();
+  d.setHours(Number.isFinite(h) ? h : 9, Number.isFinite(m) ? m : 0, 0, 0);
+  return d;
+};
+const dateToTime = (date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 import { pickStaffPhoto } from './pickStaffPhoto';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 
@@ -57,7 +67,27 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
     department: member.department ?? '',
     role: member.role ?? '',
     employmentStatus: member.employmentStatus ?? '',
+    shift: member.shift || 'Morning',
+    shiftStartTime: member.shiftStartTime || DEFAULT_SHIFT_TIMES[member.shift || 'Morning']?.[0] || '',
+    shiftEndTime: member.shiftEndTime || DEFAULT_SHIFT_TIMES[member.shift || 'Morning']?.[1] || '',
   });
+  const [timePicker, setTimePicker] = useState(null); // iOS only
+
+  // Shift start / end time (the web edit form's <input type="time">).
+  const openTimePicker = (field) => {
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: timeToDate(form[field]),
+        mode: 'time',
+        is24Hour: false,
+        onChange: (event, selected) => {
+          if (event?.type === 'set' && selected) setForm((current) => ({ ...current, [field]: dateToTime(selected) }));
+        },
+      });
+      return;
+    }
+    setTimePicker(field);
+  };
 
   const setField = (field, value) => setForm((current) => ({ ...current, [field]: value }));
 
@@ -87,6 +117,10 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
       scrollToTop();
       return;
     }
+    if (!form.shiftStartTime || !form.shiftEndTime) {
+      showToast('Please enter shift start and end timings.');
+      return;
+    }
 
     try {
       setSaving(true);
@@ -98,7 +132,9 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
         phone: form.phone.trim(),
         department: form.department,
         role: roleLabelToKey(form.role),
-        shift: member.shift,
+        shift: form.shift,
+        shiftStartTime: form.shiftStartTime,
+        shiftEndTime: form.shiftEndTime,
         status: member.status,
       }, newPhoto || undefined);
       onSave(updated);
@@ -113,6 +149,18 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
     department: { label: 'Department', options: DEPARTMENTS, value: form.department, onSelect: (value) => setField('department', value) },
     role: { label: 'Role Type', options: ROLE_TYPES, value: form.role, onSelect: (value) => setField('role', value) },
     employmentStatus: { label: 'Employment Status', options: EMPLOYMENT_STATUSES, value: form.employmentStatus, onSelect: (value) => setField('employmentStatus', value) },
+    // Picking a shift fills in its usual hours (like the web); the times stay editable.
+    shift: {
+      label: 'Shift',
+      options: SHIFTS.map((item) => item.key),
+      value: form.shift,
+      onSelect: (value) => setForm((current) => ({
+        ...current,
+        shift: value,
+        shiftStartTime: DEFAULT_SHIFT_TIMES[value]?.[0] || current.shiftStartTime,
+        shiftEndTime: DEFAULT_SHIFT_TIMES[value]?.[1] || current.shiftEndTime,
+      })),
+    },
   }[picker];
 
   return (
@@ -156,6 +204,15 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
           <DropdownField label="Department" value={form.department} onPress={() => setPicker('department')} />
           <DropdownField label="Role Type" value={form.role} onPress={() => setPicker('role')} />
           <DropdownField label="Employment Status" value={form.employmentStatus} onPress={() => setPicker('employmentStatus')} />
+          <DropdownField label="Shift" value={form.shift} onPress={() => setPicker('shift')} />
+          <View style={s.timeRow}>
+            <View style={s.timeCol}>
+              <TimeField label="Shift start time" value={form.shiftStartTime} onPress={() => openTimePicker('shiftStartTime')} />
+            </View>
+            <View style={s.timeCol}>
+              <TimeField label="Shift end time" value={form.shiftEndTime} onPress={() => openTimePicker('shiftEndTime')} />
+            </View>
+          </View>
         </View>
       </ScrollView>
 
@@ -198,6 +255,17 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
           </View>
         </Pressable>
       </Modal>
+      {/* iOS only — Android opens DateTimePickerAndroid (see openTimePicker). */}
+      {timePicker && Platform.OS === 'ios' && (
+        <DateTimePicker
+          value={timeToDate(form[timePicker])}
+          mode="time"
+          display="spinner"
+          onChange={(_event, selected) => {
+            if (selected) setField(timePicker, dateToTime(selected));
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -211,6 +279,18 @@ function IconField({ label, icon, error, ...inputProps }) {
         <TextInput {...inputProps} style={s.fieldInput} placeholderTextColor="#9AA4B5" />
       </View>
       {!!error && <Text style={s.fieldErrorText}>{error}</Text>}
+    </View>
+  );
+}
+
+function TimeField({ label, value, onPress }) {
+  return (
+    <View style={s.field}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <Pressable onPress={onPress} style={s.fieldDropdown}>
+        <Text translate={false} style={value ? s.fieldValueText : s.fieldPlaceholderText}>{value ? formatClock12(value) : '--:-- --'}</Text>
+        <AppIcon name="clock" size={15} color="#667085" strokeWidth={2} />
+      </Pressable>
     </View>
   );
 }
@@ -250,6 +330,8 @@ const s = createDoctorStyles({
   sectionTitle: { fontSize: 15.5, fontWeight: '700', color: '#17243A', marginTop: 6, marginBottom: 14 },
 
   field: { marginBottom: 14 },
+  timeRow: { flexDirection: 'row', gap: 10 },
+  timeCol: { flex: 1 },
   fieldLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.3, color: '#8A94A4', textTransform: 'uppercase', marginBottom: 7 },
   fieldBox: { height: 46, borderWidth: 1, borderColor: '#D2DAE6', borderRadius: 10, paddingHorizontal: 13, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: 9 },
   fieldBoxError: { borderColor: '#D2564B' },

@@ -108,8 +108,15 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
           <View style={s.vitals}>
             <Vital label="Blood Pressure" value={isSet(record.bp) ? `${record.bp} mmHg` : '—'} icon="❤" tone="rose" />
             <Vital label="Pulse Rate" value={isSet(record.pulse) ? `${record.pulse} bpm` : '—'} icon="〰" tone="teal" />
-            <Vital label="Temperature" value={isSet(record.temperature) ? String(record.temperature) : '—'} icon="🌡" tone="amber" />
+            <Vital label="Temperature" value={isSet(record.temperature) ? `${record.temperature}°${record.temperatureUnit || 'C'}` : '—'} icon="🌡" tone="amber" />
+            <Vital label="SpO₂" value={isSet(record.spo2) ? `${record.spo2}%` : '—'} icon="◉" tone="blue" />
+            <Vital label="Breathing rate" value={isSet(record.respiratoryRate) ? `${record.respiratoryRate}/min` : '—'} icon="↕" tone="indigo" />
+            <Vital label="Weight" value={isSet(record.weight) ? `${record.weight} kg` : '—'} icon="⚖" tone="violet" />
+            <Vital label="Height" value={isSet(record.height) ? `${record.height} cm` : '—'} icon="↕" tone="slate" />
+            <Vital label="Pain score" value={isSet(record.painScore) ? `${record.painScore}/10` : '—'} icon="●" tone="rose" />
           </View>
+          {isSet(record.notes) && <Text translate={false} style={s.vitalsNotes}>Notes: {record.notes}</Text>}
+          {isSet(record.recordedAt) && <Text translate={false} style={s.vitalsRecorded}>Recorded {new Date(record.recordedAt).toLocaleString('en-IN')}</Text>}
         </Card>
 
         <Card title="Complaint & Diagnosis" icon="note">
@@ -275,14 +282,20 @@ const s = createDoctorStyles({
   rowValue: { flexShrink: 1, fontSize: 13.5, fontWeight: '700', color: '#17243A', textAlign: 'right' },
   rowHighlight: { color: '#0F766E' },
   statusPill: { fontSize: 12, fontWeight: '800', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999, overflow: 'hidden' },
-  vitals: { flexDirection: 'row', gap: 8 },
-  vital: { flex: 1, borderRadius: 14, padding: 10, alignItems: 'center' },
+  vitals: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  vital: { width: '31%', minWidth: 92, borderRadius: 14, padding: 10, alignItems: 'center' },
   vital_rose: { backgroundColor: '#FFF1F2' },
   vital_teal: { backgroundColor: '#F0FDFA' },
   vital_amber: { backgroundColor: '#FFFBEB' },
+  vital_blue: { backgroundColor: '#EFF6FF' },
+  vital_indigo: { backgroundColor: '#EEF2FF' },
+  vital_violet: { backgroundColor: '#F5F3FF' },
+  vital_slate: { backgroundColor: '#F8FAFC' },
   vitalIcon: { fontSize: 18 },
   vitalValue: { fontSize: 14, fontWeight: '800', color: '#17243A', marginTop: 4, textAlign: 'center' },
   vitalLabel: { fontSize: 11, color: '#667085', marginTop: 2, textAlign: 'center' },
+  vitalsNotes: { fontSize: 13, lineHeight: 19, color: '#344054', marginTop: 10 },
+  vitalsRecorded: { fontSize: 11.5, color: '#98A2B3', marginTop: 6 },
   label: { fontSize: 12, fontWeight: '800', letterSpacing: 0.3, color: '#667085', textTransform: 'uppercase' },
   labelSpaced: { marginTop: 12 },
   problem: { fontSize: 14, fontWeight: '700', color: '#0F766E', marginTop: 4 },

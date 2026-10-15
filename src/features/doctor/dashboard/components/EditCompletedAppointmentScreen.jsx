@@ -4,6 +4,7 @@
 import React, { useRef, useState } from 'react';
 import { Alert, ScrollView, TouchableOpacity, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
+import VitalsSummary from '../../../../components/VitalsSummary';
 import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -122,6 +123,7 @@ export default function EditCompletedAppointmentScreen({ appointment, onCancel, 
           </View>
         </View>
 
+        <VitalsSummary appointment={appointment} />
         <View style={styles.sectionCard}>
           <View style={styles.sectionHead}>
             <Text style={styles.sectionTitle}>Clinical Summary</Text>

@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { resetToLoginScreen } from '../../../navigationRef';
 import { Alert, Image, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import LogoutConfirmModal from '../../doctor/dashboard/components/LogoutConfirmModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LinearGradient from 'react-native-linear-gradient';
@@ -13,10 +14,11 @@ import Text from '../../../components/TranslatedText';
 import AppIcon from '../../doctor/dashboard/icons/AppIcon';
 import { colors, createDoctorStyles } from '../../doctor/dashboard/theme';
 import { CLINICIAN_GRADIENT } from '../../../theme/palette';
-import { isOnShiftNow, normalizeStaff, shiftInfo } from '../../doctor/dashboard/components/staffApi';
+import { isOnShiftNow, normalizeStaff, shiftInfo, shiftTimeLabel } from '../../doctor/dashboard/components/staffApi';
 import axiosInstance from '../../../axiosConfig';
 import socketService from '../../../services/socketService';
 import { clearAccountLocalData } from '../../../utils/authSession';
+import ReceptionistPortal from '../../receptionist/ReceptionistPortal';
 
 // What each role looks after (same wording as the Create Staff role cards).
 const ROLE_DUTIES = {
@@ -41,11 +43,18 @@ const readStoredUser = async () => {
 
 export default function StaffDashboard({ navigation }) {
   const [staff, setStaff] = useState(() => normalizeStaff({}));
+  // The stored account as saved at login — the receptionist portal reads its
+  // assignment fields (clinic_id, assignedDoctor, …) directly.
+  const [storedUser, setStoredUser] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
 
   const loadStaff = useCallback(async () => {
-    setStaff(normalizeStaff(await readStoredUser()));
+    const user = await readStoredUser();
+    setStoredUser(user);
+    setStaff(normalizeStaff(user));
     setNow(new Date());
     setRefreshing(false);
   }, []);
@@ -60,6 +69,7 @@ export default function StaffDashboard({ navigation }) {
   // Same flow as the doctor logout: tell the server, then always clear the
   // local session and go back to the role selector.
   const performLogout = useCallback(async () => {
+    setLoggingOut(true);
     try {
       const refreshToken = await AsyncStorage.getItem('refreshToken');
       await axiosInstance.post('/api/auth/logout', { refreshToken }, { timeout: 10000 });
@@ -72,15 +82,44 @@ export default function StaffDashboard({ navigation }) {
     }
   }, [navigation]);
 
-  const confirmLogout = () => {
-    Alert.alert('Logout Account', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive', onPress: performLogout },
-    ]);
+  // Custom popup (same as the doctor's) instead of a plain Alert.
+  const confirmLogout = () => setLogoutOpen(true);
+  const logoutModal = (
+    <LogoutConfirmModal
+      visible={logoutOpen}
+      doctorName={staff.name}
+      note="Logout when your shift ends or before leaving a shared desk. You'll need your email and password to sign in again."
+      loggingOut={loggingOut}
+      onCancel={() => setLogoutOpen(false)}
+      onConfirm={performLogout}
+    />
+  );
+
+  // After a password change the server ends every session: sign in again.
+  const signInAgain = async () => {
+    try { socketService.disconnect(); } catch (e) { /* ignore */ }
+    try { await clearAccountLocalData(); } catch (e) { /* ignore */ }
+    Alert.alert('Password updated', 'Sign in again with your new password.');
+    resetToLoginScreen(navigation);
   };
 
+  // Receptionists get the full front-desk portal (same as the web portal).
+  if (storedUser && staff.roleKey === 'receptionist') {
+    return (
+      <>
+        <ReceptionistPortal
+          initialProfile={storedUser}
+          onLogout={confirmLogout}
+          loggingOut={loggingOut}
+          onPasswordChanged={signInAgain}
+        />
+        {logoutModal}
+      </>
+    );
+  }
+
   const shift = shiftInfo(staff.shift);
-  const onShift = isOnShiftNow(staff.shift, now);
+  const onShift = isOnShiftNow(staff.shift, now, staff.shiftStartTime, staff.shiftEndTime);
   const duties = ROLE_DUTIES[staff.roleKey] || DEFAULT_DUTIES;
   const firstName = staff.firstName || staff.name.split(' ')[0] || 'there';
 
@@ -120,7 +159,7 @@ export default function StaffDashboard({ navigation }) {
             </View>
           </View>
           <Text style={s.shiftName}>{shift.key} Shift</Text>
-          <Text style={s.shiftTime}>{shift.label}</Text>
+          <Text style={s.shiftTime}>{shiftTimeLabel(staff.shiftStartTime, staff.shiftEndTime) || shift.label}</Text>
         </View>
 
         <View style={s.card}>
@@ -163,6 +202,7 @@ export default function StaffDashboard({ navigation }) {
           <Text style={s.logoutText}>Logout</Text>
         </Pressable>
       </ScrollView>
+      {logoutModal}
     </SafeAreaView>
   );
 }

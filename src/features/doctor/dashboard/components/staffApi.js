@@ -20,7 +20,40 @@ export const SHIFTS = [
   { key: 'Night', label: '10:00 PM – 6:00 AM', start: 22, end: 6 },
 ];
 export const shiftInfo = (shift) => SHIFTS.find((s) => s.key === shift) || SHIFTS[0];
-export const isOnShiftNow = (shift, now = new Date()) => {
+
+// The web's defaults when a shift is picked (staffProfileDetails defaultShiftTimes);
+// the doctor can then set the exact start and end times.
+export const DEFAULT_SHIFT_TIMES = {
+  Morning: ['06:00', '14:00'],
+  Evening: ['14:00', '22:00'],
+  Night: ['22:00', '06:00'],
+};
+
+const toMinutesOfDay = (value) => {
+  const m = String(value || '').match(/^(\d{1,2}):(\d{2})/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+
+// "14:00" → "2:00 PM"
+export const formatClock12 = (value) => {
+  const minutes = toMinutesOfDay(value);
+  if (minutes === null) return '';
+  const h = Math.floor(minutes / 60);
+  return `${h % 12 || 12}:${String(minutes % 60).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+};
+
+export const shiftTimeLabel = (start, end) =>
+  start && end ? `${formatClock12(start)} – ${formatClock12(end)}` : '';
+
+// On shift now — by the saved start/end times when there are any, else by
+// the shift's default hours.
+export const isOnShiftNow = (shift, now = new Date(), startTime, endTime) => {
+  const startMin = toMinutesOfDay(startTime);
+  const endMin = toMinutesOfDay(endTime);
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  if (startMin !== null && endMin !== null && startMin !== endMin) {
+    return startMin < endMin ? nowMin >= startMin && nowMin < endMin : nowMin >= startMin || nowMin < endMin;
+  }
   const { start, end } = shiftInfo(shift);
   const h = now.getHours();
   return start < end ? h >= start && h < end : h >= start || h < end;
@@ -144,6 +177,13 @@ export function normalizeStaff(doc = {}) {
     clinicId: String(doc.clinic_id || doc.clinicId || ''),
     clinicName: doc.clinic_name || doc.clinicName || '',
     shift: toTitleCase(doc.shift || doc.shift_preference || 'Morning'),
+    // Exact shift timings (web: shift_start_time / shift_end_time / shift_time).
+    shiftStartTime: doc.shift_start_time || doc.shiftStartTime
+      || String(doc.shift_time || doc.shiftTime || '').split(' - ')[0]
+      || DEFAULT_SHIFT_TIMES[toTitleCase(doc.shift || doc.shift_preference || 'Morning')]?.[0] || '',
+    shiftEndTime: doc.shift_end_time || doc.shiftEndTime
+      || String(doc.shift_time || doc.shiftTime || '').split(' - ')[1]
+      || DEFAULT_SHIFT_TIMES[toTitleCase(doc.shift || doc.shift_preference || 'Morning')]?.[1] || '',
     verification: normalizeVerification(doc.verification ?? doc.emailVerified ?? doc.is_verified ?? doc.verified),
     status: normalizeStatus(doc.status || doc.account_status),
     employmentStatus: doc.employmentStatus || doc.employment_status || 'Full-Time',
@@ -196,6 +236,9 @@ export const createStaff = async (form, photo = null) => {
     role: roleLabelToKey(form.role),
     department: form.department,
     shift: form.shift,
+    shift_start_time: form.shiftStartTime || undefined,
+    shift_end_time: form.shiftEndTime || undefined,
+    shift_time: form.shiftStartTime && form.shiftEndTime ? `${form.shiftStartTime} - ${form.shiftEndTime}` : undefined,
     date_of_birth: form.dateOfBirth || undefined,
     gender: form.gender || undefined,
     hire_date: form.hireDate || undefined,
@@ -226,6 +269,9 @@ export const updateStaff = async (rawId, changes, photo) => {
     department: changes.department,
     role: roleLabelToKey(changes.role),
     shift: changes.shift,
+    shift_start_time: changes.shiftStartTime || undefined,
+    shift_end_time: changes.shiftEndTime || undefined,
+    shift_time: changes.shiftStartTime && changes.shiftEndTime ? `${changes.shiftStartTime} - ${changes.shiftEndTime}` : undefined,
     status: changes.status,
     isActive: (changes.status || 'Active') === 'Active',
     ...(photo ? { profilePhoto: photo } : {}),

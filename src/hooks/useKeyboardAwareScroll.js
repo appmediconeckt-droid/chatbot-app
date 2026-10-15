@@ -12,7 +12,9 @@ const FOCUSED_INPUT_GAP = 28;
 // keyboard height; without `frameRef` it equals `keyboardInset`.
 // `frameIsScroll: true` measures the scroll view itself instead (for a
 // ScrollView that ends above the screen bottom, e.g. above a tab bar).
-const useKeyboardAwareScroll = ({ frameRef, frameIsScroll = false } = {}) => {
+// `layoutAvoidsKeyboard`: the caller already ends the viewport above the
+// keyboard (e.g. a Modal sized to keyboardTop), so don't subtract its inset again.
+const useKeyboardAwareScroll = ({ frameRef, frameIsScroll = false, layoutAvoidsKeyboard = false } = {}) => {
   const scrollRef = useRef(null);
   const baseHeightRef = useRef(Dimensions.get('window').height);
   const focusedInputHandleRef = useRef(null);
@@ -71,7 +73,7 @@ const useKeyboardAwareScroll = ({ frameRef, frameIsScroll = false } = {}) => {
           const viewportHeight = scrollViewHeightRef.current || Dimensions.get('window').height;
           const visibleHeight = Math.max(
             80,
-            viewportHeight - (Platform.OS === 'android' || frameRef || frameIsScroll ? frameInsetRef.current : 0)
+            viewportHeight - (!layoutAvoidsKeyboard && (Platform.OS === 'android' || frameRef || frameIsScroll) ? frameInsetRef.current : 0)
           );
           const currentY = scrollOffsetYRef.current;
           const inputTop = y;
@@ -94,7 +96,7 @@ const useKeyboardAwareScroll = ({ frameRef, frameIsScroll = false } = {}) => {
     } catch (_error) {
       fallbackScrollToKeyboard(inputNode, animated);
     }
-  }, [fallbackScrollToKeyboard, frameRef, frameIsScroll]);
+  }, [fallbackScrollToKeyboard, frameRef, frameIsScroll, layoutAvoidsKeyboard]);
 
   const scheduleScrollFocusedInputIntoView = useCallback((animated = true, delay) => {
     clearScrollTimer();

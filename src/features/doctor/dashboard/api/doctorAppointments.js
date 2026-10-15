@@ -6,9 +6,39 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance from '../../../../axiosConfig';
 import { isPatientAccountDeleted } from '../../../../utils/deletedAccount';
 import { parseEmergencySymptoms, stripEmergencyTag } from '../../../../utils/emergencyTag';
+import { getAppointmentVitals } from '../../../../utils/appointmentVitals';
 
 export const pickFirst = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== '');
+
+const toMs = (value) => {
+  if (value === undefined || value === null || value === '') return NaN;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : Date.parse(value);
+};
+
+// Completed-visit timing. Start / Complete record the consultation in
+// consultation_started_at / consultation_ended_at (or consultation_timing),
+// not end_time / duration_ms, so fall back to those for the record screen.
+const consultationTimes = (a) => {
+  let timing = pickFirst(a?.consultation_timing, a?.consultationTiming) || {};
+  if (typeof timing === 'string') {
+    try { timing = JSON.parse(timing) || {}; } catch { timing = {}; }
+  }
+  const endTime = pickFirst(
+    a?.end_time, a?.endTime, a?.consultation_ended_at, a?.consultationEndedAt,
+    timing.endedAt, timing.ended_at, a?.completed_at, a?.completedAt,
+  );
+  const start = toMs(pickFirst(
+    a?.consultation_started_at, a?.consultationStartedAt, timing.startedAt, timing.started_at,
+  ));
+  const paused = Number(pickFirst(timing.pausedMs, timing.paused_ms, timing.totalPausedMs, timing.total_paused_ms, 0)) || 0;
+  const stored = Number(pickFirst(a?.duration_ms, a?.durationMs, timing.durationMs, timing.duration_ms, 0)) || 0;
+  const derived = toMs(endTime) - start - paused;
+  // Ignore implausible spans (Start never pressed, consultation left open > 12 h).
+  const durationMs = stored || (Number.isFinite(derived) && derived > 0 && derived < 12 * 3600000 ? derived : 0);
+  return { endTime, durationMs };
+};
 
 // ---- feed -----------------------------------------------------------------
 
@@ -487,6 +517,7 @@ const formatAppointmentTime = (a) => {
 };
 
 export const formatAppointment = (a, forcedStatus) => {
+  const vitals = getAppointmentVitals(a);
   const patient = a?.patient || a?.patientData || a?.user || {};
   const appointmentSource = getAppointmentSource(a);
   const followUp = a?.followup || a?.follow_up || a?.followUp || {};
@@ -538,16 +569,16 @@ export const formatAppointment = (a, forcedStatus) => {
       typeof a?.token === 'object' ? a?.token?.myToken : a?.token,
     ),
     appointmentNo: pickFirst(a?.appointment_no, a?.appointmentNo, a?.appointment_number, a?.appointmentNumber),
-    bp: pickFirst(a?.blood_pressure, a?.bp, a?.bloodPressure, 'Not recorded'),
-    temperature: pickFirst(a?.temperature, a?.temp),
+    vitals,
+    bp: pickFirst(vitals.blood_pressure, 'Not recorded'),
+    temperature: vitals.temperature,
     bloodGroup: pickFirst(a?.blood_group, a?.bloodGroup, patient?.blood_group, patient?.bloodGroup, 'Not recorded'),
     patientId: pickFirst(
       patient?.user_id, patient?.userId, a?.patient_user_id, a?.patientUserId,
       a?.patient_id, a?.patientId, patient?.id, patient?._id,
     ),
     startTime: pickFirst(a?.start_time, a?.startTime),
-    endTime: pickFirst(a?.end_time, a?.endTime),
-    durationMs: Number(pickFirst(a?.duration_ms, a?.durationMs, 0)) || 0,
+    ...consultationTimes(a),
     diagnosis: a?.diagnosis,
     medicine: a?.medicine,
     advice: a?.advice,
@@ -752,6 +783,17 @@ const setWalkinQueueState = (appt, state) => {
 };
 
 // A still-booked walk-in row with this device's Next / started state applied.
+// Next / start kept only on this device (from when the server refused those
+// statuses) is pushed to the server once per session, so the receptionist and
+// the web see it too. Once the server saves it, the local entry is cleared.
+const syncAttempted = new Set();
+const syncWalkinQueueState = (row, entry) => {
+  const attempt = `${walkinKey(row)}:${entry.state}`;
+  if (syncAttempted.has(attempt)) return;
+  syncAttempted.add(attempt);
+  patchAppointment(row, { status: entry.state === 'skipped' ? 'skipped' : 'in-progress' }).catch(() => {});
+};
+
 const withWalkinQueueState = (row) => {
   const entry = walkinQueue[walkinKey(row)];
   if (!entry) return row;
@@ -762,6 +804,7 @@ const withWalkinQueueState = (row) => {
     saveWalkinQueue();
     return row;
   }
+  syncWalkinQueueState(row, entry);
   if (entry.state === 'skipped') return { ...row, queue_status: 'skipped' };
   if (entry.state === 'in-progress') return { ...row, consultation_started_at: entry.startedAt || new Date().toISOString() };
   return row;

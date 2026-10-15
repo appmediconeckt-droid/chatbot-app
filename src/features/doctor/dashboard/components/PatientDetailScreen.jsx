@@ -9,6 +9,8 @@ import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
+import VitalsSummary from '../../../../components/VitalsSummary';
+import { hasAppointmentVitals } from '../../../../utils/appointmentVitals';
 
 const PAGE_SIZE = 10;
 
@@ -75,6 +77,7 @@ export default function PatientDetailScreen({ patient, onBack, onVisitPress }) {
           </View>
         </LinearGradient>
 
+        <VitalsSummary appointment={records.find(hasAppointmentVitals)} title="Latest recorded vitals" />
         <View style={s.sectionRow}>
           <AppIcon name="calendar" size={16} color="#0D9488" />
           <Text style={s.section}>Visit History ({records.length} appointments)</Text>

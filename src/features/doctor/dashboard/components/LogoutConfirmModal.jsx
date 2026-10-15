@@ -1,5 +1,6 @@
-// Doctor logout confirmation (sidebar and Settings). Teal doctor theme; stays
-// open with a spinner while the server logout runs.
+// Logout confirmation for the doctor and the receptionist portal (sidebar and
+// Settings). Teal clinician theme; stays open with a spinner while the server
+// logout runs. `note` overrides the doctor's notification hint.
 import React from 'react';
 import { ActivityIndicator, Modal, Pressable, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
@@ -7,7 +8,7 @@ import Text from '../../../../components/TranslatedText';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles, doctorGradient } from '../theme';
 
-export default function LogoutConfirmModal({ visible, doctorName, loggingOut = false, onCancel, onConfirm }) {
+export default function LogoutConfirmModal({ visible, doctorName, note, loggingOut = false, onCancel, onConfirm }) {
   return (
     <Modal
       visible={visible}
@@ -31,7 +32,7 @@ export default function LogoutConfirmModal({ visible, doctorName, loggingOut = f
           <View style={s.note}>
             <AppIcon name="info" size={14} color="#0F766E" strokeWidth={2.2} />
             <Text style={s.noteText}>
-              You'll stop getting appointment and call notifications on this phone until you sign in again.
+              {note || "You'll stop getting appointment and call notifications on this phone until you sign in again."}
             </Text>
           </View>
 

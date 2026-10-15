@@ -1030,6 +1030,10 @@ const normalizeAptStatus = (value) => String(value || "pending").trim().toLowerC
 const isUnscheduledEmergency = (apt) =>
   String(apt?.priority || "").toLowerCase() === "emergency" && !apt?.appointment_time;
 
+const isEmergencyAppointment = (apt) =>
+  String(apt?.priority || apt?.appointment_priority || '').toLowerCase() === 'emergency'
+  || apt?.is_emergency === true || apt?.isEmergency === true || String(apt?.is_emergency).toLowerCase() === 'true';
+
 // Doctor appointments have no chat (web MyAppointments getProfessionalRole).
 // GET /api/appointments only populates the professional's name/photo, so the
 // role comes from the appointment if present, else the counsellors list.
@@ -1038,6 +1042,15 @@ const isDoctorAppointment = (apt, doctorIds) => {
   if (rawRole) return rawRole === 'doctor';
   const id = apt?.counselor?._id || apt?.counselor?.id || apt?.counselorId || apt?.counselor;
   return !!id && doctorIds.has(String(id));
+};
+const getAppointmentIdentity = (apt) => String(
+  apt?._id || apt?.id || apt?.appointmentId || apt?.appointment_id || '',
+);
+const getProviderIdentity = (apt) => {
+  const counselor = apt?.counselor || apt?.doctor || {};
+  const id = counselor?._id || counselor?.id || apt?.counselorId || apt?.doctorId;
+  if (id) return `provider:${id}`;
+  return `name:${String(counselor?.fullName || counselor?.name || 'provider').trim().toLowerCase()}`;
 };
 
 // In-clinic (OPD / walk-in / emergency) doctor visits happen in person, so they
@@ -1060,6 +1073,74 @@ const isClinicVisitAppointment = (apt) => {
     || apt.token_number != null || apt.tokenNumber != null || apt.queue_token != null
   );
 };
+
+const canCancelUserAppointment = (appointment) => {
+  if (!appointment) return false;
+  const status = String(appointment.appointment_status || appointment.status || '').toLowerCase();
+  const queue = String(appointment.queue_status || appointment.queueStatus || '').toLowerCase();
+  let timing = appointment.consultation_timing || appointment.consultationTiming || appointment.timing || {};
+  if (typeof timing === 'string') {
+    try { timing = JSON.parse(timing); } catch { return false; }
+  }
+  return ['pending', 'confirmed', 'booked', 'accepted'].includes(status)
+    && !['in_progress', 'in-progress', 'completed', 'canceled', 'cancelled'].includes(queue)
+    && !appointment.consultation_started_at && !appointment.consultation_ended_at
+    && !timing?.startedAt && !timing?.started_at && !timing?.endedAt && !timing?.ended_at;
+};
+
+function PatientEmergencyModal({ visible, appointment, busy, error, onClose, onSubmit }) {
+  const { t } = useLanguageRender();
+  const [reason, setReason] = useState('');
+
+  useEffect(() => {
+    if (visible) setReason('');
+  }, [visible, appointment]);
+
+  const trimmed = reason.trim();
+  return (
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
+      <View style={styles.emergencyModalOverlay}>
+        <View style={styles.emergencyModalCard}>
+          <View style={styles.emergencyModalHeader}>
+            <View style={styles.emergencyModalIcon}><Ionicons name="warning" size={20} color="#B42318" /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.emergencyModalTitle}>{t('Emergency request')}</Text>
+              <Text style={styles.emergencyModalSubtitle}>{t('Send an urgent alert to your doctor and clinic.')}</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} disabled={busy} hitSlop={10}>
+              <MaterialIcons name="close" size={21} color="#64748B" />
+            </TouchableOpacity>
+          </View>
+          <TextInput
+            value={reason}
+            onChangeText={setReason}
+            multiline
+            maxLength={1000}
+            editable={!busy}
+            placeholder={t('What is happening?')}
+            placeholderTextColor="#94A3B8"
+            style={styles.emergencyReasonInput}
+          />
+          <Text style={styles.emergencyHint}>{trimmed.length}/1000 · {t('At least 10 characters')}</Text>
+          {!!error && <Text style={styles.emergencyError}>{error}</Text>}
+          <View style={styles.emergencyModalActions}>
+            <TouchableOpacity style={styles.emergencyCancelBtn} onPress={onClose} disabled={busy}>
+              <Text style={styles.emergencyCancelText}>{t('Cancel')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.emergencySendBtn, (busy || trimmed.length < 10) && styles.emergencySendDisabled]}
+              onPress={() => onSubmit(trimmed)}
+              disabled={busy || trimmed.length < 10}
+            >
+              {busy ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="alert-circle-outline" size={17} color="#FFF" />}
+              <Text style={styles.emergencySendText}>{busy ? t('Sending...') : t('Send Emergency')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 const getAptId = (apt) => String(apt?._id || apt?.id || apt?.appointmentId || apt?.appointment_id || '');
 const getTokenItemAptId = (item) => String(
@@ -1293,8 +1374,13 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const [activeTab, setActiveTab] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [selectedApt, setSelectedApt] = useState(null);
+  const [selectedProviderKey, setSelectedProviderKey] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [countdown, setCountdown] = useState("");
+  const [actionLoading, setActionLoading] = useState(null);
+  const [emergencyAppointment, setEmergencyAppointment] = useState(null);
+  const [emergencyBusy, setEmergencyBusy] = useState(false);
+  const [emergencyError, setEmergencyError] = useState('');
   const [doctorIds, setDoctorIds] = useState(() => new Set());
   const socketRef = useRef(null);
   // Web MyAppointments "Rate Doctor": a completed doctor appointment can be
@@ -1309,17 +1395,20 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     setRatingApt(apt);
   };
   const submitDoctorRating = async ({ rating, review }) => {
-    if (ratingBusy || !ratingApt?._id) return;
+    const appointmentId = getAppointmentIdentity(ratingApt);
+    if (ratingBusy || !appointmentId) return;
     setRatingBusy(true);
     setRatingError("");
     try {
       const { data } = await axiosInstance.post(
-        `/api/appointments/${encodeURIComponent(ratingApt._id)}/doctor-rating`,
+        `/api/appointments/${encodeURIComponent(appointmentId)}/doctor-rating`,
         { rating, review: String(review || "").trim() },
         { timeout: 15000 },
       );
       const saved = data?.doctorRating || { stars: rating, review };
-      setAppointments((rows) => rows.map((row) => (row._id === ratingApt._id ? { ...row, doctorRating: saved } : row)));
+      setAppointments((rows) => rows.map((row) => (
+        getAppointmentIdentity(row) === appointmentId ? { ...row, doctorRating: saved } : row
+      )));
       setRatingSuccess(true);
       setTimeout(() => setRatingApt(null), 1500);
     } catch (err) {
@@ -1400,6 +1489,56 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     }
   }, []);
 
+  const cancelAppointment = async (appointment) => {
+    const appointmentId = getAppointmentIdentity(appointment);
+    if (actionLoading || !appointmentId || !canCancelUserAppointment(appointment)) return;
+    Alert.alert(t('Cancel appointment'), t('Cancel this appointment?'), [
+      { text: t('Keep'), style: 'cancel' },
+      {
+        text: t('Cancel appointment'),
+        style: 'destructive',
+        onPress: async () => {
+          setActionLoading(`cancel-${appointmentId}`);
+          try {
+            await axiosInstance.patch(`/api/appointments/${encodeURIComponent(appointmentId)}/cancel`, { source: 'online' });
+            setAppointments((rows) => rows.map((row) => getAppointmentIdentity(row) === appointmentId
+              ? { ...row, status: 'canceled', queue_status: 'canceled' } : row));
+            setSelectedApt((current) => current && getAppointmentIdentity(current) === appointmentId
+              ? { ...current, status: 'canceled', queue_status: 'canceled' } : current);
+            setShowDetailsModal(false);
+          } catch (error) {
+            Alert.alert(t('Cancel appointment'), error?.response?.data?.message || t('Appointment could not be cancelled. Please try again.'));
+            if (error?.response?.status === 409) await fetchAppointments(true);
+          } finally {
+            setActionLoading(null);
+          }
+        },
+      },
+    ]);
+  };
+
+  const submitEmergency = async (reason) => {
+    const appointmentId = getAppointmentIdentity(emergencyAppointment);
+    if (emergencyBusy || !appointmentId || reason.length < 10) return;
+    setEmergencyBusy(true);
+    setEmergencyError('');
+    try {
+      await axiosInstance.patch(`/api/appointments/${encodeURIComponent(appointmentId)}/emergency`, {
+        reason,
+        is_emergency: true,
+      });
+      setAppointments((rows) => rows.map((row) => getAppointmentIdentity(row) === appointmentId
+        ? { ...row, priority: 'emergency', emergency_reason: reason, is_emergency: true } : row));
+      setSelectedApt((current) => current && getAppointmentIdentity(current) === appointmentId
+        ? { ...current, priority: 'emergency', emergency_reason: reason, is_emergency: true } : current);
+      setEmergencyAppointment(null);
+    } catch (error) {
+      setEmergencyError(error?.response?.data?.message || error?.response?.data?.error || t('Emergency request could not be sent. Please try again.'));
+    } finally {
+      setEmergencyBusy(false);
+    }
+  };
+
   useLiveRefresh(() => fetchAppointments(true));
 
   useEffect(() => {
@@ -1473,6 +1612,19 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   if (statusFilter === "Completed") {
     displayApts = displayApts.filter((apt) => apt.status === "completed");
   }
+
+  const providerGroups = Object.values(displayApts.reduce((groups, appointment) => {
+    const key = getProviderIdentity(appointment);
+    if (!groups[key]) groups[key] = { key, latest: appointment, appointments: [] };
+    groups[key].appointments.push(appointment);
+    return groups;
+  }, {}));
+  const selectedProvider = providerGroups.find((group) => group.key === selectedProviderKey) || null;
+  const selectedProviderAppointments = selectedProvider?.appointments || [];
+
+  useEffect(() => {
+    if (selectedProviderKey && !selectedProvider) setSelectedProviderKey(null);
+  }, [selectedProviderKey, selectedProvider]);
 
   const isCanceledStatus = (status) => status === "canceled" || status === "cancelled";
 
@@ -1657,8 +1809,44 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             </Text>
           </View>
         ) : (
-          displayApts.map((apt) => {
+          <>
+          {selectedProviderKey && selectedProvider && (
+            <View style={styles.providerHistoryHeader}>
+              <TouchableOpacity style={styles.providerBackBtn} onPress={() => setSelectedProviderKey(null)}>
+                <Ionicons name="arrow-back" size={17} color={PATIENT.primary} />
+                <Text style={styles.providerBackText}>{t('Back to doctors & consultants')}</Text>
+              </TouchableOpacity>
+              <View style={styles.providerHistoryPerson}>
+                <Image source={{ uri: getAvatarSrc(selectedProvider.latest) }} style={styles.providerHistoryAvatar} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.providerHistoryName} numberOfLines={1}>{selectedProvider.latest?.counselor?.fullName || t('Provider unavailable')}</Text>
+                  <Text style={styles.providerHistoryMeta}>{selectedProvider.appointments.length} {selectedProvider.appointments.length === 1 ? t('appointment') : t('appointments')}</Text>
+                </View>
+              </View>
+            </View>
+          )}
+          {!selectedProviderKey ? providerGroups.map((provider) => {
+            const sample = provider.latest;
+            const name = sample?.counselor?.fullName || t('Provider unavailable');
+            const completed = provider.appointments.filter((appointment) => String(appointment.status).toLowerCase() === 'completed').length;
+            return (
+              <TouchableOpacity key={provider.key} style={styles.providerCard} onPress={() => setSelectedProviderKey(provider.key)} activeOpacity={0.85}>
+                <Image source={{ uri: getAvatarSrc(sample) }} style={styles.providerCardAvatar} />
+                <View style={styles.providerCardBody}>
+                  <Text style={styles.providerCardName} numberOfLines={1}>{name}</Text>
+                  <Text style={styles.providerCardSpec} numberOfLines={1}>{sample?.counselor?.specialization || t('Medical specialist')}</Text>
+                  <View style={styles.providerCardStats}>
+                    <Text style={styles.providerCardStat}>{provider.appointments.length} {provider.appointments.length === 1 ? t('appointment') : t('appointments')}</Text>
+                    <Text style={styles.providerCardStat}>{completed} {t('completed')}</Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={PATIENT.primary} />
+              </TouchableOpacity>
+            );
+          }) : selectedProviderAppointments.map((apt) => {
             const aptStatus = String(apt.status || 'pending').toLowerCase();
+            const doctorAppointment = isDoctorAppointment(apt, doctorIds);
+            const doctorActionable = doctorAppointment && !TERMINAL_APT_STATUSES.has(normalizeAptStatus(aptStatus));
             const aptHasDate = Number.isFinite(Date.parse(apt.date));
             const aptDateObj = aptHasDate ? new Date(apt.date) : null;
             const aptExperience = formatExperience(apt?.counselor?.experience);
@@ -1772,7 +1960,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     consultation. Consultant cards show just View Details (their
                     video, voice and chat are inside the details sheet), and a
                     doctor's in-clinic visit is in person. */}
-                {isDoctorAppointment(apt, doctorIds) && aptStatus === 'completed' && (
+                {doctorAppointment && aptStatus === 'completed' && (
                   <TouchableOpacity
                     style={[styles.aptRateBtn, apt.doctorRating && styles.aptRateBtnDone]}
                     onPress={() => openDoctorRating(apt)}
@@ -1791,7 +1979,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     </Text>
                   </TouchableOpacity>
                 )}
-                {isDoctorAppointment(apt, doctorIds) && !isDoctorClinicVisit(apt) && aptStatus !== 'completed' && (
+                {doctorAppointment && !isDoctorClinicVisit(apt) && aptStatus !== 'completed' && (
                   <>
                     <TouchableOpacity
                       style={styles.aptActionIconBtn}
@@ -1811,19 +1999,44 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   </>
                 )}
               </View>
+              {doctorActionable && (
+                <View style={styles.doctorAppointmentActionRow}>
+                  {canCancelUserAppointment(apt) && (
+                    <TouchableOpacity
+                      style={[styles.doctorCancelBtn, actionLoading && styles.actionDisabled]}
+                      onPress={() => cancelAppointment(apt)}
+                      disabled={Boolean(actionLoading)}
+                    >
+                      <Ionicons name="close-circle-outline" size={16} color="#B42318" />
+                      <Text style={styles.doctorCancelText}>{actionLoading === `cancel-${getAppointmentIdentity(apt)}` ? t('Cancelling...') : t('Cancel')}</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[styles.doctorEmergencyBtn, isEmergencyAppointment(apt) && styles.doctorEmergencySent]}
+                    onPress={() => { setEmergencyError(''); setEmergencyAppointment(apt); }}
+                    disabled={isEmergencyAppointment(apt) || Boolean(actionLoading)}
+                  >
+                    <Ionicons name={isEmergencyAppointment(apt) ? 'checkmark-circle' : 'warning-outline'} size={16} color={isEmergencyAppointment(apt) ? '#9F1239' : '#B42318'} />
+                    <Text style={[styles.doctorEmergencyText, isEmergencyAppointment(apt) && styles.doctorEmergencySentText]}>
+                      {isEmergencyAppointment(apt) ? t('Emergency sent') : t('Emergency')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
             );
-          })
+          })}
+          </>
         )}
       </ScrollView>
 
       {ratingApt && (
         <RatingModal
-          key={ratingApt._id}
+          key={getAppointmentIdentity(ratingApt)}
           visible
           professionalType="doctor"
-          counselorName={ratingApt?.counselor?.fullName || ratingApt?.counselor?.name || t('your doctor')}
-          counselorPhoto={ratingApt?.counselor?.profilePhoto}
+          counselorName={ratingApt?.counselor?.fullName || ratingApt?.counselor?.name || ratingApt?.doctor?.fullName || ratingApt?.doctor?.name || t('your doctor')}
+          counselorPhoto={ratingApt?.counselor?.profilePhoto || ratingApt?.doctor?.profilePhoto}
           submitting={ratingBusy}
           success={ratingSuccess}
           error={ratingError}
@@ -1831,6 +2044,15 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
           onClose={() => { if (!ratingBusy) setRatingApt(null); }}
         />
       )}
+
+      <PatientEmergencyModal
+        visible={Boolean(emergencyAppointment)}
+        appointment={emergencyAppointment}
+        busy={emergencyBusy}
+        error={emergencyError}
+        onClose={() => { if (!emergencyBusy) setEmergencyAppointment(null); }}
+        onSubmit={submitEmergency}
+      />
 
       <Modal statusBarTranslucent navigationBarTranslucent
         transparent={true}
@@ -4708,6 +4930,98 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
+  providerHistoryHeader: {
+    backgroundColor: PATIENT.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#D8EEE0",
+    padding: 14,
+    marginBottom: 2,
+  },
+  providerBackBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    marginBottom: 12,
+  },
+  providerBackText: {
+    color: PATIENT.primary,
+    fontSize: 12.5,
+    fontWeight: "800",
+  },
+  providerHistoryPerson: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+  },
+  providerHistoryAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#E6F6EC",
+  },
+  providerHistoryName: {
+    color: PATIENT.text,
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  providerHistoryMeta: {
+    color: PATIENT.textSecondary,
+    fontSize: 12.5,
+    marginTop: 3,
+  },
+  providerCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 92,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#D8EEE0",
+    backgroundColor: PATIENT.surface,
+    shadowColor: "#0B3B1F",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  providerCardAvatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#E6F6EC",
+  },
+  providerCardBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  providerCardName: {
+    color: PATIENT.text,
+    fontSize: 15.5,
+    fontWeight: "800",
+  },
+  providerCardSpec: {
+    color: PATIENT.textSecondary,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  providerCardStats: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+  },
+  providerCardStat: {
+    color: PATIENT.primary,
+    fontSize: 11.5,
+    fontWeight: "700",
+    backgroundColor: "#F0FAF4",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
 
   // Card
   appointmentCard: {
@@ -4911,6 +5225,156 @@ const styles = StyleSheet.create({
     paddingLeft: 18,
     paddingRight: 14,
     paddingBottom: 16,
+  },
+  doctorAppointmentActionRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingBottom: 16,
+  },
+  doctorCancelBtn: {
+    flex: 1,
+    minHeight: 40,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "#F4C7C3",
+    borderRadius: 11,
+    justifyContent: "center",
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
+    backgroundColor: "#FFF5F4",
+  },
+  doctorCancelText: {
+    color: "#B42318",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  doctorEmergencyBtn: {
+    flex: 1,
+    minHeight: 40,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "#F3A6B8",
+    borderRadius: 11,
+    justifyContent: "center",
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
+    backgroundColor: "#FFF1F2",
+  },
+  doctorEmergencySent: {
+    borderColor: "#FDA4AF",
+    backgroundColor: "#FFE4E6",
+  },
+  doctorEmergencyText: {
+    color: "#B42318",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  doctorEmergencySentText: {
+    color: "#9F1239",
+  },
+  actionDisabled: {
+    opacity: 0.55,
+  },
+  emergencyModalOverlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 18,
+    backgroundColor: "rgba(15, 23, 42, 0.5)",
+  },
+  emergencyModalCard: {
+    width: "100%",
+    maxWidth: 430,
+    borderRadius: 20,
+    padding: 18,
+    backgroundColor: "#FFFFFF",
+  },
+  emergencyModalHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 14,
+  },
+  emergencyModalIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF1F2",
+  },
+  emergencyModalTitle: {
+    color: "#17243A",
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  emergencyModalSubtitle: {
+    color: "#64748B",
+    fontSize: 12.5,
+    lineHeight: 18,
+    marginTop: 3,
+  },
+  emergencyReasonInput: {
+    minHeight: 100,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 11,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: "#17243A",
+    fontSize: 14,
+    textAlignVertical: "top",
+  },
+  emergencyHint: {
+    color: "#64748B",
+    fontSize: 11.5,
+    marginTop: 6,
+  },
+  emergencyError: {
+    color: "#B42318",
+    fontSize: 12,
+    marginTop: 8,
+  },
+  emergencyModalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 9,
+    marginTop: 16,
+  },
+  emergencyCancelBtn: {
+    minHeight: 42,
+    paddingHorizontal: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 10,
+  },
+  emergencyCancelText: {
+    color: "#475569",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  emergencySendBtn: {
+    minHeight: 42,
+    paddingHorizontal: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+    borderRadius: 10,
+    backgroundColor: "#B42318",
+  },
+  emergencySendDisabled: {
+    opacity: 0.55,
+  },
+  emergencySendText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
   },
   appointmentDetailsBtn: {
     flex: 1,

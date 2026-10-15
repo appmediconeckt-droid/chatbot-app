@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import TextInput from '../../../../components/TranslatedTextInput';
 import Text from '../../../../components/TranslatedText';
+import PatientVitalsButton from '../../../../components/PatientVitalsButton';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Ionicons from "react-native-vector-icons/Ionicons";
@@ -1667,6 +1668,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       >
         {renderNotification()}
         {renderProfileHeader()}
+        <PatientVitalsButton />
         <View style={[styles.locationCard, { width: responsiveContentWidth }]}>
           <View style={styles.locationCardLeft}>
             <Ionicons name="location-outline" size={20} color="#00652C" />

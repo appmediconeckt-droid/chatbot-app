@@ -19,29 +19,40 @@ import { colors, createDoctorStyles } from '../theme';
 import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { getDatePickerValue, toDateOnlyString } from '../../../../utils/dateOfBirth';
-import { createStaff, fetchClinics, generateStaffPassword } from './staffApi';
+import { DEFAULT_SHIFT_TIMES, createStaff, fetchClinics, formatClock12, generateStaffPassword } from './staffApi';
 import { pickStaffPhoto } from './pickStaffPhoto';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 
 // Role `key`s are the backend role ids the web sends (docStaffRoleCards).
 const ROLES = [
-  { key: 'nurse', title: 'Nurse', description: 'Direct patient care & monitoring.', icon: 'plus', department: 'Nursing' },
-  { key: 'assistant', title: 'Medical Assistant', description: 'Clinical operations & support.', icon: 'pulse', department: 'Clinical' },
-  { key: 'technician', title: 'Lab Technician', description: 'Lab tests & samples.', icon: 'flask', department: 'Pathology' },
-  { key: 'billing', title: 'Billing Staff', description: 'Invoicing & claims management.', icon: 'note', department: 'Finance' },
-  { key: 'housekeeping', title: 'Housekeeping', description: 'Ensures facility cleanliness and hygiene.', icon: 'home', department: 'Operations' },
-  { key: 'supervisor', title: 'Supervisor', description: 'Oversees departmental operations and staff.', icon: 'users', department: 'Operations' },
+  {
+    key: 'receptionist',
+    title: 'Receptionist',
+    description: "Views the assigned doctor's details, appointments, live tokens and checkups.",
+    icon: 'calendar',
+    department: 'Admin',
+    // Shown on the full-width card when it is the only role on offer.
+    points: [
+      { icon: 'calendar', text: "Today's appointments and the live token queue" },
+      { icon: 'pulse', text: 'Record patient vitals before the consultation' },
+      { icon: 'file', text: 'Patient history and prescription PDFs' },
+      { icon: 'qr', text: 'Clinic LED token display' },
+    ],
+  },
+  // Hidden for now — only Receptionist can be created. Uncomment to bring a role back.
+  // { key: 'nurse', title: 'Nurse', description: 'Direct patient care & monitoring.', icon: 'plus', department: 'Nursing' },
+  // { key: 'assistant', title: 'Medical Assistant', description: 'Clinical operations & support.', icon: 'pulse', department: 'Clinical' },
+  // { key: 'technician', title: 'Lab Technician', description: 'Lab tests & samples.', icon: 'flask', department: 'Pathology' },
+  // { key: 'billing', title: 'Billing Staff', description: 'Invoicing & claims management.', icon: 'note', department: 'Finance' },
+  // { key: 'housekeeping', title: 'Housekeeping', description: 'Ensures facility cleanliness and hygiene.', icon: 'home', department: 'Operations' },
+  // { key: 'supervisor', title: 'Supervisor', description: 'Oversees departmental operations and staff.', icon: 'users', department: 'Operations' },
 ];
 const GENDERS = ['Male', 'Female', 'Other'];
 const DEPARTMENTS = ['Nursing', 'Clinical', 'Emergency', 'Pathology', 'Finance', 'Operations', 'Admin', 'General Medicine'];
 // Web shift values.
 const SHIFTS = ['Morning', 'Evening', 'Night'];
-const SHIFT_TIMES = {
-  Morning: '6 AM - 2 PM',
-  Evening: '2 PM - 10 PM',
-  Night: '10 PM - 6 AM',
-};
 const ROLE_ID_PREFIX = {
+  receptionist: 'REC',
   nurse: 'NUR',
   assistant: 'MA',
   technician: 'LAB',
@@ -81,7 +92,18 @@ const blankForm = {
   department: '',
   hireDate: '',
   shiftPreference: 'Morning',
+  shiftStartTime: DEFAULT_SHIFT_TIMES.Morning[0],
+  shiftEndTime: DEFAULT_SHIFT_TIMES.Morning[1],
 };
+
+// "HH:MM" ↔ Date for the time picker.
+const timeToDate = (value) => {
+  const [h, m] = String(value || '09:00').split(':').map(Number);
+  const d = new Date();
+  d.setHours(Number.isFinite(h) ? h : 9, Number.isFinite(m) ? m : 0, 0, 0);
+  return d;
+};
+const dateToTime = (date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 
 export default function CreateStaffScreen({ onCancel, onCreated }) {
   // Signup-style keyboard handling: the form scrolls above the keyboard and the
@@ -98,7 +120,8 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
   const [step, setStep] = useState(1);
-  const [selectedRole, setSelectedRole] = useState(null);
+  // With a single role on offer there is nothing to choose — pre-select it.
+  const [selectedRole, setSelectedRole] = useState(ROLES.length === 1 ? ROLES[0].key : null);
   const [form, setForm] = useState(blankForm);
   const [picker, setPicker] = useState(null);
   const [datePicker, setDatePicker] = useState(null);
@@ -143,7 +166,8 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
   const phoneError = form.phone.trim().length > 0 && !phoneValid ? 'Enter a valid phone number (at least 10 digits).' : '';
 
   const canContinueStep1 = Boolean(selectedRole);
-  const canContinueStep2 = Boolean(form.clinicId && form.firstName.trim() && form.lastName.trim() && emailValid && phoneValid);
+  const canContinueStep2 = Boolean(form.clinicId && form.firstName.trim() && form.lastName.trim() && emailValid && phoneValid
+    && form.shiftStartTime && form.shiftEndTime);
 
   const handleStep1Continue = () => {
     if (!canContinueStep1) return;
@@ -209,6 +233,8 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
         department: form.department || ROLES.find((item) => item.key === selectedRole)?.department,
         hireDate: form.hireDate,
         shift: form.shiftPreference || 'Morning',
+        shiftStartTime: form.shiftStartTime,
+        shiftEndTime: form.shiftEndTime,
         password: credentials?.password,
       }, photo);
       showToast(`${created.name} added to your staff directory.`);
@@ -224,7 +250,18 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
   const dropdownConfig = {
     gender: { label: 'Gender', options: GENDERS, value: form.gender, onSelect: (value) => setField('gender', value) },
     department: { label: 'Department', options: DEPARTMENTS, value: form.department, onSelect: (value) => setField('department', value) },
-    shiftPreference: { label: 'Shift Preference', options: SHIFTS, value: form.shiftPreference, onSelect: (value) => setField('shiftPreference', value) },
+    // Picking a shift fills in its usual hours (like the web); the times stay editable.
+    shiftPreference: {
+      label: 'Shift Preference',
+      options: SHIFTS,
+      value: form.shiftPreference,
+      onSelect: (value) => setForm((current) => ({
+        ...current,
+        shiftPreference: value,
+        shiftStartTime: DEFAULT_SHIFT_TIMES[value]?.[0] || current.shiftStartTime,
+        shiftEndTime: DEFAULT_SHIFT_TIMES[value]?.[1] || current.shiftEndTime,
+      })),
+    },
     clinic: {
       label: 'Clinic / Hospital',
       options: clinics.map((c) => c.name),
@@ -234,6 +271,23 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
   }[picker];
 
   const dateField = datePicker === 'dateOfBirth' ? 'dateOfBirth' : datePicker === 'hireDate' ? 'hireDate' : null;
+  const timeField = datePicker === 'shiftStartTime' || datePicker === 'shiftEndTime' ? datePicker : null;
+
+  // Shift start / end time (the web's <input type="time">).
+  const openTimePicker = (field) => {
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: timeToDate(form[field]),
+        mode: 'time',
+        is24Hour: false,
+        onChange: (event, selected) => {
+          if (event?.type === 'set' && selected) setField(field, dateToTime(selected));
+        },
+      });
+      return;
+    }
+    setDatePicker(field);
+  };
   // Empty hire date starts on today; empty date of birth on 1 Jan 2000.
   const pickerStart = (field) => (field === 'hireDate' && !form.hireDate ? new Date() : getDatePickerValue(form[field]));
 
@@ -296,7 +350,46 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
 
       {step === 1 && (
         <ScrollView style={s.scrollArea} showsVerticalScrollIndicator={false} ref={kbScrollRef} contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
-          <Text style={s.subheading}>Choose a staff role to begin creating a new account.</Text>
+          <Text style={s.subheading}>
+            {ROLES.length === 1 ? 'This staff member will be created with the role below.' : 'Choose a staff role to begin creating a new account.'}
+          </Text>
+          {ROLES.length === 1 ? ROLES.map((role) => {
+            const selected = selectedRole === role.key;
+            return (
+              <Pressable
+                key={role.key}
+                onPress={() => setSelectedRole(role.key)}
+                style={[s.card, s.soloCard, selected && s.cardSelected]}
+              >
+                <View style={s.soloHead}>
+                  <View style={s.soloIcon}><AppIcon name={role.icon} size={24} color={colors.blue} strokeWidth={2} /></View>
+                  <View style={s.soloCopy}>
+                    <Text style={s.soloTitle}>{role.title}</Text>
+                    <Text style={s.soloDept}>{role.department} department</Text>
+                  </View>
+                  {selected && (
+                    <View style={s.checkBadge}><AppIcon name="check-mark" size={11} color="#FFFFFF" strokeWidth={3} /></View>
+                  )}
+                </View>
+                <Text style={s.soloDescription}>{role.description}</Text>
+                {!!role.points?.length && (
+                  <View style={s.soloPoints}>
+                    <Text style={s.soloPointsTitle}>CAN ACCESS</Text>
+                    {role.points.map((point) => (
+                      <View key={point.text} style={s.soloPoint}>
+                        <View style={s.soloPointIcon}><AppIcon name={point.icon} size={14} color={colors.blue} strokeWidth={2} /></View>
+                        <Text style={s.soloPointText}>{point.text}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                <View style={s.soloNote}>
+                  <AppIcon name="lock" size={14} color="#667085" strokeWidth={2} />
+                  <Text style={s.soloNoteText}>Login details are generated in the last step for you to share.</Text>
+                </View>
+              </Pressable>
+            );
+          }) : (
           <View style={s.grid}>
             {ROLES.map((role) => {
               const selected = selectedRole === role.key;
@@ -318,6 +411,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
               );
             })}
           </View>
+          )}
         </ScrollView>
       )}
 
@@ -369,6 +463,14 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
           <FormDropdown label="Department" value={form.department} placeholder="Select department" onPress={() => setPicker('department')} />
           <FormDate label="Hire Date" value={form.hireDate} onPress={() => openDatePicker('hireDate')} />
           <FormDropdown label="Shift Preference" value={form.shiftPreference} placeholder="Select shift preference" onPress={() => setPicker('shiftPreference')} />
+          <View style={s.timeRow}>
+            <View style={s.timeCol}>
+              <FormTime label="Shift start time *" value={form.shiftStartTime} onPress={() => openTimePicker('shiftStartTime')} />
+            </View>
+            <View style={s.timeCol}>
+              <FormTime label="Shift end time *" value={form.shiftEndTime} onPress={() => openTimePicker('shiftEndTime')} />
+            </View>
+          </View>
         </ScrollView>
       )}
 
@@ -428,7 +530,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
               <ReviewItem label="Clinic / Hospital" value={selectedClinic?.name} />
               <ReviewItem label="Department" value={form.department} />
               <ReviewItem label="Hire Date" value={formatLongDate(form.hireDate)} />
-              <ReviewItem label="Shift Preference" value={`${form.shiftPreference} Shift (${SHIFT_TIMES[form.shiftPreference] ?? ''})`} />
+              <ReviewItem label="Shift Preference" value={`${form.shiftPreference} Shift (${formatClock12(form.shiftStartTime)} - ${formatClock12(form.shiftEndTime)})`} />
             </View>
           </View>
 
@@ -617,7 +719,17 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
       </Modal>
 
       {/* iOS only — Android uses DateTimePickerAndroid.open (see openDatePicker). */}
-      {datePicker && Platform.OS === 'ios' && (
+      {timeField && Platform.OS === 'ios' && (
+        <DateTimePicker
+          value={timeToDate(form[timeField])}
+          mode="time"
+          display="spinner"
+          onChange={(_event, selected) => {
+            if (selected) setField(timeField, dateToTime(selected));
+          }}
+        />
+      )}
+      {dateField && Platform.OS === 'ios' && (
         <DateTimePicker
           value={pickerStart(dateField)}
           mode="date"
@@ -658,6 +770,18 @@ function FormDropdown({ label, value, placeholder, onPress }) {
       <Pressable onPress={onPress} style={s.fieldDropdown}>
         <Text translate={false} style={value ? s.fieldValueText : s.fieldPlaceholderText}>{value || placeholder}</Text>
         <AppIcon name="chevron-down" size={15} color="#667085" strokeWidth={2.2} />
+      </Pressable>
+    </View>
+  );
+}
+
+function FormTime({ label, value, onPress }) {
+  return (
+    <View style={s.field}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <Pressable onPress={onPress} style={s.fieldDropdown}>
+        <Text translate={false} style={value ? s.fieldValueText : s.fieldPlaceholderText}>{value ? formatClock12(value) : '--:-- --'}</Text>
+        <AppIcon name="clock" size={15} color="#667085" strokeWidth={2} />
       </Pressable>
     </View>
   );
@@ -749,6 +873,20 @@ const s = createDoctorStyles({
   checkBadge: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.blue, alignItems: 'center', justifyContent: 'center' },
   roleTitle: { fontSize: 14.5, fontWeight: '700', color: '#17243A', marginTop: 10 },
   roleDescription: { fontSize: 11.5, lineHeight: 15, color: '#8A94A4', marginTop: 4, minHeight: 30 },
+  soloCard: { width: '100%', minHeight: 0, padding: 16 },
+  soloHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  soloIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
+  soloCopy: { flex: 1, minWidth: 0 },
+  soloTitle: { fontSize: 17, fontWeight: '800', color: '#17243A' },
+  soloDept: { fontSize: 12, fontWeight: '600', color: colors.blue, marginTop: 2 },
+  soloDescription: { fontSize: 13, lineHeight: 19, color: '#5B6576', marginTop: 12 },
+  soloPoints: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#E6ECF2', gap: 10 },
+  soloPointsTitle: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.2, color: '#8A94A4' },
+  soloPoint: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  soloPointIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: colors.paleBlue, alignItems: 'center', justifyContent: 'center' },
+  soloPointText: { flex: 1, fontSize: 13, lineHeight: 18, color: '#17243A' },
+  soloNote: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, padding: 10, borderRadius: 10, backgroundColor: '#F5F7FA' },
+  soloNoteText: { flex: 1, fontSize: 11.5, lineHeight: 16, color: '#667085' },
   activeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#16A34A' },
   activeText: { fontSize: 11.5, fontWeight: '700', color: colors.blue },
@@ -764,6 +902,8 @@ const s = createDoctorStyles({
   uploadButtonText: { fontSize: 13, fontWeight: '700', color: colors.blue },
 
   field: { marginBottom: 14 },
+  timeRow: { flexDirection: 'row', gap: 10 },
+  timeCol: { flex: 1 },
   fieldLabel: { fontSize: 12.5, fontWeight: '600', color: '#3C4759', marginBottom: 6 },
   fieldInput: { height: 46, borderWidth: 1, borderColor: '#D2DAE6', borderRadius: 10, paddingHorizontal: 13, fontSize: 14, color: '#17243A', backgroundColor: '#FFFFFF' },
   fieldInputError: { borderColor: '#D2564B' },

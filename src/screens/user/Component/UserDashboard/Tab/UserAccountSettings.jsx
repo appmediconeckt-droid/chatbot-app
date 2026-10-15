@@ -321,7 +321,16 @@ const UserAccountSettings = ({ onDeleteAccount }) => {
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
       <View style={s.header}>
-        <Text style={s.headerTitle}>{t('settings:settings', 'Settings')}</Text>
+        <View style={s.headerCopy}>
+          <Text style={s.headerTitle}>{t('settings:settings', 'Settings')}</Text>
+          <Text style={s.headerSub} numberOfLines={1}>{t('Manage your account, password and privacy')}</Text>
+        </View>
+        {/* Android's LinearGradient ignores borderRadius unless a parent clips it. */}
+        <View style={s.headerIconClip}>
+          <LinearGradient colors={PATIENT_GRADIENT} {...GRADIENT_DIRECTION} style={s.headerIcon}>
+            <Ionicons name="settings-outline" size={20} color="#ffffff" />
+          </LinearGradient>
+        </View>
       </View>
 
       <ScrollView
@@ -690,15 +699,29 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9F9FF', paddingTop: 0 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
-    height: 44,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
+    gap: 12,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 2,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E8ECF3',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  headerTitle: { fontSize: 18, lineHeight: 22, fontWeight: '800', color: '#0f172a', textAlign: 'center', includeFontPadding: false },
+  headerCopy: { flex: 1, minWidth: 0 },
+  headerTitle: { fontSize: 20, lineHeight: 24, fontWeight: '800', color: '#0f172a', includeFontPadding: false },
+  headerSub: { fontSize: 12.5, lineHeight: 16, color: '#64748b', marginTop: 2, includeFontPadding: false },
+  headerIconClip: { width: 40, height: 40, borderRadius: 12, overflow: 'hidden' },
+  headerIcon: { flex: 1, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 96 },
 

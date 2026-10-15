@@ -4,6 +4,7 @@ import React, { useRef, useState } from 'react';
 import { Alert, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import Text from '../../../../components/TranslatedText';
+import VitalsSummary from '../../../../components/VitalsSummary';
 import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
@@ -11,6 +12,7 @@ import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { formatLocalDateKey, getConsultationModeInfo, getRemoteConsultationMode, getTokenLabel } from '../api/doctorAppointments';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
+import { getAppointmentVitals, hasVitalValue } from '../../../../utils/appointmentVitals';
 
 const DURATION_TYPES = ['Days', 'Weeks', 'Months'];
 const TIMINGS = ['Morning', 'Afternoon', 'Evening', 'Night'];
@@ -158,7 +160,14 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
   } = useKeyboardAwareScroll({ frameIsScroll: true });
   const isVisit = !getRemoteConsultationMode(patient);
   const modeInfo = getConsultationModeInfo(patient);
-  const [temperature, setTemperature] = useState(patient.temperature ? String(patient.temperature) : '');
+  const [temperature, setTemperature] = useState(() => {
+    const vitals = getAppointmentVitals(patient);
+    if (!hasVitalValue(vitals.temperature)) return '';
+    // The editable field is Celsius; preserve the original unit in the summary.
+    return String(vitals.temperature_unit === 'F'
+      ? Math.round((Number(vitals.temperature) - 32) * 5 / 9 * 10) / 10
+      : vitals.temperature);
+  });
   const [bloodPressure, setBloodPressure] = useState(patient.bp && patient.bp !== 'Not recorded' ? patient.bp : '');
   const [diagnosis, setDiagnosis] = useState('');
   const [medicines, setMedicines] = useState(() => [emptyMedicine()]);
@@ -245,6 +254,7 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
           <View style={styles.badge}><Text style={styles.badgeText}>{isVisit ? modeInfo.label.toUpperCase() : 'CONSULTATION'}</Text></View>
         </View>
 
+        <VitalsSummary appointment={patient} title="Recorded patient vitals" />
         <SectionTitle>Patient Vitals</SectionTitle>
         <View style={styles.twoColumns}>
           <Field label="Temperature (°C)" placeholder="37.0" keyboardType="decimal-pad" value={temperature} onChangeText={(text) => setTemperature(formatTemperature(text))} />

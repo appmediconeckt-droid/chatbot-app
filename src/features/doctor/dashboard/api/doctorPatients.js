@@ -14,6 +14,7 @@ import {
 } from '../../../../utils/consultationDetails';
 import { isPatientAccountDeleted } from '../../../../utils/deletedAccount';
 import { parseEmergencySymptoms, stripEmergencyTag } from '../../../../utils/emergencyTag';
+import { getAppointmentVitals } from '../../../../utils/appointmentVitals';
 
 const unwrapApiArray = (payload) => {
   if (Array.isArray(payload)) return payload;
@@ -97,15 +98,21 @@ const patientDetails = (a) => {
 
 // Same as web appointmentVitals: vitals may also come as a JSON object/string.
 const appointmentVitals = (a) => {
-  let vitals = a.vitals;
-  if (typeof vitals === 'string') {
-    try { vitals = JSON.parse(vitals); } catch { vitals = {}; }
-  }
-  vitals = asObject(vitals);
+  const vitals = getAppointmentVitals(a);
   return {
-    bp: pickFirst(a.bp, a.blood_pressure, vitals.bp, vitals.bloodPressure, vitals.blood_pressure, 'N/A'),
-    pulse: pickFirst(a.pulse, a.heart_rate, a.heartRate, vitals.pulse, vitals.heartRate, vitals.heart_rate, 'N/A'),
-    temperature: pickFirst(a.temperature, vitals.temperature, 'N/A'),
+    vitals,
+    bp: pickFirst(vitals.blood_pressure, 'N/A'),
+    pulse: pickFirst(vitals.pulse, 'N/A'),
+    temperature: pickFirst(vitals.temperature, 'N/A'),
+    temperatureUnit: vitals.temperature_unit,
+    spo2: pickFirst(vitals.spo2, 'N/A'),
+    respiratoryRate: pickFirst(vitals.respiratory_rate, 'N/A'),
+    weight: pickFirst(vitals.weight, 'N/A'),
+    height: pickFirst(vitals.height, 'N/A'),
+    painScore: pickFirst(vitals.pain_score, 'N/A'),
+    notes: pickFirst(vitals.notes, ''),
+    recordedAt: pickFirst(vitals.recorded_at, ''),
+    recordedRole: pickFirst(vitals.recorded_role, ''),
   };
 };
 

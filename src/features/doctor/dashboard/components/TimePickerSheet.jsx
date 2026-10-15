@@ -25,9 +25,13 @@ const HOUR_LABELS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const MINUTE_LABELS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
 
 const parse = (hhmm, fallback) => {
-  const m = String(hhmm || fallback || '').match(/^(\d{1,2}):(\d{2})/);
-  const h24 = m ? Number(m[1]) : 9;
+  const m = String(hhmm || fallback || '').trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
+  const rawHour = m ? Number(m[1]) : 9;
   const min = m ? Number(m[2]) : 0;
+  const period = m?.[3]?.toUpperCase();
+  const h24 = period
+    ? (rawHour % 12) + (period === 'PM' ? 12 : 0)
+    : rawHour;
   return { hour12: h24 % 12 || 12, minute: min, pm: h24 >= 12 };
 };
 

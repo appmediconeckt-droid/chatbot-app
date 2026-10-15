@@ -78,8 +78,14 @@ const normalizeDateKey = (value) => {
 
 const normalizeTimeValue = (value) => {
   if (!value) return '';
-  const raw = String(value);
-  if (/^\d{2}:\d{2}/.test(raw)) return raw.slice(0, 5);
+  const raw = String(value).trim();
+  const clock = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
+  if (clock) {
+    const rawHour = Number(clock[1]);
+    const period = clock[3]?.toUpperCase();
+    const hour = period ? (rawHour % 12) + (period === 'PM' ? 12 : 0) : rawHour;
+    if (hour >= 0 && hour <= 23 && Number(clock[2]) <= 59) return `${String(hour).padStart(2, '0')}:${clock[2]}`;
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return raw;
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
@@ -1004,7 +1010,10 @@ export default function CalendarAvailabilityScreen() {
     (ctx === 'row' ? additionalTimeRows[index] : ctx === 'edit' ? rangeEdit : newRange) || {};
 
   const pickerCurrentValue = picker ? pickerRange(picker.context, picker.index)[picker.field] : '';
-  const pickerFallback = picker?.field === 'end' ? pickerRange(picker.context, picker.index).start : '09:00';
+  // Keep the empty start-time picker on the current meridiem. Once a value
+  // exists, pickerCurrentValue remains the source of truth and preserves it.
+  const defaultStartTime = new Date().getHours() >= 12 ? '21:00' : '09:00';
+  const pickerFallback = picker?.field === 'end' ? pickerRange(picker.context, picker.index).start : defaultStartTime;
 
   const renderTimePicker = (context) => (
     <TimePickerSheet

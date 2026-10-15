@@ -1,0 +1,189 @@
+// Display helpers, ported from the web portal (receptionistView.js,
+// receptionistDisplay.js, staffProfileDetails.js, appointmentCancellation.js).
+
+// The clinic runs on India time, whatever the phone's own zone is.
+const indiaNow = () => new Date(Date.now() + 330 * 60000);
+
+export const indiaToday = () => indiaNow().toISOString().slice(0, 10);
+
+export const displayTime = (value) => {
+  if (!value) return '--';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '--';
+  const ist = new Date(d.getTime() + 330 * 60000);
+  const h = ist.getUTCHours();
+  const m = String(ist.getUTCMinutes()).padStart(2, '0');
+  return `${h % 12 || 12}:${m} ${h >= 12 ? 'PM' : 'AM'}`;
+};
+
+// "2026-10-14" → "14 Oct 2026"
+export const dateLabel = (value) => {
+  const key = String(value || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return 'Not recorded';
+  const [y, mo, d] = key.split('-').map(Number);
+  const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][mo - 1];
+  return `${String(d).padStart(2, '0')} ${month} ${y}`;
+};
+
+export const longDateToday = () => {
+  const d = indiaNow();
+  const day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getUTCDay()];
+  const month = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][d.getUTCMonth()];
+  return `${day}, ${d.getUTCDate()} ${month} ${d.getUTCFullYear()}`;
+};
+
+export const statusLabel = (value) =>
+  String(value || 'Not recorded').replace(/[_-]/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+export const clinicName = (clinics, id) =>
+  (clinics || []).find((row) => String(row._id || row.id) === String(id))?.clinic_name || 'Unassigned';
+
+export const patientKey = (row) => `${row.source}:${row.id}`;
+
+// Vitals are taken before the doctor sees the patient: editable for today's
+// waiting appointments, read-only once the visit is in progress (consultation
+// started, or in the In Progress queue tab) or finished.
+const activeVitalsStatuses = new Set(['pending', 'confirmed', 'booked', 'accepted', 'scheduled', 'waiting', 'checked_in']);
+const vitalsStatus = (value) => String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+const timingOf = (value) => {
+  if (typeof value !== 'string') return value || {};
+  try { return JSON.parse(value) || {}; } catch { return {}; }
+};
+
+export const canRecordVitals = (patient) => {
+  if (!patient) return false;
+  const appointmentStatus = vitalsStatus(patient.appointment_status || patient.status);
+  const queueStatus = vitalsStatus(patient.queueStatus || patient.queue_status);
+  const timings = [patient.timing, patient.consultation_timing, patient.consultationTiming].map(timingOf);
+  return String(patient.date || patient.appointment_date || '').slice(0, 10) === indiaToday()
+    && Boolean(appointmentStatus || queueStatus)
+    && (!appointmentStatus || activeVitalsStatuses.has(appointmentStatus))
+    && (!queueStatus || activeVitalsStatuses.has(queueStatus))
+    && queueBucket(patient) !== 'in-progress'
+    && !patient.consultation_started_at && !patient.consultation_ended_at
+    && timings.every((t) => !t.startedAt && !t.started_at && !t.endedAt && !t.ended_at);
+};
+
+export const staffIdentity = (profile = {}) =>
+  profile.staffId || profile.staff_id || profile.assistantId || profile.technicianId || profile.housekeepingStaffId
+  || profile.supervisorId || profile.managerId || profile.billingId || profile._id || profile.id || 'Not assigned';
+
+export const staffShiftTiming = (profile = {}) => {
+  const start = profile.shiftStartTime || profile.shift_start_time;
+  const end = profile.shiftEndTime || profile.shift_end_time;
+  if (start && end) return `${start} - ${end}`;
+  return profile.shiftTime || profile.shift_time || 'Not assigned';
+};
+
+export const assignedClinicId = (profile) =>
+  String(profile?.clinic_id?._id || profile?.clinic_id?.id || profile?.clinic_id || '');
+
+export const assignedDoctorId = (profile) =>
+  String(profile?.assignedDoctor?._id || profile?.assignedDoctor?.id || profile?.assignedDoctor || '');
+
+// Same rule as the web: only a booking nobody has started can be cancelled.
+export const canCancelAppointment = (appointment) => {
+  if (!appointment) return false;
+  const status = String(appointment.appointment_status || appointment.status || '').toLowerCase();
+  const queue = String(appointment.queue_status || appointment.queueStatus || '').toLowerCase();
+  let timing = appointment.consultation_timing || appointment.consultationTiming || appointment.timing || {};
+  if (typeof timing === 'string') {
+    try { timing = JSON.parse(timing); } catch { return false; }
+  }
+  return ['pending', 'confirmed', 'booked', 'accepted'].includes(status)
+    && !['in_progress', 'in-progress', 'completed', 'canceled', 'cancelled'].includes(queue)
+    && !appointment.consultation_started_at && !appointment.consultation_ended_at
+    && !timing?.startedAt && !timing?.started_at && !timing?.endedAt && !timing?.ended_at;
+};
+
+// The LED page lives on the backend root: <server>/display/clinic/:doctorClinicId
+export const clinicDisplayUrl = (baseUrl, doctorClinicId) => {
+  const id = String(doctorClinicId || '');
+  if (!/^[a-zA-Z0-9_-]{1,191}$/.test(id)) return '';
+  const base = String(baseUrl || '').replace(/\/+$/, '').replace(/\/api$/, '');
+  return base ? `${base}/display/clinic/${encodeURIComponent(id)}` : '';
+};
+
+export const selectDisplayClinic = (clinics, currentId, preferredClinicId) =>
+  clinics.find((row) => row.doctorClinicId === currentId)?.doctorClinicId
+  || clinics.find((row) => String(row.clinicId || row.clinic?.id) === String(preferredClinicId || ''))?.doctorClinicId
+  || clinics[0]?.doctorClinicId || '';
+
+export const APPOINTMENT_STATUSES = ['all', 'completed', 'pending', 'confirmed', 'booked', 'waiting', 'called', 'in_progress', 'canceled', 'rejected', 'skipped', 'no_show'];
+
+export const PASSWORD_RULES = [
+  ['At least 8 characters', (value) => value.length >= 8],
+  ['Uppercase letter', (value) => /[A-Z]/.test(value)],
+  ['Lowercase letter', (value) => /[a-z]/.test(value)],
+  ['A number', (value) => /\d/.test(value)],
+  ['A special character', (value) => /[^A-Za-z0-9]/.test(value)],
+];
+
+// ---- Today's queue (same buckets and order as the doctor's queue) ----------
+
+const key = (value) => String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+
+// One booking can come back twice (e.g. in more than one list, or as the same
+// visit from two sources): keep the first of each booking / token+name+time.
+export const dedupeRows = (rows = []) => {
+  const seen = new Set();
+  return rows.filter((row) => {
+    const ids = [patientKey(row)];
+    if (row.token != null && row.token !== '') {
+      ids.push(`t:${row.date || ''}|${row.token}|${key(row.patientName)}|${row.time || ''}`);
+    }
+    if (ids.some((id) => seen.has(id))) return false;
+    ids.forEach((id) => seen.add(id));
+    return true;
+  });
+};
+
+// pending | in-progress | next | completed | cancelled — the doctor's queue tabs.
+export const queueBucket = (row = {}) => {
+  const status = key(row.status);
+  const queue = key(row.queueStatus);
+  if (['cancelled', 'canceled', 'rejected', 'no_show'].includes(status) || ['cancelled', 'canceled', 'no_show'].includes(queue)) return 'cancelled';
+  if (status === 'completed' || status === 'complete' || queue === 'completed') return 'completed';
+  if (['in_progress', 'in_consultation', 'called', 'serving'].includes(queue) || status === 'in_progress'
+    || (row.timing?.startedAt && !row.timing?.endedAt)) return 'in-progress';
+  if (queue === 'skipped' || status === 'skipped') return 'next';
+  return 'pending';
+};
+
+const tokenNumber = (row) => {
+  const n = Number(row.token);
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+};
+
+// Emergency first, then token, then appointment time.
+export const sortQueue = (rows = []) => [...rows].sort((a, b) =>
+  (b.emergency ? 1 : 0) - (a.emergency ? 1 : 0)
+  || tokenNumber(a) - tokenNumber(b)
+  || String(a.time || '').localeCompare(String(b.time || '')));
+
+export const QUEUE_TABS = [
+  { key: 'pending', label: 'Pending' },
+  { key: 'in-progress', label: 'In Progress' },
+  { key: 'next', label: 'Next' },
+  { key: 'completed', label: 'Completed' },
+  { key: 'cancelled', label: 'Cancelled' },
+];
+
+export const groupQueue = (rows = []) => {
+  const groups = { pending: [], 'in-progress': [], next: [], completed: [], cancelled: [] };
+  dedupeRows(rows).forEach((row) => groups[queueBucket(row)].push(row));
+  Object.keys(groups).forEach((name) => { groups[name] = sortQueue(groups[name]); });
+  return groups;
+};
+
+// The account photo — the server may name the field differently per record.
+export const profilePhotoOf = (profile = {}) =>
+  profile.profilePhoto || profile.profile_photo || profile.photo || profile.image || profile.avatar || profile.profileImage || null;
+
+// "11:00:00" / "14:30" → "11:00 AM" / "2:30 PM" (other text passes through).
+export const clockLabel = (value) => {
+  const m = String(value || '').match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return value || '';
+  const h = Number(m[1]);
+  return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`;
+};
