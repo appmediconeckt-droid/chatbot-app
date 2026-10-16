@@ -1,5 +1,7 @@
 // Display helpers, ported from the web portal (receptionistView.js,
 // receptionistDisplay.js, staffProfileDetails.js, appointmentCancellation.js).
+import { parseEmergencySymptoms } from '../../utils/emergencyTag';
+import { isPatientAccountDeleted } from '../../utils/deletedAccount';
 
 // The clinic runs on India time, whatever the phone's own zone is.
 const indiaNow = () => new Date(Date.now() + 330 * 60000);
@@ -40,10 +42,71 @@ export const clinicName = (clinics, id) =>
 
 export const patientKey = (row) => `${row.source}:${row.id}`;
 
+export const emergencyReasonOf = (row = {}) =>
+  [row.emergencyReason, row.emergency_reason, row.emergency?.reason, parseEmergencySymptoms(row.symptoms).reason]
+    .find((value) => typeof value === 'string' && value.trim())?.trim() || '';
+
+// A booking left behind by a deleted patient account: the server keeps the
+// row but no longer populates the patient, so it arrives as a nameless
+// "Patient" with no phone or account id and still reads "Pending / Booked".
+// Walk-ins always carry the typed-in name, so they are never treated as orphans.
+const PLACEHOLDER_NAMES = new Set(['', 'patient', 'unknown', 'unknown patient', 'deleted user', 'user']);
+export const isOrphanedBooking = (row = {}) => {
+  const patient = row.patient && typeof row.patient === 'object' ? row.patient : {};
+  if (isPatientAccountDeleted(row)) return true;
+  if (String(row.source || '').toLowerCase() === 'walkin') return false;
+  const name = String(row.patientName || patient.fullName || patient.name || row.patient_name || '').trim().toLowerCase();
+  const phone = String(row.phoneNumber || patient.phoneNumber || patient.phone || row.phone_number || row.contact_number || '').replace(/\D/g, '');
+  const accountId = patient._id || patient.id || patient.user_id || patient.userId || row.patient_id || row.patientId || row.user_id || row.userId;
+  return PLACEHOLDER_NAMES.has(name) && !phone && !accountId;
+};
+
+// Staff feeds have used both snake_case and camelCase fields. Preserve the
+// original record and expose the same fields to every receptionist screen.
+export const normalizeReceptionistAppointment = (row = {}) => {
+  const patient = row.patient && typeof row.patient === 'object' ? row.patient : {};
+  const symptoms = parseEmergencySymptoms(row.symptoms);
+  const timing = timingOf(row.timing || row.consultation_timing || row.consultationTiming);
+  return {
+    ...row,
+    id: row.id ?? row._id,
+    patientName: row.patientName || patient.fullName || patient.name || row.patient_name || 'Patient',
+    phoneNumber: row.phoneNumber || patient.phoneNumber || row.phone_number || row.contact_number || '',
+    age: row.age ?? patient.age,
+    gender: row.gender || patient.gender,
+    date: row.date || row.appointment_date,
+    time: row.time || row.appointment_time,
+    clinicId: row.clinicId ?? row.clinic_id,
+    token: row.token ?? row.token_number ?? row.tokenNumber,
+    status: row.status || row.appointment_status,
+    queueStatus: row.queueStatus || row.queue_status,
+    emergency: [true, 1, '1', 'true'].includes(row.emergency)
+      || Boolean(row.emergency && typeof row.emergency === 'object')
+      || row.priority === 'emergency' || symptoms.isEmergency,
+    emergencyReason: emergencyReasonOf(row),
+    symptoms: typeof row.symptoms === 'string' ? symptoms.problem : row.symptoms,
+    timing: {
+      ...timing,
+      startedAt: timing.startedAt || timing.started_at || row.consultation_started_at,
+      endedAt: timing.endedAt || timing.ended_at || row.consultation_ended_at,
+    },
+  };
+};
+
+// Booking and queue state often contain the same status. Keep distinct states
+// while treating the API's alternate spellings as one label.
+export const appointmentStatuses = (row = {}) => {
+  const canonical = (value) => {
+    const status = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    return ({ complete: 'completed', canceled: 'cancelled' })[status] || status;
+  };
+  return [...new Set([row.status, row.queueStatus].map(canonical).filter(Boolean))];
+};
+
 // Vitals are taken before the doctor sees the patient: editable for today's
-// waiting appointments, read-only once the visit is in progress (consultation
-// started, or in the In Progress queue tab) or finished.
-const activeVitalsStatuses = new Set(['pending', 'confirmed', 'booked', 'accepted', 'scheduled', 'waiting', 'checked_in']);
+// waiting and Next (skipped) appointments, read-only once the visit is in
+// progress (consultation started, or in the In Progress queue tab) or finished.
+const activeVitalsStatuses = new Set(['pending', 'confirmed', 'booked', 'accepted', 'scheduled', 'waiting', 'checked_in', 'skipped']);
 const vitalsStatus = (value) => String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 const timingOf = (value) => {
   if (typeof value !== 'string') return value || {};

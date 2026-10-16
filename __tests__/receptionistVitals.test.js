@@ -3,7 +3,7 @@ import { act, create } from 'react-test-renderer';
 import { Keyboard } from 'react-native';
 import api from '../src/axiosConfig';
 import { ReceptionistVitalsProvider } from '../src/features/receptionist/ReceptionistVitalsContext';
-import { PatientDetailsSheet, RecButton } from '../src/features/receptionist/receptionistUi';
+import { AppointmentRow, Badge, PatientDetailsSheet, RecButton } from '../src/features/receptionist/receptionistUi';
 import AppointmentsSection from '../src/features/receptionist/sections/AppointmentsSection';
 import { saveStaffAppointmentVitals } from '../src/features/receptionist/receptionistApi';
 import { indiaToday } from '../src/features/receptionist/receptionistUtils';
@@ -23,6 +23,8 @@ jest.mock('react-native', () => {
   };
 });
 jest.mock('react-native-vector-icons/Ionicons', () => 'Icon');
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'));
 jest.mock('@react-native-community/datetimepicker', () => 'DateTimePicker');
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
@@ -102,6 +104,23 @@ test('fresh app state displays persisted API readings, including JSON records', 
   expect(text()).toContain('120/80');
 });
 
+test.each(['online', 'walkin'])('Next patients can add, save and edit vitals for %s bookings', async source => {
+  const nextPatient = { ...patient, source, status: source === 'walkin' ? 'skipped' : 'confirmed', queueStatus: 'skipped' };
+  api.get.mockResolvedValue({ data: { appointments: [nextPatient], total: 1 } });
+  api.patch.mockResolvedValue({ data: { success: true, vitals: readings } });
+  await renderAppointments();
+  expect(button('Add vitals')).toBeDefined();
+  await press('Add vitals');
+  await act(async () => input('Blood pressure').props.onChangeText('120/80'));
+  await press('Save vitals');
+  expect(api.patch).toHaveBeenCalledWith('/api/staff/appointments/visit-1/vitals', {
+    source, vitals: expect.objectContaining({ blood_pressure: '120/80' }),
+  });
+  expect(root.root.findByType(PatientDetailsSheet).props.patient).toBeNull();
+  await press('Edit vitals');
+  expect(input('Blood pressure').props.value).toBe('120/80');
+});
+
 test('pending and failed saves keep the sheet open and preserve entered readings', async () => {
   let rejectRequest;
   api.patch.mockImplementation(() => new Promise((resolve, reject) => { rejectRequest = reject; }));
@@ -171,4 +190,31 @@ test('typing, keyboard resizing and polling retain the same native input and dra
   expect(input('Blood pressure').props.nativeInput).toBe(originalInput);
   expect(input('Blood pressure').props.value).toBe('120/80');
   expect(Keyboard.dismiss).not.toHaveBeenCalled();
+});
+
+test.each(['completed', 'pending'])('shows %s once on an appointment card', async status => {
+  api.get.mockResolvedValue({ data: { appointments: [{ ...patient, status, queueStatus: status }], total: 1 } });
+  await renderAppointments();
+  const card = root.root.findByType(AppointmentRow);
+  expect(card.findAllByType(Badge).map(node => node.props.value)).toEqual([status]);
+});
+
+test('shows emergency reason on the card and full treatment in patient details', async () => {
+  api.get.mockResolvedValue({ data: { appointments: [{
+    ...patient, priority: 'emergency',
+    symptoms: '[EMERGENCY] Severe breathing difficulty || Chest discomfort',
+    notes: JSON.stringify({ __doctorConsultation: 1, originalNotes: 'Monitor symptoms', details: {
+      diagnosis: 'Recorded diagnosis', advice: 'Recorded advice',
+      medicines: [{ name: 'Recorded medicine', dosage: '5 mg', timings: ['Morning'], duration: '3 days' }],
+      recommended_tests: ['Recorded test'], followUpDate: '2026-10-20',
+    } }),
+  }], total: 1 } });
+  await renderAppointments();
+  const card = root.root.findByType(AppointmentRow);
+  expect(JSON.stringify(card.findAllByType('Text').map(node => node.props.children))).toContain('Severe breathing difficulty');
+  await press('View');
+  for (const value of ['Chest discomfort', 'Recorded diagnosis', 'Recorded advice', 'Recorded medicine', 'Recorded test', 'Monitor symptoms', '20 Oct 2026']) {
+    expect(text()).toContain(value);
+  }
+  expect(text()).not.toContain('[EMERGENCY]');
 });

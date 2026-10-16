@@ -1,5 +1,6 @@
 // Patient profile → "My vitals": the readings clinic staff recorded at the
-// patient's visits. Latest reading first as tiles, earlier visits collapsible.
+// patient's visits. Only the latest reading is shown — a newer recording
+// replaces it, earlier visits are not listed again.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,14 +24,7 @@ const FIELDS = [
   { key: 'height', label: 'Height', unit: 'cm', icon: 'resize-outline', fg: '#3E4784', bg: '#EEF0FA' },
   { key: 'pain_score', label: 'Pain score', unit: '/10', icon: 'bandage-outline', fg: '#B54708', bg: '#FEF6E7' },
 ];
-// Shown on a collapsed earlier visit.
-const PREVIEW_KEYS = ['blood_pressure', 'pulse', 'temperature', 'spo2'];
-
 const unitFor = (field, vitals) => (field.key === 'temperature' ? `°${vitals.temperature_unit || 'C'}` : field.unit);
-const readingText = (field, vitals) => {
-  const unit = unitFor(field, vitals);
-  return `${vitals[field.key]}${unit.startsWith('/') || unit.startsWith('°') || unit === '%' ? '' : ' '}${unit}`;
-};
 
 const formatDate = (value, withTime) => {
   const date = new Date(value);
@@ -52,7 +46,6 @@ const visitInfo = (appointment) => {
     notes: hasVitalValue(vitals.notes) ? String(vitals.notes) : '',
   };
 };
-const recordKey = (appointment, index) => `${appointment.source || 'online'}:${appointment.id || appointment._id || index}`;
 
 export default function PatientVitalsButton() {
   const [records, setRecords] = useState([]);
@@ -60,7 +53,6 @@ export default function PatientVitalsButton() {
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
-  const [expanded, setExpanded] = useState(null);
   const mounted = useRef(true);
   const inFlight = useRef(false);
   const insets = useSafeAreaInsets();
@@ -83,21 +75,20 @@ export default function PatientVitalsButton() {
   if (!records.length && !visible) return null;
 
   const close = () => setVisible(false);
-  const [latest, ...earlier] = records;
+  const latest = records[0];
   const latestInfo = latest ? visitInfo(latest) : null;
 
   return <>
     <Pressable
       accessibilityRole="button"
       style={({ pressed }) => [s.entry, pressed && s.pressed]}
-      onPress={() => { setVisible(true); setExpanded(null); refresh(); }}
+      onPress={() => { setVisible(true); refresh(); }}
     >
       <View style={s.entryIcon}><Ionicons name="pulse" size={20} color="#FFFFFF" /></View>
       <View style={s.flex}>
         <Text style={s.entryTitle}>My vitals</Text>
         <Text translate={false} style={s.entrySub} numberOfLines={1}>
           {latestInfo?.shortDate ? `Last recorded ${latestInfo.shortDate}` : 'Recorded at your visits'}
-          {records.length > 1 ? ` · ${records.length} visits` : ''}
         </Text>
       </View>
       <Ionicons name="chevron-forward" size={20} color={GREEN} />
@@ -157,48 +148,6 @@ export default function PatientVitalsButton() {
               )}
             </View>
           )}
-
-          {earlier.length > 0 && <Text style={s.section}>EARLIER VISITS</Text>}
-          {earlier.map((appointment, index) => {
-            const key = recordKey(appointment, index + 1);
-            const info = visitInfo(appointment);
-            const open = expanded === key;
-            const preview = info.recorded.filter((field) => PREVIEW_KEYS.includes(field.key));
-            return (
-              <View key={key} style={s.visitCard}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: open }}
-                  onPress={() => setExpanded(open ? null : key)}
-                  style={s.visitHead}
-                >
-                  <View style={s.calendarIcon}><Ionicons name="calendar-outline" size={17} color={GREEN} /></View>
-                  <View style={s.flex}>
-                    <Text translate={false} style={s.visitDate} numberOfLines={1}>{info.date}</Text>
-                    <Text translate={false} style={s.visitSub} numberOfLines={1}>
-                      {[info.doctor, `${info.recorded.length} readings`].filter(Boolean).join(' · ')}
-                    </Text>
-                  </View>
-                  <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={MUTED} />
-                </Pressable>
-                {open ? (
-                  <View style={s.visitBody}>
-                    <VitalTiles vitals={appointment.vitals} fields={info.recorded} />
-                    {!!info.notes && <NotesBox text={info.notes} />}
-                  </View>
-                ) : preview.length > 0 && (
-                  <View style={s.previewRow}>
-                    {preview.map((field) => (
-                      <View key={field.key} style={[s.previewChip, { backgroundColor: field.bg }]}>
-                        <Ionicons name={field.icon} size={12} color={field.fg} />
-                        <Text translate={false} style={[s.previewText, { color: field.fg }]}>{readingText(field, appointment.vitals)}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            );
-          })}
 
           {loaded && !busy && !error && !records.length && (
             <View style={s.state}>
@@ -306,14 +255,4 @@ const s = StyleSheet.create({
   notesText: { fontSize: 13, lineHeight: 19, color: INK },
   missing: { fontSize: 11.5, color: '#98A2B3', marginTop: 12, lineHeight: 17 },
 
-  section: { fontSize: 11, fontWeight: '800', letterSpacing: 1.3, color: MUTED, marginTop: 22, marginBottom: 10 },
-  visitCard: { backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 1, borderColor: '#EAECF0', marginBottom: 10, overflow: 'hidden' },
-  visitHead: { flexDirection: 'row', alignItems: 'center', gap: 11, padding: 13 },
-  calendarIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: '#E6F6EC', alignItems: 'center', justifyContent: 'center' },
-  visitDate: { fontSize: 14, fontWeight: '700', color: INK },
-  visitSub: { fontSize: 12, color: MUTED, marginTop: 2 },
-  visitBody: { paddingHorizontal: 13, paddingBottom: 13 },
-  previewRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 13, paddingBottom: 13, marginTop: -3 },
-  previewChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
-  previewText: { fontSize: 11.5, fontWeight: '700' },
 });

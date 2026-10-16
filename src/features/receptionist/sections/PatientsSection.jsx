@@ -9,12 +9,13 @@ import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../components/TranslatedText';
 import {
   AlertBox, Card, CardHeading, Empty, Notice, NoticeText, OptionSheet, REC, RecButton, SelectField, StatTile,
 } from '../receptionistUi';
 import { apiError, fetchPatientHistory } from '../receptionistApi';
-import { clinicName, dateLabel, displayTime, statusLabel } from '../receptionistUtils';
+import { clinicName, dateLabel, displayTime, isOrphanedBooking, statusLabel } from '../receptionistUtils';
 import { getDoctorMedicines, getDoctorTests, unpackConsultationNotes } from '../../../utils/consultationDetails';
 import { downloadVisitPrescriptionPdf } from '../../doctor/dashboard/utils/prescriptionPdf';
 
@@ -25,7 +26,7 @@ const FETCH_LIMIT = 50;    // records requested per API page
 const MAX_FETCH_PAGES = 40;
 const SOURCE_STYLE = {
   walkin: { label: 'Walk-in', icon: 'walk-outline', bg: '#FFF4DF', fg: '#C27C0E' },
-  online: { label: 'Online', icon: 'videocam-outline', bg: '#E8F1FF', fg: '#3975C7' },
+  online: { label: 'Online', icon: 'globe-outline', bg: '#E8F1FF', fg: '#3975C7' },
   prescription: { label: 'Chat Rx', icon: 'chatbubble-ellipses-outline', bg: '#EFEAFE', fg: '#6A4FC4' },
 };
 const sourceStyle = (source) => SOURCE_STYLE[source] || { label: statusLabel(source), icon: 'document-text-outline', bg: '#EDF2F7', fg: '#658097' };
@@ -68,7 +69,12 @@ const fetchAllHistory = async (query) => {
     records.push(...next.records);
   }
   const seen = new Set();
-  return { ...first, records: records.filter((row) => row.id == null || (seen.has(row.id) ? false : seen.add(row.id))) };
+  return {
+    ...first,
+    records: records
+      .filter((row) => !isOrphanedBooking(row))
+      .filter((row) => row.id == null || (seen.has(row.id) ? false : seen.add(row.id))),
+  };
 };
 
 const visitTime = (row) => new Date(row.checkedAt || row.checkedDate || 0).getTime() || 0;
@@ -163,7 +169,6 @@ export default function PatientsSection() {
   const doctorFor = (record) => prescriptionDoctorName(record?.prescription || {}, record?.doctor?.name || record?.doctor?.fullName || data?.doctor?.name || data?.doctor?.fullName);
   const closeSheet = () => { setSelected(null); setOpenPatient(null); };
   const visitWhen = (row) => `${dateLabel(row.checkedDate)} · ${row.checkedAt ? displayTime(row.checkedAt) : row.appointmentTime || 'Time not recorded'}`;
-  const visitTitle = (row) => `${row.source === 'prescription' ? 'Chat prescription' : `${statusLabel(row.source)} checkup`}${row.token != null ? ` · Token #${row.token}` : ''}`;
 
   const onPickDate = (event, date) => {
     const which = picker;
@@ -306,7 +311,6 @@ export default function PatientsSection() {
                 key={group.key}
                 group={group}
                 doctor={doctorFor(group.latest)}
-                when={visitWhen(group.latest)}
                 onPress={() => { setOpenPatient(group); setSelected(null); setDownloadError(''); }}
               />
             )) : <Empty title="No completed visits or prescriptions found" description="Change your filters or refresh after your doctor completes a consultation." />}
@@ -366,58 +370,131 @@ export default function PatientsSection() {
               <>
                 <View style={s.sheetHead}>
                   {!!openPatient && (
-                    <Pressable onPress={() => { setSelected(null); setDownloadError(''); }} style={s.close} hitSlop={8}>
+                    <Pressable onPress={() => { setSelected(null); setDownloadError(''); }} style={s.close} hitSlop={8} accessibilityLabel="Back to visits">
                       <Ionicons name="arrow-back" size={20} color={REC.ink} />
                     </Pressable>
                   )}
                   <View style={s.flex}>
-                    <Text translate={false} style={s.sheetName}>{selected.patient?.name}</Text>
-                    <Text translate={false} style={s.muted}>Prescribing doctor: {doctorFor(selected)} / {dateLabel(selected.checkedDate)}</Text>
+                    <Text style={s.sheetEyebrow}>VISIT RECORD</Text>
+                    <Text translate={false} style={s.rxSheetName} numberOfLines={1}>{selected.patient?.name || 'Patient'}</Text>
                   </View>
-                  <Pressable onPress={closeSheet} style={s.close} hitSlop={8}>
+                  <Pressable onPress={closeSheet} style={s.close} hitSlop={8} accessibilityLabel="Close">
                     <Ionicons name="close" size={20} color={REC.ink} />
                   </Pressable>
                 </View>
-                <Text translate={false} style={s.visitMeta}>
-                  {selected.source === 'prescription'
-                    ? 'Prescription issued after a chat consultation'
-                    : `Completed ${selected.source === 'walkin' ? 'walk-in' : 'online'} checkup${selected.token != null ? ` / Token #${selected.token}` : ''}`}
-                </Text>
-                <ScrollView style={s.sheetScroll} showsVerticalScrollIndicator={false}>
-                  {!!selected.symptoms && <Field title="Symptoms" value={selected.symptoms} />}
-                  {!selected.hasPrescription && (
-                    <Notice style={s.sheetNotice}><NoticeText>No prescription has been recorded for this visit.</NoticeText></Notice>
-                  )}
-                  <View style={s.paper}>
-                    <Text style={s.paperEyebrow}>CONSULTATION RECORD</Text>
-                    <Text style={s.paperTitle}>Prescription</Text>
-                    <View style={s.paperRow}>
-                      <Field title="Patient name" value={selected.patient?.name || 'Patient'} half />
-                      <Field title="Gender" value={rx.gender || '—'} half />
-                    </View>
-                    <Field title="Consultation for" value={rx.issue || '—'} />
-                    <Field title="Diagnosis" value={rx.diagnosis || '—'} />
-                    <Text style={s.fieldTitle}>℞ Prescribed medicines</Text>
-                    {rx.medicines.length ? rx.medicines.map((m, index) => (
-                      <View key={`${m.name}-${index}`} style={s.medicine}>
-                        <Text translate={false} style={s.medicineName}>{m.name}</Text>
-                        <Text translate={false} style={s.muted}>
-                          {[m.dosage, m.timings.join(', '), m.duration].filter(Boolean).join(' · ') || '—'}
+                <ScrollView style={s.sheetScroll} contentContainerStyle={s.rxContent} showsVerticalScrollIndicator={false}>
+                  <View style={s.rxVisit}>
+                    <View style={s.rxVisitTop}>
+                      <View style={[s.rxSourceTag, { backgroundColor: sourceStyle(selected.source).bg }]}>
+                        <Ionicons name={sourceStyle(selected.source).icon} size={12} color={sourceStyle(selected.source).fg} />
+                        <Text translate={false} style={[s.rxSourceText, { color: sourceStyle(selected.source).fg }]}>
+                          {selected.source === 'prescription' ? 'Chat consultation' : `${sourceStyle(selected.source).label} checkup`}
                         </Text>
                       </View>
-                    )) : <Text style={s.fieldValue}>No medicines prescribed.</Text>}
-                    {!!rx.advice && <Field title="Advice & instructions" value={rx.advice} />}
-                    {!!rx.notes && rx.notes !== rx.advice && <Field title="Additional notes" value={rx.notes} />}
-                    {rx.tests.length > 0 && <Field title="Recommended tests" value={rx.tests.join(', ')} />}
-                    <View style={s.paperRow}>
-                      <Field title="Follow-up" value={rx.followUp ? dateLabel(rx.followUp) : rx.followUpRequired ? 'Required' : 'No follow-up scheduled'} half />
-                      <Field title="Issued by" value={doctorFor(selected)} half />
+                      {selected.token != null && <Text translate={false} style={s.rxToken}>Token #{selected.token}</Text>}
+                    </View>
+                    <View style={s.rxInfoGrid}>
+                      <RxInfo icon="calendar-outline" label="Date" value={dateLabel(selected.checkedDate)} />
+                      <RxInfo icon="time-outline" label="Time" value={selected.checkedAt ? displayTime(selected.checkedAt) : selected.appointmentTime || 'Not recorded'} />
+                    </View>
+                    <RxInfo icon="medkit-outline" label="Prescribing doctor" value={doctorFor(selected)} wide />
+                    <RxInfo
+                      icon={selected.source === 'prescription' ? 'chatbubble-ellipses-outline' : 'business-outline'}
+                      label={selected.source === 'prescription' ? 'Consultation' : 'Clinic / Hospital'}
+                      value={selected.source === 'prescription' ? 'Chat consultation' : clinicName(clinics, selected.clinicId)}
+                      wide
+                    />
+                  </View>
+
+                  {!!selected.symptoms && (
+                    <View style={s.rxSymptoms}>
+                      <View style={s.rxSymptomsHead}>
+                        <Ionicons name="thermometer-outline" size={15} color="#B54708" />
+                        <Text style={s.rxSymptomsLabel}>Symptoms reported</Text>
+                      </View>
+                      <Text translate={false} style={s.rxSymptomsText}>{selected.symptoms}</Text>
+                    </View>
+                  )}
+
+                  {!selected.hasPrescription && (
+                    <Notice icon="alert-circle-outline" iconColor="#C27C0E" style={s.rxNoRx}>
+                      <NoticeText>No prescription has been recorded for this visit.</NoticeText>
+                    </Notice>
+                  )}
+
+                  <View style={s.paper}>
+                    <View style={s.paperHead}>
+                      <View style={s.rxSymbol}><Text style={s.rxSymbolText}>℞</Text></View>
+                      <View style={s.flex}>
+                        <Text style={s.paperEyebrow}>CONSULTATION RECORD</Text>
+                        <Text style={s.paperTitle}>Prescription</Text>
+                      </View>
+                      <Text translate={false} style={s.paperDate}>{dateLabel(selected.checkedDate)}</Text>
+                    </View>
+
+                    <View style={s.paperPatient}>
+                      <RxPair label="Patient" value={selected.patient?.name || 'Patient'} />
+                      <RxPair label="Gender" value={rx.gender ? rx.gender.charAt(0).toUpperCase() + rx.gender.slice(1) : '—'} />
+                      {selected.patient?.age != null && <RxPair label="Age" value={String(selected.patient.age)} />}
+                    </View>
+
+                    <RxSection icon="help-circle-outline" title="Consultation for" value={rx.issue || '—'} />
+                    <View style={s.rxDiagnosis}>
+                      <Text style={s.rxDiagnosisLabel}>DIAGNOSIS</Text>
+                      <Text translate={false} style={s.rxDiagnosisText}>{rx.diagnosis || selected.diagnosis || 'Not recorded'}</Text>
+                    </View>
+
+                    <View style={s.rxSectionHead}>
+                      <Ionicons name="medical-outline" size={14} color={REC.primary} />
+                      <Text style={s.rxSectionTitle}>Prescribed medicines</Text>
+                      {rx.medicines.length > 0 && <Text translate={false} style={s.rxCount}>{rx.medicines.length}</Text>}
+                    </View>
+                    {rx.medicines.length ? rx.medicines.map((m, index) => (
+                      <View key={`${m.name}-${index}`} style={s.medicine}>
+                        <View style={s.medicineIndex}><Text translate={false} style={s.medicineIndexText}>{index + 1}</Text></View>
+                        <View style={s.flex}>
+                          <Text translate={false} style={s.medicineName}>{m.name}</Text>
+                          <View style={s.medicineChips}>
+                            {[m.dosage, m.timings.join(', '), m.duration].filter(Boolean).map((part) => (
+                              <Text key={part} translate={false} style={s.medicineChip}>{part}</Text>
+                            ))}
+                          </View>
+                        </View>
+                      </View>
+                    )) : <Text style={s.rxEmpty}>No medicines prescribed.</Text>}
+
+                    {!!rx.advice && <RxSection icon="chatbox-ellipses-outline" title="Advice & instructions" value={rx.advice} />}
+                    {!!rx.notes && rx.notes !== rx.advice && <RxSection icon="create-outline" title="Additional notes" value={rx.notes} />}
+                    {rx.tests.length > 0 && (
+                      <>
+                        <View style={s.rxSectionHead}>
+                          <Ionicons name="flask-outline" size={14} color={REC.primary} />
+                          <Text style={s.rxSectionTitle}>Recommended tests</Text>
+                        </View>
+                        <View style={s.medicineChips}>
+                          {rx.tests.map((test) => <Text key={test} translate={false} style={s.testChip}>{test}</Text>)}
+                        </View>
+                      </>
+                    )}
+
+                    <View style={s.paperFooter}>
+                      <View style={s.flex}>
+                        <Text style={s.footerLabel}>Follow-up</Text>
+                        <Text translate={false} style={s.footerValue}>
+                          {rx.followUp ? dateLabel(rx.followUp) : rx.followUpRequired ? 'Required' : 'Not scheduled'}
+                        </Text>
+                      </View>
+                      <View style={s.signature}>
+                        <Text translate={false} style={s.signatureName} numberOfLines={1}>{doctorFor(selected)}</Text>
+                        <View style={s.signatureLine} />
+                        <Text style={s.footerLabel}>Issued by</Text>
+                      </View>
                     </View>
                   </View>
                 </ScrollView>
                 <AlertBox text={downloadError} />
                 <View style={s.sheetActions}>
-                  <RecButton label={openPatient ? 'Back to visits' : 'Close'} onPress={() => (openPatient ? setSelected(null) : closeSheet())} style={s.flex} />
+                  <RecButton icon={openPatient ? 'arrow-back' : undefined} label={openPatient ? 'Back to visits' : 'Close'} onPress={() => (openPatient ? setSelected(null) : closeSheet())} style={s.flex} />
                   {selected.hasPrescription && (
                     <RecButton primary icon="download-outline" label={downloading ? 'Downloading...' : 'Download PDF'} disabled={downloading} onPress={download} style={s.flex} />
                   )}
@@ -425,12 +502,13 @@ export default function PatientsSection() {
               </>
             ) : !!openPatient && (
               <>
-                <View style={s.sheetHead}>
+                <View style={[s.sheetHead, s.patientSheetHead]}>
                   <View style={[s.avatar, s.avatarLarge]}>
                     <Text translate={false} style={[s.avatarText, s.avatarTextLarge]}>{initials(openPatient.patient.name)}</Text>
                   </View>
                   <View style={s.flex}>
-                    <Text translate={false} style={s.sheetName} numberOfLines={1}>{openPatient.patient.name || 'Patient'}</Text>
+                    <Text style={s.sheetEyebrow}>PATIENT VISITS</Text>
+                    <Text translate={false} style={s.sheetName}>{openPatient.patient.name || 'Patient'}</Text>
                     <Text translate={false} style={s.muted}>{openPatient.patient.phoneNumber || 'Phone not recorded'}</Text>
                   </View>
                   <Pressable onPress={closeSheet} style={s.close} hitSlop={8}>
@@ -442,49 +520,36 @@ export default function PatientsSection() {
                   <SummaryPill value={openPatient.prescriptions} label={openPatient.prescriptions === 1 ? 'Prescription' : 'Prescriptions'} />
                   <SummaryPill value={dateLabel(openPatient.latest.checkedDate)} label="Last visit" />
                 </View>
-                <Text style={s.sectionLabel}>VISIT HISTORY</Text>
-                <ScrollView style={s.sheetScroll} showsVerticalScrollIndicator={false}>
-                  {openPatient.visits.map((row, index) => {
-                    const src = sourceStyle(row.source);
-                    const last = index === openPatient.visits.length - 1;
-                    return (
-                      <Pressable
+                {(openPatient.patient.age != null || !!openPatient.patient.gender) && <View style={s.demographics}>
+                  <Text translate={false} style={s.muted}>
+                    {[openPatient.patient.age != null ? `Age: ${openPatient.patient.age}` : '', openPatient.patient.gender].filter(Boolean).join(' · ')}
+                  </Text>
+                </View>}
+                <View style={s.historyHeading}>
+                  <Text style={s.historyTitle}>Visit history</Text>
+                  <View style={s.historySort}>
+                    <Ionicons name="time-outline" size={13} color={REC.muted} />
+                    <Text style={s.historySortText}>Latest first</Text>
+                  </View>
+                </View>
+                <ScrollView style={s.sheetScroll} contentContainerStyle={s.visitsContent} showsVerticalScrollIndicator={false}>
+                  <View style={s.vTable}>
+                    <View style={s.vHead}>
+                      <Text style={[s.vHeadText, s.vColDate]}>DATE</Text>
+                      <Text style={[s.vHeadText, s.flex]}>VISIT</Text>
+                      <Text style={s.vHeadText}>RX</Text>
+                    </View>
+                    {openPatient.visits.map((row, index) => (
+                      <VisitCard
                         key={row.id}
+                        row={row}
+                        doctor={doctorFor(row)}
+                        when={visitWhen(row)}
+                        last={index === openPatient.visits.length - 1}
                         onPress={() => { setSelected(row); setDownloadError(''); }}
-                        style={({ pressed }) => [s.visit, pressed && s.pressed]}
-                      >
-                        <View style={s.timeline}>
-                          <View style={[s.visitIcon, { backgroundColor: src.bg }]}>
-                            <Ionicons name={src.icon} size={16} color={src.fg} />
-                          </View>
-                          {!last && <View style={s.timelineLine} />}
-                        </View>
-                        <View style={[s.visitBody, !last && s.visitBodyDivider]}>
-                          <View style={s.visitTop}>
-                            <Text translate={false} style={s.visitTitle} numberOfLines={1}>{visitTitle(row)}</Text>
-                            <Ionicons name="chevron-forward" size={16} color="#A0AEBB" />
-                          </View>
-                          <Text translate={false} style={s.visitSub} numberOfLines={1}>{visitWhen(row)}</Text>
-                          <Text translate={false} style={s.visitSub} numberOfLines={1}>
-                            {doctorFor(row)} · {row.source === 'prescription' ? 'Chat consultation' : clinicName(clinics, row.clinicId)}
-                          </Text>
-                          <Text translate={false} style={s.visitDiagnosis} numberOfLines={2}>
-                            {row.diagnosis || row.prescription?.problem || 'Diagnosis not recorded'}
-                          </Text>
-                          <View style={[s.rxTag, !row.hasPrescription && s.rxTagMissing]}>
-                            <Ionicons
-                              name={row.hasPrescription ? 'document-text-outline' : 'remove-circle-outline'}
-                              size={12}
-                              color={row.hasPrescription ? REC.primary : '#94A3B8'}
-                            />
-                            <Text style={[s.rxTagText, !row.hasPrescription && s.rxTagTextMissing]}>
-                              {row.hasPrescription ? 'Prescription available' : 'Prescription not recorded'}
-                            </Text>
-                          </View>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
+                      />
+                    ))}
+                  </View>
                 </ScrollView>
               </>
             )}
@@ -495,40 +560,86 @@ export default function PatientsSection() {
   );
 }
 
-function PatientCard({ group, doctor, when, onPress }) {
-  const { patient, visits, latest, counts } = group;
+// One compact table row per visit; tapping it opens the full prescription.
+function VisitCard({ row, doctor, when, last, onPress }) {
+  const src = sourceStyle(row.source);
+  const prescription = readPrescription(row.prescription);
+  const date = dateLabel(row.checkedDate || row.checkedAt);
+  const [day, month] = date === 'Not recorded' ? ['--', ''] : date.split(' ');
+  const time = row.checkedAt ? displayTime(row.checkedAt) : row.appointmentTime || '';
+  const diagnosis = row.diagnosis || prescription.diagnosis;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [s.patient, pressed && s.pressed]}>
-      <View style={s.patientTop}>
-        <View style={s.avatar}>
-          <Text translate={false} style={s.avatarText}>{initials(patient.name)}</Text>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`View ${src.label} visit, ${when}`}
+      style={({ pressed }) => [s.vRow, !last && s.vRowDivider, pressed && s.vRowPressed]}
+    >
+      <View style={[s.vColDate, s.vDate]}>
+        <Text translate={false} style={s.vDay}>{day}</Text>
+        <Text translate={false} style={s.vMonth}>{month.toUpperCase()}</Text>
+      </View>
+      <View style={s.flex}>
+        <View style={s.vTitleRow}>
+          <View style={[s.vTag, { backgroundColor: src.bg }]}>
+            <Text translate={false} style={[s.vTagText, { color: src.fg }]}>{src.label}</Text>
+          </View>
+          {row.token != null && <Text translate={false} style={s.vMeta}>#{row.token}</Text>}
+          {!!time && <Text translate={false} style={s.vMeta}>{time}</Text>}
         </View>
+        <Text translate={false} style={[s.vDiagnosis, !diagnosis && s.vDiagnosisEmpty]} numberOfLines={1}>
+          {diagnosis || 'Diagnosis not recorded'}
+        </Text>
+        <Text translate={false} style={s.vDoctor} numberOfLines={1}>{doctor}</Text>
+      </View>
+      <Ionicons
+        name={row.hasPrescription ? 'document-text' : 'remove-circle-outline'}
+        size={17}
+        color={row.hasPrescription ? REC.primary : '#B8C2CC'}
+      />
+      <Ionicons name="chevron-forward" size={15} color="#A0AEBB" />
+    </Pressable>
+  );
+}
+
+// A compact card per patient: who, last visit, what was found. Tapping it
+// opens the full visit history.
+function PatientCard({ group, doctor, onPress }) {
+  const { patient, visits, latest, counts, prescriptions } = group;
+  const diagnosis = latest.diagnosis || latest.prescription?.problem;
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`View visits for ${patient.name || 'Patient'}`} style={({ pressed }) => [s.patient, pressed && s.patientPressed]}>
+      <View style={s.patientAccent} />
+      <View style={s.patientTop}>
+        <LinearGradient colors={['#12756D', '#25B887']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.patientAvatar}>
+          <Text translate={false} style={s.patientAvatarText}>{initials(patient.name)}</Text>
+        </LinearGradient>
         <View style={s.flex}>
           <Text translate={false} style={s.patientName} numberOfLines={1}>{patient.name || 'Patient'}</Text>
-          <View style={s.phoneRow}>
-            <Ionicons name="call-outline" size={12} color={REC.muted} />
-            <Text translate={false} style={s.muted} numberOfLines={1}>{patient.phoneNumber || 'Phone not recorded'}</Text>
-          </View>
+          <Text translate={false} style={s.phoneText} numberOfLines={1}>
+            {patient.phoneNumber || 'No phone'} · {visits.length} {visits.length === 1 ? 'visit' : 'visits'}
+          </Text>
         </View>
-        <View style={s.visitCount}>
-          <Text translate={false} style={s.visitCountValue}>{visits.length}</Text>
-          <Text style={s.visitCountLabel}>{visits.length === 1 ? 'visit' : 'visits'}</Text>
+        <View style={s.patientRight}>
+          <Text translate={false} style={s.lastDate}>{dateLabel(latest.checkedDate)}</Text>
+          {prescriptions > 0 && (
+            <View style={s.rxBadge}>
+              <Ionicons name="document-text" size={10} color={REC.primary} />
+              <Text translate={false} style={s.rxBadgeText}>{prescriptions} Rx</Text>
+            </View>
+          )}
         </View>
       </View>
 
       <View style={s.lastVisit}>
-        <Text style={s.lastLabel}>LAST VISIT</Text>
-        <View style={s.metaLine}>
-          <Ionicons name="calendar-outline" size={13} color={REC.muted} />
-          <Text translate={false} style={s.metaText} numberOfLines={1}>{when}</Text>
-        </View>
-        <View style={s.metaLine}>
-          <Ionicons name="person-outline" size={13} color={REC.muted} />
-          <Text translate={false} style={s.metaText} numberOfLines={1}>{doctor}</Text>
-        </View>
-        <Text translate={false} style={s.diagnosis} numberOfLines={2}>
-          {latest.diagnosis || latest.prescription?.problem || 'Diagnosis not recorded'}
+        <Ionicons name="pulse" size={13} color={diagnosis ? '#C2410C' : '#94A3B8'} />
+        <Text translate={false} style={[s.diagnosis, !diagnosis && s.diagnosisEmpty]} numberOfLines={1}>
+          {diagnosis || 'Diagnosis not recorded'}
         </Text>
+      </View>
+      <View style={s.metaLine}>
+        <Ionicons name="medkit-outline" size={12} color={REC.muted} />
+        <Text translate={false} style={s.metaText} numberOfLines={1}>{doctor}</Text>
       </View>
 
       <View style={s.patientFooter}>
@@ -537,15 +648,15 @@ function PatientCard({ group, doctor, when, onPress }) {
             const src = sourceStyle(source);
             return (
               <View key={source} style={[s.chip, { backgroundColor: src.bg }]}>
-                <Ionicons name={src.icon} size={12} color={src.fg} />
+                <Ionicons name={src.icon} size={11} color={src.fg} />
                 <Text translate={false} style={[s.chipText, { color: src.fg }]}>{count} {src.label}</Text>
               </View>
             );
           })}
         </View>
-        <View style={s.openLink}>
-          <Text style={s.openText}>View visits</Text>
-          <Ionicons name="chevron-forward" size={15} color={REC.primary} />
+        <View style={s.patientAction}>
+          <Text style={s.openText}>View</Text>
+          <Ionicons name="chevron-forward" size={14} color={REC.primary} />
         </View>
       </View>
     </Pressable>
@@ -555,28 +666,69 @@ function PatientCard({ group, doctor, when, onPress }) {
 function SummaryPill({ value, label }) {
   return (
     <View style={s.summaryPill}>
-      <Text translate={false} style={s.summaryValue} numberOfLines={1}>{value}</Text>
+      <Text translate={false} style={s.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{value}</Text>
       <Text style={s.summaryLabel}>{label}</Text>
     </View>
   );
 }
 
-function Field({ title, value, half }) {
+function RxInfo({ icon, label, value, wide }) {
   return (
-    <View style={[s.field, half && s.half]}>
-      <Text style={s.fieldTitle}>{title}</Text>
-      <Text translate={false} style={s.fieldValue}>{value}</Text>
+    <View style={[s.rxInfo, wide && s.rxInfoWide]}>
+      <View style={s.rxInfoIcon}><Ionicons name={icon} size={14} color={REC.primary} /></View>
+      <View style={s.flex}>
+        <Text style={s.rxInfoLabel}>{label}</Text>
+        <Text translate={false} style={s.rxInfoValue} numberOfLines={2}>{value}</Text>
+      </View>
     </View>
   );
 }
 
+function RxPair({ label, value }) {
+  return (
+    <View style={s.rxPair}>
+      <Text style={s.footerLabel}>{label}</Text>
+      <Text translate={false} style={s.rxPairValue} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
+function RxSection({ icon, title, value }) {
+  return (
+    <>
+      <View style={s.rxSectionHead}>
+        <Ionicons name={icon} size={14} color={REC.primary} />
+        <Text style={s.rxSectionTitle}>{title}</Text>
+      </View>
+      <Text translate={false} style={s.rxSectionText}>{value}</Text>
+    </>
+  );
+}
+
 const s = StyleSheet.create({
+  vTable: { borderWidth: 1, borderColor: REC.line, borderRadius: 12, overflow: 'hidden', backgroundColor: '#FFFFFF' },
+  vHead: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: '#F6F8FA', borderBottomWidth: 1, borderBottomColor: REC.line },
+  vHeadText: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: '#7C8B9A', marginRight: 18 },
+  vColDate: { width: 40 },
+  vRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 9, backgroundColor: '#FFFFFF' },
+  vRowDivider: { borderBottomWidth: 1, borderBottomColor: '#EEF2F5' },
+  vRowPressed: { backgroundColor: '#F3F8F7' },
+  vDate: { alignItems: 'center', paddingVertical: 4, borderRadius: 8, backgroundColor: REC.soft },
+  vDay: { fontSize: 15, fontWeight: '800', color: REC.primary, lineHeight: 18 },
+  vMonth: { fontSize: 9.5, fontWeight: '700', color: REC.softText, letterSpacing: 0.5 },
+  vTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  vTag: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 999 },
+  vTagText: { fontSize: 10.5, fontWeight: '700' },
+  vMeta: { fontSize: 11.5, fontWeight: '600', color: REC.muted },
+  vDiagnosis: { fontSize: 13, fontWeight: '700', color: REC.ink, marginTop: 3 },
+  vDiagnosisEmpty: { fontWeight: '500', color: '#94A3B8', fontStyle: 'italic' },
+  vDoctor: { fontSize: 11.5, color: REC.muted, marginTop: 1 },
   flex: { flex: 1, minWidth: 0 },
   inline: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   muted: { fontSize: 12.5, color: REC.muted },
   doctor: { fontSize: 14, fontWeight: '700', color: REC.ink },
   count: { fontSize: 11, fontWeight: '600', color: '#728798', backgroundColor: '#F1F5F8', borderRadius: 7, paddingHorizontal: 9, paddingVertical: 4, overflow: 'hidden' },
-  stats: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10, marginBottom: 16 },
+  stats: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10, marginHorizontal: 14, marginBottom: 16 },
   search: { height: 44, borderWidth: 1, borderColor: '#D8E1E8', borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, marginBottom: 12, backgroundColor: '#FAFBFD' },
   searchInput: { flex: 1, fontSize: 14, color: REC.ink, paddingVertical: 0 },
   twoCol: { flexDirection: 'row', gap: 10 },
@@ -586,29 +738,35 @@ const s = StyleSheet.create({
   pressed: { opacity: 0.75 },
 
   patient: {
-    borderWidth: 1, borderColor: REC.line, borderRadius: 14, padding: 14, marginBottom: 12, backgroundColor: '#FFFFFF',
-    shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1,
+    borderRadius: 16, paddingVertical: 12, paddingRight: 12, paddingLeft: 15, marginBottom: 10, backgroundColor: '#FFFFFF', overflow: 'hidden',
+    borderWidth: 1, borderColor: '#E3ECEA',
+    shadowColor: '#0F3D38', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2,
   },
-  patientTop: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center' },
+  patientPressed: { opacity: 0.85 },
+  patientAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, backgroundColor: REC.primary },
+  patientTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  patientAvatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  patientAvatarText: { fontSize: 13.5, fontWeight: '800', color: '#FFFFFF' },
+  avatar: { width: 46, height: 46, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#BCDAD4', alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 15, fontWeight: '800', color: REC.primary },
-  avatarLarge: { width: 48, height: 48, borderRadius: 24 },
-  avatarTextLarge: { fontSize: 17 },
-  patientName: { fontSize: 15.5, fontWeight: '700', color: REC.ink },
-  phoneRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
-  visitCount: { alignItems: 'center', minWidth: 52, paddingVertical: 5, paddingHorizontal: 8, borderRadius: 10, backgroundColor: '#F1F7F5', borderWidth: 1, borderColor: '#D6EAE3' },
-  visitCountValue: { fontSize: 16, fontWeight: '800', color: REC.primary, lineHeight: 19 },
-  visitCountLabel: { fontSize: 10.5, fontWeight: '600', color: REC.softText },
-  lastVisit: { marginTop: 12, padding: 11, borderRadius: 10, backgroundColor: '#F7F9FB', gap: 5 },
-  lastLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1.2, color: '#94A3B8', marginBottom: 1 },
-  metaLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  metaText: { flexShrink: 1, fontSize: 12.5, color: '#5B6B7B' },
-  diagnosis: { fontSize: 13, fontWeight: '600', color: REC.ink, marginTop: 3 },
-  patientFooter: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
-  chips: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
-  chipText: { fontSize: 11.5, fontWeight: '700' },
-  openLink: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  avatarLarge: { width: 56, height: 56, borderRadius: 18 },
+  avatarTextLarge: { fontSize: 20 },
+  patientName: { fontSize: 15, fontWeight: '800', color: REC.ink },
+  phoneText: { fontSize: 11.5, fontWeight: '500', color: REC.muted, marginTop: 1 },
+  patientRight: { alignItems: 'flex-end', gap: 3 },
+  lastDate: { fontSize: 11.5, fontWeight: '700', color: REC.ink },
+  rxBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, backgroundColor: REC.soft },
+  rxBadgeText: { fontSize: 10.5, fontWeight: '700', color: REC.primary },
+  lastVisit: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 10, paddingHorizontal: 9, paddingVertical: 7, borderRadius: 9, backgroundColor: '#F6FAF9' },
+  diagnosis: { flex: 1, fontSize: 13, fontWeight: '700', color: REC.ink },
+  diagnosisEmpty: { fontWeight: '500', color: '#94A3B8', fontStyle: 'italic' },
+  metaLine: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 7, paddingHorizontal: 2 },
+  metaText: { flexShrink: 1, fontSize: 12, color: '#5B6B7B' },
+  patientFooter: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 9 },
+  chips: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  chipText: { fontSize: 11, fontWeight: '700' },
+  patientAction: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   openText: { fontSize: 12.5, fontWeight: '700', color: REC.primary },
 
   pagination: { marginTop: 6, gap: 10 },
@@ -616,43 +774,110 @@ const s = StyleSheet.create({
   pageNow: { fontSize: 13, fontWeight: '700', color: REC.ink },
 
   overlay: { flex: 1, backgroundColor: 'rgba(32,50,72,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 18, paddingTop: 10, maxHeight: '90%' },
+  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 18, paddingTop: 10, height: '90%', maxHeight: '90%' },
   handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#D0D5DD', alignSelf: 'center', marginBottom: 14 },
   sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  sheetName: { fontSize: 20, fontWeight: '700', color: REC.ink },
-  close: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#F2F5F7', alignItems: 'center', justifyContent: 'center' },
-  summaryRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
-  summaryPill: { flex: 1, minWidth: 0, borderRadius: 10, borderWidth: 1, borderColor: REC.line, backgroundColor: '#FAFBFD', paddingVertical: 9, paddingHorizontal: 10 },
-  summaryValue: { fontSize: 14.5, fontWeight: '800', color: REC.ink },
-  summaryLabel: { fontSize: 11, fontWeight: '600', color: REC.muted, marginTop: 1 },
-  sectionLabel: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.4, color: REC.muted, marginTop: 16 },
-  visit: { flexDirection: 'row', gap: 12 },
-  timeline: { alignItems: 'center', width: 32 },
-  visitIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  timelineLine: { flex: 1, width: 2, backgroundColor: '#E6ECF0', marginVertical: 4 },
-  visitBody: { flex: 1, minWidth: 0, paddingBottom: 14, marginBottom: 12, gap: 3 },
-  visitBodyDivider: { borderBottomWidth: 1, borderBottomColor: '#EEF2F5' },
-  visitTop: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 5 },
-  visitTitle: { flex: 1, fontSize: 14, fontWeight: '700', color: REC.ink },
-  visitSub: { fontSize: 12.5, color: '#5B6B7B' },
-  visitDiagnosis: { fontSize: 13, fontWeight: '600', color: REC.ink, marginTop: 2 },
-  rxTag: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: REC.soft },
-  rxTagMissing: { backgroundColor: '#F1F5F8' },
-  rxTagText: { fontSize: 11, fontWeight: '700', color: REC.primary },
-  rxTagTextMissing: { color: '#94A3B8' },
+  patientSheetHead: { paddingVertical: 6 },
+  sheetName: { fontSize: 22, fontWeight: '700', color: REC.ink, marginBottom: 3 },
+  sheetEyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 1.3, color: REC.primary, marginBottom: 3 },
+  close: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line, alignItems: 'center', justifyContent: 'center' },
+  summaryRow: { flexDirection: 'row', marginTop: 18, borderWidth: 1, borderColor: REC.line, borderRadius: 16, overflow: 'hidden' },
+  demographics: { marginTop: 10 },
+  summaryPill: { flex: 1, minWidth: 0, backgroundColor: '#FFFFFF', paddingVertical: 13, paddingHorizontal: 10, alignItems: 'center' },
+  summaryValue: { fontSize: 17, lineHeight: 23, fontWeight: '800', color: REC.ink, fontVariant: ['tabular-nums'] },
+  summaryLabel: { fontSize: 10.5, color: REC.muted, marginTop: 3, textAlign: 'center' },
+  historyHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginTop: 22, marginBottom: 2 },
+  historyTitle: { fontSize: 17, fontWeight: '700', color: REC.ink },
+  historySort: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  historySortText: { fontSize: 11, color: REC.muted },
+  visitsContent: { paddingHorizontal: 2, paddingTop: 2, paddingBottom: 16, gap: 16 },
+  visitCard: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DDE6E6', borderRadius: 20, padding: 16, shadowColor: '#173D35', shadowOpacity: 0.05, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  visitCardPressed: { borderColor: REC.primary, opacity: 0.8 },
+  visitTop: { flexDirection: 'row', alignItems: 'center', gap: 13, marginBottom: 18 },
+  visitDateTile: { width: 58, minHeight: 78, paddingVertical: 8, borderWidth: 1, borderTopWidth: 3, borderColor: '#DDE6E6', borderTopColor: REC.primary, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  visitDay: { fontSize: 25, lineHeight: 29, fontWeight: '800', color: REC.primary, fontVariant: ['tabular-nums'] },
+  visitMonth: { fontSize: 10, lineHeight: 15, fontWeight: '700', letterSpacing: 1, color: REC.ink },
+  visitYear: { fontSize: 10, lineHeight: 14, color: REC.muted },
+  visitTitle: { fontSize: 16, lineHeight: 22, fontWeight: '700', color: REC.ink },
+  visitTimeRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 },
+  visitTime: { flexShrink: 1, fontSize: 12, lineHeight: 17, color: REC.muted },
+  visitToken: { alignSelf: 'flex-start', borderWidth: 1, borderColor: REC.line, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3, marginTop: 8 },
+  visitTokenText: { fontSize: 10.5, fontWeight: '600', color: REC.primary },
+  visitInfo: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
+  visitInfoIcon: { width: 30, height: 30, borderWidth: 1, borderColor: REC.line, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  visitInfoLabel: { fontSize: 10.5, color: REC.muted, marginBottom: 2 },
+  visitSub: { fontSize: 13, lineHeight: 19, fontWeight: '500', color: REC.ink },
+  visitDiagnosisBox: { borderTopWidth: 1, borderTopColor: REC.line, paddingTop: 14, marginTop: 2 },
+  visitDiagnosisLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1, color: REC.muted, marginBottom: 5 },
+  visitDiagnosis: { fontSize: 13.5, lineHeight: 20, fontWeight: '600', color: REC.ink },
+  visitFooter: { gap: 12, marginTop: 15 },
+  visitPrescriptionStatus: { flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1 },
+  visitPrescriptionText: { flexShrink: 1, fontSize: 11.5, color: REC.muted },
+  prescriptionDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#A0AEBB' },
+  prescriptionDotAvailable: { backgroundColor: REC.primary },
+  visitPrescriptionAvailable: { color: REC.primary },
+  visitAction: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 44, borderRadius: 12, paddingVertical: 11, paddingHorizontal: 12, backgroundColor: REC.primary },
+  visitActionText: { flexShrink: 1, fontSize: 12.5, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
 
   visitMeta: { fontSize: 12.5, color: '#4A8875', marginTop: 8 },
-  sheetScroll: { marginTop: 12 },
+  sheetScroll: { flex: 1, minHeight: 0, marginTop: 12 },
   sheetNotice: { marginTop: 4 },
-  paper: { borderWidth: 1, borderColor: '#DCECE5', borderRadius: 12, padding: 14, marginTop: 12, backgroundColor: '#FBFDFC' },
-  paperEyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 1.6, color: REC.primary },
-  paperTitle: { fontSize: 19, fontWeight: '800', color: REC.ink, marginBottom: 10 },
   paperRow: { flexDirection: 'row', gap: 10 },
   field: { marginBottom: 12 },
   half: { flex: 1 },
   fieldTitle: { fontSize: 11.5, fontWeight: '700', color: REC.muted, marginBottom: 3 },
   fieldValue: { fontSize: 13.5, color: REC.ink, lineHeight: 19 },
-  medicine: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#EEF3F2' },
-  medicineName: { fontSize: 14, fontWeight: '700', color: REC.ink },
+  rxSheetName: { fontSize: 20, fontWeight: '800', color: REC.ink },
+  rxContent: { paddingBottom: 8 },
+  rxVisit: { padding: 13, borderRadius: 16, backgroundColor: '#F3FAF8', borderWidth: 1, borderColor: '#D7EEE8', gap: 10 },
+  rxVisitTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  rxSourceTag: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  rxSourceText: { fontSize: 12, fontWeight: '700' },
+  rxToken: { fontSize: 12, fontWeight: '800', color: REC.primary, backgroundColor: '#FFFFFF', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 8, overflow: 'hidden' },
+  rxInfoGrid: { flexDirection: 'row', gap: 10 },
+  rxInfo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 9 },
+  rxInfoWide: { flex: 0 },
+  rxInfoIcon: { width: 30, height: 30, borderRadius: 10, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  rxInfoLabel: { fontSize: 10.5, fontWeight: '700', color: REC.muted, textTransform: 'uppercase', letterSpacing: 0.4 },
+  rxInfoValue: { fontSize: 13.5, fontWeight: '700', color: REC.ink, marginTop: 1 },
+  rxSymptoms: { marginTop: 12, padding: 12, borderRadius: 14, backgroundColor: '#FFF8EC', borderWidth: 1, borderColor: '#F6DDAE' },
+  rxSymptomsHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  rxSymptomsLabel: { fontSize: 11.5, fontWeight: '800', color: '#B54708', letterSpacing: 0.3 },
+  rxSymptomsText: { fontSize: 13.5, lineHeight: 19, color: '#5A3A12' },
+  rxNoRx: { marginTop: 12, backgroundColor: '#FFF8EC', borderColor: '#F6DDAE' },
+  paper: {
+    marginTop: 12, padding: 15, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DCECE5',
+    shadowColor: '#0F3D38', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2,
+  },
+  paperHead: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 12, borderBottomWidth: 2, borderBottomColor: REC.primary },
+  rxSymbol: { width: 40, height: 40, borderRadius: 12, backgroundColor: REC.primary, alignItems: 'center', justifyContent: 'center' },
+  rxSymbolText: { fontSize: 22, fontWeight: '800', color: '#FFFFFF' },
+  paperEyebrow: { fontSize: 9.5, fontWeight: '800', letterSpacing: 1.5, color: REC.primary },
+  paperTitle: { fontSize: 18, fontWeight: '800', color: REC.ink },
+  paperDate: { fontSize: 12, fontWeight: '700', color: REC.muted },
+  paperPatient: { flexDirection: 'row', gap: 10, marginTop: 12, padding: 10, borderRadius: 10, backgroundColor: '#F7F9FA' },
+  rxPair: { flex: 1, minWidth: 0 },
+  rxPairValue: { fontSize: 13.5, fontWeight: '700', color: REC.ink, marginTop: 2 },
+  rxSectionHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, marginBottom: 5 },
+  rxSectionTitle: { flex: 1, fontSize: 12, fontWeight: '800', color: REC.ink, letterSpacing: 0.2 },
+  rxSectionText: { fontSize: 13.5, lineHeight: 19, color: '#3F4F5F' },
+  rxCount: { fontSize: 11, fontWeight: '800', color: REC.primary, backgroundColor: REC.soft, paddingHorizontal: 7, paddingVertical: 1, borderRadius: 999, overflow: 'hidden' },
+  rxDiagnosis: { marginTop: 12, padding: 11, borderRadius: 10, backgroundColor: '#EEF7F4', borderLeftWidth: 3, borderLeftColor: REC.primary },
+  rxDiagnosisLabel: { fontSize: 9.5, fontWeight: '800', letterSpacing: 1.3, color: REC.primary },
+  rxDiagnosisText: { fontSize: 14.5, fontWeight: '800', color: REC.ink, marginTop: 3 },
+  medicine: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#EEF3F2' },
+  medicineIndex: { width: 22, height: 22, borderRadius: 11, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  medicineIndexText: { fontSize: 11, fontWeight: '800', color: REC.primary },
+  medicineName: { fontSize: 14.5, fontWeight: '800', color: REC.ink },
+  medicineChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 5 },
+  medicineChip: { fontSize: 11.5, fontWeight: '600', color: '#475467', backgroundColor: '#F2F4F7', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, overflow: 'hidden' },
+  testChip: { fontSize: 12, fontWeight: '700', color: '#6941C6', backgroundColor: '#F3EFFD', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999, overflow: 'hidden' },
+  rxEmpty: { fontSize: 13, color: '#94A3B8', fontStyle: 'italic', paddingVertical: 4 },
+  paperFooter: { flexDirection: 'row', alignItems: 'flex-end', gap: 12, marginTop: 18, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEF3F2' },
+  footerLabel: { fontSize: 10.5, fontWeight: '700', color: REC.muted, textTransform: 'uppercase', letterSpacing: 0.4 },
+  footerValue: { fontSize: 13.5, fontWeight: '700', color: REC.ink, marginTop: 2 },
+  signature: { alignItems: 'center', maxWidth: '55%' },
+  signatureName: { fontSize: 13.5, fontWeight: '800', color: REC.primary, fontStyle: 'italic' },
+  signatureLine: { alignSelf: 'stretch', height: 1, backgroundColor: '#C9D6D3', marginVertical: 4, minWidth: 110 },
   sheetActions: { flexDirection: 'row', gap: 10, marginTop: 12 },
 });

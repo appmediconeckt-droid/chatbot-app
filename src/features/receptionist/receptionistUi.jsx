@@ -8,7 +8,8 @@ import Text from '../../components/TranslatedText';
 import { toImageUri } from '../../utils/imageUri';
 import { API_BASE_URL } from '../../axiosConfig';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
-import { QUEUE_TABS, canCancelAppointment, canRecordVitals, clinicName, clockLabel, dateLabel, displayTime, patientKey, statusLabel } from './receptionistUtils';
+import { QUEUE_TABS, appointmentStatuses, canCancelAppointment, canRecordVitals, clinicName, clockLabel, dateLabel, displayTime, emergencyReasonOf, patientKey, statusLabel } from './receptionistUtils';
+import { getDoctorMedicines, getDoctorTests, unpackConsultationNotes } from '../../utils/consultationDetails';
 import { saveStaffAppointmentVitals } from './receptionistApi';
 import { useReceptionistVitals } from './ReceptionistVitalsContext';
 
@@ -18,7 +19,7 @@ export const REC = {
   ink: '#213547',
   muted: '#728092',
   line: '#E6ECF0',
-  bg: '#F5F7FA',
+  bg: '#FFFFFF',
   soft: '#E7F4EE',
   softText: '#0C7166',
   green: '#25B887',
@@ -92,10 +93,10 @@ export function LiveLabel({ text, warning }) {
 export function DetailFields({ fields }) {
   return (
     <View style={s.detailGrid}>
-      {fields.map(([title, value]) => {
+      {fields.map(([title, value, fullWidth]) => {
         const shown = Array.isArray(value) ? value.join(', ') : value;
         return (
-          <View key={title} style={s.detailItem}>
+          <View key={title} style={[s.detailItem, fullWidth && s.detailItemFull]}>
             <Text style={s.detailTitle}>{title}</Text>
             <Text translate={false} style={s.detailValue}>
               {shown === undefined || shown === null || shown === '' ? 'Not provided' : String(shown)}
@@ -103,6 +104,16 @@ export function DetailFields({ fields }) {
           </View>
         );
       })}
+    </View>
+  );
+}
+
+export function EmergencyReason({ row }) {
+  if (!row?.emergency) return null;
+  return (
+    <View style={s.emergencyReason}>
+      <Text style={s.emergencyReasonLabel}>Emergency reason</Text>
+      <Text translate={false} style={s.emergencyReasonText}>{emergencyReasonOf(row) || 'Not recorded'}</Text>
     </View>
   );
 }
@@ -447,10 +458,10 @@ export function AppointmentRow({ row: appointment, clinics, onView, onCancel, ca
           <Text style={s.metaText}>{row.source === 'walkin' ? 'Walk-in patient' : 'Online booking'}</Text>
         </View>
       </View>
+      <EmergencyReason row={row} />
       <View style={s.aptBadges}>
         {row.emergency && <Badge emergency />}
-        <Badge value={row.status} />
-        <Badge value={row.queueStatus} />
+        {appointmentStatuses(row).map((status) => <Badge key={status} value={status} />)}
         <View style={s.flex} />
         {canRecordVitals(row) && (
           <RecButton compact primary label={row.vitals ? 'Edit vitals' : 'Add vitals'} icon={row.vitals ? 'create-outline' : 'add-circle-outline'} onPress={() => onView(row, { editVitals: true })} />
@@ -468,6 +479,9 @@ export function AppointmentRow({ row: appointment, clinics, onView, onCancel, ca
 export function PatientDetailsSheet({ patient: appointment, clinics, doctorName, onClose, onCancel, cancelBusy, editVitals = false }) {
   const { withSavedVitals } = useReceptionistVitals();
   const patient = withSavedVitals(appointment);
+  const consultation = unpackConsultationNotes(patient) || {};
+  const medicines = getDoctorMedicines(consultation);
+  const tests = getDoctorTests(consultation);
   const [saving, setSaving] = useState(false);
   const insets = useSafeAreaInsets();
   const {
@@ -496,14 +510,14 @@ export function PatientDetailsSheet({ patient: appointment, clinics, doctorName,
               <View style={s.cardHeading}>
                 <View style={s.flex}>
                   <Eyebrow>PATIENT APPOINTMENT</Eyebrow>
-                  <Text translate={false} style={s.dialogName}>{patient.patientName}</Text>
+                  <Text translate={false} style={s.dialogName}>{patient.patientName || 'Patient'}</Text>
                 </View>
                 <Pressable onPress={onClose} disabled={saving} style={s.iconButton} hitSlop={8} accessibilityLabel="Close patient details">
                   <Ionicons name="close" size={20} color={REC.ink} />
                 </Pressable>
               </View>
               <View style={[s.row, s.wrap]}>
-                <Badge value={patient.queueStatus} />
+                {appointmentStatuses(patient).map((status) => <Badge key={status} value={status} />)}
                 {patient.emergency && <Badge emergency />}
                 <Text translate={false} style={s.metaText}>Token {patient.token ?? '--'}</Text>
               </View>
@@ -519,29 +533,34 @@ export function PatientDetailsSheet({ patient: appointment, clinics, doctorName,
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator
               >
+                <EmergencyReason row={patient} />
                 <DetailFields fields={[
                   ['Doctor name', doctorName || 'Doctor name not recorded'],
                   ['Phone', patient.phoneNumber || 'Not recorded'],
                   ['Age', patient.age],
                   ['Gender', patient.gender],
                   ['Clinic / Hospital', clinicName(clinics, patient.clinicId)],
-                  ['Appointment date', patient.date],
+                  ['Appointment date', dateLabel(patient.date)],
                   ['Appointment time', patient.time ? clockLabel(patient.time) : 'Not scheduled'],
                   ['Booking source', patient.source === 'walkin' ? 'Walk-in' : 'Online'],
                   ['Booking status', statusLabel(patient.status)],
                   ['Checkup started', displayTime(patient.timing?.startedAt)],
                   ['Checkup completed', displayTime(patient.timing?.endedAt)],
-                  ['Symptoms', patient.symptoms || 'Not recorded'],
-                  ['Diagnosis', patient.diagnosis || 'Not recorded'],
-                  ['Advice', patient.advice || 'Not recorded'],
+                  ['Symptoms', consultation.symptoms || consultation.issue || 'Not recorded', true],
+                  ['Diagnosis', consultation.diagnosis || consultation.problem || 'Not recorded', true],
+                  ['Medicines', medicines.length ? medicines.map((medicine) => [medicine.name, medicine.dosage, medicine.timings.join(', '), medicine.duration].filter(Boolean).join(' · ')).join('\n') : 'Not recorded', true],
+                  ['Recommended tests', tests.length ? tests.join(', ') : 'Not recorded', true],
+                  ['Advice', consultation.advice || consultation.instructions || 'Not recorded', true],
+                  ['Additional notes', consultation.additionalNotes || consultation.additional_notes || consultation.notes || 'Not recorded', true],
+                  ['Follow-up date', consultation.followUpDate || consultation.follow_up_date ? dateLabel(consultation.followUpDate || consultation.follow_up_date) : 'Not scheduled'],
                 ]} />
                 <PatientVitalsEditor key={`${patientKey(patient)}:${editVitals}`} patient={patient} initialEditing={editVitals} onInputFocus={scrollFocusedInputIntoView} onSaved={onClose} onBusyChange={setSaving} />
               </ScrollView>
-              <View style={s.dialogActions}>
-                {onCancel && canCancelAppointment(patient) && (
+              {!!onCancel && canCancelAppointment(patient) && (
+                <View style={s.dialogActions}>
                   <RecButton danger label={cancelBusy ? 'Cancelling...' : 'Cancel Appointment'} disabled={saving || Boolean(cancelBusy)} onPress={() => onCancel(patient)} style={s.flex} />
-                )}
-              </View>
+                </View>
+              )}
             </>
           )}
         </View>
@@ -573,6 +592,7 @@ const s = StyleSheet.create({
   liveLabel: { fontSize: 11, color: '#4A8875' },
   detailGrid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 14, marginTop: 4 },
   detailItem: { width: '50%', paddingRight: 10 },
+  detailItemFull: { width: '100%', paddingRight: 0 },
   detailTitle: { fontSize: 11, color: REC.muted, marginBottom: 3 },
   detailValue: { fontSize: 13.5, fontWeight: '600', color: REC.ink },
   empty: { paddingVertical: 26, paddingHorizontal: 12, alignItems: 'center' },
@@ -591,13 +611,13 @@ const s = StyleSheet.create({
   statValue: { fontSize: 24, fontWeight: '800', color: REC.ink, lineHeight: 28 },
   tabs: { gap: 8, paddingBottom: 12 },
   tab: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 40, paddingLeft: 14, paddingRight: 6, borderRadius: 20, borderWidth: 1, borderColor: '#D8E1E8', backgroundColor: '#FFFFFF' },
-  tabOn: { backgroundColor: REC.primary, borderColor: REC.primary },
+  tabOn: { backgroundColor: '#FFFFFF', borderColor: REC.primary },
   tabText: { fontSize: 13.5, fontWeight: '700', color: '#465668' },
-  tabTextOn: { color: '#FFFFFF' },
-  tabCount: { minWidth: 26, height: 26, borderRadius: 13, paddingHorizontal: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EEF2F6' },
-  tabCountOn: { backgroundColor: 'rgba(255,255,255,0.25)' },
+  tabTextOn: { color: REC.primary },
+  tabCount: { minWidth: 26, height: 26, borderRadius: 13, paddingHorizontal: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
+  tabCountOn: { backgroundColor: '#FFFFFF' },
   tabCountText: { fontSize: 12, fontWeight: '800', color: '#465668' },
-  tabCountTextOn: { color: '#FFFFFF' },
+  tabCountTextOn: { color: REC.primary },
   button: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: '#D8E1E8', backgroundColor: '#FFFFFF', borderRadius: 9, paddingHorizontal: 14, height: 42 },
   buttonCompact: { height: 32, paddingHorizontal: 10, borderRadius: 8 },
   buttonFull: { alignSelf: 'stretch', marginTop: 12 },
@@ -628,12 +648,15 @@ const s = StyleSheet.create({
   sheetOptionActive: { fontWeight: '700', color: REC.primary },
   aptRow: { borderWidth: 1, borderColor: REC.line, borderRadius: 14, padding: 13, marginBottom: 10, backgroundColor: '#FFFFFF' },
   aptRowCompact: { padding: 9, marginBottom: 6 },
-  aptRowEmergency: { borderColor: '#F4C9C9', backgroundColor: '#FFFBFB', borderLeftWidth: 4, borderLeftColor: '#DC2626' },
+  aptRowEmergency: { borderColor: '#F4C9C9', borderLeftWidth: 4, borderLeftColor: '#DC2626' },
+  emergencyReason: { marginTop: 10, marginBottom: 10, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: '#DC2626' },
+  emergencyReasonLabel: { fontSize: 11, fontWeight: '700', color: '#B42318', marginBottom: 3 },
+  emergencyReasonText: { fontSize: 13, lineHeight: 19, color: REC.ink },
   tokenTile: { width: 52, height: 52, borderRadius: 13, backgroundColor: REC.primary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   tokenTileEmergency: { backgroundColor: '#DC2626' },
   tokenTileNumber: { fontSize: 17, fontWeight: '800', color: '#FFFFFF' },
   tokenTileLabel: { fontSize: 8, fontWeight: '800', letterSpacing: 1, color: 'rgba(255,255,255,0.85)', marginTop: 1 },
-  timePill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, height: 28, borderRadius: 14, backgroundColor: '#E7F4EE' },
+  timePill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, height: 28, borderRadius: 14, backgroundColor: '#FFFFFF' },
   timePillText: { fontSize: 12, fontWeight: '800', color: REC.primary },
   timePillTextEmergency: { color: '#C24848' },
   aptTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },

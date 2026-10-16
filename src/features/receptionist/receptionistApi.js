@@ -8,11 +8,44 @@
 //   GET   /api/qr/doctors/:doctorId/clinics         the doctor's clinic LED displays
 //   GET   /api/qr/walkin/:doctorClinicId/queue      what an LED display shows
 //   POST  /api/auth/changePassword                  update the sign-in password
-import axiosInstance from '../../axiosConfig';
+//   PATCH /api/auth/update/:id                      edit own name / phone / photo
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axiosInstance, { API_BASE_URL, TUNNEL_HEADERS } from '../../axiosConfig';
+import { isOrphanedBooking, normalizeReceptionistAppointment } from './receptionistUtils';
+
+// Normalised rows minus bookings orphaned by a deleted patient account.
+const liveRows = (rows) => (rows || []).filter((row) => !isOrphanedBooking(row)).map(normalizeReceptionistAppointment);
 
 export const fetchMe = async () => {
   const { data } = await axiosInstance.get('/api/auth/me');
   return data?.user || data?.data?.user || data;
+};
+
+// The receptionist edits their own name / phone / photo with the same request
+// every other role uses: PATCH /api/auth/update/:id as multipart (fetch, like
+// DoctorEditProfileScreen — the photo goes up as a file part).
+export const updateMyProfile = async (profile, { fullName, phoneNumber, photo }) => {
+  const userId = profile?._id || profile?.id || (await AsyncStorage.getItem('userId'));
+  const accessToken = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
+  if (!userId || !accessToken) throw new Error('Your session is incomplete. Please sign in again.');
+  const form = new FormData();
+  form.append('fullName', fullName);
+  const digits = String(phoneNumber || '').replace(/\D/g, '');
+  if (digits) {
+    form.append('phoneNumber', digits);
+    form.append('phoneNum', digits);
+  }
+  if (photo?.uri) {
+    form.append('profilePhoto', { uri: photo.uri, type: photo.type || 'image/jpeg', name: photo.fileName || `profile-${Date.now()}.jpg` });
+  }
+  const response = await fetch(`${API_BASE_URL}/api/auth/update/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    headers: { ...TUNNEL_HEADERS, Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data?.success === false) throw new Error(data?.message || data?.error || 'Profile could not be updated. Please try again.');
+  return data?.user || data?.data?.user || data?.data || {};
 };
 
 export const fetchReceptionistDashboard = async ({ date, clinicId }) => {
@@ -20,12 +53,19 @@ export const fetchReceptionistDashboard = async ({ date, clinicId }) => {
     params: { date, clinic_id: clinicId || '' },
     timeout: 15000,
   });
-  return data;
+  return {
+    ...data,
+    appointments: liveRows(data.appointments),
+    currentPatients: liveRows(data.currentPatients),
+    waiting: liveRows(data.waiting),
+  };
 };
 
 export const fetchStaffAppointments = async (params) => {
   const { data } = await axiosInstance.get('/api/staff/appointments', { params, timeout: 15000 });
-  return data;
+  const appointments = liveRows(data.appointments);
+  const removed = (data.appointments || []).length - appointments.length;
+  return { ...data, appointments, total: Math.max(0, (Number(data.total) || 0) - removed) };
 };
 
 export const cancelStaffAppointment = (row) =>

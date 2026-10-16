@@ -1,17 +1,18 @@
 // Sections fed by the shared /api/staff/receptionist/dashboard poll — the web
 // ReceptionistPages.jsx: Overview, Live Queue, Doctor & Clinics, My Profile.
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../components/TranslatedText';
 import {
-  AppointmentRow, Avatar, Badge, Card, CardHeading, DetailFields, Empty, Eyebrow, LiveLabel,
-  LoadingCard, Notice, NoticeText, QueueTabs, REC, RecButton, StatTile,
+  AppointmentRow, Avatar, Badge, Card, CardHeading, EmergencyReason, Empty, Eyebrow, LiveLabel,
+  LoadingCard, Notice, NoticeText, QueueTabs, REC, StatTile,
 } from '../receptionistUi';
 import {
-  clinicName, clockLabel, dedupeRows, displayTime, groupQueue, longDateToday, patientKey, profilePhotoOf, staffIdentity, staffShiftTiming,
+  clinicName, dedupeRows, displayTime, groupQueue, patientKey, profilePhotoOf, staffIdentity, staffShiftTiming,
 } from '../receptionistUtils';
+import EditProfileSheet from '../components/EditProfileSheet';
 
 // Every booking the dashboard feed knows about, each once.
 const allRows = (data) => dedupeRows([...(data?.currentPatients || []), ...(data?.waiting || []), ...(data?.appointments || [])]);
@@ -68,6 +69,7 @@ function CurrentCheckups({ data, clinics, onView }) {
           <Text translate={false} style={s.muted} numberOfLines={1}>{clinicName(clinics, row.clinicId)}</Text>
         </View>
       </View>
+      <EmergencyReason row={row} />
       <View style={s.currentFooter}>
         <View style={s.inline}>
           <Ionicons name="time-outline" size={15} color="#5B7F73" />
@@ -85,24 +87,12 @@ function CurrentCheckups({ data, clinics, onView }) {
   ));
 }
 
-export function OverviewSection({ profile, data, clinics, error, onView, onNavigate, compact }) {
+export function OverviewSection({ data, clinics, error, onView, onNavigate, compact }) {
   const groups = useMemo(() => groupQueue(allRows(data)), [data]);
   if (!data) return <LoadingCard error={error} />;
-  const firstName = String(profile?.fullName || 'there').split(' ')[0];
-  // Up next = the first waiting patient who isn't already with the doctor.
-  const next = groups.pending[0];
   const waitingCount = groups.pending.length;
   return (
     <>
-      <LinearGradient colors={['#12756D', '#1C9686']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.welcome}>
-        <Text style={s.welcomeEyebrow}>{longDateToday().toUpperCase()}</Text>
-        <Text translate={false} style={s.welcomeTitle}>Welcome, {firstName}</Text>
-        <Pressable onPress={() => onNavigate('appointments')} style={({ pressed }) => [s.welcomeButton, pressed && s.welcomeButtonPressed]}>
-          <Text style={s.welcomeButtonText}>View appointments</Text>
-          <Ionicons name="arrow-forward" size={16} color={REC.primary} />
-        </Pressable>
-      </LinearGradient>
-
       <View style={s.stats}>
         <StatTile title="Appointments today" value={data.summary?.total} icon="calendar" tone="blue" />
         <StatTile title="Waiting patients" value={data.summary?.waiting ?? waitingCount} icon="time" tone="amber" />
@@ -116,36 +106,6 @@ export function OverviewSection({ profile, data, clinics, error, onView, onNavig
           <CurrentCheckups data={data} clinics={clinics} onView={onView} />
         </Card>
       )}
-
-      <Card>
-        <CardHeading title="Up next" right={<Ionicons name="list-outline" size={20} color={REC.muted} />} />
-        {next ? (
-          <Pressable onPress={() => onView(next)} style={[s.next, next.emergency && s.nextEmergency]}>
-            <LinearGradient
-              colors={next.emergency ? ['#F87171', '#DC2626'] : ['#12756D', '#1C9686']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={s.nextTokenTile}
-            >
-              <Text translate={false} style={s.nextToken}>#{next.token ?? '--'}</Text>
-              <Text style={s.nextTokenLabel}>{next.emergency ? 'SOS' : 'TOKEN'}</Text>
-            </LinearGradient>
-            <View style={s.flex}>
-              <Text translate={false} style={s.nextName} numberOfLines={1}>{next.patientName}</Text>
-              <Text translate={false} style={s.muted} numberOfLines={1}>{clinicName(clinics, next.clinicId)} · {next.time ? clockLabel(next.time) : 'Not scheduled'}</Text>
-              <View style={s.nextBadges}>
-                {next.emergency && <Badge emergency />}
-                <Badge value={next.queueStatus} />
-              </View>
-            </View>
-          </Pressable>
-        ) : <Empty title="Queue is clear" description="No patients are waiting right now." />}
-        <View style={s.waitingLine}>
-          <Ionicons name="people-outline" size={15} color={REC.muted} />
-          <Text translate={false} style={s.muted}>{waitingCount} {waitingCount === 1 ? 'patient' : 'patients'} waiting</Text>
-        </View>
-        <RecButton full label="Open live queue" icon="arrow-forward" onPress={() => onNavigate('live-queue')} />
-      </Card>
 
       <QueueCard
         data={data}
@@ -205,76 +165,142 @@ export function LiveQueueSection({ data, clinics, clinic, error, onView, onNavig
   );
 }
 
+// Arrays / objects from the doctor record as readable text.
+const listText = (value) => {
+  if (value == null || value === '') return '';
+  if (Array.isArray(value)) return value.map(listText).filter(Boolean).join(', ');
+  if (typeof value === 'object') return [value.degree, value.institution || value.college, value.year].filter(Boolean).join(' · ') || Object.values(value).filter((v) => typeof v === 'string').join(', ');
+  return String(value);
+};
+const callNumber = (phone) => {
+  const digits = String(phone || '').replace(/[^\d+]/g, '');
+  if (digits) Linking.openURL(`tel:${digits}`).catch(() => {});
+};
+
 export function DoctorSection({ data, clinics, error }) {
   if (!data) return <LoadingCard error={error} />;
   const doctor = data.doctor || {};
+  const name = doctor.fullName || doctor.name || 'Doctor';
+  const specialization = listText(doctor.specialization);
+  const tiles = [
+    ['Qualification', listText(doctor.qualification), 'school-outline', '#7C3AED', '#F1EAFE'],
+    ['Experience', doctor.experience != null && doctor.experience !== '' ? `${doctor.experience} years` : '', 'ribbon-outline', '#D08A16', '#FFF4DF'],
+    ['Consultation', listText(doctor.consultationMode), 'videocam-outline', '#3975C7', '#E8F1FF'],
+    ['Languages', listText(doctor.languages), 'language-outline', '#0E9384', '#E3F6F2'],
+    ['Location', listText(doctor.location), 'location-outline', '#C2410C', '#FFF1E8'],
+    ['Education', listText(doctor.education), 'library-outline', '#3E4784', '#EEF0FA'],
+  ];
   return (
-    <>
-      <Card>
-        <View style={s.doctorHeading}>
-          <View style={s.doctorAvatar}><Ionicons name="medkit" size={32} color={REC.primary} /></View>
-          <View style={s.flex}>
-            <Eyebrow>ASSIGNED DOCTOR</Eyebrow>
-            <Text translate={false} style={s.doctorName}>{doctor.fullName || 'Doctor'}</Text>
-            <Text translate={false} style={s.muted}>
-              {(Array.isArray(doctor.specialization) ? doctor.specialization.join(', ') : doctor.specialization) || 'Specialization not provided'}
-            </Text>
+    <View style={s.doctorSection}>
+      <View style={s.profileCard}>
+        <LinearGradient colors={['#12756D', '#1C9686']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.profileCover}>
+          <Text style={s.profileCoverText}>ASSIGNED DOCTOR</Text>
+        </LinearGradient>
+        <View style={s.profileAvatarRing}>
+          <Avatar photo={profilePhotoOf(doctor)} name={name} size={92} />
+        </View>
+        <Text translate={false} style={s.profileName}>{/^dr\.?\s/i.test(name) ? name : `Dr. ${name}`}</Text>
+        <Text translate={false} style={s.profileRole}>{specialization || 'Specialization not provided'}</Text>
+        <View style={s.profileChips}>
+          <View style={s.activeChip}>
+            <View style={s.activeDot} />
+            <Text style={s.activeChipText}>Your care team</Text>
+          </View>
+          <View style={s.shiftChip}>
+            <Ionicons name="business-outline" size={13} color="#0369A1" />
+            <Text translate={false} style={s.shiftChipText}>{clinics.length} {clinics.length === 1 ? 'clinic' : 'clinics'}</Text>
           </View>
         </View>
-        <View style={s.careTeam}><Badge value="confirmed" /><Text style={s.careTeamText}>Your care team</Text></View>
-        <DetailFields fields={[
-          ['Qualification', doctor.qualification],
-          ['Experience', doctor.experience != null ? `${doctor.experience} years` : null],
-          ['Email address', doctor.email],
-          ['Phone number', doctor.phoneNumber],
-          ['Location', doctor.location],
-          ['Consultation modes', doctor.consultationMode],
-          ['Languages', doctor.languages],
-          ['Education', doctor.education],
-        ]} />
-        {!!(doctor.aboutMe || doctor.bio) && (
-          <View style={s.about}>
-            <Text style={s.aboutTitle}>About the doctor</Text>
-            <Text translate={false} style={s.aboutText}>{doctor.aboutMe || doctor.bio}</Text>
+        <View style={s.contactBox}>
+          <View style={s.contactRow}>
+            <View style={s.contactIcon}><Ionicons name="mail-outline" size={17} color={REC.primary} /></View>
+            <View style={s.flex}>
+              <Text style={s.contactLabel}>Email</Text>
+              <Text translate={false} style={s.contactValue} numberOfLines={1}>{doctor.email || 'Not provided'}</Text>
+            </View>
           </View>
-        )}
-      </Card>
+          <View style={[s.contactRow, s.contactRowLast]}>
+            <View style={s.contactIcon}><Ionicons name="call-outline" size={17} color={REC.primary} /></View>
+            <View style={s.flex}>
+              <Text style={s.contactLabel}>Phone</Text>
+              <Text translate={false} style={s.contactValue} numberOfLines={1}>{doctor.phoneNumber || doctor.phone || 'Not provided'}</Text>
+            </View>
+            {!!(doctor.phoneNumber || doctor.phone) && (
+              <Pressable onPress={() => callNumber(doctor.phoneNumber || doctor.phone)} style={s.callButton} hitSlop={6} accessibilityLabel="Call doctor">
+                <Ionicons name="call" size={15} color="#FFFFFF" />
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </View>
+
+      <Text style={s.drHeading}>Professional details</Text>
+      <View style={s.drTiles}>
+        {tiles.map(([label, value, icon, fg, bg]) => (
+          <View key={label} style={s.drTile}>
+            <View style={[s.drTileIcon, { backgroundColor: bg }]}><Ionicons name={icon} size={17} color={fg} /></View>
+            <Text style={s.drTileLabel}>{label}</Text>
+            <Text translate={false} style={[s.drTileValue, !value && s.drTileEmpty]} numberOfLines={3}>{value || 'Not provided'}</Text>
+          </View>
+        ))}
+      </View>
+
+      {!!(doctor.aboutMe || doctor.bio) && (
+        <View style={s.drAbout}>
+          <View style={s.drAboutHead}>
+            <Ionicons name="person-circle-outline" size={18} color={REC.primary} />
+            <Text style={s.drAboutTitle}>About the doctor</Text>
+          </View>
+          <Text translate={false} style={s.aboutText}>{doctor.aboutMe || doctor.bio}</Text>
+        </View>
+      )}
 
       <View style={s.sectionHeading}>
-        <Text style={s.sectionTitle}>Clinics & hospitals</Text>
-        <Text translate={false} style={s.countPill}>{clinics.length} locations</Text>
+        <Text style={s.drHeadingInline}>Clinics & hospitals</Text>
+        <Text translate={false} style={s.countPill}>{clinics.length} {clinics.length === 1 ? 'location' : 'locations'}</Text>
       </View>
       {clinics.length ? clinics.map((row) => (
-        <Card key={row._id || row.id}>
+        <View key={row._id || row.id} style={s.drClinic}>
+          <View style={s.drClinicAccent} />
           <View style={s.clinicTop}>
-            <View style={s.clinicIcon}><Ionicons name="business-outline" size={22} color="#3975C7" /></View>
+            <LinearGradient colors={['#E3F6F2', '#C9EEE5']} style={s.drClinicIcon}>
+              <Ionicons name="business" size={20} color={REC.primary} />
+            </LinearGradient>
             <Text translate={false} style={s.clinicName}>{row.clinic_name}</Text>
           </View>
           <View style={s.clinicLine}>
-            <Ionicons name="location-outline" size={16} color={REC.muted} />
+            <Ionicons name="location-outline" size={16} color={REC.muted} style={s.clinicLineIcon} />
             <Text translate={false} style={s.clinicText}>{row.location || 'Location not provided'}</Text>
           </View>
-          <View style={s.clinicLine}>
-            <Ionicons name="call-outline" size={16} color={REC.muted} />
+          <View style={[s.clinicLine, s.drClinicPhone]}>
+            <Ionicons name="call-outline" size={16} color={REC.muted} style={s.clinicLineIcon} />
             <Text translate={false} style={s.clinicText}>{row.phone_number || 'Phone not provided'}</Text>
+            {!!row.phone_number && (
+              <Pressable onPress={() => callNumber(row.phone_number)} style={s.drCallPill} hitSlop={6} accessibilityLabel="Call clinic">
+                <Ionicons name="call" size={12} color={REC.primary} />
+                <Text style={s.drCallText}>Call</Text>
+              </Pressable>
+            )}
           </View>
-        </Card>
-      )) : <Card><Empty icon="business-outline" title="No clinics assigned" description="Your doctor can add clinic details from their portal." /></Card>}
-    </>
+        </View>
+      )) : <Card style={s.doctorCard}><Empty icon="business-outline" title="No clinics assigned" description="Your doctor can add clinic details from their portal." /></Card>}
+    </View>
   );
 }
 
-export function ProfileSection({ profile }) {
+export function ProfileSection({ profile, onProfileUpdated }) {
+  const [editing, setEditing] = useState(false);
+  const [savedNote, setSavedNote] = useState(false);
   const details = [
-    ['Assigned doctor', profile.assignedDoctorName, 'medkit-outline', '#12756D', '#E3F6F2'],
-    ['Assigned clinic', profile.clinic_name, 'business-outline', '#3975C7', '#E8F1FF'],
-    ['Department', profile.department, 'briefcase-outline', '#7C3AED', '#F1EAFE'],
-    ['Staff ID', staffIdentity(profile), 'id-card-outline', '#D08A16', '#FFF4DF'],
-    ['Shift', profile.shift, 'sunny-outline', '#0369A1', '#E0F2FE'],
-    ['Shift timings', staffShiftTiming(profile), 'time-outline', '#3E8E41', '#E9F6E9'],
+    ['Assigned doctor', profile.assignedDoctorName, 'medkit-outline'],
+    ['Assigned clinic', profile.clinic_name, 'business-outline'],
+    ['Department', profile.department, 'briefcase-outline'],
+    ['Staff ID', staffIdentity(profile), 'id-card-outline'],
+    ['Shift', profile.shift, 'sunny-outline'],
+    ['Shift timings', staffShiftTiming(profile), 'time-outline'],
   ];
   return (
-    <>
+    <View style={s.profileSection}>
       <View style={s.profileCard}>
         <LinearGradient colors={['#12756D', '#1C9686']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.profileCover}>
           <Text style={s.profileCoverText}>STAFF ACCOUNT</Text>
@@ -296,39 +322,73 @@ export function ProfileSection({ profile }) {
             </View>
           )}
         </View>
+        {!!onProfileUpdated && (
+          <Pressable
+            onPress={() => { setSavedNote(false); setEditing(true); }}
+            style={({ pressed }) => [s.editProfile, pressed && { opacity: 0.8 }]}
+            accessibilityRole="button"
+          >
+            <Ionicons name="create-outline" size={16} color={REC.primary} />
+            <Text style={s.editProfileText}>Edit profile</Text>
+          </Pressable>
+        )}
+        {savedNote && (
+          <View style={s.savedNote}>
+            <Ionicons name="checkmark-circle" size={15} color="#067647" />
+            <Text style={s.savedNoteText}>Profile updated</Text>
+          </View>
+        )}
         <View style={s.contactBox}>
           <View style={s.contactRow}>
             <View style={s.contactIcon}><Ionicons name="mail-outline" size={17} color={REC.primary} /></View>
             <View style={s.flex}>
               <Text style={s.contactLabel}>Email</Text>
-              <Text translate={false} style={s.contactValue} numberOfLines={1}>{profile.email || 'Not provided'}</Text>
+              <Text translate={false} style={s.contactValue} selectable>{profile.email || 'Not provided'}</Text>
             </View>
           </View>
           <View style={[s.contactRow, s.contactRowLast]}>
             <View style={s.contactIcon}><Ionicons name="call-outline" size={17} color={REC.primary} /></View>
             <View style={s.flex}>
               <Text style={s.contactLabel}>Phone</Text>
-              <Text translate={false} style={s.contactValue} numberOfLines={1}>{profile.phoneNumber || profile.phone || 'Not provided'}</Text>
+              <Text translate={false} style={s.contactValue} selectable>{profile.phoneNumber || profile.phone || 'Not provided'}</Text>
             </View>
           </View>
         </View>
       </View>
 
-      <Text style={s.sectionTitle}>Staff assignment</Text>
-      <View style={s.detailTiles}>
-        {details.map(([label, value, icon, fg, bg]) => (
-          <View key={label} style={s.detailTile}>
-            <View style={[s.detailTileIcon, { backgroundColor: bg }]}><Ionicons name={icon} size={18} color={fg} /></View>
-            <Text style={s.detailTileLabel}>{label}</Text>
-            <Text translate={false} style={s.detailTileValue} numberOfLines={2}>{value || 'Not assigned'}</Text>
+      <View style={s.assignmentCard}>
+        <View style={s.assignmentHeading}>
+          <View style={s.assignmentHeadingIcon}><Ionicons name="briefcase-outline" size={19} color={REC.primary} /></View>
+          <View style={s.flex}>
+            <Text style={s.assignmentTitle}>Staff assignment</Text>
+            <Text style={s.assignmentSubtitle}>Your workplace & schedule</Text>
+          </View>
+          <Ionicons name="lock-closed-outline" size={16} color={REC.muted} />
+        </View>
+        {details.map(([label, value, icon], index) => (
+          <View key={label} style={[s.assignmentRow, index === details.length - 1 && s.assignmentRowLast]}>
+            <View style={s.assignmentIcon}><Ionicons name={icon} size={18} color={REC.primary} /></View>
+            <View style={s.flex}>
+              <Text style={s.assignmentLabel}>{label}</Text>
+              <Text translate={false} style={[s.assignmentValue, !value && s.assignmentUnassigned]} selectable>{value || 'Not assigned'}</Text>
+            </View>
           </View>
         ))}
       </View>
 
       <Notice icon="shield-checkmark-outline">
-        <NoticeText>Your doctor manages your role, clinic assignment and staff details. Contact them to update these details.</NoticeText>
+        <NoticeText>You can edit your name, phone and photo. Your doctor manages your role, clinic assignment and staff details.</NoticeText>
       </Notice>
-    </>
+
+      {!!onProfileUpdated && (
+        <EditProfileSheet
+          visible={editing}
+          profile={profile}
+          onClose={() => setEditing(false)}
+          onSaved={(user) => { onProfileUpdated(user); setEditing(false); setSavedNote(true); }}
+        />
+      )}
+    </View>
   );
 }
 
@@ -337,16 +397,12 @@ const s = StyleSheet.create({
   inline: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   muted: { fontSize: 12.5, color: REC.muted, marginTop: 2 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: REC.green },
-  welcome: { padding: 18, borderRadius: 18, marginBottom: 16 },
-  welcomeEyebrow: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.4, color: 'rgba(255,255,255,0.85)' },
-  welcomeTitle: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', marginTop: 8 },
-  welcomeText: { fontSize: 13, lineHeight: 19, color: 'rgba(255,255,255,0.9)', marginTop: 4 },
   welcomeButton: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, height: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: '#FFFFFF', marginTop: 16 },
   welcomeButtonPressed: { backgroundColor: '#E7F4EE' },
   welcomeButtonText: { fontSize: 13.5, fontWeight: '800', color: REC.primary },
-  stats: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10, marginBottom: 16 },
-  current: { borderWidth: 1, borderColor: '#CCE8DD', backgroundColor: '#F4FAF7', borderRadius: 14, padding: 14, marginBottom: 10 },
-  currentEmergency: { borderColor: '#F4C9C9', backgroundColor: '#FFF7F7' },
+  stats: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10, marginHorizontal: 14, marginBottom: 16 },
+  current: { borderWidth: 1, borderColor: '#CCE8DD', backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14, marginBottom: 10 },
+  currentEmergency: { borderColor: '#F4C9C9' },
   currentMain: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 12 },
   currentToken: { width: 66, height: 66, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   currentTokenText: { fontSize: 26, fontWeight: '800', color: '#FFFFFF' },
@@ -356,14 +412,6 @@ const s = StyleSheet.create({
   footerText: { fontSize: 12.5, color: '#5B7F73' },
   textButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   textButtonText: { fontSize: 13, fontWeight: '700', color: REC.primary },
-  next: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: '#CCE8DD', backgroundColor: '#F4FAF7' },
-  nextEmergency: { borderColor: '#F4C9C9', backgroundColor: '#FFF7F7' },
-  nextTokenTile: { width: 64, height: 64, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  nextToken: { fontSize: 22, fontWeight: '800', color: '#FFFFFF' },
-  nextTokenLabel: { fontSize: 8.5, fontWeight: '800', letterSpacing: 1.4, color: 'rgba(255,255,255,0.85)', marginTop: 1 },
-  nextName: { fontSize: 16.5, fontWeight: '800', color: REC.ink },
-  nextBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
-  waitingLine: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 },
   launch: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 16, marginBottom: 16 },
   launchTitle: { fontSize: 15, fontWeight: '800', color: '#FFFFFF' },
   launchText: { fontSize: 12, lineHeight: 17, color: 'rgba(255,255,255,0.88)', marginTop: 3 },
@@ -375,6 +423,32 @@ const s = StyleSheet.create({
   waitingSub: { fontSize: 12, color: REC.muted, marginTop: 2 },
   waitingBadges: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' },
   emergencyText: { fontSize: 11.5, fontWeight: '700', color: '#C25E5E' },
+  callButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: REC.primary, alignItems: 'center', justifyContent: 'center' },
+  drHeading: { fontSize: 17, fontWeight: '800', color: REC.ink, marginBottom: 10 },
+  drHeadingInline: { flexShrink: 1, fontSize: 17, fontWeight: '800', color: REC.ink },
+  drTiles: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10, marginBottom: 16 },
+  drTile: {
+    width: '48.5%', padding: 12, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line,
+    shadowColor: '#0F172A', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1,
+  },
+  drTileIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  drTileLabel: { fontSize: 11, fontWeight: '700', color: REC.muted, textTransform: 'uppercase', letterSpacing: 0.4 },
+  drTileValue: { fontSize: 13.5, lineHeight: 19, fontWeight: '700', color: REC.ink, marginTop: 3 },
+  drTileEmpty: { fontWeight: '500', color: '#98A2B3' },
+  drAbout: { padding: 14, borderRadius: 16, backgroundColor: '#F6FAF9', borderWidth: 1, borderColor: '#E3EEEC', marginBottom: 18 },
+  drAboutHead: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 6 },
+  drAboutTitle: { fontSize: 14, fontWeight: '800', color: REC.ink },
+  drClinic: {
+    padding: 14, paddingLeft: 17, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line, marginBottom: 12, overflow: 'hidden',
+    shadowColor: '#0F3D38', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2,
+  },
+  drClinicAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: REC.primary },
+  drClinicIcon: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  drClinicPhone: { alignItems: 'center' },
+  drCallPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: REC.soft },
+  drCallText: { fontSize: 12, fontWeight: '700', color: REC.primary },
+  doctorSection: { marginHorizontal: 14 },
+  doctorCard: { borderRadius: 20 },
   doctorHeading: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   doctorAvatar: { width: 68, height: 68, borderRadius: 16, backgroundColor: '#E9F5EF', alignItems: 'center', justifyContent: 'center' },
   doctorName: { fontSize: 20, fontWeight: '700', color: REC.ink, marginTop: 4 },
@@ -383,35 +457,47 @@ const s = StyleSheet.create({
   about: { marginTop: 18, paddingTop: 14, borderTopWidth: 1, borderTopColor: REC.line },
   aboutTitle: { fontSize: 14, fontWeight: '700', color: REC.ink, marginBottom: 6 },
   aboutText: { fontSize: 13, lineHeight: 20, color: '#5B6B7B' },
-  sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  sectionTitle: { fontSize: 17, fontWeight: '700', color: REC.ink },
-  countPill: { fontSize: 11, fontWeight: '600', color: '#728798', backgroundColor: '#F1F5F8', borderRadius: 7, paddingHorizontal: 10, paddingVertical: 5, overflow: 'hidden' },
-  clinicTop: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
-  clinicIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#E8F1FF', alignItems: 'center', justifyContent: 'center' },
-  clinicName: { flex: 1, fontSize: 16, fontWeight: '700', color: REC.ink },
-  clinicLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 6 },
-  clinicText: { flex: 1, fontSize: 13, color: '#5B6B7B' },
-  profileCard: { backgroundColor: '#FFFFFF', borderRadius: 18, borderWidth: 1, borderColor: REC.line, overflow: 'hidden', alignItems: 'center', paddingBottom: 16, marginBottom: 18 },
+  sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginTop: 4, marginBottom: 12 },
+  sectionTitle: { flexShrink: 1, fontSize: 17, lineHeight: 23, fontWeight: '700', color: REC.ink },
+  countPill: { fontSize: 11, fontWeight: '600', color: REC.muted, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, overflow: 'hidden' },
+  clinicTop: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  clinicIcon: { width: 44, height: 44, borderRadius: 13, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#BCDAD4', alignItems: 'center', justifyContent: 'center' },
+  clinicName: { flex: 1, minWidth: 0, fontSize: 16, lineHeight: 23, fontWeight: '700', color: REC.ink },
+  clinicLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 8 },
+  clinicLineIcon: { marginTop: 2 },
+  clinicText: { flex: 1, minWidth: 0, fontSize: 13, lineHeight: 20, color: '#5B6B7B' },
+  profileSection: { marginHorizontal: 14 },
+  profileCard: { backgroundColor: '#FFFFFF', borderRadius: 20, borderWidth: 1, borderColor: REC.line, overflow: 'hidden', alignItems: 'center', paddingBottom: 16, marginBottom: 18 },
   profileCover: { alignSelf: 'stretch', height: 92, paddingTop: 14, alignItems: 'center' },
   profileCoverText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.6, color: 'rgba(255,255,255,0.85)' },
   profileAvatarRing: { marginTop: -50, padding: 4, borderRadius: 54, backgroundColor: '#FFFFFF', shadowColor: '#0F172A', shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   profileName: { fontSize: 21, fontWeight: '800', color: REC.ink, marginTop: 10, textAlign: 'center', paddingHorizontal: 16 },
-  profileRole: { fontSize: 13, color: REC.muted, marginTop: 3 },
-  profileChips: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: 12 },
+  profileRole: { fontSize: 13, color: REC.muted, marginTop: 3, textAlign: 'center', paddingHorizontal: 16 },
+  profileChips: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: 12, paddingHorizontal: 14 },
   activeChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#E9F6ED', paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999 },
   activeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#22A06B' },
   activeChipText: { fontSize: 12, fontWeight: '700', color: '#2F8A55' },
   shiftChip: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#E0F2FE', paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999 },
   shiftChipText: { fontSize: 12, fontWeight: '700', color: '#0369A1' },
-  contactBox: { alignSelf: 'stretch', marginTop: 16, marginHorizontal: 14, borderRadius: 14, backgroundColor: '#F7FAF9', borderWidth: 1, borderColor: '#E3EEEC' },
+  editProfile: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, paddingHorizontal: 18, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#B7E4DA', backgroundColor: '#F1FAF7' },
+  editProfileText: { fontSize: 13.5, fontWeight: '700', color: REC.primary },
+  savedNote: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 10 },
+  savedNoteText: { fontSize: 12.5, fontWeight: '600', color: '#067647' },
+  contactBox: { alignSelf: 'stretch', marginTop: 16, marginHorizontal: 14, borderRadius: 14, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line },
   contactRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#E3EEEC' },
   contactRowLast: { borderBottomWidth: 0 },
   contactIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: '#E3F6F2', alignItems: 'center', justifyContent: 'center' },
   contactLabel: { fontSize: 11, color: REC.muted },
-  contactValue: { fontSize: 14, fontWeight: '700', color: REC.ink, marginTop: 1 },
-  detailTiles: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
-  detailTile: { width: '48.5%', backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 1, borderColor: REC.line, padding: 12 },
-  detailTileIcon: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  detailTileLabel: { fontSize: 11.5, color: REC.muted },
-  detailTileValue: { fontSize: 14, fontWeight: '700', color: REC.ink, marginTop: 2 },
+  contactValue: { fontSize: 14, lineHeight: 21, fontWeight: '600', color: REC.ink, marginTop: 2 },
+  assignmentCard: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line, borderRadius: 20, overflow: 'hidden' },
+  assignmentHeading: { flexDirection: 'row', alignItems: 'center', gap: 11, padding: 16, borderBottomWidth: 1, borderBottomColor: REC.line },
+  assignmentHeadingIcon: { width: 40, height: 40, borderWidth: 1, borderColor: '#BCDAD4', borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  assignmentTitle: { fontSize: 16, lineHeight: 22, fontWeight: '700', color: REC.ink },
+  assignmentSubtitle: { fontSize: 11.5, lineHeight: 17, color: REC.muted, marginTop: 2 },
+  assignmentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, minHeight: 72, marginHorizontal: 16, paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: REC.line },
+  assignmentRowLast: { borderBottomWidth: 0 },
+  assignmentIcon: { width: 36, height: 36, borderRadius: 11, borderWidth: 1, borderColor: REC.line, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  assignmentLabel: { fontSize: 11.5, lineHeight: 17, color: REC.muted },
+  assignmentValue: { fontSize: 14, lineHeight: 21, fontWeight: '600', color: REC.ink, marginTop: 3 },
+  assignmentUnassigned: { color: REC.muted, fontWeight: '400' },
 });

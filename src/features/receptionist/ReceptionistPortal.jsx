@@ -18,6 +18,7 @@ import PatientsSection from './sections/PatientsSection';
 import LedDisplaySection from './sections/LedDisplaySection';
 import SettingsSection from './sections/SettingsSection';
 import { ReceptionistVitalsProvider } from './ReceptionistVitalsContext';
+import useBookingAlerts from './hooks/useBookingAlerts';
 import humaeliIcon from '../../image/HumaeliIcon.png';
 
 // `tab`: shown in the bottom bar (the everyday sections); the rest stay
@@ -105,6 +106,9 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
     return () => { cancelled = true; clearTimeout(timer); };
   }, [profile, clinic, refresh]);
 
+  // Phone notification for every new booking / walk-in that reaches the feed.
+  useBookingAlerts(data, clinic);
+
   // Hardware back: close the menu, then return to the dashboard.
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -118,6 +122,18 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
   const navigateTo = useCallback((key) => {
     setSection(key);
     setMenuOpen(false);
+  }, []);
+
+  // After Edit profile: show the new name / phone / photo everywhere (header,
+  // sidebar, profile) and keep the stored account in step for the next launch.
+  const applyProfileUpdate = useCallback((changes) => {
+    setProfile((current) => ({ ...(current || {}), ...changes }));
+    AsyncStorage.getItem('userData')
+      .then((raw) => {
+        const stored = JSON.parse(raw || '{}') || {};
+        return AsyncStorage.setItem('userData', JSON.stringify({ ...stored, ...changes }));
+      })
+      .catch(() => {});
   }, []);
 
   const savePreferences = (next) => {
@@ -146,7 +162,7 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
       case 'led-display': return <LedDisplaySection profile={profile} clinic={clinic} onNavigate={navigateTo} />;
       case 'patients': return <PatientsSection />;
       case 'doctor': return <DoctorSection {...common} />;
-      case 'profile': return <ProfileSection profile={profile} />;
+      case 'profile': return <ProfileSection profile={profile} onProfileUpdated={applyProfileUpdate} />;
       case 'settings':
         return (
           <SettingsSection
@@ -225,8 +241,7 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
           const active = item.key === section;
           return (
             <Pressable key={item.key} onPress={() => navigateTo(item.key)} style={s.bottomItem} accessibilityLabel={item.title}>
-              {active && <View style={s.bottomIndicator} />}
-              <View style={[s.bottomIconWrap, active && s.bottomIconWrapActive]}>
+              <View style={s.bottomIconWrap}>
                 <Ionicons name={active ? item.activeIcon : item.icon} size={21} color={active ? REC.primary : '#747B87'} />
               </View>
               <Text style={[s.bottomLabel, active && s.bottomLabelActive]} numberOfLines={1}>{item.tab}</Text>
@@ -292,8 +307,8 @@ const s = StyleSheet.create({
   iconButton: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F2F5F7' },
   breadcrumb: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
   breadcrumbStrong: { flexShrink: 1, fontSize: 14, fontWeight: '700', color: REC.ink },
-  content: { padding: 14, paddingBottom: 28 },
-  statusBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  content: { paddingBottom: 24 },
+  statusBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 14, marginVertical: 12 },
   clinicChip: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 7, height: 38, paddingHorizontal: 12, borderRadius: 19, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line },
   clinicChipText: { flexShrink: 1, fontSize: 13.5, fontWeight: '700', color: REC.ink },
   refreshButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line },
@@ -306,9 +321,7 @@ const s = StyleSheet.create({
   loadingAccount: { paddingVertical: 30 },
   bottomBar: { flexDirection: 'row', backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#DDE1E8', paddingTop: 7 },
   bottomItem: { flex: 1, alignItems: 'center', minHeight: 52 },
-  bottomIndicator: { position: 'absolute', top: -7, width: 30, height: 3, borderRadius: 2, backgroundColor: REC.primary },
   bottomIconWrap: { width: 44, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  bottomIconWrapActive: { backgroundColor: REC.soft },
   bottomLabel: { fontSize: 11.5, lineHeight: 15, marginTop: 2, color: '#747B87', textAlign: 'center', width: '100%' },
   bottomLabelActive: { color: REC.primary, fontWeight: '700' },
   drawerRoot: { flex: 1, flexDirection: 'row' },
@@ -324,7 +337,7 @@ const s = StyleSheet.create({
   accountSub: { fontSize: 11.5, color: REC.muted, marginTop: 2 },
   navLabel: { fontSize: 10, letterSpacing: 1.6, fontWeight: '700', color: '#98A2B3', marginTop: 22, marginBottom: 8, marginLeft: 6 },
   navItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, height: 46, borderRadius: 10, marginBottom: 2 },
-  navItemActive: { backgroundColor: REC.soft },
+  navItemActive: { backgroundColor: '#FFFFFF' },
   navText: { fontSize: 14, color: '#465668' },
   navTextActive: { color: REC.softText, fontWeight: '700' },
   accessNote: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 10, backgroundColor: '#F4F8F7', marginTop: 10 },

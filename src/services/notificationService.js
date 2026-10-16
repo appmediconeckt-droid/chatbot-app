@@ -722,7 +722,10 @@ export const listenForForegroundNotifications = () => {
       remoteMessage?.notification?.title || remoteMessage?.notification?.body ||
       data?.title || data?.body || data?.message,
     );
-    if (hasVisibleText && String((await AsyncStorage.getItem('userRole')) || '').toLowerCase() === 'doctor') {
+    // Receptionists get the same: booking / walk-in / queue pushes were
+    // dropped while their app was open.
+    const role = String((await AsyncStorage.getItem('userRole')) || '').toLowerCase();
+    if (hasVisibleText && ['doctor', 'receptionist', 'staff'].includes(role)) {
       await displaySystemNotification(remoteMessage);
       return;
     }
