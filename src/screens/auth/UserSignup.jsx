@@ -635,7 +635,7 @@ import {
   postPublicAuthEndpointWithOtpRetry,
 } from './authUtils';
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
-import { enterAuthenticatedRoute } from '../../utils/authSession';
+import { enterAuthenticatedRoute, enterSignedInOnboarding } from '../../utils/authSession';
 
 const OTP_RESEND_SECONDS = 60;
 
@@ -939,7 +939,7 @@ const UserSignup = ({ navigation, route }) => {
           // Brand-new account → onboarding tour first, then LocationGate → dashboard.
           // (Logging into an existing account — handleLogin below — skips straight
           // to LocationGate, no tour.)
-          setTimeout(() => navigation.replace('UserOnboarding', {
+          setTimeout(() => enterSignedInOnboarding(navigation, 'UserOnboarding', {
             destination: 'LocationGate',
             destinationParams: { destination: 'UserDashboard' },
           }), 1500);
@@ -1181,12 +1181,12 @@ const UserSignup = ({ navigation, route }) => {
       // account was just created) gets the same onboarding tour as an
       // email/password signup.
       if (isCounselor) {
-        navigation.replace('CounselorOnboarding', {
+        enterSignedInOnboarding(navigation, 'CounselorOnboarding', {
           destination: 'LocationGate',
           destinationParams: { destination: dashboardDestination },
         });
       } else {
-        navigation.replace('UserOnboarding', {
+        enterSignedInOnboarding(navigation, 'UserOnboarding', {
           destination: 'LocationGate',
           destinationParams: { destination: dashboardDestination },
         });

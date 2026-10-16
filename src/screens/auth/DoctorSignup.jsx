@@ -53,7 +53,7 @@ import {
   postPublicAuthEndpointWithOtpRetry,
 } from './authUtils';
 
-import { clearStoredSession, enterAuthenticatedRoute } from '../../utils/authSession';
+import { clearStoredSession, enterAuthenticatedRoute, enterSignedInOnboarding } from '../../utils/authSession';
 const genderOptions = ['Male', 'Female', 'Other'];
 const consultationModes = ['Online', 'Offline', 'Both'];
 const languageOptions = ['Hindi', 'English', 'Gujarati', 'Marathi', 'Tamil', 'Telugu', 'Bengali', 'Punjabi'];
@@ -503,7 +503,7 @@ const DoctorSignup = ({ navigation, route }) => {
       // New Google account: the same onboarding tour as the user and
       // consultant pages, then the dashboard. The signed-in user is passed
       // as the profile so the tour keeps the doctor's name it saves.
-      navigation.replace('DoctorOnboarding', {
+      enterSignedInOnboarding(navigation, 'DoctorOnboarding', {
         destination: 'DoctorDashboard',
         doctorProfileBase: user || {},
       });

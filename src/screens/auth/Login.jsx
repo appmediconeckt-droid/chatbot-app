@@ -783,7 +783,8 @@ const Login = ({ navigation, route }) => {
     {
       width: isCompact ? 62 : 72,
       height: isCompact ? 62 : 72,
-      marginBottom: isCompact ? 8 : 10,
+      // Kept tight so the "Humaeli" name sits right under the mark.
+      marginBottom: isCompact ? 0 : 2,
     },
   ];
 
@@ -832,7 +833,8 @@ const Login = ({ navigation, route }) => {
               <Animated.View style={{ transform: [{ scale: logoScale }] }}>
                 <Image source={logo} style={logoStyle} resizeMode="contain" />
               </Animated.View>
-              <Text style={[styles.brandName, { color: C.primary }]}>{t('Humaeli')}</Text>
+              {/* Brand name: never translated (translating it returned "_4_"-style placeholders). */}
+              <Text translate={false} style={[styles.brandName, { color: C.primary }]}>Humaeli</Text>
               <Text style={styles.subtitle}>{t('Sign in to continue')}</Text>
             </View>
             {/* Same as Signup: the header stays fixed and the form scrolls
@@ -1482,9 +1484,12 @@ const styles = StyleSheet.create({
   },
   brandName: {
     fontSize: 26,
+    lineHeight: 30,
     fontWeight: '800',
+    marginTop: -2,
     marginBottom: 4,
     letterSpacing: 0.2,
+    includeFontPadding: false,
   },
   subtitle: {
     fontSize: 13.5,

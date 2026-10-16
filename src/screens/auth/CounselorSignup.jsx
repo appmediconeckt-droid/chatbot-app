@@ -53,7 +53,7 @@ import {
 } from './authUtils';
 import { STRONG_PASSWORD_HINT, validateStrongPassword } from '../../utils/passwordPolicy';
 
-import { enterAuthenticatedRoute } from '../../utils/authSession';
+import { enterAuthenticatedRoute, enterSignedInOnboarding } from '../../utils/authSession';
 const OTP_RESEND_SECONDS = 60;
 
 const CounselorSignup = ({ navigation, route }) => {
@@ -364,7 +364,7 @@ const CounselorSignup = ({ navigation, route }) => {
           // Brand-new account → onboarding tour first, then LocationGate → dashboard.
           // (Logging into an existing account — handleLogin below — skips straight
           // to LocationGate, no tour.)
-          setTimeout(() => navigation.replace('CounselorOnboarding', {
+          setTimeout(() => enterSignedInOnboarding(navigation, 'CounselorOnboarding', {
             destination: 'LocationGate',
             destinationParams: { destination: 'CounselorDashboard' },
           }), 1500);
@@ -947,7 +947,7 @@ const CounselorSignup = ({ navigation, route }) => {
                           // A new Google account ("Create Account" tab, or the
                           // backend says it was just created) — same onboarding
                           // tour as an email/password signup.
-                          navigation.replace('CounselorOnboarding', {
+                          enterSignedInOnboarding(navigation, 'CounselorOnboarding', {
                             destination: dashboardDestination,
                           });
                         }, 600);

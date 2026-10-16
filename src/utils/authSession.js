@@ -66,6 +66,15 @@ const POST_AUTH_ROUTES = new Set([
   'PinSetup',
 ]);
 
+// The onboarding tour right after a signup that already saved a session (email
+// signup with a session, or a new Google account). The stack is wiped like any
+// post-login route, so back from the tour cannot land on Login / Signup /
+// RoleSelector while signed in. Signups without a session (tour → Login) keep
+// using navigation.replace.
+export const enterSignedInOnboarding = (navigation, name, params) => {
+  navigation.reset({ index: 0, routes: [{ name, params }] });
+};
+
 export const enterAuthenticatedRoute = (navigation, name, params) => {
   if (POST_AUTH_ROUTES.has(name)) {
     navigation.reset({ index: 0, routes: [{ name, params }] });
