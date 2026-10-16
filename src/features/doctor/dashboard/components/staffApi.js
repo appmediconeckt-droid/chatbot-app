@@ -8,7 +8,7 @@
 // The server requires `full_name`/`name` and a `clinic_id`; sending the old
 // camelCase shape (firstName/lastName) failed with "Staff name is required".
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axiosInstance from '../../../../axiosConfig';
+import axiosInstance, { API_BASE_URL } from '../../../../axiosConfig';
 import { getDoctorIdFromUser, getStoredDoctorUser } from '../api/doctorAppointments';
 import { loadDoctorClinics } from '../api/doctorClinics';
 import { clearStaffDocuments } from './staffDocuments';
@@ -83,7 +83,26 @@ const rememberPhoto = async (rawId, uri) => {
   AsyncStorage.setItem(PHOTO_CACHE_KEY, JSON.stringify(cache)).catch(() => {});
 };
 
-const serverPhoto = (doc) => doc?.profilePhoto || doc?.profile_photo || doc?.photo || doc?.image || '';
+// <Image source={{ uri }}> needs a string: the server can send the photo as an
+// object ({ url } …) or a relative upload path, and a non-string uri crashes
+// the staff screens ("Error while updating property 'src' … RCTImageView").
+const photoUri = (value) => {
+  const uri = typeof value === 'string'
+    ? value
+    : value && typeof value === 'object'
+      ? value.url || value.uri || value.secure_url || value.location || value.path || ''
+      : '';
+  if (typeof uri !== 'string' || !uri.trim()) return '';
+  const trimmed = uri.trim();
+  if (/^(https?:|file:|content:|data:image\/)/i.test(trimmed)) return trimmed;
+  if (/^\/?[\w./-]+\.(jpe?g|png|webp|gif|heic)$/i.test(trimmed)) {
+    return `${API_BASE_URL.replace(/\/+$/, '')}/${trimmed.replace(/^\/+/, '')}`;
+  }
+  return '';
+};
+
+const serverPhoto = (doc) =>
+  [doc?.profilePhoto, doc?.profile_photo, doc?.photo, doc?.image].map(photoUri).find(Boolean) || '';
 
 // Role ids the backend uses (web docStaffRoleCards / roleLabels).
 export const ROLE_LABELS = {
@@ -161,7 +180,8 @@ export function normalizeStaff(doc = {}) {
   const [firstName, ...rest] = name.split(/\s+/);
   const rawId = doc.id || doc._id || doc.user_id || doc.staff_id;
   const roleKey = roleLabelToKey(String(doc.role || doc.user_role || doc.staff_role || doc.designation || '').toLowerCase()) || '';
-  const cached = rawId ? photoCache?.[rawId] : null;
+  // Older builds could cache a non-string photo; only a valid uri is used.
+  const cached = rawId ? photoUri(photoCache?.[rawId]) : '';
   return {
     raw: doc,
     rawId,

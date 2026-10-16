@@ -5,6 +5,7 @@ import {
   splitTimings,
   unpackConsultationNotes,
 } from '../../../../../../utils/consultationDetails';
+import { appointmentToDocument } from '../../../../../../utils/consultationPrescriptionDocument';
 import {
   ActivityIndicator,
   Alert,
@@ -101,6 +102,7 @@ const chatToDoctorPrescription = item => {
     doctorName: /^dr\.?\s/i.test(rawName) ? rawName : `Dr. ${rawName}`,
     specialization: specialization || 'Consulting Doctor',
     patientName: item?.patient?.name || item?.patient?.fullName || '',
+    patientGender: item?.patient?.gender || '',
     consultationMode: 'chat',
     complaint: '',
     date: item?.issuedAt || item?.createdAt,
@@ -115,6 +117,46 @@ const chatToDoctorPrescription = item => {
     tests: [],
     additionalNotes: '',
     followUpDate: '',
+  };
+};
+
+// /api/prescriptions/my also returns the doctor's completed-appointment
+// records (source "appointment"); the web patient tab shows those with
+// PrescriptionDocument, not as chat prescriptions.
+const isAppointmentRecord = item =>
+  item?.source === 'appointment' || String(getId(item) || '').startsWith('appointment:');
+const appointmentRecordId = item =>
+  String(item?.appointmentId || item?.appointment_id || getId(item) || '').replace(/^appointment:/, '');
+
+const recordToDoctorPrescription = item => {
+  const document = appointmentToDocument(item);
+  const issuer = item?.psychiatrist || item?.doctor || {};
+  const doctorId = String(issuer.id || issuer._id || item?.doctorId || '');
+  const rawName = document.doctor;
+  const apiId = appointmentRecordId(item);
+  const specialization = Array.isArray(issuer.specialization)
+    ? issuer.specialization.filter(Boolean).join(', ')
+    : issuer.specialization;
+  const unpacked = unpackConsultationNotes(item);
+  return {
+    kind: 'doctor',
+    id: `appointment-${apiId}`,
+    doctorKey: doctorId || rawName,
+    doctorId,
+    clinicId: '',
+    rxNumber: apiId ? `RX-${apiId.slice(-6).toUpperCase()}` : '',
+    doctorName: /^dr\.?\s/i.test(rawName) ? rawName : `Dr. ${rawName}`,
+    specialization: specialization || 'Consulting Doctor',
+    patientName: document.patient,
+    complaint: '',
+    date: item?.issuedAt || item?.appointmentDate || item?.date || item?.endTime,
+    diagnosis: unpacked?.diagnosis || unpacked?.problem || '',
+    medicines: getDoctorMedicines(unpacked),
+    advice: document.advice,
+    tests: getDoctorTests(unpacked),
+    additionalNotes: document.notes,
+    followUpDate: document.followUp || '',
+    document,
   };
 };
 
@@ -218,6 +260,9 @@ const toDoctorPrescription = (rawAppt, issuers) => {
     specialization:
       specialization || (isPsychiatrist ? 'Psychiatrist' : 'Consulting Doctor'),
     patientName: patient.fullName || patient.name || '',
+    // The web's prescriptionDetails(record) for this appointment — what the
+    // prescription document shows.
+    document: appointmentToDocument(rawAppt, rawName),
     tokenNumber: appt.token_number,
     consultationMode: appt.consultation_mode,
     complaint: stripEmergencyTag(appt.symptoms) || appt.notes || '',
@@ -412,10 +457,12 @@ const PrescriptionScreen = () => {
       issuersResult.status === 'fulfilled'
         ? toIssuerMap(issuersResult.value.data)
         : new Map();
-    const chatList =
+    const myList =
       psychiatristResult.status === 'fulfilled'
         ? normalizeList(psychiatristResult.value.data)
         : [];
+    const appointmentRecords = myList.filter(isAppointmentRecord);
+    const chatList = myList.filter(item => !isAppointmentRecord(item));
     const isDoctorChat = item => chatPrescriptionKind(item, issuerMap) === 'doctor';
     const doctorChatList = chatList.filter(isDoctorChat).map(item => chatToDoctorPrescription(item, 'doctor'));
 
@@ -437,9 +484,22 @@ const PrescriptionScreen = () => {
       const appointments = Array.isArray(data)
         ? data
         : data?.appointments || data?.data || [];
+      // The same visit can come from both APIs: keep one card, filled from
+      // the record the web shows.
+      const webRecords = new Map(
+        appointmentRecords.map(record => [appointmentRecordId(record), record]),
+      );
       const doctorList = (Array.isArray(appointments) ? appointments : [])
         .map(appt => toDoctorPrescription(appt, issuerMap))
         .filter(Boolean)
+        .map(rx => {
+          const apiId = rx.id.replace(/^appointment-/, '');
+          const record = webRecords.get(apiId);
+          if (!record) return rx;
+          webRecords.delete(apiId);
+          return { ...rx, document: appointmentToDocument(record) };
+        })
+        .concat([...webRecords.values()].map(recordToDoctorPrescription))
         .concat(
           doctorChatList.map(rx =>
             linkChatToAppointment(rx, Array.isArray(appointments) ? appointments : []),
@@ -455,7 +515,9 @@ const PrescriptionScreen = () => {
         'Doctor prescriptions could not be loaded:',
         appointmentResult.reason?.message,
       );
-      setDoctorPrescriptions(groupByDoctor(doctorChatList));
+      setDoctorPrescriptions(
+        groupByDoctor(appointmentRecords.map(recordToDoctorPrescription).concat(doctorChatList)),
+      );
     }
 
     setLoading(false);

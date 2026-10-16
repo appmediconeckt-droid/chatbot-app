@@ -98,7 +98,7 @@ const buildVisitPrescriptionHtml = (patient = {}, record = {}) => {
 // to the phone's Downloads folder when Android allows it, and the file opens
 // straight away in the phone's PDF viewer (save / share from there) — before,
 // it only sat in the private app folder where the doctor couldn't reach it.
-async function saveAndOpenPdf(appPath, fileName) {
+export async function saveAndOpenPdf(appPath, fileName) {
   if (!appPath || typeof appPath !== 'string') {
     throw new Error('Prescription PDF could not be created.');
   }
@@ -133,22 +133,23 @@ async function saveAndOpenPdf(appPath, fileName) {
   }
 }
 
-function buildSimplePdf(lines) {
-  const contentLines = lines
-    .map((line, index) => {
-      const y = 780 - index * 20;
-      return `BT /F1 12 Tf 40 ${y} Td (${sanitizePdfText(line)}) Tj ET`;
-    })
-    .join('\n');
-
-  const contentStream = `${contentLines}\n`;
+export function buildSimplePdf(lines) {
+  const wrapped = lines.flatMap(line => toSafeString(line).split('\n').flatMap(paragraph => paragraph.match(/.{1,72}(?:\s|$)|.{1,72}/g) || ['']));
+  const pages = [];
+  for (let index = 0; index < Math.max(wrapped.length, 1); index += 38) pages.push(wrapped.slice(index, index + 38));
   const objects = [
     `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`,
-    `2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n`,
-    `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`,
-    `4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`,
-    `5 0 obj\n<< /Length ${contentStream.length} >>\nstream\n${contentStream}endstream\nendobj\n`,
+    `2 0 obj\n<< /Type /Pages /Kids [${pages.map((_, index) => `${4 + index * 2} 0 R`).join(' ')}] /Count ${pages.length} >>\nendobj\n`,
+    `3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`,
   ];
+  pages.forEach((page, index) => {
+    const pageId = 4 + index * 2;
+    const stream = page.map((line, row) => `BT /F1 12 Tf 40 ${780 - row * 20} Td (${sanitizePdfText(line)}) Tj ET`).join('\n') + '\n';
+    objects.push(
+      `${pageId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageId + 1} 0 R >>\nendobj\n`,
+      `${pageId + 1} 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}endstream\nendobj\n`,
+    );
+  });
 
   const header = '%PDF-1.4\n';
   const offsets = [0];

@@ -174,6 +174,23 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
   const [openTypeId, setOpenTypeId] = useState(null);
   const [advice, setAdvice] = useState('');
   const [additionalNotes, setAdditionalNotes] = useState('');
+  const [recommendedTests, setRecommendedTests] = useState([]);
+  const [testDateId, setTestDateId] = useState(null);
+  const testSeq = useRef(0);
+  const updateTest = (id, field, value) => setRecommendedTests(current => current.map(test => test.id === id ? { ...test, [field]: value } : test));
+  const openTestDate = test => {
+    const value = test.completeBy ? new Date(`${test.completeBy}T00:00:00`) : new Date();
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value, mode: 'date', minimumDate: new Date(),
+        onChange: (event, selected) => {
+          if (event?.type === 'set' && selected) updateTest(test.id, 'completeBy', formatLocalDateKey(selected));
+        },
+      });
+    } else {
+      setTestDateId(test.id);
+    }
+  };
   const [followUpRequired, setFollowUpRequired] = useState(false);
   const [followUpDate, setFollowUpDate] = useState('');
   const [showFollowUpPicker, setShowFollowUpPicker] = useState(false);
@@ -228,7 +245,9 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
         medicines: medicines.map(({ name, dosage, timings, duration, type }) => ({
           name, dosage, timings, durationValue: duration, durationType: type,
         })),
-        recommendedTests: [],
+        recommendedTests: recommendedTests.filter(test => test.testName.trim()).map(({ testName, completeBy, reason, instructions }) => ({
+          testName: testName.trim(), completeBy: completeBy || null, reason, instructions,
+        })),
         advice,
         additionalNotes,
         followUpRequired,
@@ -263,6 +282,43 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
 
         <SectionTitle>Diagnosis *</SectionTitle>
         <TextInput style={styles.textArea} placeholder="Enter detailed diagnosis..." placeholderTextColor="#8D96A6" multiline textAlignVertical="top" value={diagnosis} onChangeText={setDiagnosis} />
+
+        <View style={styles.sectionHeadingRow}>
+          <Text style={[styles.sectionTitle, { flex: 1 }]}>Recommended Tests / Investigations (Optional)</Text>
+          <TouchableOpacity accessibilityRole="button" style={styles.addMedicine} onPress={() => setRecommendedTests(current => [...current, {
+            id: ++testSeq.current, testName: '', completeBy: '', reason: '', instructions: '',
+          }])}>
+            <Text style={styles.addMedicineText}>+ Add Test</Text>
+          </TouchableOpacity>
+        </View>
+        {!recommendedTests.length && <Text style={styles.fieldLabel}>Add tests only when the patient needs an investigation or lab report.</Text>}
+        {recommendedTests.map((test, index) => (
+          <View key={test.id} style={styles.medicineCard}>
+            <View style={styles.medicineCardHeader}>
+              <Text style={styles.medicineCardTitle}>Test {index + 1}</Text>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Remove test ${index + 1}`} onPress={() => setRecommendedTests(current => current.filter(item => item.id !== test.id))} hitSlop={8}>
+                <AppIcon name="x" size={14} color="#8E9DB0" strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+            <Field label="Test Name" placeholder="e.g., CBC, Blood Sugar, X-Ray" value={test.testName} onChangeText={value => updateTest(test.id, 'testName', value)} />
+            <Text style={styles.fieldLabel}>Complete By</Text>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Complete by date for test ${index + 1}`} style={styles.dateButton} onPress={() => openTestDate(test)}>
+              <AppIcon name="calendar" size={16} color="#0D9488" strokeWidth={2.1} />
+              <Text style={styles.dateButtonText}>{test.completeBy || 'Select date'}</Text>
+            </TouchableOpacity>
+            {!!test.completeBy && <TouchableOpacity accessibilityRole="button" onPress={() => updateTest(test.id, 'completeBy', '')}><Text style={styles.fieldLabel}>Clear date</Text></TouchableOpacity>}
+            {Platform.OS === 'ios' && testDateId === test.id && (
+              <View>
+                <DateTimePicker value={test.completeBy ? new Date(`${test.completeBy}T00:00:00`) : new Date()} mode="date" display="inline" minimumDate={new Date()} onChange={(event, selected) => {
+                  if (selected) updateTest(test.id, 'completeBy', formatLocalDateKey(selected));
+                }} />
+                <TouchableOpacity onPress={() => setTestDateId(null)}><Text style={styles.addMedicineText}>Done</Text></TouchableOpacity>
+              </View>
+            )}
+            <Field label="Reason" placeholder="Why this test is required" value={test.reason} onChangeText={value => updateTest(test.id, 'reason', value)} />
+            <Field label="Instructions" placeholder="e.g., 8 hours fasting" value={test.instructions} onChangeText={value => updateTest(test.id, 'instructions', value)} />
+          </View>
+        ))}
 
         <View style={styles.sectionHeadingRow}>
           <Text style={styles.sectionTitle}>Prescribed Medicines *</Text>

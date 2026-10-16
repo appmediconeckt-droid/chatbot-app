@@ -3,7 +3,7 @@
 // opens Android's print dialog — a printer or "Save as PDF".
 import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import RNFS from 'react-native-fs';
-import { buildPrescriptionPaperHtml, doctorRxToPaper } from './prescriptionPaper';
+import { buildConsultationDocumentHtml, doctorRxToDocument } from './consultationPrescriptionDocument';
 
 const escapeHtml = value =>
   String(value ?? '')
@@ -20,8 +20,8 @@ const formatDate = value => {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-// Same page as the psychiatrist prescription (utils/prescriptionPaper).
-export const buildPrescriptionHtml = rx => buildPrescriptionPaperHtml(doctorRxToPaper(rx));
+// Same page as the in-app view and the web's PrescriptionDocument.
+export const buildPrescriptionHtml = rx => buildConsultationDocumentHtml(doctorRxToDocument(rx));
 
 const unavailable = () => {
   const error = new Error('This needs the latest app version.');

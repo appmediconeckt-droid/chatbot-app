@@ -18,7 +18,7 @@ import {
 import { apiError, fetchPatientHistory } from '../receptionistApi';
 import { clinicName, dateLabel, displayTime, isOrphanedBooking, statusLabel } from '../receptionistUtils';
 import { getDoctorMedicines, getDoctorTests, unpackConsultationNotes } from '../../../utils/consultationDetails';
-import { downloadVisitPrescriptionPdf } from '../../doctor/dashboard/utils/prescriptionPdf';
+import { downloadConsultationPrescriptionPdf } from '../../doctor/dashboard/utils/consultationPrescriptionPdf';
 
 const EMPTY = { from: '', to: '', clinic_id: '', source: 'all', search: '' };
 const SOURCES = [['all', 'All records'], ['online', 'Online visits'], ['walkin', 'Walk-in visits'], ['prescription', 'Chat prescriptions']];
@@ -185,21 +185,22 @@ export default function PatientsSection() {
     setDownloadError('');
     try {
       const rx = readPrescription(selected.prescription);
-      await downloadVisitPrescriptionPdf(
-        { name: selected.patient?.name, gender: rx.gender },
-        {
-          id: selected.id,
-          date: dateLabel(selected.checkedDate),
-          doctor: doctorFor(selected),
-          problem: rx.issue,
-          diagnosis: rx.diagnosis,
-          medicines: rx.medicines,
-          advice: rx.advice,
-          tests: rx.tests,
-          additionalNotes: rx.notes,
-          followUp: rx.followUp ? dateLabel(rx.followUp) : 'Not required',
-        },
-      );
+      // Same PDF as the web staff patient history (common/downloadPrescription.js).
+      await downloadConsultationPrescriptionPdf({
+        patient: selected.patient?.name || 'Patient',
+        doctor: doctorFor(selected),
+        date: dateLabel(selected.checkedDate),
+        gender: rx.gender || '—',
+        issue: rx.issue || '—',
+        diagnosis: rx.diagnosis || '—',
+        medicines: rx.medicines,
+        medicine: '',
+        advice: rx.advice,
+        notes: rx.notes,
+        tests: rx.tests.map((name) => ({ name })),
+        followUp: rx.followUp,
+        followUpRequired: rx.followUpRequired,
+      });
     } catch {
       setDownloadError('Prescription PDF could not be downloaded. Please retry.');
     } finally {

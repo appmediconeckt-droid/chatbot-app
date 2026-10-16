@@ -955,7 +955,7 @@ export default function DoctorDashboard({ navigation }) {
       setActiveSession(null);
       setCompleteAppointmentVisible(false);
       setActiveTab('Completed');
-      Alert.alert('Appointment completed', `${appt.name}'s consultation has been saved.`);
+      setPrescriptionAppointment(appt);
       await fetchAppointments({ silent: true });
     } catch (err) {
       showError(err, 'Appointment could not be completed.');

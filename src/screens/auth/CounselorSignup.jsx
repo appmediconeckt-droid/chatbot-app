@@ -1137,7 +1137,9 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   scrollContent: { padding: 24, paddingTop: 100, paddingBottom: 60, flexGrow: 1 },
   backBtn: { position: 'absolute', top: 30, left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
-  panel: { backgroundColor: 'rgba(255, 255, 255, 0.96)', borderRadius: 40, padding: 28, width: '100%', maxWidth: 440, alignSelf: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
+  // Opaque on purpose: Android draws an elevation shadow under a translucent
+  // view, which showed through as a second card inside this one.
+  panel: { backgroundColor: '#FFFFFF', borderRadius: 40, padding: 28, width: '100%', maxWidth: 440, alignSelf: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 30, elevation: 15 },
   header: { alignItems: 'center', marginBottom: 14 },
   logo: { width: 80, height: 80 },
   brandContainer: { flexDirection: 'row', marginTop: 4 },

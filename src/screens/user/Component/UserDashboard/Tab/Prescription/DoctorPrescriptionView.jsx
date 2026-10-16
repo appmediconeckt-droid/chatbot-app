@@ -29,15 +29,8 @@ import {
   printPrescription,
 } from '../../../../../../utils/printPrescription';
 import { displayDownloadNotification } from '../../../../../../services/notificationService';
-import { PrescriptionPaper } from '../../../counselor-dashboard/Tab/Prescriptions/PrescriptionReviews';
-import { doctorRxToPaper } from '../../../../../../utils/prescriptionPaper';
-import {
-  DEFAULT_PRESCRIPTION_THEME_ID,
-  getPrescriptionFestivalTheme,
-} from '../../../../../../utils/prescriptionFestivalThemes';
-
-// Doctor prescriptions have no theme picker — the default page background.
-const DOCTOR_PAPER_THEME = getPrescriptionFestivalTheme(DEFAULT_PRESCRIPTION_THEME_ID);
+import ConsultationPrescriptionDocument from './ConsultationPrescriptionDocument';
+import { doctorRxToDocument } from '../../../../../../utils/consultationPrescriptionDocument';
 
 // Patient-side screens use the green patient gradient; only the role badge
 // says whether a doctor or a psychiatrist wrote the prescription.
@@ -259,14 +252,9 @@ function PrescriptionContent({ rx: group, onClose }) {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* Same prescription page as the psychiatrist preview (PrescriptionPaper),
-            filled with this visit; doctor-only parts (diagnosis, advice, tests,
-            notes, follow-up) use the paper's complaint / instruction styles. */}
-        <PrescriptionPaper
-          {...doctorRxToPaper(rx)}
-          themeImage={DOCTOR_PAPER_THEME.image}
-          patientName={rx.patientName || 'You'}
-        />
+        {/* Same consultation record as the web patient Prescriptions tab
+            (common/PrescriptionDocument.jsx). */}
+        <ConsultationPrescriptionDocument data={doctorRxToDocument(rx)} />
         <View style={styles.disclaimer}>
           <Ionicons
             name="information-circle-outline"

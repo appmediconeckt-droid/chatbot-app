@@ -7,6 +7,7 @@ import axiosInstance from '../../../../axiosConfig';
 import { isPatientAccountDeleted } from '../../../../utils/deletedAccount';
 import { parseEmergencySymptoms, stripEmergencyTag } from '../../../../utils/emergencyTag';
 import { getAppointmentVitals } from '../../../../utils/appointmentVitals';
+import { consultationData } from '../../../../utils/consultationData';
 
 export const pickFirst = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== '');
@@ -517,6 +518,7 @@ const formatAppointmentTime = (a) => {
 };
 
 export const formatAppointment = (a, forcedStatus) => {
+  a = consultationData(a);
   const vitals = getAppointmentVitals(a);
   const patient = a?.patient || a?.patientData || a?.user || {};
   const appointmentSource = getAppointmentSource(a);
@@ -678,6 +680,17 @@ export const formatClockTime = (date) =>
 
 export const getAppointmentApiPath = (appt) =>
   `/api/${getAppointmentSource(appt) === 'walkin' ? 'walkin-appointments' : 'appointments'}/${encodeURIComponent(String(appt.apiId || appt.id))}`;
+
+// Load the complete saved record; queue feeds can omit prescription lists.
+export const loadAppointmentPrescription = async (appointment) => {
+  const { data } = await axiosInstance.get(getAppointmentApiPath(appointment), { timeout: 15000 });
+  const raw = data?.appointment || data?.data?.appointment || data?.data || data;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).length === 0) {
+    throw new Error('Prescription details could not be loaded.');
+  }
+  const updated = formatAppointment({ ...raw, __appointmentSource: getAppointmentSource(appointment) });
+  return { ...appointment, ...updated };
+};
 
 const normalizeWriteStatus = (status) => String(status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 

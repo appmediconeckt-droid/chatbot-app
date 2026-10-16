@@ -13,6 +13,7 @@ import {
   Animated,
   findNodeHandle,
   BackHandler,
+  StatusBar,
 } from 'react-native';
 import TextInput from '../../components/TranslatedTextInput';
 import Text from '../../components/TranslatedText';
@@ -1185,7 +1186,14 @@ const Login = ({ navigation, route }) => {
           animationType="slide"
           onRequestClose={closeForgotPasswordModal}
         >
-          <View style={styles.fpModalOverlay}>
+          {/* Safe area on top: with the keyboard open the sheet grows/scrolls
+              up, but must stop below the status bar (time / battery icons). */}
+          <View
+            style={[
+              styles.fpModalOverlay,
+              { paddingTop: Math.max(insets.top, Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0) + 8 },
+            ]}
+          >
             <ScrollView
               ref={fpModalScrollRef}
               contentContainerStyle={[
