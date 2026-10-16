@@ -361,7 +361,9 @@ const ChatPopup = ({
     });
     const hide = Keyboard.addListener(hideEvt, () => {
       if (Platform.OS === 'android') {
-        animate();
+        // keyboardDidHide only arrives once the keyboard has finished sliding
+        // away, so the popup drops at once — animating it as well made closing
+        // the keyboard feel slow on 3-button-nav phones.
         setKeyboardInset(0);
       }
       setKeyboardVisible(false);
@@ -454,6 +456,11 @@ const ChatPopup = ({
       <View style={[styles.chatPopup, {
         height: Math.min(popupBaseHeight, popupAvailableHeight),
       }]}>
+        {/* While the keyboard slides away the popup is still lifted until
+            keyboardDidHide; this white strip fills the space the keyboard is
+            leaving, so it reads as the composer's background instead of a
+            black gap of dimmed dashboard. */}
+        {keyboardInset > 0 && <View pointerEvents="none" style={[styles.chatPopupKeyboardFill, { height: keyboardInset }]} />}
       <View style={styles.chatPopupClip}>
         <LinearGradient
           colors={AI_GRADIENT}
@@ -5716,6 +5723,13 @@ const styles = StyleSheet.create({
     // A second 50% layer here made the area above the popup darker than the
     // strip beside its rounded corners, so a lighter square showed around
     // both top corners.
+  },
+  chatPopupKeyboardFill: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#ffffff',
   },
   chatPopup: {
     width: '100%',
