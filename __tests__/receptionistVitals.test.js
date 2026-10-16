@@ -19,6 +19,7 @@ jest.mock('react-native', () => {
   View: 'View', Text: 'Text', TextInput, Pressable: 'Pressable',
   ScrollView: 'ScrollView', Modal: 'Modal', Image: 'Image', ActivityIndicator: 'ActivityIndicator',
   StyleSheet: { create: value => value }, Keyboard: { dismiss: jest.fn() },
+  useWindowDimensions: () => ({ width: 390, height: 844, scale: 1, fontScale: 1 }),
   Platform: { OS: 'android' }, Alert: { alert: jest.fn() },
   };
 });

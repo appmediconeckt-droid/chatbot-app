@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, TextInput, V
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../../components/TranslatedText';
+import { ResponsiveGrid, useResponsiveLayout } from '../../../components/common/ResponsiveLayout';
 import {
   AlertBox, AppointmentRow, Card, CardHeading, Empty, OptionSheet, PatientDetailsSheet, REC, RecButton, SelectField,
 } from '../receptionistUi';
@@ -16,6 +17,7 @@ const EMPTY_FILTERS = { from: '', to: '', status: 'all', search: '' };
 const toKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 export default function AppointmentsSection({ clinicId, canCancel, compact }) {
+  const { isWide } = useResponsiveLayout();
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -153,7 +155,8 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
         )}
       </View>
 
-      <View style={s.twoCol}>
+      <View style={isWide && s.filterRow}>
+      <View style={[s.twoCol, isWide && s.datesWide]}>
         <View style={s.flex}>
           <SelectField
             label="From date"
@@ -175,6 +178,7 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
           />
         </View>
       </View>
+      <View style={isWide && s.flex}>
       <SelectField
         label="Status"
         icon="funnel-outline"
@@ -183,6 +187,8 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
         onPress={() => setPicker('status')}
         onClear={() => update('status', 'all')}
       />
+      </View>
+      </View>
 
       <View style={s.quick}>
         <RecButton compact icon="today-outline" label="Today" onPress={() => { const today = indiaToday(); setFilters((current) => ({ ...current, from: today, to: today })); setPage(1); setSelected(null); }} />
@@ -204,7 +210,7 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
             <Text translate={false} style={s.count}>{data.total} appointments</Text>
             <Text translate={false} style={s.count}>{data.completed} completed</Text>
           </View>
-          {appointmentRows.length ? appointmentRows.map((row) => (
+          {appointmentRows.length ? <ResponsiveGrid minItemWidth={350} maxColumns={2}>{appointmentRows.map((row) => (
             <AppointmentRow
               key={patientKey(row)}
               row={row}
@@ -214,7 +220,7 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
               onCancel={canCancel ? cancelAppointment : undefined}
               cancelBusy={cancelBusy}
             />
-          )) : <Empty title="No matching appointments" description="Select All dates or adjust your status and search filters." />}
+          ))}</ResponsiveGrid> : <Empty title="No matching appointments" description="Select All dates or adjust your status and search filters." />}
           <View style={s.pagination}>
             <Text translate={false} style={s.muted}>Showing {first}-{last} of {data.total}</Text>
             <View style={s.pageButtons}>
@@ -260,6 +266,8 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
 }
 
 const s = StyleSheet.create({
+  filterRow: { flexDirection: 'row', gap: 12 },
+  datesWide: { flex: 2 },
   flex: { flex: 1, minWidth: 0 },
   muted: { fontSize: 12.5, color: REC.muted },
   search: { height: 44, borderWidth: 1, borderColor: '#D8E1E8', borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, marginBottom: 12, backgroundColor: '#FAFBFD' },

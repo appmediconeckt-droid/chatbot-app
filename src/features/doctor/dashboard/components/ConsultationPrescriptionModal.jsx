@@ -219,7 +219,7 @@ function MedPill({ label, value }) {
 const s = createDoctorStyles({
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'flex-end' },
   backdropTap: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
-  sheet: { maxHeight: '92%', backgroundColor: '#F0FDFA', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingTop: 14 },
+  sheet: { width: '100%', maxWidth: 800, alignSelf: 'center', maxHeight: '92%', backgroundColor: '#F0FDFA', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingTop: 14 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 10 },
   sheetTitle: { flex: 1, fontSize: 17, fontWeight: '800', color: '#0F172A' },
   closeIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#E6F7F5', alignItems: 'center', justifyContent: 'center' },

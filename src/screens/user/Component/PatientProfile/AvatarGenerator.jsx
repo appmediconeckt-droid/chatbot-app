@@ -1,3 +1,5 @@
+import { useMemo as useResponsiveStylesMemo } from 'react';
+import { useWindowDimensions as useResponsiveWindowDimensions } from 'react-native';
 import React, { useState } from "react";
 import {
   View,
@@ -6,8 +8,7 @@ import {
   Image,
   ScrollView,
   StyleSheet,
-  Dimensions,
-  FlatList,
+    FlatList,
 } from "react-native";
 import Text from '../../../../components/TranslatedText';
 import LinearGradient from "react-native-linear-gradient";
@@ -19,8 +20,8 @@ import {
   GRADIENT_DIRECTION,
 } from "../../../../theme/palette";
 
-const { width: SCREEN_W } = Dimensions.get("window");
-const ITEM_SIZE = (SCREEN_W - 48 - 16) / 3; // 3 columns with padding
+
+ // 3 columns with padding
 
 const REAL_AVATARS = [
   // Kids (10s) — illustrated cartoons (no real child photos available publicly)
@@ -112,6 +113,7 @@ function getInitialsUrl(initials, color) {
 }
 
 const AvatarGenerator = ({ userName, onSelect, onClose }) => {
+  const { S } = useResponsiveScreenStyles();
   const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   const [tab, setTab]           = useState("real");
@@ -256,9 +258,9 @@ const AvatarGenerator = ({ userName, onSelect, onClose }) => {
   );
 };
 
-const S = StyleSheet.create({
+const makeResponsiveStyles = (SCREEN_W, ITEM_SIZE) => StyleSheet.create({
   overlay:       { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
-  sheet:         { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "90%", paddingBottom: 24 },
+  sheet:         { width: '100%', maxWidth: 720, alignSelf: 'center', backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, height: '90%', maxHeight: "90%", paddingBottom: 24 },
   header:        { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "#f1f5f9" },
   headerTitle:   { fontSize: 17, fontWeight: "700", color: "#1a1a2e" },
   closeBtn:      { width: 30, height: 30, borderRadius: 15, backgroundColor: "#f1f5f9", alignItems: "center", justifyContent: "center" },
@@ -279,7 +281,7 @@ const S = StyleSheet.create({
   grid:          { padding: 12, gap: 8 },
   gridItem:      { width: ITEM_SIZE, margin: 4, alignItems: "center", borderRadius: 12, borderWidth: 2, borderColor: "transparent", overflow: "hidden", backgroundColor: "#f8fafc" },
   gridItemSelected: { borderColor: "#4f46e5" },
-  gridImg:       { width: ITEM_SIZE, height: ITEM_SIZE, borderRadius: 10 },
+  gridImg:       { width: '100%', aspectRatio: 1, borderRadius: 10 },
   gridLabel:     { fontSize: 10, color: "#64748b", marginTop: 4, marginBottom: 4, textAlign: "center" },
   checkBadge:    { position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: 10, backgroundColor: "#4f46e5", alignItems: "center", justifyContent: "center" },
   checkText:     { color: "#fff", fontSize: 11, fontWeight: "700" },
@@ -300,3 +302,10 @@ const S = StyleSheet.create({
 });
 
 export default AvatarGenerator;
+
+function useResponsiveScreenStyles() {
+  const { width: SCREEN_W } = useResponsiveWindowDimensions();
+  const ITEM_SIZE = (Math.min(SCREEN_W, 720) - 48) / 3;
+  const S = useResponsiveStylesMemo(() => makeResponsiveStyles(SCREEN_W, ITEM_SIZE), [SCREEN_W, ITEM_SIZE]);
+  return { SCREEN_W, ITEM_SIZE, S };
+}

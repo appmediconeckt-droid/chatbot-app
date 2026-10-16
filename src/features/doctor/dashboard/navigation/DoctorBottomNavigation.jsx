@@ -36,8 +36,8 @@ export default function DoctorBottomNavigation({ active = 'Home', onChange }) {
 }
 
 const styles = createDoctorStyles({
-  bar: { height: 65, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: '#DDE1E8', flexDirection: 'row', paddingTop: 7 },
-  item: { flex: 1, alignItems: 'center', position: 'relative' },
+  bar: { height: 65, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: '#DDE1E8', flexDirection: 'row', justifyContent: 'center', paddingTop: 7 },
+  item: { flex: 1, maxWidth: 180, alignItems: 'center', position: 'relative' },
   iconWrap: { width: 30, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   activeIconWrap: { backgroundColor: colors.paleBlue },
   label: { ...typography.caption, fontSize: 12, lineHeight: 16, marginTop: 2, color: '#747B87', textAlign: 'center', width: '100%' },

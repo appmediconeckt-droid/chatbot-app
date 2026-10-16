@@ -26,21 +26,11 @@ const FIELDS = [
 ];
 const unitFor = (field, vitals) => (field.key === 'temperature' ? `°${vitals.temperature_unit || 'C'}` : field.unit);
 
-const formatDate = (value, withTime) => {
-  const date = new Date(value);
-  if (!value || Number.isNaN(date.getTime())) return '';
-  const day = date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
-  if (!withTime) return day;
-  return `${day}, ${date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`;
-};
-
 const visitInfo = (appointment) => {
   const doctor = appointment.counselor || appointment.doctor;
   const vitals = appointment.vitals || {};
   return {
     doctor: doctor?.fullName || doctor?.name || appointment.doctor_name || '',
-    date: formatDate(vitals.recorded_at, true) || formatDate(appointment.appointment_date || appointment.date) || 'Date not recorded',
-    shortDate: formatDate(vitals.recorded_at || appointment.appointment_date || appointment.date),
     recorded: FIELDS.filter((field) => hasVitalValue(vitals[field.key])),
     missing: FIELDS.filter((field) => !hasVitalValue(vitals[field.key])),
     notes: hasVitalValue(vitals.notes) ? String(vitals.notes) : '',
@@ -87,8 +77,8 @@ export default function PatientVitalsButton() {
       <View style={s.entryIcon}><Ionicons name="pulse" size={20} color="#FFFFFF" /></View>
       <View style={s.flex}>
         <Text style={s.entryTitle}>My vitals</Text>
-        <Text translate={false} style={s.entrySub} numberOfLines={1}>
-          {latestInfo?.shortDate ? `Last recorded ${latestInfo.shortDate}` : 'Recorded at your visits'}
+        <Text style={s.entrySub} numberOfLines={1}>
+          Your latest readings from the clinic
         </Text>
       </View>
       <Ionicons name="chevron-forward" size={20} color={GREEN} />
@@ -128,7 +118,7 @@ export default function PatientVitalsButton() {
               <View style={s.latestHead}>
                 <View style={s.flex}>
                   <Text style={s.eyebrow}>LATEST READING</Text>
-                  <Text translate={false} style={s.latestDate}>{latestInfo.date}</Text>
+                  <Text style={s.latestDate}>Your vitals</Text>
                   {!!latestInfo.doctor && (
                     <View style={s.doctorRow}>
                       <Ionicons name="medkit-outline" size={13} color={MUTED} />

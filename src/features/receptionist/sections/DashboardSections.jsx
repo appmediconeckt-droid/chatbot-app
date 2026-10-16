@@ -5,6 +5,7 @@ import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../components/TranslatedText';
+import { ResponsiveGrid } from '../../../components/common/ResponsiveLayout';
 import {
   AppointmentRow, Avatar, Badge, Card, CardHeading, EmergencyReason, Empty, Eyebrow, LiveLabel,
   LoadingCard, Notice, NoticeText, QueueTabs, REC, StatTile,
@@ -38,7 +39,7 @@ function QueueCard({ data, clinics, onView, compact, title = "Today's Queue", su
       <CardHeading title={title} subtitle={subtitle} right={right} />
       <QueueTabs active={tab} counts={counts} onChange={setTab} />
       {rows.length
-        ? rows.map((row) => <AppointmentRow key={patientKey(row)} row={row} clinics={clinics} onView={onView} compact={compact} />)
+        ? <ResponsiveGrid minItemWidth={350} maxColumns={2}>{rows.map((row) => <AppointmentRow key={patientKey(row)} row={row} clinics={clinics} onView={onView} compact={compact} />)}</ResponsiveGrid>
         : <Empty title={emptyTitle} description={emptyText} />}
     </Card>
   );
@@ -192,7 +193,8 @@ export function DoctorSection({ data, clinics, error }) {
   ];
   return (
     <View style={s.doctorSection}>
-      <View style={s.profileCard}>
+      <ResponsiveGrid minItemWidth={380} maxColumns={2} gap={20}>
+      <View style={[s.profileCard, { marginBottom: 0 }]}>
         <LinearGradient colors={['#12756D', '#1C9686']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.profileCover}>
           <Text style={s.profileCoverText}>ASSIGNED DOCTOR</Text>
         </LinearGradient>
@@ -234,6 +236,7 @@ export function DoctorSection({ data, clinics, error }) {
         </View>
       </View>
 
+      <View>
       <Text style={s.drHeading}>Professional details</Text>
       <View style={s.drTiles}>
         {tiles.map(([label, value, icon, fg, bg]) => (
@@ -255,11 +258,13 @@ export function DoctorSection({ data, clinics, error }) {
         </View>
       )}
 
+      </View>
+      </ResponsiveGrid>
       <View style={s.sectionHeading}>
         <Text style={s.drHeadingInline}>Clinics & hospitals</Text>
         <Text translate={false} style={s.countPill}>{clinics.length} {clinics.length === 1 ? 'location' : 'locations'}</Text>
       </View>
-      {clinics.length ? clinics.map((row) => (
+      {clinics.length ? <ResponsiveGrid minItemWidth={330} maxColumns={2}>{clinics.map((row) => (
         <View key={row._id || row.id} style={s.drClinic}>
           <View style={s.drClinicAccent} />
           <View style={s.clinicTop}>
@@ -283,7 +288,7 @@ export function DoctorSection({ data, clinics, error }) {
             )}
           </View>
         </View>
-      )) : <Card style={s.doctorCard}><Empty icon="business-outline" title="No clinics assigned" description="Your doctor can add clinic details from their portal." /></Card>}
+      ))}</ResponsiveGrid> : <Card style={s.doctorCard}><Empty icon="business-outline" title="No clinics assigned" description="Your doctor can add clinic details from their portal." /></Card>}
     </View>
   );
 }
@@ -301,7 +306,8 @@ export function ProfileSection({ profile, onProfileUpdated }) {
   ];
   return (
     <View style={s.profileSection}>
-      <View style={s.profileCard}>
+      <ResponsiveGrid minItemWidth={380} maxColumns={2} gap={20}>
+      <View style={[s.profileCard, { marginBottom: 0 }]}>
         <LinearGradient colors={['#12756D', '#1C9686']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.profileCover}>
           <Text style={s.profileCoverText}>STAFF ACCOUNT</Text>
         </LinearGradient>
@@ -376,6 +382,7 @@ export function ProfileSection({ profile, onProfileUpdated }) {
         ))}
       </View>
 
+      </ResponsiveGrid>
       <Notice icon="shield-checkmark-outline">
         <NoticeText>You can edit your name, phone and photo. Your doctor manages your role, clinic assignment and staff details.</NoticeText>
       </Notice>

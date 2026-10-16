@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   StatusBar,
-  Dimensions,
 } from 'react-native';
 import Text from '../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,7 +16,7 @@ import useLanguageRender from '../../hooks/useLanguageRender';
 import HumaeliHeroVideo from '../../components/common/HumaeliHeroVideo';
 
 import { enterAuthenticatedRoute } from '../../utils/authSession';
-const { width } = Dimensions.get('window');
+import { useContentDimensions } from '../../components/common/ResponsiveLayout';
 const TOTAL_PAGES = 4;
 
 const OnboardingPage1 = () => {
@@ -125,6 +124,8 @@ const OnboardingPage4 = () => {
 };
 
 const CounselorOnboarding = ({ navigation, route, previewMode = false, onPreviewComplete }) => {
+  const { width } = useContentDimensions();
+  const [pageWidth, setPageWidth] = useState(width);
   const { t } = useLanguageRender();
   const [currentPage, setCurrentPage] = useState(0);
   const scrollViewRef = useRef(null);
@@ -156,11 +157,11 @@ const CounselorOnboarding = ({ navigation, route, previewMode = false, onPreview
   const goToNextPage = useCallback(() => {
     if (currentPage < TOTAL_PAGES - 1) {
       setCurrentPage(currentPage + 1);
-      scrollViewRef.current?.scrollTo({ x: (currentPage + 1) * width, animated: true });
+      scrollViewRef.current?.scrollTo({ x: (currentPage + 1) * pageWidth, animated: true });
     } else {
       finishOnboarding();
     }
-  }, [currentPage, finishOnboarding]);
+  }, [currentPage, finishOnboarding, pageWidth]);
 
   useEffect(() => {
     if (!previewMode) return undefined;
@@ -174,7 +175,7 @@ const CounselorOnboarding = ({ navigation, route, previewMode = false, onPreview
   }, [currentPage, goToNextPage, previewMode]);
 
   const onScroll = (event) => {
-    const pageNumber = Math.round(event.nativeEvent.contentOffset.x / width);
+    const pageNumber = Math.round(event.nativeEvent.contentOffset.x / pageWidth);
     setCurrentPage(pageNumber);
   };
 
@@ -200,8 +201,18 @@ const CounselorOnboarding = ({ navigation, route, previewMode = false, onPreview
         showsHorizontalScrollIndicator={false}
         scrollEnabled={true}
         style={s.pagesScroll}
+        onLayout={(event) => {
+          const nextWidth = event.nativeEvent.layout.width;
+          if (!nextWidth || nextWidth === pageWidth) return;
+          setPageWidth(nextWidth);
+          requestAnimationFrame(() => scrollViewRef.current?.scrollTo({ x: currentPage * nextWidth, animated: false }));
+        }}
       >
-        {pages}
+        {pages.map((page, index) => (
+          <View key={index} style={{ width: pageWidth }}>
+            <ScrollView contentContainerStyle={s.pageContent} showsVerticalScrollIndicator={false}>{page}</ScrollView>
+          </View>
+        ))}
       </ScrollView>
 
       {/* Dots */}
@@ -255,7 +266,8 @@ const s = StyleSheet.create({
   skipText: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
 
   pagesScroll: { flex: 1 },
-  page: { width, paddingHorizontal: 24, paddingVertical: 40, justifyContent: 'center', gap: 20 },
+  pageContent: { flexGrow: 1, justifyContent: 'center' },
+  page: { width: '100%', maxWidth: 620, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 40, justifyContent: 'center', gap: 20 },
 
   onboardingVideoCard: { width: '100%', aspectRatio: 1.4, overflow: 'hidden', backgroundColor: '#E7EEFE', borderRadius: 20, marginBottom: 20 },
   secondOnboardingVideoCard: { backgroundColor: 'transparent', borderRadius: 16 },
@@ -291,7 +303,7 @@ const s = StyleSheet.create({
   dotInactive: { backgroundColor: '#cbd5e1', width: 8 },
 
   buttonsContainer: { paddingHorizontal: 20, paddingBottom: 20, gap: 12 },
-  buttonWrapper: { width: '100%' },
+  buttonWrapper: { width: '100%', maxWidth: 560, alignSelf: 'center' },
   nextBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 14 },
   nextBtnText: { fontSize: 16, fontWeight: '800', color: '#ffffff' },
 });

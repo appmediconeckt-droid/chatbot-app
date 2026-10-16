@@ -3,6 +3,7 @@
 // and its label on the right. `tone` gives each tile its own accent colour so
 // the four tiles can be told apart at a glance.
 import React from 'react';
+import { useResponsiveLayout } from '../../../../components/common/ResponsiveLayout';
 import { Pressable, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import { colors, typography, createDoctorStyles } from '../theme';
@@ -17,13 +18,14 @@ const TONES = {
 
 export default function OverviewCard({ title, value, suffix, icon, tone = 'teal', onPress }) {
   const palette = TONES[tone] || TONES.teal;
+  const { width } = useResponsiveLayout();
   return (
     // Press feedback is a background tint, not an opacity fade — fading an
     // elevated, rounded card makes Android draw its shadow as a rectangle.
     <Pressable
       onPress={onPress}
       disabled={!onPress}
-      style={({ pressed }) => [styles.card, { borderColor: palette.border }, pressed && { backgroundColor: palette.bg }]}
+      style={({ pressed }) => [styles.card, { width: width >= 720 ? '23.5%' : '48.5%', borderColor: palette.border }, pressed && { backgroundColor: palette.bg }]}
     >
       <View style={[styles.iconBox, { backgroundColor: palette.fg }]}>
         <AppIcon name={icon} size={18} strokeWidth={2.2} color="#FFFFFF" />

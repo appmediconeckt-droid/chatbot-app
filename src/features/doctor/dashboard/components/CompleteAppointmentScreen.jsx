@@ -351,7 +351,7 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
 }
 
 const styles = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  screen: { flex: 1, width: '100%', maxWidth: 960, alignSelf: 'center', backgroundColor: '#F0FDFA' },
   titleBar: { height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14 },
   closeBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   title: { color: '#FFF', fontSize: 19, lineHeight: 25, fontWeight: '700', letterSpacing: 0.1 },

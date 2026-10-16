@@ -1,3 +1,5 @@
+import { useMemo as useResponsiveStylesMemo } from 'react';
+import { useWindowDimensions as useResponsiveWindowDimensions } from 'react-native';
 import React, { useState, useEffect, useRef } from 'react';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
@@ -10,8 +12,7 @@ import {
   StyleSheet,
   Linking,
   Switch,
-  Dimensions,
-  Animated,
+    Animated,
   Modal,
   Alert,
   KeyboardAvoidingView,
@@ -49,8 +50,8 @@ import { KeyboardSheet, KeyboardSheetOverlay, KeyboardSheetScroll } from '../../
 import { getKeyboardCover } from '../../../../../../utils/keyboardLift';
 
 const TERMS_URL = 'https://humaeli.com/terms-of-use/';
-const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const isTablet = width >= 600;
+
+
 
 const useShimmer = () => {
   const anim = useRef(new Animated.Value(0)).current;
@@ -135,6 +136,7 @@ const FEEDBACK_CATEGORIES = [
 ];
 
 const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }) => {
+  const { SCREEN_HEIGHT, isTablet, styles } = useResponsiveScreenStyles();
   const insets = useSafeAreaInsets();
   const {
     scrollRef: pwScrollRef,
@@ -1074,7 +1076,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
 
 export default CounselorSettings;
 
-const styles = StyleSheet.create({
+const makeResponsiveScreenStyles = (width, SCREEN_HEIGHT, isTablet) => StyleSheet.create({
   container: {
     flex: 1,
     width: '100%',
@@ -1533,6 +1535,9 @@ const pwStyles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
+    width: '100%',
+    maxWidth: 600,
+    alignSelf: 'center',
     backgroundColor: '#fff',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
@@ -1673,3 +1678,10 @@ const fbStyles = StyleSheet.create({
     marginBottom: 8,
   },
 });
+
+function useResponsiveScreenStyles() {
+  const { width, height: SCREEN_HEIGHT } = useResponsiveWindowDimensions();
+  const isTablet = width >= 600;
+  const styles = useResponsiveStylesMemo(() => makeResponsiveScreenStyles(width, SCREEN_HEIGHT, isTablet), [width, SCREEN_HEIGHT, isTablet]);
+  return { width, SCREEN_HEIGHT, isTablet, styles };
+}

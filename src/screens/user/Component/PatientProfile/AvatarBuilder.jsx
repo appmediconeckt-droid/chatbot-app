@@ -6,7 +6,6 @@ import {
   Image,
   ScrollView,
   StyleSheet,
-  Dimensions,
   ActivityIndicator,
   Alert,
 } from "react-native";
@@ -19,7 +18,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axiosInstance, { API_BASE_URL } from "../../../../axiosConfig";
 import useLanguageRender from '../../../../hooks/useLanguageRender';
 
-const { width: SW } = Dimensions.get("window");
 const BASE = "https://api.dicebear.com/7.x/avataaars/png";
 
 // ─── Correct DiceBear v7 avataaars params (verified from schema.json) ─────────
@@ -709,7 +707,7 @@ const AvatarBuilder = ({ visible, onSelect, onClose }) => {
 
 const S = StyleSheet.create({
   overlay:       { flex:1, backgroundColor:"rgba(0,0,0,0.6)", justifyContent:"flex-end" },
-  sheet:         { backgroundColor:"#fff", borderTopLeftRadius:28, borderTopRightRadius:28, maxHeight:"93%", paddingBottom:8 },
+  sheet:         { width:'100%', maxWidth:720, alignSelf:'center', backgroundColor:"#fff", borderTopLeftRadius:28, borderTopRightRadius:28, maxHeight:"93%", paddingBottom:8 },
   header:        { flexDirection:"row", alignItems:"center", justifyContent:"space-between", paddingHorizontal:20, paddingTop:20, paddingBottom:12, borderBottomWidth:1, borderBottomColor:"#f1f5f9" },
   headerTitle:   { fontSize:17, fontWeight:"700", color:"#1a1a2e" },
   closeBtn:      { width:30, height:30, borderRadius:15, backgroundColor:"#f1f5f9", alignItems:"center", justifyContent:"center" },
@@ -743,7 +741,7 @@ const S = StyleSheet.create({
   modeBtnActive: { backgroundColor:"#f0f4ff", borderColor:"#667eea" },
   modeBtnText:   { fontSize:13, fontWeight:"600", color:"#64748b" },
   modeBtnTextActive: { color:"#667eea" },
-  panel:         { paddingHorizontal:18, paddingTop:12, maxHeight:SW * 0.52 },
+  panel:         { paddingHorizontal:18, paddingTop:12, flexShrink:1, maxHeight:320 },
   section:       { marginBottom:16 },
   sectionTitle:  { fontSize:11, fontWeight:"700", color:"#64748b", textTransform:"uppercase", letterSpacing:0.6, marginBottom:8 },
   swatches:      { flexDirection:"row", flexWrap:"wrap", gap:10 },

@@ -8,7 +8,6 @@ import {
   FlatList,
   StyleSheet,
   Animated,
-  Dimensions,
 } from 'react-native';
 import TextInput from '../TranslatedTextInput';
 import Text from '../TranslatedText';
@@ -17,7 +16,6 @@ import i18n, { LANGUAGES, saveUserLanguage, LANG_STORAGE_KEY, PENDING_ACCOUNT_LA
 import { useLanguageContext } from '../../contexts/LanguageContext';
 import useLanguageRender from '../../hooks/useLanguageRender';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const LANG_ACCENT = {
   en: '#3B82F6',
@@ -282,10 +280,10 @@ const styles = StyleSheet.create({
   sheet: {
     position: 'absolute',
     top: '20%',
-    left: '6%',
-    right: '6%',
-    maxHeight: SCREEN_HEIGHT * 0.65,
-    minHeight: 300,
+    width: '88%',
+    maxWidth: 520,
+    alignSelf: 'center',
+    maxHeight: '75%',
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     overflow: 'hidden',
@@ -388,7 +386,7 @@ const styles = StyleSheet.create({
   },
   list: {
     flexGrow: 0,
-    maxHeight: SCREEN_HEIGHT * 0.50,
+    flexShrink: 1,
     paddingHorizontal: 0,
   },
   langRow: {

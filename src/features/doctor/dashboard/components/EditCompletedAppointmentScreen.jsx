@@ -171,7 +171,7 @@ export default function EditCompletedAppointmentScreen({ appointment, onCancel, 
 }
 
 const styles = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: colors.background },
+  screen: { flex: 1, width: '100%', maxWidth: 960, alignSelf: 'center', backgroundColor: colors.background },
   titleBar: { minHeight: 78, paddingHorizontal: 14, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
   headerIconButton: { width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.16)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.24)' },
   headerCopy: { flex: 1 },

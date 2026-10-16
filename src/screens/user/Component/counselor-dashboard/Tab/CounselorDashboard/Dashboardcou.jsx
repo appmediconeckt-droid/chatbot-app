@@ -7,7 +7,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Dimensions,
   StatusBar,
   Platform,
   RefreshControl,
@@ -21,7 +20,6 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 
-const { width: screenWidth } = Dimensions.get('window');
 
 const Dashboard = () => {
   const { t } = useLanguageRender();
@@ -544,7 +542,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   quickBtn: {
-    width: (screenWidth - CONTENT_H_PAD * 2 - CARD_PADDING * 2 - 10) / 2,
+    flexBasis: '45%',
+    flexGrow: 1,
+    minWidth: 0,
     borderRadius: 14,
     padding: 16,
     alignItems: 'center',

@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
+import { ResponsiveGrid } from '../../../../components/common/ResponsiveLayout';
 import TextInput from '../../../../components/TranslatedTextInput';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
@@ -238,7 +239,7 @@ export default function PatientsScreen({ onPatientPress }) {
           </View>
         ) : (
           <>
-            {pageRows.map((p) => (
+            <ResponsiveGrid minItemWidth={350} maxColumns={2}>{pageRows.map((p) => (
               // Press feedback is a tint, not an opacity fade (fading an elevated
               // card makes Android draw its shadow as a rectangle).
               <Pressable key={p.id} onPress={() => onPatientPress?.(p)} style={({ pressed }) => [s.card, pressed && s.cardPressed]}>
@@ -268,7 +269,7 @@ export default function PatientsScreen({ onPatientPress }) {
                   <Text style={s.visits}>{p.records.length} {p.records.length === 1 ? 'Visit' : 'Visits'}</Text>
                 </View>
               </Pressable>
-            ))}
+            ))}</ResponsiveGrid>
             <View style={s.pagination}>
               <Text style={s.pageInfo}>Showing {first + 1} to {Math.min(first + PAGE_SIZE, filtered.length)} of {filtered.length} patients</Text>
               <View style={s.pageBtns}>

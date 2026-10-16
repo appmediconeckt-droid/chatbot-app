@@ -25,6 +25,7 @@ import {
 import { NavigationContainer } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import { navigationRef } from './src/navigationRef';
+import { ResponsiveAppFrame } from './src/components/common/ResponsiveLayout';
 import { isTokenExpired, startTokenExpiryWatcher } from './src/utils/tokenExpiry';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import UserSignup from './src/screens/auth/UserSignup';
@@ -190,14 +191,15 @@ const hasFreshPendingIncomingCall = async () => {
 
 const BootSplash = () => {
   const { width, height } = useWindowDimensions();
+  const landscapeTablet = width >= 900 && width > height;
   const isTinyPhone = height < 650 || width < 360;
   const isCompactPhone = height < 760;
   const heroTextWidth = Math.min(width - 44, 360);
 
   return (
-    <View style={styles.bootScreen}>
+    <View style={[styles.bootScreen, landscapeTablet && { flexDirection: 'row' }]}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      <View style={styles.bootHeroMedia}>
+      <View style={[styles.bootHeroMedia, landscapeTablet && { minHeight: 0 }]}>
         <HumaeliHeroVideo
           style={StyleSheet.absoluteFill}
           sourceName="mobile_hero_section_video"
@@ -215,7 +217,7 @@ const BootSplash = () => {
         />
       </View>
 
-      <View style={styles.bootHeroPanel}>
+      <View style={[styles.bootHeroPanel, landscapeTablet && { minHeight: 0 }]}>
         <View style={[styles.bootHeroContent, { width: heroTextWidth }]}>
           <RNText
             maxFontSizeMultiplier={1}
@@ -483,6 +485,7 @@ useEffect(() => {
             }
           }}
         >
+          <ResponsiveAppFrame>
           <Stack.Navigator
             initialRouteName={bootRoute}
             screenOptions={{
@@ -533,6 +536,7 @@ useEffect(() => {
                   initialParams={{ forced: false }}
                 />
           </Stack.Navigator>
+          </ResponsiveAppFrame>
         </NavigationContainer>
 
         {/* ── App Lock overlay — renders above everything ── */}
@@ -651,4 +655,3 @@ const styles = StyleSheet.create({
 });
 
 export default App;
-                                              

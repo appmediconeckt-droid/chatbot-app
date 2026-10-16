@@ -5,6 +5,7 @@ import { ActivityIndicator, Image, Keyboard, Modal, Pressable, ScrollView, Style
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../components/TranslatedText';
+import { useResponsiveLayout } from '../../components/common/ResponsiveLayout';
 import { toImageUri } from '../../utils/imageUri';
 import { API_BASE_URL } from '../../axiosConfig';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
@@ -91,12 +92,13 @@ export function LiveLabel({ text, warning }) {
 }
 
 export function DetailFields({ fields }) {
+  const { isTablet } = useResponsiveLayout();
   return (
     <View style={s.detailGrid}>
       {fields.map(([title, value, fullWidth]) => {
         const shown = Array.isArray(value) ? value.join(', ') : value;
         return (
-          <View key={title} style={[s.detailItem, fullWidth && s.detailItemFull]}>
+          <View key={title} style={[s.detailItem, isTablet && { width: '33.33%' }, fullWidth && s.detailItemFull]}>
             <Text style={s.detailTitle}>{title}</Text>
             <Text translate={false} style={s.detailValue}>
               {shown === undefined || shown === null || shown === '' ? 'Not provided' : String(shown)}
@@ -296,10 +298,11 @@ export function NoticeText({ children, strong, translate }) {
   return <Text translate={translate} style={[s.noticeText, strong && s.noticeStrong]}>{children}</Text>;
 }
 
-export function StatTile({ title, value, icon, tone = 'blue' }) {
+export function StatTile({ title, value, icon, tone = 'blue', tabletColumns = 4 }) {
   const t = TONES[tone] || TONES.blue;
+  const { width } = useResponsiveLayout();
   return (
-    <View style={[s.stat, { borderColor: t.border }]}>
+    <View style={[s.stat, { borderColor: t.border }, width >= 720 && { width: tabletColumns === 3 ? '32%' : '23.5%' }]}>
       <View style={[s.statIcon, { backgroundColor: t.fg }]}>
         <Ionicons name={icon} size={20} color="#FFFFFF" />
       </View>
@@ -639,7 +642,7 @@ const s = StyleSheet.create({
   selectTextActive: { fontWeight: '700' },
   selectText: { flex: 1, fontSize: 14, color: REC.ink },
   sheetOverlay: { flex: 1, backgroundColor: 'rgba(32,50,72,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 18, paddingTop: 10, maxHeight: '80%' },
+  sheet: { width: '100%', maxWidth: 720, alignSelf: 'center', backgroundColor: '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 18, paddingTop: 10, maxHeight: '80%' },
   sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#D0D5DD', alignSelf: 'center', marginBottom: 14 },
   sheetTitle: { fontSize: 17, fontWeight: '700', color: REC.ink, marginBottom: 6 },
   sheetList: { flexGrow: 0 },

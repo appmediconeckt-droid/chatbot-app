@@ -11,6 +11,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../components/TranslatedText';
+import { ResponsiveGrid, useResponsiveLayout } from '../../../components/common/ResponsiveLayout';
 import {
   AlertBox, Card, CardHeading, Empty, Notice, NoticeText, OptionSheet, REC, RecButton, SelectField, StatTile,
 } from '../receptionistUi';
@@ -109,6 +110,7 @@ const groupByPatient = (records = []) => {
 
 export default function PatientsSection() {
   const insets = useSafeAreaInsets();
+  const { isWide } = useResponsiveLayout();
   const [filters, setFilters] = useState(EMPTY);
   const [query, setQuery] = useState(EMPTY);
   const [page, setPage] = useState(1);
@@ -228,9 +230,9 @@ export default function PatientsSection() {
 
       {!!data && (
         <View style={s.stats}>
-          <StatTile title="Patients" value={patients.length} icon="people-outline" tone="teal" />
-          <StatTile title="Completed visits" value={data.summary?.visits} icon="calendar-outline" tone="teal" />
-          <StatTile title="Treatment records" value={data.summary?.prescriptions} icon="document-text-outline" tone="teal" />
+          <StatTile title="Patients" value={patients.length} icon="people-outline" tone="teal" tabletColumns={3} />
+          <StatTile title="Completed visits" value={data.summary?.visits} icon="calendar-outline" tone="teal" tabletColumns={3} />
+          <StatTile title="Treatment records" value={data.summary?.prescriptions} icon="document-text-outline" tone="teal" tabletColumns={3} />
         </View>
       )}
 
@@ -247,7 +249,8 @@ export default function PatientsSection() {
             placeholderTextColor="#94A3B8"
           />
         </View>
-        <View style={s.twoCol}>
+        <View style={isWide && s.filterRow}>
+        <View style={[s.twoCol, isWide && s.flex]}>
           <View style={s.flex}>
             <SelectField
               label="Checked from"
@@ -269,7 +272,7 @@ export default function PatientsSection() {
             />
           </View>
         </View>
-        <View style={s.twoCol}>
+        <View style={[s.twoCol, isWide && s.flex]}>
           <View style={s.flex}>
             <SelectField
               label="Clinic"
@@ -290,8 +293,9 @@ export default function PatientsSection() {
             />
           </View>
         </View>
-        <View style={s.actions}>
-          <RecButton primary label="Apply filters" disabled={loading} onPress={apply} style={s.flex} />
+        </View>
+        <View style={[s.actions, isWide && s.actionsWide]}>
+          <RecButton primary label="Apply filters" disabled={loading} onPress={apply} style={[s.flex, isWide && s.applyWide]} />
           <RecButton danger icon="close-circle-outline" label="Clear" onPress={reset} />
         </View>
 
@@ -306,14 +310,14 @@ export default function PatientsSection() {
                 <NoticeText>Chat prescriptions are not linked to a clinic. Select All clinics to include them.</NoticeText>
               </Notice>
             )}
-            {shown.length ? shown.map((group) => (
+            {shown.length ? <ResponsiveGrid minItemWidth={320}>{shown.map((group) => (
               <PatientCard
                 key={group.key}
                 group={group}
                 doctor={doctorFor(group.latest)}
                 onPress={() => { setOpenPatient(group); setSelected(null); setDownloadError(''); }}
               />
-            )) : <Empty title="No completed visits or prescriptions found" description="Change your filters or refresh after your doctor completes a consultation." />}
+            ))}</ResponsiveGrid> : <Empty title="No completed visits or prescriptions found" description="Change your filters or refresh after your doctor completes a consultation." />}
             <View style={s.pagination}>
               <Text translate={false} style={s.muted}>
                 {patients.length} {patients.length === 1 ? 'patient' : 'patients'} · {data.records?.length || 0} records
@@ -706,6 +710,9 @@ function RxSection({ icon, title, value }) {
 }
 
 const s = StyleSheet.create({
+  filterRow: { flexDirection: 'row', gap: 12 },
+  actionsWide: { justifyContent: 'flex-end' },
+  applyWide: { flex: 0, minWidth: 200 },
   vTable: { borderWidth: 1, borderColor: REC.line, borderRadius: 12, overflow: 'hidden', backgroundColor: '#FFFFFF' },
   vHead: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: '#F6F8FA', borderBottomWidth: 1, borderBottomColor: REC.line },
   vHeadText: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: '#7C8B9A', marginRight: 18 },
@@ -774,7 +781,7 @@ const s = StyleSheet.create({
   pageNow: { fontSize: 13, fontWeight: '700', color: REC.ink },
 
   overlay: { flex: 1, backgroundColor: 'rgba(32,50,72,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 18, paddingTop: 10, height: '90%', maxHeight: '90%' },
+  sheet: { width: '100%', maxWidth: 800, alignSelf: 'center', backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 18, paddingTop: 10, height: '90%', maxHeight: '90%' },
   handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#D0D5DD', alignSelf: 'center', marginBottom: 14 },
   sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   patientSheetHead: { paddingVertical: 6 },

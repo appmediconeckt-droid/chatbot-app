@@ -1,3 +1,5 @@
+import { useMemo as useResponsiveStylesMemo } from 'react';
+import { useWindowDimensions as useResponsiveWindowDimensions } from 'react-native';
 // DoctorOnboarding — runs AFTER DoctorSignup (account creation). A 4-slide,
 // UI-only product tour: it collects nothing. Clinic, availability and
 // credentials are set up later from the dashboard (Clinic Settings /
@@ -12,7 +14,7 @@
 // and is handed on to DoctorDashboard unchanged (cached as `doctorMockProfile`,
 // the key DoctorDashboard reads — see DoctorSignup.jsx).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, TouchableOpacity, StatusBar, Animated, Easing, Dimensions } from 'react-native';
+import { View, ScrollView, TouchableOpacity, StatusBar, Animated, Easing } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Text from '../../components/TranslatedText';
@@ -24,8 +26,8 @@ import useLanguageRender from '../../hooks/useLanguageRender';
 import { createDoctorStyles } from '../../features/doctor/dashboard/theme';
 import { enterAuthenticatedRoute } from '../../utils/authSession';
 
-const { width, height } = Dimensions.get('window');
-const HERO_SIZE = Math.min(width - 48, height * 0.42, 340);
+
+
 const GRADIENT = [CLINICIAN.gradientFrom, CLINICIAN.gradientTo];
 
 const SLIDES = [
@@ -75,8 +77,9 @@ const SLIDES = [
 // Illustrations — small "app preview" cards built from Views, floating over a
 // gradient orb. `float` is a shared looping value for the gentle bob.
 // ---------------------------------------------------------------------------
-const Orb = ({ children, pulse }) => (
-  <View style={s.orbWrap}>
+const Orb = ({ children, pulse }) => {
+  const { s } = useResponsiveScreenStyles();
+  return (<View style={s.orbWrap}>
     <Animated.View
       style={[s.orbHalo, pulse && {
         opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 0.45] }),
@@ -87,8 +90,8 @@ const Orb = ({ children, pulse }) => (
       <View style={s.orbShine} />
       {children}
     </LinearGradient>
-  </View>
-);
+  </View>);
+};
 
 const Float = ({ float, pop, range = 8, style, children }) => (
   <Animated.View
@@ -101,8 +104,9 @@ const Float = ({ float, pop, range = 8, style, children }) => (
   </Animated.View>
 );
 
-const WelcomeArt = ({ float, t, pulse, pop }) => (
-  <Orb pulse={pulse}>
+const WelcomeArt = ({ float, t, pulse, pop }) => {
+  const { s } = useResponsiveScreenStyles();
+  return (<Orb pulse={pulse}>
     <Float float={float} pop={pop} range={10}>
       <View style={s.bigIconRing}><Icon name="stethoscope" size={64} color="#FFFFFF" /></View>
     </Float>
@@ -117,12 +121,13 @@ const WelcomeArt = ({ float, t, pulse, pop }) => (
       <View style={[s.miniIcon, { backgroundColor: '#DCFCE7' }]}><Icon name="check-decagram" size={15} color="#16A34A" /></View>
       <Text style={s.miniTitle}>{t('Verified')}</Text>
     </Float>
-  </Orb>
-);
+  </Orb>);
+};
 
 const WEEK = ['M', 'T', 'W', 'T', 'F', 'S'];
-const CalendarArt = ({ float, t, pulse, pop }) => (
-  <Orb pulse={pulse}>
+const CalendarArt = ({ float, t, pulse, pop }) => {
+  const { s } = useResponsiveScreenStyles();
+  return (<Orb pulse={pulse}>
     <Float float={float} pop={pop} range={6} style={s.panel}>
       <View style={s.panelHead}>
         <Icon name="calendar-month" size={16} color={CLINICIAN.gradientFrom} />
@@ -149,11 +154,12 @@ const CalendarArt = ({ float, t, pulse, pop }) => (
       <View style={[s.miniIcon, { backgroundColor: '#CCFBF1' }]}><Icon name="clock-outline" size={15} color={CLINICIAN.gradientFrom} /></View>
       <Text style={s.miniTitle}>9 AM – 1 PM</Text>
     </Float>
-  </Orb>
-);
+  </Orb>);
+};
 
-const QueueArt = ({ float, t, pulse, pop }) => (
-  <Orb pulse={pulse}>
+const QueueArt = ({ float, t, pulse, pop }) => {
+  const { s } = useResponsiveScreenStyles();
+  return (<Orb pulse={pulse}>
     <Float float={float} pop={pop} range={6} style={s.tokenCard}>
       <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.fill} />
       <Text style={s.tokenLabel}>{t('NOW SERVING')}</Text>
@@ -169,11 +175,12 @@ const QueueArt = ({ float, t, pulse, pop }) => (
       <View style={[s.miniIcon, { backgroundColor: '#CCFBF1' }]}><Icon name="account-clock-outline" size={15} color={CLINICIAN.gradientFrom} /></View>
       <Text style={s.miniTitle}>{t('Walk-in #08')}</Text>
     </Float>
-  </Orb>
-);
+  </Orb>);
+};
 
-const RecordsArt = ({ float, t, pulse, pop }) => (
-  <Orb pulse={pulse}>
+const RecordsArt = ({ float, t, pulse, pop }) => {
+  const { s } = useResponsiveScreenStyles();
+  return (<Orb pulse={pulse}>
     <Float float={float} pop={pop} range={6} style={s.panel}>
       <View style={s.panelHead}>
         <Icon name="prescription" size={18} color={CLINICIAN.gradientFrom} />
@@ -198,8 +205,8 @@ const RecordsArt = ({ float, t, pulse, pop }) => (
         <Text style={s.miniSub}>{t('in 7 days')}</Text>
       </View>
     </Float>
-  </Orb>
-);
+  </Orb>);
+};
 
 const ART = { welcome: WelcomeArt, calendar: CalendarArt, queue: QueueArt, records: RecordsArt };
 
@@ -207,6 +214,7 @@ const ART = { welcome: WelcomeArt, calendar: CalendarArt, queue: QueueArt, recor
 // One slide: parallax on the illustration and text, driven by scrollX.
 // ---------------------------------------------------------------------------
 const Slide = ({ slide, index, scrollX, float, t, pulse, pop, pageWidth }) => {
+  const { s } = useResponsiveScreenStyles();
   const inputRange = [(index - 1) * pageWidth, index * pageWidth, (index + 1) * pageWidth];
   const artStyle = {
     opacity: scrollX.interpolate({ inputRange, outputRange: [0, 1, 0], extrapolate: 'clamp' }),
@@ -222,7 +230,7 @@ const Slide = ({ slide, index, scrollX, float, t, pulse, pop, pageWidth }) => {
   const Art = ART[slide.key];
 
   return (
-    <View style={[s.slide, { width: pageWidth }]}>
+    <ScrollView style={{ width: pageWidth }} contentContainerStyle={s.slide} showsVerticalScrollIndicator={false}>
       <Animated.View style={[s.artArea, artStyle]}>
         <Art float={float} t={t} pulse={pulse} pop={pop} />
       </Animated.View>
@@ -242,11 +250,12 @@ const Slide = ({ slide, index, scrollX, float, t, pulse, pop, pageWidth }) => {
           ))}
         </Animated.View>
       </View>
-    </View>
+    </ScrollView>
   );
 };
 
 const DoctorOnboarding = ({ navigation, route }) => {
+  const { width, s } = useResponsiveScreenStyles();
   const { t } = useLanguageRender();
   const [page, setPage] = useState(0);
   const scrollRef = useRef(null);
@@ -388,7 +397,7 @@ const DoctorOnboarding = ({ navigation, route }) => {
 
 const CARD_SHADOW = { shadowColor: '#0F172A', shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6 };
 
-const s = createDoctorStyles({
+const makeResponsiveStyles = (width, height, HERO_SIZE) => createDoctorStyles({
   container: { flex: 1, backgroundColor: CLINICIAN.backgroundTint },
   bgBlob: { position: 'absolute', borderRadius: 999, backgroundColor: '#CCFBF1' },
   bgBlobTop: { width: 260, height: 260, top: -120, right: -90, opacity: 0.55 },
@@ -404,9 +413,9 @@ const s = createDoctorStyles({
   pager: { flex: 1 },
   // No flex: 1 — in a horizontal pager that flexes the width (flexBasis 0),
   // overriding the exact page width. Height fills via cross-axis stretch.
-  slide: { paddingHorizontal: 24 },
-  artArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  textArea: { paddingBottom: 8, alignItems: 'center' },
+  slide: { flexGrow: 1, paddingHorizontal: 24, flexDirection: width >= 900 || (width >= 600 && height < 600) ? 'row' : 'column', alignItems: 'center' },
+  artArea: { flex: 1, minHeight: HERO_SIZE + 48, width: '100%', alignItems: 'center', justifyContent: 'center' },
+  textArea: { flex: width >= 900 || (width >= 600 && height < 600) ? 1 : 0, width: '100%', maxWidth: 620, paddingBottom: 12, alignItems: 'center' },
 
   orbWrap: { width: HERO_SIZE, height: HERO_SIZE, alignItems: 'center', justifyContent: 'center' },
   orbHalo: { position: 'absolute', width: HERO_SIZE, height: HERO_SIZE, borderRadius: HERO_SIZE / 2, backgroundColor: 'rgba(45,212,191,0.16)' },
@@ -472,3 +481,10 @@ const s = createDoctorStyles({
 });
 
 export default DoctorOnboarding;
+
+function useResponsiveScreenStyles() {
+  const { width, height } = useResponsiveWindowDimensions();
+  const HERO_SIZE = Math.min(width - 48, height * 0.42, 340);
+  const s = useResponsiveStylesMemo(() => makeResponsiveStyles(width, height, HERO_SIZE), [width, height, HERO_SIZE]);
+  return { width, height, HERO_SIZE, s };
+}

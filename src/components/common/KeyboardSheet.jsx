@@ -19,7 +19,8 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Keyboard, Platform, ScrollView, TextInput, View } from 'react-native';
+import { Keyboard, Platform, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
+import { MAX_SHEET_WIDTH } from '../../utils/responsiveLayout';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const FOCUSED_INPUT_GAP = 16;
@@ -70,8 +71,9 @@ export function useSheetBottomPadding(base = 16) {
 // bottom by `bottomPadding` (+ the navigation bar while the keyboard is closed).
 export function KeyboardSheet({ style, bottomPadding = 16, children, ...rest }) {
   const paddingBottom = useSheetBottomPadding(bottomPadding);
+  const { width } = useWindowDimensions();
   return (
-    <View {...rest} style={[style, { flexShrink: 1, paddingBottom }]}>
+    <View {...rest} style={[style, { flexShrink: 1, paddingBottom, width: '100%', maxWidth: width >= 600 ? MAX_SHEET_WIDTH : undefined, alignSelf: 'center' }]}>
       {children}
     </View>
   );

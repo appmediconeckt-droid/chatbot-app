@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { ResponsiveContent, useContentDimensions } from '../../../../../components/common/ResponsiveLayout';
 import { resetToLoginScreen } from '../../../../../navigationRef';
 import { useTranslation } from 'react-i18next';
 import useLanguageRender from '../../../../../hooks/useLanguageRender';
@@ -39,6 +40,7 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import LinearGradient from 'react-native-linear-gradient';
 import { BlurView } from "@react-native-community/blur";
 import safeVibrate from "../../../../../utils/safeVibrate";
+import { getKeyboardCoverage } from "../../../../../utils/keyboardCoverage";
 import {
   INCOMING_RING_TIMEOUT_MS,
   forceStopRingtone,
@@ -348,14 +350,13 @@ const ChatPopup = ({
         // Overlap between the keyboard and this full-screen popup overlay.
         // If the OS did resize the window, the overlay already ends above
         // the keyboard and the overlap is 0, so nothing is counted twice.
-        const kbTop = event?.endCoordinates?.screenY;
-        const kbHeight = event?.endCoordinates?.height || 0;
-        const overlap = Number.isFinite(kbTop) && kbTop > 0
-          ? Math.max(0, overlayHeightRef.current - kbTop)
-          : kbHeight;
+        // getKeyboardCoverage also covers RN's first-open event, which reports
+        // a keyboard still sliding in (height ≈ 2) — that used to leave the
+        // input under the keyboard the first time the assistant was used.
+        const coverage = getKeyboardCoverage(event);
+        const overlap = Math.max(0, overlayHeightRef.current - (Dimensions.get('screen').height - coverage));
         animate();
-        setKeyboardInset(overlap);
-      }
+        setKeyboardInset(overlap);      }
       setKeyboardVisible(true);
     });
     const hide = Keyboard.addListener(hideEvt, () => {
@@ -2381,7 +2382,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 };
 
 export default function UserDashboard() {
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useContentDimensions();
   const [avatarFailed, setAvatarFailed] = useState(false);
   // The bottom tab bar had a fixed paddingBottom (6 on Android), so on a phone
   // with gesture navigation its labels were clipped by the gesture bar.
@@ -2424,7 +2425,7 @@ export default function UserDashboard() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
-  const [isMobile, setIsMobile] = useState(windowWidth <= 768);
+  const isMobile = windowWidth <= 768;
   const [isLoading, setIsLoading] = useState(false);
   const [aiSessionId, setAiSessionId] = useState(null);
   const [showMoreModal, setShowMoreModal] = useState(false);
@@ -2565,10 +2566,6 @@ export default function UserDashboard() {
       useNativeDriver: true,
     }).start();
   }, []);
-
-  useEffect(() => {
-    setIsMobile(windowWidth <= 768);
-  }, [windowWidth]);
 
   // Reload user's language whenever this dashboard gains focus
   useEffect(() => {
@@ -3765,7 +3762,7 @@ export default function UserDashboard() {
 
       {/* MAIN CONTENT */}
       <View style={[styles.contentContainer, { marginBottom: bottomNavHeight }]}>
-        {renderContent()}
+        <ResponsiveContent>{renderContent()}</ResponsiveContent>
       </View>
 
       {/* CHAT POPUP */}

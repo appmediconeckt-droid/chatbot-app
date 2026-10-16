@@ -1,3 +1,5 @@
+import { useMemo as useResponsiveStylesMemo } from 'react';
+import { useWindowDimensions as useResponsiveWindowDimensions } from 'react-native';
 // SMSInput.js - Fully Responsive Chat Interface with working avatar logic (mirrors SMSList)
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { resetToLoginScreen } from '../../../../../../navigationRef';
@@ -10,8 +12,7 @@ import {
   FlatList,
   ActivityIndicator,
   Modal,
-  Dimensions,
-  Alert,
+    Alert,
   KeyboardAvoidingView,
   Keyboard,
   Platform,
@@ -68,7 +69,7 @@ import { DEFAULT_PRESCRIPTION_THEME_ID } from '../../../../../../utils/prescript
 import { DEFAULT_PRESCRIPTION_VALID_DAYS } from '../../../../../../utils/prescriptionValidity';
 import { KeyboardSheet, KeyboardSheetOverlay, KeyboardSheetScroll } from '../../../../../../components/common/KeyboardSheet';
 
-const { width: screenWidth } = Dimensions.get('window');
+
 
 const getPrescriptionAssetUri = (source, keys) => {
   for (const key of keys) {
@@ -322,6 +323,7 @@ const IncomingCallModal = ({
   onJoinCall,
   onRejectCall,
 }) => {
+  const { styles } = useResponsiveScreenStyles();
   const { t } = useLanguageRender();
   const insets = useSafeAreaInsets();
   const [isJoining, setIsJoining] = useState(false);
@@ -461,6 +463,7 @@ const IncomingCallModal = ({
 
 // ─── Main Component ────────────────────────────────────────────────────────
 const SMSInput = ({ navigation, route }) => {
+  const { styles } = useResponsiveScreenStyles();
   const { t } = useLanguageRender();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
@@ -2739,7 +2742,7 @@ const SMSInput = ({ navigation, route }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const makeResponsiveScreenStyles = (screenWidth) => StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
   keyboardAvoid: { flex: 1 },
   keyboardAvoidContent: { flex: 1 },
@@ -3384,3 +3387,9 @@ const styles = StyleSheet.create({
 });
 
 export default SMSInput;
+
+function useResponsiveScreenStyles() {
+  const { width: screenWidth } = useResponsiveWindowDimensions();
+  const styles = useResponsiveStylesMemo(() => makeResponsiveScreenStyles(screenWidth), [screenWidth]);
+  return { screenWidth, styles };
+}

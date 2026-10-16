@@ -930,12 +930,6 @@ const CounselorRequestChat = ({
                   <Text style={styles.cardMetaText}>{Number(item.rating).toFixed(1)}</Text>
                 </>
               )}
-              {item.isNearby && (
-                <View style={styles.nearbyBadge}>
-                  <Ionicons name="location" size={10} color={PATIENT.primary} />
-                  <Text style={styles.nearbyBadgeText}>{item.distanceLabel}</Text>
-                </View>
-              )}
             </View>
           </View>
 
@@ -1121,7 +1115,7 @@ const CounselorRequestChat = ({
   const filterChips = (() => {
     return [
       { id: 'all', label: t('common:all', 'All') },
-      ...(hasNearbyAvailable ? [{ id: 'nearby', label: t('common:nearby', 'Nearby') }] : []),
+      // No Nearby chip on the Consultants tab (removed on request).
       { id: 'online', label: t('common:online', 'Online') },
       { id: 'offline', label: t('common:offline', 'Offline') },
       { id: 'doctor', label: t('appointment:doctors', 'Doctors') },

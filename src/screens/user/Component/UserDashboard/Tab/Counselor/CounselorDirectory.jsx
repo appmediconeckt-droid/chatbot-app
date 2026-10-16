@@ -1,3 +1,5 @@
+import { useMemo as useResponsiveStylesMemo } from 'react';
+import { useWindowDimensions as useResponsiveWindowDimensions } from 'react-native';
 // CounselorDirectoryScreen.js
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
@@ -11,14 +13,14 @@ import {
   StatusBar,
   Modal,
   ScrollView,
-  Dimensions,
-  StyleSheet,
+    StyleSheet,
   Alert,
   AppState,
   KeyboardAvoidingView,
 } from "react-native";
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import Text from '../../../../../../components/TranslatedText';
+import { useContentDimensions } from '../../../../../../components/common/ResponsiveLayout';
 import useLanguageRender from "../../../../../../hooks/useLanguageRender";
 import TranslatedMessageBubble from "../../../../../../components/TranslatedMessageBubble";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -53,8 +55,9 @@ const GRADIENT_END = { x: 1, y: 0.5 };
  * Both states render the same tree with the same metrics - only the gradient
  * stops and text colour change - so selecting a chip never resizes the row.
  */
-const FilterChip = ({ label, active, onPress }) => (
-  <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={styles.filterChipWrap}>
+const FilterChip = ({ label, active, onPress }) => {
+  const { styles } = useResponsiveScreenStyles();
+  return (<TouchableOpacity onPress={onPress} activeOpacity={0.85} style={styles.filterChipWrap}>
     <LinearGradient
       colors={active ? WALLET_GRADIENT : TRANSPARENT_GRADIENT}
       start={GRADIENT_START}
@@ -63,8 +66,8 @@ const FilterChip = ({ label, active, onPress }) => (
     >
       <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{label}</Text>
     </LinearGradient>
-  </TouchableOpacity>
-);
+  </TouchableOpacity>);
+};
 
 // Psychiatrists are medical doctors (can prescribe); everyone else in this
 // directory is a non-medical counselor/therapist. Same classifier already
@@ -79,15 +82,16 @@ const FilterChip = ({ label, active, onPress }) => (
 const isDoctorRole = (person) =>
   isPsychiatristSpecialization(person?.specialization);
 
-const RoleBadge = ({ isDoctor }) => (
-  <View style={[styles.roleBadge, isDoctor ? styles.roleBadgeDoctor : styles.roleBadgeConsultant]}>
+const RoleBadge = ({ isDoctor }) => {
+  const { styles } = useResponsiveScreenStyles();
+  return (<View style={[styles.roleBadge, isDoctor ? styles.roleBadgeDoctor : styles.roleBadgeConsultant]}>
     <Text style={[styles.roleBadgeText, isDoctor ? styles.roleBadgeTextDoctor : styles.roleBadgeTextConsultant]}>
       {isDoctor ? 'Doctor' : 'Consultant'}
     </Text>
-  </View>
-);
+  </View>);
+};
 
-const { width, height } = Dimensions.get("window");
+
 
 // Counselor availability status → display color + label (mirrors the counselor
 // settings picker). 'offline' is used as the fallback when status is unknown.
@@ -153,6 +157,9 @@ const getProfilePhotoUrl = (counselor) => {
 };
 
 const CounselorDirectoryScreen = ({ navigation }) => {
+  const { styles } = useResponsiveScreenStyles();
+  const { width: contentWidth } = useContentDimensions();
+  const columns = contentWidth >= 900 ? 2 : 1;
   const insets = useSafeAreaInsets();
   const { t } = useLanguageRender();
   const [searchTerm, setSearchTerm] = useState("");
@@ -848,8 +855,10 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
 
       <FlatList
+        key={`consultants-${columns}`}
+        numColumns={columns}
         data={filteredAndSortedCounselors}
-        renderItem={renderCounselorCard}
+        renderItem={(item) => <View style={{ flex: 1, maxWidth: `${100 / columns}%` }}>{renderCounselorCard(item)}</View>}
         keyExtractor={(item) => item.id}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -1181,7 +1190,7 @@ const CounselorDirectoryScreen = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const makeResponsiveScreenStyles = (width, height) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F8FAFC",
@@ -1662,6 +1671,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   modalContent: {
+    maxWidth: 720,
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -1853,3 +1863,9 @@ const styles = StyleSheet.create({
 
 // Export for Android only - single default export
 export default CounselorDirectoryScreen;
+
+function useResponsiveScreenStyles() {
+  const { width, height } = useResponsiveWindowDimensions();
+  const styles = useResponsiveStylesMemo(() => makeResponsiveScreenStyles(width, height), [width, height]);
+  return { width, height, styles };
+}

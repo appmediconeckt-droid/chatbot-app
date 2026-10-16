@@ -218,7 +218,7 @@ function Detail({ label, value, last }) {
 
 const s = createDoctorStyles({
   safeArea: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 14, paddingBottom: 32 },
+  content: { width: '100%', maxWidth: 900, alignSelf: 'center', padding: 14, paddingBottom: 32 },
   grow: { flex: 1 },
 
   hero: { borderRadius: 18, padding: 16 },

@@ -5,7 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Animated,
-  Dimensions,
+  useWindowDimensions,
   StatusBar,
   Vibration,
   Platform,
@@ -32,7 +32,6 @@ import { getStoredThemeRole, paletteForRole } from '../../theme/rolePalette';
 import AuthBackground from '../../theme/AuthBackground';
 import useLanguageRender from '../../hooks/useLanguageRender';
 
-const { width, height } = Dimensions.get('window');
 const PIN_LENGTH = 4;
 export const PIN_STORAGE_KEY = 'appLockPin';
 export const BIOMETRIC_LOCK_STORAGE_KEY = 'appLockBiometricEnabled';
@@ -144,6 +143,7 @@ const AppLockScreen = ({
   forced = false,
 }) => {
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const { t } = useLanguageRender();
   const [pin, setPin] = useState('');
   const [errorMsg, setErrorMsg] = useState('');

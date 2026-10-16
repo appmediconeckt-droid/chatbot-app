@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useLanguageRender } from '../../../../../hooks/useLanguageRender';
 import { resetToLoginScreen } from '../../../../../navigationRef';
+import { ResponsiveContent, useContentDimensions } from '../../../../../components/common/ResponsiveLayout';
 import {
   Image,
   View,
@@ -9,7 +10,6 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
-  useWindowDimensions,
   Platform,
   Animated,
   Easing,
@@ -865,7 +865,7 @@ const AppointmentSkeletonCard = () => {
 // â”€â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function CounselorDashboard() {
   const { t } = useLanguageRender();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth } = useContentDimensions();
   const insets = useSafeAreaInsets();
   const MOBILE_HEADER_BAR_HEIGHT = 60;
   const MOBILE_BOTTOM_NAV_BAR_HEIGHT = 66;
@@ -888,7 +888,7 @@ export default function CounselorDashboard() {
   // True when the menu is on screen only because a back press re-opened it, so
   // the tab behind it is the one already backed out of.
   const menuViaBackRef = useRef(false);
-  const [isMobile, setIsMobile] = useState(windowWidth <= 768);
+  const isMobile = windowWidth < 900;
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [pendingRequests, setPendingRequests] = useState([]);
@@ -1072,10 +1072,6 @@ export default function CounselorDashboard() {
     const embeddedMatch = asString.match(/[a-f\d]{24}/i);
     return embeddedMatch ? embeddedMatch[0] : null;
   };
-
-  useEffect(() => {
-    setIsMobile(windowWidth <= 768);
-  }, [windowWidth]);
 
   // â”€â”€ Fetch Appointments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const aptSocketRef = useRef(null);
@@ -3188,9 +3184,9 @@ export default function CounselorDashboard() {
             { flexDirection: 'column' },
           ]}
         >
-          <View style={{ flex: 1 }}>
+          <ResponsiveContent>
             {renderTabContent()}
-          </View>
+          </ResponsiveContent>
         </View>
 
         {/* Chat Request Modal */}

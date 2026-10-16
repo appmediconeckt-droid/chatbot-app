@@ -162,7 +162,7 @@ export default function EditProfileSheet({ visible, profile, onClose, onSaved })
 const s = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   overlay: { flex: 1, backgroundColor: 'rgba(32,50,72,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 18, paddingTop: 10, maxHeight: '92%' },
+  sheet: { width: '100%', maxWidth: 600, alignSelf: 'center', backgroundColor: '#FFFFFF', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 18, paddingTop: 10, maxHeight: '92%' },
   handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#D0D5DD', alignSelf: 'center', marginBottom: 14 },
   head: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 6 },
   title: { fontSize: 19, fontWeight: '800', color: REC.ink },

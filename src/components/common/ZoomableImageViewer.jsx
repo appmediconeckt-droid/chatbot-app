@@ -6,7 +6,7 @@ import {
   Animated,
   PanResponder,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   TouchableOpacity,
   StatusBar,
 } from 'react-native';
@@ -48,7 +48,9 @@ const distance = (touches) => {
 
 const ZoomableImageViewer = ({ visible, uri, onClose }) => {
   const { t } = useLanguageRender();
-  const { width, height } = Dimensions.get('window');
+  const { width, height } = useWindowDimensions();
+  const viewportRef = useRef({ width, height });
+  viewportRef.current = { width, height };
 
   const scale = useRef(new Animated.Value(1)).current;
   const translateX = useRef(new Animated.Value(0)).current;
@@ -68,8 +70,8 @@ const ZoomableImageViewer = ({ visible, uri, onClose }) => {
 
   // How far the image may be dragged before its edge pulls inside the screen.
   const maxOffset = useCallback(
-    (s) => ({ x: (Math.max(s, 1) - 1) * width * 0.5, y: (Math.max(s, 1) - 1) * height * 0.5 }),
-    [width, height],
+    (s) => ({ x: (Math.max(s, 1) - 1) * viewportRef.current.width * 0.5, y: (Math.max(s, 1) - 1) * viewportRef.current.height * 0.5 }),
+    [],
   );
 
   const setTransform = useCallback(
@@ -108,7 +110,7 @@ const ZoomableImageViewer = ({ visible, uri, onClose }) => {
   // A reopened viewer must start at 1x, not wherever the last image was left.
   useEffect(() => {
     if (visible) reset();
-  }, [visible, reset]);
+  }, [visible, reset, width, height]);
 
   const pan = useRef(
     PanResponder.create({

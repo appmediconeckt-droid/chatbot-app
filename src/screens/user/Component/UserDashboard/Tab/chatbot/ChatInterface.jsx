@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
   SafeAreaView,
   StatusBar,
-  Dimensions,
   Animated,
   Platform,
   Pressable,
@@ -43,7 +42,6 @@ const TRANSPARENT_GRADIENT = ['transparent', 'transparent'];
 const GRADIENT_START = { x: 0, y: 0.5 };
 const GRADIENT_END = { x: 1, y: 0.5 };
 
-const { width: screenWidth } = Dimensions.get('window');
 
 const ChatListSkeleton = () => {
   const anim = useRef(new Animated.Value(0)).current;
@@ -571,7 +569,7 @@ const ChatInterface = ({ setActiveTab, onOpenCounselor }) => {
       { id: 'all', label: t('common:all', 'All') },
       { id: 'online', label: t('common:online', 'Online') },
       { id: 'offline', label: t('common:offline', 'Offline') },
-      { id: 'nearby', label: t('common:nearby', 'Nearby') },
+      // No Nearby chip (removed on request) — activeFilter can no longer be 'nearby'.
     ];
   }, [t]);
 
@@ -1361,7 +1359,8 @@ const styles = {
     alignItems: 'center',
   },
   modalContainer: {
-    width: screenWidth - 48,
+    width: '88%',
+    maxWidth: 520,
     backgroundColor: '#ffffff',
     borderRadius: 16,
     overflow: 'hidden',

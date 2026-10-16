@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   StatusBar,
-  Dimensions,
 } from 'react-native';
 import Text from '../../components/TranslatedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,8 +15,8 @@ import PATIENT from '../../theme/palette';
 import useLanguageRender from '../../hooks/useLanguageRender';
 import HumaeliHeroVideo from '../../components/common/HumaeliHeroVideo';
 import { enterAuthenticatedRoute } from '../../utils/authSession';
+import { useContentDimensions } from '../../components/common/ResponsiveLayout';
 
-const { width } = Dimensions.get('window');
 
 const OnboardingPage1 = () => {
   const { t } = useLanguageRender();
@@ -150,6 +149,8 @@ const OnboardingPage4 = () => {
 };
 
 const UserOnboarding = ({ navigation, route, previewMode = false, onPreviewComplete }) => {
+  const { width } = useContentDimensions();
+  const [pageWidth, setPageWidth] = useState(width);
   const { t } = useLanguageRender();
   const [currentPage, setCurrentPage] = useState(0);
   const scrollViewRef = useRef(null);
@@ -176,7 +177,7 @@ const UserOnboarding = ({ navigation, route, previewMode = false, onPreviewCompl
   const goToNextPage = () => {
     if (currentPage < pages.length - 1) {
       setCurrentPage(currentPage + 1);
-      scrollViewRef.current?.scrollTo({ x: (currentPage + 1) * width, animated: true });
+      scrollViewRef.current?.scrollTo({ x: (currentPage + 1) * pageWidth, animated: true });
     } else {
       finishOnboarding();
     }
@@ -194,7 +195,7 @@ const UserOnboarding = ({ navigation, route, previewMode = false, onPreviewCompl
   }, [currentPage, previewMode]);
 
   const onScroll = (event) => {
-    const pageNumber = Math.round(event.nativeEvent.contentOffset.x / width);
+    const pageNumber = Math.round(event.nativeEvent.contentOffset.x / pageWidth);
     setCurrentPage(pageNumber);
   };
 
@@ -220,8 +221,18 @@ const UserOnboarding = ({ navigation, route, previewMode = false, onPreviewCompl
         showsHorizontalScrollIndicator={false}
         scrollEnabled={true}
         style={s.pagesScroll}
+        onLayout={(event) => {
+          const nextWidth = event.nativeEvent.layout.width;
+          if (!nextWidth || nextWidth === pageWidth) return;
+          setPageWidth(nextWidth);
+          requestAnimationFrame(() => scrollViewRef.current?.scrollTo({ x: currentPage * nextWidth, animated: false }));
+        }}
       >
-        {pages}
+        {pages.map((page, index) => (
+          <View key={index} style={{ width: pageWidth }}>
+            <ScrollView contentContainerStyle={s.pageContent} showsVerticalScrollIndicator={false}>{page}</ScrollView>
+          </View>
+        ))}
       </ScrollView>
 
       {/* Dots */}
@@ -262,7 +273,8 @@ const s = StyleSheet.create({
   skipText: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
 
   pagesScroll: { flex: 1 },
-  page: { width, paddingHorizontal: 24, paddingTop: 20, paddingBottom: 12, justifyContent: 'center', gap: 18 },
+  pageContent: { flexGrow: 1, justifyContent: 'center' },
+  page: { width: '100%', maxWidth: 620, alignSelf: 'center', paddingHorizontal: 24, paddingTop: 20, paddingBottom: 12, justifyContent: 'center', gap: 18 },
 
   onboardingVideoCard: { width: '100%', aspectRatio: 1.4, overflow: 'hidden', backgroundColor: '#E6F6EC', borderRadius: 24, marginBottom: 8 },
   secondOnboardingVideoCard: { backgroundColor: 'transparent', borderRadius: 16 },
@@ -289,7 +301,7 @@ const s = StyleSheet.create({
   dotsContainer: { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 20 },
   dot: { height: 8, borderRadius: 4 },
 
-  buttonWrapper: { paddingHorizontal: 20, marginBottom: 20 },
+  buttonWrapper: { width: '100%', maxWidth: 560, alignSelf: 'center', paddingHorizontal: 20, marginBottom: 20 },
   nextBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 14, paddingVertical: 14 },
   nextBtnText: { fontSize: 16, fontWeight: '800', color: '#ffffff' },
 });

@@ -51,6 +51,11 @@ const GoogleProfileCompletionModal = ({
   accentColor = '#00652C',
   gradientColors = SAVE_BUTTON_GRADIENT,
 }) => {
+  const [screenHeight, setScreenHeight] = useState(() => Dimensions.get('screen').height);
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', ({ screen }) => setScreenHeight(screen.height));
+    return () => subscription.remove();
+  }, []);
   const [anonymous, setAnonymous] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [phoneCountryCode, setPhoneCountryCode] = useState('+91');
@@ -71,7 +76,7 @@ const GoogleProfileCompletionModal = ({
   const scrollTimerRef = useRef(null);
   // Screen (not window) height, so the card size never changes when the
   // activity window resizes for the keyboard behind the modal.
-  const maxCardHeight = Dimensions.get('screen').height - CARD_SCREEN_GAP;
+  const maxCardHeight = screenHeight - CARD_SCREEN_GAP;
 
   // Same as the Signup screen: the card and its header stay put, the fields
   // scroll inside the card, the keyboard-covered part of the form becomes extra

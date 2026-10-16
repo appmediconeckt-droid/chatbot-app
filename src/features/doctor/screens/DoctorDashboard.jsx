@@ -6,8 +6,9 @@
 //   breaks    GET /api/doctor-breaks/active, POST /start, PATCH /:id/end
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resetToLoginScreen } from '../../../navigationRef';
-import { ActivityIndicator, Alert, BackHandler, Dimensions, Modal, Pressable, RefreshControl, ScrollView, ToastAndroid, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Modal, Pressable, RefreshControl, ScrollView, ToastAndroid, TouchableOpacity, View } from 'react-native';
 import Text from '../../../components/TranslatedText';
+import { ResponsiveGrid } from '../../../components/common/ResponsiveLayout';
 import VitalsSummary from '../../../components/VitalsSummary';
 import TextInput from '../../../components/TranslatedTextInput';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -79,7 +80,6 @@ import UpdateReminderModal from '../../../components/UpdateReminderModal';
 import { KeyboardSheetOverlay } from '../../../components/common/KeyboardSheet';
 import { useToast } from '../../../components/common/ToastProvider';
 
-const { width } = Dimensions.get('window');
 
 // Same events the counsellor dashboard refreshes on, so a booking shows up on
 // the doctor's queue as soon as the server announces it.
@@ -248,7 +248,7 @@ function InfoTile({ icon, label, value, wide }) {
 const consentStyles = createDoctorStyles({
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', justifyContent: 'flex-end' },
   backdropTap: { flex: 1 },
-  sheet: { maxHeight: '90%', backgroundColor: colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' },
+  sheet: { width: '100%', maxWidth: 720, alignSelf: 'center', maxHeight: '90%', backgroundColor: colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' },
   header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 },
   handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.55)', marginBottom: 12 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -473,7 +473,7 @@ function BreakModal({ visible, onClose, onStartBreak }) {
 
 const modalStyles = createDoctorStyles({
   overlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center' },
-  content: { backgroundColor: '#FFFFFF', borderRadius: 24, width: width - 48, paddingHorizontal: 24, paddingBottom: 28, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8, overflow: 'hidden' },
+  content: { backgroundColor: '#FFFFFF', borderRadius: 24, width: '88%', maxWidth: 520, maxHeight: '90%', paddingHorizontal: 24, paddingBottom: 28, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8, overflow: 'hidden' },
   headerBlock: { width: '100%', marginHorizontal: -24 },
   headerRow: { flexDirection: 'row', alignItems: 'center', paddingTop: 22, paddingBottom: 16, paddingHorizontal: 24, gap: 10 },
   title: { ...typography.subtitle, fontSize: 20, color: '#1A2B3C' },
@@ -1534,7 +1534,7 @@ export default function DoctorDashboard({ navigation }) {
               <Text style={styles.emptyHint}>Appointments in this queue will show up here.</Text>
             </View>
           ) : (
-            visibleQueue.map((item, index) => (
+            <ResponsiveGrid minItemWidth={350} maxColumns={2}>{visibleQueue.map((item, index) => (
               <AppointmentCard
                 key={`${activeTab}-${item.id}`}
                 item={item}
@@ -1550,7 +1550,7 @@ export default function DoctorDashboard({ navigation }) {
                 onPrescription={(appt) => setPrescriptionAppointment(appt)}
                 onCall={handleCall}
               />
-            ))
+            ))}</ResponsiveGrid>
           )}
         </ScrollView>
       );

@@ -1,3 +1,5 @@
+import { useMemo as useResponsiveStylesMemo } from 'react';
+import { useWindowDimensions as useResponsiveWindowDimensions } from 'react-native';
 // CounselorProfile.jsx - Modern Full Width Design
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,8 +13,7 @@ import {
   StyleSheet,
   Platform,
   KeyboardAvoidingView,
-  Dimensions,
-  Animated,
+    Animated,
 } from 'react-native';
 import TextInput from '../../../../../../components/TranslatedTextInput';
 import Text from '../../../../../../components/TranslatedText';
@@ -48,7 +49,7 @@ import {
   toDateOnlyString,
 } from '../../../../../../utils/dateOfBirth';
 
-const { width } = Dimensions.get('window');
+
 
 // Document upload specifications (same as web)
 const MAX_CERTIFICATION_DOCUMENTS = 5;
@@ -233,6 +234,7 @@ const getAuthResponseCounsellorId = (raw = {}) =>
   readCounsellorId(raw?.counsellor || raw?.counselor || raw?.user || raw?.data || raw);
 
 const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
+  const { styles } = useResponsiveScreenStyles();
   const navigation = useNavigation();
   const {
     scrollRef: kbScrollRef,
@@ -2275,7 +2277,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const makeResponsiveScreenStyles = (width) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
@@ -3582,3 +3584,9 @@ const styles = StyleSheet.create({
 });
 
 export default CounselorProfile;
+
+function useResponsiveScreenStyles() {
+  const { width } = useResponsiveWindowDimensions();
+  const styles = useResponsiveStylesMemo(() => makeResponsiveScreenStyles(width), [width]);
+  return { width, styles };
+}
