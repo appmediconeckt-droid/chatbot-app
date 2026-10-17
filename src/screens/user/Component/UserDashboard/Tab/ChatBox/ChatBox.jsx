@@ -16,7 +16,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import TextInput from '../../../../../../components/TranslatedTextInput';
-import { getKeyboardLift } from '../../../../../../utils/keyboardLift';
+import KeyboardSpacer from '../../../../../../components/common/KeyboardSpacer';
 import Text from '../../../../../../components/TranslatedText';
 import socketService from '../../../../../../services/socketService';
 import axios from "axios";
@@ -386,7 +386,6 @@ const ChatBox = () => {
     stopListening: stopVoiceTyping,
     clearTranscript: clearVoiceTranscript,
   } = useSpeechToText();
-  const [keyboardInset, setKeyboardInset] = useState(0);
   const [showOptions, setShowOptions] = useState(false);
   const [confirmState, setConfirmState] = useState({ visible: false, title: '', message: '', onConfirm: null, onCancel: null, destructive: false });
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -467,6 +466,13 @@ const ChatBox = () => {
     }
     return id;
   }, [currentCounselor, counselorId, currentChat]);
+
+  // The socket listeners read the ids through refs, so a new currentChat /
+  // currentCounselor object does not tear down and reconnect the socket.
+  const resolveCounselorIdRef = useRef(resolveCounselorId);
+  resolveCounselorIdRef.current = resolveCounselorId;
+  const resolveCurrentUserIdRef = useRef(resolveCurrentUserId);
+  resolveCurrentUserIdRef.current = resolveCurrentUserId;
 
   const isRealPhoto = (url) => {
     if (!url || typeof url !== 'string') return false;
@@ -608,10 +614,6 @@ const ChatBox = () => {
 
     const showSub = Keyboard.addListener(showEvt, (event) => {
       keyboardVisibleRef.current = true;
-      if (Platform.OS === 'android') {
-        const keyboardHeight = event?.endCoordinates?.height || 0;
-        setKeyboardInset(getKeyboardLift(keyboardHeight, insets.bottom));
-      }
       if (shouldAutoScrollRef.current) {
         requestAnimationFrame(() => scrollToBottom(true));
         setTimeout(() => scrollToBottom(true), 120);
@@ -619,7 +621,6 @@ const ChatBox = () => {
     });
     const hideSub = Keyboard.addListener(hideEvt, () => {
       keyboardVisibleRef.current = false;
-      if (Platform.OS === 'android') setKeyboardInset(0);
       if (sendFocusGuardRef.current) {
         requestAnimationFrame(() => messageInputRef.current?.focus());
         return;
@@ -1573,14 +1574,14 @@ const ChatBox = () => {
         unsubscribers.push(await socketService.on('disconnect', () => setIsSocketConnected(false)));
 
         unsubscribers.push(await socketService.on('presence-update', ({ userId, isOnline, lastSeen }) => {
-          const counselorKey = resolveCounselorId();
+          const counselorKey = resolveCounselorIdRef.current();
           if (!counselorKey || String(userId) !== String(counselorKey)) return;
           setCurrentCounselor((prev) => prev ? { ...prev, online: !!isOnline, status: isOnline ? 'online' : 'offline', lastSeen: lastSeen || prev.lastSeen || null } : prev);
         }));
 
         unsubscribers.push(await socketService.on('new-message', (messageData) => {
           if (!isCurrentChatEvent(messageData)) return;
-          const userId = resolveCurrentUserId();
+          const userId = resolveCurrentUserIdRef.current();
           const isOwn = messageData.senderRole === 'user' && String(messageData.senderId) === String(userId);
           const transformedMessage = {
             id: messageData.id || messageData.messageId || `rt_${Date.now()}`,
@@ -1657,7 +1658,7 @@ const ChatBox = () => {
       chatSocketRef.current = null;
       setIsSocketConnected(false);
     };
-  }, [chatId, currentChat?.chatId, currentChat?.id, currentChat?._id, getAuthToken, scrollToBottom, resolveCurrentUserId, resolveCounselorId]);
+  }, [chatId, currentChat?.chatId, currentChat?.id, currentChat?._id, getAuthToken]);
 
   const handleTypingIndicator = useCallback(() => {
     const apiChatId = chatId || currentChat?.chatId;
@@ -1672,27 +1673,36 @@ const ChatBox = () => {
     }, 2000);
   }, [chatId, currentChat?.chatId]);
 
+  // Latest values for the timers and focus refresh below. Each fetch stores a
+  // new currentChat object (and so a new fetchMessagesFromAPI); depending on
+  // them directly re-ran the focus refresh after every fetch — an endless
+  // fetch → re-render loop that kept the JS thread busy (the keyboard lagged).
+  const currentChatRef = useRef(currentChat);
+  currentChatRef.current = currentChat;
+  const fetchMessagesRef = useRef(fetchMessagesFromAPI);
+  fetchMessagesRef.current = fetchMessagesFromAPI;
+
   // Fallback polling
   useEffect(() => {
     const interval = setInterval(() => {
       // Silent = background refresh that must not disturb the user's scroll.
       // Skip if we just deleted a message — the server needs 5 seconds to confirm
       // before a refetch tries to re-add it (avoid the delete flicker).
-      if (!isSocketConnected && currentChat && !deletedRecentlyRef.current) {
-        fetchMessagesFromAPI(true);
+      if (!isSocketConnected && currentChatRef.current && !deletedRecentlyRef.current) {
+        fetchMessagesRef.current(true);
       }
     }, 45000);
     return () => clearInterval(interval);
-  }, [currentChat, isSocketConnected, fetchMessagesFromAPI]);
+  }, [isSocketConnected]);
 
-  // Auto-refresh when screen comes into focus (user navigates back to ChatBox)
+  // Auto-refresh when the user comes back to this screen. The first load is
+  // done by the mount effect above, while currentChat is still empty here.
   useFocusEffect(
     useCallback(() => {
-      // Silently refresh messages so they're up-to-date when user enters the screen
-      if (currentChat && !deletedRecentlyRef.current) {
-        fetchMessagesFromAPI(true);
+      if (currentChatRef.current && !deletedRecentlyRef.current) {
+        fetchMessagesRef.current(true);
       }
-    }, [currentChat, fetchMessagesFromAPI])
+    }, [])
   );
 
   const handleInputChange = (text) => {
@@ -2182,10 +2192,9 @@ const ChatBox = () => {
           <View style={[
             styles.inputArea,
             {
-              // SafeAreaView owns the bottom system inset. Android gets a
-              // measured keyboard margin so the composer stays above the IME.
+              // SafeAreaView owns the bottom system inset; on Android the
+              // KeyboardSpacer below lifts the composer above the keyboard.
               paddingBottom: 8,
-              marginBottom: Platform.OS === 'android' ? keyboardInset : 0,
             },
           ]}>
             <View style={styles.inputAreaInner}>
@@ -2253,6 +2262,7 @@ const ChatBox = () => {
             </View>
             </View>
           </View>
+          <KeyboardSpacer insetsBottom={insets.bottom} />
         </View>
       </KeyboardAvoidingView>
 

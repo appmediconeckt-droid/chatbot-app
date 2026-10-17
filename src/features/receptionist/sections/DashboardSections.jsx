@@ -28,7 +28,7 @@ const EMPTY_TEXT = {
 
 // Today's queue with the doctor's tabs (Pending / In Progress / Next /
 // Completed / Cancelled), emergencies first and then by token.
-function QueueCard({ data, clinics, onView, compact, title = "Today's Queue", subtitle, right }) {
+function QueueCard({ data, clinics, onView, title = "Today's Queue", subtitle, right }) {
   const groups = useMemo(() => groupQueue(allRows(data)), [data]);
   const counts = Object.fromEntries(Object.entries(groups).map(([name, rows]) => [name, rows.length]));
   const [tab, setTab] = useState('pending');
@@ -39,7 +39,7 @@ function QueueCard({ data, clinics, onView, compact, title = "Today's Queue", su
       <CardHeading title={title} subtitle={subtitle} right={right} />
       <QueueTabs active={tab} counts={counts} onChange={setTab} />
       {rows.length
-        ? <ResponsiveGrid minItemWidth={350} maxColumns={2}>{rows.map((row) => <AppointmentRow key={patientKey(row)} row={row} clinics={clinics} onView={onView} compact={compact} />)}</ResponsiveGrid>
+        ? <ResponsiveGrid minItemWidth={350} maxColumns={2}>{rows.map((row) => <AppointmentRow key={patientKey(row)} row={row} clinics={clinics} onView={onView} />)}</ResponsiveGrid>
         : <Empty title={emptyTitle} description={emptyText} />}
     </Card>
   );
@@ -88,7 +88,7 @@ function CurrentCheckups({ data, clinics, onView }) {
   ));
 }
 
-export function OverviewSection({ data, clinics, error, onView, onNavigate, compact }) {
+export function OverviewSection({ data, clinics, error, onView, onNavigate }) {
   const groups = useMemo(() => groupQueue(allRows(data)), [data]);
   if (!data) return <LoadingCard error={error} />;
   const waitingCount = groups.pending.length;
@@ -112,7 +112,6 @@ export function OverviewSection({ data, clinics, error, onView, onNavigate, comp
         data={data}
         clinics={clinics}
         onView={onView}
-        compact={compact}
         right={(
           <Pressable onPress={() => onNavigate('appointments')} style={s.textButton} hitSlop={6}>
             <Text style={s.textButtonText}>All</Text>
@@ -124,7 +123,7 @@ export function OverviewSection({ data, clinics, error, onView, onNavigate, comp
   );
 }
 
-export function LiveQueueSection({ data, clinics, clinic, error, onView, onNavigate, compact }) {
+export function LiveQueueSection({ data, clinics, clinic, error, onView, onNavigate }) {
   if (!data) return <LoadingCard error={error} />;
   const timing = data.timing;
   return (
@@ -161,7 +160,7 @@ export function LiveQueueSection({ data, clinics, clinic, error, onView, onNavig
         )}
       </Card>
 
-      <QueueCard data={data} clinics={clinics} onView={onView} compact={compact} title="Patient queue" />
+      <QueueCard data={data} clinics={clinics} onView={onView} title="Patient queue" />
     </>
   );
 }
@@ -311,9 +310,21 @@ export function ProfileSection({ profile, onProfileUpdated }) {
         <LinearGradient colors={['#12756D', '#1C9686']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.profileCover}>
           <Text style={s.profileCoverText}>STAFF ACCOUNT</Text>
         </LinearGradient>
-        <View style={s.profileAvatarRing}>
+        {/* Edit lives on the photo: tap it (pencil badge) to edit the profile. */}
+        <Pressable
+          onPress={onProfileUpdated ? () => { setSavedNote(false); setEditing(true); } : undefined}
+          disabled={!onProfileUpdated}
+          style={({ pressed }) => [s.profileAvatarRing, pressed && { opacity: 0.85 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Edit profile"
+        >
           <Avatar photo={profilePhotoOf(profile)} name={profile.fullName} size={92} />
-        </View>
+          {!!onProfileUpdated && (
+            <View style={s.avatarEditBadge}>
+              <Ionicons name="pencil" size={14} color="#FFFFFF" />
+            </View>
+          )}
+        </Pressable>
         <Text translate={false} style={s.profileName}>{profile.fullName}</Text>
         <Text style={s.profileRole}>Receptionist · Front desk team</Text>
         <View style={s.profileChips}>
@@ -328,16 +339,6 @@ export function ProfileSection({ profile, onProfileUpdated }) {
             </View>
           )}
         </View>
-        {!!onProfileUpdated && (
-          <Pressable
-            onPress={() => { setSavedNote(false); setEditing(true); }}
-            style={({ pressed }) => [s.editProfile, pressed && { opacity: 0.8 }]}
-            accessibilityRole="button"
-          >
-            <Ionicons name="create-outline" size={16} color={REC.primary} />
-            <Text style={s.editProfileText}>Edit profile</Text>
-          </Pressable>
-        )}
         {savedNote && (
           <View style={s.savedNote}>
             <Ionicons name="checkmark-circle" size={15} color="#067647" />
@@ -486,8 +487,7 @@ const s = StyleSheet.create({
   activeChipText: { fontSize: 12, fontWeight: '700', color: '#2F8A55' },
   shiftChip: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#E0F2FE', paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999 },
   shiftChipText: { fontSize: 12, fontWeight: '700', color: '#0369A1' },
-  editProfile: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, paddingHorizontal: 18, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#B7E4DA', backgroundColor: '#F1FAF7' },
-  editProfileText: { fontSize: 13.5, fontWeight: '700', color: REC.primary },
+  avatarEditBadge: { position: 'absolute', right: 4, bottom: 4, width: 30, height: 30, borderRadius: 15, backgroundColor: REC.primary, borderWidth: 2.5, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
   savedNote: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 10 },
   savedNoteText: { fontSize: 12.5, fontWeight: '600', color: '#067647' },
   contactBox: { alignSelf: 'stretch', marginTop: 16, marginHorizontal: 14, borderRadius: 14, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line },

@@ -34,6 +34,8 @@ import axios from "axios";
 import axiosInstance, { API_BASE_URL } from "../../../../../axiosConfig";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import socketService from "../../../../../services/socketService";
+import { createIncomingCallPollGate, createPollGate } from "../../../../../utils/incomingCallPollGate";
+import { readScreenCache, writeScreenCache } from "../../../../../utils/screenCache";
 import Icon from "react-native-vector-icons/FontAwesome5";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import Ionicons from "react-native-vector-icons/Ionicons";
@@ -1202,7 +1204,9 @@ const useClinicQueue = (apt, enabled) => {
     };
 
     load(false);
-    const pollId = setInterval(() => load(true), CLINIC_QUEUE_POLL_MS);
+    // `queueUpdated` (below) refreshes at once; the timer is only the backup.
+    const shouldPoll = createPollGate(60000, { primed: true });
+    const pollId = setInterval(() => { if (shouldPoll()) load(true); }, CLINIC_QUEUE_POLL_MS);
     const tickId = setInterval(() => setNow(Date.now()), 1000);
     (async () => {
       try {
@@ -1477,6 +1481,17 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const sheetMaxHeight = Math.min(screenHeight * (isTablet ? 0.82 : 0.86), isTablet ? 720 : 680);
   const sheetScrollMaxHeight = Math.max(360, sheetMaxHeight - 90);
 
+  // Show the last saved appointments at once (no loader); the fetch below then
+  // replaces them and saves the new copy.
+  const appointmentsFetchedRef = useRef(false);
+  useEffect(() => {
+    readScreenCache('patient-appointments').then((cached) => {
+      if (!Array.isArray(cached) || appointmentsFetchedRef.current) return;
+      setAppointments(cached);
+      setLoadingAppointments(false);
+    });
+  }, []);
+
   const fetchAppointments = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoadingAppointments(true);
@@ -1485,13 +1500,12 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
       // A deleted consultant/doctor account leaves its appointments behind with
       // no professional record, so they rendered as a nameless placeholder card.
       const apts = rawApts.filter((apt) => !isProfessionalAccountDeleted(apt));
-      if (apts.length > 0) {
-        console.log('📋 APPOINTMENT DATA STRUCTURE:', JSON.stringify(apts[0], null, 2));
-      }
+      appointmentsFetchedRef.current = true;
       setAppointments(apts);
+      writeScreenCache('patient-appointments', apts);
     } catch (err) {
+      // Keep whatever is on screen (the saved copy) instead of emptying it.
       console.error("Error fetching appointments:", err);
-      if (!silent) setAppointments([]);
     } finally {
       setLoadingAppointments(false);
     }
@@ -1547,7 +1561,10 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     }
   };
 
-  useLiveRefresh(() => fetchAppointments(true));
+  // Queue / appointment changes refresh at once; the timer is only a backup.
+  useLiveRefresh(() => fetchAppointments(true), [
+    'queueUpdated', 'appointment-updated', 'appointment-status-changed', 'appointment-cancelled',
+  ]);
 
   useEffect(() => {
     const connectSocket = async () => {
@@ -2767,6 +2784,7 @@ export default function UserDashboard() {
   // Poll for incoming calls from counselor — single stable interval, never restarts
   useEffect(() => {
     let isMounted = true;
+    const shouldPoll = createIncomingCallPollGate();
 
     const fetchIncomingCalls = async () => {
       try {
@@ -2775,6 +2793,7 @@ export default function UserDashboard() {
         if (Date.now() < pollBlockedUntilRef.current) return;
         if (showCallModalRef.current || isVideoModalOpenRef.current || isVoiceModalOpenRef.current) return;
         if (isGlobalCallUiActive()) return;
+        if (!shouldPoll()) return;
 
         const storedUserId = await AsyncStorage.getItem('userId');
         if (!storedUserId) return;
@@ -3807,7 +3826,8 @@ export default function UserDashboard() {
       >
         {[
           { id: 'Chat', icon: 'chatbubble-ellipses-outline', iconActive: 'chatbubble-ellipses', label: t('dashboard:chat') },
-          { id: 'Counselor', icon: 'bulb-outline', iconActive: 'bulb', label: t('dashboard:consultants', 'Consultants') },
+          // Same doctor-with-stethoscope glyph as the web's Consultants tab.
+          { id: 'Counselor', fa5: 'user-md', label: t('dashboard:consultants', 'Consultants') },
         ].map((tab) => (
           <TouchableOpacity
             key={tab.id}
@@ -3815,11 +3835,20 @@ export default function UserDashboard() {
             onPress={() => handleMenuItemClick(tab.id)}
             activeOpacity={0.7}
           >
-            <Ionicons
-              name={active === tab.id ? tab.iconActive : tab.icon}
-              size={22}
-              color={active === tab.id ? PATIENT.primary : PATIENT.textMuted}
-            />
+            {tab.fa5 ? (
+              <Icon
+                name={tab.fa5}
+                solid
+                size={20}
+                color={active === tab.id ? PATIENT.primary : PATIENT.textMuted}
+              />
+            ) : (
+              <Ionicons
+                name={active === tab.id ? tab.iconActive : tab.icon}
+                size={22}
+                color={active === tab.id ? PATIENT.primary : PATIENT.textMuted}
+              />
+            )}
             <Text
               style={[styles.navLabel, active === tab.id && styles.navLabelActive]}
               numberOfLines={2}

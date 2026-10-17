@@ -60,6 +60,22 @@ beforeEach(() => {
   mockKeyboardLayout.keyboardTop = 0;
   api.get.mockResolvedValue({ data: { appointments: [patient], total: 1, completed: 0, clinics: [], doctor: { fullName: 'Test doctor' } } });
 });
+
+test('numbered appointment pages request the selected page and filters reset to page one', async () => {
+  api.get.mockImplementation((url, { params }) => Promise.resolve({ data: {
+    appointments: [{ ...patient, id: `visit-page-${params.page}` }], total: 25, completed: 0, clinics: [], doctor: {},
+  } }));
+  await renderAppointments();
+  const pageButton = label => root.root.findAllByType('Pressable').find(node => node.props.accessibilityLabel === label);
+  expect(pageButton('Previous page').props.disabled).toBe(true);
+  await act(async () => pageButton('Go to page 3').props.onPress());
+  expect(api.get).toHaveBeenLastCalledWith('/api/staff/appointments', expect.objectContaining({ params: expect.objectContaining({ page: 3, limit: 10 }) }));
+  expect(pageButton('Next page').props.disabled).toBe(true);
+  const search = root.root.findAllByType('TextInput').find(node => node.props.placeholder === 'Search patient, phone or token...');
+  await act(async () => search.props.onChangeText('Test'));
+  await act(async () => jest.advanceTimersByTime(400));
+  expect(api.get).toHaveBeenLastCalledWith('/api/staff/appointments', expect.objectContaining({ params: expect.objectContaining({ page: 1, search: 'Test' }) }));
+});
 afterEach(async () => {
   if (root) await act(async () => root.unmount());
   root = null;

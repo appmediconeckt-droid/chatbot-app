@@ -16,7 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STORAGE_KEY = 'keyboardCoverageDp';
 // Any real soft keyboard is taller than this; smaller reports are mid-slide.
-const MIN_REAL_KEYBOARD_DP = 120;
+export const MIN_REAL_KEYBOARD_DP = 120;
 // Typical keyboard + nav bar share of the screen (measured 328 / 780 dp on a
 // 3-button-nav phone), used only until a real keyboard has been seen.
 const DEFAULT_COVERAGE_SHARE = 0.42;

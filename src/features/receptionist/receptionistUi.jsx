@@ -425,12 +425,12 @@ export function OptionSheet({ visible, title, options, value, onSelect, onClose 
 }
 
 // One booking as a card — the web's AppointmentTable row on a phone.
-export function AppointmentRow({ row: appointment, clinics, onView, onCancel, cancelBusy, compact }) {
+export function AppointmentRow({ row: appointment, clinics, onView, onCancel, cancelBusy }) {
   const { withSavedVitals } = useReceptionistVitals();
   const row = withSavedVitals(appointment);
   const busy = cancelBusy && cancelBusy === `${row.source}:${row.id}`;
   return (
-    <View style={[s.aptRow, compact && s.aptRowCompact, row.emergency && s.aptRowEmergency]}>
+    <View style={[s.aptRow, row.emergency && s.aptRowEmergency]}>
       <View style={s.aptTop}>
         <View style={[s.tokenTile, row.emergency && s.tokenTileEmergency]}>
           <Text translate={false} style={s.tokenTileNumber} numberOfLines={1} adjustsFontSizeToFit>
@@ -573,11 +573,6 @@ export function PatientDetailsSheet({ patient: appointment, clinics, doctorName,
   );
 }
 
-export const recStyles = StyleSheet.create({
-  flex: { flex: 1, minWidth: 0 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-});
-
 const s = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -650,7 +645,6 @@ const s = StyleSheet.create({
   sheetOptionText: { flex: 1, fontSize: 15, color: REC.ink },
   sheetOptionActive: { fontWeight: '700', color: REC.primary },
   aptRow: { borderWidth: 1, borderColor: REC.line, borderRadius: 14, padding: 13, marginBottom: 10, backgroundColor: '#FFFFFF' },
-  aptRowCompact: { padding: 9, marginBottom: 6 },
   aptRowEmergency: { borderColor: '#F4C9C9', borderLeftWidth: 4, borderLeftColor: '#DC2626' },
   emergencyReason: { marginTop: 10, marginBottom: 10, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: '#DC2626' },
   emergencyReasonLabel: { fontSize: 11, fontWeight: '700', color: '#B42318', marginBottom: 3 },

@@ -28,39 +28,16 @@ import { navigationRef } from './src/navigationRef';
 import { ResponsiveAppFrame } from './src/components/common/ResponsiveLayout';
 import { isTokenExpired, startTokenExpiryWatcher } from './src/utils/tokenExpiry';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import UserSignup from './src/screens/auth/UserSignup';
 import Landing from "./src/screens/auth/Landing";
 import Login from "./src/screens/auth/Login"
-import CounselorSignup from './src/screens/auth/CounselorSignup';
 import RoleSelector from "./src/screens/auth/RoleSelector";
-import UserOnboarding from './src/screens/auth/UserOnboarding';
-import CounselorOnboarding from './src/screens/auth/CounselorOnboarding';
-import DoctorOnboarding from './src/screens/auth/DoctorOnboarding';
-import DoctorSignup from './src/screens/auth/DoctorSignup';
-import OTPVerification from "./src/screens/auth/OTPVerification";
 import LocationGate from "./src/screens/auth/LocationGate";
-import ForgotPasswordScreen from "./src/screens/auth/ForgotPasswordScreen";
-import ForgotPasswordOTPScreen from "./src/screens/auth/ForgotPasswordOTPScreen";
-import ResetPasswordScreen from "./src/screens/auth/ResetPasswordScreen";
 
-import UserDashboard from './src/features/patient/screens/UserDashboard';
-import ChatBox from './src/features/patient/screens/ChatBox';
-import CounselorTable from './src/features/patient/screens/CounselorDirectory';
-import CheckoutPage from './src/features/patient/screens/CheckoutPage';
-import TransactionsHistory from './src/features/patient/screens/TransactionsHistory';
-import AppLockSettings from './src/features/patient/screens/AppLockSettings';
 import { ToastProvider } from './src/components/common/ToastProvider';
 
 // Counselor Dashboard Screens
-import CounselorDashboard from './src/features/counselor/screens/CounselorDashboard';
-import SMSInput from './src/features/counselor/screens/SMSInput';
 
 // Doctor screens (frontend-only — no Doctor backend yet)
-import DoctorDashboard from './src/features/doctor/screens/DoctorDashboard';
-import StaffDashboard from './src/features/staff/screens/StaffDashboard';
-import ChangePassword from './src/screens/account/ChangePassword';
-import SetPassword from './src/screens/account/SetPassword';
-import SetPasswordByOtp from './src/screens/account/SetPasswordByOtp';
 import safeVibrate from './src/utils/safeVibrate';
 import socketService from './src/services/socketService';
 import { CallProvider } from './src/screens/user/VideoCall/CallProvider';
@@ -499,37 +476,39 @@ useEffect(() => {
               contentStyle: { backgroundColor: '#f8fafc' },
             }}
           >
+            {/* Role screens load their code when first opened (getComponent), so the
+                app start doesn't run every role's dashboard. */}
             <Stack.Screen name="Landing" component={Landing} />
             <Stack.Screen name="RoleSelector" component={RoleSelector} />
-            <Stack.Screen name="UserOnboarding" component={UserOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />
-            <Stack.Screen name="CounselorOnboarding" component={CounselorOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />
-            <Stack.Screen name="DoctorOnboarding" component={DoctorOnboarding as React.ComponentType<any>} options={{ headerShown: false }} />
-            <Stack.Screen name="UserSignup" component={UserSignup} />
+            <Stack.Screen name="UserOnboarding" getComponent={() => require('./src/screens/auth/UserOnboarding').default} options={{ headerShown: false }} />
+            <Stack.Screen name="CounselorOnboarding" getComponent={() => require('./src/screens/auth/CounselorOnboarding').default} options={{ headerShown: false }} />
+            <Stack.Screen name="DoctorOnboarding" getComponent={() => require('./src/screens/auth/DoctorOnboarding').default} options={{ headerShown: false }} />
+            <Stack.Screen name="UserSignup" getComponent={() => require('./src/screens/auth/UserSignup').default} />
             <Stack.Screen name="Login" component={Login} />
-            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-            <Stack.Screen name="ForgotPasswordOTP" component={ForgotPasswordOTPScreen} />
-            <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
-            <Stack.Screen name='CounselorSignup' component={CounselorSignup} />
-            <Stack.Screen name='DoctorSignup' component={DoctorSignup as React.ComponentType<any>} />
-            <Stack.Screen name='DoctorDashboard' component={DoctorDashboard as React.ComponentType<any>} />
-            <Stack.Screen name='StaffDashboard' component={StaffDashboard as React.ComponentType<any>} />
-              <Stack.Screen name='OTPVerification' component={OTPVerification} />
+            <Stack.Screen name="ForgotPassword" getComponent={() => require('./src/screens/auth/ForgotPasswordScreen').default} />
+            <Stack.Screen name="ForgotPasswordOTP" getComponent={() => require('./src/screens/auth/ForgotPasswordOTPScreen').default} />
+            <Stack.Screen name="ResetPassword" getComponent={() => require('./src/screens/auth/ResetPasswordScreen').default} />
+            <Stack.Screen name='CounselorSignup' getComponent={() => require('./src/screens/auth/CounselorSignup').default} />
+            <Stack.Screen name='DoctorSignup' getComponent={() => require('./src/screens/auth/DoctorSignup').default} />
+            <Stack.Screen name='DoctorDashboard' getComponent={() => require('./src/features/doctor/screens/DoctorDashboard').default} />
+            <Stack.Screen name='StaffDashboard' getComponent={() => require('./src/features/staff/screens/StaffDashboard').default} />
+              <Stack.Screen name='OTPVerification' getComponent={() => require('./src/screens/auth/OTPVerification').default} />
             <Stack.Screen
               name="LocationGate"
               component={LocationGate}
               initialParams={{ destination: 'UserDashboard' }}
             />
-            <Stack.Screen name="UserDashboard" component={UserDashboard} />
-             <Stack.Screen name='ChatBox' component={ChatBox} />
-              <Stack.Screen name='CounselorTable' component={CounselorTable} />
-              <Stack.Screen name='CheckoutPage' component={CheckoutPage} />
-              <Stack.Screen name='TransactionsHistory' component={TransactionsHistory} />
-              <Stack.Screen name='AppLockSettings' component={AppLockSettings} />
-               <Stack.Screen name='CounselorDashboard' component={CounselorDashboard} />
-                <Stack.Screen name='SMSInput' component={SMSInput} />
-                <Stack.Screen name='ChangePassword' component={ChangePassword} />
-                <Stack.Screen name='SetPassword' component={SetPassword} />
-                <Stack.Screen name='SetPasswordByOtp' component={SetPasswordByOtp} />
+            <Stack.Screen name="UserDashboard" getComponent={() => require('./src/features/patient/screens/UserDashboard').default} />
+             <Stack.Screen name='ChatBox' getComponent={() => require('./src/features/patient/screens/ChatBox').default} />
+              <Stack.Screen name='CounselorTable' getComponent={() => require('./src/features/patient/screens/CounselorDirectory').default} />
+              <Stack.Screen name='CheckoutPage' getComponent={() => require('./src/features/patient/screens/CheckoutPage').default} />
+              <Stack.Screen name='TransactionsHistory' getComponent={() => require('./src/features/patient/screens/TransactionsHistory').default} />
+              <Stack.Screen name='AppLockSettings' getComponent={() => require('./src/features/patient/screens/AppLockSettings').default} />
+               <Stack.Screen name='CounselorDashboard' getComponent={() => require('./src/features/counselor/screens/CounselorDashboard').default} />
+                <Stack.Screen name='SMSInput' getComponent={() => require('./src/features/counselor/screens/SMSInput').default} />
+                <Stack.Screen name='ChangePassword' getComponent={() => require('./src/screens/account/ChangePassword').default} />
+                <Stack.Screen name='SetPassword' getComponent={() => require('./src/screens/account/SetPassword').default} />
+                <Stack.Screen name='SetPasswordByOtp' getComponent={() => require('./src/screens/account/SetPasswordByOtp').default} />
                 <Stack.Screen
                   name='PinSetup'
                   component={PinSetupScreen}

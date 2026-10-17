@@ -24,6 +24,8 @@ import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import socketService from '../../../../../../services/socketService';
+import { createPollGate } from '../../../../../../utils/incomingCallPollGate';
+import { readScreenCache, writeScreenCache } from '../../../../../../utils/screenCache';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import safeVibrate from '../../../../../../utils/safeVibrate';
 import { toImageUri } from '../../../../../../utils/imageUri';
@@ -214,7 +216,15 @@ const ChatInterface = ({ setActiveTab, onOpenCounselor }) => {
 
     try {
       if (isInitial) {
-        setInitialLoading(true);
+        // WhatsApp-style: the last saved list shows at once (no skeleton) and
+        // the request below quietly replaces it.
+        const cached = await readScreenCache('patient-chat-list');
+        if (Array.isArray(cached) && cached.length) {
+          setCounselors(cached);
+          setInitialLoading(false);
+        } else {
+          setInitialLoading(true);
+        }
       } else {
         setRefreshing(true);
       }
@@ -283,6 +293,7 @@ const ChatInterface = ({ setActiveTab, onOpenCounselor }) => {
         });
 
         setCounselors(counselorList);
+        writeScreenCache('patient-chat-list', counselorList);
 
         try {
           await AsyncStorage.setItem('activeChats', JSON.stringify(chatsArray));
@@ -378,7 +389,10 @@ const ChatInterface = ({ setActiveTab, onOpenCounselor }) => {
 
   useEffect(() => {
     fetchChats(true);
-    const interval = setInterval(() => fetchChats(false), 30000);
+    // New messages / chat changes arrive as socket events (chat-list-update,
+    // below); this is only the backup while the socket is down (or every 2 min).
+    const shouldPoll = createPollGate(120000, { primed: true });
+    const interval = setInterval(() => { if (shouldPoll()) fetchChats(false); }, 30000);
     return () => clearInterval(interval);
   }, [fetchChats]);
 

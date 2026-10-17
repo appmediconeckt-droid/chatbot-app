@@ -2,91 +2,68 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// English variants
-import enUS from './locales/en-US.json';
-import enGB from './locales/en-GB.json';
-import enIN from './locales/en-IN.json';
-
-// Indian Languages
-import hiIN from './locales/hi-IN.json';
-import urIN from './locales/ur-IN.json';
-import taIN from './locales/ta-IN.json';
-import teIN from './locales/te-IN.json';
-import knIN from './locales/kn-IN.json';
-import mlIN from './locales/ml-IN.json';
-import bnIN from './locales/bn-IN.json';
-import guIN from './locales/gu-IN.json';
-import mrIN from './locales/mr-IN.json';
-import paIN from './locales/pa-IN.json';
-import asIN from './locales/as-IN.json';
-import orIN from './locales/or-IN.json';
-import neNP from './locales/ne-NP.json';
-import siLK from './locales/si-LK.json';
-
-// World Languages
-import arSA from './locales/ar-SA.json';
-import zhCN from './locales/zh-CN.json';
-import zhTW from './locales/zh-TW.json';
-import jaJP from './locales/ja-JP.json';
-import koKR from './locales/ko-KR.json';
-import idID from './locales/id-ID.json';
-import msMY from './locales/ms-MY.json';
-import thTH from './locales/th-TH.json';
-import viVN from './locales/vi-VN.json';
-import filPH from './locales/fil-PH.json';
-import faIR from './locales/fa-IR.json';
-import heIL from './locales/he-IL.json';
-import trTR from './locales/tr-TR.json';
-import ruRU from './locales/ru-RU.json';
-import ukUA from './locales/uk-UA.json';
-import plPL from './locales/pl-PL.json';
-import csCZ from './locales/cs-CZ.json';
-import skSK from './locales/sk-SK.json';
-import huHU from './locales/hu-HU.json';
-import roRO from './locales/ro-RO.json';
-import bgBG from './locales/bg-BG.json';
-import elGR from './locales/el-GR.json';
-import deDE from './locales/de-DE.json';
-import nlNL from './locales/nl-NL.json';
-import frFR from './locales/fr-FR.json';
-import esES from './locales/es-ES.json';
-import ptPT from './locales/pt-PT.json';
-import ptBR from './locales/pt-BR.json';
-import itIT from './locales/it-IT.json';
-import svSE from './locales/sv-SE.json';
-import daDK from './locales/da-DK.json';
-import fiFI from './locales/fi-FI.json';
-import noNO from './locales/no-NO.json';
-import afZA from './locales/af-ZA.json';
-import swKE from './locales/sw-KE.json';
-import amET from './locales/am-ET.json';
-import haNG from './locales/ha-NG.json';
-import yoNG from './locales/yo-NG.json';
-import zuZA from './locales/zu-ZA.json';
-
-// Legacy imports for backward compatibility
-import en from './locales/en-US.json';
-import hi from './locales/hi-IN.json';
-import ar from './locales/ar-SA.json';
-import zh from './locales/zh-CN.json';
-import es from './locales/es-ES.json';
-import fr from './locales/fr-FR.json';
-import pt from './locales/pt-PT.json';
-import ru from './locales/ru-RU.json';
-import ja from './locales/ja-JP.json';
-import de from './locales/de-DE.json';
-import th from './locales/th-TH.json';
-import ko from './locales/ko-KR.json';
-import mr from './locales/mr-IN.json';
-import ta from './locales/ta-IN.json';
-import pa from './locales/pa-IN.json';
-import bn from './locales/bn-IN.json';
-import gu from './locales/gu-IN.json';
-import kn from './locales/kn-IN.json';
-import ml from './locales/ml-IN.json';
-import te from './locales/te-IN.json';
-import ur from './locales/ur-IN.json';
-import ne from './locales/ne-NP.json';
+// Locale files are loaded on demand: only English (the fallback) is read at
+// startup and every other language the first time it is selected — parsing
+// all ~80 files (several MB) on every launch slowed the app's start.
+// Metro needs static require() paths, hence one loader per file.
+const LOCALE_LOADERS = {
+  'en-US': () => require('./locales/en-US.json'),
+  'en-GB': () => require('./locales/en-GB.json'),
+  'en-IN': () => require('./locales/en-IN.json'),
+  'hi-IN': () => require('./locales/hi-IN.json'),
+  'ur-IN': () => require('./locales/ur-IN.json'),
+  'ta-IN': () => require('./locales/ta-IN.json'),
+  'te-IN': () => require('./locales/te-IN.json'),
+  'kn-IN': () => require('./locales/kn-IN.json'),
+  'ml-IN': () => require('./locales/ml-IN.json'),
+  'bn-IN': () => require('./locales/bn-IN.json'),
+  'gu-IN': () => require('./locales/gu-IN.json'),
+  'mr-IN': () => require('./locales/mr-IN.json'),
+  'pa-IN': () => require('./locales/pa-IN.json'),
+  'as-IN': () => require('./locales/as-IN.json'),
+  'or-IN': () => require('./locales/or-IN.json'),
+  'ne-NP': () => require('./locales/ne-NP.json'),
+  'si-LK': () => require('./locales/si-LK.json'),
+  'ar-SA': () => require('./locales/ar-SA.json'),
+  'zh-CN': () => require('./locales/zh-CN.json'),
+  'zh-TW': () => require('./locales/zh-TW.json'),
+  'ja-JP': () => require('./locales/ja-JP.json'),
+  'ko-KR': () => require('./locales/ko-KR.json'),
+  'id-ID': () => require('./locales/id-ID.json'),
+  'ms-MY': () => require('./locales/ms-MY.json'),
+  'th-TH': () => require('./locales/th-TH.json'),
+  'vi-VN': () => require('./locales/vi-VN.json'),
+  'fil-PH': () => require('./locales/fil-PH.json'),
+  'fa-IR': () => require('./locales/fa-IR.json'),
+  'he-IL': () => require('./locales/he-IL.json'),
+  'tr-TR': () => require('./locales/tr-TR.json'),
+  'ru-RU': () => require('./locales/ru-RU.json'),
+  'uk-UA': () => require('./locales/uk-UA.json'),
+  'pl-PL': () => require('./locales/pl-PL.json'),
+  'cs-CZ': () => require('./locales/cs-CZ.json'),
+  'sk-SK': () => require('./locales/sk-SK.json'),
+  'hu-HU': () => require('./locales/hu-HU.json'),
+  'ro-RO': () => require('./locales/ro-RO.json'),
+  'bg-BG': () => require('./locales/bg-BG.json'),
+  'el-GR': () => require('./locales/el-GR.json'),
+  'de-DE': () => require('./locales/de-DE.json'),
+  'nl-NL': () => require('./locales/nl-NL.json'),
+  'fr-FR': () => require('./locales/fr-FR.json'),
+  'es-ES': () => require('./locales/es-ES.json'),
+  'pt-PT': () => require('./locales/pt-PT.json'),
+  'pt-BR': () => require('./locales/pt-BR.json'),
+  'it-IT': () => require('./locales/it-IT.json'),
+  'sv-SE': () => require('./locales/sv-SE.json'),
+  'da-DK': () => require('./locales/da-DK.json'),
+  'fi-FI': () => require('./locales/fi-FI.json'),
+  'no-NO': () => require('./locales/no-NO.json'),
+  'af-ZA': () => require('./locales/af-ZA.json'),
+  'sw-KE': () => require('./locales/sw-KE.json'),
+  'am-ET': () => require('./locales/am-ET.json'),
+  'ha-NG': () => require('./locales/ha-NG.json'),
+  'yo-NG': () => require('./locales/yo-NG.json'),
+  'zu-ZA': () => require('./locales/zu-ZA.json'),
+};
 
 export const LANG_STORAGE_KEY = 'appLanguage';
 // Set when a language is picked before signing in (e.g. on the Login screen).
@@ -215,98 +192,48 @@ export const LEGACY_LANGUAGES = [
 ];
 
 // Each JSON file has all namespaces nested inside it, e.g. { "common": {...}, "dashboard": {...} }
-// i18next resources must be structured as { locale: { ns: translations } }
-// so we spread each file's top-level keys as the namespaces for that locale.
-const buildResources = (json) => ({ ...json });
+// i18next resources are { locale: { ns: translations } }, so a file's
+// top-level keys are the namespaces for that locale.
 
-const resources = {
-  // English variants
-  'en-US': buildResources(enUS),
-  'en-GB': buildResources(enGB),
-  'en-IN': buildResources(enIN),
-
-  // Indian languages
-  'hi-IN': buildResources(hiIN),
-  'ur-IN': buildResources(urIN),
-  'ta-IN': buildResources(taIN),
-  'te-IN': buildResources(teIN),
-  'kn-IN': buildResources(knIN),
-  'ml-IN': buildResources(mlIN),
-  'bn-IN': buildResources(bnIN),
-  'gu-IN': buildResources(guIN),
-  'mr-IN': buildResources(mrIN),
-  'pa-IN': buildResources(paIN),
-  'as-IN': buildResources(asIN),
-  'or-IN': buildResources(orIN),
-  'ne-NP': buildResources(neNP),
-  'si-LK': buildResources(siLK),
-
-  // World languages
-  'ar-SA': buildResources(arSA),
-  'zh-CN': buildResources(zhCN),
-  'zh-TW': buildResources(zhTW),
-  'ja-JP': buildResources(jaJP),
-  'ko-KR': buildResources(koKR),
-  'id-ID': buildResources(idID),
-  'ms-MY': buildResources(msMY),
-  'th-TH': buildResources(thTH),
-  'vi-VN': buildResources(viVN),
-  'fil-PH': buildResources(filPH),
-  'fa-IR': buildResources(faIR),
-  'he-IL': buildResources(heIL),
-  'tr-TR': buildResources(trTR),
-  'ru-RU': buildResources(ruRU),
-  'uk-UA': buildResources(ukUA),
-  'pl-PL': buildResources(plPL),
-  'cs-CZ': buildResources(csCZ),
-  'sk-SK': buildResources(skSK),
-  'hu-HU': buildResources(huHU),
-  'ro-RO': buildResources(roRO),
-  'bg-BG': buildResources(bgBG),
-  'el-GR': buildResources(elGR),
-  'de-DE': buildResources(deDE),
-  'nl-NL': buildResources(nlNL),
-  'fr-FR': buildResources(frFR),
-  'es-ES': buildResources(esES),
-  'pt-PT': buildResources(ptPT),
-  'pt-BR': buildResources(ptBR),
-  'it-IT': buildResources(itIT),
-  'sv-SE': buildResources(svSE),
-  'da-DK': buildResources(daDK),
-  'fi-FI': buildResources(fiFI),
-  'no-NO': buildResources(noNO),
-  'af-ZA': buildResources(afZA),
-  'sw-KE': buildResources(swKE),
-  'am-ET': buildResources(amET),
-  'ha-NG': buildResources(haNG),
-  'yo-NG': buildResources(yoNG),
-  'zu-ZA': buildResources(zuZA),
-
-  // Legacy short codes — point to same data as full codes
-  en: buildResources(enUS),
-  hi: buildResources(hiIN),
-  ar: buildResources(arSA),
-  zh: buildResources(zhCN),
-  es: buildResources(esES),
-  fr: buildResources(frFR),
-  pt: buildResources(ptPT),
-  ru: buildResources(ruRU),
-  ja: buildResources(jaJP),
-  de: buildResources(deDE),
-  'de-CH': buildResources(deDE),
-  th: buildResources(thTH),
-  ko: buildResources(koKR),
-  mr: buildResources(mrIN),
-  ta: buildResources(taIN),
-  pa: buildResources(paIN),
-  bn: buildResources(bnIN),
-  gu: buildResources(guIN),
-  kn: buildResources(knIN),
-  ml: buildResources(mlIN),
-  te: buildResources(teIN),
-  ur: buildResources(urIN),
-  ne: buildResources(neNP),
+// Legacy short codes read the same file as their full code.
+const LOCALE_ALIASES = {
+  en: 'en-US',
+  hi: 'hi-IN',
+  ar: 'ar-SA',
+  zh: 'zh-CN',
+  es: 'es-ES',
+  fr: 'fr-FR',
+  pt: 'pt-PT',
+  ru: 'ru-RU',
+  ja: 'ja-JP',
+  de: 'de-DE',
+  'de-CH': 'de-DE',
+  th: 'th-TH',
+  ko: 'ko-KR',
+  mr: 'mr-IN',
+  ta: 'ta-IN',
+  pa: 'pa-IN',
+  bn: 'bn-IN',
+  gu: 'gu-IN',
+  kn: 'kn-IN',
+  ml: 'ml-IN',
+  te: 'te-IN',
+  ur: 'ur-IN',
+  ne: 'ne-NP',
 };
+
+// Adds a language's translations to i18next if they are not loaded yet.
+export const ensureLanguageLoaded = (code) => {
+  if (!code || typeof code !== 'string' || i18n.hasResourceBundle(code, 'common')) return;
+  const load = LOCALE_LOADERS[code] || LOCALE_LOADERS[LOCALE_ALIASES[code]];
+  if (!load) return;
+  const json = load();
+  Object.entries(json || {}).forEach(([ns, data]) => {
+    if (data && typeof data === 'object') i18n.addResourceBundle(code, ns, data, true, true);
+  });
+};
+
+const resources = { 'en-US': { ...LOCALE_LOADERS['en-US']() } };
 
 i18n
   .use(initReactI18next)
@@ -325,6 +252,14 @@ i18n
       transEmptyNodeValue: '',
     },
   });
+
+// Every language switch (context, per-user loaders, selector) goes through
+// changeLanguage, so the file is loaded right before it is needed.
+const changeLanguage = i18n.changeLanguage.bind(i18n);
+i18n.changeLanguage = (lng, ...rest) => {
+  ensureLanguageLoaded(lng);
+  return changeLanguage(lng, ...rest);
+};
 
 // Export translation hooks for use in components
 export { useUserTranslation, useCounselorTranslation } from './useTranslations';

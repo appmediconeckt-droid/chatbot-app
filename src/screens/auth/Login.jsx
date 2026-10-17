@@ -55,7 +55,7 @@ const Login = ({ navigation, route }) => {
   const { language: appLanguage } = useLanguageContext();
   const currentLanguageName = LANGUAGES.find((lang) => lang.code === appLanguage)?.name || 'English';
   const { t } = useLanguageRender();
-  const { showToast } = useToast();
+  const { showToast, setToastRole } = useToast();
   // Login is the single common entry point for every role now, so it always
   // uses the real Humaeli brand colour (sampled from the app icon/logo)
   // rather than any one role's palette — a role param, if one is ever
@@ -407,7 +407,11 @@ const Login = ({ navigation, route }) => {
         await AsyncStorage.removeItem('rememberedUserId');
       }
 
-      showToast({ type: 'success', title: t('auth:login'), message: t('common:success') });
+      // The toast colour follows the role (consultant blue, doctor/staff teal,
+      // patient green); the provider's stored role is still the previous
+      // session's here, so pass the role that just signed in.
+      setToastRole(normalizedUserRole);
+      showToast({ type: 'success', title: t('auth:login'), message: t('common:success'), role: normalizedUserRole });
 
       socketService.connect().catch(() => {});
       syncPushNotificationToken().catch(error => {

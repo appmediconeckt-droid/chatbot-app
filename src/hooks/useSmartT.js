@@ -7,8 +7,16 @@ const liveCache = {}; // `${lang}::${english}` -> translated
 const pending = new Set(); // keys currently being fetched
 const translationListeners = new Set();
 
+// Every mounted text listens here, so re-render them once per burst of
+// arriving live translations instead of once per phrase (a screen in Hindi
+// can receive dozens at a time — each used to re-render every text).
+let notifyTimer = null;
 const notifyTranslationListeners = () => {
-  translationListeners.forEach((listener) => listener());
+  if (notifyTimer) return;
+  notifyTimer = setTimeout(() => {
+    notifyTimer = null;
+    translationListeners.forEach((listener) => listener());
+  }, 60);
 };
 
 const isEnglish = (lng) =>
@@ -25,16 +33,24 @@ const phraseKey = (value) => {
   return `p${hash.toString(36)}`;
 };
 
+// Runs for every text on every render: skip the six regexes when the text
+// cannot contain the word, and remember results for the rest.
+const consultantCache = new Map();
 const applyConsultantLabel = (text) => {
-  if (typeof text !== 'string' || !text) return text;
+  if (typeof text !== 'string' || !text || !/couns/i.test(text)) return text;
+  const cached = consultantCache.get(text);
+  if (cached !== undefined) return cached;
 
-  return text
+  const result = text
     .replace(/\b(Counselors|Counsellors|Counsolers)\b/g, 'Consultants')
     .replace(/\b(counselors|counsellors|counsolers)\b/g, 'consultants')
     .replace(/\b(COUNSELORS|COUNSELLORS|COUNSOLERS)\b/g, 'CONSULTANTS')
     .replace(/\b(Counselor|Counsellor|Counsoler)\b/g, 'Consultant')
     .replace(/\b(counselor|counsellor|counsoler)\b/g, 'consultant')
     .replace(/\b(COUNSELOR|COUNSELLOR|COUNSOLER)\b/g, 'CONSULTANT');
+  if (consultantCache.size > 2000) consultantCache.clear();
+  consultantCache.set(text, result);
+  return result;
 };
 
 /**
@@ -51,16 +67,15 @@ export function useSmartT() {
   const lang = inst.language;
   const [, force] = useState(0);
 
+  // Language changes already re-render through useTranslation (bindI18n
+  // 'languageChanged'); this only adds re-renders for arriving live translations.
   useEffect(() => {
     const rerender = () => force((n) => n + 1);
-    inst.on('languageChanged', rerender);
     translationListeners.add(rerender);
-
     return () => {
-      inst.off('languageChanged', rerender);
       translationListeners.delete(rerender);
     };
-  }, [inst]);
+  }, []);
 
   const t = useCallback(
     (key, opts) => {
@@ -75,6 +90,8 @@ export function useSmartT() {
       if (typeof val !== 'string' || !val) return val;
       const looksLikeKeyId =
         typeof key === 'string' && !key.includes(' ') && /[:.]/.test(key);
+      // English: `val` already is the English text — no second lookup.
+      if (isEnglish(lang)) return val === key && looksLikeKeyId ? val : applyConsultantLabel(val);
       const rawEn = localPhraseKey
         ? rawT(localPhraseKey, { ...options, lng: 'en-US', defaultValue: key, keySeparator: false })
         : rawT(key, { ...options, lng: 'en-US' });

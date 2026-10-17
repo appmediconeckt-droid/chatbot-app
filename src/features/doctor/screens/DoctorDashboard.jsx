@@ -26,6 +26,7 @@ import CompleteAppointmentScreen from '../dashboard/components/CompleteAppointme
 import DoctorSidebar from '../dashboard/components/DoctorSidebar';
 import { DoctorBackContext, useDoctorBackRegistry } from '../dashboard/useDoctorBack';
 import { loadUserLanguage } from '../../../i18n';
+import { readScreenCache, writeScreenCache } from '../../../utils/screenCache';
 import WalkInAppointmentsScreen from '../dashboard/components/WalkInAppointmentsScreen';
 import PatientsScreen from '../dashboard/components/PatientsScreen';
 import PatientDetailScreen from '../dashboard/components/PatientDetailScreen';
@@ -90,6 +91,8 @@ const APPOINTMENT_REFRESH_EVENTS = [
   'appointment-status-changed',
   'appointment-confirmed',
   'appointment-cancelled',
+  // Emitted on every queue change (the web doctor dashboard refreshes on it).
+  'queueUpdated',
 ];
 
 const sidebarRoutes = {
@@ -716,8 +719,17 @@ export default function DoctorDashboard({ navigation }) {
             : formatted;
         });
 
+      const completedToday = allCompleted.filter((item) => isCompletedToday(item.__raw));
       setCompletedAll(allCompleted);
-      setCompleted(allCompleted.filter((item) => isCompletedToday(item.__raw)));
+      setCompleted(completedToday);
+      writeScreenCache('doctor-queue', {
+        appointments: liveAppointmentList,
+        cancelledToday: list
+          .filter((apt) => isScheduledToday(apt) && normalizeAppointmentStatus(apt) === 'cancelled')
+          .map((apt) => ({ ...formatAppointment(apt), status: 'cancelled', isNoShow: getAppointmentCancellationState(apt).noShow })),
+        completedAll: allCompleted,
+        completed: completedToday,
+      });
     } catch (err) {
       console.error('Error fetching appointments:', err?.message);
       setError(err?.response?.data?.message || err?.response?.data?.error || 'Error loading appointments. Please check if the server is running.');
@@ -728,7 +740,28 @@ export default function DoctorDashboard({ navigation }) {
     }
   }, [doctorId, restoreRunningConsultation]);
 
-  useEffect(() => { fetchAppointments(); }, [fetchAppointments]);
+  // Today's saved queue shows at once (WhatsApp-style) and the feed request
+  // refreshes it quietly; a copy from another day is never shown. The copy
+  // never restores a running consultation — only the live feed does.
+  const queueCopyShownRef = useRef(false);
+  useEffect(() => {
+    if (!doctorId || queueCopyShownRef.current) { fetchAppointments(); return undefined; }
+    queueCopyShownRef.current = true;
+    let cancelled = false;
+    readScreenCache('doctor-queue', { sameDay: true }).then((cached) => {
+      if (cancelled) return; // the effect's next run fetches
+      const hasCopy = Array.isArray(cached?.appointments);
+      if (hasCopy) {
+        setAppointments(cached.appointments);
+        setCancelledToday(Array.isArray(cached.cancelledToday) ? cached.cancelledToday : []);
+        setCompletedAll(Array.isArray(cached.completedAll) ? cached.completedAll : []);
+        setCompleted(Array.isArray(cached.completed) ? cached.completed : []);
+        setLoading(false);
+      }
+      fetchAppointments(hasCopy ? { silent: true } : undefined);
+    });
+    return () => { cancelled = true; };
+  }, [fetchAppointments, doctorId]);
 
   // New bookings used to appear only after a remount (switching tabs), because
   // nothing refreshed the doctor's feed while the dashboard sat open. This keeps

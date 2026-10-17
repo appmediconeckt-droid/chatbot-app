@@ -1,22 +1,35 @@
 // All appointments — the web StaffAppointments (receptionist view):
 // GET /api/staff/appointments with search / date / status filters, 10 a page,
-// re-read every 15s; a receptionist may cancel a booking nobody has started.
+// re-read every 15s (and on the portal's pull-to-refresh); a receptionist may
+// cancel a booking nobody has started.
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../../components/TranslatedText';
 import { ResponsiveGrid, useResponsiveLayout } from '../../../components/common/ResponsiveLayout';
 import {
-  AlertBox, AppointmentRow, Card, CardHeading, Empty, OptionSheet, PatientDetailsSheet, REC, RecButton, SelectField,
+  AlertBox, AppointmentRow, Card, CardHeading, Empty, OptionSheet, PatientDetailsSheet, REC, SelectField,
 } from '../receptionistUi';
 import { cancelStaffAppointment, apiError, fetchStaffAppointments } from '../receptionistApi';
 import { APPOINTMENT_STATUSES, dateLabel, dedupeRows, indiaToday, patientKey, statusLabel } from '../receptionistUtils';
+import ListPagination, { LIST_PAGE_SIZE } from '../components/ListPagination';
 
 const EMPTY_FILTERS = { from: '', to: '', status: 'all', search: '' };
 const toKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
-export default function AppointmentsSection({ clinicId, canCancel, compact }) {
+// Quick choices in the Status list: today's date with any / completed status.
+const TODAY_OPTIONS = { today: 'Today', today_completed: "Today's completed" };
+const STATUS_OPTIONS = ['all', ...Object.keys(TODAY_OPTIONS), ...APPOINTMENT_STATUSES.filter((value) => value !== 'all')];
+const optionLabel = (value) => (value === 'all' ? 'All statuses' : TODAY_OPTIONS[value] || statusLabel(value));
+// The filters as the API takes them ("Today" → today's from / to dates).
+const toQuery = (filters) => {
+  if (!TODAY_OPTIONS[filters.status]) return filters;
+  const today = indiaToday();
+  return { ...filters, from: today, to: today, status: filters.status === 'today_completed' ? 'completed' : 'all' };
+};
+
+export default function AppointmentsSection({ clinicId, canCancel, refreshKey }) {
   const { isWide } = useResponsiveLayout();
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [search, setSearch] = useState('');
@@ -55,13 +68,21 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
       return () => { cancelled = true; };
     }
     const load = async () => {
+      // No API call while the app is in the background; check again later.
+      if (AppState?.currentState && AppState.currentState !== 'active') {
+        timer = setTimeout(load, 15000);
+        return;
+      }
       try {
-        const result = await fetchStaffAppointments({ ...filters, clinic_id: clinicId || '', page, limit: 10 });
+        const result = await fetchStaffAppointments({ ...toQuery(filters), clinic_id: clinicId || '', page, limit: LIST_PAGE_SIZE });
         if (cancelled) return;
+        const pages = Math.max(1, Math.ceil((result?.total || 0) / LIST_PAGE_SIZE));
+        if (page > pages) {
+          setPage(pages);
+          return;
+        }
         setData(result);
         setError('');
-        const pages = Math.max(1, Math.ceil((result?.total || 0) / 10));
-        if (page > pages) setPage(pages);
       } catch (err) {
         if (cancelled) return;
         setError(apiError(err, 'Appointments could not be loaded. Please refresh.'));
@@ -75,7 +96,7 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
     };
     load();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [filters, clinicId, page, refresh]);
+  }, [filters, clinicId, page, refresh, refreshKey]);
 
   const filtersActive = Boolean(filters.from || filters.to || filters.status !== 'all' || search.trim());
   const clearAll = () => {
@@ -86,7 +107,16 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
   };
 
   const update = (key, value) => {
-    setFilters((current) => ({ ...current, [key]: value }));
+    setFilters((current) => {
+      const next = { ...current, [key]: value };
+      // "Today" sets its own dates: picking it clears the date fields, and
+      // picking a date leaves "Today".
+      if (key === 'status' && TODAY_OPTIONS[value]) return { ...next, from: '', to: '' };
+      if ((key === 'from' || key === 'to') && TODAY_OPTIONS[current.status]) {
+        next.status = current.status === 'today_completed' ? 'completed' : 'all';
+      }
+      return next;
+    });
     setPage(1);
     setSelected(null);
   };
@@ -123,10 +153,13 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
     update(which, toKey(date));
   };
 
-  const pages = Math.max(1, Math.ceil((data?.total || 0) / 10));
-  const first = data?.total ? (page - 1) * 10 + 1 : 0;
-  const last = Math.min(page * 10, data?.total || 0);
   const appointmentRows = dedupeRows(data?.appointments || []);
+  const changePage = (next) => {
+    setSelected(null);
+    setData(null);
+    setLoading(true);
+    setPage(next);
+  };
   const viewPatient = (row, options = {}) => {
     setEditingVitals(options.editVitals === true);
     setSelected(row);
@@ -136,7 +169,12 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
     <Card>
       <CardHeading
         title="All appointments"
-        right={<RecButton compact icon="refresh" disabled={loading} onPress={() => setRefresh((value) => value + 1)} />}
+        right={filtersActive ? (
+          <Pressable onPress={clearAll} hitSlop={8} style={s.clear} accessibilityLabel="Clear filters">
+            <Ionicons name="close-circle-outline" size={15} color="#B42318" />
+            <Text style={s.clearText}>Clear filters</Text>
+          </Pressable>
+        ) : null}
       />
 
       <View style={s.search}>
@@ -155,47 +193,40 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
         )}
       </View>
 
-      <View style={isWide && s.filterRow}>
-      <View style={[s.twoCol, isWide && s.datesWide]}>
-        <View style={s.flex}>
+      {/* Status (with Today / Today's completed) first, then the date range. */}
+      <View style={[s.filters, isWide && s.filterRow]}>
+        <View style={isWide && s.flex}>
           <SelectField
-            label="From date"
-            icon="calendar-outline"
-            valueLabel={filters.from ? dateLabel(filters.from) : 'Any date'}
-            active={Boolean(filters.from)}
-            onPress={() => setPicker('from')}
-            onClear={() => update('from', '')}
+            label="Status"
+            icon="funnel-outline"
+            valueLabel={optionLabel(filters.status)}
+            active={filters.status !== 'all'}
+            onPress={() => setPicker('status')}
+            onClear={() => update('status', 'all')}
           />
         </View>
-        <View style={s.flex}>
-          <SelectField
-            label="To date"
-            icon="calendar-outline"
-            valueLabel={filters.to ? dateLabel(filters.to) : 'Any date'}
-            active={Boolean(filters.to)}
-            onPress={() => setPicker('to')}
-            onClear={() => update('to', '')}
-          />
+        <View style={[s.twoCol, isWide && s.datesWide]}>
+          <View style={s.flex}>
+            <SelectField
+              label="From date"
+              icon="calendar-outline"
+              valueLabel={filters.from ? dateLabel(filters.from) : 'Any date'}
+              active={Boolean(filters.from)}
+              onPress={() => setPicker('from')}
+              onClear={() => update('from', '')}
+            />
+          </View>
+          <View style={s.flex}>
+            <SelectField
+              label="To date"
+              icon="calendar-outline"
+              valueLabel={filters.to ? dateLabel(filters.to) : 'Any date'}
+              active={Boolean(filters.to)}
+              onPress={() => setPicker('to')}
+              onClear={() => update('to', '')}
+            />
+          </View>
         </View>
-      </View>
-      <View style={isWide && s.flex}>
-      <SelectField
-        label="Status"
-        icon="funnel-outline"
-        valueLabel={filters.status === 'all' ? 'All statuses' : statusLabel(filters.status)}
-        active={filters.status !== 'all'}
-        onPress={() => setPicker('status')}
-        onClear={() => update('status', 'all')}
-      />
-      </View>
-      </View>
-
-      <View style={s.quick}>
-        <RecButton compact icon="today-outline" label="Today" onPress={() => { const today = indiaToday(); setFilters((current) => ({ ...current, from: today, to: today })); setPage(1); setSelected(null); }} />
-        <RecButton compact icon="checkmark-done-outline" label="Completed" onPress={() => update('status', 'completed')} />
-        {filtersActive && (
-          <RecButton compact danger icon="close-circle-outline" label="Clear filters" onPress={clearAll} />
-        )}
       </View>
 
       <AlertBox text={error} />
@@ -215,23 +246,12 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
               key={patientKey(row)}
               row={row}
               clinics={data.clinics}
-              compact={compact}
               onView={viewPatient}
               onCancel={canCancel ? cancelAppointment : undefined}
               cancelBusy={cancelBusy}
             />
           ))}</ResponsiveGrid> : <Empty title="No matching appointments" description="Select All dates or adjust your status and search filters." />}
-          <View style={s.pagination}>
-            <Text translate={false} style={s.muted}>Showing {first}-{last} of {data.total}</Text>
-            <View style={s.pageButtons}>
-              <RecButton compact icon="chevron-back" label="Previous" disabled={page === 1} onPress={() => setPage((value) => value - 1)} />
-              <Text translate={false} style={s.pageNow}>{page} / {pages}</Text>
-              <Pressable disabled={page >= pages} onPress={() => setPage((value) => value + 1)} style={[s.nextButton, page >= pages && s.disabled]}>
-                <Text style={s.nextText}>Next</Text>
-                <Ionicons name="chevron-forward" size={14} color={REC.ink} />
-              </Pressable>
-            </View>
-          </View>
+          <ListPagination page={page} total={data.total} onPageChange={changePage} disabled={loading} />
         </>
       )}
 
@@ -247,7 +267,7 @@ export default function AppointmentsSection({ clinicId, canCancel, compact }) {
         visible={picker === 'status'}
         title="Status"
         value={filters.status}
-        options={APPOINTMENT_STATUSES.map((value) => ({ value, label: value === 'all' ? 'All statuses' : statusLabel(value) }))}
+        options={STATUS_OPTIONS.map((value) => ({ value, label: optionLabel(value) }))}
         onSelect={(value) => update('status', value)}
         onClose={() => setPicker(null)}
       />
@@ -273,15 +293,11 @@ const s = StyleSheet.create({
   search: { height: 44, borderWidth: 1, borderColor: '#D8E1E8', borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, marginBottom: 12, backgroundColor: '#FAFBFD' },
   searchInput: { flex: 1, fontSize: 14, color: REC.ink, paddingVertical: 0 },
   twoCol: { flexDirection: 'row', gap: 10 },
-  quick: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+  filters: { marginBottom: 2 },
+  clear: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },
+  clearText: { fontSize: 12.5, fontWeight: '700', color: '#B42318' },
   loading: { alignItems: 'center', gap: 8, paddingVertical: 24 },
   summary: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   doctor: { fontSize: 14, fontWeight: '700', color: REC.ink, marginRight: 4 },
   count: { fontSize: 11, fontWeight: '600', color: '#728798', backgroundColor: '#F1F5F8', borderRadius: 7, paddingHorizontal: 9, paddingVertical: 4, overflow: 'hidden' },
-  pagination: { marginTop: 6, gap: 10 },
-  pageButtons: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  pageNow: { fontSize: 13, fontWeight: '700', color: REC.ink },
-  nextButton: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 32, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: '#D8E1E8', backgroundColor: '#FFFFFF' },
-  nextText: { fontSize: 12, fontWeight: '700', color: REC.ink },
-  disabled: { opacity: 0.5 },
 });

@@ -18,6 +18,7 @@ import {
   StyleSheet,
   StatusBar,
   BackHandler,
+  AppState,
 } from "react-native";
 import TextInput from '../../../../../components/TranslatedTextInput';
 import Text from '../../../../../components/TranslatedText';
@@ -27,6 +28,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios, { API_BASE_URL } from "../../../../../axiosConfig";
 import { getAuthToken, getCounsellorId } from "../../../../auth/authUtils";
 import socketService from "../../../../../services/socketService";
+import { createIncomingCallPollGate } from "../../../../../utils/incomingCallPollGate";
 import { getCounselorRating } from "../../../../../services/ratingService";
 import { isPatientAccountDeleted } from "../../../../../utils/deletedAccount";
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -1785,6 +1787,7 @@ export default function CounselorDashboard() {
 
   // Polling for waiting calls — stable [] deps prevent interval restart on modal state changes.
   useEffect(() => {
+    const shouldPoll = createIncomingCallPollGate();
     const poll = () => {
       if (
         !isFocusedRef.current ||
@@ -1794,6 +1797,7 @@ export default function CounselorDashboard() {
         isVoiceModalOpenRef.current ||
         isGlobalCallUiActive()
       ) return;
+      if (!shouldPoll()) return;
       fetchWaitingCalls();
     };
     poll();
@@ -1967,7 +1971,10 @@ export default function CounselorDashboard() {
 
   useEffect(() => {
     fetchPendingRequests();
-    const interval = setInterval(fetchPendingRequests, 10000);
+    // No API call while the app is in the background or this screen is hidden.
+    const interval = setInterval(() => {
+      if (AppState.currentState === 'active' && isFocusedRef.current) fetchPendingRequests();
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 

@@ -1,5 +1,5 @@
 // Patients & prescriptions — the web StaffPatientHistory:
-// GET /api/staff/patient-history (completed visits + chat prescriptions) with
+// GET /api/staff/patient-history (completed visits + separate prescriptions) with
 // search / date / clinic / record-type filters. Every page of records is
 // loaded and grouped by patient, so each patient appears once; opening a
 // patient lists their visits, and a visit opens its prescription, which can be
@@ -20,16 +20,16 @@ import { clinicName, dateLabel, displayTime, isOrphanedBooking, statusLabel } fr
 import { appointmentToDocument } from '../../../utils/consultationPrescriptionDocument';
 import ConsultationPrescriptionDocument from '../../../screens/user/Component/UserDashboard/Tab/Prescription/ConsultationPrescriptionDocument';
 import { downloadConsultationPrescriptionPdf } from '../../doctor/dashboard/utils/consultationPrescriptionPdf';
+import ListPagination, { LIST_PAGE_SIZE } from '../components/ListPagination';
 
 const EMPTY = { from: '', to: '', clinic_id: '', source: 'all', search: '' };
-const SOURCES = [['all', 'All records'], ['online', 'Online visits'], ['walkin', 'Walk-in visits'], ['prescription', 'Chat prescriptions']];
-const PER_PAGE = 10;       // patients shown per page
+const SOURCES = [['all', 'All records'], ['online', 'Online visits'], ['walkin', 'Walk-in visits'], ['prescription', 'Prescriptions']];
 const FETCH_LIMIT = 50;    // records requested per API page
 const MAX_FETCH_PAGES = 40;
 const SOURCE_STYLE = {
   walkin: { label: 'Walk-in', icon: 'walk-outline', bg: '#FFF4DF', fg: '#C27C0E' },
   online: { label: 'Online', icon: 'globe-outline', bg: '#E8F1FF', fg: '#3975C7' },
-  prescription: { label: 'Chat Rx', icon: 'chatbubble-ellipses-outline', bg: '#EFEAFE', fg: '#6A4FC4' },
+  prescription: { label: 'Prescription', icon: 'document-text-outline', bg: '#EFEAFE', fg: '#6A4FC4' },
 };
 const sourceStyle = (source) => SOURCE_STYLE[source] || { label: statusLabel(source), icon: 'document-text-outline', bg: '#EDF2F7', fg: '#658097' };
 // "#3" means token 3 — the API matches the bare number only.
@@ -92,7 +92,8 @@ const groupByPatient = (records = []) => {
   }).sort((a, b) => visitTime(b.latest) - visitTime(a.latest));
 };
 
-export default function PatientsSection() {
+// `refreshKey` changes on the portal's pull-to-refresh, which reloads the list.
+export default function PatientsSection({ refreshKey }) {
   const insets = useSafeAreaInsets();
   const requestVersion = useRef(0);
   const { isWide } = useResponsiveLayout();
@@ -102,7 +103,6 @@ export default function PatientsSection() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [refresh, setRefresh] = useState(0);
   const [openPatient, setOpenPatient] = useState(null); // patient group whose visits are listed
   const [openingId, setOpeningId] = useState('');
   const [selected, setSelected] = useState(null);       // visit whose prescription is shown
@@ -128,9 +128,12 @@ export default function PatientsSection() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; requestVersion.current += 1; };
-  }, [query, refresh]);
+  }, [query, refreshKey]);
 
   const patients = useMemo(() => groupByPatient(data?.records), [data]);
+  const pages = Math.max(1, Math.ceil(patients.length / LIST_PAGE_SIZE));
+  const currentPage = Math.min(page, pages);
+  useEffect(() => { setPage(currentPage); }, [currentPage]);
 
   const run = (next) => {
     if (next.from && next.to && next.from > next.to) {
@@ -199,8 +202,7 @@ export default function PatientsSection() {
     }
   };
 
-  const pages = Math.max(1, Math.ceil(patients.length / PER_PAGE));
-  const shown = patients.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const shown = patients.slice((currentPage - 1) * LIST_PAGE_SIZE, currentPage * LIST_PAGE_SIZE);
   const clinics = data?.clinics || [];
   const rx = selected ? appointmentToDocument({
     patient: selected.patient,
@@ -215,10 +217,7 @@ export default function PatientsSection() {
   return (
     <>
       <Card>
-        <CardHeading
-          title="Patients & prescriptions"
-          right={<RecButton compact icon="refresh" disabled={loading} onPress={() => setRefresh((value) => value + 1)} />}
-        />
+        <CardHeading title="Patients & prescriptions" />
         {!!data && (
           <View style={s.inline}>
             <Ionicons name="medkit-outline" size={17} color={REC.primary} />
@@ -307,7 +306,7 @@ export default function PatientsSection() {
             {/* The API sets this flag on every response; the hint only makes sense once a clinic is picked. */}
             {data.separatePrescriptionsExcluded && !!query.clinic_id && (
               <Notice icon="alert-circle-outline" iconColor="#C27C0E" style={s.warning}>
-                <NoticeText>Chat prescriptions are not linked to a clinic. Select All clinics to include them.</NoticeText>
+                <NoticeText>Prescriptions are not linked to a clinic. Select All clinics to include them.</NoticeText>
               </Notice>
             )}
             {shown.length ? <ResponsiveGrid minItemWidth={320}>{shown.map((group) => (
@@ -317,19 +316,8 @@ export default function PatientsSection() {
                 doctor={doctorFor(group.latest)}
                 onPress={() => { setOpenPatient(group); setSelected(null); setDownloadError(''); }}
               />
-            ))}</ResponsiveGrid> : <Empty title="No completed visits or prescriptions found" description="Change your filters or refresh after your doctor completes a consultation." />}
-            <View style={s.pagination}>
-              <Text translate={false} style={s.muted}>
-                {patients.length} {patients.length === 1 ? 'patient' : 'patients'} · {data.records?.length || 0} records
-              </Text>
-              {pages > 1 && (
-                <View style={s.pageButtons}>
-                  <RecButton compact label="Previous" disabled={page <= 1} onPress={() => setPage((value) => value - 1)} />
-                  <Text translate={false} style={s.pageNow}>Page {page} of {pages}</Text>
-                  <RecButton compact label="Next" disabled={page >= pages} onPress={() => setPage((value) => value + 1)} />
-                </View>
-              )}
-            </View>
+            ))}</ResponsiveGrid> : <Empty title="No completed visits or prescriptions found" description="Change your filters, or pull down to refresh after your doctor completes a consultation." />}
+            <ListPagination page={currentPage} total={patients.length} onPageChange={setPage} disabled={loading} />
           </>
         )}
       </Card>
@@ -392,7 +380,7 @@ export default function PatientsSection() {
                       <View style={[s.rxSourceTag, { backgroundColor: sourceStyle(selected.source).bg }]}>
                         <Ionicons name={sourceStyle(selected.source).icon} size={12} color={sourceStyle(selected.source).fg} />
                         <Text translate={false} style={[s.rxSourceText, { color: sourceStyle(selected.source).fg }]}>
-                          {selected.source === 'prescription' ? 'Chat consultation' : `${sourceStyle(selected.source).label} checkup`}
+                          {selected.source === 'prescription' ? 'Prescription' : `${sourceStyle(selected.source).label} checkup`}
                         </Text>
                       </View>
                       {selected.token != null && <Text translate={false} style={s.rxToken}>Token #{selected.token}</Text>}
@@ -403,9 +391,9 @@ export default function PatientsSection() {
                     </View>
                     <RxInfo icon="medkit-outline" label="Prescribing doctor" value={doctorFor(selected)} wide />
                     <RxInfo
-                      icon={selected.source === 'prescription' ? 'chatbubble-ellipses-outline' : 'business-outline'}
-                      label={selected.source === 'prescription' ? 'Consultation' : 'Clinic / Hospital'}
-                      value={selected.source === 'prescription' ? 'Chat consultation' : clinicName(clinics, selected.clinicId)}
+                      icon={selected.source === 'prescription' ? 'document-text-outline' : 'business-outline'}
+                      label={selected.source === 'prescription' ? 'Record type' : 'Clinic / Hospital'}
+                      value={selected.source === 'prescription' ? 'Prescription' : clinicName(clinics, selected.clinicId)}
                       wide
                     />
                   </View>
@@ -590,7 +578,9 @@ function PatientCard({ group, doctor, onPress }) {
             return (
               <View key={source} style={[s.chip, { backgroundColor: src.bg }]}>
                 <Ionicons name={src.icon} size={11} color={src.fg} />
-                <Text translate={false} style={[s.chipText, { color: src.fg }]}>{count} {src.label}</Text>
+                <Text translate={false} style={[s.chipText, { color: src.fg }]}>
+                  {count} {source === 'prescription' && count !== 1 ? 'Prescriptions' : src.label}
+                </Text>
               </View>
             );
           })}
@@ -692,9 +682,6 @@ const s = StyleSheet.create({
   patientAction: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   openText: { fontSize: 12.5, fontWeight: '700', color: REC.primary },
 
-  pagination: { marginTop: 6, gap: 10 },
-  pageButtons: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  pageNow: { fontSize: 13, fontWeight: '700', color: REC.ink },
 
   overlay: { flex: 1, backgroundColor: 'rgba(32,50,72,0.5)', justifyContent: 'flex-end' },
   sheet: { width: '100%', maxWidth: 800, alignSelf: 'center', backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 18, paddingTop: 10, height: '90%', maxHeight: '90%' },

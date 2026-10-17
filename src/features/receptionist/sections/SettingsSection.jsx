@@ -1,11 +1,10 @@
 // Settings — the web ReceptionistSettings: account information, password &
-// security (POST /api/auth/changePassword, then sign in again), portal
-// preferences (compact appointment lists, kept on this phone) and logout.
+// security (POST /api/auth/changePassword, then sign in again) and logout.
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../../components/TranslatedText';
-import { AlertBox, Avatar, Card, DetailFields, Notice, NoticeText, REC, RecButton, SelectField } from '../receptionistUi';
+import { AlertBox, Avatar, Card, DetailFields, Notice, NoticeText, REC, RecButton } from '../receptionistUi';
 import { apiError, changePassword } from '../receptionistApi';
 import { PASSWORD_RULES, profilePhotoOf } from '../receptionistUtils';
 
@@ -28,13 +27,11 @@ function SectionTitle({ icon, tone, title, subtitle, right }) {
   );
 }
 
-export default function SettingsSection({ profile, preferences, onSavePreferences, onNavigate, onLogout, loggingOut, onPasswordChanged }) {
+export default function SettingsSection({ profile, onNavigate, onLogout, loggingOut, onPasswordChanged }) {
   const [passwords, setPasswords] = useState({ oldPassword: '', newPassword: '', confirmation: '' });
   const [visible, setVisible] = useState({});
   const [busy, setBusy] = useState(false);
   const [passwordError, setPasswordError] = useState('');
-  const [draft, setDraft] = useState(() => ({ ...preferences }));
-  const [notice, setNotice] = useState('');
 
   const updatePassword = (key, value) => {
     setPasswords((current) => ({ ...current, [key]: value }));
@@ -66,8 +63,6 @@ export default function SettingsSection({ profile, preferences, onSavePreference
       setBusy(false);
     }
   };
-
-  const dirty = draft.compactTables !== preferences.compactTables;
 
   return (
     <>
@@ -146,36 +141,6 @@ export default function SettingsSection({ profile, preferences, onSavePreference
       </Card>
 
       <Card>
-        <SectionTitle icon="options-outline" tone={{ bg: '#FFF4DF', fg: '#C58A21' }} title="Portal preferences" subtitle="Personalize your front desk workspace." />
-        <SelectField label="Default clinic / hospital" icon="business-outline" disabled valueLabel={profile.clinic_name || 'Assigned clinic / hospital'} />
-        <Text style={s.hint}>Your assigned clinic is selected automatically when you open the portal.</Text>
-        <View style={s.toggle}>
-          <View style={s.flex}>
-            <Text style={s.toggleTitle}>Compact appointment lists</Text>
-            <Text style={s.hint}>Show more patients with smaller spacing.</Text>
-          </View>
-          <Switch
-            value={draft.compactTables}
-            onValueChange={(value) => { setDraft((current) => ({ ...current, compactTables: value })); setNotice(''); }}
-            trackColor={{ true: '#9BD3C9', false: '#D0D5DD' }}
-            thumbColor={draft.compactTables ? REC.primary : '#F4F4F5'}
-          />
-        </View>
-        <Notice icon="phone-portrait-outline"><NoticeText>These preferences are saved for your account on this phone.</NoticeText></Notice>
-        {!!notice && <Notice icon="checkmark-circle-outline" success><NoticeText translate={false}>{notice}</NoticeText></Notice>}
-        <View style={s.actions}>
-          <RecButton label="Cancel" disabled={!dirty} onPress={() => { setDraft({ ...preferences }); setNotice(''); }} style={s.flex} />
-          <RecButton
-            primary
-            label="Save preferences"
-            disabled={!dirty}
-            onPress={() => { onSavePreferences(draft); setNotice('Preferences saved. Your appointment layout has been updated.'); }}
-            style={s.flex}
-          />
-        </View>
-      </Card>
-
-      <Card>
         <SectionTitle icon="shield-checkmark-outline" tone={{ bg: '#E3F6F2', fg: '#1C9686' }} title="Current session" subtitle="The account signed in on this phone." />
         <View style={s.session}>
           <Avatar photo={profilePhotoOf(profile)} name={profile.fullName} size={46} />
@@ -226,8 +191,6 @@ const s = StyleSheet.create({
   ruleMet: { color: '#298D69', fontWeight: '600' },
   hint: { fontSize: 12, color: REC.muted, lineHeight: 17 },
   actions: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  toggle: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14, paddingVertical: 4 },
-  toggleTitle: { fontSize: 14, fontWeight: '700', color: REC.ink },
   logout: { marginTop: 14 },
   session: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 12, backgroundColor: '#F6F8FB', borderWidth: 1, borderColor: '#E5EBF0' },
   sessionName: { fontSize: 15, fontWeight: '700', color: REC.ink },

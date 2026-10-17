@@ -5,7 +5,9 @@ import socketService from '../services/socketService';
 
 // Refresh visible data after reconnect/resume, with a fallback for server edits
 // that do not emit a socket event. Never poll while the app is in background.
-export default function useLiveRefresh(refresh, events = [], intervalMs = 15000) {
+// The timed fallback runs every `intervalMs` only while the socket is down;
+// while it is connected (events arrive), at most every `connectedIntervalMs`.
+export default function useLiveRefresh(refresh, events = [], intervalMs = 15000, connectedIntervalMs = 60000) {
   const focused = useIsFocused();
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
@@ -18,11 +20,13 @@ export default function useLiveRefresh(refresh, events = [], intervalMs = 15000)
     let queued = false;
     let state = AppState.currentState;
     let debounce;
+    let lastRun = 0;
     const unsubscribers = [];
     const run = async () => {
       if (disposed || (state && state !== 'active')) return;
       if (running) { queued = true; return; }
       running = true;
+      lastRun = Date.now();
       try {
         await refreshRef.current();
       } catch (error) {
@@ -40,7 +44,11 @@ export default function useLiveRefresh(refresh, events = [], intervalMs = 15000)
       state = next;
       if (next === 'active') void run();
     });
-    const interval = setInterval(run, intervalMs);
+    const tick = () => {
+      if (socketService.isConnected?.() && Date.now() - lastRun < connectedIntervalMs) return;
+      void run();
+    };
+    const interval = setInterval(tick, intervalMs);
     void run();
     (async () => {
       try {
@@ -63,5 +71,5 @@ export default function useLiveRefresh(refresh, events = [], intervalMs = 15000)
       appStateSub.remove();
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [focused, eventKey, intervalMs]);
+  }, [focused, eventKey, intervalMs, connectedIntervalMs]);
 }

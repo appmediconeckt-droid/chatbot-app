@@ -27,12 +27,6 @@ export const dateLabel = (value) => {
   return `${String(d).padStart(2, '0')} ${month} ${y}`;
 };
 
-export const longDateToday = () => {
-  const d = indiaNow();
-  const day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getUTCDay()];
-  const month = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][d.getUTCMonth()];
-  return `${day}, ${d.getUTCDate()} ${month} ${d.getUTCFullYear()}`;
-};
 
 export const statusLabel = (value) =>
   String(value || 'Not recorded').replace(/[_-]/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());

@@ -11,7 +11,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../components/TranslatedText';
 import { AlertBox, Avatar, PatientDetailsSheet, REC } from './receptionistUi';
 import { apiError, fetchMe, fetchReceptionistDashboard } from './receptionistApi';
-import { assignedClinicId, clinicName, displayTime, indiaToday, patientKey, profilePhotoOf } from './receptionistUtils';
+import { assignedClinicId, indiaToday, patientKey, profilePhotoOf } from './receptionistUtils';
 import { DoctorSection, LiveQueueSection, OverviewSection, ProfileSection } from './sections/DashboardSections';
 import AppointmentsSection from './sections/AppointmentsSection';
 import PatientsSection from './sections/PatientsSection';
@@ -19,22 +19,25 @@ import LedDisplaySection from './sections/LedDisplaySection';
 import SettingsSection from './sections/SettingsSection';
 import { ReceptionistVitalsProvider } from './ReceptionistVitalsContext';
 import useBookingAlerts from './hooks/useBookingAlerts';
+import { readScreenCache, writeScreenCache } from '../../utils/screenCache';
 import humaeliIcon from '../../image/HumaeliIcon.png';
+import LanguageSelector from '../../components/common/LanguageSelector';
+import { LANGUAGES, loadUserLanguage } from '../../i18n';
+import { useLanguageContext } from '../../contexts/LanguageContext';
 
 // `tab`: shown in the bottom bar (the everyday sections); the rest stay
 // in the side menu.
 const MENU = [
-  { key: 'dashboard', title: 'Dashboard', tab: 'Home', icon: 'grid-outline', activeIcon: 'grid', description: 'Your front desk at a glance' },
-  { key: 'appointments', title: 'Appointments', tab: 'Appointments', icon: 'calendar-outline', activeIcon: 'calendar', description: 'Manage your view of online and walk-in bookings' },
-  { key: 'live-queue', title: 'Live Queue', icon: 'list-outline', activeIcon: 'list', description: "Follow the doctor's current checkups and waiting patients" },
-  { key: 'led-display', title: 'LED Display', icon: 'tv-outline', activeIcon: 'tv', description: "Launch your doctor's live token screen on an LED or TV" },
-  { key: 'patients', title: 'Patients & Prescriptions', tab: 'Patients', icon: 'document-text-outline', activeIcon: 'document-text', description: 'Doctor-wise completed checkups and prescribed treatment' },
-  { key: 'doctor', title: 'Doctor & Clinics', tab: 'Doctor', icon: 'medkit-outline', activeIcon: 'medkit', description: 'Assigned doctor and clinic contact information' },
-  { key: 'profile', title: 'My Profile', icon: 'person-outline', description: 'Your account and staff assignment' },
-  { key: 'settings', title: 'Settings', icon: 'settings-outline', description: 'Keep your account secure' },
+  { key: 'dashboard', title: 'Dashboard', tab: 'Home', icon: 'grid-outline', activeIcon: 'grid' },
+  { key: 'appointments', title: 'Appointments', tab: 'Appointments', icon: 'calendar-outline', activeIcon: 'calendar' },
+  { key: 'live-queue', title: 'Live Queue', icon: 'list-outline', activeIcon: 'list' },
+  { key: 'led-display', title: 'LED Display', icon: 'tv-outline', activeIcon: 'tv' },
+  { key: 'patients', title: 'Patients & Prescriptions', tab: 'Patients', icon: 'people-outline', activeIcon: 'people' },
+  { key: 'doctor', title: 'Doctor & Clinics', tab: 'Doctor', icon: 'medkit-outline', activeIcon: 'medkit' },
+  { key: 'profile', title: 'My Profile', icon: 'person-outline' },
+  { key: 'settings', title: 'Settings', icon: 'settings-outline' },
 ];
 const POLL_MS = 10000;
-const preferenceKey = (profile) => `receptionist-preferences:${profile?._id || profile?.id || profile?.email || ''}`;
 
 export default function ReceptionistPortal({ initialProfile, onLogout, loggingOut, onPasswordChanged }) {
   const insets = useSafeAreaInsets();
@@ -46,11 +49,9 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
   const [clinics, setClinics] = useState([]);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [selected, setSelected] = useState(null);
   const [editingVitals, setEditingVitals] = useState(false);
-  const [preferences, setPreferences] = useState({ compactTables: false });
 
   // The account (fresh from the server; the stored copy shows meanwhile).
   useEffect(() => {
@@ -60,16 +61,20 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
         if (cancelled || !user) return;
         setProfile((current) => ({ ...(current || {}), ...user }));
         setClinic(assignedClinicId(user));
-        AsyncStorage.getItem(preferenceKey(user))
-          .then((raw) => {
-            const stored = JSON.parse(raw || '{}') || {};
-            if (!cancelled) setPreferences({ compactTables: stored.compactTables === true });
-          })
-          .catch(() => {});
       })
       .catch((err) => { if (!cancelled && !initialProfile) setAccountError(apiError(err, 'Your account could not be loaded.')); });
     return () => { cancelled = true; };
   }, [initialProfile]);
+
+  // Today's saved copy of the feed shows at once (WhatsApp-style); the first
+  // live read below replaces it. Marked so booking alerts ignore it.
+  useEffect(() => {
+    readScreenCache('receptionist-dashboard', { sameDay: true }).then((cached) => {
+      if (!cached || typeof cached !== 'object') return;
+      setData((current) => current || { ...cached, __fromCache: true });
+      if (Array.isArray(cached.clinics)) setClinics((current) => (current.length ? current : cached.clinics));
+    });
+  }, []);
 
   // The shared dashboard feed, re-read every 10s while the app is open.
   useEffect(() => {
@@ -81,11 +86,11 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
         timer = setTimeout(load, POLL_MS);
         return;
       }
-      setRefreshing(true);
       try {
         const result = await fetchReceptionistDashboard({ date: indiaToday(), clinicId: clinic });
         if (cancelled) return;
         setData(result);
+        writeScreenCache('receptionist-dashboard', result);
         const rows = result?.clinics || [];
         setClinics(rows);
         setError('');
@@ -97,7 +102,6 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
         if ([401, 403, 404].includes(err?.response?.status)) setData(null);
       } finally {
         if (!cancelled) {
-          setRefreshing(false);
           timer = setTimeout(load, POLL_MS);
         }
       }
@@ -108,6 +112,15 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
 
   // Phone notification for every new booking / walk-in that reaches the feed.
   useBookingAlerts(data, clinic);
+
+  // Language: chosen from the side menu and kept per receptionist account
+  // (same storage as the doctor / patient dashboards), re-applied on open.
+  const receptionistId = String(profile?._id || profile?.id || '');
+  const { language: appLanguage } = useLanguageContext();
+  const currentLanguageName = LANGUAGES.find((lang) => lang.code === appLanguage)?.name || 'English';
+  useEffect(() => {
+    if (receptionistId) loadUserLanguage(receptionistId, 'receptionist').catch(() => {});
+  }, [receptionistId]);
 
   // Hardware back: close the menu, then return to the dashboard.
   useEffect(() => {
@@ -136,12 +149,6 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
       .catch(() => {});
   }, []);
 
-  const savePreferences = (next) => {
-    setPreferences(next);
-    AsyncStorage.setItem(preferenceKey(profile), JSON.stringify(next)).catch(() => {});
-  };
-
-  const page = MENU.find((item) => item.key === section) || MENU[0];
   const selectedPatient = useMemo(
     () => (selected ? data?.appointments?.find((row) => patientKey(row) === patientKey(selected)) || selected : null),
     [data, selected],
@@ -155,20 +162,18 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
 
   const renderSection = () => {
     if (!profile) return null;
-    const common = { profile, data, clinics, clinic, error, onView: viewPatient, onNavigate: navigateTo, compact: preferences.compactTables };
+    const common = { profile, data, clinics, clinic, error, onView: viewPatient, onNavigate: navigateTo };
     switch (section) {
-      case 'appointments': return <AppointmentsSection clinicId={clinic} canCancel compact={preferences.compactTables} />;
+      case 'appointments': return <AppointmentsSection clinicId={clinic} canCancel refreshKey={refresh} />;
       case 'live-queue': return <LiveQueueSection {...common} />;
       case 'led-display': return <LedDisplaySection profile={profile} clinic={clinic} onNavigate={navigateTo} />;
-      case 'patients': return <PatientsSection />;
+      case 'patients': return <PatientsSection refreshKey={refresh} />;
       case 'doctor': return <DoctorSection {...common} />;
       case 'profile': return <ProfileSection profile={profile} onProfileUpdated={applyProfileUpdate} />;
       case 'settings':
         return (
           <SettingsSection
             profile={profile}
-            preferences={preferences}
-            onSavePreferences={savePreferences}
             onNavigate={navigateTo}
             onLogout={onLogout}
             loggingOut={loggingOut}
@@ -202,32 +207,8 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={false} onRefresh={() => setRefresh((value) => value + 1)} colors={[REC.primary]} />}
       >
-        {!!profile && (
-          <View style={s.statusBar}>
-            <View style={s.clinicChip}>
-              <Ionicons name="business" size={15} color={REC.primary} />
-              <Text translate={false} style={s.clinicChipText} numberOfLines={1}>
-                {clinic && clinics.length ? clinicName(clinics, clinic) : profile.clinic_name || 'Your clinic'}
-              </Text>
-            </View>
-            <View style={s.sync}>
-              <View style={[s.dot, error && s.dotWarning]} />
-              <Text translate={false} style={s.syncText}>
-                {refreshing ? 'Updating' : data ? displayTime(data.updatedAt) : 'Connecting'}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => setRefresh((value) => value + 1)}
-              disabled={refreshing}
-              style={({ pressed }) => [s.refreshButton, pressed && s.refreshButtonPressed]}
-              hitSlop={6}
-              accessibilityLabel="Refresh"
-            >
-              <Ionicons name="refresh" size={18} color={REC.primary} />
-            </Pressable>
-          </View>
-        )}
-
+        {/* No clinic / refresh bar: the receptionist has one assigned clinic,
+            and the data refreshes by itself (every 10–15s) and on pull-down. */}
         <AlertBox text={accountError} />
         {!!error && <AlertBox text={`${error}${data ? ' The displayed data may be out of date.' : ''}`} />}
 
@@ -258,7 +239,8 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
             <View style={s.brandRow}>
               <View style={s.brandMark}><Image source={humaeliIcon} style={s.brandLogo} resizeMode="contain" /></View>
               <View style={s.flex}>
-                <Text style={s.brand}>Humaeli</Text>
+                {/* Brand name: never translated. */}
+                <Text translate={false} style={s.brand}>Humaeli</Text>
                 <Text style={s.brandSub}>RECEPTIONIST PORTAL</Text>
               </View>
               <Pressable onPress={() => setMenuOpen(false)} style={s.iconButton} hitSlop={8} accessibilityLabel="Close navigation">
@@ -284,6 +266,19 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
                 );
               })}
             </ScrollView>
+            <LanguageSelector
+              userId={receptionistId || null}
+              role="receptionist"
+              brand={REC.primary}
+              triggerStyle={s.languageItem}
+            >
+              <View style={s.languageIcon}>
+                <Ionicons name="globe-outline" size={18} color={REC.primary} />
+              </View>
+              <Text style={s.navText}>Language</Text>
+              <Text translate={false} style={s.languageValue} numberOfLines={1}>{currentLanguageName}</Text>
+              <Ionicons name="chevron-forward" size={16} color="#98A2B3" />
+            </LanguageSelector>
             <View style={s.accessNote}>
               <Ionicons name="shield-checkmark-outline" size={18} color={REC.primary} />
               <Text style={s.accessText}>Connected to your <Text style={s.accessStrong}>assigned doctor</Text></Text>
@@ -307,16 +302,7 @@ const s = StyleSheet.create({
   iconButton: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F2F5F7' },
   breadcrumb: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
   breadcrumbStrong: { flexShrink: 1, fontSize: 14, fontWeight: '700', color: REC.ink },
-  content: { paddingBottom: 24 },
-  statusBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 14, marginVertical: 12 },
-  clinicChip: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 7, height: 38, paddingHorizontal: 12, borderRadius: 19, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line },
-  clinicChipText: { flexShrink: 1, fontSize: 13.5, fontWeight: '700', color: REC.ink },
-  refreshButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line },
-  refreshButtonPressed: { backgroundColor: REC.soft },
-  sync: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: REC.green },
-  dotWarning: { backgroundColor: REC.amber },
-  syncText: { fontSize: 12, color: '#4A8875' },
+  content: { paddingTop: 12, paddingBottom: 24 },
   contextHint: { fontSize: 11.5, color: REC.muted, textAlign: 'center' },
   loadingAccount: { paddingVertical: 30 },
   bottomBar: { flexDirection: 'row', justifyContent: 'center', backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#DDE1E8', paddingTop: 7 },
@@ -340,6 +326,9 @@ const s = StyleSheet.create({
   navItemActive: { backgroundColor: '#FFFFFF' },
   navText: { fontSize: 14, color: '#465668' },
   navTextActive: { color: REC.softText, fontWeight: '700' },
+  languageItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, height: 48, borderRadius: 10, marginTop: 8, borderWidth: 1, borderColor: REC.line, backgroundColor: '#FFFFFF' },
+  languageIcon: { width: 30, height: 30, borderRadius: 9, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center' },
+  languageValue: { flex: 1, textAlign: 'right', fontSize: 13, fontWeight: '700', color: REC.primary },
   accessNote: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 10, backgroundColor: '#F4F8F7', marginTop: 10 },
   accessText: { flex: 1, fontSize: 12, color: '#718A82' },
   accessStrong: { fontWeight: '700', color: REC.ink },

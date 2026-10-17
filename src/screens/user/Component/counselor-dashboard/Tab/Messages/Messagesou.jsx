@@ -28,6 +28,10 @@ import GradientFill from '../../../../../../components/common/GradientFill';
 import socketService from '../../../../../../services/socketService';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
+import { readScreenCache, writeScreenCache } from '../../../../../../utils/screenCache';
+
+// Patient photos looked up by user id (one request per person per session).
+const knownAvatars = new Map();
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
 const SkeletonItem = () => {
@@ -199,21 +203,29 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
   //   return null;
   // };
 
+  // WhatsApp-style: the last saved list shows at once; refreshes run quietly
+  // and the loader only appears when there is nothing to show yet.
+  const hasRowsRef = useRef(false);
+  useEffect(() => { hasRowsRef.current = users.length > 0; }, [users]);
+  useEffect(() => {
+    readScreenCache('counselor-chat-list').then((cached) => {
+      if (!Array.isArray(cached) || !cached.length || hasRowsRef.current) return;
+      cached.forEach((item) => { if (item.userId && item.avatarUrl) knownAvatars.set(item.userId, item.avatarUrl); });
+      setUsers(cached);
+      setLoading(false);
+    });
+  }, []);
+
   const fetchChats = useCallback(async () => {
     const token = await AsyncStorage.getItem('token') || await AsyncStorage.getItem('accessToken');
     if (!token) return handleSessionExpired();
     try {
-      setLoading(true);
+      if (!hasRowsRef.current) setLoading(true);
       const response = await fetch(`${API_BASE_URL}/api/chat/chats`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.status === 401) return handleSessionExpired();
       const data = await response.json();
-
-      // DEBUG: log first chat's otherParty so you can see exact field names in Metro logs
-      if (data.chats?.length > 0) {
-        console.log('[ChatList] otherParty sample:', JSON.stringify(data.chats[0].otherParty, null, 2));
-      }
 
    const transformed = (data.chats || []).map((chat) => {
   const otherParty = chat.otherParty || {};
@@ -274,7 +286,11 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
   };
 });
 
-      const rowsMissingAvatar = transformed.filter((item) => !item.avatarUrl && item.userId);
+      // Photos already looked up this session are reused, not fetched again.
+      transformed.forEach((item) => {
+        if (!item.avatarUrl && knownAvatars.get(item.userId)) item.avatarUrl = knownAvatars.get(item.userId);
+      });
+      const rowsMissingAvatar = transformed.filter((item) => !item.avatarUrl && item.userId && !knownAvatars.has(item.userId));
       if (rowsMissingAvatar.length > 0) {
         const liveAvatars = await Promise.all(
           rowsMissingAvatar.map(async (item) => {
@@ -292,6 +308,9 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
           })
         );
 
+        // Remember every answer (an empty one too) so the same person is not
+        // requested again on the next visit.
+        liveAvatars.forEach(([userId, url]) => knownAvatars.set(userId, url));
         const avatarByUserId = new Map(liveAvatars.filter(([, url]) => !!url));
         if (avatarByUserId.size > 0) {
           transformed.forEach((item) => {
@@ -304,6 +323,7 @@ const SMSList = ({ counselorData, notifCount = 0, onBellPress, onCompleteProfile
 
       transformed.sort((a, b) => new Date(b.lastActivityAt) - new Date(a.lastActivityAt));
       setUsers(transformed);
+      writeScreenCache('counselor-chat-list', transformed);
     } catch (err) {
       setError(err.message);
     } finally {

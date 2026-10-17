@@ -327,11 +327,14 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
     }
   }, []);
 
-  // Live refresh, same as web: poll every 15s and refetch when the app returns
-  // to the foreground (the RN equivalent of the web's window focus listener).
+  // Earnings change only when a consultation completes: load on open, on
+  // return to the app and on pull-down; the timer is a slow backup (60s, never
+  // in the background) instead of an API call every 15s.
   useEffect(() => {
     void loadEarnings();
-    const timer = setInterval(() => void loadEarnings({ silent: true }), 15000);
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active') void loadEarnings({ silent: true });
+    }, 60000);
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') void loadEarnings({ silent: true });
     });

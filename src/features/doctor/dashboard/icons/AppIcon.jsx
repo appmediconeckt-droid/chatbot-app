@@ -68,6 +68,13 @@ export default function AppIcon({ name, size = 20, color = '#171B22', strokeWidt
           <Path d="M16 5a3 3 0 0 1 0 6M17 14a5 5 0 0 1 4 5" {...common} />
         </>
       )}
+      {name === 'patients' && (
+        <>
+          <Rect x="5" y="4" width="14" height="17" rx="2" {...common} />
+          <Rect x="9" y="2" width="6" height="4" rx="1" {...common} />
+          <Path d="M8 13.5h2l1.5-3 2 5 1.5-2H16" {...common} />
+        </>
+      )}
       {name === 'hourglass' && (
         <Path d="M6 3h12M6 21h12M7 3c0 5 5 5 5 9s-5 4-5 9M17 3c0 5-5 5-5 9s5 4 5 9" {...common} />
       )}

@@ -31,6 +31,7 @@ import { PATIENT_GRADIENT } from '../../../../../../theme/palette';
 import { PrescriptionPreview } from '../../../counselor-dashboard/Tab/Prescriptions/PrescriptionReviews';
 import DoctorPrescriptionView from './DoctorPrescriptionView';
 import { stripEmergencyTag } from '../../../../../../utils/emergencyTag';
+import { readScreenCache, writeScreenCache } from '../../../../../../utils/screenCache';
 
 const normalizeList = payload => {
   const list =
@@ -467,9 +468,16 @@ const PrescriptionScreen = () => {
     const isDoctorChat = item => chatPrescriptionKind(item, issuerMap) === 'doctor';
     const doctorChatList = chatList.filter(isDoctorChat).map(item => chatToDoctorPrescription(item, 'doctor'));
 
+    // What this load produced, saved for the next open (WhatsApp-style).
+    const saved = { chat: null, doctor: null };
+    const saveCopy = () => {
+      if (saved.chat || saved.doctor) writeScreenCache('patient-prescriptions', saved);
+    };
+
     if (psychiatristResult.status === 'fulfilled') {
       setLoadError('');
-      setPrescriptions(chatList.filter(item => !isDoctorChat(item)));
+      saved.chat = chatList.filter(item => !isDoctorChat(item));
+      setPrescriptions(saved.chat);
     } else {
       const error = psychiatristResult.reason;
       setPrescriptions([]);
@@ -506,10 +514,16 @@ const PrescriptionScreen = () => {
             linkChatToAppointment(rx, Array.isArray(appointments) ? appointments : []),
           ),
         );
-      setDoctorPrescriptions(groupByDoctor(doctorList));
+      saved.doctor = groupByDoctor(doctorList);
+      setDoctorPrescriptions(saved.doctor);
+      saveCopy();
       // Fill in the clinic letterhead without holding up the list.
       attachClinics(doctorList)
-        .then(withClinics => setDoctorPrescriptions(groupByDoctor(withClinics)))
+        .then(withClinics => {
+          saved.doctor = groupByDoctor(withClinics);
+          setDoctorPrescriptions(saved.doctor);
+          saveCopy();
+        })
         .catch(() => {});
     } else {
       console.warn(
@@ -525,8 +539,20 @@ const PrescriptionScreen = () => {
     setRefreshing(false);
   }, []);
 
+  // The last saved lists show at once; the fetch then refreshes them quietly.
   useEffect(() => {
-    fetchPrescriptions(true);
+    let cancelled = false;
+    readScreenCache('patient-prescriptions').then(cached => {
+      if (cancelled) return;
+      const hasCopy = Array.isArray(cached?.chat) || Array.isArray(cached?.doctor);
+      if (hasCopy) {
+        if (Array.isArray(cached.chat)) setPrescriptions(cached.chat);
+        if (Array.isArray(cached.doctor)) setDoctorPrescriptions(cached.doctor);
+        setLoading(false);
+      }
+      fetchPrescriptions(!hasCopy);
+    });
+    return () => { cancelled = true; };
   }, [fetchPrescriptions]);
 
   const viewPrescription = async item => {

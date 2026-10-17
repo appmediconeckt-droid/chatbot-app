@@ -34,6 +34,8 @@ export const clearAccountLocalData = async () => {
       normalized.startsWith('chat_messages_') ||
       normalized.startsWith('chatmessages_') ||
       normalized.startsWith('activechat_') ||
+      // Saved screen lists (utils/screenCache.js).
+      normalized.startsWith('screencache_') ||
       normalized.includes('callhistory')
     );
   });

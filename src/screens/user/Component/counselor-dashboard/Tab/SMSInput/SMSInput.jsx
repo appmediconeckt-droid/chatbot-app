@@ -36,13 +36,14 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import { DOCTOR } from '../../../../../../theme/palette';
 
 import socketService from '../../../../../../services/socketService';
+import { createIncomingCallPollGate } from '../../../../../../utils/incomingCallPollGate';
 import axios, { API_BASE_URL } from '../../../../../../axiosConfig';
 import TranslatedMessageBubble from '../../../../../../components/TranslatedMessageBubble';
 import useRingtone, { INCOMING_RING_TIMEOUT_MS } from '../../../../../../hooks/useRingtone';
 import { isGlobalCallUiActive } from '../../../../../../services/callNotificationBridge';
 import { displayMissedCallNotification } from '../../../../../../services/notificationService';
 import useScreenshotPrevent from '../../../../../../utils/useScreenshotPrevent';
-import { getKeyboardLift } from '../../../../../../utils/keyboardLift';
+import KeyboardSpacer from '../../../../../../components/common/KeyboardSpacer';
 import CounselorGradientButton from '../../../../../../components/common/CounselorGradientButton';
 import VideoCallModal from '../../../UserDashboard/Tab/CallModal/VideoCallModal';
 import VoiceCallModal from '../../../UserDashboard/Tab/CallModal/VoiceCallModal';
@@ -479,7 +480,6 @@ const SMSInput = ({ navigation, route }) => {
     stopListening: stopVoiceTyping,
     clearTranscript: clearVoiceTranscript,
   } = useSpeechToText();
-  const [keyboardInset, setKeyboardInset] = useState(0);
   const messageInputRef = useRef(null);
   const voiceTypingBaseRef = useRef("");
   const keyboardVisibleRef = useRef(false);
@@ -1924,10 +1924,13 @@ const SMSInput = ({ navigation, route }) => {
   // Polling for calls
   useEffect(() => {
     let intervalId = null;
+    const shouldPoll = createIncomingCallPollGate();
     const fetchIncoming = async () => {
       try {
+        if (!counselorId || showIncomingModal || isVideoModalOpen || isVoiceModalOpen || isGlobalCallUiActive()) return;
+        if (!shouldPoll()) return;
         const token = await getAuthToken();
-        if (!counselorId || !token || showIncomingModal || isVideoModalOpen || isVoiceModalOpen || isGlobalCallUiActive()) return;
+        if (!token) return;
         const res = await axios.get(`${API_BASE_URL}/api/video/calls/pending/${counselorId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -2075,10 +2078,6 @@ const SMSInput = ({ navigation, route }) => {
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const showSub = Keyboard.addListener(showEvt, (event) => {
       keyboardVisibleRef.current = true;
-      if (Platform.OS === 'android') {
-        const keyboardHeight = event?.endCoordinates?.height || 0;
-        setKeyboardInset(getKeyboardLift(keyboardHeight, insets.bottom));
-      }
       if (shouldAutoScrollRef.current) {
         requestAnimationFrame(() => scrollToBottom(true));
         setTimeout(() => scrollToBottom(true), 120);
@@ -2086,7 +2085,6 @@ const SMSInput = ({ navigation, route }) => {
     });
     const hideSub = Keyboard.addListener(hideEvt, () => {
       keyboardVisibleRef.current = false;
-      if (Platform.OS === 'android') setKeyboardInset(0);
       if (sendFocusGuardRef.current) {
         requestAnimationFrame(() => messageInputRef.current?.focus());
         return;
@@ -2656,10 +2654,9 @@ const SMSInput = ({ navigation, route }) => {
           <View style={[
             styles.inputArea,
             {
-              // SafeAreaView owns the bottom system inset. Android gets a
-              // measured keyboard margin so the composer stays above the IME.
+              // SafeAreaView owns the bottom system inset; on Android the
+              // KeyboardSpacer below lifts the composer above the keyboard.
               paddingBottom: 8,
-              marginBottom: Platform.OS === 'android' ? keyboardInset : 0,
             },
           ]}>
             <View style={styles.inputAreaInner}>
@@ -2727,6 +2724,7 @@ const SMSInput = ({ navigation, route }) => {
               </View>
             </View>
           </View>
+          <KeyboardSpacer insetsBottom={insets.bottom} />
         </View>
 
         <VideoCallModal isOpen={isVideoModalOpen} onClose={handleCloseModal} callData={selectedCall} currentUser={{ id: counselorId, role: "counsellor" }} onEndCall={handleEndIncomingCall} />

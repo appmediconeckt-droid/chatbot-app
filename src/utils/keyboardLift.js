@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { MIN_REAL_KEYBOARD_DP, getKeyboardCoverage } from './keyboardCoverage';
 
 // Keyboard space on Android, for gesture and 3-button navigation alike.
 //
@@ -34,4 +35,15 @@ export const getKeyboardCover = (keyboardHeight, insetsBottom) => {
   const height = Math.max(0, keyboardHeight || 0);
   if (!height) return 0;
   return isButtonNavigation(insetsBottom) ? height + insetsBottom : height;
+};
+
+// Keyboard height (dp, navigation bar excluded, as React Native reports it)
+// for a keyboardDidShow event. React Native reports the height once, when the
+// keyboard becomes visible; if that moment falls while it is still sliding in,
+// the number is a few dp and is never corrected. Such a report is replaced by
+// the last real keyboard seen anywhere in the app (see keyboardCoverage).
+export const getKeyboardEventHeight = (event, insetsBottom) => {
+  const reported = Math.max(0, event?.endCoordinates?.height || 0);
+  if (reported >= MIN_REAL_KEYBOARD_DP) return reported;
+  return Math.max(0, getKeyboardCoverage(event) - (insetsBottom || 0));
 };

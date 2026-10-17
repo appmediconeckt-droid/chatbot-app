@@ -101,3 +101,31 @@ it('does not reopen a prescription after staff closes its pending request', asyn
   await act(async () => { resolve(response(record)); await opening; });
   expect(root.root.findAllByType('Modal').slice(-1)[0].props.visible).toBe(false);
 });
+
+it('pages distinct patients and clamps the page after a refresh removes patients', async () => {
+  const records = Array.from({ length: 21 }, (_, index) => ({
+    ...record, id: `visit-${index}`, patient: { id: `patient-${index}`, name: `Patient ${index}` },
+  }));
+  api.get.mockResolvedValue({ data: { ...response(record).data, records, total: records.length } });
+  await act(async () => { root = create(<PatientsSection refreshKey={0} />); });
+  const cards = () => root.root.findAllByType('Pressable').filter(node => node.props.accessibilityLabel?.startsWith('View visits for'));
+  expect(cards()).toHaveLength(10);
+  await pressAccessible('Go to page 3');
+  expect(cards()).toHaveLength(1);
+  expect(cards()[0].props.accessibilityLabel).toContain('Patient 20');
+  // Local patient pagination keeps all visits grouped without another API call.
+  expect(api.get).toHaveBeenCalledTimes(1);
+  api.get.mockResolvedValue(response(record));
+  await act(async () => { root.update(<PatientsSection refreshKey={1} />); });
+  expect(cards()).toHaveLength(1);
+  expect(cards()[0].props.accessibilityLabel).toContain('Test patient');
+  expect(root.root.findAllByType('Pressable').find(node => node.props.accessibilityLabel === 'Next page').props.disabled).toBe(true);
+});
+
+it('keeps pagination visible with both navigation buttons disabled for an empty result', async () => {
+  api.get.mockResolvedValue({ data: { ...response(record).data, records: [], total: 0 } });
+  await act(async () => { root = create(<PatientsSection />); });
+  for (const label of ['Previous page', 'Next page']) {
+    expect(root.root.findAllByType('Pressable').find(node => node.props.accessibilityLabel === label).props.disabled).toBe(true);
+  }
+});

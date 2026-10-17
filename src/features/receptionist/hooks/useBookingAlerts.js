@@ -37,7 +37,9 @@ export default function useBookingAlerts(data, clinic) {
   useEffect(() => { seen.current = null; }, [clinic]);
 
   useEffect(() => {
-    if (!data) return;
+    // The saved copy shown on open is not a live read: it must not become the
+    // baseline, or the first fresh read would replay everything since then.
+    if (!data || data.__fromCache) return;
     const rows = feedRows(data);
     if (!seen.current) {
       seen.current = new Set(rows.map(patientKey));

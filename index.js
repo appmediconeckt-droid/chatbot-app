@@ -17,6 +17,14 @@ registerBackgroundNotificationHandler();
 // Suppress console warnings
 LogBox.ignoreAllLogs(true);
 
+
+if (!__DEV__) {
+  const noop = () => {};
+  console.log = noop;
+  console.info = noop;
+  console.debug = noop;
+}
+
 AppRegistry.registerComponent(appName, () => App);
 AppRegistry.registerComponent('HumaeliIncomingCall', () => () => (
   <SafeAreaProvider>

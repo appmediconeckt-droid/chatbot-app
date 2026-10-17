@@ -25,6 +25,8 @@ import useLanguageRender from "../../../../../../hooks/useLanguageRender";
 import TranslatedMessageBubble from "../../../../../../components/TranslatedMessageBubble";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import socketService from "../../../../../../services/socketService";
+import { createPollGate } from "../../../../../../utils/incomingCallPollGate";
+import { readScreenCache, writeScreenCache } from "../../../../../../utils/screenCache";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import api, { API_BASE_URL } from "../../../../../../axiosConfig";
 import StarRating from "../../../../../../components/StarRating";
@@ -295,7 +297,8 @@ const CounselorDirectoryScreen = ({ navigation }) => {
       });
       
       setCounselorsData(formattedCounselors);
-      
+      writeScreenCache('patient-consultants', formattedCounselors);
+
       const locations = [...new Set(
         formattedCounselors
           .map(c => c.location)
@@ -317,15 +320,31 @@ const CounselorDirectoryScreen = ({ navigation }) => {
   }, []);
 
   useEffect(() => {
-    fetchCounselors(true);
+    // The last saved list shows at once; the request then refreshes it quietly.
+    let cancelled = false;
+    readScreenCache('patient-consultants').then((cached) => {
+      if (cancelled) return;
+      const hasCopy = Array.isArray(cached) && cached.length > 0;
+      if (hasCopy) {
+        setCounselorsData(cached);
+        setUniqueLocations([...new Set(
+          cached.map((c) => c.location).filter((l) => l && l !== "Online" && l.trim())
+        )]);
+        setIsLoading(false);
+      }
+      fetchCounselors(!hasCopy);
+    });
 
-    // Real-time reconciliation, same as web: silent re-fetch every 15s so newly
-    // registered/updated doctors and counselors appear without a manual refresh.
-    const timer = setInterval(() => fetchCounselors(false), 15000);
+    // Changes arrive as socket events (counselor-directory-updated,
+    // presence-update, reconnect — below); the 15s re-fetch is only the backup:
+    // every tick while the socket is down, at most every 2 min while connected.
+    const shouldPoll = createPollGate(120000, { primed: true });
+    const timer = setInterval(() => { if (shouldPoll()) fetchCounselors(false); }, 15000);
     const appStateSub = AppState.addEventListener('change', (state) => {
       if (state === 'active') fetchCounselors(false);
     });
     return () => {
+      cancelled = true;
       clearInterval(timer);
       appStateSub?.remove?.();
     };
