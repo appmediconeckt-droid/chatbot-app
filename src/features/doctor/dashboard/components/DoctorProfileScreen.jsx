@@ -253,8 +253,9 @@ const s = createDoctorStyles({
 
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EEF1F5' },
   infoRowLast: { borderBottomWidth: 0 },
-  infoLabel: { fontSize: 13, color: '#667085' },
-  infoValue: { fontSize: 13, fontWeight: '700', color: '#17243A' },
+  infoLabel: { fontSize: 13, color: '#667085', flexShrink: 0 },
+  // Long values (qualification…) wrap inside the card, right-aligned.
+  infoValue: { flex: 1, marginLeft: 16, textAlign: 'right', fontSize: 13, fontWeight: '700', color: '#17243A' },
 
   subLabel: { fontSize: 12.5, fontWeight: '700', color: '#344054', marginBottom: 8 },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
