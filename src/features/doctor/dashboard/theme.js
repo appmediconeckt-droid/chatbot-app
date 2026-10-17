@@ -4,7 +4,7 @@ import { Platform, StyleSheet } from 'react-native';
 import { CLINICIAN, CLINICIAN_GRADIENT, GRADIENT_DIRECTION } from '../../../theme/palette';
 
 export const colors = {
-  background: CLINICIAN.backgroundTint,
+  background: '#FFFFFF',
   surface: CLINICIAN.surface,
   ink: CLINICIAN.text,
   navy: CLINICIAN.gradientFrom,

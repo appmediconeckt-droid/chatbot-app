@@ -1748,7 +1748,7 @@ function RangeHint({ range }) {
 }
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   flex: { flex: 1 },
   header: { minHeight: 60, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D7DEE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, gap: 10 },
   title: { fontSize: 19, fontWeight: '800', color: '#0D9488' },

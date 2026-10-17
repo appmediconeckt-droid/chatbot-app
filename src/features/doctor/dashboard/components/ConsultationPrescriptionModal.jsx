@@ -2,7 +2,7 @@
 // SummaryModal + common/PrescriptionDocument.jsx: the consultation record
 // (patient, diagnosis, prescribed medicines, advice, notes, tests, follow-up)
 // with Close and Download PDF.
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -13,29 +13,13 @@ import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { downloadConsultationPrescriptionPdf } from '../utils/consultationPrescriptionPdf';
 
 import ConsultationPrescriptionDocument from '../../../../screens/user/Component/UserDashboard/Tab/Prescription/ConsultationPrescriptionDocument';
-import { appointmentToDocument } from '../../../../utils/consultationPrescriptionDocument';
-import { loadAppointmentPrescription } from '../api/doctorAppointments';
+import useDoctorPrescriptionDocument from '../useDoctorPrescriptionDocument';
 
-export default function ConsultationPrescriptionModal({ visible, appointment, doctorName, onClose }) {
+export default function ConsultationPrescriptionModal({ visible, appointment, onClose }) {
   const insets = useSafeAreaInsets();
   const [downloading, setDownloading] = useState(false);
-  const [record, setRecord] = useState(null);
-  const [error, setError] = useState('');
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    let active = true;
-    setRecord(null);
-    setError('');
-    if (visible && appointment) {
-      loadAppointmentPrescription(appointment).then(
-        result => { if (active) setRecord(result); },
-        failure => { if (active) setError(failure.response?.data?.message || failure.message || 'Prescription could not be loaded. Please try again.'); },
-      );
-    }
-    return () => { active = false; };
-  }, [visible, appointment, attempt]);
+  const { data, error, retry } = useDoctorPrescriptionDocument(appointment, visible);
   if (!appointment) return null;
-  const data = record ? appointmentToDocument(record, doctorName) : null;
 
   // Same PDF as the web doctor dashboard (common/downloadPrescription.js).
   const download = async () => {
@@ -64,7 +48,7 @@ export default function ConsultationPrescriptionModal({ visible, appointment, do
             {error ? (
               <View style={s.status}>
                 <Text accessibilityRole="alert" style={s.error}>{error}</Text>
-                <Pressable accessibilityRole="button" onPress={() => setAttempt(value => value + 1)} style={s.retry}>
+                <Pressable accessibilityRole="button" onPress={retry} style={s.retry}>
                   <Text style={s.closeText}>Retry</Text>
                 </Pressable>
               </View>
@@ -98,7 +82,7 @@ export default function ConsultationPrescriptionModal({ visible, appointment, do
 const s = createDoctorStyles({
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'center', paddingVertical: 24 },
   backdropTap: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
-  sheet: { width: '100%', maxWidth: 900, alignSelf: 'center', maxHeight: '92%', backgroundColor: '#F1F5F9', borderRadius: 18, overflow: 'hidden' },
+  sheet: { width: '100%', maxWidth: 900, alignSelf: 'center', maxHeight: '92%', backgroundColor: '#FFFFFF', borderRadius: 18, overflow: 'hidden' },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 20, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
   sheetTitle: { flex: 1, fontSize: 20, fontWeight: '700', color: '#172033' },
   closeIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },

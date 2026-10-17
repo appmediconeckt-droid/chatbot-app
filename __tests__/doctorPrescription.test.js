@@ -3,6 +3,8 @@ import { act, create } from 'react-test-renderer';
 import api from '../src/axiosConfig';
 import { appointmentToDocument, doctorRxToDocument, buildConsultationDocumentHtml } from '../src/utils/consultationPrescriptionDocument';
 import { formatAppointment, loadAppointmentPrescription } from '../src/features/doctor/dashboard/api/doctorAppointments';
+import { loadDoctorPrescriptionDocument } from '../src/features/doctor/dashboard/api/doctorPrescription';
+import VisitDetailScreen from '../src/features/doctor/dashboard/components/VisitDetailScreen';
 import ConsultationPrescriptionModal from '../src/features/doctor/dashboard/components/ConsultationPrescriptionModal';
 import CompleteAppointmentScreen from '../src/features/doctor/dashboard/components/CompleteAppointmentScreen';
 import { downloadConsultationPrescriptionPdf } from '../src/features/doctor/dashboard/utils/consultationPrescriptionPdf';
@@ -20,7 +22,7 @@ jest.mock('react-native-linear-gradient', () => 'Gradient');
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn() }));
 jest.mock('../src/features/doctor/dashboard/icons/AppIcon', () => 'Icon');
-jest.mock('../src/axiosConfig', () => ({ __esModule: true, default: { defaults: { baseURL: 'https://example.test' }, get: jest.fn() } }));
+jest.mock('../src/axiosConfig', () => ({ __esModule: true, API_BASE_URL: 'https://example.test', default: { defaults: { baseURL: 'https://example.test' }, get: jest.fn() } }));
 jest.mock('../src/features/doctor/dashboard/utils/consultationPrescriptionPdf', () => ({ downloadConsultationPrescriptionPdf: jest.fn() }));
 jest.mock('@react-native-community/datetimepicker', () => ({ __esModule: true, default: 'DateTimePicker', DateTimePickerAndroid: { open: jest.fn() } }));
 jest.mock('../src/hooks/useKeyboardAwareScroll', () => ({ __esModule: true, default: () => ({ scrollRef: { current: null }, frameInset: 0 }) }));
@@ -42,7 +44,8 @@ const press = async label => {
   if (!node) throw new Error(`Button missing: ${label}`);
   await act(async () => { await node.props.onPress(); });
 };
-beforeEach(() => { jest.clearAllMocks(); api.get.mockResolvedValue({ data: { appointment: raw } }); });
+const mockAppointment = (appointment, doctor = { _id: 'doctor-1', fullName: 'Dr. Meera' }) => api.get.mockImplementation(path => Promise.resolve({ data: path === '/api/auth/me' ? { user: doctor } : { appointment } }));
+beforeEach(() => { jest.clearAllMocks(); mockAppointment(raw); });
 afterEach(async () => { if (root) await act(async () => { root.unmount(); }); root = undefined; });
 
 it('reads web JSON medicine/test lists, doctor snapshot, and false follow-up after queue formatting', () => {
@@ -85,7 +88,7 @@ it('rejects invalid detail responses instead of showing a blank prescription', a
 it('shows the web sections/table and downloads the exact displayed record', async () => {
   await render(<ConsultationPrescriptionModal visible appointment={formatAppointment(raw)} doctorName="Dr. Meera" onClose={jest.fn()} />);
   const text = JSON.stringify(root.toJSON());
-  ['Prescribing doctor', 'Dr. Meera', 'Medicine', 'Dosage', 'Timing', 'Duration', 'Morning, Night', '5 Days', 'Recorded test', 'Recorded notes', 'No follow-up scheduled'].forEach(value => expect(text).toContain(value));
+  ['Prescribing doctor', 'Dr. Meera', 'Medicine name', 'Strength', 'Dosage', 'Instructions', 'Duration', 'Morning, Night', '5 Days', 'Recorded test', 'Recorded notes', 'No follow-up scheduled'].forEach(value => expect(text).toContain(value));
   await press('Download PDF');
   expect(downloadConsultationPrescriptionPdf).toHaveBeenCalledWith(expect.objectContaining({ doctor: 'Dr. Meera', medicines: [medicine], tests: [test], notes: 'Recorded notes' }));
 });
@@ -105,7 +108,7 @@ it('ignores an earlier patient response when another prescription is opened', as
   api.get.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
   await render(<ConsultationPrescriptionModal visible appointment={formatAppointment(raw)} onClose={jest.fn()} />);
   const next = { ...raw, id: 'visit-2', patient: { fullName: 'Next Patient' } };
-  api.get.mockResolvedValue({ data: { appointment: next } });
+  mockAppointment(next);
   await act(async () => { root.update(<ConsultationPrescriptionModal visible appointment={formatAppointment(next)} onClose={jest.fn()} />); });
   await act(async () => { resolve({ data: { appointment: raw } }); });
   expect(JSON.stringify(root.toJSON())).toContain('Next Patient');
@@ -144,4 +147,81 @@ it('allows adding/removing recommended tests and submits all test fields with me
     medicines: [expect.objectContaining({ name: 'Medicine', durationValue: '5', durationType: 'Days' })],
     recommendedTests: [{ testName: 'Test one', completeBy: null, reason: 'Reason', instructions: 'Instructions' }],
   }));
+});
+
+
+const detailed = {
+  ...raw, id: 'rx-full', source: 'appointment', verificationStatus: 'completed', token_number: 0,
+  doctorProfile: { fullName: 'Dr. Profile', qualification: ['MBBS', 'MD'], specialization: ['Psychiatry'], registrationNumber: 'REG-123', email: 'doctor@example.test', prescriptionSignature: '/uploads/signature.png' },
+  patient: { id: 'patient-123', name: 'Full Patient', age: 0, gender: 'Female', phoneNumber: '9876543210', medicalInfo: { weight: 65, allergies: ['Penicillin', 'Dust'] } },
+  clinic: { clinic_name: 'Test Clinic', location: 'Test Address', phone_number: '1234567890' },
+  vitals: { weight: 64 },
+  medicines: [{ ...medicine, strength: '500 mg', instructions: 'After food' }],
+};
+
+it('retains every web letterhead, patient and medicine field in both patient view and print', async () => {
+  const data = appointmentToDocument(detailed);
+  expect(data).toMatchObject({
+    doctor: 'Dr. Profile', qualification: 'MBBS, MD', specialization: 'Psychiatry', registration: 'REG-123',
+    clinic: 'Test Clinic', address: 'Test Address', doctorPhone: '1234567890', doctorEmail: 'doctor@example.test',
+    prescriptionId: 'rx-full', opd: '0', patientId: 'patient-123', age: '0', phone: '9876543210', weight: '64',
+    allergies: 'Penicillin, Dust', signature: 'https://example.test/uploads/signature.png',
+  });
+  const patientData = doctorRxToDocument({ document: data, clinic: { name: 'Another Clinic' } });
+  expect(patientData).toEqual(data);
+  mockAppointment(detailed, { _id: 'doctor-1', ...detailed.doctorProfile });
+  await render(<ConsultationPrescriptionModal visible appointment={formatAppointment(detailed)} onClose={jest.fn()} />);
+  const text = JSON.stringify(root.toJSON());
+  const html = buildConsultationDocumentHtml(data);
+  ['Patient ID', 'Age / Gender', 'Contact No.', 'Weight', 'Allergies', 'Prescription No.', 'OPD / Token No.', 'Strength', 'Instructions', 'REG-123', 'patient-123', '500 mg', 'After food', 'Test Clinic', 'Penicillin, Dust'].forEach(value => {
+    expect(text).toContain(value);
+    expect(html).toContain(value);
+  });
+  expect(html).toContain('alt="Doctor signature"');
+  await press('Download PDF');
+  expect(downloadConsultationPrescriptionPdf).toHaveBeenCalledWith(expect.objectContaining({ patientId: 'patient-123', weight: '64', medicines: detailed.medicines }));
+});
+
+it.each(['pending', 'rejected', undefined])('hides unapproved signatures with status %s', verificationStatus => {
+  const data = appointmentToDocument({ ...detailed, verificationStatus });
+  expect(data.signature).toBe('');
+  expect(buildConsultationDocumentHtml(data)).not.toContain('alt="Doctor signature"');
+});
+
+it('supports verified chat signatures, snapshot patient fields and clinic enrichment', () => {
+  const data = appointmentToDocument({ ...detailed, source: 'chat', verificationStatus: 'verified', patient: undefined, patientSnapshot: detailed.patient });
+  expect(data.patientId).toBe('patient-123');
+  expect(data.signature).toContain('/uploads/signature.png');
+  const enriched = doctorRxToDocument({ document: { ...data, clinic: '', address: '', doctorPhone: '', opd: '' }, tokenNumber: 3, clinic: { name: 'Enriched Clinic', location: 'Enriched Address', phone: '55555' } });
+  expect(enriched).toMatchObject({ clinic: 'Enriched Clinic', address: 'Enriched Address', doctorPhone: '55555', opd: '3' });
+});
+
+
+it.each(['online', 'walkin'])('doctor %s PDF exactly matches the patient document including current clinic/profile signature', async source => {
+  const doctor = { _id: 'doctor-1', ...detailed.doctorProfile };
+  const clinic = { ...detailed.clinic, _id: 'clinic-1', doctor_id: 'doctor-1' };
+  const appointment = { ...detailed, issue: 'Recorded issue', clinic_id: 'clinic-1', __appointmentSource: source };
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/api/auth/me' ? { user: doctor } : path === '/api/clinics/clinic-1' ? { clinic } : { appointment } }));
+  const data = await loadDoctorPrescriptionDocument(formatAppointment(appointment));
+  const patientDocument = appointmentToDocument({ ...appointment, id: 'appointment:rx-full', doctorProfile: doctor, clinic }, doctor.fullName);
+  expect(data).toEqual(patientDocument);
+  expect(buildConsultationDocumentHtml(data)).toBe(buildConsultationDocumentHtml(doctorRxToDocument({ document: patientDocument })));
+  expect(api.get).toHaveBeenCalledWith(`/api/${source === 'walkin' ? 'walkin-appointments' : 'appointments'}/rx-full`, { timeout: 15000 });
+});
+
+it('doctor patient Visit Details downloads the same complete document shown on screen', async () => {
+  mockAppointment(detailed, { _id: 'doctor-1', ...detailed.doctorProfile });
+  await render(<VisitDetailScreen patient={{ name: 'Full Patient' }} record={{ __raw: detailed, id: 'rx-full', date: '16 Oct 2026', doctor: 'Dr. Profile', medicines: [], tests: [] }} onBack={jest.fn()} />);
+  ['Prescription No.', 'REG-123', 'patient-123', '500 mg', 'After food'].forEach(value => expect(JSON.stringify(root.toJSON())).toContain(value));
+  await press('Download Prescription');
+  expect(downloadConsultationPrescriptionPdf).toHaveBeenCalledWith(expect.objectContaining({
+    prescriptionId: 'appointment:rx-full', patientId: 'patient-123', medicines: detailed.medicines, signature: 'https://example.test/uploads/signature.png',
+  }));
+});
+
+it('does not enable downloading a header with another doctor clinic', async () => {
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/api/auth/me' ? { user: { _id: 'doctor-1' } } : path === '/api/clinics/clinic-1' ? { clinic: { doctor_id: 'another-doctor' } } : { appointment: { ...raw, clinic_id: 'clinic-1' } } }));
+  await render(<ConsultationPrescriptionModal visible appointment={formatAppointment(raw)} onClose={jest.fn()} />);
+  expect(JSON.stringify(root.toJSON())).toContain('does not belong to this doctor');
+  expect(downloadConsultationPrescriptionPdf).not.toHaveBeenCalled();
 });

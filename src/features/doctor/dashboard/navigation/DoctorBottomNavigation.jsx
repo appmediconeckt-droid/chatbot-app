@@ -22,12 +22,11 @@ export default function DoctorBottomNavigation({ active = 'Home', onChange }) {
   const renderItem = ([icon, value, label = value]) => {
     const selected = active === value;
     return (
-      <Pressable accessibilityLabel={label} onPress={() => onChange?.(value)} key={value} style={styles.item}>
-        <View style={[styles.iconWrap, selected && styles.activeIconWrap]}>
+      <Pressable accessibilityLabel={label} accessibilityRole="tab" accessibilityState={{ selected }} onPress={() => onChange?.(value)} key={value} style={styles.item}>
+        <View style={styles.iconWrap}>
           <AppIcon name={icon} size={18} strokeWidth={selected ? 2.4 : 1.7} color={selected ? colors.blue : '#747B87'} />
         </View>
         <Text style={[styles.label, selected && styles.active]} numberOfLines={1}>{label}</Text>
-        {selected && <View style={styles.indicator} />}
       </Pressable>
     );
   };
@@ -39,8 +38,6 @@ const styles = createDoctorStyles({
   bar: { height: 65, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: '#DDE1E8', flexDirection: 'row', justifyContent: 'center', paddingTop: 7 },
   item: { flex: 1, maxWidth: 180, alignItems: 'center', position: 'relative' },
   iconWrap: { width: 30, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  activeIconWrap: { backgroundColor: colors.paleBlue },
   label: { ...typography.caption, fontSize: 12, lineHeight: 16, marginTop: 2, color: '#747B87', textAlign: 'center', width: '100%' },
   active: { color: colors.blue, fontWeight: '800' },
-  indicator: { position: 'absolute', top: -8, width: 30, height: 2, backgroundColor: colors.blue },
 });

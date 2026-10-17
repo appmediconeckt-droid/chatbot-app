@@ -141,7 +141,7 @@ export default function PatientDetailScreen({ patient, onBack, onVisitPress }) {
 }
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   flex: { flex: 1 },
   pressed: { opacity: 0.85 },
   disabled: { opacity: 0.4 },

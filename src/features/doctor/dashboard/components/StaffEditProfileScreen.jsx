@@ -308,7 +308,7 @@ function DropdownField({ label, value, onPress }) {
 }
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F5F7FB' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   header: { height: 52, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 },
   headerButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   title: { flex: 1, fontSize: 16.5, fontWeight: '700', color: colors.blue, marginLeft: 2 },

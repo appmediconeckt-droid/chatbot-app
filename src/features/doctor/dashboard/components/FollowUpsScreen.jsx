@@ -445,7 +445,7 @@ function PatientCard({ card, onPress, onMore, onComplete, busy }) {
 }
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   flex: { flex: 1 },
   pressed: { opacity: 0.85 },
   header: { minHeight: 64, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D7E7E4', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13, paddingVertical: 8 },

@@ -30,7 +30,7 @@ import {
 } from '../../../../../../utils/printPrescription';
 import { displayDownloadNotification } from '../../../../../../services/notificationService';
 import ConsultationPrescriptionDocument from './ConsultationPrescriptionDocument';
-import { doctorRxToDocument } from '../../../../../../utils/consultationPrescriptionDocument';
+import { doctorRxToDocument, followUpText, medicineDuration, medicineTiming, testLine } from '../../../../../../utils/consultationPrescriptionDocument';
 
 // Patient-side screens use the green patient gradient; only the role badge
 // says whether a doctor or a psychiatrist wrote the prescription.
@@ -79,30 +79,34 @@ export default function DoctorPrescriptionView({ rx, onClose }) {
 // Plain-text copy of one visit's prescription for the share sheet
 // (WhatsApp, email, Drive…).
 const prescriptionText = rx => {
+  const data = doctorRxToDocument(rx);
   const lines = [
-    rx.clinic?.name || 'Humaeli',
-    rx.clinic?.location,
-    '',
-    `${rx.doctorName} — ${rx.specialization}`,
-    `Patient: ${rx.patientName || '—'}    Date: ${formatLongDate(rx.date)}`,
-    rx.rxNumber ? `Rx No: ${rx.rxNumber}` : '',
-    rx.diagnosis ? `\nDiagnosis: ${rx.diagnosis}` : '',
-    '\nMedicines:',
-    ...(rx.medicines.length
-      ? rx.medicines.map(
-          (m, i) =>
-            `${i + 1}. ${m.name}${[m.dosage, m.timings.join(', '), m.duration]
-              .filter(Boolean)
-              .map(part => ` | ${part}`)
-              .join('')}`,
-        )
-      : ['No medicines prescribed.']),
-    rx.advice ? `\nAdvice: ${rx.advice}` : '',
-    rx.tests.length ? `Recommended tests: ${rx.tests.join(', ')}` : '',
-    rx.followUpDate ? `Follow-up: ${formatLongDate(rx.followUpDate)}` : '',
-    '\nDigitally issued by Humaeli',
+    'Humaeli', data.clinic, data.address,
+    data.doctor, data.qualification, data.specialization,
+    data.registration && `Reg. No.: ${data.registration}`,
+    data.doctorPhone, data.doctorEmail,
+    `Date: ${data.date}`,
+    data.prescriptionId && `Prescription No.: ${data.prescriptionId}`,
+    data.opd && `OPD / Token No.: ${data.opd}`,
+    `Patient: ${data.patient}`,
+    `Patient ID: ${data.patientId || '—'}`,
+    `Age / Gender: ${[data.age && `${data.age} years`, data.gender].filter(Boolean).join(' / ')}`,
+    `Contact No.: ${data.phone || '—'}`,
+    `Weight: ${data.weight || '—'}`,
+    `Allergies: ${data.allergies || 'Not recorded'}`,
+    `Consultation for: ${data.issue}`,
+    `Diagnosis: ${data.diagnosis}`,
+    'Medicines:',
+    ...(data.medicines.length ? data.medicines.map((m, i) =>
+      `${i + 1}. ${[m.name || m.medicine, m.strength, m.dosage, medicineDuration(m), medicineTiming(m), m.instructions].filter(Boolean).join(' | ')}`,
+    ) : [data.medicine || 'No medicines prescribed.']),
+    data.advice && `Advice: ${data.advice}`,
+    data.notes && data.notes !== data.advice && `Additional notes: ${data.notes}`,
+    ...data.tests.map(test => `Recommended test: ${test.testName || test.name}${testLine(test)}`),
+    `Next Follow-up: ${followUpText(data)}`,
+    `Issued by: ${data.doctor}`,
   ];
-  return lines.filter(line => line !== undefined && line !== '').join('\n');
+  return lines.filter(Boolean).join('\n');
 };
 
 // `group` holds every visit with this doctor (newest first) in `visits`; the

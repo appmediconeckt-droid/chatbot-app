@@ -205,7 +205,7 @@ function InfoRow({ icon, label, value }) {
 }
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   flex: { flex: 1, minWidth: 0 },
   header: { minHeight: 62, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13, paddingVertical: 8 },
   backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center', marginRight: 10 },

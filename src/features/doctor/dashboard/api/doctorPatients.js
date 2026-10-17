@@ -157,6 +157,8 @@ const normalizeRecord = (raw, doctorName) => {
   const advice = text(pickFirst(a.advice, a.instructions, a.prescription));
   const priority = text(pickFirst(a.priority, '')).toLowerCase();
   return {
+    __raw: raw,
+    __appointmentSource: raw.__appointmentSource,
     id: pickFirst(a.id, a._id),
     sortKey: new Date(createdAt || 0).getTime() || 0,
     date: formatDate(createdAt),
@@ -258,7 +260,7 @@ export async function loadDoctorPatients() {
     ? unwrapApiArray(responses[1].value.data).filter(belongsToDoctor) : [];
 
   // Visits of deleted patient accounts are not shown (same as the queue).
-  const patients = buildPatients([...online, ...walkins].filter((a) => !isPatientAccountDeleted(a)), doctorName);
+  const patients = buildPatients([...online.map(a => ({ ...a, __appointmentSource: 'online' })), ...walkins.map(a => ({ ...a, __appointmentSource: 'walkin' }))].filter((a) => !isPatientAccountDeleted(a)), doctorName);
   // Patients booked through the app show their current account name. QR
   // bookings keep the name given at booking: walk-ins have no account at all,
   // and a patient whose visits are all QR bookings is left as booked.

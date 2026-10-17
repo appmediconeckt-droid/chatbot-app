@@ -199,7 +199,7 @@ export default function DoctorHelpSupportScreen({ onBack, onOpenNotifications, o
 }
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   flex: { flex: 1 },
   pressed: { opacity: 0.85 },
   header: { height: 62, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },

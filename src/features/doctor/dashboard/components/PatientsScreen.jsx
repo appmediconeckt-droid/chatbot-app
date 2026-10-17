@@ -357,7 +357,7 @@ function FilterChip({ chipRef, label, value, active, openDirection, onPress }) {
 
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   flex: { flex: 1 },
   disabled: { opacity: 0.4 },
   content: { padding: 14, paddingBottom: 28 },

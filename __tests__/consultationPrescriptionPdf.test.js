@@ -3,6 +3,8 @@ import RNFS from 'react-native-fs';
 import { buildSimplePdf } from '../src/features/doctor/dashboard/utils/prescriptionPdf';
 import { downloadConsultationPrescriptionPdf } from '../src/features/doctor/dashboard/utils/consultationPrescriptionPdf';
 
+jest.mock('../src/axiosConfig', () => ({ API_BASE_URL: 'https://example.test' }));
+
 jest.mock('react-native', () => ({
   Alert: { alert: jest.fn() }, NativeModules: { PrescriptionPrint: {}, PdfFileOpener: { open: jest.fn() } }, Platform: { OS: 'ios' },
 }));
@@ -41,7 +43,7 @@ it('exports the web medicine table and all sections through the native PDF print
     notes: 'Additional notes', tests: [{ testName: 'Test', reason: 'Reason', instructions: 'Instructions' }],
   });
   const [html] = NativeModules.PrescriptionPrint.createPdf.mock.calls[0];
-  ['<th>Medicine</th>', '&lt;Medicine&gt;', 'Morning', '5 Days', 'Additional notes', 'Instructions', 'Issued by'].forEach(value => expect(html).toContain(value));
+  ['<th>Medicine name</th>', '&lt;Medicine&gt;', 'Morning', '5 Days', 'Additional notes', 'Instructions', 'Issued by'].forEach(value => expect(html).toContain(value));
   expect(RNFS.writeFile).not.toHaveBeenCalled();
   expect(Alert.alert).not.toHaveBeenCalledWith('PDF failed', expect.anything());
 });

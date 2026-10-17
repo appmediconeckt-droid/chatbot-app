@@ -320,7 +320,7 @@ function Stat({ icon, label, value, tone }) {
 const STAT_COLORS = { red: '#DC2626', teal: '#0D9488', orange: '#C44A21', green: '#16A34A' };
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F3F6FA' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   search: {
     height: 46,
     marginHorizontal: 16,

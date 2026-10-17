@@ -205,7 +205,7 @@ function Row({ icon, title, subtitle, last, value, disabled, onValueChange }) {
 }
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   center: { alignItems: 'center', justifyContent: 'center' },
   flex: { flex: 1 },
   dimmed: { opacity: 0.45 },

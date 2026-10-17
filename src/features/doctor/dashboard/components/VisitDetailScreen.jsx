@@ -3,14 +3,17 @@
 // Information, Vital Signs, complaint + diagnosis, the full prescription
 // (each medicine with dose, timing and duration), advice, recommended tests,
 // doctor's notes, follow-up, and Download Prescription (the shared paper PDF).
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
-import { downloadVisitPrescriptionPdf } from '../utils/prescriptionPdf';
+import { downloadConsultationPrescriptionPdf } from '../utils/consultationPrescriptionPdf';
+import { formatAppointment } from '../api/doctorAppointments';
+import useDoctorPrescriptionDocument from '../useDoctorPrescriptionDocument';
+import ConsultationPrescriptionDocument from '../../../../screens/user/Component/UserDashboard/Tab/Prescription/ConsultationPrescriptionDocument';
 
 const isSet = (value) => {
   const v = value === undefined || value === null ? '' : String(value).trim();
@@ -33,22 +36,24 @@ const STATUS_TONES = {
 
 export default function VisitDetailScreen({ patient, record, onBack }) {
   const [downloading, setDownloading] = useState(false);
+  const appointment = useMemo(() => formatAppointment(record.__raw || { ...record, patient }), [record, patient]);
+  const { data: prescription, error, retry } = useDoctorPrescriptionDocument(appointment);
 
   const download = async () => {
+    if (!prescription || downloading) return;
     setDownloading(true);
     try {
-      await downloadVisitPrescriptionPdf(patient, record);
+      await downloadConsultationPrescriptionPdf(prescription);
     } finally {
       setDownloading(false);
     }
   };
 
   const medicines = Array.isArray(record.medicines) ? record.medicines : [];
-  const tests = Array.isArray(record.tests) ? record.tests : [];
   const hasDiagnosis = isSet(record.diagnosis);
   const hasFollowUp = isSet(record.followUp) && record.followUp !== 'Not required';
   const hasConsultation = hasDiagnosis || medicines.length > 0 || isSet(record.advice)
-    || tests.length > 0 || isSet(record.additionalNotes) || hasFollowUp;
+    || (record.tests || []).length > 0 || isSet(record.additionalNotes) || hasFollowUp;
   const statusTone = STATUS_TONES[record.status] || { fg: '#475467', bg: '#F2F4F7' };
 
   return (
@@ -143,56 +148,21 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
           </View>
         )}
 
-        <Card title="Prescription" icon="pill" count={medicines.length}>
-          {medicines.length ? medicines.map((m, index) => (
-            <View key={`${m.name}-${index}`} style={[s.med, index > 0 && s.medSpaced]}>
-              <View style={s.medIndex}><Text translate={false} style={s.medIndexText}>{index + 1}</Text></View>
-              <View style={s.flex}>
-                <Text translate={false} style={s.medName}>{m.name}</Text>
-                <View style={s.chips}>
-                  {isSet(m.dosage) && <Chip icon="pill" text={m.dosage} />}
-                  {(m.timings || []).map((t) => <Chip key={t} icon="clock" text={t} />)}
-                  {isSet(m.duration) && <Chip icon="timer" text={m.duration} tone="amber" />}
-                </View>
-              </View>
+        {error ? (
+          <View style={s.pending}>
+            <View style={s.flex}>
+              <Text accessibilityRole="alert" style={s.body}>{error}</Text>
+              <Pressable accessibilityRole="button" onPress={retry}><Text style={s.retry}>Retry prescription</Text></Pressable>
             </View>
-          )) : <Text style={s.muted}>No medicines prescribed</Text>}
-        </Card>
-
-        {isSet(record.advice) && (
-          <Card title="Advice & Instructions" icon="file">
-            <Text translate={false} style={s.body}>{record.advice}</Text>
-          </Card>
+          </View>
+        ) : prescription ? (
+          <ConsultationPrescriptionDocument data={prescription} />
+        ) : (
+          <View style={s.pending}><ActivityIndicator color="#0D9488" /><Text style={s.body}>Loading prescription...</Text></View>
         )}
-
-        {tests.length > 0 && (
-          <Card title="Recommended Tests" icon="flask" count={tests.length}>
-            <View style={s.chips}>
-              {tests.map((t) => <Chip key={t} icon="flask" text={t} tone="indigo" />)}
-            </View>
-          </Card>
-        )}
-
-        {isSet(record.additionalNotes) && (
-          <Card title="Doctor's Notes" icon="edit">
-            <Text translate={false} style={s.body}>{record.additionalNotes}</Text>
-          </Card>
-        )}
-
-        <Card title="Follow-up" icon="refresh">
-          {hasFollowUp ? (
-            <View style={s.followUp}>
-              <AppIcon name="calendar" size={16} color="#B45309" />
-              <View style={s.flex}>
-                <Text style={s.followUpLabel}>Next visit on</Text>
-                <Text translate={false} style={s.followUpDate}>{record.followUp}</Text>
-              </View>
-            </View>
-          ) : <Text style={s.muted}>No follow-up required</Text>}
-        </Card>
       </ScrollView>
       <View style={s.footer}>
-        <Pressable onPress={download} disabled={downloading} style={s.downloadWrap}>
+        <Pressable onPress={download} disabled={downloading || !prescription} style={[s.downloadWrap, !prescription && s.disabled]}>
           <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.download}>
             {downloading ? <ActivityIndicator color="#FFF" /> : <AppIcon name="download" size={16} color="#FFF" />}
             <Text style={s.downloadText}>{downloading ? 'Downloading...' : 'Download Prescription'}</Text>
@@ -225,22 +195,6 @@ function Row({ label, value, highlight, last }) {
   );
 }
 
-const CHIP_TONES = {
-  teal: { fg: '#0F766E', bg: '#E6FBF8' },
-  amber: { fg: '#B45309', bg: '#FEF3C7' },
-  indigo: { fg: '#4338CA', bg: '#EEF2FF' },
-};
-
-function Chip({ icon, text, tone = 'teal' }) {
-  const c = CHIP_TONES[tone];
-  return (
-    <View style={[s.chip, { backgroundColor: c.bg }]}>
-      <AppIcon name={icon} size={11} color={c.fg} />
-      <Text translate={false} style={[s.chipText, { color: c.fg }]}>{text}</Text>
-    </View>
-  );
-}
-
 function Vital({ label, value, icon, tone }) {
   return (
     <View style={[s.vital, s[`vital_${tone}`]]}>
@@ -252,7 +206,9 @@ function Vital({ label, value, icon, tone }) {
 }
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  retry: { color: '#0D9488', fontWeight: '700', marginTop: 12 },
+  disabled: { opacity: 0.5 },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   flex: { flex: 1 },
   header: { height: 60, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D7E7E4', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },
   backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F0FDFA', alignItems: 'center', justifyContent: 'center', marginRight: 10 },

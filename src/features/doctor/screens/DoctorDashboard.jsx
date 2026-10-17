@@ -1671,7 +1671,7 @@ export default function DoctorDashboard({ navigation }) {
 const styles = createDoctorStyles({
   safeArea: { flex: 1, backgroundColor: colors.background },
   completeAppointmentOverlay: { position: 'absolute', top: 58, right: 0, bottom: 65, left: 0, zIndex: 20 },
-  formModal: { flex: 1, backgroundColor: '#F0FDFA' },
+  formModal: { flex: 1, backgroundColor: '#FFFFFF' },
   // Extra bottom room: the raised QR button overlaps the last ~26px.
   content: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 54 },
   breakButton: { height: 38, paddingHorizontal: 14, borderRadius: 19, borderWidth: 1, borderColor: '#FCD9A6', flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: '#FFF7E6' },

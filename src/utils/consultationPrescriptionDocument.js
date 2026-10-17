@@ -1,12 +1,7 @@
-// A doctor's consultation prescription laid out like the web's
-// common/PrescriptionDocument.jsx (+ PrescriptionDocument.css), which the web
-// patient Prescriptions tab shows for a doctor's record: Humaeli logo +
-// "CONSULTATION RECORD / Prescription", prescribing doctor + date, patient
-// strip (name, gender, consultation for), Diagnosis, ℞ medicines table,
-// advice, notes, recommended tests, and a Follow-up / Issued by footer.
-// doctorRxToDocument feeds both the in-app view and the PDF / print HTML.
-import HUMAELI_LOGO from './humaeliLogoDataUri';
+import { prescriptionBrand, prescriptionWatermark, prescriptionFooter } from './prescriptionBrandAssets';
 import { consultationData } from './consultationData';
+import toImageUri from './imageUri';
+import { API_BASE_URL } from '../axiosConfig';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -18,7 +13,15 @@ export const documentDate = value => {
   return `${String(date.getDate()).padStart(2, '0')} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
 };
 
-const listText = value => (Array.isArray(value) ? value.filter(Boolean).join(', ') : value || '');
+const listText = value => Array.isArray(value) ? value.filter(Boolean).join(', ') : typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+
+export const approvedSignature = record => {
+  const completedVisit = record.source === 'appointment' && record.verificationStatus === 'completed';
+  if (record.verificationStatus !== 'verified' && !completedVisit) return '';
+  const uri = toImageUri(record.prescriptionSignatureUrl || record.signatureUrl || record.psychiatrist?.prescriptionSignature || record.doctorProfile?.prescriptionSignature || record.doctor?.prescriptionSignature || record.doctorProfile?.prescriptionSignatureUrl || record.psychiatrist?.prescriptionSignatureUrl || record.doctor?.prescriptionSignatureUrl);
+  if (!uri || !/^(https?:|data:image\/|\/)/i.test(uri)) return '';
+  return uri.startsWith('/') ? `${API_BASE_URL}${uri}` : uri;
+};
 
 // Web medicineTiming / medicineDuration (prescriptionDetails.js).
 export const medicineTiming = (m = {}) =>
@@ -33,11 +36,28 @@ export const appointmentToDocument = (appointment = {}, doctorName) => {
     if (value !== undefined && value !== null) input[key] = value;
   });
   const record = consultationData(input);
-  const patient = record.patient || record.patientData || record.user || {};
+  const patient = record.patient || record.patientSnapshot || record.patientData || record.user || {};
+  const provider = record.doctorProfile || record.psychiatrist || record.doctor || record.psychiatristSnapshot || record.counselor || {};
+  const clinic = record.clinic || (typeof record.clinic_id === 'object' ? record.clinic_id : null) || {};
   const candidates = [doctorName, record.psychiatrist?.name, record.psychiatrist?.fullName,
-    record.doctor?.name, record.doctor?.fullName, record.doctorName, record.doctor_name,
+    record.doctorProfile?.fullName, record.doctorProfile?.name, record.doctor?.name, record.doctor?.fullName, record.doctorName, record.doctor_name,
     record.psychiatristSnapshot?.name, record.counselor?.fullName];
   return {
+    qualification: listText(provider.qualification),
+    specialization: listText(provider.specialization),
+    registration: listText(provider.registrationNumber || provider.registration_number || provider.medicalRegistrationNumber || provider.licenseNumber),
+    clinic: listText(clinic.clinic_name || clinic.name || record.clinic_name),
+    address: listText(clinic.location || clinic.address),
+    doctorPhone: listText(clinic.phone_number || clinic.phoneNumber || clinic.phone || provider.phoneNumber || provider.phone),
+    doctorEmail: listText(provider.email),
+    prescriptionId: listText(record.prescriptionNumber || record.id || record._id),
+    opd: listText(record.opdNumber ?? record.token_number ?? record.token),
+    patientId: listText(patient.id || patient._id || record.patientId),
+    age: listText(patient.age ?? record.age),
+    phone: listText(patient.phoneNumber || patient.phone || patient.mobile || record.phoneNumber || record.phone),
+    weight: listText(record.vitals?.weight ?? patient.weight ?? patient.medicalInfo?.weight ?? record.weight),
+    allergies: listText(patient.allergies || patient.medicalInfo?.allergies || record.allergies),
+    signature: approvedSignature(record),
     patient: patient.name || patient.fullName || patient.full_name || record.name || record.patient_name || 'Patient',
     doctor: candidates.find(value => typeof value === 'string' && value.trim() && !/^(dr\.?\s*)?doctor$/i.test(value.trim()))?.trim() || 'Doctor name not recorded',
     date: documentDate(record.issuedAt || record.appointmentDate || record.appointment_date || record.date || record.endTime),
@@ -57,30 +77,22 @@ export const appointmentToDocument = (appointment = {}, doctorName) => {
 // A doctor prescription built by the patient's Prescriptions screen → the
 // web's prescriptionDetails(record, doctorName) shape.
 export const doctorRxToDocument = (rx = {}) => {
-  // Appointment prescriptions carry the web mapping (appointmentToDocument);
-  // only "Consultation for" falls back to the visit's symptoms.
-  if (rx.document) {
-    return rx.document.issue === '—' && rx.complaint
-      ? { ...rx.document, issue: rx.complaint }
-      : rx.document;
-  }
-  const tests = rx.testDetails?.length
-    ? rx.testDetails
-    : (rx.tests || []).filter(Boolean).map(name => ({ testName: name }));
+  const base = appointmentToDocument({
+    ...rx,
+    patient: rx.patient || rx.patientSnapshot || { name: rx.patientName, gender: rx.patientGender },
+    prescriptionNumber: rx.prescriptionNumber || rx.rxNumber,
+    token_number: rx.tokenNumber ?? rx.token_number,
+    doctorProfile: rx.doctorProfile || rx.psychiatrist || rx.doctor || { fullName: rx.doctorName, qualification: rx.qualification, specialization: rx.specialization },
+  });
+  const data = { ...base, ...rx.document };
   return {
-    patient: rx.patientName || 'Patient',
-    doctor: rx.doctorName || 'Doctor name not recorded',
-    date: documentDate(rx.date),
-    gender: rx.patientGender || '—',
-    issue: rx.issue || rx.complaint || rx.diagnosis || '—',
-    diagnosis: rx.diagnosis || rx.complaint || '—',
-    medicines: Array.isArray(rx.medicines) ? rx.medicines : [],
-    medicine: '',
-    advice: rx.advice || '',
-    notes: rx.additionalNotes || '',
-    tests,
-    followUp: rx.followUpDate || '',
-    followUpRequired: [true, 1, '1', 'true'].includes(rx.followUpRequired),
+    ...data,
+    clinic: data.clinic || listText(rx.clinic?.name),
+    address: data.address || listText(rx.clinic?.location),
+    doctorPhone: data.doctorPhone || listText(rx.clinic?.phone),
+    opd: data.opd || listText(rx.tokenNumber),
+    issue: data.issue === '—' ? rx.complaint || data.issue : data.issue,
+    tests: data.tests.length ? data.tests : (rx.testDetails || rx.tests || []).map(test => typeof test === 'string' ? { testName: test } : test),
   };
 };
 
@@ -106,76 +118,59 @@ const esc = value =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-// The same document as an A4 page for the PDF / print dialog (the web
-// PrescriptionDocument.css desktop layout).
-export const buildConsultationDocumentHtml = data => {
-  const medicines = data.medicines.length
-    ? `<table><thead><tr><th>Medicine</th><th>Dosage</th><th>Timing</th><th>Duration</th></tr></thead><tbody>${data.medicines
-        .map(
-          m =>
-            `<tr><td><strong>${esc(m.name || m.medicine || '—')}</strong></td><td>${esc(m.dosage || '—')}</td><td>${esc(
-              medicineTiming(m) || '—',
-            )}</td><td>${esc(medicineDuration(m) || '—')}</td></tr>`,
-        )
-        .join('')}</tbody></table>`
+// Shared by patient downloads and staff/doctor native PDF printing.
+export const buildConsultationDocumentHtml = (data = {}) => {
+  const field = (label, value) => `<div><span>${esc(label)}</span><strong>${esc(value || '—')}</strong></div>`;
+  const section = (title, value) => value ? `<section><h3>${esc(title)}</h3><p>${esc(value)}</p></section>` : '';
+  const medicines = (data.medicines || []).length
+    ? `<table><thead><tr><th>S. No.</th><th>Medicine name</th><th>Strength</th><th>Dosage</th><th>Duration</th><th>Instructions</th></tr></thead><tbody>${data.medicines.map((m, index) => `<tr><td>${index + 1}</td><td><strong>${esc(m.name || m.medicine || '—')}</strong></td><td>${esc(m.strength || '—')}</td><td>${esc(m.dosage || '—')}</td><td>${esc(medicineDuration(m) || '—')}</td><td>${esc([medicineTiming(m), m.instructions].filter(Boolean).join(' / ') || '—')}</td></tr>`).join('')}</tbody></table>`
     : `<p>${esc(data.medicine || 'No medicines prescribed.')}</p>`;
-  const section = (title, body) => `<section><h3>${title}</h3>${body}</section>`;
-
-  return `<!doctype html><html><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
+  return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
-  @page { size: A4; margin: 12mm; }
-  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { margin: 0; font-family: 'Helvetica Neue', Arial, sans-serif; }
-  .doc { background: #fff; color: #243247; padding: 32px; border: 1px solid #e2e8f0; border-radius: 14px; }
-  .head { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding-bottom: 24px; border-bottom: 2px solid #2563eb; }
-  .brand { display: flex; align-items: center; gap: 14px; }
-  .brand img { width: 54px; height: 54px; object-fit: contain; }
-  .brand span { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; color: #64748b; }
-  .brand h2 { margin: 4px 0 0; color: #1e3a8a; font-size: 26px; font-weight: 700; }
-  .issuer { display: grid; gap: 6px; text-align: right; font-size: 14px; }
-  .issuer span { color: #64748b; }
-  .issuer .label { font-size: 10px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; }
-  .issuer strong { font-size: 17px; color: #1e3a8a; overflow-wrap: anywhere; }
-  .patient { display: grid; grid-template-columns: 1.2fr .6fr 1.2fr; gap: 20px; padding: 20px; margin: 24px 0; background: #f3f6fb; border-radius: 10px; }
-  .patient > div, .foot > div { display: grid; gap: 6px; overflow-wrap: anywhere; }
-  .patient span, .foot span { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .6px; }
-  .patient strong, .foot strong { font-size: 14px; }
-  section { margin: 0 0 24px; }
-  h3 { font-size: 14px; font-weight: 700; color: #1e3a8a; margin: 0 0 10px; }
-  section p { margin: 0; font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .rx { font-size: 23px; vertical-align: middle; margin-right: 6px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { background: #eff4fc; color: #475569; font-size: 11px; }
-  th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; overflow-wrap: anywhere; }
-  tr { page-break-inside: avoid; }
-  .foot { display: flex; justify-content: space-between; gap: 24px; padding-top: 20px; border-top: 1px solid #e2e8f0; page-break-inside: avoid; }
-</style></head><body>
-<article class="doc">
-  <header class="head">
-    <div class="brand"><img src="${HUMAELI_LOGO}" alt="Humaeli"/><div><span>CONSULTATION RECORD</span><h2>Prescription</h2></div></div>
-    <div class="issuer"><span class="label">Prescribing doctor</span><strong>${esc(data.doctor)}</strong><span>${esc(data.date)}</span></div>
-  </header>
-  <section class="patient"><div><span>Patient name</span><strong>${esc(data.patient)}</strong></div><div><span>Gender</span><strong>${esc(
-    data.gender,
-  )}</strong></div><div><span>Consultation for</span><strong>${esc(data.issue)}</strong></div></section>
-  ${section('Diagnosis', `<p>${esc(data.diagnosis)}</p>`)}
-  ${section('<span class="rx">℞</span> Prescribed medicines', medicines)}
-  ${data.advice ? section('Advice &amp; instructions', `<p>${esc(data.advice)}</p>`) : ''}
-  ${data.notes && data.notes !== data.advice ? section('Additional notes', `<p>${esc(data.notes)}</p>`) : ''}
-  ${
-    data.tests.length
-      ? section(
-          'Recommended tests',
-          data.tests
-            .map(test => `<p><strong>${esc(test.testName || test.name)}</strong>${esc(testLine(test))}</p>`)
-            .join(''),
-        )
-      : ''
-  }
-  <footer class="foot"><div><span>Follow-up</span><strong>${esc(followUpText(data))}</strong></div><div><span>Issued by</span><strong>${esc(
-    data.doctor,
-  )}</strong></div></footer>
-</article>
-</body></html>`;
+@page { size: A4; margin: 12mm; }
+* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; font: 12px Arial, sans-serif; color: #193d42; }
+.doc { position: relative; min-height: 265mm; padding: 16px; border-bottom: 10px solid #89aaa2; }
+.head { display: flex; align-items: flex-start; gap: 20px; padding-bottom: 22px; border-bottom: 1px solid #a7bdbc; }
+.brand { width: 115px; text-align: center; flex-shrink: 0; }
+.brand img { width: 115px; height: 115px; object-fit: contain; }
+.brand strong { display: block; font-size: 20px; color: #269b9c; }
+.brand small { font-size: 8px; }
+.issuer { flex: 1; border-left: 1px solid #bdcecc; padding-left: 20px; }
+h2 { font-size: 23px; margin: 4px 0 8px; }
+p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin: 4px 0; }
+.reference { width: 140px; border-left: 1px solid #bdcecc; padding-left: 14px; }
+.reference div { margin-bottom: 10px; }
+span { font-size: 10px; font-weight: bold; }
+strong { overflow-wrap: anywhere; }
+.reference strong { display: block; margin-top: 4px; font-weight: normal; }
+.patient { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; padding: 18px; margin: 18px 0; background: #f1f4f3; border-radius: 8px; }
+.patient div { display: grid; grid-template-columns: 90px 1fr; gap: 10px; }
+h1 { font-size: 25px; margin: 16px 0; }
+h1 small { font-size: 8px; letter-spacing: 1px; float: right; padding-top: 12px; }
+h3 { font-size: 14px; margin: 0 0 8px; }
+section { margin: 18px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+th { background: #dfe9e6; } th, td { border: 1px solid #bdcecc; text-align: left; padding: 8px; overflow-wrap: anywhere; vertical-align: top; }
+th:first-child { width: 7%; } th:nth-child(2) { width: 24%; }
+tr, .foot { break-inside: avoid; } thead { display: table-header-group; }
+.clinical { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.foot { display: flex; justify-content: space-between; gap: 24px; margin-top: 32px; }
+.signoff { width: 180px; text-align: center; } .signature { height: 60px; display: flex; justify-content: center; align-items: flex-end; }
+.signature img { max-width: 150px; max-height: 60px; object-fit: contain; }
+.brandFooter { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-top: 1px solid #a7bdbc; margin-top: 65px; padding-top: 16px; font-size: 9px; }
+.watermark { position: absolute; right: 0; bottom: 90px; width: 170px; opacity: .045; z-index: -1; }
+</style></head><body><article class="doc">
+<img class="watermark" src="${prescriptionWatermark}" alt=""/>
+<header class="head"><div class="brand"><img src="${prescriptionBrand}" alt="Humaeli - Talk. Connect. Feel Supported."/></div>
+<div class="issuer"><h2>${esc(data.doctor)}</h2>${[data.qualification, data.specialization, data.registration && `Reg. No.: ${data.registration}`, data.clinic, data.address, data.doctorPhone, data.doctorEmail].filter(Boolean).map(value => `<p>${esc(value)}</p>`).join('')}</div>
+<div class="reference">${field('Date', data.date)}${data.opd ? field('OPD / Token No.', data.opd) : ''}${data.prescriptionId ? field('Prescription No.', data.prescriptionId) : ''}</div></header>
+<section class="patient">${field('Patient name', data.patient)}${field('Patient ID', data.patientId)}${field('Age / Gender', [data.age && `${data.age} years`, data.gender !== '—' && data.gender].filter(Boolean).join(' / '))}${field('Weight', data.weight && `${data.weight}${/kg/i.test(data.weight) ? '' : ' kg'}`)}${field('Contact No.', data.phone)}${field('Allergies', data.allergies || 'Not recorded')}</section>
+<h1>℞ Prescription <small>FOR A HEALTHIER YOU</small></h1>${medicines}
+<section class="clinical"><p><strong>Consultation for: </strong>${esc(data.issue)}</p><p><strong>Diagnosis: </strong>${esc(data.diagnosis)}</p></section>
+${section('Advice & Instructions', data.advice)}${data.notes !== data.advice ? section('Additional notes', data.notes) : ''}
+${(data.tests || []).length ? `<section><h3>Recommended tests</h3>${data.tests.map(test => `<p><strong>${esc(test.testName || test.name)}</strong>${esc(testLine(test))}</p>`).join('')}</section>` : ''}
+<footer class="foot"><div><h3>Next Follow-up:</h3><p>${esc(followUpText(data))}</p></div><div class="signoff"><div class="signature">${data.signature ? `<img src="${esc(data.signature)}" alt="Doctor signature"/>` : ''}</div><span>Issued by</span><p><strong>${esc(data.doctor)}</strong></p>${data.qualification ? `<p>${esc(data.qualification)}</p>` : ''}${data.registration ? `<p>Reg. No.: ${esc(data.registration)}</p>` : ''}</div></footer>
+<div class="brandFooter"><div>This prescription is provided by</div><strong><img src="${prescriptionFooter}" alt="" style="width:20px;height:20px;vertical-align:middle;margin-right:8px"/>HUMAELI</strong><div>Talk. Connect. Feel Supported.</div></div>
+</article></body></html>`;
 };

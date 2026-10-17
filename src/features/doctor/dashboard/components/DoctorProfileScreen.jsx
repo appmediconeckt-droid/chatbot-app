@@ -9,6 +9,7 @@ import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import DoctorEditProfileScreen from './DoctorEditProfileScreen';
+import DoctorPrescriptionSignature from './DoctorPrescriptionSignature';
 import { getDoctorInitials, getDoctorPhotoUrl, saveDoctorUser } from '../api/doctorAppointments';
 
 // Consultation mode may come back as a list, or as the JSON / comma text a
@@ -160,6 +161,8 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
           <InfoRow label="Language" value={languages.length ? languages.join(', ') : '—'} last />
         </Section>
 
+        <DoctorPrescriptionSignature profile={profile} loading={loading} onSaved={setProfile} />
+
         <Section icon="pulse" label="Specialization">
           <View style={s.chipsRow}>
             {specialization.length ? (
@@ -220,7 +223,7 @@ function InfoRow({ label, value, last }) {
 }
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   header: { height: 62, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },
   backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   title: { flex: 1, fontSize: 18, fontWeight: '800', color: '#0D9488' },

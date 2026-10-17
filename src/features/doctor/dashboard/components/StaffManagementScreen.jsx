@@ -392,7 +392,7 @@ function StaffCard({ member, onPress, onMore }) {
 }
 
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   content: { paddingHorizontal: 14, paddingTop: 16, paddingBottom: 18 },
 
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },

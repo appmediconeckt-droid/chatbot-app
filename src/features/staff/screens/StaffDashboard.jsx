@@ -19,6 +19,7 @@ import axiosInstance from '../../../axiosConfig';
 import socketService from '../../../services/socketService';
 import { clearAccountLocalData } from '../../../utils/authSession';
 import ReceptionistPortal from '../../receptionist/ReceptionistPortal';
+import PatientsSection from '../../receptionist/sections/PatientsSection';
 
 // What each role looks after (same wording as the Create Staff role cards).
 const ROLE_DUTIES = {
@@ -42,6 +43,7 @@ const readStoredUser = async () => {
 };
 
 export default function StaffDashboard({ navigation }) {
+  const [showPatients, setShowPatients] = useState(false);
   const [staff, setStaff] = useState(() => normalizeStaff({}));
   // The stored account as saved at login — the receptionist portal reads its
   // assignment fields (clinic_id, assignedDoctor, …) directly.
@@ -118,6 +120,22 @@ export default function StaffDashboard({ navigation }) {
     );
   }
 
+  if (showPatients) {
+    return (
+      <SafeAreaView style={s.safeArea} edges={['top', 'left', 'right', 'bottom']}>
+        <View style={s.historyHeader}>
+          <Pressable onPress={() => setShowPatients(false)} accessibilityRole="button" accessibilityLabel="Back to staff dashboard" hitSlop={12}>
+            <AppIcon name="chevron-left" size={22} color={colors.ink} />
+          </Pressable>
+          <Text style={s.cardTitle}>Patients & Prescriptions</Text>
+        </View>
+        <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+          <PatientsSection />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   const shift = shiftInfo(staff.shift);
   const onShift = isOnShiftNow(staff.shift, now, staff.shiftStartTime, staff.shiftEndTime);
   const duties = ROLE_DUTIES[staff.roleKey] || DEFAULT_DUTIES;
@@ -188,6 +206,15 @@ export default function StaffDashboard({ navigation }) {
           <Detail label="Joined" value={staff.joinDate} last />
         </View>
 
+        <Pressable onPress={() => setShowPatients(true)} accessibilityRole="button" style={s.actionRow}>
+          <View style={s.actionIcon}><AppIcon name="file" size={16} color={colors.blue} /></View>
+          <View style={s.grow}>
+            <Text style={s.actionTitle}>Patients & Prescriptions</Text>
+            <Text style={s.actionSub}>View completed visits and download prescriptions.</Text>
+          </View>
+          <AppIcon name="chevron-right" size={16} color={colors.muted} />
+        </Pressable>
+
         <Pressable onPress={() => navigation.navigate('ChangePassword')} style={s.actionRow}>
           <View style={s.actionIcon}><AppIcon name="lock" size={16} color={colors.blue} strokeWidth={2} /></View>
           <View style={s.grow}>
@@ -217,6 +244,7 @@ function Detail({ label, value, last }) {
 }
 
 const s = createDoctorStyles({
+  historyHeader: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 20, backgroundColor: '#FFFFFF' },
   safeArea: { flex: 1, backgroundColor: colors.background },
   content: { width: '100%', maxWidth: 900, alignSelf: 'center', padding: 14, paddingBottom: 32 },
   grow: { flex: 1 },

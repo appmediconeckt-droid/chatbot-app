@@ -94,6 +94,7 @@ const chatToDoctorPrescription = item => {
     : issuer.specialization;
   return {
     kind: 'doctor',
+    document: appointmentToDocument(item, rawName),
     id: `chat-${id}`,
     doctorKey: doctorId || rawName,
     doctorId,

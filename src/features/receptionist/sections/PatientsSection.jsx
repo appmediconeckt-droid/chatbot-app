@@ -4,7 +4,7 @@
 // loaded and grouped by patient, so each patient appears once; opening a
 // patient lists their visits, and a visit opens its prescription, which can be
 // downloaded as the shared prescription PDF.
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -17,7 +17,8 @@ import {
 } from '../receptionistUi';
 import { apiError, fetchPatientHistory } from '../receptionistApi';
 import { clinicName, dateLabel, displayTime, isOrphanedBooking, statusLabel } from '../receptionistUtils';
-import { getDoctorMedicines, getDoctorTests, unpackConsultationNotes } from '../../../utils/consultationDetails';
+import { appointmentToDocument } from '../../../utils/consultationPrescriptionDocument';
+import ConsultationPrescriptionDocument from '../../../screens/user/Component/UserDashboard/Tab/Prescription/ConsultationPrescriptionDocument';
 import { downloadConsultationPrescriptionPdf } from '../../doctor/dashboard/utils/consultationPrescriptionPdf';
 
 const EMPTY = { from: '', to: '', clinic_id: '', source: 'all', search: '' };
@@ -37,26 +38,9 @@ const toKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).pad
 
 const isRealName = (value) => typeof value === 'string' && value.trim() && !/^doctor$/i.test(value.trim());
 const prescriptionDoctorName = (record = {}, fallback) =>
-  [fallback, record.psychiatrist?.name, record.psychiatrist?.fullName, record.doctor?.name, record.doctor?.fullName,
+  [fallback, record.psychiatrist?.name, record.psychiatrist?.fullName, record.doctorProfile?.fullName, record.doctorProfile?.name, record.doctor?.name, record.doctor?.fullName,
     record.doctorName, record.doctor_name, record.psychiatristSnapshot?.name, record.counselor?.fullName]
     .find(isRealName)?.trim() || 'Doctor name not recorded';
-
-// The prescription as the doctor recorded it (packed consultation notes included).
-const readPrescription = (raw = {}) => {
-  const record = unpackConsultationNotes(raw) || {};
-  const followUpRequired = [true, 1, '1', 'true'].includes(record.followUpRequired ?? record.follow_up_required);
-  return {
-    issue: record.issue || record.problem || '',
-    diagnosis: record.diagnosis || record.problem || '',
-    medicines: getDoctorMedicines(record),
-    advice: record.advice || record.instructions || '',
-    notes: record.additionalNotes || record.additional_notes || '',
-    tests: getDoctorTests(record),
-    followUp: record.followUpDate || record.follow_up_date || '',
-    followUpRequired,
-    gender: record.patient?.gender || record.gender || '',
-  };
-};
 
 // The API pages records, so the same patient can sit on several pages —
 // collect them all before grouping.
@@ -110,6 +94,7 @@ const groupByPatient = (records = []) => {
 
 export default function PatientsSection() {
   const insets = useSafeAreaInsets();
+  const requestVersion = useRef(0);
   const { isWide } = useResponsiveLayout();
   const [filters, setFilters] = useState(EMPTY);
   const [query, setQuery] = useState(EMPTY);
@@ -119,6 +104,7 @@ export default function PatientsSection() {
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [openPatient, setOpenPatient] = useState(null); // patient group whose visits are listed
+  const [openingId, setOpeningId] = useState('');
   const [selected, setSelected] = useState(null);       // visit whose prescription is shown
   const [picker, setPicker] = useState(null); // 'from' | 'to' | 'clinic' | 'source'
   const [downloading, setDownloading] = useState(false);
@@ -126,6 +112,8 @@ export default function PatientsSection() {
 
   useEffect(() => {
     let cancelled = false;
+    requestVersion.current += 1;
+    setOpeningId('');
     setLoading(true);
     setError('');
     setSelected(null);
@@ -139,7 +127,7 @@ export default function PatientsSection() {
         }
       })
       .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; requestVersion.current += 1; };
   }, [query, refresh]);
 
   const patients = useMemo(() => groupByPatient(data?.records), [data]);
@@ -169,7 +157,7 @@ export default function PatientsSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.search]);
   const doctorFor = (record) => prescriptionDoctorName(record?.prescription || {}, record?.doctor?.name || record?.doctor?.fullName || data?.doctor?.name || data?.doctor?.fullName);
-  const closeSheet = () => { setSelected(null); setOpenPatient(null); };
+  const closeSheet = () => { requestVersion.current += 1; setOpeningId(''); setSelected(null); setOpenPatient(null); };
   const visitWhen = (row) => `${dateLabel(row.checkedDate)} · ${row.checkedAt ? displayTime(row.checkedAt) : row.appointmentTime || 'Time not recorded'}`;
 
   const onPickDate = (event, date) => {
@@ -179,28 +167,31 @@ export default function PatientsSection() {
     update({ [which]: toKey(date) });
   };
 
+  const openVisit = async row => {
+    if (openingId) return;
+    const version = ++requestVersion.current;
+    setOpeningId(row.id);
+    setDownloadError('');
+    try {
+      const fresh = await fetchAllHistory(query);
+      if (version !== requestVersion.current) return;
+      const current = fresh.records.find(record => record.id === row.id);
+      if (!current) throw new Error('This visit has changed. Refresh history and open it again.');
+      setData(fresh);
+      setSelected(current);
+    } catch (failure) {
+      if (version === requestVersion.current) setDownloadError(apiError(failure, failure.message || 'Prescription could not be loaded. Please retry.'));
+    } finally {
+      if (version === requestVersion.current) setOpeningId('');
+    }
+  };
+
   const download = async () => {
     if (!selected) return;
     setDownloading(true);
     setDownloadError('');
     try {
-      const rx = readPrescription(selected.prescription);
-      // Same PDF as the web staff patient history (common/downloadPrescription.js).
-      await downloadConsultationPrescriptionPdf({
-        patient: selected.patient?.name || 'Patient',
-        doctor: doctorFor(selected),
-        date: dateLabel(selected.checkedDate),
-        gender: rx.gender || '—',
-        issue: rx.issue || '—',
-        diagnosis: rx.diagnosis || '—',
-        medicines: rx.medicines,
-        medicine: '',
-        advice: rx.advice,
-        notes: rx.notes,
-        tests: rx.tests.map((name) => ({ name })),
-        followUp: rx.followUp,
-        followUpRequired: rx.followUpRequired,
-      });
+      await downloadConsultationPrescriptionPdf(rx);
     } catch {
       setDownloadError('Prescription PDF could not be downloaded. Please retry.');
     } finally {
@@ -211,7 +202,15 @@ export default function PatientsSection() {
   const pages = Math.max(1, Math.ceil(patients.length / PER_PAGE));
   const shown = patients.slice((page - 1) * PER_PAGE, page * PER_PAGE);
   const clinics = data?.clinics || [];
-  const rx = selected ? readPrescription(selected.prescription) : null;
+  const rx = selected ? appointmentToDocument({
+    patient: selected.patient,
+    doctorProfile: selected.doctor || data?.doctor,
+    clinic: clinics.find(clinic => String(clinic._id || clinic.id) === String(selected.clinicId)),
+    date: selected.checkedDate,
+    token: selected.token,
+    diagnosis: selected.diagnosis,
+    ...selected.prescription,
+  }, doctorFor(selected)) : null;
 
   return (
     <>
@@ -427,75 +426,7 @@ export default function PatientsSection() {
                     </Notice>
                   )}
 
-                  <View style={s.paper}>
-                    <View style={s.paperHead}>
-                      <View style={s.rxSymbol}><Text style={s.rxSymbolText}>℞</Text></View>
-                      <View style={s.flex}>
-                        <Text style={s.paperEyebrow}>CONSULTATION RECORD</Text>
-                        <Text style={s.paperTitle}>Prescription</Text>
-                      </View>
-                      <Text translate={false} style={s.paperDate}>{dateLabel(selected.checkedDate)}</Text>
-                    </View>
-
-                    <View style={s.paperPatient}>
-                      <RxPair label="Patient" value={selected.patient?.name || 'Patient'} />
-                      <RxPair label="Gender" value={rx.gender ? rx.gender.charAt(0).toUpperCase() + rx.gender.slice(1) : '—'} />
-                      {selected.patient?.age != null && <RxPair label="Age" value={String(selected.patient.age)} />}
-                    </View>
-
-                    <RxSection icon="help-circle-outline" title="Consultation for" value={rx.issue || '—'} />
-                    <View style={s.rxDiagnosis}>
-                      <Text style={s.rxDiagnosisLabel}>DIAGNOSIS</Text>
-                      <Text translate={false} style={s.rxDiagnosisText}>{rx.diagnosis || selected.diagnosis || 'Not recorded'}</Text>
-                    </View>
-
-                    <View style={s.rxSectionHead}>
-                      <Ionicons name="medical-outline" size={14} color={REC.primary} />
-                      <Text style={s.rxSectionTitle}>Prescribed medicines</Text>
-                      {rx.medicines.length > 0 && <Text translate={false} style={s.rxCount}>{rx.medicines.length}</Text>}
-                    </View>
-                    {rx.medicines.length ? rx.medicines.map((m, index) => (
-                      <View key={`${m.name}-${index}`} style={s.medicine}>
-                        <View style={s.medicineIndex}><Text translate={false} style={s.medicineIndexText}>{index + 1}</Text></View>
-                        <View style={s.flex}>
-                          <Text translate={false} style={s.medicineName}>{m.name}</Text>
-                          <View style={s.medicineChips}>
-                            {[m.dosage, m.timings.join(', '), m.duration].filter(Boolean).map((part) => (
-                              <Text key={part} translate={false} style={s.medicineChip}>{part}</Text>
-                            ))}
-                          </View>
-                        </View>
-                      </View>
-                    )) : <Text style={s.rxEmpty}>No medicines prescribed.</Text>}
-
-                    {!!rx.advice && <RxSection icon="chatbox-ellipses-outline" title="Advice & instructions" value={rx.advice} />}
-                    {!!rx.notes && rx.notes !== rx.advice && <RxSection icon="create-outline" title="Additional notes" value={rx.notes} />}
-                    {rx.tests.length > 0 && (
-                      <>
-                        <View style={s.rxSectionHead}>
-                          <Ionicons name="flask-outline" size={14} color={REC.primary} />
-                          <Text style={s.rxSectionTitle}>Recommended tests</Text>
-                        </View>
-                        <View style={s.medicineChips}>
-                          {rx.tests.map((test) => <Text key={test} translate={false} style={s.testChip}>{test}</Text>)}
-                        </View>
-                      </>
-                    )}
-
-                    <View style={s.paperFooter}>
-                      <View style={s.flex}>
-                        <Text style={s.footerLabel}>Follow-up</Text>
-                        <Text translate={false} style={s.footerValue}>
-                          {rx.followUp ? dateLabel(rx.followUp) : rx.followUpRequired ? 'Required' : 'Not scheduled'}
-                        </Text>
-                      </View>
-                      <View style={s.signature}>
-                        <Text translate={false} style={s.signatureName} numberOfLines={1}>{doctorFor(selected)}</Text>
-                        <View style={s.signatureLine} />
-                        <Text style={s.footerLabel}>Issued by</Text>
-                      </View>
-                    </View>
-                  </View>
+                  <ConsultationPrescriptionDocument data={rx} />
                 </ScrollView>
                 <AlertBox text={downloadError} />
                 <View style={s.sheetActions}>
@@ -507,6 +438,7 @@ export default function PatientsSection() {
               </>
             ) : !!openPatient && (
               <>
+                <AlertBox text={downloadError} />
                 <View style={[s.sheetHead, s.patientSheetHead]}>
                   <View style={[s.avatar, s.avatarLarge]}>
                     <Text translate={false} style={[s.avatarText, s.avatarTextLarge]}>{initials(openPatient.patient.name)}</Text>
@@ -551,7 +483,9 @@ export default function PatientsSection() {
                         doctor={doctorFor(row)}
                         when={visitWhen(row)}
                         last={index === openPatient.visits.length - 1}
-                        onPress={() => { setSelected(row); setDownloadError(''); }}
+                        onPress={() => openVisit(row)}
+                        opening={openingId === row.id}
+                        disabled={Boolean(openingId)}
                       />
                     ))}
                   </View>
@@ -566,9 +500,9 @@ export default function PatientsSection() {
 }
 
 // One compact table row per visit; tapping it opens the full prescription.
-function VisitCard({ row, doctor, when, last, onPress }) {
+function VisitCard({ row, doctor, when, last, onPress, opening, disabled }) {
   const src = sourceStyle(row.source);
-  const prescription = readPrescription(row.prescription);
+  const prescription = appointmentToDocument(row.prescription);
   const date = dateLabel(row.checkedDate || row.checkedAt);
   const [day, month] = date === 'Not recorded' ? ['--', ''] : date.split(' ');
   const time = row.checkedAt ? displayTime(row.checkedAt) : row.appointmentTime || '';
@@ -577,6 +511,7 @@ function VisitCard({ row, doctor, when, last, onPress }) {
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
+      disabled={disabled}
       accessibilityLabel={`View ${src.label} visit, ${when}`}
       style={({ pressed }) => [s.vRow, !last && s.vRowDivider, pressed && s.vRowPressed]}
     >
@@ -597,6 +532,7 @@ function VisitCard({ row, doctor, when, last, onPress }) {
         </Text>
         <Text translate={false} style={s.vDoctor} numberOfLines={1}>{doctor}</Text>
       </View>
+      {opening && <ActivityIndicator size="small" color={REC.primary} />}
       <Ionicons
         name={row.hasPrescription ? 'document-text' : 'remove-circle-outline'}
         size={17}
@@ -686,27 +622,6 @@ function RxInfo({ icon, label, value, wide }) {
         <Text translate={false} style={s.rxInfoValue} numberOfLines={2}>{value}</Text>
       </View>
     </View>
-  );
-}
-
-function RxPair({ label, value }) {
-  return (
-    <View style={s.rxPair}>
-      <Text style={s.footerLabel}>{label}</Text>
-      <Text translate={false} style={s.rxPairValue} numberOfLines={1}>{value}</Text>
-    </View>
-  );
-}
-
-function RxSection({ icon, title, value }) {
-  return (
-    <>
-      <View style={s.rxSectionHead}>
-        <Ionicons name={icon} size={14} color={REC.primary} />
-        <Text style={s.rxSectionTitle}>{title}</Text>
-      </View>
-      <Text translate={false} style={s.rxSectionText}>{value}</Text>
-    </>
   );
 }
 

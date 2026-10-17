@@ -16,17 +16,18 @@ import { fetchPatientVitals } from '../src/services/patientVitals';
 
 jest.mock('react-native', () => ({
   View: 'View', Text: 'Text', TextInput: 'TextInput', TouchableOpacity: 'TouchableOpacity', Pressable: 'Pressable', ScrollView: 'ScrollView',
-  Modal: 'Modal', ActivityIndicator: 'ActivityIndicator',
+  Modal: 'Modal', ActivityIndicator: 'ActivityIndicator', StatusBar: 'StatusBar', RefreshControl: 'RefreshControl',
   Platform: { OS: 'android', select: options => options.android },
   StyleSheet: { create: value => value },
 }));
+jest.mock('react-native-vector-icons/Ionicons', () => 'Icon');
 jest.mock('../src/components/TranslatedText', () => 'Text');
 jest.mock('../src/components/TranslatedTextInput', () => 'TextInput');
 jest.mock('@react-native-community/datetimepicker', () => ({ __esModule: true, default: 'DateTimePicker', DateTimePickerAndroid: {} }));
 jest.mock('../src/hooks/useKeyboardAwareScroll', () => ({ __esModule: true, default: () => ({ scrollRef: { current: null }, frameInset: 0 }) }));
 jest.mock('react-native-linear-gradient', () => 'Gradient');
 jest.mock('../src/features/doctor/dashboard/icons/AppIcon', () => 'Icon');
-jest.mock('../src/features/doctor/dashboard/utils/prescriptionPdf', () => ({ downloadVisitPrescriptionPdf: jest.fn() }));
+jest.mock('../src/features/doctor/dashboard/utils/consultationPrescriptionPdf', () => ({ downloadConsultationPrescriptionPdf: jest.fn() }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn() }));
 jest.mock('../src/axiosConfig', () => ({
@@ -41,7 +42,7 @@ const vitals = { blood_pressure: '120/80', pulse: 75, temperature: 37, temperatu
 const visit = { _id: 'visit-1', patient: { _id: 'patient-1', fullName: 'Test patient' }, counselor: { _id: 'doctor-1', fullName: 'Test doctor' }, appointment_date: '2026-10-15', appointment_time: '14:30', status: 'confirmed', vitals };
 let root;
 const render = async element => { await act(async () => { root = create(element); }); };
-const text = () => JSON.stringify(root.toJSON());
+const text = () => JSON.stringify(root.toJSON(), (key, value) => key === '_owner' ? undefined : value);
 beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();

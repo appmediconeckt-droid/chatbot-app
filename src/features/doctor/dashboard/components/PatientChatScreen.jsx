@@ -250,7 +250,7 @@ function Quick({ text, icon, onPress }) {
   );
 }
 const s = createDoctorStyles({
-  screen: { flex: 1, backgroundColor: '#F0FDFA' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
   header: { height: 43, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 },
   backButton: { width: 24, height: 36, alignItems: 'flex-start', justifyContent: 'center', marginRight: 3 },
   headerProfile: { flexDirection: 'row', alignItems: 'center', flex: 1, height: '100%' },
