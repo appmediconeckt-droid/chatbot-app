@@ -1,3 +1,4 @@
+import { KeyboardSafeArea, KeyboardSafeScroll } from '../../components/common/KeyboardSafeForm';
 // DoctorSignup — Login / Create Account for the new Doctor role.
 //
 // Real auth, mirroring CounselorSignup.jsx: login hits POST /api/auth/login
@@ -113,7 +114,6 @@ const DoctorSignup = ({ navigation, route }) => {
   const {
     scrollRef,
     keyboardInset,
-    keyboardTop,
     scrollFocusedInputIntoView,
     handleKeyboardAwareScroll,
     handleKeyboardAwareScrollLayout,
@@ -606,53 +606,6 @@ const DoctorSignup = ({ navigation, route }) => {
   const signupPanelPaddingY = isCompact ? 18 : 22;
   const signupLogoSize = isCompact ? 64 : 80;
   const signupHeaderHeight = signupLogoSize + (isCompact ? 68 : 74);
-  const [otpBodyHeight, setOtpBodyHeight] = useState(0);
-  const otpScrollRef = useRef(null);
-  const [otpKeyboardOverlap, setOtpKeyboardOverlap] = useState(0);
-  useEffect(() => {
-    if (!showOtpModal.show || !keyboardTop) {
-      setOtpKeyboardOverlap(0);
-      return undefined;
-    }
-    // Re-measured whenever the keyboard or the body height changes. The
-    // keyboard may already be up from the email field when the popup opens,
-    // so this cannot wait for a keyboard event of the popup's own.
-    const frame = requestAnimationFrame(() => {
-      otpScrollRef.current?.measureInWindow?.((_x, y, _width, scrollHeight) => {
-        setOtpKeyboardOverlap(Math.max(0, Math.ceil(y + scrollHeight - keyboardTop)));
-      });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [showOtpModal.show, keyboardTop, otpBodyHeight]);
-  // The popup is centred in the screen and never moves — not when it opens and
-  // not when the keyboard comes up. Nothing about this padding depends on the
-  // keyboard: reserving a keyboard strip here used to lift the whole card off
-  // centre, and because tapping Verify does not blur the email field the
-  // form's keyboard was still up as the card mounted, so the very first open
-  // painted pre-lifted.
-  //
-  // The keyboard is handled inside the card instead, exactly like the signup
-  // card handles it: the icon/title header stays fixed, and the body — OTP
-  // field, resend, Verify, Cancel — scrolls. Its content gets bottom padding
-  // equal to just the part of the scroll the keyboard covers, so Cancel can be
-  // scrolled up to sit right above the keyboard and no further. The full
-  // keyboard height would overshoot: the card is centred, so the keyboard only
-  // covers its lower part, and the rest became empty scroll after Cancel.
-  //
-  // Like the signup form's scroll (signupFormHeight), this scroll has a fixed
-  // height: the body's own height, measured without the keyboard padding. A
-  // ScrollView without one grows with its content, so the keyboard padding
-  // would stretch the whole card instead of only adding scroll range.
-  const otpOverlayPadBottom = isCompact ? 16 : 22;
-  const otpScrollPadBottom = isCompact ? 4 : 8;
-  const otpScrollStyle = [
-    styles.modalScroll,
-    otpBodyHeight > 0 && { height: otpBodyHeight + otpScrollPadBottom },
-  ];
-  const otpScrollContentStyle = [
-    styles.modalScrollContent,
-    { paddingBottom: otpScrollPadBottom + otpKeyboardOverlap },
-  ];
   const signupFormHeight = Math.max(260, signupPanelHeight - signupPanelPaddingY * 2 - signupHeaderHeight);
   const panelStyle = [
     styles.panel,
@@ -863,33 +816,26 @@ const DoctorSignup = ({ navigation, route }) => {
           navigationBarTranslucent
           onRequestClose={closeOtpModal}
         >
-          {/* The OTP field autoFocuses, so the keyboard is up the whole time this
-              popup is open. The popup itself does not move: the icon/title
-              header stays fixed and the body — OTP field, resend, Verify Email and
-              Cancel — scrolls inside the card, the same shape the signup
-              card uses for its form. */}
-          <View style={[styles.modalOverlay, { paddingBottom: otpOverlayPadBottom }]}>
-            <View style={[styles.modalContent, styles.otpCard]}>
-              <View style={styles.modalIcon}>
-                <Icon name="email-fast-outline" size={40} color={CLINICIAN.primary} />
-              </View>
-              <Text style={styles.modalTitle}>{t('Verify Your Email')}</Text>
-              <Text style={styles.modalSub}>{t('Enter code sent to')} {showOtpModal.value}</Text>
-
-              <ScrollView
-                ref={otpScrollRef}
-                style={otpScrollStyle}
-                contentContainerStyle={otpScrollContentStyle}
+          <KeyboardSafeArea style={styles.modalOverlay}>
+            <View style={[styles.modalContent, styles.otpCard, { flexShrink: 1 }]}>
+              <KeyboardSafeScroll
+                focusGap={16}
+                style={styles.modalScroll}
+                contentContainerStyle={styles.modalScrollContent}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator
                 scrollEventThrottle={16}
                 nestedScrollEnabled
                 bounces={false}
               >
-              <View
-                style={styles.otpBody}
-                onLayout={(event) => setOtpBodyHeight(Math.ceil(event.nativeEvent.layout.height))}
-              >
+              <View style={styles.modalIcon}>
+                <Icon name="email-fast-outline" size={40} color={CLINICIAN.primary} />
+              </View>
+              <Text style={styles.modalTitle}>{t('Verify Your Email')}</Text>
+              <Text style={styles.modalSub}>{t('Enter code sent to')} {showOtpModal.value}</Text>
+
+
+              <View style={styles.otpBody}>
               <TextInput
                 key={`${showOtpModal.value}:${showOtpModal.show ? 'open' : 'closed'}`}
                 style={styles.otpInput}
@@ -914,6 +860,8 @@ const DoctorSignup = ({ navigation, route }) => {
                 </TouchableOpacity>
               </View>
               {otpError ? <Text style={styles.modalErrorText}>{otpError}</Text> : null}
+              </View>
+              </KeyboardSafeScroll>
               <TouchableOpacity
                 style={[styles.modalActionBtn, styles.otpPrimaryBtn, (isVerifyingOtp || otpCode.length !== 6) && styles.modalActionBtnDisabled]}
                 onPress={handleVerifyOtp}
@@ -924,10 +872,8 @@ const DoctorSignup = ({ navigation, route }) => {
               <TouchableOpacity onPress={closeOtpModal} style={styles.cancelBtn}>
                 <Text style={styles.cancelText}>{t('Cancel')}</Text>
               </TouchableOpacity>
-              </View>
-              </ScrollView>
             </View>
-          </View>
+          </KeyboardSafeArea>
         </Modal>
 
         {notification.show && (

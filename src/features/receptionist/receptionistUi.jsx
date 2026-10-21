@@ -5,7 +5,7 @@ import { ActivityIndicator, Image, Keyboard, Modal, Pressable, ScrollView, Style
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../components/TranslatedText';
-import { useResponsiveLayout } from '../../components/common/ResponsiveLayout';
+import { ResponsiveGrid, useContentDimensions, useResponsiveLayout } from '../../components/common/ResponsiveLayout';
 import { toImageUri } from '../../utils/imageUri';
 import { API_BASE_URL } from '../../axiosConfig';
 import useKeyboardAwareScroll from '../../hooks/useKeyboardAwareScroll';
@@ -298,18 +298,32 @@ export function NoticeText({ children, strong, translate }) {
   return <Text translate={translate} style={[s.noticeText, strong && s.noticeStrong]}>{children}</Text>;
 }
 
-export function StatTile({ title, value, icon, tone = 'blue', tabletColumns = 4 }) {
+// Use the measured card container and allow more room when system text is enlarged.
+export function StatGrid({ children }) {
+  const { fontScale } = useContentDimensions();
+  return (
+    <ResponsiveGrid minItemWidth={145 * Math.max(1, fontScale)} maxColumns={4} gap={10} style={s.statGrid}>
+      {children}
+    </ResponsiveGrid>
+  );
+}
+
+export function StatTile({ title, value, icon, tone = 'blue', tabletColumns = 4, fluid = false }) {
   const t = TONES[tone] || TONES.blue;
   const { width } = useResponsiveLayout();
   return (
-    <View style={[s.stat, { borderColor: t.border }, width >= 720 && { width: tabletColumns === 3 ? '32%' : '23.5%' }]}>
-      <View style={[s.statIcon, { backgroundColor: t.fg }]}>
-        <Ionicons name={icon} size={20} color="#FFFFFF" />
+    <View style={[
+      s.stat,
+      { borderColor: t.border, backgroundColor: t.bg },
+      fluid ? s.statFluid : { width: width >= 720 ? (tabletColumns === 3 ? '32%' : '23.5%') : '48.5%' },
+    ]}>
+      <View style={s.statTop}>
+        <View style={[s.statIcon, { backgroundColor: t.fg }]}>
+          <Ionicons name={icon} size={18} color="#FFFFFF" />
+        </View>
+        <Text translate={false} style={[s.statValue, { color: t.fg }]}>{value ?? 0}</Text>
       </View>
-      <View style={s.flex}>
-        <Text translate={false} style={s.statValue}>{value ?? 0}</Text>
-        <Text style={s.statTitle} numberOfLines={2}>{title}</Text>
-      </View>
+      <Text style={s.statTitle}>{title}</Text>
     </View>
   );
 }
@@ -438,8 +452,8 @@ export function AppointmentRow({ row: appointment, clinics, onView, onCancel, ca
           </Text>
           <Text style={s.tokenTileLabel}>{row.emergency ? 'SOS' : 'TOKEN'}</Text>
         </View>
-        <View style={s.flex}>
-          <Text translate={false} style={s.aptName} numberOfLines={1}>{row.patientName}</Text>
+        <View style={s.aptIdentity}>
+          <Text translate={false} style={s.aptName}>{row.patientName}</Text>
           <Text translate={false} style={s.aptSub} numberOfLines={1}>{row.phoneNumber || 'Phone not recorded'}</Text>
         </View>
         <View style={s.timePill}>
@@ -579,7 +593,7 @@ const s = StyleSheet.create({
   wrap: { flexWrap: 'wrap', marginTop: 10 },
   card: { borderWidth: 1, borderColor: REC.line, borderRadius: 13, padding: 16, backgroundColor: '#FFFFFF', marginBottom: 16 },
   cardHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 14 },
-  cardTitle: { fontSize: 16.5, fontWeight: '700', color: REC.ink },
+  cardTitle: { flexShrink: 1, fontSize: 16.5, fontWeight: '700', color: REC.ink },
   cardSub: { fontSize: 12.5, color: REC.muted, marginTop: 3, lineHeight: 18 },
   count: { fontSize: 11, fontWeight: '600', color: '#728798', backgroundColor: '#F1F5F8', borderRadius: 7, paddingHorizontal: 9, paddingVertical: 4, overflow: 'hidden' },
   eyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 1.6, color: REC.primary },
@@ -603,10 +617,13 @@ const s = StyleSheet.create({
   noticeSuccess: { backgroundColor: '#EEF8F2', borderColor: '#D6EEDF' },
   noticeText: { fontSize: 12.5, lineHeight: 19, color: '#6C8396' },
   noticeStrong: { fontWeight: '700', color: REC.ink },
-  stat: { width: '48.5%', minHeight: 80, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFFFFF', borderWidth: 1, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 12, shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
-  statIcon: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  statTitle: { fontSize: 11.5, lineHeight: 15, fontWeight: '600', color: REC.muted, marginTop: 1 },
-  statValue: { fontSize: 24, fontWeight: '800', color: REC.ink, lineHeight: 28 },
+  statGrid: { marginBottom: 14, alignItems: 'stretch' },
+  stat: { minWidth: 0, minHeight: 94, borderWidth: 1, borderRadius: 14, padding: 12, shadowColor: '#0F172A', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  statFluid: { width: '100%', flex: 1 },
+  statTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  statIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  statTitle: { fontSize: 12, lineHeight: 16, fontWeight: '600', color: '#475569', marginTop: 8 },
+  statValue: { fontSize: 24, fontWeight: '800', flexShrink: 1, textAlign: 'right' },
   tabs: { gap: 8, paddingBottom: 12 },
   tab: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 40, paddingLeft: 14, paddingRight: 6, borderRadius: 20, borderWidth: 1, borderColor: '#D8E1E8', backgroundColor: '#FFFFFF' },
   tabOn: { backgroundColor: '#FFFFFF', borderColor: REC.primary },
@@ -653,10 +670,11 @@ const s = StyleSheet.create({
   tokenTileEmergency: { backgroundColor: '#DC2626' },
   tokenTileNumber: { fontSize: 17, fontWeight: '800', color: '#FFFFFF' },
   tokenTileLabel: { fontSize: 8, fontWeight: '800', letterSpacing: 1, color: 'rgba(255,255,255,0.85)', marginTop: 1 },
-  timePill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, height: 28, borderRadius: 14, backgroundColor: '#FFFFFF' },
+  timePill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 6, minHeight: 28, borderRadius: 14, backgroundColor: '#FFFFFF' },
   timePillText: { fontSize: 12, fontWeight: '800', color: REC.primary },
   timePillTextEmergency: { color: '#C24848' },
-  aptTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  aptTop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
+  aptIdentity: { flex: 1, minWidth: 100 },
   patientAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#E9F5EF', alignItems: 'center', justifyContent: 'center' },
   patientAvatarText: { fontSize: 15, fontWeight: '800', color: REC.primary },
   aptName: { fontSize: 15, fontWeight: '700', color: REC.ink },

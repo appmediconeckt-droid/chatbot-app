@@ -14,7 +14,7 @@ const FOCUSED_INPUT_GAP = 28;
 // ScrollView that ends above the screen bottom, e.g. above a tab bar).
 // `layoutAvoidsKeyboard`: the caller already ends the viewport above the
 // keyboard (e.g. a Modal sized to keyboardTop), so don't subtract its inset again.
-const useKeyboardAwareScroll = ({ frameRef, frameIsScroll = false, layoutAvoidsKeyboard = false } = {}) => {
+const useKeyboardAwareScroll = ({ frameRef, frameIsScroll = false, layoutAvoidsKeyboard = false, focusGap = FOCUSED_INPUT_GAP } = {}) => {
   const scrollRef = useRef(null);
   const baseHeightRef = useRef(Dimensions.get('window').height);
   const focusedInputHandleRef = useRef(null);
@@ -47,8 +47,8 @@ const useKeyboardAwareScroll = ({ frameRef, frameIsScroll = false, layoutAvoidsK
     if (!nativeHandle) return;
     scrollRef.current
       ?.getScrollResponder?.()
-      ?.scrollResponderScrollNativeHandleToKeyboard(nativeHandle, FOCUSED_INPUT_GAP, true);
-  }, []);
+      ?.scrollResponderScrollNativeHandleToKeyboard(nativeHandle, focusGap, true);
+  }, [focusGap]);
 
   const scrollFocusedInputIntoViewNow = useCallback((animated = true) => {
     const focusedInputHandle = focusedInputHandleRef.current;
@@ -79,13 +79,13 @@ const useKeyboardAwareScroll = ({ frameRef, frameIsScroll = false, layoutAvoidsK
           const inputTop = y;
           const inputBottom = y + inputHeight;
           const visibleTop = currentY + 16;
-          const visibleBottom = currentY + visibleHeight - FOCUSED_INPUT_GAP;
+          const visibleBottom = currentY + visibleHeight - focusGap;
           let nextY = currentY;
 
           if (inputTop < visibleTop) {
             nextY = Math.max(0, inputTop - 16);
           } else if (inputBottom > visibleBottom) {
-            nextY = Math.max(0, inputBottom - visibleHeight + FOCUSED_INPUT_GAP);
+            nextY = Math.max(0, inputBottom - visibleHeight + focusGap);
           }
 
           if (Math.abs(nextY - currentY) > 2) {
@@ -96,7 +96,7 @@ const useKeyboardAwareScroll = ({ frameRef, frameIsScroll = false, layoutAvoidsK
     } catch (_error) {
       fallbackScrollToKeyboard(inputNode, animated);
     }
-  }, [fallbackScrollToKeyboard, frameRef, frameIsScroll, layoutAvoidsKeyboard]);
+  }, [fallbackScrollToKeyboard, frameRef, frameIsScroll, layoutAvoidsKeyboard, focusGap]);
 
   const scheduleScrollFocusedInputIntoView = useCallback((animated = true, delay) => {
     clearScrollTimer();

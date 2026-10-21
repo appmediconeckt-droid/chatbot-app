@@ -1,12 +1,11 @@
+import { KeyboardSafeArea, KeyboardSafeScroll } from '../../components/common/KeyboardSafeForm';
 import React, { useState, useEffect } from 'react';
 import {
   View,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
-  ScrollView,
   SafeAreaView,
   StatusBar,
 } from 'react-native';
@@ -262,11 +261,8 @@ const OTPVerification = ({ navigation, route }) => {
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
       <AuthBackground role={authRole} style={styles.background}>
         <SafeAreaView style={styles.safeArea}>
-          <KeyboardAvoidingView
-            style={styles.flex}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          >
-            <ScrollView
+          <KeyboardSafeArea style={styles.flex}>
+            <KeyboardSafeScroll
               contentContainerStyle={styles.scrollContainer}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -356,8 +352,8 @@ const OTPVerification = ({ navigation, route }) => {
                   </View>
                 )}
               </View>
-            </ScrollView>
-          </KeyboardAvoidingView>
+            </KeyboardSafeScroll>
+          </KeyboardSafeArea>
         </SafeAreaView>
       </AuthBackground>
     </View>

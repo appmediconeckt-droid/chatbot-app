@@ -11,7 +11,7 @@
 //   PATCH /api/auth/update/:id                      edit own name / phone / photo
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axiosInstance, { API_BASE_URL, TUNNEL_HEADERS } from '../../axiosConfig';
-import { isOrphanedBooking, normalizeReceptionistAppointment } from './receptionistUtils';
+import { appointmentStatuses, dedupeRows, indiaToday, isOrphanedBooking, normalizeReceptionistAppointment } from './receptionistUtils';
 
 // Normalised rows minus bookings orphaned by a deleted patient account.
 const liveRows = (rows) => (rows || []).filter((row) => !isOrphanedBooking(row)).map(normalizeReceptionistAppointment);
@@ -61,11 +61,39 @@ export const fetchReceptionistDashboard = async ({ date, clinicId }) => {
   };
 };
 
-export const fetchStaffAppointments = async (params) => {
-  const { data } = await axiosInstance.get('/api/staff/appointments', { params, timeout: 15000 });
-  const appointments = liveRows(data.appointments);
-  const removed = (data.appointments || []).length - appointments.length;
-  return { ...data, appointments, total: Math.max(0, (Number(data.total) || 0) - removed) };
+// Collect the complete matching result before removing deleted accounts or
+// duplicates. Subtracting only the current page's removed rows from the server
+// total makes the number of pages change as the user navigates.
+export const fetchStaffAppointments = async (params = {}) => {
+  const today = indiaToday();
+  const from = params.from && params.from > today ? params.from : today;
+  if (params.to && params.to < from) {
+    return { appointments: [], total: 0, completed: 0, clinics: [] };
+  }
+  const limit = 10;
+  const query = { ...params, from, page: 1, limit };
+  const { data } = await axiosInstance.get('/api/staff/appointments', { params: query, timeout: 15000 });
+  const rows = [...(data.appointments || [])];
+  const total = Math.max(rows.length, Number(data.total) || 0);
+  for (let page = 2; page <= Math.ceil(total / limit); page += 1) {
+    const response = await axiosInstance.get('/api/staff/appointments', {
+      params: { ...query, page }, timeout: 15000,
+    });
+    rows.push(...(response.data.appointments || []));
+  }
+  // Enforce the calendar-day cutoff locally too, in case the API ignores from.
+  // Keep all of today's appointments, even after their individual slot time.
+  const appointments = dedupeRows(liveRows(rows)).filter((row) => {
+    const date = String(row.date || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= from
+      && (!params.to || date <= params.to);
+  });
+  return {
+    ...data,
+    appointments,
+    total: appointments.length,
+    completed: appointments.filter((row) => appointmentStatuses(row).includes('completed')).length,
+  };
 };
 
 export const cancelStaffAppointment = (row) =>

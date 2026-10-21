@@ -1,3 +1,4 @@
+import AppVersionFooter from '../../../components/common/AppVersionFooter';
 // Staff dashboard — where a clinic staff member (nurse, receptionist, lab
 // technician, …) lands after signing in on the main Login page with the
 // email + generated password the doctor shared when creating them
@@ -228,6 +229,7 @@ export default function StaffDashboard({ navigation }) {
           <AppIcon name="logout" size={16} color={colors.red} strokeWidth={2} />
           <Text style={s.logoutText}>Logout</Text>
         </Pressable>
+        <AppVersionFooter />
       </ScrollView>
       {logoutModal}
     </SafeAreaView>

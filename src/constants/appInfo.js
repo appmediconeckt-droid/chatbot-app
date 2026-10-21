@@ -1,12 +1,9 @@
 import packageJson from '../../package.json';
 
 export const APP_DISPLAY_NAME = 'Humaeli';
-// Read from package.json so the user, consultant and doctor screens always
-// show the version that was actually built (the hard-coded copy here fell
-// behind: it said 1.0.13 while the build was 1.0.14). Bump package.json and
-// android/app/build.gradle (versionName / versionCode) together on release.
+// Android and every role read release metadata from package.json.
 export const APP_VERSION = packageJson.version;
-export const APP_VERSION_CODE = 16; // = versionCode in android/app/build.gradle
+export const APP_VERSION_CODE = packageJson.versionCode;
 export const LAST_UPDATED = 'October 2026';
 // One label for every role's Help / Settings / Privacy footer.
 export const APP_VERSION_LABEL = `${APP_DISPLAY_NAME} · Version ${APP_VERSION}`;

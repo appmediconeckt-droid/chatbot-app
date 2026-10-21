@@ -29,6 +29,9 @@ if (keystorePropertiesFile.exists()) {
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+// Use the same release metadata as the version displayed in every role.
+def appPackage = new groovy.json.JsonSlurper().parse(rootProject.file("../package.json"))
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -47,8 +50,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
 
         // Google Play update version. Must be higher than the live Play release.
-        versionCode 16
-        versionName "1.0.14"
+        versionCode appPackage.versionCode as Integer
+        versionName appPackage.version
 
         manifestPlaceholders = [usesCleartextTraffic: "false"]
     }

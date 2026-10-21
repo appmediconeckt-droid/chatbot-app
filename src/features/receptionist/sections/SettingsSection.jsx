@@ -1,3 +1,4 @@
+import AppVersionFooter from '../../../components/common/AppVersionFooter';
 // Settings — the web ReceptionistSettings: account information, password &
 // security (POST /api/auth/changePassword, then sign in again) and logout.
 import React, { useState } from 'react';
@@ -168,6 +169,7 @@ export default function SettingsSection({ profile, onNavigate, onLogout, logging
         </View>
         <RecButton danger icon="log-out-outline" label={loggingOut ? 'Logging out...' : 'Logout'} disabled={loggingOut || busy} onPress={onLogout} style={s.logout} />
       </Card>
+      <AppVersionFooter />
     </>
   );
 }

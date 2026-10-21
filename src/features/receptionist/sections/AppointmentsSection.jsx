@@ -1,5 +1,6 @@
 // All appointments — the web StaffAppointments (receptionist view):
-// GET /api/staff/appointments with search / date / status filters, 10 a page,
+// GET /api/staff/appointments with search / date / status filters; paginate
+// the complete cleaned result locally, 10 a page,
 // re-read every 15s (and on the portal's pull-to-refresh); a receptionist may
 // cancel a booking nobody has started.
 import React, { useEffect, useRef, useState } from 'react';
@@ -12,7 +13,7 @@ import {
   AlertBox, AppointmentRow, Card, CardHeading, Empty, OptionSheet, PatientDetailsSheet, REC, SelectField,
 } from '../receptionistUi';
 import { cancelStaffAppointment, apiError, fetchStaffAppointments } from '../receptionistApi';
-import { APPOINTMENT_STATUSES, dateLabel, dedupeRows, indiaToday, patientKey, statusLabel } from '../receptionistUtils';
+import { APPOINTMENT_STATUSES, appointmentStatuses, dateLabel, indiaToday, patientKey, statusLabel } from '../receptionistUtils';
 import ListPagination, { LIST_PAGE_SIZE } from '../components/ListPagination';
 
 const EMPTY_FILTERS = { from: '', to: '', status: 'all', search: '' };
@@ -32,6 +33,17 @@ const toQuery = (filters) => {
 export default function AppointmentsSection({ clinicId, canCancel, refreshKey }) {
   const { isWide } = useResponsiveLayout();
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [today, setToday] = useState(indiaToday);
+  // Expire yesterday at India midnight, including while offline. On resume,
+  // sync again because mobile operating systems can suspend JS timers.
+  useEffect(() => {
+    const midnight = new Date(`${today}T00:00:00+05:30`).getTime() + 86400000;
+    const timer = setTimeout(() => setToday(indiaToday()), Math.max(1, midnight - Date.now()));
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setToday(indiaToday());
+    });
+    return () => { clearTimeout(timer); subscription.remove(); };
+  }, [today]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [data, setData] = useState(null);
@@ -57,6 +69,8 @@ export default function AppointmentsSection({ clinicId, canCancel, refreshKey })
 
   useEffect(() => { setPage(1); setSelected(null); }, [clinicId]);
 
+  useEffect(() => { setData(null); }, [filters, clinicId]);
+
   useEffect(() => {
     let cancelled = false;
     let timer;
@@ -74,13 +88,8 @@ export default function AppointmentsSection({ clinicId, canCancel, refreshKey })
         return;
       }
       try {
-        const result = await fetchStaffAppointments({ ...toQuery(filters), clinic_id: clinicId || '', page, limit: LIST_PAGE_SIZE });
+        const result = await fetchStaffAppointments({ ...toQuery(filters), clinic_id: clinicId || '' });
         if (cancelled) return;
-        const pages = Math.max(1, Math.ceil((result?.total || 0) / LIST_PAGE_SIZE));
-        if (page > pages) {
-          setPage(pages);
-          return;
-        }
         setData(result);
         setError('');
       } catch (err) {
@@ -95,8 +104,11 @@ export default function AppointmentsSection({ clinicId, canCancel, refreshKey })
       }
     };
     load();
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [filters, clinicId, page, refresh, refreshKey]);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setRefresh((value) => value + 1);
+    });
+    return () => { cancelled = true; clearTimeout(timer); subscription.remove(); };
+  }, [filters, clinicId, refresh, refreshKey, today]);
 
   const filtersActive = Boolean(filters.from || filters.to || filters.status !== 'all' || search.trim());
   const clearAll = () => {
@@ -153,11 +165,16 @@ export default function AppointmentsSection({ clinicId, canCancel, refreshKey })
     update(which, toKey(date));
   };
 
-  const appointmentRows = dedupeRows(data?.appointments || []);
+  const allRows = (data?.appointments || []).filter((row) => String(row.date || '').slice(0, 10) >= today);
+  const completed = allRows.filter((row) => appointmentStatuses(row).includes('completed')).length;
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(allRows.length / LIST_PAGE_SIZE)));
+  const appointmentRows = allRows.slice((currentPage - 1) * LIST_PAGE_SIZE, currentPage * LIST_PAGE_SIZE);
+  // Clamp state after cancellations, refreshes, or the next day's cutoff.
+  useEffect(() => {
+    if (data) setPage(currentPage);
+  }, [data, currentPage]);
   const changePage = (next) => {
     setSelected(null);
-    setData(null);
-    setLoading(true);
     setPage(next);
   };
   const viewPatient = (row, options = {}) => {
@@ -238,8 +255,8 @@ export default function AppointmentsSection({ clinicId, canCancel, refreshKey })
         <>
           <View style={s.summary}>
             <Text translate={false} style={s.doctor} numberOfLines={1}>{data.doctor?.fullName}</Text>
-            <Text translate={false} style={s.count}>{data.total} appointments</Text>
-            <Text translate={false} style={s.count}>{data.completed} completed</Text>
+            <Text translate={false} style={s.count}>{allRows.length} appointments</Text>
+            <Text translate={false} style={s.count}>{completed} completed</Text>
           </View>
           {appointmentRows.length ? <ResponsiveGrid minItemWidth={350} maxColumns={2}>{appointmentRows.map((row) => (
             <AppointmentRow
@@ -250,8 +267,8 @@ export default function AppointmentsSection({ clinicId, canCancel, refreshKey })
               onCancel={canCancel ? cancelAppointment : undefined}
               cancelBusy={cancelBusy}
             />
-          ))}</ResponsiveGrid> : <Empty title="No matching appointments" description="Select All dates or adjust your status and search filters." />}
-          <ListPagination page={page} total={data.total} onPageChange={changePage} disabled={loading} />
+          ))}</ResponsiveGrid> : <Empty title="No matching appointments" description="Only today and upcoming appointments are shown. Adjust your status, date or search filters." />}
+          <ListPagination page={currentPage} total={allRows.length} onPageChange={changePage} disabled={loading} />
         </>
       )}
 

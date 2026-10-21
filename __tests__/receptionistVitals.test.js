@@ -19,6 +19,7 @@ jest.mock('react-native', () => {
   View: 'View', Text: 'Text', TextInput, Pressable: 'Pressable',
   ScrollView: 'ScrollView', Modal: 'Modal', Image: 'Image', ActivityIndicator: 'ActivityIndicator',
   StyleSheet: { create: value => value }, Keyboard: { dismiss: jest.fn() },
+  AppState: { addEventListener: jest.fn(() => ({ remove: jest.fn() })) },
   useWindowDimensions: () => ({ width: 390, height: 844, scale: 1, fontScale: 1 }),
   Platform: { OS: 'android' }, Alert: { alert: jest.fn() },
   };
@@ -61,20 +62,24 @@ beforeEach(() => {
   api.get.mockResolvedValue({ data: { appointments: [patient], total: 1, completed: 0, clinics: [], doctor: { fullName: 'Test doctor' } } });
 });
 
-test('numbered appointment pages request the selected page and filters reset to page one', async () => {
+test('numbered appointment pages use the collected rows and filters reset to page one', async () => {
+  const rows = Array.from({ length: 25 }, (_, i) => ({ ...patient, id: `visit-${i + 1}` }));
   api.get.mockImplementation((url, { params }) => Promise.resolve({ data: {
-    appointments: [{ ...patient, id: `visit-page-${params.page}` }], total: 25, completed: 0, clinics: [], doctor: {},
+    appointments: rows.slice((params.page - 1) * 10, params.page * 10), total: 25, completed: 0, clinics: [], doctor: {},
   } }));
   await renderAppointments();
   const pageButton = label => root.root.findAllByType('Pressable').find(node => node.props.accessibilityLabel === label);
   expect(pageButton('Previous page').props.disabled).toBe(true);
+  const callsBeforeNavigation = api.get.mock.calls.length;
   await act(async () => pageButton('Go to page 3').props.onPress());
-  expect(api.get).toHaveBeenLastCalledWith('/api/staff/appointments', expect.objectContaining({ params: expect.objectContaining({ page: 3, limit: 10 }) }));
+  expect(api.get).toHaveBeenCalledTimes(callsBeforeNavigation);
+  expect(root.root.findAllByType(AppointmentRow).map(node => node.props.row.id)).toEqual(rows.slice(20).map(row => row.id));
   expect(pageButton('Next page').props.disabled).toBe(true);
   const search = root.root.findAllByType('TextInput').find(node => node.props.placeholder === 'Search patient, phone or token...');
   await act(async () => search.props.onChangeText('Test'));
   await act(async () => jest.advanceTimersByTime(400));
-  expect(api.get).toHaveBeenLastCalledWith('/api/staff/appointments', expect.objectContaining({ params: expect.objectContaining({ page: 1, search: 'Test' }) }));
+  expect(api.get.mock.calls[callsBeforeNavigation][1].params).toMatchObject({ page: 1, search: 'Test' });
+  expect(pageButton('Previous page').props.disabled).toBe(true);
 });
 afterEach(async () => {
   if (root) await act(async () => root.unmount());

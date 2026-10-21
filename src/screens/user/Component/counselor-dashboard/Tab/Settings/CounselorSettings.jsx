@@ -1,3 +1,4 @@
+import { KeyboardSafeArea, KeyboardSafeScroll } from '../../../../../../components/common/KeyboardSafeForm';
 import { useMemo as useResponsiveStylesMemo } from 'react';
 import { useWindowDimensions as useResponsiveWindowDimensions } from 'react-native';
 import React, { useState, useEffect, useRef } from 'react';
@@ -15,8 +16,6 @@ import {
     Animated,
   Modal,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   ActivityIndicator,
 } from 'react-native';
 import TextInput from '../../../../../../components/TranslatedTextInput';
@@ -33,7 +32,6 @@ import { DOCTOR } from '../../../../../../theme/palette';
 import CounselorPrivacyPolicy from './CounselorPrivacyPolicy';
 import CounselorWallet from '../Wallet/CounselorWallet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import useKeyboardAwareScroll from '../../../../../../hooks/useKeyboardAwareScroll';
 import { clearAccountLocalData } from '../../../../../../utils/authSession';
 import {
   STRONG_PASSWORD_HINT,
@@ -47,7 +45,6 @@ import LanguageSelector from '../../../../../../components/common/LanguageSelect
 import { LANGUAGES } from '../../../../../../i18n';
 import { useLanguageContext } from '../../../../../../contexts/LanguageContext';
 import { KeyboardSheet, KeyboardSheetOverlay, KeyboardSheetScroll } from '../../../../../../components/common/KeyboardSheet';
-import { getKeyboardCover } from '../../../../../../utils/keyboardLift';
 
 const TERMS_URL = 'https://humaeli.com/terms-of-use/';
 
@@ -136,13 +133,8 @@ const FEEDBACK_CATEGORIES = [
 ];
 
 const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }) => {
-  const { SCREEN_HEIGHT, isTablet, styles } = useResponsiveScreenStyles();
+  const { isTablet, styles } = useResponsiveScreenStyles();
   const insets = useSafeAreaInsets();
-  const {
-    scrollRef: pwScrollRef,
-    keyboardInset: pwKeyboardInset,
-    scrollFocusedInputIntoView,
-  } = useKeyboardAwareScroll();
   const navigation = useNavigation();
   const { t } = useLanguageRender();
   const [counselor, setCounselor] = useState(null);
@@ -583,14 +575,8 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
         items: s.items.filter((it) => String(it.label).toLowerCase().includes(sq)),
       })).filter((s) => s.items.length > 0)
     : SECTIONS;
-  // The sheet runs to the bottom edge of a translucent Modal, so it reserves
-  // everything the keyboard covers there (see utils/keyboardLift).
-  const pwKeyboardCover = getKeyboardCover(pwKeyboardInset, insets.bottom);
-  const passwordSheetMaxHeight = pwKeyboardCover
-    ? Math.max(260, SCREEN_HEIGHT - pwKeyboardCover - insets.top - 16)
-    : isTablet ? '80%' : '90%';
-  const passwordSheetBottomGap = Platform.OS === 'android' ? pwKeyboardCover : 0;
-  const passwordBodyBottomPadding = Math.max(insets.bottom + 20, pwKeyboardInset ? 44 : 20);
+  const passwordSheetMaxHeight = isTablet ? '80%' : '100%';
+  const passwordBodyBottomPadding = Math.max(insets.bottom + 20, 24);
 
   return (
     <>
@@ -887,14 +873,13 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
 
     {/* Password Modal */}
     <Modal statusBarTranslucent navigationBarTranslucent visible={pwModal} animationType="slide" transparent onRequestClose={() => setPwModal(false)}>
-      <KeyboardAvoidingView style={pwStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardSafeArea style={pwStyles.overlay}>
         <View
           style={[
             pwStyles.sheet,
             {
               maxHeight: passwordSheetMaxHeight,
-              marginBottom: passwordSheetBottomGap,
-              paddingBottom: pwKeyboardInset ? 0 : Math.max(insets.bottom, 12),
+              paddingBottom: Math.max(insets.bottom, 12),
             },
           ]}
         >
@@ -913,8 +898,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
             </TouchableOpacity>
           </View>
 
-          <ScrollView
-            ref={pwScrollRef}
+          <KeyboardSafeScroll
             bounces={false}
             contentContainerStyle={[
               pwStyles.body,
@@ -960,7 +944,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                         style={pwStyles.input}
                         value={pwForm.otp}
                         onChangeText={(v) => setPw('otp', v)}
-                        onFocus={scrollFocusedInputIntoView}
+
                         keyboardType="number-pad"
                         maxLength={6}
                         placeholder="6-digit OTP"
@@ -1004,7 +988,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:newPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-	                    <TextInput style={pwStyles.input} value={pwForm.password} onChangeText={(v) => setPw('password', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showNew} placeholder="Strong password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+	                    <TextInput style={pwStyles.input} value={pwForm.password} onChangeText={(v) => setPw('password', v)}  secureTextEntry={!showNew} placeholder="Strong password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
 	                    <TouchableOpacity onPress={() => setShowNew((x) => !x)}><Feather name={showNew ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
 	                  </View>
 	                  <Text style={pwStyles.passwordHint}>{t(STRONG_PASSWORD_HINT)}</Text>
@@ -1014,7 +998,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:confirmPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.confirmPassword} onChangeText={(v) => setPw('confirmPassword', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showConfirm} placeholder="Re-enter password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TextInput style={pwStyles.input} value={pwForm.confirmPassword} onChangeText={(v) => setPw('confirmPassword', v)}  secureTextEntry={!showConfirm} placeholder="Re-enter password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
                     <TouchableOpacity onPress={() => setShowConfirm((x) => !x)}><Feather name={showConfirm ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
                   </View>
                 </View>
@@ -1033,7 +1017,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:oldPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.oldPassword} onChangeText={(v) => setPw('oldPassword', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showOld} placeholder="Enter current password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TextInput style={pwStyles.input} value={pwForm.oldPassword} onChangeText={(v) => setPw('oldPassword', v)}  secureTextEntry={!showOld} placeholder="Enter current password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
                     <TouchableOpacity onPress={() => setShowOld((x) => !x)}><Feather name={showOld ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
                   </View>
                 </View>
@@ -1042,7 +1026,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:newPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-	                    <TextInput style={pwStyles.input} value={pwForm.newPassword} onChangeText={(v) => setPw('newPassword', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showNew} placeholder="Strong password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+	                    <TextInput style={pwStyles.input} value={pwForm.newPassword} onChangeText={(v) => setPw('newPassword', v)}  secureTextEntry={!showNew} placeholder="Strong password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
 	                    <TouchableOpacity onPress={() => setShowNew((x) => !x)}><Feather name={showNew ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
 	                  </View>
 	                  <Text style={pwStyles.passwordHint}>{t(STRONG_PASSWORD_HINT)}</Text>
@@ -1053,7 +1037,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                   <Text style={pwStyles.label}>{t('auth:confirmPassword')}</Text>
                   <View style={pwStyles.shell}>
                     <Feather name="lock" size={15} color="#94a3b8" />
-                    <TextInput style={pwStyles.input} value={pwForm.confirmNewPassword} onChangeText={(v) => setPw('confirmNewPassword', v)} onFocus={scrollFocusedInputIntoView} secureTextEntry={!showConfirm} placeholder="Re-enter new password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
+                    <TextInput style={pwStyles.input} value={pwForm.confirmNewPassword} onChangeText={(v) => setPw('confirmNewPassword', v)}  secureTextEntry={!showConfirm} placeholder="Re-enter new password" placeholderTextColor="#94a3b8" autoCapitalize="none" />
                     <TouchableOpacity onPress={() => setShowConfirm((x) => !x)}><Feather name={showConfirm ? 'eye-off' : 'eye'} size={15} color="#94a3b8" /></TouchableOpacity>
                   </View>
                 </View>
@@ -1066,9 +1050,9 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
                 </TouchableOpacity>
               </>
             )}
-          </ScrollView>
+          </KeyboardSafeScroll>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardSafeArea>
     </Modal>
     </>
   );

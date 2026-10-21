@@ -1,3 +1,4 @@
+import AppVersionFooter from '../../../../components/common/AppVersionFooter';
 // Doctor settings — same sections as the web Setting/Setting.jsx:
 // Profile, Clinic, Payment, Profile QR, Change Password (POST /auth/changePassword,
 // then sign out), Logout, Help & Support, Privacy, Delete Account (DELETE /auth/delete).
@@ -272,6 +273,7 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
             <Text style={s.deleteText}>{deleting ? 'Deleting account...' : 'Delete Account'}</Text>
           </Pressable>
         </View>
+        <AppVersionFooter />
       </ScrollView>
     </View>
   );

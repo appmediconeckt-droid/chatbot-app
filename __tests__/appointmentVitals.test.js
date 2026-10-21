@@ -120,17 +120,17 @@ test('doctor completion keeps Fahrenheit readings accurate in its Celsius field'
   expect(temperatureInput.props.value).toBe('37');
 });
 
-test('user profile button appears only for receptionist readings, then opens all records read-only', async () => {
+test('user profile button appears only for receptionist readings, then opens the latest record read-only', async () => {
   api.get.mockResolvedValue({ data: [{ ...visit, vitals: null }, { ...visit, vitals: { pulse: 80, recorded_role: 'doctor' } }] });
   await render(<PatientVitalsButton />);
   expect(root.toJSON()).toBeNull();
   api.get.mockResolvedValue({ data: { appointments: [visit, { ...visit, _id: 'visit-2', appointment_date: '2026-10-14', vitals: { ...vitals, blood_pressure: '115/75', recorded_at: '2026-10-14T09:00:00Z' } }] } });
   await act(async () => useLiveRefresh.mock.calls.at(-1)[0]());
-  expect(text()).toContain('View vitals');
+  expect(text()).toContain('My vitals');
   await act(async () => root.root.findAllByType('Pressable')[0].props.onPress());
   expect(root.root.findByType('Modal').props.visible).toBe(true);
   expect(text()).toContain('120/80');
-  expect(text()).toContain('115/75');
+  expect(text()).not.toContain('115/75');
   expect(root.root.findAllByType('TextInput')).toHaveLength(0);
   expect(api.patch).not.toHaveBeenCalled();
   expect(api.post).not.toHaveBeenCalled();

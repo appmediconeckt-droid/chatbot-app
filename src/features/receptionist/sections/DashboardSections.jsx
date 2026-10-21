@@ -5,10 +5,10 @@ import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../components/TranslatedText';
-import { ResponsiveGrid } from '../../../components/common/ResponsiveLayout';
+import { ResponsiveGrid, useResponsiveLayout } from '../../../components/common/ResponsiveLayout';
 import {
   AppointmentRow, Avatar, Badge, Card, CardHeading, EmergencyReason, Empty, Eyebrow, LiveLabel,
-  LoadingCard, Notice, NoticeText, QueueTabs, REC, StatTile,
+  LoadingCard, Notice, NoticeText, QueueTabs, REC, StatGrid, StatTile,
 } from '../receptionistUi';
 import {
   clinicName, dedupeRows, displayTime, groupQueue, patientKey, profilePhotoOf, staffIdentity, staffShiftTiming,
@@ -48,7 +48,7 @@ function QueueCard({ data, clinics, onView, title = "Today's Queue", subtitle, r
 function CurrentCheckups({ data, clinics, onView }) {
   const current = dedupeRows(data.currentPatients || []);
   if (!current.length) return null;
-  return current.map((row) => (
+  return <ResponsiveGrid minItemWidth={320} maxColumns={2} gap={12}>{current.map((row) => (
     <View key={patientKey(row)} style={[s.current, row.emergency && s.currentEmergency]}>
       <View style={s.inline}>
         <View style={s.dot} />
@@ -62,11 +62,11 @@ function CurrentCheckups({ data, clinics, onView }) {
           end={{ x: 1, y: 1 }}
           style={s.currentToken}
         >
-          <Text translate={false} style={s.currentTokenText}>{row.token ?? '--'}</Text>
+          <Text translate={false} style={s.currentTokenText} numberOfLines={1} adjustsFontSizeToFit>{row.token ?? '--'}</Text>
           <Text style={s.currentTokenLabel}>TOKEN</Text>
         </LinearGradient>
         <View style={s.flex}>
-          <Text translate={false} style={s.currentName} numberOfLines={1}>{row.patientName}</Text>
+          <Text translate={false} style={s.currentName}>{row.patientName}</Text>
           <Text translate={false} style={s.muted} numberOfLines={1}>{clinicName(clinics, row.clinicId)}</Text>
         </View>
       </View>
@@ -85,21 +85,29 @@ function CurrentCheckups({ data, clinics, onView }) {
         </Pressable>
       </View>
     </View>
-  ));
+  ))}</ResponsiveGrid>;
 }
 
 export function OverviewSection({ data, clinics, error, onView, onNavigate }) {
   const groups = useMemo(() => groupQueue(allRows(data)), [data]);
+  const { gutter } = useResponsiveLayout();
   if (!data) return <LoadingCard error={error} />;
   const waitingCount = groups.pending.length;
   return (
-    <>
-      <View style={s.stats}>
-        <StatTile title="Appointments today" value={data.summary?.total} icon="calendar" tone="blue" />
-        <StatTile title="Waiting patients" value={data.summary?.waiting ?? waitingCount} icon="time" tone="amber" />
-        <StatTile title="Ongoing checkups" value={data.summary?.ongoing ?? groups['in-progress'].length} icon="medkit" tone="teal" />
-        <StatTile title="Completed today" value={data.summary?.completed ?? groups.completed.length} icon="checkmark-circle" tone="green" />
+    <View style={[s.overview, { paddingHorizontal: gutter }]}>
+      <View style={s.overviewHeading}>
+        <View style={s.flex}>
+          <Eyebrow>FRONT DESK</Eyebrow>
+          <Text style={s.overviewTitle}>Today's overview</Text>
+          <Text style={s.muted}>Appointments and patient flow at a glance</Text>
+        </View>
       </View>
+      <StatGrid>
+        <StatTile fluid title="Appointments today" value={data.summary?.total} icon="calendar" tone="blue" />
+        <StatTile fluid title="Waiting patients" value={data.summary?.waiting ?? waitingCount} icon="time" tone="amber" />
+        <StatTile fluid title="Ongoing checkups" value={data.summary?.ongoing ?? groups['in-progress'].length} icon="medkit" tone="teal" />
+        <StatTile fluid title="Completed today" value={data.summary?.completed ?? groups.completed.length} icon="checkmark-circle" tone="green" />
+      </StatGrid>
 
       {dedupeRows(data.currentPatients || []).length > 0 && (
         <Card>
@@ -119,7 +127,7 @@ export function OverviewSection({ data, clinics, error, onView, onNavigate }) {
           </Pressable>
         )}
       />
-    </>
+    </View>
   );
 }
 
@@ -402,23 +410,25 @@ export function ProfileSection({ profile, onProfileUpdated }) {
 
 const s = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
-  inline: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  inline: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   muted: { fontSize: 12.5, color: REC.muted, marginTop: 2 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: REC.green },
   welcomeButton: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, height: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: '#FFFFFF', marginTop: 16 },
   welcomeButtonPressed: { backgroundColor: '#E7F4EE' },
   welcomeButtonText: { fontSize: 13.5, fontWeight: '800', color: REC.primary },
-  stats: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10, marginHorizontal: 14, marginBottom: 16 },
-  current: { borderWidth: 1, borderColor: '#CCE8DD', backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14, marginBottom: 10 },
+  overview: { minWidth: 0 },
+  overviewHeading: { marginTop: 2, marginBottom: 14 },
+  overviewTitle: { fontSize: 21, fontWeight: '800', color: REC.ink, marginTop: 4, marginBottom: 2 },
+  current: { borderWidth: 1, borderColor: '#CCE8DD', backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14 },
   currentEmergency: { borderColor: '#F4C9C9' },
   currentMain: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 12 },
-  currentToken: { width: 66, height: 66, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  currentToken: { paddingHorizontal: 4, width: 66, height: 66, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   currentTokenText: { fontSize: 26, fontWeight: '800', color: '#FFFFFF' },
   currentTokenLabel: { fontSize: 9, letterSpacing: 2, color: 'rgba(255,255,255,0.85)', marginTop: 2 },
   currentName: { fontSize: 18, fontWeight: '700', color: REC.ink },
   currentFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#DCEDE5' },
-  footerText: { fontSize: 12.5, color: '#5B7F73' },
-  textButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  footerText: { flexShrink: 1, fontSize: 12.5, color: '#5B7F73' },
+  textButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 4 },
   textButtonText: { fontSize: 13, fontWeight: '700', color: REC.primary },
   launch: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 16, marginBottom: 16 },
   launchTitle: { fontSize: 15, fontWeight: '800', color: '#FFFFFF' },

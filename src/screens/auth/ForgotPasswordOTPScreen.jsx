@@ -1,9 +1,9 @@
+import { KeyboardSafeArea, KeyboardSafeScroll } from '../../components/common/KeyboardSafeForm';
 import React, { useState, useEffect } from "react";
 import {
   View,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
   Alert,
   ActivityIndicator,
   SafeAreaView,
@@ -109,7 +109,8 @@ export default function ForgotPasswordOTPScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <KeyboardSafeArea style={{ flex: 1 }}>
+      <KeyboardSafeScroll contentContainerStyle={styles.scrollContent}>
         {/* Back Button */}
         <TouchableOpacity
           style={styles.backBtn}
@@ -187,7 +188,8 @@ export default function ForgotPasswordOTPScreen() {
             <Text style={styles.resendDisabled}>Resend in {resendTimer}s</Text>
           )}
         </View>
-      </ScrollView>
+      </KeyboardSafeScroll>
+      </KeyboardSafeArea>
     </SafeAreaView>
   );
 }

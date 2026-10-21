@@ -1,3 +1,4 @@
+import { KeyboardSafeArea, KeyboardSafeScroll } from '../../components/common/KeyboardSafeForm';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
@@ -7,7 +8,6 @@ import {
   ScrollView,
   Platform,
   Modal,
-  KeyboardAvoidingView,
   useWindowDimensions,
   Image,
   Animated,
@@ -76,13 +76,11 @@ const Login = ({ navigation, route }) => {
   const [loginFormHeight, setLoginFormHeight] = useState(0);
   const {
     scrollRef,
-    keyboardInset,
     frameInset,
     scrollFocusedInputIntoView,
     handleKeyboardAwareScroll,
     handleKeyboardAwareScrollLayout,
   } = useKeyboardAwareScroll({ frameRef: loginFormFrameRef });
-  const fpModalScrollRef = useRef(null);
   // Password is the last field before the Login button — bringing only the
   // password field into view left the button itself sitting under the
   // keyboard. Focusing password scrolls to this ref instead (see its
@@ -172,11 +170,7 @@ const Login = ({ navigation, route }) => {
     loadRememberedUser();
   }, []);
 
-  const scrollForgotPasswordModalToEnd = () => {
-    requestAnimationFrame(() => {
-      fpModalScrollRef.current?.scrollToEnd({ animated: true });
-    });
-  };
+
 
   // Forgot Password OTP resend countdown timer (matches web — 60s)
   useEffect(() => {
@@ -1029,10 +1023,8 @@ const Login = ({ navigation, route }) => {
           animationType="slide"
           onRequestClose={closeConflictModal}
         >
-          <KeyboardAvoidingView
-            style={styles.modalOverlay}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          >
+          <KeyboardSafeArea style={styles.modalOverlay}>
+            <KeyboardSafeScroll style={{ width: '100%' }} contentContainerStyle={{ alignItems: 'center' }}>
             <View style={styles.cfCard}>
               <View style={[styles.cfIconWrap, { backgroundColor: C.backgroundTint }]}>
                 <Ionicons
@@ -1180,7 +1172,8 @@ const Login = ({ navigation, route }) => {
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
             </View>
-          </KeyboardAvoidingView>
+            </KeyboardSafeScroll>
+          </KeyboardSafeArea>
         </Modal>
 
         {/* ========== FORGOT PASSWORD MODAL ========== */}
@@ -1192,17 +1185,15 @@ const Login = ({ navigation, route }) => {
         >
           {/* Safe area on top: with the keyboard open the sheet grows/scrolls
               up, but must stop below the status bar (time / battery icons). */}
-          <View
+          <KeyboardSafeArea
             style={[
               styles.fpModalOverlay,
               { paddingTop: Math.max(insets.top, Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0) + 8 },
             ]}
           >
-            <ScrollView
-              ref={fpModalScrollRef}
+            <KeyboardSafeScroll
               contentContainerStyle={[
                 styles.fpModalScroll,
-                keyboardInset > 0 && { paddingBottom: keyboardInset },
               ]}
               keyboardShouldPersistTaps="handled"
             >
@@ -1241,7 +1232,7 @@ const Login = ({ navigation, route }) => {
                       keyboardType="email-address"
                       autoCapitalize="none"
                       editable={!fpLoading}
-                      onFocus={scrollForgotPasswordModalToEnd}
+
                     />
 
                     <TouchableOpacity
@@ -1289,7 +1280,7 @@ const Login = ({ navigation, route }) => {
                       keyboardType="number-pad"
                       maxLength={6}
                       editable={!fpLoading && !fpSuccess}
-                      onFocus={scrollForgotPasswordModalToEnd}
+
                     />
 
                     <TouchableOpacity
@@ -1359,7 +1350,7 @@ const Login = ({ navigation, route }) => {
                         }}
                         secureTextEntry={!fpShowPassword}
                         editable={!fpLoading && !fpSuccess}
-                        onFocus={scrollForgotPasswordModalToEnd}
+
                       />
                       <TouchableOpacity
                         style={styles.fpEyeBtn}
@@ -1391,7 +1382,7 @@ const Login = ({ navigation, route }) => {
                         }}
                         secureTextEntry={!fpShowConfirmPassword}
                         editable={!fpLoading && !fpSuccess}
-                        onFocus={scrollForgotPasswordModalToEnd}
+
                       />
                       <TouchableOpacity
                         style={styles.fpEyeBtn}
@@ -1426,8 +1417,8 @@ const Login = ({ navigation, route }) => {
                   </View>
                 )}
               </View>
-            </ScrollView>
-          </View>
+            </KeyboardSafeScroll>
+          </KeyboardSafeArea>
         </Modal>
       </ScrollView>
     </View>

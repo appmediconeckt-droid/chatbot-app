@@ -1,9 +1,10 @@
+import { KeyboardSafeArea, KeyboardSafeScroll } from '../../../../../components/common/KeyboardSafeForm';
+import AppVersionFooter from '../../../../../components/common/AppVersionFooter';
 import React, { useEffect, useState } from 'react';
 import useLanguageRender from '../../../../../hooks/useLanguageRender';
 import { useNavigation } from '@react-navigation/native';
 import {
   ActivityIndicator,
-  ScrollView,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -317,7 +318,7 @@ const UserAccountSettings = ({ onDeleteAccount }) => {
   }
 
   return (
-    <View style={s.container}>
+    <KeyboardSafeArea style={s.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
       <View style={s.header}>
@@ -333,7 +334,7 @@ const UserAccountSettings = ({ onDeleteAccount }) => {
         </View>
       </View>
 
-      <ScrollView
+      <KeyboardSafeScroll
         style={s.scroll}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={s.scrollContent}
@@ -690,8 +691,9 @@ const UserAccountSettings = ({ onDeleteAccount }) => {
         </View>
 
         <View style={s.bottomSpace} />
-      </ScrollView>
-    </View>
+        <AppVersionFooter />
+      </KeyboardSafeScroll>
+    </KeyboardSafeArea>
   );
 };
 
