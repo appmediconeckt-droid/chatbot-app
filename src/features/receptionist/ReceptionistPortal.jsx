@@ -54,6 +54,9 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
   const [editingVitals, setEditingVitals] = useState(false);
 
   // The account (fresh from the server; the stored copy shows meanwhile).
+  // Read again on pull-to-refresh and whenever Profile / Settings opens, so a
+  // clinic, shift or timing the doctor changed shows without signing in again.
+  const accountScreenOpen = section === 'profile' || section === 'settings';
   useEffect(() => {
     let cancelled = false;
     fetchMe()
@@ -64,7 +67,7 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
       })
       .catch((err) => { if (!cancelled && !initialProfile) setAccountError(apiError(err, 'Your account could not be loaded.')); });
     return () => { cancelled = true; };
-  }, [initialProfile]);
+  }, [initialProfile, refresh, accountScreenOpen]);
 
   // Today's saved copy of the feed shows at once (WhatsApp-style); the first
   // live read below replaces it. Marked so booking alerts ignore it.
@@ -159,6 +162,19 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
     setSelected(row);
   };
   const doctorName = data?.doctor?.fullName || data?.doctor?.name;
+  // The clinic / doctor names saved on the account can be out of date after
+  // the doctor moves the receptionist; the live feed's clinic list is current.
+  const accountProfile = useMemo(() => {
+    if (!profile) return profile;
+    const ownClinicId = assignedClinicId(profile);
+    const liveClinic = clinics.find((row) => String(row._id || row.id) === String(clinic))
+      || clinics.find((row) => String(row._id || row.id) === ownClinicId);
+    return {
+      ...profile,
+      clinic_name: liveClinic?.clinic_name || profile.clinic_name,
+      assignedDoctorName: doctorName || profile.assignedDoctorName,
+    };
+  }, [profile, clinics, clinic, doctorName]);
 
   const renderSection = () => {
     if (!profile) return null;
@@ -169,11 +185,11 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
       case 'led-display': return <LedDisplaySection profile={profile} clinic={clinic} onNavigate={navigateTo} />;
       case 'patients': return <PatientsSection refreshKey={refresh} />;
       case 'doctor': return <DoctorSection {...common} />;
-      case 'profile': return <ProfileSection profile={profile} onProfileUpdated={applyProfileUpdate} />;
+      case 'profile': return <ProfileSection profile={accountProfile} onProfileUpdated={applyProfileUpdate} />;
       case 'settings':
         return (
           <SettingsSection
-            profile={profile}
+            profile={accountProfile}
             onNavigate={navigateTo}
             onLogout={onLogout}
             loggingOut={loggingOut}
@@ -251,7 +267,6 @@ export default function ReceptionistPortal({ initialProfile, onLogout, loggingOu
               <Avatar photo={profilePhotoOf(profile || {})} name={profile?.fullName} size={42} />
               <View style={s.flex}>
                 <Text translate={false} style={s.accountName} numberOfLines={1}>{profile?.fullName || 'Receptionist'}</Text>
-                <Text style={s.accountSub}>Front desk team</Text>
               </View>
             </View>
             <Text style={s.navLabel}>WORKSPACE</Text>
@@ -320,7 +335,6 @@ const s = StyleSheet.create({
   brandSub: { fontSize: 9, letterSpacing: 1.6, fontWeight: '700', color: REC.muted, marginTop: 2 },
   account: { flexDirection: 'row', alignItems: 'center', gap: 11, marginTop: 22, padding: 12, borderRadius: 12, backgroundColor: '#F7FAF9', borderWidth: 1, borderColor: REC.line },
   accountName: { fontSize: 14.5, fontWeight: '700', color: REC.ink },
-  accountSub: { fontSize: 11.5, color: REC.muted, marginTop: 2 },
   navLabel: { fontSize: 10, letterSpacing: 1.6, fontWeight: '700', color: '#98A2B3', marginTop: 22, marginBottom: 8, marginLeft: 6 },
   navItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, height: 46, borderRadius: 10, marginBottom: 2 },
   navItemActive: { backgroundColor: '#FFFFFF' },

@@ -7,23 +7,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   AppState,
   Modal,
   StatusBar,
-  StyleSheet,
   Text as RNText,
   TextInput,
   useColorScheme,
-  useWindowDimensions,
-  View,
 } from 'react-native';
 import {
   SafeAreaProvider,
   initialWindowMetrics,
 } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
-import LinearGradient from 'react-native-linear-gradient';
 import { navigationRef } from './src/navigationRef';
 import { ResponsiveAppFrame } from './src/components/common/ResponsiveLayout';
 import { isTokenExpired, startTokenExpiryWatcher } from './src/utils/tokenExpiry';
@@ -42,7 +37,7 @@ import safeVibrate from './src/utils/safeVibrate';
 import socketService from './src/services/socketService';
 import { CallProvider } from './src/screens/user/VideoCall/CallProvider';
 import GlobalIncomingCallController from './src/screens/user/VideoCall/GlobalIncomingCallController';
-import HumaeliHeroVideo from './src/components/common/HumaeliHeroVideo';
+import HumaeliLogoSplash from './src/components/common/HumaeliLogoSplash';
 import AppLockScreen, { PIN_STORAGE_KEY } from './src/screens/auth/AppLockScreen';
 import PinSetupScreen from './src/screens/auth/PinSetupScreen';
 import './src/i18n';
@@ -108,8 +103,8 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 // Lock as soon as the user leaves the app and opens it again.
 const LOCK_TIMEOUT_MS = 0;
-const MIN_BOOT_SPLASH_MS = 1000;
-const VIDEO_BACKGROUND_COLOR = '#04181B';
+// How long the logo splash stays up at least, so it never just flashes by.
+const MIN_LOGO_SPLASH_MS = 1000;
 
 // ─── Popups must reach the bottom of the screen ──────────────────────────────
 // An Android Modal window stops above the navigation bar by default. This app
@@ -166,88 +161,14 @@ const hasFreshPendingIncomingCall = async () => {
   }
 };
 
-const BootSplash = () => {
-  const { width, height } = useWindowDimensions();
-  const landscapeTablet = width >= 900 && width > height;
-  const isTinyPhone = height < 650 || width < 360;
-  const isCompactPhone = height < 760;
-  const heroTextWidth = Math.min(width - 44, 360);
-
-  return (
-    <View style={[styles.bootScreen, landscapeTablet && { flexDirection: 'row' }]}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      <View style={[styles.bootHeroMedia, landscapeTablet && { minHeight: 0 }]}>
-        <HumaeliHeroVideo
-          style={StyleSheet.absoluteFill}
-          sourceName="mobile_hero_section_video"
-          muted
-          resizeMode="cover"
-          focusX={0.5}
-          focusY={0}
-          zoomScale={1}
-        />
-        <LinearGradient
-          pointerEvents="none"
-          colors={['rgba(0, 0, 0, 0.26)', 'rgba(4, 24, 27, 0.08)', VIDEO_BACKGROUND_COLOR]}
-          locations={[0, 0.72, 1]}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
-
-      <View style={[styles.bootHeroPanel, landscapeTablet && { minHeight: 0 }]}>
-        <View style={[styles.bootHeroContent, { width: heroTextWidth }]}>
-          <RNText
-            maxFontSizeMultiplier={1}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            style={[styles.bootHeroKicker, isTinyPhone ? styles.bootHeroKickerTiny : styles.bootHeroKickerRegular]}
-          >
-            HUMAELI - YOUR MENTAL WELLNESS
-          </RNText>
-          <RNText
-            maxFontSizeMultiplier={1}
-            style={[
-              styles.bootHeroTitle,
-              isTinyPhone
-                ? styles.bootHeroTitleTiny
-                : isCompactPhone
-                  ? styles.bootHeroTitleCompact
-                  : styles.bootHeroTitleRegular,
-            ]}
-          >
-            Human Empowered{'\n'}Mental Wellness{'\n'}Support
-          </RNText>
-          <View style={styles.bootHeroDivider} />
-          <RNText
-            maxFontSizeMultiplier={1}
-            style={[
-              styles.bootHeroDescription,
-              isTinyPhone
-                ? styles.bootHeroDescriptionTiny
-                : isCompactPhone
-                  ? styles.bootHeroDescriptionCompact
-                  : styles.bootHeroDescriptionRegular,
-            ]}
-          >
-            In your difficult time of mental health to connect with consultants, psychologists,
-            psychological wellness practitioners & psychiatrists
-          </RNText>
-          <View style={styles.bootLoaderRow}>
-            <ActivityIndicator color="#24C184" size="small" />
-            <RNText maxFontSizeMultiplier={1} style={styles.bootLoaderText}>Loading your dashboard</RNText>
-          </View>
-        </View>
-      </View>
-    </View>
-  );
-};
-
-
-
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
   const [bootRoute, setBootRoute] = useState<keyof RootStackParamList>('Landing');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  // The animated logo splash covers start-up and fades out once the route is
+  // known; an incoming call skips its minimum time so the call shows at once.
+  const [logoSplashVisible, setLogoSplashVisible] = useState(true);
+  const [skipSplashDelay, setSkipSplashDelay] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   // Shared module-level ref (see src/navigationRef) so the axios interceptor can
   // reset to Login when the backend kills this device's session.
@@ -259,9 +180,7 @@ function App() {
 
   useEffect(() => {
     const bootstrapSessionRoute = async () => {
-      const startedAt = Date.now();
       let hasFreshIncomingCall = false;
-      let shouldHoldBootSplash = false;
       try {
         const [
           accessToken,
@@ -341,13 +260,11 @@ function App() {
           // plain app reload. A returning session goes straight to its
           // dashboard (App Lock, if a PIN exists, is handled above via
           // setIsLocked). This stops the location page re-appearing every boot.
-          shouldHoldBootSplash = true;
           setBootRoute(destination);
         } else if (String(isAuthenticated).toLowerCase() === 'true' || userDataRaw) {
           // Older builds could persist a token without userRole/userType. Treat
           // that as a returning session so the public Get Started page never
           // flashes for an already logged-in user.
-          shouldHoldBootSplash = true;
           setBootRoute('UserDashboard');
         } else {
           setBootRoute('Landing');
@@ -356,11 +273,9 @@ function App() {
         console.warn('Session bootstrap failed, opening Landing', error);
         setBootRoute('Landing');
       } finally {
-        const elapsed = Date.now() - startedAt;
-        const minSplashMs = shouldHoldBootSplash && !hasFreshIncomingCall ? MIN_BOOT_SPLASH_MS : 0;
-        if (elapsed < minSplashMs) {
-          await new Promise<void>((resolve) => setTimeout(resolve, minSplashMs - elapsed));
-        }
+        // The logo splash keeps itself up for its minimum time, so the
+        // dashboard can start loading underneath it straight away.
+        if (hasFreshIncomingCall) setSkipSplashDelay(true);
         setIsBootstrapping(false);
       }
     };
@@ -432,9 +347,7 @@ useEffect(() => {
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       <LanguageProvider>
         <CallProvider>
-          {isBootstrapping ? (
-            <BootSplash />
-          ) : (
+          {isBootstrapping ? null : (
           <ToastProvider>
         <NavigationContainer
           ref={navigationRef}
@@ -525,112 +438,17 @@ useEffect(() => {
         <GlobalIncomingCallController />
           </ToastProvider>
           )}
+          {logoSplashVisible && (
+            <HumaeliLogoSplash
+              done={!isBootstrapping}
+              minMs={skipSplashDelay ? 0 : MIN_LOGO_SPLASH_MS}
+              onHidden={() => setLogoSplashVisible(false)}
+            />
+          )}
         </CallProvider>
       </LanguageProvider>
     </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  bootScreen: {
-    flex: 1,
-    backgroundColor: VIDEO_BACKGROUND_COLOR,
-    overflow: 'hidden',
-  },
-  bootHeroMedia: {
-    flex: 0.58,
-    minHeight: 330,
-    overflow: 'hidden',
-    backgroundColor: VIDEO_BACKGROUND_COLOR,
-  },
-  bootHeroPanel: {
-    flex: 0.42,
-    minHeight: 300,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 22,
-    paddingBottom: 28,
-    backgroundColor: VIDEO_BACKGROUND_COLOR,
-  },
-  bootHeroContent: {
-    alignItems: 'center',
-    maxWidth: 360,
-  },
-  bootHeroKicker: {
-    color: '#F4FFF9',
-    fontWeight: '800',
-    letterSpacing: 0,
-    textAlign: 'center',
-    textShadowColor: 'rgba(0, 0, 0, 0.34)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  bootHeroKickerTiny: {
-    fontSize: 9,
-    lineHeight: 13,
-    marginBottom: 8,
-  },
-  bootHeroKickerRegular: {
-    fontSize: 10,
-    lineHeight: 14,
-    marginBottom: 10,
-  },
-  bootHeroTitle: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    textAlign: 'center',
-    textShadowColor: 'rgba(0, 0, 0, 0.38)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-  },
-  bootHeroTitleTiny: {
-    fontSize: 30,
-    lineHeight: 34,
-  },
-  bootHeroTitleCompact: {
-    fontSize: 34,
-    lineHeight: 39,
-  },
-  bootHeroTitleRegular: {
-    fontSize: 38,
-    lineHeight: 43,
-  },
-  bootHeroDivider: {
-    width: 54,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: '#24C184',
-    marginBottom: 18,
-    marginTop: 17,
-  },
-  bootHeroDescription: {
-    color: '#E6F5F0',
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  bootHeroDescriptionTiny: {
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  bootHeroDescriptionCompact: {
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  bootHeroDescriptionRegular: {
-    fontSize: 15,
-    lineHeight: 23,
-  },
-  bootLoaderRow: {
-    marginTop: 22,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  bootLoaderText: {
-    color: '#DDF7EF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-});
 
 export default App;

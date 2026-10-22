@@ -83,6 +83,7 @@ import { toImageUri } from "../../../../../utils/imageUri";
 import { clearAccountLocalData } from "../../../../../utils/authSession";
 import { isProfessionalAccountDeleted } from "../../../../../utils/deletedAccount";
 import AiMicButton from "../../../../../components/AiMicButton";
+import HumaeliAiButton, { HumaeliAiAvatar } from "./HumaeliAiButton";
 import { useSpeechToText } from "../../../../../hooks/useSpeechToText";
 import useLiveRefresh from '../../../../../hooks/useLiveRefresh';
 import {
@@ -471,12 +472,7 @@ const ChatPopup = ({
           style={styles.chatPopupHeader}
         >
           <View style={styles.chatHeaderInfo}>
-            <LinearGradient
-              colors={['#ffffff', '#f0f0f0']}
-              style={[styles.chatAvatar, styles.chatAvatarGradient]}
-            >
-              <MaterialIcons name="auto-awesome" size={22} color="#006B2C" />
-            </LinearGradient>
+            <HumaeliAiAvatar size={44} blink />
             {/* flex:1 + numberOfLines so a longer name shrinks/ellipsizes here
                 instead of running underneath the header icons. */}
             <View style={styles.chatHeaderText}>
@@ -530,14 +526,7 @@ const ChatPopup = ({
                   message.sender === "user" && styles.chatMessageWrapperUser,
                 ]}
               >
-                {isAiMsg && (
-                  <LinearGradient
-                    colors={AI_GRADIENT}
-                    style={[styles.chatAvatar, styles.chatAvatarSmall]}
-                  >
-                    <MaterialIcons name="auto-awesome" size={14} color="white" />
-                  </LinearGradient>
-                )}
+                {isAiMsg && <HumaeliAiAvatar size={32} />}
                 <View
                   style={[
                     styles.chatBubbleColumn,
@@ -628,12 +617,7 @@ const ChatPopup = ({
           })}
           {isLoading && (
             <View style={[styles.chatMessageWrapper, styles.chatMessageWrapperAi]}>
-              <LinearGradient
-                colors={AI_GRADIENT}
-                style={[styles.chatAvatar, styles.chatAvatarSmall]}
-              >
-                <MaterialIcons name="auto-awesome" size={14} color="white" />
-              </LinearGradient>
+              <HumaeliAiAvatar size={32} />
               <View style={styles.chatBubble}>
                 <View style={styles.loadingDots}>
                   <View style={styles.loadingDot} />
@@ -653,7 +637,7 @@ const ChatPopup = ({
         >
           {/* Input pill: leading icon + text */}
           <View style={styles.chatInputPill}>
-            <MaterialIcons name="auto-awesome" size={17} color="#006B2C" style={styles.chatInputLead} />
+            <Ionicons name="chatbubble-ellipses-outline" size={17} color="#006B2C" style={styles.chatInputLead} />
             <TextInput
               ref={inputRef}
               style={styles.chatInput}
@@ -1384,7 +1368,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(true);
   const [activeTab, setActiveTab] = useState("All");
-  const [statusFilter, setStatusFilter] = useState("All");
   const [selectedApt, setSelectedApt] = useState(null);
   const [selectedProviderKey, setSelectedProviderKey] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -1614,7 +1597,11 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     const value = normalizeAptStatus(apt.status);
     const pendingEmergency = isUnscheduledEmergency(apt) && !TERMINAL_APT_STATUSES.has(value);
     if (activeTab === "Upcoming") return !TERMINAL_APT_STATUSES.has(value) && (pendingEmergency || aptTimestamp(apt) > nowMs);
-    if (activeTab === "Past") return TERMINAL_APT_STATUSES.has(value) || (!pendingEmergency && aptTimestamp(apt) <= nowMs);
+    // Past is the visit history, so cancelled bookings stay out of it.
+    if (activeTab === "Past") {
+      const cancelled = value === "cancelled" || normalizeAptStatus(apt.queue_status || apt.queueStatus) === "cancelled";
+      return !cancelled && (TERMINAL_APT_STATUSES.has(value) || (!pendingEmergency && aptTimestamp(apt) <= nowMs));
+    }
     return true;
   }).sort((a, b) => (Date.parse(b.createdAt || b.created_at) || aptTimestamp(b)) - (Date.parse(a.createdAt || a.created_at) || aptTimestamp(a)));
 
@@ -1626,17 +1613,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     (apt) => apt.status === "completed" && isPsychiatristSpecialization(apt?.counselor?.specialization)
   );
 
-  let displayApts = periodApts;
-
-  if (statusFilter === "Pending") {
-    displayApts = displayApts.filter((apt) => apt.status === "pending");
-  }
-  if (statusFilter === "Confirmed") {
-    displayApts = displayApts.filter((apt) => apt.status === "confirmed");
-  }
-  if (statusFilter === "Completed") {
-    displayApts = displayApts.filter((apt) => apt.status === "completed");
-  }
+  const displayApts = periodApts;
 
   const providerGroups = Object.values(displayApts.reduce((groups, appointment) => {
     const key = getProviderIdentity(appointment);
@@ -1787,38 +1764,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             </TouchableOpacity>
           ))}
         </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.appointmentFilterRow}
-        >
-          {[
-            { key: "All", label: t('common:all', 'All') },
-            { key: "Pending", label: t('common:pending', 'Pending') },
-            { key: "Confirmed", label: t('common:confirmed', 'Confirmed') },
-            { key: "Completed", label: t('appointment:completed', 'completed') },
-          ].map((chip) => (
-            <TouchableOpacity
-              key={chip.key}
-              style={[styles.filterChip, statusFilter === chip.key && styles.filterChipActive]}
-              onPress={() => setStatusFilter(chip.key)}
-              activeOpacity={0.8}
-            >
-              {statusFilter === chip.key && (
-                <LinearGradient
-                  colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
-                  start={{ x: 0, y: 0.5 }}
-                  end={{ x: 1, y: 0.5 }}
-                  style={StyleSheet.absoluteFillObject}
-                />
-              )}
-              <Text style={[styles.filterChipText, statusFilter === chip.key && styles.filterChipTextActive]}>
-                {chip.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
       </View>
 
       <ScrollView contentContainerStyle={styles.appointmentsList} showsVerticalScrollIndicator={false}>
@@ -3889,32 +3834,12 @@ export default function UserDashboard() {
       </View>
 
       {/* AI FLOATING BUTTON — centred above the bottom nav */}
-      <TouchableOpacity
-        style={[
-          styles.aiButton,
-          {
-            bottom: aiButtonBottom,
-          },
-        ]}
+      <HumaeliAiButton
+        style={[styles.aiButton, { bottom: aiButtonBottom }]}
         onPress={() => setChatOpen(true)}
-        activeOpacity={0.85}
-        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        accessibilityLabel="Open Humaelio AI"
-      >
-        <LinearGradient
-          colors={[PATIENT.gradientFrom, PATIENT.gradientTo]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.aiButtonGradient}
-        >
-          <Ionicons name="sparkles" size={26} color="#ffffff" />
-        </LinearGradient>
-        {unreadCount > 0 && !chatOpen && (
-          <View style={styles.aiUnreadBadge}>
-            <Text style={styles.aiUnreadBadgeText}>{unreadCount}</Text>
-          </View>
-        )}
-      </TouchableOpacity>
+        unreadCount={unreadCount}
+        showBadge={!chatOpen}
+      />
 
       {/* SIDEBAR DRAWER */}
       <Modal statusBarTranslucent navigationBarTranslucent
@@ -4889,37 +4814,6 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontWeight: "700",
   },
-  appointmentFilterRow: {
-    flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 4,
-  },
-  filterChip: {
-    paddingHorizontal: 16,
-    height: 34,
-    justifyContent: "center",
-    borderRadius: 999,
-    backgroundColor: PATIENT.surface,
-    borderWidth: 1,
-    borderColor: PATIENT.chipBorder,
-    overflow: "hidden",
-  },
-  filterChipActive: {
-    backgroundColor: "transparent",
-    borderColor: PATIENT.primary,
-  },
-  filterChipText: {
-    color: PATIENT.textSecondary,
-    fontSize: 13,
-    fontWeight: "500",
-  },
-  filterChipTextActive: {
-    color: "#ffffff",
-    fontWeight: "600",
-  },
-
   // List
   appointmentsList: {
     paddingHorizontal: 16,
@@ -5647,48 +5541,15 @@ const styles = StyleSheet.create({
   },
 
   // AI FLOATING BUTTON
+  // Position only — the look (and its round shadow) lives in HumaeliAiButton.
+  // No elevation here: on this background-less wrapper Android drew it as a
+  // faint square around the button.
   aiButton: {
     position: "absolute",
     bottom: Platform.OS === "ios" ? 42 : 28,
     left: "50%",
     marginLeft: -30,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 4,
-    borderColor: "#ffffff",
-    shadowColor: PATIENT.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 12,
     zIndex: 999,
-  },
-  aiButtonGradient: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 26,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  aiUnreadBadge: {
-    position: "absolute",
-    top: -5,
-    right: -5,
-    backgroundColor: "#ef4444",
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 5,
-    borderWidth: 2,
-    borderColor: "#ffffff",
-  },
-  aiUnreadBadgeText: {
-    color: "#ffffff",
-    fontSize: 10,
-    fontWeight: "600",
   },
 
   // BOTTOM NAVIGATION — Figma
@@ -5812,13 +5673,6 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
-  },
-  chatAvatarGradient: {
-    shadowColor: "#006B2C",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 3,
   },
   chatAvatarSmall: {
     width: 32,

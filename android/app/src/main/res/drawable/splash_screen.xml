@@ -1,11 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Window background for pre-Android-12 devices, shown while React Native JS boots. -->
+<!-- Window background, shown while React Native JS boots (and the whole splash
+     on pre-Android-12 devices). A soft mint gradient — the same one
+     MainActivity's blinking overlay and the JS HumaeliLogoSplash draw — with
+     the logo at 288dp, the Android 12+ system splash icon size, so the logo
+     keeps one size from tap to app. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@color/splash_background" />
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:startColor="@color/splash_gradient_top"
+                android:centerColor="@color/splash_background"
+                android:endColor="@color/splash_gradient_bottom" />
+        </shape>
+    </item>
 
     <item
-        android:width="200dp"
-        android:height="200dp"
+        android:width="288dp"
+        android:height="288dp"
         android:gravity="center"
         android:drawable="@drawable/splash_icon" />
 </layer-list>

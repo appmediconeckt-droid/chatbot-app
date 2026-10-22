@@ -42,6 +42,12 @@ const firstPositiveFee = (...values) => {
   const fee = values.map(Number).find((v) => Number.isFinite(v) && v > 0);
   return fee ?? DEFAULT_CONSULTATION_FEE;
 };
+// A fee the doctor saved in their profile (0 is a valid "no extra" charge),
+// or null when they never set one.
+const savedFee = (...values) => {
+  const fee = values.find((v) => v !== undefined && v !== null && v !== '' && Number.isFinite(Number(v)));
+  return fee != null ? Math.max(0, Number(fee)) : null;
+};
 
 // "HH:MM" → "h:MM AM"
 const formatRangeTime = (value) => {
@@ -153,6 +159,11 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
     languages: Array.isArray(incoming.languages) ? incoming.languages.join(', ') : (incoming.languages || ''),
     nextAvailable: incoming.nextAvailable || 'Today',
     consultationFee: firstPositiveFee(incoming.consultationFee, incoming.fee, incoming.consultation_fee),
+    // True when the doctor set their own fee in Profile; it then wins over
+    // any clinic fee, since the doctor decides what they charge.
+    hasOwnFee: Number(pickFirst(incoming.consultationFee, incoming.fee, incoming.consultation_fee)) > 0,
+    videoFee: savedFee(incoming.videoConsultationFee, incoming.video_consultation_fee),
+    voiceFee: savedFee(incoming.voiceConsultationFee, incoming.voice_consultation_fee),
     photo: typeof incoming.avatar === 'string' && /^(https?:|file:|data:)/.test(incoming.avatar) ? incoming.avatar : null,
   };
 
@@ -385,12 +396,19 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       ...(availabilityLoading
         ? { days: 'Loading availability...', timings: 'Loading availability...' }
         : getClinicSchedule(ranges, pickFirst(c._id, c.id), unavailableDates, selectedDate?.iso)),
-      fee: firstPositiveFee(c.fee, c.consultation_fee, c.consultationFee, doctor.consultationFee),
+      fee: doctor.hasOwnFee
+        ? doctor.consultationFee
+        : firstPositiveFee(c.fee, c.consultation_fee, c.consultationFee),
     }))
     : [{ id: null, name: 'No clinic available', address: incoming.location || '', days: '—', timings: '—', fee: doctor.consultationFee }];
   const hasClinics = apiClinics.length > 0;
   const selectedClinic = clinics.find((c) => c.id === selectedClinicId) || clinics[0];
-  const selectedMode = MODES.find((m) => m.id === selectedModeId) || MODES[0];
+  // Video / voice extras come from the doctor's profile when they set them.
+  const modes = MODES.map((m) => {
+    const own = m.id === 'video' ? doctor.videoFee : m.id === 'voice' ? doctor.voiceFee : null;
+    return own != null ? { ...m, fee: own } : m;
+  });
+  const selectedMode = modes.find((m) => m.id === selectedModeId) || modes[0];
   const totalFee = (Number(selectedClinic?.fee) || 0) + (Number(selectedMode?.fee) || 0);
 
   // Regular bookings happen at the chosen clinic, so the location is the
@@ -655,7 +673,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
           open={modeOpen}
           onToggle={() => { setModeOpen((o) => !o); setClinicOpen(false); }}
         >
-          {MODES.map((m) => (
+          {modes.map((m) => (
             <Pressable key={m.id} style={[s.option, selectedModeId === m.id && s.optionActive]} onPress={() => { setSelectedModeId(m.id); setModeOpen(false); }}>
               <View style={s.modeIcon}><Ionicons name={m.icon} size={18} color={PATIENT.primary} /></View>
               <View style={s.flex}>

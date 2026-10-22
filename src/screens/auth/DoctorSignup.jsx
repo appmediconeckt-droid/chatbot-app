@@ -6,16 +6,8 @@ import { KeyboardSafeArea, KeyboardSafeScroll } from '../../components/common/Ke
 // must send the backend's real doctor role.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, TouchableOpacity, ScrollView, Platform, ActivityIndicator, Image, StatusBar, SafeAreaView, useWindowDimensions, Animated, findNodeHandle, Modal } from 'react-native';
-// SafeAreaView is deliberately the plain react-native one here (a no-op on
-// Android — it only does anything on iOS), matching what CounselorSignup.jsx
-// and UserSignup.jsx already use. This screen was the only one of the three
-// importing react-native-safe-area-context's SafeAreaView instead, which
-// DOES apply real Android inset padding on top of — not instead of — this
-// screen's own hand-tuned paddingTop/backBtn offsets (which were already
-// sized assuming no automatic inset, same as the other two screens). That
-// stacked padding was the one concrete difference between this screen and
-// its two siblings, and lines up with this being the only one where the
-// panel could scroll past the back button.
+
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TextInput from '../../components/TranslatedTextInput';
 import Text from '../../components/TranslatedText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -110,6 +102,8 @@ const DoctorSignup = ({ navigation, route }) => {
   const isTablet = width >= 600;
   const isCompact = width < 360 || height < 700;
   const [isLogin, setIsLogin] = useState(false);
+  const [outerPageHeight, setOuterPageHeight] = useState(0);
+  const insets = useSafeAreaInsets();
   const [focusedField, setFocusedField] = useState(null);
   const {
     scrollRef,
@@ -600,9 +594,17 @@ const DoctorSignup = ({ navigation, route }) => {
     justifyContent: 'flex-start',
     paddingHorizontal: isCompact ? 12 : 16,
     paddingTop: isLogin ? (isCompact ? 72 : 88) : (isCompact ? 62 : 76),
-    paddingBottom: (isLogin ? (isCompact ? 44 : 60) : (isCompact ? 14 : 20)) + keyboardInset,
+    // Signup keeps the keyboard padding inside the form scroll only; adding it
+    // here too made the page taller than the screen, so the whole card could
+    // be dragged up once the form reached its end.
+    paddingBottom: (isLogin ? (isCompact ? 44 : 60) + keyboardInset : (isCompact ? 14 : 20)),
   };
-  const signupPanelHeight = Math.min(isTablet ? 760 : 720, Math.max(360, height - (isCompact ? 78 : 96)));
+  // Sized from the page's real height (measured below), not the window's:
+  // on some phones the window is taller than the visible page, and the extra
+  // let the whole card scroll on the Signup screen. The page runs under the
+  // navigation bar (edge-to-edge), so that part is left out.
+  const pageHeight = outerPageHeight ? outerPageHeight - insets.bottom : height;
+  const signupPanelHeight = Math.min(isTablet ? 760 : 720, Math.max(360, pageHeight - (isCompact ? 78 : 96)));
   const signupPanelPaddingY = isCompact ? 18 : 22;
   const signupLogoSize = isCompact ? 64 : 80;
   const signupHeaderHeight = signupLogoSize + (isCompact ? 68 : 74);
@@ -633,7 +635,11 @@ const DoctorSignup = ({ navigation, route }) => {
               ref={isLogin ? scrollRef : null}
               contentContainerStyle={scrollContainerStyle}
               showsVerticalScrollIndicator={false}
-              onLayout={isLogin ? handleKeyboardAwareScrollLayout : undefined}
+              onLayout={(event) => {
+                // Measured with the keyboard closed, so opening it never resizes the card.
+                if (keyboardInset === 0) setOuterPageHeight(Math.floor(event.nativeEvent.layout.height));
+                if (isLogin) handleKeyboardAwareScrollLayout(event);
+              }}
               onScroll={isLogin ? handleKeyboardAwareScroll : undefined}
               scrollEventThrottle={16}
               keyboardShouldPersistTaps="handled"
@@ -658,7 +664,10 @@ const DoctorSignup = ({ navigation, route }) => {
                   onScroll={!isLogin ? handleKeyboardAwareScroll : undefined}
                   scrollEventThrottle={16}
                   keyboardShouldPersistTaps="handled"
-                  nestedScrollEnabled
+                  // Not nested: at the end of the form Android handed the
+                  // leftover drag to the page (scrollEnabled=false doesn't
+                  // stop that), which moved the whole card.
+                  nestedScrollEnabled={false}
                   scrollEnabled={!isLogin}
                 >
                   {!isLogin ? (

@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   LayoutAnimation,
   Linking,
@@ -146,6 +147,45 @@ const RIGHT_DETAILS = {
   },
 };
 
+// AI assistant disclosure — wording as approved for the app.
+const AI_PROVIDER = 'OpenAI';
+const AI_POLICY_SECTIONS = [
+  {
+    icon: 'share-social-outline',
+    title: 'Information Shared with OpenAI',
+    text: 'Your AI messages, up to 20 prior conversation messages, language, mood and safety context, anonymous handle, age, gender, city/location, surroundings and company may be sent through Humaeli’s backend to OpenAI. Counselor directory details may be included to suggest support. Messages may contain personal or mental-wellness information you choose to share.',
+  },
+  {
+    icon: 'mic-outline',
+    title: 'Voice and photo features',
+    text: 'AI voice calls send microphone audio directly to OpenAI after Humaeli creates the connection. OpenAI transcribes the audio and generates spoken replies. Voice sessions also include your account role and the profile and counselor context described above. Device speech recognition may process dictated text using Apple or Google services. AI photo avatars send your selected photo or avatar, appearance analysis (when enabled) and customization choices to OpenAI. Text selected for AI speech is sent to OpenAI.',
+  },
+  {
+    icon: 'business-outline',
+    title: 'Third-Party Provider',
+    text: 'Provider: OpenAI. Purpose: AI response generation and processing of the text, audio and images you submit for AI features.',
+  },
+  {
+    icon: 'server-outline',
+    title: 'Data Privacy',
+    text: 'Humaeli stores AI chat history in its backend database until you delete it; no automatic expiry is configured. Use AI Chat’s Fresh Chat control to clear saved AI history, or contact support@humaeli.com for deletion requests. Consent records contain timestamps and policy versions, not chat text. OpenAI API data is not used for training by default unless the API customer opts in. OpenAI may retain abuse-monitoring data for up to 30 days, with legal/safety exceptions and endpoint-specific handling. Uploaded images may be retained for safety review when flagged. This is not zero retention.',
+  },
+  {
+    icon: 'hand-left-outline',
+    title: 'Your choice',
+    text: 'Declining does not prevent use of unrelated Humaeli features. Withdraw consent in Privacy → AI Privacy & Data Sharing to stop future AI processing and end active AI calls. Withdrawal does not automatically erase data already processed. Read the Privacy Policy for collection, sharing, retention and deletion details.',
+  },
+];
+const AI_LINK_COLOR = '#2563EB';
+// The user's AI consent is kept on this device, per account. AI features are
+// on by default, so nothing recorded reads as Enabled; only an explicit
+// withdrawal turns it off.
+const aiConsentKey = (userId) => `humaeliAiConsent:${userId || 'guest'}`;
+const saveAiConsent = async (value) => {
+  const userId = await AsyncStorage.getItem('userId');
+  await AsyncStorage.setItem(aiConsentKey(userId), value);
+};
+
 const SHARING = [
   'Counselors you book see only what a session needs — your name (or anonymous label), age, gender and the chat history of that session.',
   'We do not sell your data, and we do not share it for advertising.',
@@ -174,8 +214,76 @@ const PrivacyPolicy = ({ onClose, onOpenTab, onOpenHelpSupport, onOpenRefund }) 
   const { t } = useLanguageRender();
   const [C, setC] = useState(PATIENT);
   const [role, setRole] = useState('user');
-  const [expanded, setExpanded] = useState('chats');
+  // Every card starts closed; the user opens the one they want.
+  const [expanded, setExpanded] = useState(null);
   const [expandedRight, setExpandedRight] = useState(null);
+  // 'sharing' | 'processing' | null — the two AI accordions.
+  const [aiExpanded, setAiExpanded] = useState(null);
+  const [aiConsent, setAiConsent] = useState(false);
+  const [aiConsentChecking, setAiConsentChecking] = useState(false);
+
+  const readAiConsent = useCallback(async () => {
+    const userId = await AsyncStorage.getItem('userId');
+    const value = await AsyncStorage.getItem(aiConsentKey(userId));
+    const granted = value !== 'withdrawn';
+    setAiConsent(granted);
+    return granted;
+  }, []);
+
+  useEffect(() => { readAiConsent().catch(() => {}); }, [readAiConsent]);
+
+  const refreshAiConsent = async () => {
+    setAiConsentChecking(true);
+    try {
+      const granted = await readAiConsent();
+      Alert.alert(t('AI Consent'), granted ? t('AI consent is enabled.') : t('AI consent is disabled.'));
+    } catch {
+      Alert.alert(t('AI Consent'), t('Consent status could not be checked. Please try again.'));
+    } finally {
+      setAiConsentChecking(false);
+    }
+  };
+
+  const withdrawAiConsent = () => {
+    const failed = () => Alert.alert(t('AI Consent'), t('Consent could not be updated. Please try again.'));
+    if (!aiConsent) {
+      // Already withdrawn: offer the way back instead of a dead end.
+      Alert.alert(
+        t('AI Consent'),
+        t('AI consent is already withdrawn. Do you want to enable it again?'),
+        [
+          { text: t('Cancel'), style: 'cancel' },
+          {
+            text: t('Enable'),
+            onPress: () => saveAiConsent('granted')
+              .then(() => {
+                setAiConsent(true);
+                Alert.alert(t('AI Consent'), t('AI consent is enabled.'));
+              })
+              .catch(failed),
+          },
+        ],
+      );
+      return;
+    }
+    Alert.alert(
+      t('Withdraw AI Consent'),
+      t('Future AI processing will stop. Data already processed is not erased automatically.'),
+      [
+        { text: t('Cancel'), style: 'cancel' },
+        {
+          text: t('Withdraw'),
+          style: 'destructive',
+          onPress: () => saveAiConsent('withdrawn')
+            .then(() => {
+              setAiConsent(false);
+              Alert.alert(t('AI Consent'), t('AI consent has been withdrawn.'));
+            })
+            .catch(failed),
+        },
+      ],
+    );
+  };
 
   useEffect(() => {
     (async () => {
@@ -203,6 +311,11 @@ const PrivacyPolicy = ({ onClose, onOpenTab, onOpenHelpSupport, onOpenRefund }) 
       onClose?.();
       onOpenTab(tab);
     }
+  };
+
+  const toggleAi = (id) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setAiExpanded((cur) => (cur === id ? null : id));
   };
 
   const openRight = (right) => {
@@ -401,6 +514,98 @@ const PrivacyPolicy = ({ onClose, onOpenTab, onOpenHelpSupport, onOpenRefund }) 
               </View>
             );
           })}
+        </View>
+
+        {/* ── AI privacy ──────────────────────────────────────────────────── */}
+        <Text style={s.sectionTitle}>{t('AI PRIVACY')}</Text>
+        <View style={s.accordion}>
+          <View style={s.accItem}>
+            <TouchableOpacity style={s.accHead} activeOpacity={0.8} onPress={() => toggleAi('sharing')}>
+              <Text style={s.accTitle}>{t('AI Privacy & Data Sharing')}</Text>
+              <Ionicons name={aiExpanded === 'sharing' ? 'chevron-up' : 'chevron-down'} size={20} color="#94A3B8" />
+            </TouchableOpacity>
+            {aiExpanded === 'sharing' && (
+              <View style={s.aiBody}>
+                <View style={s.aiInfoCard}>
+                  <View style={s.aiInfoRow}>
+                    <Text style={s.aiInfoLabel}>{t('AI Provider')}</Text>
+                    <View style={s.aiProviderPill}>
+                      <Text style={s.aiProviderText}>{AI_PROVIDER}</Text>
+                    </View>
+                  </View>
+                  <View style={[s.aiInfoRow, s.aiInfoRowLast]}>
+                    <Text style={s.aiInfoLabel}>{t('Current Consent')}</Text>
+                    <View style={[s.aiStatus, aiConsent ? s.aiStatusOn : s.aiStatusOff]}>
+                      <View style={[s.aiStatusDot, { backgroundColor: aiConsent ? '#16A34A' : '#94A3B8' }]} />
+                      <Text style={[s.aiStatusText, { color: aiConsent ? '#15803D' : '#475569' }]}>
+                        {aiConsent ? t('Enabled') : t('Disabled')}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {[
+                  {
+                    key: 'refresh',
+                    icon: 'refresh-outline',
+                    label: 'Refresh consent status',
+                    onPress: refreshAiConsent,
+                    busy: aiConsentChecking,
+                  },
+                  { key: 'policy', icon: 'document-text-outline', label: 'View Privacy Policy', onPress: () => toggleAi('processing') },
+                  { key: 'withdraw', icon: 'remove-circle-outline', label: 'Withdraw AI Consent', onPress: withdrawAiConsent },
+                  {
+                    key: 'delete',
+                    icon: 'trash-outline',
+                    label: 'Request chat / account data deletion',
+                    onPress: () => openSupport('Request chat / account data deletion'),
+                  },
+                ].map((action, index, all) => (
+                  <TouchableOpacity
+                    key={action.key}
+                    onPress={action.onPress}
+                    disabled={action.busy}
+                    activeOpacity={0.7}
+                    style={[s.aiActionRow, index === all.length - 1 && s.aiActionRowLast]}
+                    accessibilityRole="button"
+                  >
+                    <View style={s.aiActionIcon}>
+                      {action.busy
+                        ? <ActivityIndicator size="small" color={AI_LINK_COLOR} />
+                        : <Ionicons name={action.icon} size={17} color={AI_LINK_COLOR} />}
+                    </View>
+                    <Text style={s.aiLink}>{t(action.label)}</Text>
+                    <Ionicons name="chevron-forward" size={16} color="#B8C4D6" />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
+          <View style={s.accItem}>
+            <TouchableOpacity style={s.accHead} activeOpacity={0.8} onPress={() => toggleAi('processing')}>
+              <Text style={s.accTitle}>{t('AI Assistant and OpenAI Data Processing')}</Text>
+              <Ionicons name={aiExpanded === 'processing' ? 'chevron-up' : 'chevron-down'} size={20} color="#94A3B8" />
+            </TouchableOpacity>
+            {aiExpanded === 'processing' && (
+              <View style={s.aiPolicyBody}>
+                {AI_POLICY_SECTIONS.map((section, index) => (
+                  <View
+                    key={section.title}
+                    style={[s.aiSection, index === AI_POLICY_SECTIONS.length - 1 && s.aiSectionLast]}
+                  >
+                    <View style={s.aiSectionHead}>
+                      <View style={[s.aiSectionIcon, { backgroundColor: C.secondaryTint }]}>
+                        <Ionicons name={section.icon} size={16} color={C.primary} />
+                      </View>
+                      <Text style={s.aiHeading}>{t(section.title)}</Text>
+                    </View>
+                    <Text style={s.aiText}>{t(section.text)}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
         </View>
 
         {/* ── Your rights ─────────────────────────────────────────────────── */}
@@ -609,6 +814,43 @@ const s = StyleSheet.create({
   bulletRow: { alignItems: 'center', flexDirection: 'row', gap: 9, paddingVertical: 3 },
   bulletDot: { borderRadius: 3, height: 6, width: 6 },
   bulletText: { color: '#64748B', flex: 1, fontSize: 13, lineHeight: 18 },
+
+  // AI privacy accordions.
+  aiBody: { paddingBottom: 8, paddingHorizontal: 14, paddingTop: 2 },
+  aiInfoCard: {
+    backgroundColor: '#F8FAFC', borderColor: '#EEF2F7', borderRadius: 12, borderWidth: 1,
+    marginBottom: 6, paddingHorizontal: 12,
+  },
+  aiInfoRow: {
+    alignItems: 'center', borderBottomColor: '#EEF2F7', borderBottomWidth: 1,
+    flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 11,
+  },
+  aiInfoRowLast: { borderBottomWidth: 0 },
+  aiInfoLabel: { color: '#334155', fontSize: 13.5, fontWeight: '600' },
+  aiProviderPill: {
+    alignItems: 'center', backgroundColor: '#FFFFFF', borderColor: '#E2E8F0', borderRadius: 999,
+    borderWidth: 1, paddingHorizontal: 12, paddingVertical: 4,
+  },
+  aiProviderText: { color: '#0f172a', fontSize: 12.5, fontWeight: '700' },
+  aiStatus: { alignItems: 'center', borderRadius: 999, flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingVertical: 4 },
+  aiStatusOn: { backgroundColor: '#DCFCE7' },
+  aiStatusOff: { backgroundColor: '#F1F5F9' },
+  aiStatusDot: { borderRadius: 4, height: 7, width: 7 },
+  aiStatusText: { fontSize: 12.5, fontWeight: '700' },
+  aiActionRow: {
+    alignItems: 'center', borderBottomColor: '#F1F5F9', borderBottomWidth: 1,
+    flexDirection: 'row', gap: 10, paddingVertical: 13,
+  },
+  aiActionRowLast: { borderBottomWidth: 0 },
+  aiActionIcon: { alignItems: 'center', backgroundColor: '#EFF6FF', borderRadius: 9, height: 30, justifyContent: 'center', width: 30 },
+  aiLink: { color: AI_LINK_COLOR, flex: 1, fontSize: 14, fontWeight: '600', lineHeight: 19 },
+  aiPolicyBody: { paddingBottom: 6, paddingHorizontal: 14 },
+  aiSection: { borderBottomColor: '#F1F5F9', borderBottomWidth: 1, paddingVertical: 12 },
+  aiSectionLast: { borderBottomWidth: 0 },
+  aiSectionHead: { alignItems: 'center', flexDirection: 'row', gap: 10, marginBottom: 7 },
+  aiSectionIcon: { alignItems: 'center', borderRadius: 9, height: 30, justifyContent: 'center', width: 30 },
+  aiHeading: { color: '#0f172a', flex: 1, fontSize: 14.5, fontWeight: '800', lineHeight: 20 },
+  aiText: { color: '#64748B', fontSize: 13, lineHeight: 20 },
 
   // Long-form bullets (sharing / retention). Unlike bulletRow above these wrap
   // to several lines, so the dot is pinned to the first line rather than

@@ -206,6 +206,9 @@ export function normalizeStaff(doc = {}) {
       || DEFAULT_SHIFT_TIMES[toTitleCase(doc.shift || doc.shift_preference || 'Morning')]?.[1] || '',
     verification: normalizeVerification(doc.verification ?? doc.emailVerified ?? doc.is_verified ?? doc.verified),
     status: normalizeStatus(doc.status || doc.account_status),
+    // Signed in right now — the server sets isOnline on login / socket
+    // connect and clears it on logout / disconnect.
+    isOnline: [doc.isOnline, doc.is_online, doc.online].some((v) => v === true || v === 1 || v === 'true'),
     employmentStatus: doc.employmentStatus || doc.employment_status || 'Full-Time',
     joinDate: String(doc.hire_date || doc.hireDate || doc.join_date || doc.joinDate || doc.createdAt || '').slice(0, 10),
     image: serverPhoto(doc) || cached || avatarFor(name),

@@ -81,17 +81,19 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
         <View style={s.profileCard}>
           <View style={s.avatarWrap}>
             <Image source={{ uri: member.image }} style={s.avatar} />
-            {isActive && <View style={s.onlineDot} />}
           </View>
           <Text translate={false} style={s.name}>{member.name}</Text>
           <Text style={s.meta}>{member.id ? `#${String(member.id).replace(/^#/, '')} · ` : ''}{member.department} {member.role}</Text>
 
-          <View style={s.badgeRow}>
-            <View style={[s.statusBadge, !isActive && s.statusBadgeLeave]}>
-              <View style={[s.statusDot, !isActive && s.statusDotLeave]} />
-              <Text style={[s.statusBadgeText, !isActive && s.statusBadgeTextLeave]}>{member.status}</Text>
+          {/* "Active" only while the staff member is signed in right now. */}
+          {(!isActive || member.isOnline) && (
+            <View style={s.badgeRow}>
+              <View style={[s.statusBadge, !isActive && s.statusBadgeLeave]}>
+                <View style={[s.statusDot, !isActive && s.statusDotLeave]} />
+                <Text style={[s.statusBadgeText, !isActive && s.statusBadgeTextLeave]}>{member.status}</Text>
+              </View>
             </View>
-          </View>
+          )}
 
           <View style={s.contactBlock}>
             <View style={s.contactRow}>
@@ -228,7 +230,6 @@ const s = createDoctorStyles({
   profileCard: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E1E6EE', borderRadius: 14, alignItems: 'center', paddingVertical: 20, paddingHorizontal: 16, shadowColor: '#17243A', shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 },
   avatarWrap: { position: 'relative' },
   avatar: { width: 76, height: 76, borderRadius: 38 },
-  onlineDot: { position: 'absolute', right: 2, bottom: 2, width: 14, height: 14, borderRadius: 7, backgroundColor: '#22C55E', borderWidth: 2, borderColor: '#FFF' },
   name: { fontSize: 19, fontWeight: '700', color: '#17243A', marginTop: 12 },
   meta: { fontSize: 13, color: '#667085', marginTop: 3 },
 

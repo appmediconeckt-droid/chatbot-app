@@ -33,6 +33,8 @@ const TONES = {
   teal: { bg: '#E3F6F2', fg: '#12756D', border: '#B7E4DA' },
   green: { bg: '#E9F6E9', fg: '#3E8E41', border: '#C5E6C6' },
   red: { bg: '#FFF0F0', fg: '#C24848', border: '#F4C9C9' },
+  // Same hue as the "Prescription" record tag.
+  purple: { bg: '#F3EFFD', fg: '#6A4FC4', border: '#DDD3F8' },
 };
 
 const BADGES = {
@@ -308,22 +310,55 @@ export function StatGrid({ children }) {
   );
 }
 
-export function StatTile({ title, value, icon, tone = 'blue', tabletColumns = 4, fluid = false }) {
+// `columns={3}`: a row of exactly three tiles — kept on one line on phones
+// too, so the third tile never sits alone under the other two.
+export function StatTile({ title, value, icon, tone = 'blue', columns, fluid = false }) {
   const t = TONES[tone] || TONES.blue;
   const { width } = useResponsiveLayout();
+  const three = columns === 3;
+  const tileWidth = three ? '32%' : width >= 720 ? '23.5%' : '48.5%';
+  if (three) {
+    // Narrow three-up tile: icon, figure and label stacked and centred.
+    return (
+      <View style={[s.stat, s.statThree, { borderColor: t.border, width: tileWidth }]}>
+        <View style={[s.statThreeAccent, { backgroundColor: t.fg }]} />
+        <View style={[s.statThreeIcon, { backgroundColor: t.bg }]}>
+          <Ionicons name={icon} size={19} color={t.fg} />
+        </View>
+        <Text
+          translate={false}
+          style={[s.statThreeValue, { color: t.fg }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
+          {value ?? 0}
+        </Text>
+        <Text style={s.statThreeTitle} numberOfLines={2}>{title}</Text>
+      </View>
+    );
+  }
   return (
     <View style={[
       s.stat,
       { borderColor: t.border, backgroundColor: t.bg },
-      fluid ? s.statFluid : { width: width >= 720 ? (tabletColumns === 3 ? '32%' : '23.5%') : '48.5%' },
+      fluid ? s.statFluid : { width: tileWidth },
     ]}>
       <View style={s.statTop}>
         <View style={[s.statIcon, { backgroundColor: t.fg }]}>
           <Ionicons name={icon} size={18} color="#FFFFFF" />
         </View>
-        <Text translate={false} style={[s.statValue, { color: t.fg }]}>{value ?? 0}</Text>
+        <Text
+          translate={false}
+          style={[s.statValue, { color: t.fg }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
+          {value ?? 0}
+        </Text>
       </View>
-      <Text style={s.statTitle}>{title}</Text>
+      <Text style={s.statTitle} numberOfLines={2}>{title}</Text>
     </View>
   );
 }
@@ -620,6 +655,16 @@ const s = StyleSheet.create({
   statGrid: { marginBottom: 14, alignItems: 'stretch' },
   stat: { minWidth: 0, minHeight: 94, borderWidth: 1, borderRadius: 14, padding: 12, shadowColor: '#0F172A', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
   statFluid: { width: '100%', flex: 1 },
+  // Three-up tile: white card, a thin coloured bar on top, centred content.
+  statThree: {
+    backgroundColor: '#FFFFFF', alignItems: 'center', overflow: 'hidden',
+    paddingHorizontal: 8, paddingTop: 16, paddingBottom: 12, minHeight: 0,
+    shadowOpacity: 0.06, elevation: 2,
+  },
+  statThreeAccent: { position: 'absolute', top: 0, left: 0, right: 0, height: 3 },
+  statThreeIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  statThreeValue: { fontSize: 22, lineHeight: 26, fontWeight: '800', marginTop: 8, fontVariant: ['tabular-nums'] },
+  statThreeTitle: { fontSize: 11.5, lineHeight: 15, fontWeight: '600', color: '#5B6B7B', marginTop: 2, textAlign: 'center' },
   statTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   statIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   statTitle: { fontSize: 12, lineHeight: 16, fontWeight: '600', color: '#475569', marginTop: 8 },

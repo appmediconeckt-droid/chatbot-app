@@ -14,6 +14,7 @@ import {
   findNodeHandle,
   BackHandler,
   StatusBar,
+  Keyboard,
 } from 'react-native';
 import TextInput from '../../components/TranslatedTextInput';
 import Text from '../../components/TranslatedText';
@@ -100,6 +101,17 @@ const Login = ({ navigation, route }) => {
   const [otpLoading, setOtpLoading] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
+  // The session-conflict card sits right above the keyboard while it is open
+  // (OTP entry) and centred on screen otherwise.
+  const [conflictKeyboardOpen, setConflictKeyboardOpen] = useState(false);
+  useEffect(() => {
+    if (!showConflictModal) return undefined;
+    const subs = [
+      Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setConflictKeyboardOpen(true)),
+      Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setConflictKeyboardOpen(false)),
+    ];
+    return () => { subs.forEach((sub) => sub.remove()); setConflictKeyboardOpen(false); };
+  }, [showConflictModal]);
   // Role the server accepted for this email during handleLogin (e.g. 'billing'
   // for clinic staff), reused by the logout-other-devices / OTP step.
   const confirmedRoleRef = useRef('');
@@ -742,39 +754,25 @@ const Login = ({ navigation, route }) => {
     setFpResendTimer(60);
   };
 
-  // Top-anchored rather than dead-centered (centering left equally large,
-  // unfinished-looking dead zones above the logo and below the card on a
-  // tall phone) but pulled down a bit further than a bare "clear the back
-  // button" offset would, so the card reads as sitting comfortably in the
-  // upper-middle of the screen rather than pinned to the top.
+  // Centred on screen like RoleSelector's card (same side padding and width
+  // cap), so both auth screens put their card in the same place on every
+  // phone. The top and bottom gaps are equal, so the card sits at the true
+  // centre, and big enough to always clear the back / language buttons and
+  // the bottom navigation bar.
   //
   // The card never moves with the keyboard: the form scrolls inside it
   // (like Signup), so the back button's clearance is never touched.
-  const loginCardTop = Math.max(insets.top, 12) + (isCompact ? 88 : 108);
+  const topButtonsBottom = Math.max(insets.top, 12) + 6 + 42 + 10;
+  const loginCardPadV = Math.max(topButtonsBottom, insets.bottom + SCROLL_PAD_V);
   const scrollContainerStyle = {
     ...styles.scrollContainer,
-    justifyContent: 'flex-start',
-    paddingTop: loginCardTop,
-    paddingBottom: SCROLL_PAD_V,
-    paddingHorizontal: isCompact ? 14 : 20,
+    paddingVertical: loginCardPadV,
   };
   // Keeps the whole card on screen on short phones — the form inside then
   // scrolls instead of the card running off the bottom.
-  const loginCardMaxHeight = Math.max(
-    280,
-    windowHeight - loginCardTop - SCROLL_PAD_V - insets.bottom
-  );
-  // No boxed card anymore — everything floats directly on the AuthBackground
-  // mesh, matching the reference design. Wider than before (was 400/440) for
-  // a more confident, professional presence — still capped so it doesn't
-  // stretch absurdly wide on a tablet.
-  const loginCardStyle = [
-    styles.loginCard,
-    {
-      maxWidth: isTablet ? 480 : 430,
-      paddingHorizontal: isCompact ? 2 : 4,
-    },
-  ];
+  const loginCardMaxHeight = Math.max(280, windowHeight - loginCardPadV * 2);
+  // Same width cap as RoleSelector's panel.
+  const loginCardStyle = [styles.loginCard, { maxWidth: isTablet ? 460 : 420 }];
   // Icon-only mark (square), not the full wordmark — matches the layout the
   // per-role signup screens already use for their inline login view.
   const logoStyle = [
@@ -1020,11 +1018,30 @@ const Login = ({ navigation, route }) => {
         <Modal
           visible={showConflictModal}
           transparent={true}
-          animationType="slide"
+          animationType="fade"
+          statusBarTranslucent
+          // Full-screen like the rest of the (edge-to-edge) app. Without it
+          // Android shrank the popup window by the keyboard AND the nav bar,
+          // leaving an undimmed strip between the card and the keyboard.
+          navigationBarTranslucent
           onRequestClose={closeConflictModal}
         >
-          <KeyboardSafeArea style={styles.modalOverlay}>
-            <KeyboardSafeScroll style={{ width: '100%' }} contentContainerStyle={{ alignItems: 'center' }}>
+          {/* KeyboardSafeArea pads the top by the status bar and the bottom by
+              the keyboard. Closed: equal gaps keep the card at the true centre
+              (clear of the nav bar). Open: the card sits just above the keyboard. */}
+          <KeyboardSafeArea
+            style={[
+              styles.modalOverlay,
+              { paddingBottom: conflictKeyboardOpen ? 12 : Math.max(insets.top, insets.bottom) + 8 },
+            ]}
+          >
+            {/* A ScrollView fills the overlay, so the card has to be placed
+                inside its content — centring the overlay alone left it at the
+                top. It scrolls only when the card doesn't fit. */}
+            <KeyboardSafeScroll
+              style={styles.cfScroll}
+              contentContainerStyle={[styles.cfScrollContent, conflictKeyboardOpen && styles.cfScrollContentKeyboard]}
+            >
             <View style={styles.cfCard}>
               <View style={[styles.cfIconWrap, { backgroundColor: C.backgroundTint }]}>
                 <Ionicons
@@ -1433,7 +1450,9 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     flexGrow: 1,
-    paddingHorizontal: 20,
+    justifyContent: 'center',
+    // Same side gutter as RoleSelector.
+    paddingHorizontal: 24,
     // Keeps the card off the keyboard edge once the viewport shrinks, and gives
     // it room to scroll instead of sitting flush against the top/bottom.
     paddingVertical: SCROLL_PAD_V,
@@ -1692,6 +1711,14 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     fontWeight: 'bold',
   },
+  cfScroll: { width: '100%' },
+  cfScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  cfScrollContentKeyboard: { justifyContent: 'flex-end', paddingVertical: 0 },
   cfCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
@@ -1786,6 +1813,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     opacity: 0.01,
     color: 'transparent',
+    // A faint copy of the typed digits still showed over the first box.
+    fontSize: 1,
   },
   cfErrorRow: {
     flexDirection: 'row',

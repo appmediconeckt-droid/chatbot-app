@@ -14,18 +14,6 @@ import Text from '../TranslatedText';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import useLanguageRender from '../../hooks/useLanguageRender';
 
-/**
- * Full-screen image viewer with pinch-to-zoom, drag-to-pan and double-tap zoom.
- *
- * Written against RN's built-in Animated + PanResponder on purpose: this project
- * has react-native-gesture-handler but NOT reanimated, and gesture-handler's
- * pinch alone still needs an animation layer to drive the transform.
- *
- * Props:
- *   visible — bool
- *   uri     — image URL (string, already normalised via toImageUri)
- *   onClose — () => void
- */
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;

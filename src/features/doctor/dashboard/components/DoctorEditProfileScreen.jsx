@@ -35,8 +35,24 @@ const toConsultationMode = (value) => {
   return list.find((m) => m === 'online' || m === 'offline') || '';
 };
 
+// The patient booking sheet reads these fields from /api/auth/counsellors:
+// the consultation fee, plus the extra charged for a video / voice call.
+const FEE_FIELDS = [
+  { key: 'consultationFee', title: 'Consultation Fee', subtitle: 'Charged for every appointment' },
+  { key: 'videoConsultationFee', title: 'Video Call (extra)', subtitle: 'Added on top for video consultation' },
+  { key: 'voiceConsultationFee', title: 'Voice Call (extra)', subtitle: 'Added on top for voice consultation' },
+];
+
+const toFeeText = (...values) => {
+  const fee = values.find((v) => v !== undefined && v !== null && v !== '' && Number.isFinite(Number(v)));
+  return fee != null ? String(Number(fee)) : '';
+};
+
 function toInitial(profile) {
   return {
+    consultationFee: toFeeText(profile?.consultationFee, profile?.consultation_fee, profile?.fee),
+    videoConsultationFee: toFeeText(profile?.videoConsultationFee, profile?.video_consultation_fee),
+    voiceConsultationFee: toFeeText(profile?.voiceConsultationFee, profile?.voice_consultation_fee),
     fullName: profile?.fullName || '',
     email: profile?.email || '',
     phoneNumber: profile?.phoneNumber || profile?.phoneNum || profile?.phone || '',
@@ -87,6 +103,9 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
     if (form.experience && Number.isNaN(Number(form.experience))) {
       return showToast('Experience must be a number');
     }
+    if (form.consultationFee !== '' && !(Number(form.consultationFee) > 0)) {
+      return showToast('Consultation fee must be more than ₹0');
+    }
     try {
       setSaving(true);
       // Web: PATCH /auth/update/<profile _id from /auth/me>.
@@ -119,6 +138,9 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
       if (languagesArr.length) formData.append('languages', JSON.stringify(languagesArr));
       if (form.consultationMode) formData.append('consultationMode', JSON.stringify([form.consultationMode]));
       if (specialization.length) formData.append('specialization', JSON.stringify(specialization));
+      FEE_FIELDS.forEach(({ key }) => {
+        if (form[key] !== '') formData.append(key, String(Number(form[key])));
+      });
       if (photo?.uri) {
         formData.append('profilePhoto', {
           uri: photo.uri,
@@ -134,6 +156,17 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
       });
       const data = await result.json().catch(() => ({}));
       if (!result.ok) throw new Error(data?.message || 'Failed to update profile');
+
+      // The server drops fields it doesn't store and still answers 200, so
+      // check the saved user really carries the fees that were sent.
+      const savedUser = data?.user || data?.data || {};
+      const feesDropped = FEE_FIELDS.some(({ key }) =>
+        form[key] !== '' && Number(savedUser[key]) !== Number(form[key]));
+      if (feesDropped) {
+        showToast('Profile saved, but the server did not save your fees. Fee support is needed on the backend.');
+        onSaved ? onSaved() : onBack?.();
+        return;
+      }
 
       showToast('Profile updated');
       onSaved ? onSaved() : onBack?.();
@@ -237,6 +270,19 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
           </View>
         </Section>
 
+        <Section icon="briefcase" label="Consultation Fees">
+          {FEE_FIELDS.map((item, index) => (
+            <FeeRow
+              key={item.key}
+              title={item.title}
+              subtitle={item.subtitle}
+              value={form[item.key]}
+              onChangeText={(value) => set(item.key)(value.replace(/\D/g, '').slice(0, 6))}
+              last={index === FEE_FIELDS.length - 1}
+            />
+          ))}
+        </Section>
+
         <Section icon="file" label="Professional Summary">
           <TextInput
             value={form.summary}
@@ -288,6 +334,30 @@ function Field({ label, value, onChangeText, half, keyboardType, autoCapitalize 
         autoCapitalize={autoCapitalize}
         onFocus={onFocus}
       />
+    </View>
+  );
+}
+
+function FeeRow({ title, subtitle, value, onChangeText, last }) {
+  const onFocus = useContext(KeyboardFocusContext);
+  return (
+    <View style={[s.feeRow, last && s.feeRowLast]}>
+      <View style={s.feeInfo}>
+        <Text style={s.feeTitle}>{title}</Text>
+        <Text style={s.feeSubtitle}>{subtitle}</Text>
+      </View>
+      <View style={s.feeInputWrap}>
+        <Text style={s.feeCurrency}>₹</Text>
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          style={s.feeInput}
+          placeholder="0"
+          placeholderTextColor="#94A3B8"
+          keyboardType="number-pad"
+          onFocus={onFocus}
+        />
+      </View>
     </View>
   );
 }
@@ -401,6 +471,7 @@ const s = createDoctorStyles({
 
 
   feeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EEF1F5', gap: 10 },
+  feeRowLast: { borderBottomWidth: 0, paddingBottom: 0 },
   feeInfo: { flex: 1 },
   feeTitle: { fontSize: 13.5, fontWeight: '700', color: '#17243A' },
   feeSubtitle: { fontSize: 11.5, color: '#667085', marginTop: 2 },

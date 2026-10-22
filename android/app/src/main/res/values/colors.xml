@@ -5,8 +5,14 @@
     <color name="ic_launcher_background">#FFFFFF</color>
 
     <!-- Splash plate. Fixed light value on purpose: AppTheme is a DayNight
-         theme, so an unset splash background can resolve dark in dark mode. -->
-    <color name="splash_background">#FFFFFF</color>
+         theme, so an unset splash background can resolve dark in dark mode.
+         A soft Humaeli mint: the middle of the splash gradient below, so the
+         Android 12+ system splash (solid only) blends into it. -->
+    <color name="splash_background">#EEF8F5</color>
+    <!-- Splash gradient, top to bottom (splash_screen.xml, MainActivity's
+         overlay and HumaeliLogoSplash use the same three). -->
+    <color name="splash_gradient_top">#E3F4EF</color>
+    <color name="splash_gradient_bottom">#F9FCFB</color>
 
     <!-- Tint for the status-bar notification icon: the Humaeli logo bubble colour. -->
     <color name="notification_color">#309B92</color>

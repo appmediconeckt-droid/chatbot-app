@@ -352,7 +352,7 @@ function BreakInProgressModal({ onEndBreak, endMs, nextPatient }) {
         </View>
         {nextPatient ? (
           <View style={breakInProgressStyles.patientRow}>
-            <View style={[breakInProgressStyles.avatar, breakInProgressStyles.avatarInitials]}><Text translate={false} style={breakInProgressStyles.avatarText}>{nextPatient.name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}</Text></View>
+            <View style={[breakInProgressStyles.avatar, breakInProgressStyles.avatarInitials]}><Text translate={false} style={breakInProgressStyles.avatarText}>{String(nextPatient.name || '').split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}</Text></View>
             <View style={breakInProgressStyles.patientInfo}>
               <Text translate={false} style={breakInProgressStyles.patientName}>{nextPatient.name}</Text>
               <Text translate={false} style={breakInProgressStyles.patientDetails}>{getTokenLabel(nextPatient)} - {nextPatient.issue}</Text>
@@ -1054,6 +1054,10 @@ export default function DoctorDashboard({ navigation }) {
 
   // ---- breaks ---------------------------------------------------------
   const handleStartBreak = async (minutes) => {
+    if (!canTakeBreak) {
+      setBreakModalVisible(false);
+      return;
+    }
     try {
       const serverBreak = await startBreak(minutes);
       // The persisted break now owns the pause interval; close a manual pause.
@@ -1187,7 +1191,12 @@ export default function DoctorDashboard({ navigation }) {
     : activeTab === 'In Progress' ? inProgressAppointments
       : activeTab === 'Next' ? skippedAppointments
         : activeTab === 'Cancelled' ? cancelledQueue : pendingAppointments;
-  const nextPatient = activeAppt || pendingAppointments[0] || skippedAppointments[0] || null;
+  // "Up Next" on the break screen is the next patient to call: the top of
+  // Pending. The patient already being seen and patients moved to Next
+  // (they haven't come) are not "up next".
+  const nextPatient = pendingAppointments.find((appt) => appt.id !== activeAppt?.id) || null;
+  // A break pauses the queue, so there must be a queue to pause.
+  const canTakeBreak = Boolean(activeAppt) || liveAppointments.length > 0;
   const totalToday = liveAppointments.length + completed.length;
   const averageConsultMin = completed.length
     ? Math.max(1, Math.round(completed.reduce((sum, appt) => sum + (appt.durationMs || 0), 0) / completed.length / 60000))
@@ -1521,7 +1530,12 @@ export default function DoctorDashboard({ navigation }) {
                 <Text style={styles.overviewDate}>{todayLabel}</Text>
               </View>
             </View>
-            <Pressable onPress={() => setBreakModalVisible(true)} style={styles.breakButton}>
+            <Pressable
+              onPress={() => (canTakeBreak
+                ? setBreakModalVisible(true)
+                : Alert.alert('No appointments', 'There are no appointments in your queue today, so there is nothing to pause.'))}
+              style={[styles.breakButton, !canTakeBreak && styles.breakButtonDisabled]}
+            >
               <AppIcon name="coffee" size={15} strokeWidth={2} color="#B45309" />
               <Text style={styles.breakText}>Take Break</Text>
             </Pressable>
@@ -1708,6 +1722,7 @@ const styles = createDoctorStyles({
   // Extra bottom room: the raised QR button overlaps the last ~26px.
   content: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 54 },
   breakButton: { height: 38, paddingHorizontal: 14, borderRadius: 19, borderWidth: 1, borderColor: '#FCD9A6', flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: '#FFF7E6' },
+  breakButtonDisabled: { opacity: 0.5 },
   breakText: { ...typography.caption, fontSize: 14, color: '#92400E' },
   sectionHint: { ...typography.body, fontSize: 12, lineHeight: 16, color: colors.muted, marginTop: 3 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },

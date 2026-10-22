@@ -3,7 +3,10 @@
     <!-- Android 12+ system splash screen shown before React Native draws. -->
     <style name="AppTheme.Splash" parent="AppTheme">
         <item name="android:windowSplashScreenBackground">@color/splash_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <!-- The logo blinks (frame animation); the system plays it while the
+             splash is up. -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon_animated</item>
+        <item name="android:windowSplashScreenAnimationDuration">1000</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@color/splash_background</item>
         <item name="android:windowBackground">@drawable/splash_screen</item>
     </style>

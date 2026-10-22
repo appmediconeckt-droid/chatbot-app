@@ -23,6 +23,7 @@ class MainApplication : Application(), ReactApplication {
           add(PdfFileOpenerPackage())
           add(PrescriptionPrintPackage())
           add(ReverseGeocoderPackage())
+          add(SplashOverlayPackage())
         },
     )
   }

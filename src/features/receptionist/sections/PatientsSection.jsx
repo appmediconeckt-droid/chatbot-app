@@ -222,16 +222,15 @@ export default function PatientsSection({ refreshKey }) {
           <View style={s.inline}>
             <Ionicons name="medkit-outline" size={17} color={REC.primary} />
             <Text translate={false} style={s.doctor}>{data.doctor?.name || data.doctor?.fullName}</Text>
-            <Text translate={false} style={s.count}>Updated {displayTime(data.updatedAt)}</Text>
           </View>
         )}
       </Card>
 
       {!!data && (
         <View style={s.stats}>
-          <StatTile title="Patients" value={patients.length} icon="people-outline" tone="teal" tabletColumns={3} />
-          <StatTile title="Completed visits" value={data.summary?.visits} icon="calendar-outline" tone="teal" tabletColumns={3} />
-          <StatTile title="Treatment records" value={data.summary?.prescriptions} icon="document-text-outline" tone="teal" tabletColumns={3} />
+          <StatTile title="Patients" value={patients.length} icon="people-outline" tone="teal" columns={3} />
+          <StatTile title="Completed visits" value={data.summary?.visits} icon="calendar-outline" tone="blue" columns={3} />
+          <StatTile title="Treatment records" value={data.summary?.prescriptions} icon="document-text-outline" tone="purple" columns={3} />
         </View>
       )}
 
@@ -640,7 +639,6 @@ const s = StyleSheet.create({
   inline: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   muted: { fontSize: 12.5, color: REC.muted },
   doctor: { fontSize: 14, fontWeight: '700', color: REC.ink },
-  count: { fontSize: 11, fontWeight: '600', color: '#728798', backgroundColor: '#F1F5F8', borderRadius: 7, paddingHorizontal: 9, paddingVertical: 4, overflow: 'hidden' },
   stats: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10, marginHorizontal: 14, marginBottom: 16 },
   search: { height: 44, borderWidth: 1, borderColor: '#D8E1E8', borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, marginBottom: 12, backgroundColor: '#FAFBFD' },
   searchInput: { flex: 1, fontSize: 14, color: REC.ink, paddingVertical: 0 },

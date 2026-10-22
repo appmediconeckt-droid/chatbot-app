@@ -409,6 +409,8 @@ const CounselorRequestChat = ({
         location: c.location,
         languages: c.languages,
         consultationFee: c.consultationFee ?? c.fee ?? c.consultation_fee,
+        videoConsultationFee: c.videoConsultationFee ?? c.video_consultation_fee,
+        voiceConsultationFee: c.voiceConsultationFee ?? c.voice_consultation_fee,
         qualification: c.qualification,
         // Carried through so the Nearby filter can measure a real distance; the
         // directory payload keeps the coordinates under locationData.current.

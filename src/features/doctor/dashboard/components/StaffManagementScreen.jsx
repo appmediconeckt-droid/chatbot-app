@@ -28,7 +28,7 @@ const TONES = {
   green: { fg: '#16A34A', border: '#BBF0CC' },
 };
 
-// Staff status colours (pill + the dot on the avatar).
+// Staff status pill colours.
 const STATUS_TONES = {
   Active: { fg: '#047857', bg: '#D1FAE5', dot: '#16A34A' },
   'On Leave': { fg: '#B45309', bg: '#FEF3C7', dot: '#F59E0B' },
@@ -37,6 +37,11 @@ const STATUS_TONES = {
 
 // Avatar fallback: a steady colour per name, like the Patients tab.
 const AVATAR_COLORS = ['#0D9488', '#4F46E5', '#D97706', '#0369A1', '#E11D48', '#7C3AED'];
+// "Active" means signed in right now; an active account that is offline shows
+// no status pill. On Leave / Suspended always show.
+const isActiveNow = (member) => member.status === 'Active' && member.isOnline;
+const shownStatus = (member) => (member.status !== 'Active' || member.isOnline ? member.status : null);
+
 const avatarColor = (name = '') => {
   let hash = 0;
   for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) % 997;
@@ -176,7 +181,7 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
     );
   }
 
-  const activeCount = staffList.filter((member) => member.status === 'Active').length;
+  const activeCount = staffList.filter(isActiveNow).length;
   const query = search.trim().toLowerCase();
 
   const visible = staffList.filter((member) => {
@@ -189,7 +194,7 @@ export default function StaffManagementScreen({ onCreateStaffOpenChange, onStaff
       matchesQuery &&
       (roleFilter === 'All' || member.role === roleFilter) &&
       (deptFilter === 'All' || member.department === deptFilter) &&
-      (statusFilter === 'All' || member.status === statusFilter)
+      (statusFilter === 'All' || shownStatus(member) === statusFilter)
     );
   });
 
@@ -344,7 +349,8 @@ function FilterChip({ label, value, onPress }) {
 }
 
 function StaffCard({ member, onPress, onMore }) {
-  const tone = STATUS_TONES[member.status] || STATUS_TONES.Active;
+  const status = shownStatus(member);
+  const tone = STATUS_TONES[status] || STATUS_TONES.Active;
   const initial = String(member.name || '?').trim().charAt(0).toUpperCase();
   const subline = [member.id, member.email].filter(Boolean).join('  ·  ');
   return (
@@ -360,7 +366,6 @@ function StaffCard({ member, onPress, onMore }) {
               <Text translate={false} style={s.avatarText}>{initial}</Text>
             </View>
           )}
-          <View style={[s.avatarDot, { backgroundColor: tone.dot }]} />
         </View>
         <View style={s.identity}>
           <Text translate={false} style={s.name} numberOfLines={1}>{member.name}</Text>
@@ -382,10 +387,12 @@ function StaffCard({ member, onPress, onMore }) {
             <Text style={s.deptPillText} numberOfLines={1}>{member.department}</Text>
           </View>
         )}
-        <View style={[s.statusPill, { backgroundColor: tone.bg }]}>
-          <View style={[s.statusDot, { backgroundColor: tone.dot }]} />
-          <Text style={[s.statusText, { color: tone.fg }]}>{member.status}</Text>
-        </View>
+        {!!status && (
+          <View style={[s.statusPill, { backgroundColor: tone.bg }]}>
+            <View style={[s.statusDot, { backgroundColor: tone.dot }]} />
+            <Text style={[s.statusText, { color: tone.fg }]}>{status}</Text>
+          </View>
+        )}
       </View>
     </Pressable>
   );
@@ -463,7 +470,6 @@ const s = createDoctorStyles({
   avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#EEF2F6' },
   avatarFallback: { alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 20, fontWeight: '800', color: '#FFFFFF' },
-  avatarDot: { position: 'absolute', right: 0, bottom: 0, width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: '#FFFFFF' },
   identity: { flex: 1, minWidth: 0 },
   name: { fontSize: 16, fontWeight: '800', color: '#12213A' },
   subline: { fontSize: 12.5, color: '#7B8493', marginTop: 2 },

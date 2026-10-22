@@ -175,6 +175,12 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
           </View>
         </Section>
 
+        <Section icon="briefcase" label="Consultation Fees">
+          <InfoRow label="Consultation Fee" value={formatFee(profile?.consultationFee ?? profile?.consultation_fee ?? profile?.fee)} />
+          <InfoRow label="Video Call (extra)" value={formatFee(profile?.videoConsultationFee ?? profile?.video_consultation_fee)} />
+          <InfoRow label="Voice Call (extra)" value={formatFee(profile?.voiceConsultationFee ?? profile?.voice_consultation_fee)} last />
+        </Section>
+
         {consultationMode.length > 0 && (
           <Section icon="clock" label="Availability">
             <InfoRow label="Consultation Mode" value={consultationMode.map((m) => m.charAt(0).toUpperCase() + m.slice(1)).join(', ')} last />
@@ -211,6 +217,13 @@ function Section({ icon, label, children }) {
       <View style={s.card}>{children}</View>
     </View>
   );
+}
+
+// "Not set" until the doctor saves a fee in Edit Profile.
+function formatFee(value) {
+  return value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value))
+    ? `₹${Number(value)}`
+    : 'Not set';
 }
 
 function InfoRow({ label, value, last }) {

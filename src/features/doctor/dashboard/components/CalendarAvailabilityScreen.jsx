@@ -23,6 +23,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import LinearGradient from 'react-native-linear-gradient';
 import AppIcon from '../icons/AppIcon';
 import TimePickerSheet from './TimePickerSheet';
+import ClearAvailabilityModal from './ClearAvailabilityModal';
 import { KeyboardSheet, KeyboardSheetOverlay, KeyboardSheetScroll } from '../../../../components/common/KeyboardSheet';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { colors, createDoctorStyles, doctorGradient, gradientDirection } from '../theme';
@@ -302,6 +303,10 @@ export default function CalendarAvailabilityScreen() {
   const [apiStatus, setApiStatus] = useState('idle');
   const [apiError, setApiError] = useState('');
   const [busy, setBusy] = useState(false);
+  // Clear All confirmation popup: open / request running / server error.
+  const [clearAllOpen, setClearAllOpen] = useState(false);
+  const [clearingAll, setClearingAll] = useState(false);
+  const [clearAllError, setClearAllError] = useState('');
   // { context: 'row' | 'newRange', index?, field: 'start' | 'end' }
   const [picker, setPicker] = useState(null);
 
@@ -867,36 +872,36 @@ export default function CalendarAvailabilityScreen() {
   };
 
   const clearAll = () => {
-    Alert.alert('Clear All', 'Clear selected days, weekdays and availability?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Clear',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            setBusy(true);
-            await axiosInstance.delete('/api/availability/clear-all', { data: { doctor_id: doctorId, clinic_id: selectedClinic?.id } });
-          } catch (error) {
-            setBusy(false);
-            return Alert.alert('Calendar', apiMessage(error, 'Failed to clear availability'));
-          }
-          setBusy(false);
-          setSelectedDays([]);
-          setRecurringWeekdays([]);
-          setAvailabilityDateMap((current) => {
-            const next = Object.fromEntries(
-              Object.entries(current).filter(([, v]) => v.blocked).map(([d, v]) => [d, { ...v, ranges: [] }]),
-            );
-            saveLocalAvailability([], next);
-            return next;
-          });
-          setAvailabilityWeekdayMap({});
-          setSlotPreview([]);
-          setEditingTarget(null);
-          setShowAddTimeModal(false);
-        },
-      },
-    ]);
+    setClearAllError('');
+    setClearAllOpen(true);
+  };
+
+  const confirmClearAll = async () => {
+    setClearingAll(true);
+    setClearAllError('');
+    try {
+      await axiosInstance.delete('/api/availability/clear-all', { data: { doctor_id: doctorId, clinic_id: selectedClinic?.id } });
+    } catch (error) {
+      setClearingAll(false);
+      setClearAllError(apiMessage(error, 'Failed to clear availability'));
+      return;
+    }
+    setClearingAll(false);
+    setClearAllOpen(false);
+    setSelectedDays([]);
+    setRecurringWeekdays([]);
+    setAvailabilityDateMap((current) => {
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([, v]) => v.blocked).map(([d, v]) => [d, { ...v, ranges: [] }]),
+      );
+      saveLocalAvailability([], next);
+      return next;
+    });
+    setAvailabilityWeekdayMap({});
+    setSlotPreview([]);
+    setEditingTarget(null);
+    setShowAddTimeModal(false);
+    showToast('Availability cleared');
   };
 
   const saveDraft = () => {
@@ -1419,6 +1424,15 @@ export default function CalendarAvailabilityScreen() {
       </View>
 
       {busy && <View style={s.busyOverlay}><ActivityIndicator size="large" color={colors.blue} /></View>}
+
+      <ClearAvailabilityModal
+        visible={clearAllOpen}
+        clinicName={selectedClinic?.name}
+        clearing={clearingAll}
+        error={clearAllError}
+        onCancel={() => setClearAllOpen(false)}
+        onConfirm={confirmClearAll}
+      />
 
       {/* Edit panel opened from the main screen (Time Ranges card / Recurring
           Rules card). Inside the Add Time Ranges popup and the date editor

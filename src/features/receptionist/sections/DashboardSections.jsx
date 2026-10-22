@@ -334,7 +334,7 @@ export function ProfileSection({ profile, onProfileUpdated }) {
           )}
         </Pressable>
         <Text translate={false} style={s.profileName}>{profile.fullName}</Text>
-        <Text style={s.profileRole}>Receptionist · Front desk team</Text>
+        <Text style={s.profileRole}>Receptionist</Text>
         <View style={s.profileChips}>
           <View style={s.activeChip}>
             <View style={s.activeDot} />
