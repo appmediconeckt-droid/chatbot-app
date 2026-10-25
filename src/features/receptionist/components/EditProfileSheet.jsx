@@ -25,6 +25,9 @@ export default function EditProfileSheet({ visible, profile, onClose, onSaved })
   const [error, setError] = useState('');
   const [keyboard, setKeyboard] = useState(0);
 
+  // Fill the form only when the sheet opens. The portal's 10s dashboard poll
+  // hands down a new `profile` object each time; re-filling on that wiped the
+  // photo just picked (and any typed name / phone) back to the saved ones.
   useEffect(() => {
     if (!visible) return;
     setFullName(profile?.fullName || '');
@@ -33,7 +36,8 @@ export default function EditProfileSheet({ visible, profile, onClose, onSaved })
     setPhoneCountryCode(savedPhone.countryCode);
     setPhoto(null);
     setError('');
-  }, [visible, profile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   // Edge-to-edge Android ignores adjustResize: lift the sheet by the keyboard.
   useEffect(() => {
