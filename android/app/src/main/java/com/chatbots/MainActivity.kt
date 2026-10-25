@@ -188,10 +188,22 @@ class MainActivity : ReactActivity() {
     // Full width with a centred line: a wrap-content column once took a narrow
     // child's width and cut the name down to "H".
     val fullWidth = { LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) }
+    // The brand line under the name, so the first screen says what the app is
+    // for. Same size, colour and gap as HumaeliLogoSplash's tagline.
+    val tagline = TextView(this).apply {
+      text = "Talk. Connect. Feel Supported."
+      setTextColor(Color.parseColor("#4B6B66"))
+      setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13f)
+      letterSpacing = 0.3f / 13f
+      gravity = Gravity.CENTER_HORIZONTAL
+      maxLines = 1
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lineHeight = dp(18f)
+    }
     val texts = LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
       gravity = Gravity.CENTER_HORIZONTAL
       addView(brand, fullWidth())
+      addView(tagline, fullWidth().apply { topMargin = dp(4f) })
     }
     // The soft halo pulsing behind the logo — same as HumaeliLogoSplash's:
     // a 210dp teal disc growing 0.95 → 1.45 while it fades in to 14% and out,
@@ -217,6 +229,38 @@ class MainActivity : ReactActivity() {
         halo.alpha = if (t < 0.2f) 0.14f * (t / 0.2f) else 0.14f * (1f - t) / 0.8f
       }
     }
+    // "Brain signal": teal sparks firing one after another across the brain on
+    // top of the logo, left to right, while the app loads or reloads — same
+    // offsets (dp from the logo centre) and timing as HumaeliLogoSplash.
+    val sparkSize = dp(10f)
+    val sparks = BRAIN_SPARKS_DP.map {
+      View(this).apply {
+        background = GradientDrawable().apply {
+          shape = GradientDrawable.OVAL
+          setColor(Color.parseColor("#14B8A6"))
+          setStroke(dp(2f), Color.parseColor("#F2CCFBF1"))
+        }
+        alpha = 0f
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+      }
+    }
+    val sparkWave = ValueAnimator.ofFloat(0f, SPARK_CYCLE_MS.toFloat()).apply {
+      duration = SPARK_CYCLE_MS
+      repeatCount = ValueAnimator.INFINITE
+      repeatMode = ValueAnimator.RESTART
+      interpolator = android.view.animation.LinearInterpolator()
+      addUpdateListener {
+        val now = it.animatedValue as Float
+        sparks.forEachIndexed { i, spark ->
+          val phase = (now - i * SPARK_STAGGER_MS) / SPARK_FIRE_MS
+          val lit = if (phase <= 0f || phase >= 1f) 0f else (if (phase < 0.5f) phase * 2f else (1f - phase) * 2f)
+          spark.alpha = lit
+          val scale = 0.5f + 0.65f * lit
+          spark.scaleX = scale
+          spark.scaleY = scale
+        }
+      }
+    }
     val overlay = FrameLayout(this).apply {
       background = GradientDrawable(
         GradientDrawable.Orientation.TOP_BOTTOM,
@@ -229,6 +273,7 @@ class MainActivity : ReactActivity() {
       isClickable = true
       addView(halo, FrameLayout.LayoutParams(dp(210f), dp(210f), Gravity.CENTER))
       addView(logo, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
+      sparks.forEach { addView(it, FrameLayout.LayoutParams(sparkSize, sparkSize, Gravity.CENTER)) }
       addView(texts, FrameLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
         Gravity.TOP or Gravity.CENTER_HORIZONTAL,
@@ -243,6 +288,10 @@ class MainActivity : ReactActivity() {
     val place = {
       logo.translationY = -lift
       halo.translationY = -lift
+      sparks.forEachIndexed { i, spark ->
+        spark.translationX = BRAIN_SPARKS_DP[i].first * density
+        spark.translationY = BRAIN_SPARKS_DP[i].second * density - lift
+      }
       // Top of the text block: the screen centre plus the same offset as JS.
       texts.translationY = overlay.height / 2f + SPLASH_TEXT_OFFSET_DP * density - lift
     }
@@ -250,7 +299,8 @@ class MainActivity : ReactActivity() {
     decor.addView(overlay, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     (logo.drawable as? AnimationDrawable)?.start()
     haloPulse.start()
-    splashAnimators = listOf(haloPulse)
+    sparkWave.start()
+    splashAnimators = listOf(haloPulse, sparkWave)
     if (glideUp) {
       ValueAnimator.ofFloat(0f, fullLift).apply {
         duration = 350
@@ -292,6 +342,11 @@ class MainActivity : ReactActivity() {
     // HumaeliLogoSplash's GROUP_LIFT: the logo + text group's middle sits this
     // far below the screen centre, so the group is lifted by it.
     private const val SPLASH_GROUP_LIFT_DP = 24f
+    // HumaeliLogoSplash's SPARKS (dp from the logo centre) and spark timing.
+    private val BRAIN_SPARKS_DP = listOf(-50f to -28f, -32f to -56f, 0f to -46f, 32f to -56f, 50f to -28f)
+    private const val SPARK_STAGGER_MS = 180f
+    private const val SPARK_FIRE_MS = 680f
+    private const val SPARK_CYCLE_MS = 2000L
     private var current: WeakReference<MainActivity>? = null
 
     fun hideSplashOverlay() {

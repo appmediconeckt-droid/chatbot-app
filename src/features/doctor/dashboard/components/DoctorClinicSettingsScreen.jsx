@@ -291,7 +291,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
           <Field label="Clinic Name" value={clinicName} onChangeText={setClinicName} placeholder="Enter clinic name" />
           <View style={s.field}>
             <Text style={s.fieldLabel}>Phone Number</Text>
-            <CountryPhoneInput value={phone} countryCode={phoneCountryCode} onChangePhoneNumber={setPhone} onChangeCountryCode={setPhoneCountryCode} onFocus={kbFocus} accentColor="#0D9488" />
+            <CountryPhoneInput mobile={false} value={phone} countryCode={phoneCountryCode} onChangePhoneNumber={setPhone} onChangeCountryCode={setPhoneCountryCode} onFocus={kbFocus} accentColor="#0D9488" />
           </View>
           <Field label="Address" value={address} onChangeText={setAddress} placeholder="Enter clinic address" icon="pin" multiline />
 

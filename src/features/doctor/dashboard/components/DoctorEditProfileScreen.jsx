@@ -13,7 +13,7 @@ import { API_BASE_URL, TUNNEL_HEADERS } from '../../../../axiosConfig';
 import { launchImageLibrary } from 'react-native-image-picker';
 import LocationPicker from './LocationPicker';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
-import { getPhoneLengthLabel, isValidLocalPhoneNumber, normalizeLocalPhoneNumber, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
+import { getPhoneLengthLabel, isValidMobileNumber, normalizeLocalPhoneNumber, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 import {
   COUNTRY_OPTIONS,
@@ -120,7 +120,7 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
     if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) {
       return showToast('Enter a valid email address');
     }
-    if (!isValidLocalPhoneNumber(form.phoneNumber, form.phoneCountryCode)) {
+    if (!isValidMobileNumber(form.phoneNumber, form.phoneCountryCode)) {
       return showToast(`Enter a valid ${getPhoneLengthLabel(form.phoneCountryCode)} digit phone number for ${form.phoneCountryCode}`);
     }
     if (form.age.trim() && Number.isNaN(Number(form.age))) {

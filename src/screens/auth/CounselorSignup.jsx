@@ -31,7 +31,7 @@ import socketService from '../../services/socketService';
 import CountryPhoneInput from '../../components/common/CountryPhoneInput';
 import {
   getPhoneLengthLabel,
-  isValidLocalPhoneNumber,
+  isValidMobileNumber,
   normalizeLocalPhoneNumber,
 } from '../../utils/countryCodes';
 import {
@@ -262,7 +262,7 @@ const CounselorSignup = ({ navigation, route }) => {
     else if (!emailVerified) newErrors.email = "Please verify your email first";
 
     if (!formData.phoneNumber) newErrors.phoneNumber = "Phone is required";
-    else if (!isValidLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode)) {
+    else if (!isValidMobileNumber(formData.phoneNumber, formData.phoneCountryCode)) {
       newErrors.phoneNumber = `Phone number must be ${getPhoneLengthLabel(formData.phoneCountryCode)} digits`;
     }
 
@@ -685,8 +685,8 @@ const CounselorSignup = ({ navigation, route }) => {
             scrollFocusedInputIntoView(event);
           }}
           onBlur={() => setFocusedField(null)}
+          error={errors[name]}
         />
-        {errors[name] && <Text style={styles.errorText}>{errors[name]}</Text>}
       </Animated.View>
     );
   };

@@ -19,7 +19,7 @@ import CountryPhoneInput from '../../components/common/CountryPhoneInput';
 import PasswordRequirementChecklist from '../../components/common/PasswordRequirementChecklist';
 import {
   getPhoneLengthLabel,
-  isValidLocalPhoneNumber,
+  isValidMobileNumber,
   normalizeLocalPhoneNumber,
 } from '../../utils/countryCodes';
 import {
@@ -236,7 +236,7 @@ const DoctorSignup = ({ navigation, route }) => {
     else if (!emailVerified) next.email = 'Please verify your email first';
 
     if (!formData.phoneNumber) next.phoneNumber = 'Phone is required';
-    else if (!isValidLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode)) {
+    else if (!isValidMobileNumber(formData.phoneNumber, formData.phoneCountryCode)) {
       next.phoneNumber = `Phone number must be ${getPhoneLengthLabel(formData.phoneCountryCode)} digits`;
     }
 
@@ -556,8 +556,8 @@ const DoctorSignup = ({ navigation, route }) => {
         inputStyle={styles.phoneTextInput}
         onFocus={(event) => { setFocusedField('phoneNumber'); scrollFocusedInputIntoView(event); }}
         onBlur={() => setFocusedField(null)}
+        error={errors.phoneNumber}
       />
-      {errors.phoneNumber && <Text style={styles.errorText}>{errors.phoneNumber}</Text>}
     </Animated.View>
   );
 

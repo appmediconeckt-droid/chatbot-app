@@ -26,7 +26,7 @@ const dateToTime = (date) => `${String(date.getHours()).padStart(2, '0')}:${Stri
 import { pickStaffPhoto } from './pickStaffPhoto';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
-import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
+import { buildInternationalPhoneNumber, isValidMobileNumber, phoneNumberError, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
 
 const DEPARTMENTS = ['Nursing', 'Clinical', 'Emergency', 'Pathology', 'Finance', 'Operations', 'Admin', 'General Medicine'];
 const ROLE_TYPES = ['Nurse', 'Medical Assistant', 'Lab Technician', 'Billing', 'Receptionist', 'Housekeeping', 'Supervisor'];
@@ -95,9 +95,9 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
 
   const emailValid = isValidEmail(form.email);
   // Phone is optional here — staff added from the web may have none on file.
-  const phoneValid = !form.phone.trim() || isValidLocalPhoneNumber(form.phone, form.phoneCountryCode);
+  const phoneValid = !form.phone.trim() || isValidMobileNumber(form.phone, form.phoneCountryCode);
   const emailError = form.email.trim().length > 0 && !emailValid ? 'Enter a valid email address.' : '';
-  const phoneError = form.phone.trim().length > 0 && !phoneValid ? `Enter a valid ${getPhoneLengthLabel(form.phoneCountryCode)} digit phone number for ${form.phoneCountryCode}.` : '';
+  const phoneError = phoneNumberError(form.phone, form.phoneCountryCode);
 
   // Validation errors are in Personal Information, at the top.
   const scrollToTop = () => scrollRef.current?.scrollTo({ y: 0, animated: true });
@@ -200,8 +200,8 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
           <IconField label="Email Address" icon="message" value={form.email} onChangeText={(value) => setField('email', value)} placeholder="Email address" keyboardType="email-address" autoCapitalize="none" error={emailError} />
           <View style={s.field}>
             <Text style={s.fieldLabel}>Phone Number</Text>
-            <CountryPhoneInput value={form.phone} countryCode={form.phoneCountryCode} onChangePhoneNumber={(value) => setField('phone', value)} onChangeCountryCode={(value) => setField('phoneCountryCode', value)} onFocus={kbFocus} accentColor="#0D9488" />
-            {!!phoneError && <Text style={s.fieldErrorText}>{phoneError}</Text>}
+            <CountryPhoneInput value={form.phone} countryCode={form.phoneCountryCode} onChangePhoneNumber={(value) => setField('phone', value)} onChangeCountryCode={(value) => setField('phoneCountryCode', value)} onFocus={kbFocus} accentColor="#0D9488" error={phoneError} />
+
           </View>
         </View>
 

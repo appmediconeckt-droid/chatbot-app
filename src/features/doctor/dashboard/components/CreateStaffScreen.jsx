@@ -23,7 +23,7 @@ import { DEFAULT_SHIFT_TIMES, createStaff, fetchClinics, formatClock12, generate
 import { pickStaffPhoto } from './pickStaffPhoto';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
-import { buildInternationalPhoneNumber, formatPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber } from '../../../../utils/countryCodes';
+import { buildInternationalPhoneNumber, formatPhoneNumber, isValidMobileNumber, phoneNumberError } from '../../../../utils/countryCodes';
 
 // Role `key`s are the backend role ids the web sends (docStaffRoleCards).
 const ROLES = [
@@ -163,9 +163,9 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
   const selectedRoleInfo = ROLES.find((item) => item.key === selectedRole);
 
   const emailValid = isValidEmail(form.email);
-  const phoneValid = isValidLocalPhoneNumber(form.phone, form.phoneCountryCode);
+  const phoneValid = isValidMobileNumber(form.phone, form.phoneCountryCode);
   const emailError = form.email.trim().length > 0 && !emailValid ? 'Enter a valid email address.' : '';
-  const phoneError = form.phone.trim().length > 0 && !phoneValid ? `Enter a valid ${getPhoneLengthLabel(form.phoneCountryCode)} digit phone number for ${form.phoneCountryCode}.` : '';
+  const phoneError = phoneNumberError(form.phone, form.phoneCountryCode);
 
   const canContinueStep1 = Boolean(selectedRole);
   const canContinueStep2 = Boolean(form.clinicId && form.firstName.trim() && form.lastName.trim() && emailValid && phoneValid
@@ -460,8 +460,8 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
           <FormField label="Email Address" value={form.email} onChangeText={(value) => setField('email', value)} placeholder="jane.doe@example.com" keyboardType="email-address" autoCapitalize="none" error={emailError} />
           <View style={s.field}>
             <Text style={s.fieldLabel}>Phone Number</Text>
-            <CountryPhoneInput value={form.phone} countryCode={form.phoneCountryCode} onChangePhoneNumber={(value) => setField('phone', value)} onChangeCountryCode={(value) => setField('phoneCountryCode', value)} onFocus={kbFocus} accentColor="#0D9488" />
-            {!!phoneError && <Text style={s.fieldErrorText}>{phoneError}</Text>}
+            <CountryPhoneInput value={form.phone} countryCode={form.phoneCountryCode} onChangePhoneNumber={(value) => setField('phone', value)} onChangeCountryCode={(value) => setField('phoneCountryCode', value)} onFocus={kbFocus} accentColor="#0D9488" error={phoneError} />
+
           </View>
 
           <SectionHeader title="Professional Details" />

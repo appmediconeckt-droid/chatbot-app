@@ -331,6 +331,25 @@ export const isValidLocalPhoneNumber = (value, countryCode = DEFAULT_COUNTRY_COD
     && getPhoneLengthsForCountryCode(code).includes(digits.length);
 };
 
+// A person's mobile number: a valid number, and for India (+91) one that
+// starts with 6, 7, 8 or 9 like every Indian mobile. Clinic / landline
+// numbers use isValidLocalPhoneNumber instead.
+export const isValidMobileNumber = (value, countryCode = DEFAULT_COUNTRY_CODE) => {
+  if (!isValidLocalPhoneNumber(value, countryCode)) return false;
+  const digits = String(value || '').replace(/\D/g, '');
+  return normalizeCountryCode(countryCode) !== '+91' || /^[6-9]/.test(digits);
+};
+
+// The message to show for a phone field, or '' when it is fine or empty.
+export const phoneNumberError = (value, countryCode = DEFAULT_COUNTRY_CODE, { mobile = true } = {}) => {
+  const code = normalizeCountryCode(countryCode);
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (!isValidLocalPhoneNumber(value, code)) return `Enter a valid ${getPhoneLengthLabel(code)}-digit ${mobile ? 'mobile' : 'phone'} number.`;
+  if (mobile && !isValidMobileNumber(value, code)) return 'Indian mobile numbers start with 6, 7, 8 or 9.';
+  return '';
+};
+
 export const normalizeCountryCode = (value) => {
   if (!value) return DEFAULT_COUNTRY_CODE;
   const digits = codeDigits(value);

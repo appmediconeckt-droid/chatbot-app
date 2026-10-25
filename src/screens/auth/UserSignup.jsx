@@ -620,7 +620,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CountryPhoneInput from '../../components/common/CountryPhoneInput';
 import {
   getPhoneLengthLabel,
-  isValidLocalPhoneNumber,
+  isValidMobileNumber,
   normalizeLocalPhoneNumber,
 } from '../../utils/countryCodes';
 import {
@@ -855,7 +855,7 @@ const UserSignup = ({ navigation, route }) => {
     else if (!emailVerified) newErrors.email = "Please verify your email first";
 
     if (!formData.phoneNumber) newErrors.phoneNumber = "Phone number is required";
-    else if (!isValidLocalPhoneNumber(formData.phoneNumber, formData.phoneCountryCode)) {
+    else if (!isValidMobileNumber(formData.phoneNumber, formData.phoneCountryCode)) {
       newErrors.phoneNumber = `Phone number must be ${getPhoneLengthLabel(formData.phoneCountryCode)} digits`;
     }
 
@@ -1313,8 +1313,8 @@ const UserSignup = ({ navigation, route }) => {
             scrollFocusedInputIntoView(event);
           }}
           onBlur={() => setFocusedField(null)}
+          error={errors[name]}
         />
-        {errors[name] && <Text style={styles.errorText}>{errors[name]}</Text>}
       </Animated.View>
     );
   };

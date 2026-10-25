@@ -142,7 +142,7 @@ export default function EditClinicScreen({ clinic, onBack, onSaved }) {
           <Field label="Clinic Name" value={name} onChangeText={setName} placeholder="Enter clinic name" />
           <View style={s.field}>
             <Text style={s.fieldLabel}>Phone Number</Text>
-            <CountryPhoneInput value={phone} countryCode={phoneCountryCode} onChangePhoneNumber={setPhone} onChangeCountryCode={setPhoneCountryCode} onFocus={kbFocus} accentColor="#0D9488" />
+            <CountryPhoneInput mobile={false} value={phone} countryCode={phoneCountryCode} onChangePhoneNumber={setPhone} onChangeCountryCode={setPhoneCountryCode} onFocus={kbFocus} accentColor="#0D9488" />
           </View>
           <LocationPicker value={location} onChange={setLocation} label="Clinic Address" />
           {!!error && <Text translate={false} style={s.error}>{error}</Text>}

@@ -12,13 +12,26 @@ import Text from '../TranslatedText';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {
   COUNTRY_CODES,
+  getPhoneMaxLengthForCountryCode,
   normalizeCountryCode,
   normalizeLocalPhoneNumber,
+  phoneNumberError,
   splitInternationalPhoneNumber,
 } from '../../utils/countryCodes';
 import { KeyboardSheetOverlay } from './KeyboardSheet';
 
+const digitCount = (value) => String(value || '').replace(/\D/g, '').length;
+
+// Every phone field in the app. It enforces the selected country's length
+// (India: 10 digits — more can't be typed or pasted) and shows a red message
+// under the field once a number is invalid: `error` from the screen wins;
+// otherwise its own check runs after the field is left (`showError={false}`
+// turns that off). `mobile` (default) also requires an Indian number to start
+// with 6–9; clinic phones pass mobile={false} so landlines are accepted.
 const CountryPhoneInput = ({
+  error,
+  showError = true,
+  mobile = true,
   value,
   countryCode,
   onChangePhoneNumber,
@@ -37,7 +50,18 @@ const CountryPhoneInput = ({
 }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [query, setQuery] = useState('');
+  const [touched, setTouched] = useState(false);
   const selectedCode = normalizeCountryCode(countryCode);
+  const ownError = phoneNumberError(value, selectedCode, { mobile });
+  const shownError = error || (showError && touched ? ownError : '');
+
+  // Digits beyond the country's longest number are refused, not cut off, so a
+  // pasted number is never saved as a different one.
+  const accept = (code, phoneNumber, newCode) => {
+    if (digitCount(phoneNumber) > getPhoneMaxLengthForCountryCode(code)) return;
+    if (newCode) onChangeCountryCode?.(newCode);
+    onChangePhoneNumber?.(phoneNumber);
+  };
 
   const filteredCountries = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -67,7 +91,7 @@ const CountryPhoneInput = ({
 
   return (
     <>
-      <View style={[styles.inputWrapper, focused && { borderColor: accentColor, backgroundColor: '#ffffff' }, containerStyle]}>
+      <View style={[styles.inputWrapper, focused && { borderColor: accentColor, backgroundColor: '#ffffff' }, containerStyle, !!shownError && styles.inputWrapperError]}>
         {showIcon ? (
           <Icon
             name="phone-outline"
@@ -96,14 +120,16 @@ const CountryPhoneInput = ({
           onChangeText={(text) => {
             if (/^\s*(\+|00)/.test(text)) {
               const phone = splitInternationalPhoneNumber(text, selectedCode);
-              onChangeCountryCode?.(phone.countryCode);
-              onChangePhoneNumber?.(phone.phoneNumber);
+              accept(phone.countryCode, phone.phoneNumber, phone.countryCode);
             } else {
-              onChangePhoneNumber?.(normalizeLocalPhoneNumber(text, selectedCode));
+              accept(selectedCode, normalizeLocalPhoneNumber(text, selectedCode));
             }
           }}
           onFocus={onFocus}
-          onBlur={onBlur}
+          onBlur={(event) => {
+            setTouched(true);
+            onBlur?.(event);
+          }}
           placeholder={placeholder}
           placeholderTextColor={placeholderTextColor}
           keyboardType="phone-pad"
@@ -111,6 +137,9 @@ const CountryPhoneInput = ({
           accessibilityLabel={placeholder}
         />
       </View>
+      {!!shownError && (
+        <Text translate={false} style={styles.errorText} accessibilityLiveRegion="polite">{shownError}</Text>
+      )}
 
       <Modal
         visible={modalVisible}
@@ -192,6 +221,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#f1f5f9',
   },
+  inputWrapperError: { borderColor: '#EF4444' },
+  errorText: { marginTop: 6, fontSize: 12, lineHeight: 16, fontWeight: '600', color: '#DC2626' },
   inputIcon: { marginRight: 8 },
   codeButton: {
     minWidth: 72,

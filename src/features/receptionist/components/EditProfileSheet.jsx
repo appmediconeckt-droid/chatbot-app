@@ -11,7 +11,7 @@ import { AlertBox, Avatar, REC, RecButton } from '../receptionistUi';
 import { updateMyProfile } from '../receptionistApi';
 import { profilePhotoOf } from '../receptionistUtils';
 import CountryPhoneInput from '../../../components/common/CountryPhoneInput';
-import { getPhoneLengthLabel, isValidLocalPhoneNumber, splitInternationalPhoneNumber } from '../../../utils/countryCodes';
+import { getPhoneLengthLabel, isValidMobileNumber, splitInternationalPhoneNumber } from '../../../utils/countryCodes';
 
 const phoneOf = (profile = {}) => String(profile.phoneNumber || profile.phone || '');
 
@@ -58,7 +58,7 @@ export default function EditProfileSheet({ visible, profile, onClose, onSaved })
 
   const save = async () => {
     if (fullName.trim().length < 2) { setError('Please enter your full name.'); return; }
-    if (phone && !isValidLocalPhoneNumber(phone, phoneCountryCode)) { setError(`Enter a valid ${getPhoneLengthLabel(phoneCountryCode)} digit phone number for ${phoneCountryCode}.`); return; }
+    if (phone && !isValidMobileNumber(phone, phoneCountryCode)) { setError(`Enter a valid ${getPhoneLengthLabel(phoneCountryCode)} digit phone number for ${phoneCountryCode}.`); return; }
     setSaving(true);
     setError('');
     try {

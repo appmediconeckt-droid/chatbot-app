@@ -1,19 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The splash logo blinking: open, half-closed, closed, half-closed, then a
-     pause, with an occasional double blink. Frames are splash_icon.png with
-     eyelids drawn over the eyes (same lids as the JS BlinkingLogo). Used as
-     the Android 12+ system splash icon and by MainActivity's start-up overlay. -->
+<!-- The splash logo blinking like a person does: eyes open a good while first
+     (no blink the moment the app opens), then one soft blink — closing quickly,
+     a short hold, opening a little slower — and a long pause before the next.
+     No double blinks here: the splash is only up a few seconds, and repeated
+     blinks in that time read as twitching. Frames are splash_icon.png with
+     eyelids drawn over the eyes (same lids as the JS BlinkingLogo). Used as the
+     Android 12+ system splash icon and by MainActivity's start-up overlay. -->
 <animation-list xmlns:android="http://schemas.android.com/apk/res/android" android:oneshot="false">
-    <item android:drawable="@drawable/splash_icon" android:duration="450" />
-    <item android:drawable="@drawable/splash_icon_blink_half" android:duration="45" />
-    <item android:drawable="@drawable/splash_icon_blink_closed" android:duration="70" />
-    <item android:drawable="@drawable/splash_icon_blink_half" android:duration="45" />
-    <item android:drawable="@drawable/splash_icon" android:duration="2600" />
-    <item android:drawable="@drawable/splash_icon_blink_half" android:duration="40" />
-    <item android:drawable="@drawable/splash_icon_blink_closed" android:duration="55" />
-    <item android:drawable="@drawable/splash_icon_blink_half" android:duration="40" />
-    <item android:drawable="@drawable/splash_icon" android:duration="140" />
-    <item android:drawable="@drawable/splash_icon_blink_half" android:duration="40" />
-    <item android:drawable="@drawable/splash_icon_blink_closed" android:duration="55" />
-    <item android:drawable="@drawable/splash_icon_blink_half" android:duration="40" />
+    <item android:drawable="@drawable/splash_icon" android:duration="1800" />
+    <item android:drawable="@drawable/splash_icon_blink_half" android:duration="60" />
+    <item android:drawable="@drawable/splash_icon_blink_closed" android:duration="90" />
+    <item android:drawable="@drawable/splash_icon_blink_half" android:duration="75" />
+    <item android:drawable="@drawable/splash_icon" android:duration="4200" />
 </animation-list>

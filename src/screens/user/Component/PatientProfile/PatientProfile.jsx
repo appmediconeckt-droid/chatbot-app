@@ -43,7 +43,7 @@ import {
   getPhoneLengthLabel,
   buildInternationalPhoneNumber,
   formatPhoneNumber,
-  isValidLocalPhoneNumber,
+  isValidMobileNumber,
   normalizeLocalPhoneNumber,
   splitInternationalPhoneNumber,
 } from '../../../../utils/countryCodes';
@@ -680,7 +680,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       };
     }
 
-    if (!isValidLocalPhoneNumber(normalizedPhone, editFormData.phoneCountryCode)) {
+    if (!isValidMobileNumber(normalizedPhone, editFormData.phoneCountryCode)) {
       return {
         valid: false,
         title: "Invalid phone number",
@@ -712,7 +712,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
       };
     }
 
-    if (!isValidLocalPhoneNumber(emergencyPhone, emergency.phoneCountryCode)) {
+    if (!isValidMobileNumber(emergencyPhone, emergency.phoneCountryCode)) {
       return {
         valid: false,
         title: "Invalid emergency phone",

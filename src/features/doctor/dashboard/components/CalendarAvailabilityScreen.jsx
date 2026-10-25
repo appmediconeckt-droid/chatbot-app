@@ -1480,7 +1480,7 @@ export default function CalendarAvailabilityScreen() {
             {showNewClinicForm ? (
               <View style={s.newClinicForm}>
                 <TextInput style={s.input} placeholder="Clinic name" placeholderTextColor="#94A3B8" value={newClinic.name} onChangeText={(v) => setNewClinic((p) => ({ ...p, name: v }))} />
-                <CountryPhoneInput placeholder="Phone (optional)" value={newClinic.phone} countryCode={newClinic.phoneCountryCode} onChangePhoneNumber={(phone) => setNewClinic((p) => ({ ...p, phone }))} onChangeCountryCode={(phoneCountryCode) => setNewClinic((p) => ({ ...p, phoneCountryCode }))} accentColor="#0D9488" />
+                <CountryPhoneInput mobile={false} placeholder="Phone (optional)" value={newClinic.phone} countryCode={newClinic.phoneCountryCode} onChangePhoneNumber={(phone) => setNewClinic((p) => ({ ...p, phone }))} onChangeCountryCode={(phoneCountryCode) => setNewClinic((p) => ({ ...p, phoneCountryCode }))} accentColor="#0D9488" />
                 <TextInput style={s.input} placeholder="Address / location" placeholderTextColor="#94A3B8" value={newClinic.location} onChangeText={(v) => setNewClinic((p) => ({ ...p, location: v }))} />
                 {newClinicPhoto ? (
                   <View style={s.clinicPhotoRow}>

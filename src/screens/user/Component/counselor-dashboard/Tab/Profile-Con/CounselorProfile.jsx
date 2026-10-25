@@ -39,7 +39,7 @@ import { DOCTOR } from '../../../../../../theme/palette';
 import toImageUri from '../../../../../../utils/imageUri';
 import {
   getPhoneLengthLabel,
-  isValidLocalPhoneNumber,
+  isValidMobileNumber,
   formatPhoneNumber,
   normalizeLocalPhoneNumber,
   splitInternationalPhoneNumber,
@@ -417,7 +417,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       { label: 'Profile photo', done: hasText(data?.profilePhotoUrl) || !!data?.profilePhoto },
       { label: 'Full name', done: hasText(data?.fullName) },
       { label: 'Email address', done: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(data?.email || '').trim()) },
-      { label: 'Phone number', done: isValidLocalPhoneNumber(data?.phoneNumber, data?.phoneCountryCode) },
+      { label: 'Phone number', done: isValidMobileNumber(data?.phoneNumber, data?.phoneCountryCode) },
       { label: 'Date of birth', done: hasText(data?.dateOfBirth) && calculateAgeFromDateOfBirth(data?.dateOfBirth) !== null },
       { label: 'Gender', done: hasText(data?.gender) },
       { label: 'Specialization', done: hasArrayItems(data?.specialization) },
@@ -1185,7 +1185,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
       editedData.phoneNumber || '',
       editedData.phoneCountryCode,
     );
-    if (!isValidLocalPhoneNumber(normalizedPhone, editedData.phoneCountryCode)) {
+    if (!isValidMobileNumber(normalizedPhone, editedData.phoneCountryCode)) {
       const expectedLength = getPhoneLengthLabel(editedData.phoneCountryCode);
       showErrorPopup(`Phone number must be ${expectedLength} digits`, 'Invalid Phone Number');
       return;

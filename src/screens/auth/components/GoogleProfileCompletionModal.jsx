@@ -19,7 +19,7 @@ import CountryPhoneInput from '../../../components/common/CountryPhoneInput';
 import axiosInstance from '../../../axiosConfig';
 import {
   getPhoneLengthLabel,
-  isValidLocalPhoneNumber,
+  isValidMobileNumber,
   normalizeLocalPhoneNumber,
   splitInternationalPhoneNumber,
 } from '../../../utils/countryCodes';
@@ -197,7 +197,7 @@ const GoogleProfileCompletionModal = ({
       return;
     }
 
-    if (!isValidLocalPhoneNumber(normalizedPhone, phoneCountryCode)) {
+    if (!isValidMobileNumber(normalizedPhone, phoneCountryCode)) {
       setError(
         `Please enter a valid ${getPhoneLengthLabel(phoneCountryCode)} digit phone number.`,
       );

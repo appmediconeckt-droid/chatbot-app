@@ -31,8 +31,11 @@ export const useReduceMotion = () => {
   return reduceMotion;
 };
 
-// 0 = eyes open, 1 = closed. A blink every few seconds, sometimes a double
-// one. `firstDelay`: wait before the first blink (short on the splash).
+// 0 = eyes open, 1 = closed. Paced like a person: a soft blink every 4–5
+// seconds at uneven gaps, and only now and then a double one (once every
+// ~15s) — frequent or doubled blinks read as twitching. Each blink closes
+// quickly, holds briefly and opens a little slower, as real eyelids do.
+// `firstDelay`: wait before the first blink.
 export const useBlink = (enabled, { firstDelay = 2800 } = {}) => {
   const blink = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -42,18 +45,20 @@ export const useBlink = (enabled, { firstDelay = 2800 } = {}) => {
     }
     // A fresh animation per blink — one instance shouldn't run twice in a sequence.
     const once = (hold) => Animated.sequence([
-      Animated.timing(blink, { toValue: 1, duration: 90, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+      Animated.timing(blink, { toValue: 1, duration: 110, easing: Easing.in(Easing.quad), useNativeDriver: true }),
       Animated.delay(hold),
-      Animated.timing(blink, { toValue: 0, duration: 130, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(blink, { toValue: 0, duration: 170, easing: Easing.out(Easing.quad), useNativeDriver: true }),
     ]);
     const cycle = Animated.loop(
       Animated.sequence([
-        Animated.delay(2800),
-        once(50),
-        Animated.delay(3200),
-        once(40),
-        Animated.delay(160),
-        once(40),
+        Animated.delay(4200),
+        once(70),
+        Animated.delay(4800),
+        once(70),
+        Animated.delay(5300),
+        once(60),
+        Animated.delay(200),
+        once(60),
       ]),
     );
     const run = Animated.sequence([Animated.delay(firstDelay), once(50), cycle]);
