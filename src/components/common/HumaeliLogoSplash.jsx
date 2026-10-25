@@ -45,53 +45,6 @@ const GROUP_LIFT = 24;
 const timing = (value, toValue, duration, easing) =>
   Animated.timing(value, { toValue, duration, easing, useNativeDriver: true });
 
-// "Brain signal": small teal sparks that fire one after another across the
-// brain on top of the logo, left to right, like neurons lighting up — the app
-// is thinking / connecting while it loads. Offsets are dp from the logo's
-// centre; MainActivity's native overlay uses the same ones (BRAIN_SPARKS_DP)
-// and the same timing, so nothing jumps at the handover.
-// Inside the two lobes: low on the sides (clear of the line where the brain
-// meets the face), high above the eyebrows, and on the centre seam.
-const SPARKS = [[-50, -28], [-32, -56], [0, -46], [32, -56], [50, -28]];
-const SPARK_SIZE = 10;
-const SPARK_STAGGER = 180; // ms between sparks
-const SPARK_FIRE = 680; // ms one spark is lit (fade in + out)
-const SPARK_CYCLE = 2000; // ms per wave, including the pause
-
-function BrainSignal() {
-  const t = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(timing(t, 1, SPARK_CYCLE, Easing.linear));
-    loop.start();
-    return () => loop.stop();
-  }, [t]);
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      {SPARKS.map(([dx, dy], i) => {
-        // This spark's window in the cycle: off → fully lit at its middle → off.
-        const start = (i * SPARK_STAGGER) / SPARK_CYCLE;
-        const mid = start + SPARK_FIRE / 2 / SPARK_CYCLE;
-        const end = start + SPARK_FIRE / SPARK_CYCLE;
-        const lit = t.interpolate({ inputRange: [0, start, mid, end, 1], outputRange: [0, 0, 1, 0, 0], extrapolate: 'clamp' });
-        return (
-          <Animated.View
-            key={i}
-            style={[
-              s.spark,
-              {
-                left: LOGO_SIZE / 2 + dx - SPARK_SIZE / 2,
-                top: LOGO_SIZE / 2 + dy - SPARK_SIZE / 2,
-                opacity: lit,
-                transform: [{ scale: lit.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1.15] }) }],
-              },
-            ]}
-          />
-        );
-      })}
-    </View>
-  );
-}
-
 export default function HumaeliLogoSplash({ done = false, minMs = 400, onHidden }) {
   const reduceMotion = useReduceMotion();
   // The native splash has just blinked (or is about to), so the first blink
@@ -198,7 +151,6 @@ export default function HumaeliLogoSplash({ done = false, minMs = 400, onHidden 
             onLoad={hideNativeOverlay}
             style={{ transform: [{ scale: logoScale }] }}
           />
-          {!reduceMotion && <BrainSignal />}
         </Animated.View>
         {/* Below the logo without moving it off the screen centre; shown from
             the start, like the native overlay's copy. */}
@@ -238,12 +190,6 @@ const s = StyleSheet.create({
     backgroundColor: BRAND.gradientTo,
   },
   textBlock: { position: 'absolute', top: '50%', marginTop: TEXT_OFFSET + NATIVE_TEXT_NUDGE, alignItems: 'center' },
-  // A teal core in a pale ring reads as a glow; no elevation — on Android an
-  // elevated view fading in/out draws its shadow as a grey box.
-  spark: {
-    position: 'absolute', width: SPARK_SIZE, height: SPARK_SIZE, borderRadius: SPARK_SIZE / 2,
-    backgroundColor: '#14B8A6', borderWidth: 2, borderColor: 'rgba(204, 251, 241, 0.95)',
-  },
   // Same size, colour and gap as MainActivity's native copy.
   tagline: { marginTop: 4, fontSize: 13, lineHeight: 18, letterSpacing: 0.3, color: '#4B6B66', textAlign: 'center' },
 });
