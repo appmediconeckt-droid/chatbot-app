@@ -4,10 +4,11 @@
 //   PATCH /api/qr/walkin/:doctorClinicId/room     doctor's room number at a clinic
 //   GET   /api/qr/walkin/:doctorClinicId/queue    the feed the LED page itself polls
 // The LED page lives on the backend root at `ledPath` (/display/clinic/:id).
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, AppState, Image, Linking, Platform, Pressable, ScrollView, Share, TextInput, View,
+  ActivityIndicator, AppState, FlatList, Image, Linking, Modal, Platform, Pressable, Share, TextInput, View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../../../../components/TranslatedText';
 import RNFS from 'react-native-fs';
 import LinearGradient from 'react-native-linear-gradient';
@@ -67,6 +68,7 @@ export default function ClinicQrLedSection({ doctorId: doctorIdProp }) {
   const [savingRoom, setSavingRoom] = useState(false);
   const [roomNotice, setRoomNotice] = useState(null);
   const [queue, setQueue] = useState(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const loadClinics = useCallback(async () => {
     if (!doctorId) return;
@@ -220,25 +222,32 @@ export default function ClinicQrLedSection({ doctorId: doctorIdProp }) {
         </View>
       )}
 
+      {/* One "Select Clinic" dropdown instead of a row of chips, which didn't
+          scale once a doctor has many clinics. */}
       {!loading && !error && clinics.length > 1 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
-          {clinics.map((c) => {
-            const active = c.doctorClinicId === selectedId;
-            return (
-              <Pressable
-                key={c.doctorClinicId}
-                disabled={savingRoom}
-                onPress={() => setSelectedId(c.doctorClinicId)}
-                style={[s.chip, active && s.chipActive]}
-              >
-                <AppIcon name="pin" size={13} color={active ? '#FFF' : '#0D9488'} />
-                <Text translate={false} numberOfLines={1} style={[s.chipText, active && s.chipTextActive]}>
-                  {c.clinic?.name}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+        <>
+          <Pressable
+            disabled={savingRoom}
+            onPress={() => setPickerOpen(true)}
+            style={({ pressed }) => [s.dropdown, pressed && s.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Select clinic"
+          >
+            <View style={s.dropdownIcon}><AppIcon name="pin" size={16} color="#0D9488" /></View>
+            <View style={s.flex}>
+              <Text style={s.dropdownLabel}>Select Clinic · {clinics.length}</Text>
+              <Text translate={false} style={s.dropdownValue} numberOfLines={1}>{selected?.clinic?.name || 'Choose a clinic'}</Text>
+            </View>
+            <AppIcon name="chevron-down" size={16} color="#475467" strokeWidth={2.4} />
+          </Pressable>
+          <ClinicPickerModal
+            visible={pickerOpen}
+            clinics={clinics}
+            selectedId={selectedId}
+            onSelect={(id) => { setSelectedId(id); setPickerOpen(false); }}
+            onClose={() => setPickerOpen(false)}
+          />
+        </>
       )}
 
       {!loading && !error && !!selected && (
@@ -407,6 +416,88 @@ function Outline({ icon, text, onPress }) {
   );
 }
 
+// Bottom sheet listing the doctor's clinics (name + address); search appears
+// once the list is long.
+function ClinicPickerModal({ visible, clinics, selectedId, onSelect, onClose }) {
+  const insets = useSafeAreaInsets();
+  const [query, setQuery] = useState('');
+  const showSearch = clinics.length > 6;
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return clinics;
+    return clinics.filter((c) =>
+      `${c.clinic?.name || ''} ${c.clinic?.address || ''}`.toLowerCase().includes(q));
+  }, [clinics, query]);
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={onClose}
+      onShow={() => setQuery('')}
+    >
+      <View style={s.pickerBackdrop}>
+        <Pressable style={s.pickerBackdropTap} onPress={onClose} />
+        <View style={[s.pickerSheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <View style={s.pickerHandle} />
+          <View style={s.pickerHeader}>
+            <Text style={s.pickerTitle}>Select Clinic</Text>
+            <Pressable onPress={onClose} hitSlop={10} accessibilityLabel="Close">
+              <AppIcon name="x" size={20} color="#475467" strokeWidth={2.2} />
+            </Pressable>
+          </View>
+          {showSearch && (
+            <View style={s.pickerSearch}>
+              <AppIcon name="search" size={16} color="#7B8493" strokeWidth={1.9} />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search clinic"
+                placeholderTextColor="#94A3B8"
+                style={s.pickerSearchInput}
+                autoCorrect={false}
+              />
+            </View>
+          )}
+          <FlatList
+            data={rows}
+            keyExtractor={(item) => String(item.doctorClinicId)}
+            keyboardShouldPersistTaps="handled"
+            ListEmptyComponent={<Text style={s.pickerEmpty}>No clinic found</Text>}
+            renderItem={({ item }) => {
+              const active = item.doctorClinicId === selectedId;
+              return (
+                <Pressable
+                  onPress={() => onSelect(item.doctorClinicId)}
+                  style={({ pressed }) => [s.pickerRow, active && s.pickerRowActive, pressed && s.pickerRowPressed]}
+                >
+                  <View style={[s.pickerRowIcon, active && s.pickerRowIconActive]}>
+                    <AppIcon name="pin" size={15} color={active ? '#0D9488' : '#667085'} />
+                  </View>
+                  <View style={s.flex}>
+                    <Text translate={false} style={[s.pickerRowName, active && s.pickerRowNameActive]} numberOfLines={1}>
+                      {item.clinic?.name || 'Clinic'}
+                    </Text>
+                    {!!item.clinic?.address && (
+                      <Text translate={false} style={s.pickerRowSub} numberOfLines={1}>
+                        {item.clinic.address}{item.clinic.room ? ` · Room ${item.clinic.room}` : ''}
+                      </Text>
+                    )}
+                  </View>
+                  {active && <AppIcon name="check" size={17} color="#0D9488" strokeWidth={2.6} />}
+                </Pressable>
+              );
+            }}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const s = createDoctorStyles({
   wrap: { marginBottom: 22 },
   flex: { flex: 1 },
@@ -419,11 +510,27 @@ const s = createDoctorStyles({
   stateBox: { alignItems: 'center', gap: 10, paddingVertical: 26, backgroundColor: '#FFF', borderRadius: 12, borderWidth: 1, borderColor: '#D8E3EA' },
   stateText: { fontSize: 14, color: '#526078', textAlign: 'center', paddingHorizontal: 16 },
   errorText: { fontSize: 14, color: '#D92D20', textAlign: 'center', paddingHorizontal: 16 },
-  chips: { gap: 8, paddingBottom: 12 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: 220, height: 36, paddingHorizontal: 13, borderRadius: 18, borderWidth: 1, borderColor: '#B7E4DF', backgroundColor: '#FFF' },
-  chipActive: { backgroundColor: '#0D9488', borderColor: '#0D9488' },
-  chipText: { fontSize: 13.5, fontWeight: '600', color: '#0F766E' },
-  chipTextActive: { color: '#FFF' },
+  dropdown: { flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#B7E4DF', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12 },
+  dropdownIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: '#E6F7F5', alignItems: 'center', justifyContent: 'center' },
+  dropdownLabel: { fontSize: 11.5, fontWeight: '700', color: '#667085' },
+  dropdownValue: { fontSize: 14.5, fontWeight: '800', color: '#17243A', marginTop: 1 },
+  pickerBackdrop: { flex: 1, backgroundColor: 'rgba(16,33,63,0.35)', justifyContent: 'flex-end' },
+  pickerBackdropTap: { flex: 1 },
+  pickerSheet: { maxHeight: '75%', backgroundColor: '#FFF', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 16, paddingTop: 8 },
+  pickerHandle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: '#D0D5DD', marginBottom: 10 },
+  pickerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  pickerTitle: { fontSize: 16.5, fontWeight: '800', color: '#17243A' },
+  pickerSearch: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 12, paddingHorizontal: 12, marginBottom: 8 },
+  pickerSearchInput: { flex: 1, fontSize: 14, color: '#17243A', paddingVertical: 0 },
+  pickerEmpty: { textAlign: 'center', color: '#667085', fontSize: 13, paddingVertical: 24 },
+  pickerRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 11, paddingHorizontal: 10, borderRadius: 12 },
+  pickerRowActive: { backgroundColor: '#F0FDFA' },
+  pickerRowPressed: { backgroundColor: '#F2F4F7' },
+  pickerRowIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: '#F2F4F7', alignItems: 'center', justifyContent: 'center' },
+  pickerRowIconActive: { backgroundColor: '#CCFBF1' },
+  pickerRowName: { fontSize: 14.5, fontWeight: '700', color: '#17243A' },
+  pickerRowNameActive: { color: '#0F766E' },
+  pickerRowSub: { fontSize: 12, color: '#667085', marginTop: 1 },
   qrCard: { backgroundColor: '#FFF', borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#C8D1DF', shadowColor: '#17243A', shadowOpacity: 0.08, shadowRadius: 8, elevation: 3 },
   qrHeader: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 18, alignItems: 'center' },
   clinicName: { fontSize: 19, fontWeight: '800', color: '#FFF', textAlign: 'center' },

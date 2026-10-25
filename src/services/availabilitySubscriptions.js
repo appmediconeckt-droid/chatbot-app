@@ -29,7 +29,19 @@ const unsupportedError = () => Object.assign(
 
 export const isAvailabilitySubscriptionUnsupported = (error) => error?.code === 'UNSUPPORTED';
 
-const is404 = (error) => error?.response?.status === 404;
+// A missing route (Express "Cannot GET …" page), not a JSON 404 such as
+// "Counselor not found" — that one is a real answer from a route that exists.
+const is404 = (error) => {
+  if (error?.response?.status !== 404) return false;
+  const data = error.response.data;
+  return !(data && typeof data === 'object' && (data.message || data.success === false));
+};
+
+// The server's own reason for a failed request, when it sent one.
+export const availabilitySubscriptionErrorMessage = (error) => {
+  const data = error?.response?.data;
+  return (data && typeof data === 'object' && (data.message || data.error)) || '';
+};
 
 async function request(method, counselorId, body) {
   if (!counselorId) throw new Error('Consultant ID is required');
@@ -90,6 +102,10 @@ export async function setAvailabilitySubscription(counselorId, enabled) {
   if (response.data?.success === false) {
     throw new Error('Availability subscription was not saved');
   }
-  // Read back the persisted value; HTTP success alone does not prove it saved.
+  // The server answers with the saved state ({ subscribed }); use it rather
+  // than a second round trip. Only a bare success needs a read-back, since
+  // HTTP success alone does not prove it saved.
+  const saved = response.data?.subscribed ?? response.data?.data?.subscribed;
+  if (typeof saved === 'boolean') return saved;
   return getAvailabilitySubscription(counselorId);
 }

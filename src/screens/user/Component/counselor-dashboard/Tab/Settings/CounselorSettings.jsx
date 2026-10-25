@@ -1,4 +1,5 @@
 import { KeyboardSafeArea, KeyboardSafeScroll } from '../../../../../../components/common/KeyboardSafeForm';
+import { formatPhoneNumber } from '../../../../../../utils/countryCodes';
 import { useMemo as useResponsiveStylesMemo } from 'react';
 import { useWindowDimensions as useResponsiveWindowDimensions } from 'react-native';
 import React, { useState, useEffect, useRef } from 'react';
@@ -440,8 +441,7 @@ const CounselorSettings = ({ onNavigate, onLogout, notifCount = 0, onBellPress }
       : rawPhoto?.secure_url || rawPhoto?.url || null;
   const profileSubtitle =
     counselor?.email ||
-    counselor?.phoneNumber ||
-    counselor?.phone ||
+    formatPhoneNumber(counselor?.phoneNumber || counselor?.phoneNum || counselor?.phone, counselor?.phoneCountryCode) ||
     'Personal & professional details';
   const specializationText = [
     counselor?.specialization,

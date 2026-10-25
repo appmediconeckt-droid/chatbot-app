@@ -6,6 +6,7 @@
 /* eslint-disable no-bitwise -- UTF-8 and base64 encoding work on bits. */
 import axiosInstance from '../../../../axiosConfig';
 import { PUBLIC_WEB_APP_URL } from '../../../../config';
+import { formatPhoneNumber } from '../../../../utils/countryCodes';
 
 // key -> source fields, in the web's order (only patient-facing details).
 const PROFILE_FIELDS = {
@@ -57,7 +58,10 @@ const toBase64 = (bytes) => {
 
 export const publicProfileFields = (user = {}) => Object.fromEntries(
   Object.entries(PROFILE_FIELDS)
-    .map(([key, aliases]) => [key, aliases.map((alias) => displayValue(user?.[alias])).find(Boolean) || ''])
+    .map(([key, aliases]) => {
+      const value = aliases.map((alias) => displayValue(user?.[alias])).find(Boolean) || '';
+      return [key, key === 'phone' ? formatPhoneNumber(value, user.phoneCountryCode) : value];
+    })
     .filter(([, value]) => value),
 );
 

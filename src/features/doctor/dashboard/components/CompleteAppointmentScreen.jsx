@@ -12,31 +12,13 @@ import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { formatLocalDateKey, getConsultationModeInfo, getRemoteConsultationMode, getTokenLabel } from '../api/doctorAppointments';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
-import { getAppointmentVitals, hasVitalValue } from '../../../../utils/appointmentVitals';
+import useKeyboardLift from '../../../../hooks/useKeyboardLift';
 
 const DURATION_TYPES = ['Days', 'Weeks', 'Months'];
 const TIMINGS = ['Morning', 'Afternoon', 'Evening', 'Night'];
 let medicineSeq = 0;
 const nextMedicineId = () => `medicine-${++medicineSeq}`;
 const emptyMedicine = () => ({ id: nextMedicineId(), name: '', dosage: '', timings: [], duration: '', type: 'Days' });
-
-// Vitals are typed on the number keypad. Temperature keeps digits and one
-// decimal point ("37.5"). The keypad has no "/", so blood pressure gets it
-// automatically: 120 then 80 → "120/80" (2-digit systolic like 90/60 when the
-// first digit isn't 1 or 2).
-const formatTemperature = (text) => {
-  const clean = String(text).replace(',', '.').replace(/[^\d.]/g, '');
-  const [whole, ...rest] = clean.split('.');
-  return (rest.length ? `${whole}.${rest.join('').slice(0, 1)}` : whole).slice(0, 5);
-};
-
-const formatBloodPressure = (text) => {
-  const digits = String(text).replace(/\D/g, '').slice(0, 6);
-  const systolicLength = /^[12]/.test(digits) ? 3 : 2;
-  return digits.length > systolicLength
-    ? `${digits.slice(0, systolicLength)}/${digits.slice(systolicLength, systolicLength + 3)}`
-    : digits;
-};
 
 function Field({ label, placeholder, keyboardType, value, onChangeText }) {
   return (
@@ -149,26 +131,21 @@ const defaultFollowUpDate = (medicines, patient) => {
 // Diagnosis, advice and every medicine are required, so the prescription is
 // always recorded (and downloadable as PDF) before a visit is marked complete.
 export default function CompleteAppointmentScreen({ patient, onCancel, onSave }) {
-  // Signup-style keyboard handling: the form scrolls above the keyboard and the
-  // focused field is scrolled into view (the window does not resize, edge-to-edge).
+  // The window does not resize for the keyboard (edge-to-edge), so while it is
+  // open the whole screen is shortened to end at its top edge: the Complete
+  // Consultation footer stays visible above the keyboard and the form scrolls
+  // in the space left, with the focused field scrolled into view.
   const {
     scrollRef: kbScrollRef,
-    frameInset: kbInset,
+    keyboardOpen,
+    keyboardTop,
     scrollFocusedInputIntoView: kbFocus,
     handleKeyboardAwareScroll: kbOnScroll,
     handleKeyboardAwareScrollLayout: kbOnLayout,
-  } = useKeyboardAwareScroll({ frameIsScroll: true });
+  } = useKeyboardAwareScroll({ layoutAvoidsKeyboard: true });
+  const [screenRef, keyboardLift] = useKeyboardLift(keyboardOpen, keyboardTop);
   const isVisit = !getRemoteConsultationMode(patient);
   const modeInfo = getConsultationModeInfo(patient);
-  const [temperature, setTemperature] = useState(() => {
-    const vitals = getAppointmentVitals(patient);
-    if (!hasVitalValue(vitals.temperature)) return '';
-    // The editable field is Celsius; preserve the original unit in the summary.
-    return String(vitals.temperature_unit === 'F'
-      ? Math.round((Number(vitals.temperature) - 32) * 5 / 9 * 10) / 10
-      : vitals.temperature);
-  });
-  const [bloodPressure, setBloodPressure] = useState(patient.bp && patient.bp !== 'Not recorded' ? patient.bp : '');
   const [diagnosis, setDiagnosis] = useState('');
   const [medicines, setMedicines] = useState(() => [emptyMedicine()]);
   const [openTypeId, setOpenTypeId] = useState(null);
@@ -238,8 +215,6 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
     setSaving(true);
     try {
       await onSave?.({
-        temperature,
-        bloodPressure,
         diagnosis,
         medicine: medicines.map(formatMedicineLine).join('\n'),
         medicines: medicines.map(({ name, dosage, timings, duration, type }) => ({
@@ -260,25 +235,22 @@ export default function CompleteAppointmentScreen({ patient, onCancel, onSave })
   };
 
   return (
-    <View style={styles.screen}>
+    <View ref={screenRef} collapsable={false} style={[styles.screen, keyboardLift > 0 && { paddingBottom: keyboardLift }]}>
       <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.titleBar}>
         <Text style={styles.title}>Complete Appointment</Text>
         <TouchableOpacity onPress={onCancel} hitSlop={10} style={styles.closeBtn}>
           <AppIcon name="x" size={18} color="#FFFFFF" strokeWidth={2.4} />
         </TouchableOpacity>
       </LinearGradient>
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} ref={kbScrollRef} contentContainerStyle={[styles.scrollContent, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} ref={kbScrollRef} contentContainerStyle={styles.scrollContent} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <View style={styles.patientCard}>
           <View><Text translate={false} style={styles.patientName}>{patient.name}</Text><Text style={styles.patientId}>{getTokenLabel(patient)}</Text></View>
           <View style={styles.badge}><Text style={styles.badgeText}>{isVisit ? modeInfo.label.toUpperCase() : 'CONSULTATION'}</Text></View>
         </View>
 
+        {/* Vitals are recorded by the receptionist, or by the doctor from the
+            consultation card — this form only shows what was recorded. */}
         <VitalsSummary appointment={patient} title="Recorded patient vitals" />
-        <SectionTitle>Patient Vitals</SectionTitle>
-        <View style={styles.twoColumns}>
-          <Field label="Temperature (°C)" placeholder="37.0" keyboardType="decimal-pad" value={temperature} onChangeText={(text) => setTemperature(formatTemperature(text))} />
-          <Field label="Blood Pressure" placeholder="120/80" keyboardType="number-pad" value={bloodPressure} onChangeText={(text) => setBloodPressure(formatBloodPressure(text))} />
-        </View>
 
         <SectionTitle>Diagnosis *</SectionTitle>
         <TextInput style={styles.textArea} placeholder="Enter detailed diagnosis..." placeholderTextColor="#8D96A6" multiline textAlignVertical="top" value={diagnosis} onChangeText={setDiagnosis} />

@@ -17,6 +17,7 @@ import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import { PUBLIC_WEB_APP_URL } from '../../../../config';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
+import { formatPhoneNumber } from '../../../../utils/countryCodes';
 
 const HUMAELI_LOGO = require('../../../../image/HumaeliIcon.png');
 
@@ -41,7 +42,7 @@ const toPublicProfile = (data = {}, fallback = {}) => {
     name: read('full_name', 'fullName', 'name'),
     speciality: read('speciality', 'specialization', 'primary_specialties'),
     email: read('email', 'email_address'),
-    phone: read('contact_number', 'phoneNumber', 'phone_number', 'phone', 'mobile', 'contactNumber'),
+    phone: formatPhoneNumber(read('contact_number', 'phoneNumber', 'phone_number', 'phone', 'mobile', 'contactNumber'), read('phoneCountryCode')),
     qualification: read('qualification', 'medical_degree'),
     clinic: read('clinic_name', 'primary_hospital', 'hospital_name'),
   };

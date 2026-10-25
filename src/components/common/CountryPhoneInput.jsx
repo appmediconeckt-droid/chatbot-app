@@ -12,9 +12,9 @@ import Text from '../TranslatedText';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {
   COUNTRY_CODES,
-  findCountryByCode,
-  getPhoneMaxLengthForCountryCode,
+  normalizeCountryCode,
   normalizeLocalPhoneNumber,
+  splitInternationalPhoneNumber,
 } from '../../utils/countryCodes';
 import { KeyboardSheetOverlay } from './KeyboardSheet';
 
@@ -33,12 +33,11 @@ const CountryPhoneInput = ({
   iconColor = '#64748b',
   placeholderTextColor = '#94a3b8',
   showIcon = false,
+  editable = true,
 }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [query, setQuery] = useState('');
-  const selectedCountry = findCountryByCode(countryCode);
-  const selectedCode = selectedCountry?.code || countryCode || '+91';
-  const maxPhoneLength = getPhoneMaxLengthForCountryCode(selectedCode);
+  const selectedCode = normalizeCountryCode(countryCode);
 
   const filteredCountries = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -61,7 +60,7 @@ const CountryPhoneInput = ({
 
   const handleSelectCountry = (country) => {
     onChangeCountryCode?.(country.code);
-    onChangePhoneNumber?.(normalizeLocalPhoneNumber(value, country.code));
+    // Changing country must not delete digits from the existing local number.
     setModalVisible(false);
     setQuery('');
   };
@@ -81,8 +80,11 @@ const CountryPhoneInput = ({
           activeOpacity={0.8}
           onPress={() => setModalVisible(true)}
           style={styles.codeButton}
+          disabled={!editable}
+          accessibilityRole="button"
+          accessibilityLabel={`Country code ${selectedCode}`}
         >
-          <Text style={[styles.codeText, { color: accentColor }]} numberOfLines={1}>
+          <Text translate={false} style={[styles.codeText, { color: accentColor }]} numberOfLines={1}>
             {selectedCode}
           </Text>
           <Icon name="chevron-down" size={18} color={accentColor} />
@@ -91,13 +93,22 @@ const CountryPhoneInput = ({
         <TextInput
           style={[styles.textInput, inputStyle]}
           value={value}
-          onChangeText={(text) => onChangePhoneNumber?.(normalizeLocalPhoneNumber(text, selectedCode))}
+          onChangeText={(text) => {
+            if (/^\s*(\+|00)/.test(text)) {
+              const phone = splitInternationalPhoneNumber(text, selectedCode);
+              onChangeCountryCode?.(phone.countryCode);
+              onChangePhoneNumber?.(phone.phoneNumber);
+            } else {
+              onChangePhoneNumber?.(normalizeLocalPhoneNumber(text, selectedCode));
+            }
+          }}
           onFocus={onFocus}
           onBlur={onBlur}
           placeholder={placeholder}
           placeholderTextColor={placeholderTextColor}
           keyboardType="phone-pad"
-          maxLength={maxPhoneLength}
+          editable={editable}
+          accessibilityLabel={placeholder}
         />
       </View>
 

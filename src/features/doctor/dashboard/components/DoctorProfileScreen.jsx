@@ -9,8 +9,16 @@ import { useDoctorBack } from '../useDoctorBack';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import DoctorEditProfileScreen from './DoctorEditProfileScreen';
+import { formatPhoneNumber } from '../../../../utils/countryCodes';
 import DoctorPrescriptionSignature from './DoctorPrescriptionSignature';
-import { getDoctorInitials, getDoctorPhotoUrl, saveDoctorUser } from '../api/doctorAppointments';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { getDoctorInitials, getDoctorPhotoUrl, loadDoctorRatingSummary, saveDoctorUser } from '../api/doctorAppointments';
+import {
+  DEFAULT_COUNTRY,
+  feeCurrencyOf,
+  findCountry,
+  formatFee as formatCurrencyFee,
+} from '../../../../utils/consultationCurrency';
 
 // Consultation mode may come back as a list, or as the JSON / comma text a
 // multipart profile update saved it as.
@@ -27,13 +35,25 @@ const readModeList = (value) => {
   return text.split(',').map((m) => m.trim()).filter(Boolean);
 };
 
-export default function DoctorProfileScreen({ onBack, onOpenCard }) {
+// The QR card opens from Settings → Profile QR (no button on this page).
+export default function DoctorProfileScreen({ onBack }) {
   const { showToast } = useToast();
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null);
   const [photoFailed, setPhotoFailed] = useState(false);
   useEffect(() => setPhotoFailed(false), [profile]);
+  // Patients' average rating of this doctor (from completed appointments).
+  const [rating, setRating] = useState({ average: 0, count: 0 });
+  const ratingDoctorId = profile?._id || profile?.id;
+  useEffect(() => {
+    if (!ratingDoctorId) return undefined;
+    let active = true;
+    loadDoctorRatingSummary(ratingDoctorId)
+      .then((summary) => { if (active) setRating(summary); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [ratingDoctorId]);
 
   useDoctorBack(() => {
     if (!editing) return false;
@@ -93,7 +113,7 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
   const consultationMode = readModeList(profile?.consultationMode ?? profile?.consultation_mode);
   const displayName = profile?.fullName ? `Dr. ${profile.fullName}` : 'Doctor';
   const photoUrl = getDoctorPhotoUrl(profile);
-  const phoneNumber = profile?.phoneNumber || profile?.phoneNum || profile?.phone || '';
+  const phoneNumber = formatPhoneNumber(profile?.phoneNumber || profile?.phoneNum || profile?.phone, profile?.phoneCountryCode);
   const gender = profile?.gender ? String(profile.gender).charAt(0).toUpperCase() + String(profile.gender).slice(1) : '';
 
   // Same Google Maps search link as LocationPicker's "View on map": opens the
@@ -120,8 +140,15 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
           <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
         </Pressable>
         <Text style={s.title}>Doctor Profile</Text>
-        <Pressable onPress={() => setEditing(true)} hitSlop={8}>
-          <Text style={s.editLink}>EDIT</Text>
+        <Pressable
+          onPress={() => setEditing(true)}
+          hitSlop={8}
+          style={({ pressed }) => [s.editButton, pressed && s.editButtonPressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Edit profile"
+        >
+          <AppIcon name="pencil" size={14} color="#0D9488" strokeWidth={2.2} />
+          <Text style={s.editLink}>Edit</Text>
         </Pressable>
       </View>
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
@@ -137,17 +164,26 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
               </View>
             )}
             <Text translate={false} style={s.name}>{displayName}</Text>
-            {!!subtitle && <Text style={s.role}>{subtitle}</Text>}
-            <View style={s.pillRow}>
-              <Pressable onPress={onOpenCard} style={s.darkPill}>
-                <AppIcon name="qr" size={12} color="#FFF" strokeWidth={2} />
-                <Text style={s.darkPillText}>Open Card</Text>
-              </Pressable>
-              <View style={s.lightPill}>
-                <View style={s.lightPillDot} />
-                <Text style={s.lightPillText}>{profile?.isActive === false ? 'Inactive' : 'Active'}</Text>
+            {/* One centred chip per specialization: joined into a single line
+                they wrapped left-aligned with a stray "·" at the line end. */}
+            {specialization.length ? (
+              <View style={s.roleChips}>
+                {specialization.map((tag) => (
+                  <View key={tag} style={s.roleChip}>
+                    <Text style={s.roleChipText} numberOfLines={1}>{tag}</Text>
+                  </View>
+                ))}
               </View>
-            </View>
+            ) : (
+              !!subtitle && <Text style={s.role}>{subtitle}</Text>
+            )}
+            {/* Shown once a patient has rated a completed appointment. */}
+            {rating.count > 0 && (
+              <View style={s.ratingRow}>
+                <Ionicons name="star" size={15} color="#F59E0B" />
+                <Text translate={false} style={s.ratingValue}>{rating.average.toFixed(1)}</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -176,9 +212,15 @@ export default function DoctorProfileScreen({ onBack, onOpenCard }) {
         </Section>
 
         <Section icon="briefcase" label="Consultation Fees">
-          <InfoRow label="Consultation Fee" value={formatFee(profile?.consultationFee ?? profile?.consultation_fee ?? profile?.fee)} />
-          <InfoRow label="Video Call (extra)" value={formatFee(profile?.videoConsultationFee ?? profile?.video_consultation_fee)} />
-          <InfoRow label="Voice Call (extra)" value={formatFee(profile?.voiceConsultationFee ?? profile?.voice_consultation_fee)} last />
+          <InfoRow
+            label="Country & Currency"
+            value={`${findCountry(profile?.address?.country)?.name || DEFAULT_COUNTRY} · ${feeCurrencyOf(profile) || 'INR'}`}
+          />
+          <InfoRow
+            label="Consultation Fee"
+            value={formatFee(profile?.consultationFee ?? profile?.consultation_fee ?? profile?.fee, feeCurrencyOf(profile))}
+            last
+          />
         </Section>
 
         {consultationMode.length > 0 && (
@@ -220,10 +262,8 @@ function Section({ icon, label, children }) {
 }
 
 // "Not set" until the doctor saves a fee in Edit Profile.
-function formatFee(value) {
-  return value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value))
-    ? `₹${Number(value)}`
-    : 'Not set';
+function formatFee(value, currency) {
+  return formatCurrencyFee(value, currency || 'INR') || 'Not set';
 }
 
 function InfoRow({ label, value, last }) {
@@ -240,7 +280,9 @@ const s = createDoctorStyles({
   header: { height: 62, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D8DFE9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13 },
   backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F1F4F8', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   title: { flex: 1, fontSize: 18, fontWeight: '800', color: '#0D9488' },
-  editLink: { fontSize: 13, fontWeight: '800', color: '#0D9488', letterSpacing: 0.5 },
+  editButton: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 34, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, borderColor: '#B7ECE7', backgroundColor: '#F0FDFA' },
+  editButtonPressed: { backgroundColor: '#CCFBF1' },
+  editLink: { fontSize: 13, fontWeight: '800', color: '#0D9488' },
   content: { padding: 16, paddingBottom: 30 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
@@ -251,13 +293,15 @@ const s = createDoctorStyles({
   avatarInitials: { backgroundColor: '#0D9488', alignItems: 'center', justifyContent: 'center' },
   avatarInitialsText: { fontSize: 26, fontWeight: '800', color: '#FFF' },
   name: { fontSize: 17, fontWeight: '800', color: '#17243A', marginTop: 10 },
-  role: { fontSize: 12.5, color: '#667085', marginTop: 2 },
-  pillRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  darkPill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#17243A', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 },
-  darkPillText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
-  lightPill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#F0FDFA', borderWidth: 1, borderColor: '#B7ECE7', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 },
-  lightPillDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#16A36A' },
-  lightPillText: { fontSize: 12, fontWeight: '700', color: '#0D9488' },
+  role: { fontSize: 12.5, color: '#667085', marginTop: 2, textAlign: 'center' },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 10, paddingHorizontal: 11, paddingVertical: 5, borderRadius: 14, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' },
+  ratingValue: { fontSize: 13.5, fontWeight: '800', color: '#92400E' },
+  roleChips: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6, marginTop: 8 },
+  roleChip: {
+    backgroundColor: '#F0FDFA', borderColor: '#CCEFEA', borderRadius: 12, borderWidth: 1,
+    maxWidth: '100%', paddingHorizontal: 10, paddingVertical: 4,
+  },
+  roleChipText: { fontSize: 12, fontWeight: '600', color: '#0F766E' },
 
   section: { marginBottom: 18 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10, marginLeft: 2 },

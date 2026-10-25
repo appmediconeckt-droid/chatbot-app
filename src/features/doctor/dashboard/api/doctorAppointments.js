@@ -8,6 +8,7 @@ import { isPatientAccountDeleted } from '../../../../utils/deletedAccount';
 import { parseEmergencySymptoms, stripEmergencyTag } from '../../../../utils/emergencyTag';
 import { getAppointmentVitals } from '../../../../utils/appointmentVitals';
 import { consultationData } from '../../../../utils/consultationData';
+import { formatPhoneNumber } from '../../../../utils/countryCodes';
 
 export const pickFirst = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== '');
@@ -128,6 +129,57 @@ export const loadDoctorAppointmentFeed = async (doctorId) => {
     normalizeApiList(cancelled.data),
     normalizeApiList(walkins.data).map((item) => withWalkinQueueState({ ...item, __appointmentSource: 'walkin' })),
   ).filter((a) => !isPatientAccountDeleted(a));
+};
+
+// The doctor's patient rating. The server keeps each one on its appointment
+// (POST /api/appointments/:id/doctor-rating → appointment.doctorRating) and has
+// no summary endpoint, so the average comes from the completed appointments.
+// Resolves to { average, count } (0 / 0 when nobody has rated yet).
+export const loadDoctorRatingSummary = async (doctorId) => {
+  const { doctor } = await loadDoctorReviews(doctorId);
+  return summarizeReviews(doctor);
+};
+
+// { average, count, distribution: { 5: n, 4: n, … } } for a review list.
+export const summarizeReviews = (reviews) => {
+  const count = reviews.length;
+  const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+  reviews.forEach((r) => { distribution[Math.round(r.stars)] += 1; });
+  const average = count ? Math.round((reviews.reduce((sum, r) => sum + r.stars, 0) / count) * 10) / 10 : 0;
+  return { average, count, distribution };
+};
+
+// Every patient review of this doctor and of their clinics, newest first.
+// Both live on completed appointments (doctorRating / clinicRating:
+// { stars, review, submittedAt }); there is no separate reviews endpoint.
+export const loadDoctorReviews = async (doctorId) => {
+  if (!doctorId) return { doctor: [], clinic: [] };
+  const response = await axiosInstance.get('/api/appointments', {
+    params: { doctor_id: doctorId, appointment_status: 'completed' },
+  });
+  const rows = normalizeApiList(response.data);
+  const toReview = (a, rating, kind) => {
+    const stars = Number(rating?.stars ?? rating?.rating);
+    if (!Number.isFinite(stars) || stars < 1 || stars > 5) return null;
+    const patient = a?.patient && typeof a.patient === 'object' ? a.patient : (a?.patient_details || {});
+    const clinic = [a?.clinic, a?.clinic_id].find((v) => v && typeof v === 'object') || {};
+    return {
+      id: `${kind}-${pickFirst(a?._id, a?.id)}`,
+      kind,
+      stars,
+      review: String(rating?.review || rating?.comment || '').trim(),
+      submittedAt: pickFirst(rating?.submittedAt, a?.updatedAt, a?.updated_at, ''),
+      patientName: pickFirst(a?.patient_name, a?.patientName, patient.fullName, patient.full_name, patient.name, 'Patient'),
+      patientPhoto: pickFirst(patient.profilePhoto?.url, patient.profilePhoto, patient.avatar, ''),
+      clinicName: pickFirst(a?.clinic_name, a?.clinicName, clinic.clinic_name, clinic.name, ''),
+      visitDate: getAppointmentDateValue(a),
+    };
+  };
+  const byNewest = (x, y) => (Date.parse(y.submittedAt) || 0) - (Date.parse(x.submittedAt) || 0);
+  return {
+    doctor: rows.map((a) => toReview(a, a?.doctorRating, 'doctor')).filter(Boolean).sort(byNewest),
+    clinic: rows.map((a) => toReview(a, a?.clinicRating, 'clinic')).filter(Boolean).sort(byNewest),
+  };
 };
 
 export const loadDoctorFollowUps = async (doctorId) => {
@@ -559,10 +611,10 @@ export const formatAppointment = (a, forcedStatus) => {
     ),
     scheduledTime: formatAppointmentTime(a),
     status: normalizeAppointmentStatus(a, forcedStatus),
-    phone: pickFirst(
+    phone: formatPhoneNumber(pickFirst(
       a?.patient_phone, a?.patientPhone, a?.phone, a?.mobile, a?.phone_number, a?.phoneNumber,
       patient?.phone, patient?.mobile, patient?.phone_number, patient?.phoneNumber, 'N/A',
-    ),
+    ), a?.phoneCountryCode || patient?.phoneCountryCode),
     // Same field spread WalkInAppointmentsScreen accepts. `token` is only used
     // when it's a plain value — some endpoints nest a token-status object there.
     tokenNumber: pickFirst(

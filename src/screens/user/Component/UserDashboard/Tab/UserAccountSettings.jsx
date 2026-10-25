@@ -1,5 +1,6 @@
 import { KeyboardSafeArea, KeyboardSafeScroll } from '../../../../../components/common/KeyboardSafeForm';
 import AppVersionFooter from '../../../../../components/common/AppVersionFooter';
+import { formatPhoneNumber } from '../../../../../utils/countryCodes';
 import React, { useEffect, useState } from 'react';
 import useLanguageRender from '../../../../../hooks/useLanguageRender';
 import { useNavigation } from '@react-navigation/native';
@@ -109,7 +110,7 @@ const UserAccountSettings = ({ onDeleteAccount }) => {
         setAccount({
           name: userName,
           email: u.email || storedEmail,
-          phone: u.phoneNumber || u.phone || '6701424686',
+          phone: formatPhoneNumber(u.phoneNumber || u.phoneNum || u.phone, u.phoneCountryCode) || 'Not provided',
           profilePhoto: photoUri || `https://ui-avatars.com/api/?name=${userName.replace(/\s/g, '+')}&background=random`,
         });
       }
@@ -379,7 +380,7 @@ const UserAccountSettings = ({ onDeleteAccount }) => {
               <Ionicons name={item.icon} size={16} color={PATIENT.primary} />
               <View style={s.infoTextWrap}>
                 <Text style={s.infoLabel}>{t(item.label)}</Text>
-                <Text style={s.infoValue}>{item.value}</Text>
+                <Text translate={item.label === 'Phone' ? false : undefined} style={s.infoValue}>{item.value}</Text>
               </View>
             </View>
           ))}

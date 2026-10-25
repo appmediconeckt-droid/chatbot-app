@@ -163,8 +163,8 @@ it('retains every web letterhead, patient and medicine field in both patient vie
   const data = appointmentToDocument(detailed);
   expect(data).toMatchObject({
     doctor: 'Dr. Profile', qualification: 'MBBS, MD', specialization: 'Psychiatry', registration: 'REG-123',
-    clinic: 'Test Clinic', address: 'Test Address', doctorPhone: '1234567890', doctorEmail: 'doctor@example.test',
-    prescriptionId: 'rx-full', opd: '0', patientId: 'patient-123', age: '0', phone: '9876543210', weight: '64',
+    clinic: 'Test Clinic', address: 'Test Address', doctorPhone: '+91 1234567890', doctorEmail: 'doctor@example.test',
+    prescriptionId: 'rx-full', opd: '0', patientId: 'patient-123', age: '0', phone: '+91 9876543210', weight: '64',
     allergies: 'Penicillin, Dust', signature: 'https://example.test/uploads/signature.png',
   });
   const patientData = doctorRxToDocument({ document: data, clinic: { name: 'Another Clinic' } });
@@ -193,7 +193,7 @@ it('supports verified chat signatures, snapshot patient fields and clinic enrich
   expect(data.patientId).toBe('patient-123');
   expect(data.signature).toContain('/uploads/signature.png');
   const enriched = doctorRxToDocument({ document: { ...data, clinic: '', address: '', doctorPhone: '', opd: '' }, tokenNumber: 3, clinic: { name: 'Enriched Clinic', location: 'Enriched Address', phone: '55555' } });
-  expect(enriched).toMatchObject({ clinic: 'Enriched Clinic', address: 'Enriched Address', doctorPhone: '55555', opd: '3' });
+  expect(enriched).toMatchObject({ clinic: 'Enriched Clinic', address: 'Enriched Address', doctorPhone: '+91 55555', opd: '3' });
 });
 
 

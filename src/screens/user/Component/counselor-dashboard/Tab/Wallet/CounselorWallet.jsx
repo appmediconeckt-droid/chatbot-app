@@ -372,12 +372,17 @@ const CounselorWallet = ({ onClose, embedded = false }) => {
   const earnings = data?.earnings || [];
   const withdrawals = data?.withdrawals || [];
 
-  // The 15s poll and the date filter both change list length under our feet;
+  // The background refresh and the date filter both change list length under our feet;
   // without this a counselor left on page 4 of a list that shrank to 2 pages
   // would stare at an empty card.
   useEffect(() => {
     setEarningsPage((p) => Math.min(p, pageCountOf(earnings.length)));
   }, [earnings.length]);
+  // A new date range is a new list: start both lists from page 1.
+  useEffect(() => {
+    setEarningsPage(1);
+    setWithdrawalsPage(1);
+  }, [dateFilter.from, dateFilter.to]);
   useEffect(() => {
     setWithdrawalsPage((p) => Math.min(p, pageCountOf(withdrawals.length)));
   }, [withdrawals.length]);

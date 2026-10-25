@@ -47,7 +47,7 @@ const GRADIENT_END = { x: 1, y: 0.5 };
  *   onRemindLater    () => void
  *   onNeverAskAgain  () => void
  *   onClose          () => void   (X / back = remind later by default)
- *   professionalType 'consultant' | 'doctor'   (title wording)
+ *   professionalType 'consultant' | 'doctor' | 'clinic'   (title wording)
  *   error            string    shown above Submit (e.g. the server refused)
  * Remind later / Never ask again only show when their handlers are passed —
  * the doctor rating (web MyAppointments "Rate Doctor") has neither.
@@ -140,7 +140,9 @@ const RatingModal = ({
               </View>
 
               <Text style={styles.title}>
-                {professionalType === "doctor" ? t('Rate your doctor') : t('Rate your consultant')}
+                {professionalType === "clinic"
+                  ? t('Rate the clinic')
+                  : professionalType === "doctor" ? t('Rate your doctor') : t('Rate your consultant')}
               </Text>
               <Text style={styles.subtitle}>
                 How was your experience with{" "}

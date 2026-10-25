@@ -30,6 +30,8 @@ import { colors, createDoctorStyles, doctorGradient, gradientDirection } from '.
 import axiosInstance from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
 import { createClinic, unwrapApiArray } from '../api/doctorClinics';
+import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
+import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber } from '../../../../utils/countryCodes';
 
 // ---------------------------------------------------------------------------
 // helpers (same as web)
@@ -296,7 +298,7 @@ export default function CalendarAvailabilityScreen() {
   const [selectedClinic, setSelectedClinic] = useState(null);
   const [showClinicDropdown, setShowClinicDropdown] = useState(false);
   const [showNewClinicForm, setShowNewClinicForm] = useState(false);
-  const [newClinic, setNewClinic] = useState({ name: '', phone: '', location: '' });
+  const [newClinic, setNewClinic] = useState({ name: '', phone: '', phoneCountryCode: '+91', location: '' });
   // Optional clinic photo for "Add a new clinic" ({ uri, type, fileName }).
   const [newClinicPhoto, setNewClinicPhoto] = useState(null);
   const [savingClinic, setSavingClinic] = useState(false);
@@ -936,15 +938,18 @@ export default function CalendarAvailabilityScreen() {
 
   const createNewClinic = async () => {
     if (!newClinic.name.trim() || !newClinic.location.trim()) return showToast('Clinic name and location are required');
+    if (newClinic.phone && !isValidLocalPhoneNumber(newClinic.phone, newClinic.phoneCountryCode)) {
+      return showToast(`Enter a valid ${getPhoneLengthLabel(newClinic.phoneCountryCode)} digit phone number for ${newClinic.phoneCountryCode}`);
+    }
     try {
       setSavingClinic(true);
       const entry = await createClinic(doctorId, {
         name: newClinic.name.trim(),
-        phone: newClinic.phone.trim(),
+        phone: buildInternationalPhoneNumber(newClinic.phoneCountryCode, newClinic.phone),
         location: newClinic.location.trim(),
         photo: newClinicPhoto,
       });
-      setNewClinic({ name: '', phone: '', location: '' });
+      setNewClinic({ name: '', phone: '', phoneCountryCode: '+91', location: '' });
       setNewClinicPhoto(null);
       if (entry?.photoSkipped) showToast('Clinic saved, but the server did not accept the photo');
       if (entry) {
@@ -1090,7 +1095,7 @@ export default function CalendarAvailabilityScreen() {
       <Text style={s.rangeDuration}>{range.duration}m</Text>
       <View style={s.rangeActions}>
         <Pressable onPress={() => openRangeEdit(type, key, index)} hitSlop={8} style={s.iconBtn}>
-          <AppIcon name="edit" size={14} color={colors.blue} />
+          <AppIcon name="pencil" size={14} color={colors.blue} strokeWidth={2} />
         </Pressable>
         <Pressable onPress={() => confirmDeleteSavedRange(type, key, index)} hitSlop={8} style={[s.iconBtn, s.iconBtnDanger]}>
           <AppIcon name="trash" size={14} color="#DC2626" />
@@ -1475,7 +1480,7 @@ export default function CalendarAvailabilityScreen() {
             {showNewClinicForm ? (
               <View style={s.newClinicForm}>
                 <TextInput style={s.input} placeholder="Clinic name" placeholderTextColor="#94A3B8" value={newClinic.name} onChangeText={(v) => setNewClinic((p) => ({ ...p, name: v }))} />
-                <TextInput style={s.input} placeholder="Phone (optional)" placeholderTextColor="#94A3B8" keyboardType="phone-pad" value={newClinic.phone} onChangeText={(v) => setNewClinic((p) => ({ ...p, phone: v }))} />
+                <CountryPhoneInput placeholder="Phone (optional)" value={newClinic.phone} countryCode={newClinic.phoneCountryCode} onChangePhoneNumber={(phone) => setNewClinic((p) => ({ ...p, phone }))} onChangeCountryCode={(phoneCountryCode) => setNewClinic((p) => ({ ...p, phoneCountryCode }))} accentColor="#0D9488" />
                 <TextInput style={s.input} placeholder="Address / location" placeholderTextColor="#94A3B8" value={newClinic.location} onChangeText={(v) => setNewClinic((p) => ({ ...p, location: v }))} />
                 {newClinicPhoto ? (
                   <View style={s.clinicPhotoRow}>

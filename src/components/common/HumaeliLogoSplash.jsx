@@ -1,6 +1,6 @@
 // Start-up splash drawn by React once the native splash hands over. It looks
 // exactly like the native one — the round Humaeli logo, same size, on the soft
-// mint gradient, with the name and tagline under it (splash_screen.xml and
+// mint gradient, with the name under it (splash_screen.xml and
 // MainActivity's blinking overlay) — so the handover is invisible.
 //
 // Motion is kept calm and premium: the logo breathes very slightly, a faint
@@ -9,20 +9,16 @@
 // splash fades into the app, then `onHidden` is called. With reduced motion it
 // simply fades.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, NativeModules, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, NativeModules, StatusBar, StyleSheet, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Defs, LinearGradient as SvgGradient, Stop, Text as SvgText } from 'react-native-svg';
 import { BlinkingLogo, HUMAELI_LOGO_ROUND, useBlink, useReduceMotion } from './HumaeliBlinkingLogo';
 import { BRAND } from '../../theme/palette';
 
-// Typography — kept identical in MainActivity's native copy:
-//   the name in the logo's teal → green gradient, slightly tracked;
-//   the tagline in spaced capitals between two hairlines;
-//   a quiet trust line at the bottom of the screen.
+// Typography — kept identical in MainActivity's native copy: the name in the
+// logo's teal → green gradient, slightly tracked.
 const NAME = { size: 30, weight: '700', spacing: 1, box: 36, baseline: 28.5, width: 260 };
 const NAME_GRADIENT = [BRAND.gradientFrom, BRAND.gradientTo];
-const TRUST_LINE = 'PRIVATE  •  SECURE  •  CONFIDENTIAL';
-const TRUST_BOTTOM = 56;
 
 // Soft mint, top to bottom — the same three colours as the native splash
 // (res/values/colors.xml: splash_gradient_top, splash_background,
@@ -41,15 +37,15 @@ const TEXT_OFFSET = LOGO_SIZE * (445 / 512 - 0.5) + 16;
 // Android's TextView (lineHeight) puts its first line ~4dp lower than this
 // layout does; measured on device, so the JS copy is nudged to match exactly.
 const NATIVE_TEXT_NUDGE = 4;
-// The logo + name + tagline group is lifted so its middle sits at the screen
-// centre (the logo alone at the centre left the group low). Same value as
-// MainActivity's SPLASH_GROUP_LIFT_DP.
-const GROUP_LIFT = 44;
+// The logo + name group is lifted so its middle sits at the screen centre (the
+// logo alone at the centre left the group low). Same value as MainActivity's
+// SPLASH_GROUP_LIFT_DP.
+const GROUP_LIFT = 24;
 
 const timing = (value, toValue, duration, easing) =>
   Animated.timing(value, { toValue, duration, easing, useNativeDriver: true });
 
-export default function HumaeliLogoSplash({ done = false, minMs = 1000, onHidden }) {
+export default function HumaeliLogoSplash({ done = false, minMs = 400, onHidden }) {
   const reduceMotion = useReduceMotion();
   const blink = useBlink(!reduceMotion, { firstDelay: 900 });
   const breathe = useRef(new Animated.Value(0)).current;
@@ -107,15 +103,15 @@ export default function HumaeliLogoSplash({ done = false, minMs = 1000, onHidden
     leavingRef.current = true;
     // Safety net: never leave the splash up, even if an animation is cut short.
     // Kept in a ref so a later re-run of this effect can't cancel it.
-    fallbackRef.current = setTimeout(hide, 1200);
+    fallbackRef.current = setTimeout(hide, 900);
     if (reduceMotion) {
       timing(fade, 0, 260, Easing.out(Easing.quad)).start(hide);
       return;
     }
     Animated.parallel([
-      timing(haloFade, 0, 200, Easing.out(Easing.quad)),
-      timing(exit, 1, 380, Easing.inOut(Easing.cubic)),
-      timing(fade, 0, 380, Easing.inOut(Easing.quad)),
+      timing(haloFade, 0, 150, Easing.out(Easing.quad)),
+      timing(exit, 1, 260, Easing.inOut(Easing.cubic)),
+      timing(fade, 0, 260, Easing.inOut(Easing.quad)),
     ]).start(hide);
   }, [done, minElapsed, reduceMotion, fade, exit, haloFade, hide]);
 
@@ -176,14 +172,8 @@ export default function HumaeliLogoSplash({ done = false, minMs = 1000, onHidden
               Humaeli
             </SvgText>
           </Svg>
-          <View style={s.taglineRow}>
-            <View style={s.hairline} />
-            <Text style={s.tagline} allowFontScaling={false}>YOUR MENTAL WELLNESS COMPANION</Text>
-            <View style={s.hairline} />
-          </View>
         </View>
       </View>
-      <Text style={s.trust} allowFontScaling={false}>{TRUST_LINE}</Text>
     </Animated.View>
   );
 }
@@ -196,14 +186,4 @@ const s = StyleSheet.create({
     backgroundColor: BRAND.gradientTo,
   },
   textBlock: { position: 'absolute', top: '50%', marginTop: TEXT_OFFSET + NATIVE_TEXT_NUDGE, alignItems: 'center' },
-  taglineRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
-  hairline: { width: 18, height: 1, backgroundColor: '#A9C6BF' },
-  tagline: {
-    fontSize: 11, lineHeight: 16, fontWeight: '500', color: '#5B6B7B', letterSpacing: 1.6,
-    marginHorizontal: 10,
-  },
-  trust: {
-    position: 'absolute', bottom: TRUST_BOTTOM, alignSelf: 'center',
-    fontSize: 10, lineHeight: 14, fontWeight: '500', color: '#8A9AA8', letterSpacing: 1.4,
-  },
 });

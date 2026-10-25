@@ -8,6 +8,7 @@
 import axiosInstance from '../../../../axiosConfig';
 import { formatLocalDateKey, getDoctorIdFromUser, getStoredDoctorUser, normalizeApiList, pickFirst } from './doctorAppointments';
 import { stripEmergencyTag } from '../../../../utils/emergencyTag';
+import { formatPhoneNumber } from '../../../../utils/countryCodes';
 
 const getPatient = (record) => record?.patient || record?.patient_details || {};
 const getDoctor = (record) => record?.doctor || record?.doctor_details || {};
@@ -62,7 +63,7 @@ const buildAppointmentPatients = (appointments) => {
       name: pickFirst(appointment.patient_name, patient.name, patient.full_name, patient.fullName, patient.patient_name, 'Unnamed Patient'),
       age: pickFirst(appointment.age, patient.age, 'N/A'),
       gender: pickFirst(appointment.gender, patient.gender),
-      phone: pickFirst(appointment.phone_number, appointment.phoneNumber, appointment.phone, appointment.patient_phone, patient.phoneNumber, patient.phone_number, patient.phone, patient.mobile, patient.patient_phone, 'N/A'),
+      phone: formatPhoneNumber(pickFirst(appointment.phone_number, appointment.phoneNumber, appointment.phone, appointment.patient_phone, patient.phoneNumber, patient.phone_number, patient.phone, patient.mobile, patient.patient_phone, 'N/A'), appointment.phoneCountryCode || patient.phoneCountryCode),
       lastVisit: appointmentDate,
       issue: pickFirst(stripEmergencyTag(appointment.symptoms), appointment.health_issue, appointment.problem, appointment.reason, appointment.notes, 'N/A'),
     };
@@ -94,7 +95,7 @@ export const normalizeFollowUp = (followUp, index, appointmentPatients = [], doc
     name: pickFirst(followUp.patient_name, patient.name, patient.full_name, patient.fullName, matched?.name, 'N/A'),
     age: pickFirst(followUp.age, patient.age, matched?.age, 'N/A'),
     gender: pickFirst(followUp.gender, patient.gender, matched?.gender),
-    phone: pickFirst(followUp.phone_number, followUp.phone, patient.phone_number, patient.phone, matched?.phone, 'N/A'),
+    phone: formatPhoneNumber(pickFirst(followUp.phone_number, followUp.phone, patient.phoneNumber, patient.phone_number, patient.phone, matched?.phone, 'N/A'), followUp.phoneCountryCode || patient.phoneCountryCode),
     lastVisit: pickFirst(followUp.last_visit, followUp.lastVisit, matched?.lastVisit, followUp.created_at),
     followUpDate: pickFirst(followUp.follow_up_date, followUp.followUpDate, followUp.date),
     followUpTime: pickFirst(followUp.followup_time, followUp.follow_up_time, followUp.followUpTime, followUp.time, ''),

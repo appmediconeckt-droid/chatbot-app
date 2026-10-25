@@ -1,13 +1,15 @@
 import AppVersionFooter from '../../../components/common/AppVersionFooter';
-// Settings — the web ReceptionistSettings: account information, password &
-// security (POST /api/auth/changePassword, then sign in again) and logout.
+import { formatPhoneNumber } from '../../../utils/countryCodes';
+// Settings — the web ReceptionistSettings: account information and password &
+// security (POST /api/auth/changePassword, then sign in again). Logout is in
+// the side menu.
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../../components/TranslatedText';
-import { AlertBox, Avatar, Card, DetailFields, Notice, NoticeText, REC, RecButton } from '../receptionistUi';
+import { AlertBox, Card, DetailFields, Notice, NoticeText, REC, RecButton } from '../receptionistUi';
 import { apiError, changePassword } from '../receptionistApi';
-import { PASSWORD_RULES, profilePhotoOf } from '../receptionistUtils';
+import { PASSWORD_RULES } from '../receptionistUtils';
 
 const FIELDS = [
   ['oldPassword', 'Current password'],
@@ -28,7 +30,7 @@ function SectionTitle({ icon, tone, title, subtitle, right }) {
   );
 }
 
-export default function SettingsSection({ profile, onNavigate, onLogout, loggingOut, onPasswordChanged }) {
+export default function SettingsSection({ profile, onNavigate, onPasswordChanged }) {
   const [passwords, setPasswords] = useState({ oldPassword: '', newPassword: '', confirmation: '' });
   const [visible, setVisible] = useState({});
   const [busy, setBusy] = useState(false);
@@ -82,7 +84,7 @@ export default function SettingsSection({ profile, onNavigate, onLogout, logging
         <DetailFields fields={[
           ['Full name', profile.fullName],
           ['Email address', profile.email],
-          ['Phone number', profile.phoneNumber],
+          ['Phone number', formatPhoneNumber(profile.phoneNumber || profile.phone, profile.phoneCountryCode)],
           ['Role', 'Receptionist'],
           ['Assigned doctor', profile.assignedDoctorName],
           ['Assigned clinic', profile.clinic_name],
@@ -141,34 +143,7 @@ export default function SettingsSection({ profile, onNavigate, onLogout, logging
         </View>
       </Card>
 
-      <Card>
-        <SectionTitle icon="shield-checkmark-outline" tone={{ bg: '#E3F6F2', fg: '#1C9686' }} title="Current session" subtitle="The account signed in on this phone." />
-        <View style={s.session}>
-          <Avatar photo={profilePhotoOf(profile)} name={profile.fullName} size={46} />
-          <View style={s.flex}>
-            <Text translate={false} style={s.sessionName} numberOfLines={1}>{profile.fullName || 'Receptionist'}</Text>
-            {!!profile.email && <Text translate={false} style={s.sessionMeta} numberOfLines={1}>{profile.email}</Text>}
-            <View style={s.sessionTags}>
-              <View style={s.sessionTag}><Text style={s.sessionTagText}>Receptionist</Text></View>
-              <View style={[s.sessionTag, s.sessionLive]}>
-                <View style={s.liveDot} />
-                <Text style={[s.sessionTagText, s.sessionLiveText]}>Active now</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-        {!!profile.clinic_name && (
-          <View style={s.sessionRow}>
-            <Ionicons name="business-outline" size={15} color={REC.muted} />
-            <Text translate={false} style={s.sessionRowText} numberOfLines={1}>{profile.clinic_name}</Text>
-          </View>
-        )}
-        <View style={s.logoutTip}>
-          <Ionicons name="information-circle-outline" size={16} color="#B54708" />
-          <Text style={s.logoutTipText}>Logout when your shift ends or before leaving a shared desk.</Text>
-        </View>
-        <RecButton danger icon="log-out-outline" label={loggingOut ? 'Logging out...' : 'Logout'} disabled={loggingOut || busy} onPress={onLogout} style={s.logout} />
-      </Card>
+      {/* Logout is in the side menu. */}
       <AppVersionFooter />
     </>
   );
@@ -193,18 +168,4 @@ const s = StyleSheet.create({
   ruleMet: { color: '#298D69', fontWeight: '600' },
   hint: { fontSize: 12, color: REC.muted, lineHeight: 17 },
   actions: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  logout: { marginTop: 14 },
-  session: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 12, backgroundColor: '#F6F8FB', borderWidth: 1, borderColor: '#E5EBF0' },
-  sessionName: { fontSize: 15, fontWeight: '700', color: REC.ink },
-  sessionMeta: { fontSize: 12, color: REC.muted, marginTop: 1 },
-  sessionTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 7 },
-  sessionTag: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: REC.soft },
-  sessionTagText: { fontSize: 11, fontWeight: '700', color: REC.softText },
-  sessionLive: { backgroundColor: '#ECFDF3' },
-  sessionLiveText: { color: '#067647' },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#17B26A' },
-  sessionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingHorizontal: 2 },
-  sessionRowText: { flex: 1, fontSize: 13, color: REC.ink },
-  logoutTip: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 12, padding: 10, borderRadius: 10, backgroundColor: '#FFFAEB', borderWidth: 1, borderColor: '#FEDF89' },
-  logoutTipText: { flex: 1, fontSize: 12, lineHeight: 17, color: '#93370D' },
 });

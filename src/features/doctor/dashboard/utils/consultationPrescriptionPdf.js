@@ -26,13 +26,22 @@ export async function downloadConsultationPrescriptionPdf(data = {}) {
   if (busy) return;
   busy = true;
   try {
-    const safe = str(data.patient).replace(/[^a-zA-Z0-9_-]/g, '_') || 'patient';
-    const fileName = `prescription_${safe}`;
+    // One name per visit (patient + date + token): every visit used to save as
+    // "prescription_<patient>", so Downloads filled with look-alike copies and an
+    // older one (e.g. made before the consultation was completed) got opened.
+    const part = value => str(value).replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+    const fileName = [
+      'Prescription',
+      part(data.patient) || 'patient',
+      data.date && data.date !== '—' ? part(data.date) : '',
+      data.opd ? `Token_${part(data.opd)}` : '',
+    ].filter(Boolean).join('_');
     const nativePdf = NativeModules.PrescriptionPrint;
     if (nativePdf?.createPdf) {
       const path = await nativePdf.createPdf(buildConsultationDocumentHtml(data), fileName);
       if (path && typeof path === 'string' && await RNFS.exists(path)) {
-        await saveAndOpenPdf(path, fileName);
+        // Re-downloading the same visit replaces its earlier copy.
+        await saveAndOpenPdf(path, fileName, { replace: true });
         return;
       }
     }
@@ -42,13 +51,18 @@ export async function downloadConsultationPrescriptionPdf(data = {}) {
       `Prescribing doctor: ${str(data.doctor)}`,
       ...[data.qualification, data.specialization, data.registration && `Reg. No.: ${data.registration}`, data.clinic, data.address, data.doctorPhone, data.doctorEmail].filter(Boolean),
       `Date: ${str(data.date)}`,
-      `Prescription No.: ${str(data.prescriptionId)}`,
-      `OPD / Token No.: ${str(data.opd)}`,
-      `Patient ID: ${str(data.patientId)}`,
-      `Age: ${str(data.age)}`,
-      `Contact No.: ${str(data.phone)}`,
-      `Weight: ${str(data.weight)}`,
-      `Allergies: ${str(data.allergies) || 'Not recorded'}`,
+      // Details that were not recorded are left out.
+      ...[
+        ['Prescription No.', data.prescriptionId],
+        ['OPD / Token No.', data.opd],
+        ['Patient ID', data.patientId],
+        ['Age', data.age],
+        ['Contact No.', data.phone],
+        ['Weight', data.weight],
+        ['Allergies', data.allergies],
+      ]
+        .filter(([, value]) => { const text = str(value).trim(); return text && text !== '—' && !/^(none|not)\s*recorded$/i.test(text); })
+        .map(([label, value]) => `${label}: ${str(value)}`),
       `Patient: ${str(data.patient)}`,
       `Gender: ${str(data.gender)} | Consultation for: ${str(data.issue)}`,
       '', 'Diagnosis', str(data.diagnosis), '', 'Prescribed medicines',
@@ -66,7 +80,7 @@ export async function downloadConsultationPrescriptionPdf(data = {}) {
     ];
     const path = `${RNFS.DocumentDirectoryPath}/${fileName}.pdf`;
     await RNFS.writeFile(path, buildSimplePdf(lines), 'utf8');
-    await saveAndOpenPdf(path, fileName);
+    await saveAndOpenPdf(path, fileName, { replace: true });
   } catch (error) {
     Alert.alert('PDF failed', error?.message || 'Unable to download prescription. Please try again.');
   } finally {

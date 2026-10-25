@@ -10,6 +10,8 @@ import Text from '../../../components/TranslatedText';
 import { AlertBox, Avatar, REC, RecButton } from '../receptionistUi';
 import { updateMyProfile } from '../receptionistApi';
 import { profilePhotoOf } from '../receptionistUtils';
+import CountryPhoneInput from '../../../components/common/CountryPhoneInput';
+import { getPhoneLengthLabel, isValidLocalPhoneNumber, splitInternationalPhoneNumber } from '../../../utils/countryCodes';
 
 const phoneOf = (profile = {}) => String(profile.phoneNumber || profile.phone || '');
 
@@ -17,6 +19,7 @@ export default function EditProfileSheet({ visible, profile, onClose, onSaved })
   const insets = useSafeAreaInsets();
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneCountryCode, setPhoneCountryCode] = useState('+91');
   const [photo, setPhoto] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -25,7 +28,9 @@ export default function EditProfileSheet({ visible, profile, onClose, onSaved })
   useEffect(() => {
     if (!visible) return;
     setFullName(profile?.fullName || '');
-    setPhone(phoneOf(profile));
+    const savedPhone = splitInternationalPhoneNumber(phoneOf(profile), profile?.phoneCountryCode);
+    setPhone(savedPhone.phoneNumber);
+    setPhoneCountryCode(savedPhone.countryCode);
     setPhoto(null);
     setError('');
   }, [visible, profile]);
@@ -48,19 +53,21 @@ export default function EditProfileSheet({ visible, profile, onClose, onSaved })
   };
 
   const digits = phone.replace(/\D/g, '');
-  const changed = fullName.trim() !== (profile?.fullName || '').trim() || digits !== phoneOf(profile).replace(/\D/g, '') || Boolean(photo);
+  const originalPhone = splitInternationalPhoneNumber(phoneOf(profile), profile?.phoneCountryCode);
+  const changed = fullName.trim() !== (profile?.fullName || '').trim() || digits !== originalPhone.phoneNumber || phoneCountryCode !== originalPhone.countryCode || Boolean(photo);
 
   const save = async () => {
     if (fullName.trim().length < 2) { setError('Please enter your full name.'); return; }
-    if (digits && (digits.length < 10 || digits.length > 13)) { setError('Please enter a valid phone number.'); return; }
+    if (phone && !isValidLocalPhoneNumber(phone, phoneCountryCode)) { setError(`Enter a valid ${getPhoneLengthLabel(phoneCountryCode)} digit phone number for ${phoneCountryCode}.`); return; }
     setSaving(true);
     setError('');
     try {
-      const user = await updateMyProfile(profile, { fullName: fullName.trim(), phoneNumber: digits, photo });
+      const user = await updateMyProfile(profile, { fullName: fullName.trim(), phoneNumber: digits, phoneCountryCode, photo });
       onSaved({
         ...user,
         fullName: user.fullName || fullName.trim(),
         phoneNumber: user.phoneNumber || digits || profile?.phoneNumber,
+        phoneCountryCode: user.phoneCountryCode || phoneCountryCode,
         ...(photo && !profilePhotoOf(user) ? { profilePhoto: photo.uri } : {}),
       });
     } catch (err) {
@@ -117,19 +124,7 @@ export default function EditProfileSheet({ visible, profile, onClose, onSaved })
             </View>
 
             <Text style={s.label}>Phone number</Text>
-            <View style={s.input}>
-              <Ionicons name="call-outline" size={17} color={REC.muted} />
-              <TextInput
-                value={phone}
-                onChangeText={(value) => { setPhone(value.replace(/[^\d+\s-]/g, '')); setError(''); }}
-                style={s.inputText}
-                placeholder="10-digit mobile number"
-                placeholderTextColor="#94A3B8"
-                keyboardType="phone-pad"
-                maxLength={16}
-                editable={!saving}
-              />
-            </View>
+            <CountryPhoneInput value={phone} countryCode={phoneCountryCode} onChangePhoneNumber={(value) => { setPhone(value); setError(''); }} onChangeCountryCode={(value) => { setPhoneCountryCode(value); setError(''); }} editable={!saving} />
 
             <Text style={s.label}>Email</Text>
             <View style={[s.input, s.inputLocked]}>

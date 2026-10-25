@@ -147,8 +147,7 @@ class MainActivity : ReactActivity() {
 
   // The window background (splash_screen.xml) can't animate, so while the JS
   // bundle loads the same round logo — same 288dp size, centred on white — is
-  // drawn on top as a blinking frame animation, with the name and tagline under
-  // it. HumaeliLogoSplash draws the same screen and calls SplashOverlay.hide();
+  // drawn on top as a blinking frame animation, with the name under it. HumaeliLogoSplash draws the same screen and calls SplashOverlay.hide();
   // a timeout removes it anyway in case JS never gets there.
   private var splashOverlay: View? = null
   private var splashAnimators: List<ValueAnimator> = emptyList()
@@ -172,8 +171,7 @@ class MainActivity : ReactActivity() {
     }
     // Same typography as HumaeliLogoSplash (sizes in dp, so the phone's font
     // scale doesn't change them — like allowFontScaling={false}): the name in
-    // the logo's teal → green gradient, the tagline in spaced capitals between
-    // two hairlines, and a quiet trust line at the bottom.
+    // the logo's teal → green gradient.
     val dp = { v: Float -> (v * density).toInt() }
     val brand = TextView(this).apply {
       text = "Humaeli"
@@ -196,45 +194,13 @@ class MainActivity : ReactActivity() {
         tv.invalidate()
       }
     }
-    val hairline = {
-      View(this).apply { setBackgroundColor(Color.parseColor("#A9C6BF")) }
-    }
-    val tagline = TextView(this).apply {
-      text = "YOUR MENTAL WELLNESS COMPANION"
-      setTextColor(Color.parseColor("#5B6B7B"))
-      setTextSize(TypedValue.COMPLEX_UNIT_DIP, 11f)
-      typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-      letterSpacing = 1.6f / 11f
-      maxLines = 1
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lineHeight = dp(16f)
-    }
-    val taglineRow = LinearLayout(this).apply {
-      orientation = LinearLayout.HORIZONTAL
-      gravity = Gravity.CENTER
-      addView(hairline(), LinearLayout.LayoutParams(dp(18f), maxOf(1, dp(1f))))
-      addView(tagline, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-        leftMargin = dp(10f)
-        rightMargin = dp(10f)
-      })
-      addView(hairline(), LinearLayout.LayoutParams(dp(18f), maxOf(1, dp(1f))))
-    }
-    // Full width with centred lines: a wrap-content column once took a narrow
+    // Full width with a centred line: a wrap-content column once took a narrow
     // child's width and cut the name down to "H".
     val fullWidth = { LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) }
     val texts = LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
       gravity = Gravity.CENTER_HORIZONTAL
       addView(brand, fullWidth())
-      addView(taglineRow, fullWidth().apply { topMargin = dp(10f) })
-    }
-    val trust = TextView(this).apply {
-      text = "PRIVATE  •  SECURE  •  CONFIDENTIAL"
-      setTextColor(Color.parseColor("#8A9AA8"))
-      setTextSize(TypedValue.COMPLEX_UNIT_DIP, 10f)
-      typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-      letterSpacing = 1.4f / 10f
-      maxLines = 1
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lineHeight = dp(14f)
     }
     // The soft halo pulsing behind the logo — same as HumaeliLogoSplash's:
     // a 210dp teal disc growing 0.95 → 1.45 while it fades in to 14% and out,
@@ -276,13 +242,8 @@ class MainActivity : ReactActivity() {
         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
         Gravity.TOP or Gravity.CENTER_HORIZONTAL,
       ))
-      // Same spot as the JS copy: 56dp above the bottom edge of the screen.
-      addView(trust, FrameLayout.LayoutParams(
-        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-        Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
-      ).apply { bottomMargin = dp(56f) })
     }
-    // The logo + name + tagline group is lifted so it sits in the middle of
+    // The logo + name group is lifted so it sits in the middle of
     // the screen (the logo alone at the centre left the group low). On a cold
     // start the system splash has just shown the logo dead centre, so the group
     // glides up from there; after a JS reload it simply starts lifted.
@@ -339,7 +300,7 @@ class MainActivity : ReactActivity() {
     private const val SPLASH_TEXT_OFFSET_DP = 96.84f
     // HumaeliLogoSplash's GROUP_LIFT: the logo + text group's middle sits this
     // far below the screen centre, so the group is lifted by it.
-    private const val SPLASH_GROUP_LIFT_DP = 44f
+    private const val SPLASH_GROUP_LIFT_DP = 24f
     private var current: WeakReference<MainActivity>? = null
 
     fun hideSplashOverlay() {

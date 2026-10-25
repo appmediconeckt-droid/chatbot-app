@@ -23,25 +23,29 @@ import { useLanguageContext } from '../../../../contexts/LanguageContext';
 import { CLINICIAN } from '../../../../theme/palette';
 import { getDoctorIdFromUser, getStoredDoctorUser } from '../api/doctorAppointments';
 
-const ACCOUNT_ROWS = [
+// Grouped as separate cards: your practice, the app and its security, support.
+const PRACTICE_ROWS = [
   { key: 'personal', icon: 'user', title: 'Profile', subtitle: 'Professional details, experience and photo' },
   { key: 'clinic', icon: 'briefcase', title: 'Clinic', subtitle: 'Add clinic contact information, location and photos' },
   { key: 'payment', icon: 'smartphone', title: 'Payment', subtitle: 'Choose which payment methods are available' },
   { key: 'profileQR', icon: 'qr', title: 'Profile QR', subtitle: 'Share your profile and booking link' },
+];
+
+const APP_ROWS = [
   { key: 'notifications', icon: 'bell', title: 'Notification Preferences', subtitle: 'Choose alerts and set quiet hours' },
+  { key: 'language', icon: 'globe', title: 'Language', subtitle: 'Choose the app language' },
   { key: 'privacySecurity', icon: 'shield', title: 'Privacy & Security', subtitle: 'Password, app lock, privacy and this device' },
   { key: 'changePassword', icon: 'lock', title: 'Change Password', subtitle: 'You will be signed out after changing it' },
-  { key: 'language', icon: 'globe', title: 'Language', subtitle: 'Choose the app language' },
 ];
 
 const MORE_ROWS = [
   { key: 'help', icon: 'info', title: 'Help & Support', subtitle: 'FAQs, contact support, report a problem' },
-  { key: 'privacy', icon: 'eye', title: 'Privacy', subtitle: 'How your profile and clinic information is used' },
+  { key: 'privacy', icon: 'eye', title: 'Privacy Policy', subtitle: 'How your profile and clinic information is used' },
 ];
 
 const INFO = {
   privacy: {
-    title: 'Privacy',
+    title: 'Privacy Policy',
     intro: 'Your doctor profile and clinic information are used to support appointment booking and patient communication.',
     // [title, text, action]: each row opens the matching place (see openInfoAction).
     items: [
@@ -237,15 +241,15 @@ export default function DoctorSettingsScreen({ onBack, onLogout, onForceLogout, 
       </View>
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <Text style={s.section}>Account Settings</Text>
-        <View style={s.card}>{renderRows(ACCOUNT_ROWS)}</View>
+        <View style={s.card}>{renderRows(PRACTICE_ROWS)}</View>
+        <View style={[s.card, s.cardSpaced]}>{renderRows(APP_ROWS)}</View>
+        <View style={[s.card, s.cardSpaced]}>{renderRows(MORE_ROWS)}</View>
+        {/* Logout and Delete Account last, away from everyday rows. */}
         <Pressable onPress={handleLogout} style={s.logout}>
           <AppIcon name="logout" size={17} color="#DC2626" strokeWidth={2} />
           <Text style={s.logoutText}>Logout</Text>
         </Pressable>
-        <Text style={[s.section, s.sectionSpaced]}>More</Text>
-        <View style={s.card}>{renderRows(MORE_ROWS)}</View>
-        <Text style={[s.section, s.sectionSpaced, s.dangerSection]}>Danger Zone</Text>
-        <View style={s.dangerCard}>
+        <View style={[s.dangerCard, s.cardSpaced]}>
           <View style={s.dangerHeader}>
             <View style={s.dangerIcon}>
               <AppIcon name="warning" size={19} color="#DC2626" strokeWidth={2} />
@@ -317,9 +321,8 @@ const s = createDoctorStyles({
     marginTop: 22,
   },
   logoutText: { fontSize: 15, fontWeight: '700', color: '#DC2626' },
-  sectionSpaced: { marginTop: 24 },
+  cardSpaced: { marginTop: 20 },
   infoIntro: { fontSize: 14, lineHeight: 20, color: '#475467', marginBottom: 14 },
-  dangerSection: { color: '#B42318' },
   dangerCard: {
     backgroundColor: '#FFF',
     borderWidth: 1,

@@ -40,6 +40,12 @@ test('ON posts the same consultant ID and reads saved true', async () => {
   expect(api.request).toHaveBeenNthCalledWith(2, { method: 'get', url: endpoint, data: undefined });
 });
 
+test('uses the saved state from the ON/OFF response without a second request', async () => {
+  api.request.mockResolvedValueOnce({ data: { success: true, subscribed: true } });
+  await expect(setAvailabilitySubscription(id, true)).resolves.toBe(true);
+  expect(api.request).toHaveBeenCalledTimes(1);
+});
+
 test('does not invent OFF when the backend still reports ON', async () => {
   api.request
     .mockResolvedValueOnce({ data: { success: true } })

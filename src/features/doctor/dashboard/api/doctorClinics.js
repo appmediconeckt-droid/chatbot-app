@@ -2,9 +2,11 @@
 // Setting/ClinicSetting/ClinicUpload.jsx):
 //   GET  /api/clinics?doctor_id=<id>&role=doctor
 //   POST /api/clinics  multipart { doctor_id, clinic_name, phone_number, location, clinic_photo? }
+//   PATCH  /api/clinics/:id  multipart { clinic_name?, phone_number?, location?, clinic_photo? }
 //   DELETE /api/clinics/:id
-import axiosInstance from '../../../../axiosConfig';
+import axiosInstance, { API_BASE_URL } from '../../../../axiosConfig';
 import { pickFirst } from './doctorAppointments';
+import { formatPhoneNumber } from '../../../../utils/countryCodes';
 
 export const unwrapApiArray = (payload) => {
   const candidates = [
@@ -21,7 +23,7 @@ export const normalizeClinic = (clinic, index = 0) => ({
   deleteId: pickFirst(clinic._id, clinic.clinic_id, clinic.clinicId, clinic.id, clinic.hospital_id, clinic.hospitalId, ''),
   name: pickFirst(clinic.clinic_name, clinic.clinicName, clinic.hospital_name, clinic.hospitalName, clinic.name, 'Unnamed Clinic'),
   location: pickFirst(clinic.location, clinic.address, clinic.clinic_address, clinic.hospital_address, 'Address not available'),
-  phone: pickFirst(clinic.phone_number, clinic.phone, clinic.contact_number, ''),
+  phone: formatPhoneNumber(pickFirst(clinic.phone_number, clinic.phone, clinic.contact_number, ''), clinic.phoneCountryCode),
   photo: pickFirst(clinic.clinic_photo?.url, clinic.clinic_photo, clinic.photo?.url, clinic.photo, clinic.image, clinic.logo, ''),
   doctorId: pickFirst(clinic.doctor_id, clinic.doctorId, clinic.doctor?.id, clinic.doctor?._id, ''),
   raw: clinic,
@@ -32,6 +34,42 @@ export const loadDoctorClinics = async (doctorId, role = 'doctor') => {
   return unwrapApiArray(response.data)
     .map(normalizeClinic)
     .filter((clinic) => !clinic.doctorId || String(clinic.doctorId) === String(doctorId));
+};
+
+// A clinic photo as an image URL: the server stores "/uploads/<file>".
+const apiOrigin = API_BASE_URL.replace(/\/api\/?$/, '');
+export const clinicPhotoUrl = (value) => {
+  const path = String(value || '').trim().replace(/\\/g, '/');
+  if (!path) return '';
+  if (/^(https?:|data:|file:|content:)/.test(path)) return path;
+  return `${apiOrigin}/${path.replace(/^\/+/, '')}`;
+};
+
+const photoPart = (photo) => {
+  const type = photo.type || 'image/jpeg';
+  return {
+    uri: photo.uri,
+    type,
+    name: photo.fileName || `clinic-${Date.now()}.${(type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')}`,
+  };
+};
+
+// Saves the edited name / phone / address and, when one was picked, the new
+// photo (the server keeps one clinic photo). Resolves to the updated clinic.
+export const updateClinic = async (clinicId, { name, phone, location, photo }) => {
+  if (!clinicId) throw new Error('Clinic ID is required');
+  const formData = new FormData();
+  formData.append('clinic_name', name);
+  formData.append('phone_number', phone || '');
+  formData.append('location', location);
+  if (photo?.uri) formData.append('clinic_photo', photoPart(photo));
+  const response = await axiosInstance.patch(`/api/clinics/${encodeURIComponent(String(clinicId))}`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    transformRequest: (data) => data,
+    timeout: 60000,
+  });
+  const updated = response.data?.clinic || response.data?.data?.clinic || response.data?.data;
+  return updated && typeof updated === 'object' ? normalizeClinic(updated) : null;
 };
 
 export const deleteDoctorClinic = async (clinicId) => {
@@ -55,14 +93,7 @@ export const createClinic = async (doctorId, { name, phone, location, photo }) =
     formData.append('clinic_name', name);
     formData.append('phone_number', phone || '');
     formData.append('location', location);
-    if (withPhoto && photo?.uri) {
-      const type = photo.type || 'image/jpeg';
-      formData.append('clinic_photo', {
-        uri: photo.uri,
-        type,
-        name: photo.fileName || `clinic-${Date.now()}.${(type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')}`,
-      });
-    }
+    if (withPhoto && photo?.uri) formData.append('clinic_photo', photoPart(photo));
     return formData;
   };
   const post = (formData) => axiosInstance.post('/api/clinics', formData, {

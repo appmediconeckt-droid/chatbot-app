@@ -77,8 +77,6 @@ import UserAccountSettings from "../Tab/UserAccountSettings";
 import PrescriptionScreen from "../Tab/Prescription/PrescriptionScreen";
 import TokenStatusScreen from "../Tab/Token/TokenStatusScreen";
 import { formatTimer, getLiveTokenTiming } from "../Tab/Token/tokenTiming";
-import HealthVitalsCard from "../Tab/HealthVitals/HealthVitalsCard";
-import { isPsychiatristSpecialization } from "../../../../../components/common/PsychiatristDirectory";
 import { toImageUri } from "../../../../../utils/imageUri";
 import { clearAccountLocalData } from "../../../../../utils/authSession";
 import { isProfessionalAccountDeleted } from "../../../../../utils/deletedAccount";
@@ -1068,6 +1066,52 @@ const isClinicVisitAppointment = (apt) => {
   );
 };
 
+// A counselor's specializations as a clean list. The server sends an array
+// (sometimes a JSON or comma string); String(array) ran them together as
+// "Adult psychiatry,Cognitive behavioral therapy,…" with no spaces.
+const getSpecializationList = (value) => {
+  let list = value;
+  if (typeof list === 'string') {
+    const text = list.trim();
+    if (text.startsWith('[')) {
+      try { list = JSON.parse(text); } catch { list = text; }
+    }
+    if (typeof list === 'string') list = list.split(',');
+  }
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((item) => String((item && typeof item === 'object' ? item.name || item.title : item) ?? '').trim())
+    .filter((item, index, all) => item && all.indexOf(item) === index);
+};
+
+// The clinic an appointment was booked at (id may come as a string or a
+// populated object). Only these appointments can rate a clinic.
+const getAptClinicId = (apt) => {
+  const clinic = apt?.clinic_id || apt?.clinicId || apt?.clinic;
+  if (!clinic) return '';
+  return typeof clinic === 'object' ? String(clinic._id || clinic.id || '') : String(clinic);
+};
+const getAptClinicName = (apt) => {
+  const clinic = [apt?.clinic, apt?.clinic_id].find((value) => value && typeof value === 'object');
+  return String(clinic?.clinic_name || clinic?.name || apt?.clinic_name || apt?.clinicName || '').trim();
+};
+
+// "Rate Doctor" / "Rate Clinic" on a completed appointment; after rating it
+// locks and shows the stars given.
+const RateButton = ({ label, icon = 'star', rated, onPress, t }) => (
+  <TouchableOpacity
+    style={[styles.aptRateBtn, rated && styles.aptRateBtnDone]}
+    onPress={onPress}
+    disabled={Boolean(rated)}
+    activeOpacity={0.8}
+  >
+    <Ionicons name={rated ? 'checkmark-circle' : icon} size={15} color={rated ? PATIENT.primary : '#D97706'} />
+    <Text style={[styles.aptRateText, rated && styles.aptRateTextDone]} numberOfLines={1}>
+      {rated ? `${t('Rated')} (${Number(rated.stars ?? rated.rating) || 0}/5)` : label}
+    </Text>
+  </TouchableOpacity>
+);
+
 const canCancelUserAppointment = (appointment) => {
   if (!appointment) return false;
   const status = String(appointment.appointment_status || appointment.status || '').toLowerCase();
@@ -1306,6 +1350,9 @@ const sheetStyles = StyleSheet.create({
   docNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 1 },
   docName: { fontSize: 14, fontWeight: '700', color: '#0f172a', flex: 1 },
   docSpec: { fontSize: 12, fontWeight: '500', color: '#64748b', marginBottom: 4 },
+  docSpecChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 3, marginBottom: 6 },
+  docSpecChip: { maxWidth: '100%', backgroundColor: '#ECFDF5', borderColor: '#BBF7D0', borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  docSpecChipText: { fontSize: 11.5, fontWeight: '600', color: PATIENT.primary },
   docMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   docMetaText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
   // flexShrink 0: the name column beside it is flex:1, so without this a long
@@ -1377,39 +1424,60 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
   const [emergencyBusy, setEmergencyBusy] = useState(false);
   const [emergencyError, setEmergencyError] = useState('');
   const [doctorIds, setDoctorIds] = useState(() => new Set());
+  // Average rating per doctor / consultant id (only those with one).
+  const [providerRatings, setProviderRatings] = useState({});
+  const providerRatingOf = (apt) => {
+    const own = Number(apt?.counselor?.rating);
+    if (own > 0) return own;
+    const id = apt?.counselor && typeof apt.counselor === 'object'
+      ? apt.counselor._id || apt.counselor.id
+      : apt?.counselor || apt?.counselorId || apt?.doctor_id;
+    return providerRatings[String(id || '')] || 0;
+  };
   const socketRef = useRef(null);
-  // Web MyAppointments "Rate Doctor": a completed doctor appointment can be
-  // rated once — POST /api/appointments/:id/doctor-rating { rating, review }.
+  // Web MyAppointments "Rate Doctor" / "Rate Clinic": a completed doctor
+  // appointment can rate the doctor and its clinic once each —
+  // POST /api/appointments/:id/doctor-rating | clinic-rating { rating, review }.
+  // The clinic's average shows on the doctor's Clinic Profile.
   const [ratingApt, setRatingApt] = useState(null);
+  const [ratingKind, setRatingKind] = useState("doctor");
   const [ratingBusy, setRatingBusy] = useState(false);
   const [ratingError, setRatingError] = useState("");
   const [ratingSuccess, setRatingSuccess] = useState(false);
-  const openDoctorRating = (apt) => {
+  const openRating = (apt, kind) => {
     setRatingError("");
     setRatingSuccess(false);
+    setRatingKind(kind);
     setRatingApt(apt);
   };
-  const submitDoctorRating = async ({ rating, review }) => {
+  const submitRating = async ({ rating, review }) => {
     const appointmentId = getAppointmentIdentity(ratingApt);
     if (ratingBusy || !appointmentId) return;
+    const field = ratingKind === "clinic" ? "clinicRating" : "doctorRating";
     setRatingBusy(true);
     setRatingError("");
     try {
       const { data } = await axiosInstance.post(
-        `/api/appointments/${encodeURIComponent(appointmentId)}/doctor-rating`,
+        `/api/appointments/${encodeURIComponent(appointmentId)}/${ratingKind === "clinic" ? "clinic-rating" : "doctor-rating"}`,
         { rating, review: String(review || "").trim() },
         { timeout: 15000 },
       );
-      const saved = data?.doctorRating || { stars: rating, review };
+      const saved = data?.[field] || { stars: rating, review };
       setAppointments((rows) => rows.map((row) => (
-        getAppointmentIdentity(row) === appointmentId ? { ...row, doctorRating: saved } : row
+        getAppointmentIdentity(row) === appointmentId ? { ...row, [field]: saved } : row
       )));
       setRatingSuccess(true);
       setTimeout(() => setRatingApt(null), 1500);
     } catch (err) {
       const status = err?.response?.status;
+      // Already rated (e.g. from another device): mark it so the button locks.
+      if (status === 409) {
+        setAppointments((rows) => rows.map((row) => (
+          getAppointmentIdentity(row) === appointmentId && !row[field] ? { ...row, [field]: { stars: rating } } : row
+        )));
+      }
       setRatingError(status === 404
-        ? t('Doctor rating is not available on the server yet. Please try again later.')
+        ? t('Rating is not available on the server yet. Please try again later.')
         : err?.response?.data?.error || err?.response?.data?.message || t('Rating could not be saved. Please try again.'));
     } finally {
       setRatingBusy(false);
@@ -1425,6 +1493,11 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
         setDoctorIds(new Set(list
           .filter((c) => String(c?.role || '').toLowerCase() === 'doctor')
           .map((c) => String(c._id || c.id))));
+        // The appointment's own counselor object carries no rating, so the
+        // cards read it from the directory instead.
+        setProviderRatings(Object.fromEntries(list
+          .map((c) => [String(c._id || c.id), Number(c.rating) || 0])
+          .filter(([, rating]) => rating > 0)));
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -1605,14 +1678,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     return true;
   }).sort((a, b) => (Date.parse(b.createdAt || b.created_at) || aptTimestamp(b)) - (Date.parse(a.createdAt || a.created_at) || aptTimestamp(a)));
 
-  // Vitals tracking only makes sense once a Doctor (psychiatrist — medical,
-  // can prescribe) has actually seen the patient, not a talk-therapy
-  // Consultant. Same classifier used for the "Doctor"/"Consultant" badge in
-  // the counselor directory.
-  const hasCompletedDoctorVisit = appointments.some(
-    (apt) => apt.status === "completed" && isPsychiatristSpecialization(apt?.counselor?.specialization)
-  );
-
   const displayApts = periodApts;
 
   const providerGroups = Object.values(displayApts.reduce((groups, appointment) => {
@@ -1738,6 +1803,7 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
     : turnLeftSec === 0
       ? t('Your turn is coming up any moment')
       : t('Your turn in');
+  const selectedSpecs = getSpecializationList(selectedApt?.counselor?.specialization);
   const clinicName = selectedApt?.clinic?.name || selectedApt?.clinic?.clinic_name
     || (typeof selectedApt?.clinic === 'string' ? selectedApt.clinic : '') || selectedApt?.clinic_name || '';
 
@@ -1767,7 +1833,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
       </View>
 
       <ScrollView contentContainerStyle={styles.appointmentsList} showsVerticalScrollIndicator={false}>
-        {hasCompletedDoctorVisit && <HealthVitalsCard />}
         {loadingAppointments ? (
           <AppointmentsSkeleton />
         ) : displayApts.length === 0 ? (
@@ -1804,7 +1869,9 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                 <Image source={{ uri: getAvatarSrc(sample) }} style={styles.providerCardAvatar} />
                 <View style={styles.providerCardBody}>
                   <Text style={styles.providerCardName} numberOfLines={1}>{name}</Text>
-                  <Text style={styles.providerCardSpec} numberOfLines={1}>{sample?.counselor?.specialization || t('Medical specialist')}</Text>
+                  <Text style={styles.providerCardSpec} numberOfLines={1}>
+                    {getSpecializationList(sample?.counselor?.specialization).join(', ') || t('Medical specialist')}
+                  </Text>
                   <View style={styles.providerCardStats}>
                     <Text style={styles.providerCardStat}>{provider.appointments.length} {provider.appointments.length === 1 ? t('appointment') : t('appointments')}</Text>
                     <Text style={styles.providerCardStat}>{completed} {t('completed')}</Text>
@@ -1820,7 +1887,9 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
             const aptHasDate = Number.isFinite(Date.parse(apt.date));
             const aptDateObj = aptHasDate ? new Date(apt.date) : null;
             const aptExperience = formatExperience(apt?.counselor?.experience);
-            const aptSpecialization = String(apt?.counselor?.specialization || '').trim();
+            // One line on the card: the first specialization, "+N" for the rest
+            // (all of them are listed in View Details).
+            const aptSpecs = getSpecializationList(apt?.counselor?.specialization);
             return (
             <View key={apt._id} style={styles.appointmentCard}>
               <View style={styles.appointmentCardHeader}>
@@ -1833,9 +1902,16 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                       {apt?.counselor?.fullName || "Counselor"}
                     </Text>
                   </View>
-                  <Text style={styles.appointmentSpecialization} numberOfLines={1}>
-                    {aptSpecialization || t('Mental Wellness Specialist')}
-                  </Text>
+                  <View style={styles.aptSpecRow}>
+                    <Text style={[styles.appointmentSpecialization, styles.aptSpecText]} numberOfLines={1}>
+                      {aptSpecs[0] || t('Mental Wellness Specialist')}
+                    </Text>
+                    {aptSpecs.length > 1 && (
+                      <View style={styles.aptSpecMore}>
+                        <Text style={styles.aptSpecMoreText}>+{aptSpecs.length - 1}</Text>
+                      </View>
+                    )}
+                  </View>
                   <View style={styles.aptMetaRow}>
                     {!!aptExperience && (
                       <>
@@ -1845,17 +1921,11 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                         </Text>
                       </>
                     )}
-                    {Number(apt?.counselor?.rating) > 0 ? (
-                      <>
-                        <Ionicons name="star" size={12} color="#F5A623" style={{ marginLeft: 10 }} />
-                        <Text style={styles.aptMetaText}>
-                          {Number(apt.counselor.rating).toFixed(1)}
-                        </Text>
-                      </>
-                    ) : (
-                      <View style={[styles.newRatingBadge, !aptExperience && styles.newRatingBadgeFirst]}>
-                        <Ionicons name="sparkles" size={10} color={PATIENT.gradientTo} />
-                        <Text style={styles.newRatingText}>{t('counselor:newRating', 'New')}</Text>
+                    {/* The real rating, or nothing — no "New" placeholder. */}
+                    {providerRatingOf(apt) > 0 && (
+                      <View style={[styles.ratingPill, !aptExperience && styles.newRatingBadgeFirst]}>
+                        <Ionicons name="star" size={11} color="#F59E0B" />
+                        <Text style={styles.ratingPillText}>{providerRatingOf(apt).toFixed(1)}</Text>
                       </View>
                     )}
                   </View>
@@ -1930,24 +2000,13 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     consultation. Consultant cards show just View Details (their
                     video, voice and chat are inside the details sheet), and a
                     doctor's in-clinic visit is in person. */}
-                {doctorAppointment && aptStatus === 'completed' && (
-                  <TouchableOpacity
-                    style={[styles.aptRateBtn, apt.doctorRating && styles.aptRateBtnDone]}
-                    onPress={() => openDoctorRating(apt)}
-                    disabled={Boolean(apt.doctorRating)}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons
-                      name={apt.doctorRating ? 'checkmark-circle' : 'star'}
-                      size={15}
-                      color={apt.doctorRating ? PATIENT.primary : '#D97706'}
-                    />
-                    <Text style={[styles.aptRateText, apt.doctorRating && styles.aptRateTextDone]} numberOfLines={1}>
-                      {apt.doctorRating
-                        ? `${t('Rated')} (${Number(apt.doctorRating.stars ?? apt.doctorRating.rating) || 0}/5)`
-                        : t('Rate Doctor')}
-                    </Text>
-                  </TouchableOpacity>
+                {doctorAppointment && aptStatus === 'completed' && !getAptClinicId(apt) && (
+                  <RateButton
+                    label={t('Rate Doctor')}
+                    rated={apt.doctorRating}
+                    onPress={() => openRating(apt, 'doctor')}
+                    t={t}
+                  />
                 )}
                 {doctorAppointment && !isDoctorClinicVisit(apt) && aptStatus !== 'completed' && (
                   <>
@@ -1969,6 +2028,24 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   </>
                 )}
               </View>
+              {/* A clinic visit rates the doctor and the clinic side by side. */}
+              {doctorAppointment && aptStatus === 'completed' && !!getAptClinicId(apt) && (
+                <View style={styles.aptRateRow}>
+                  <RateButton
+                    label={t('Rate Doctor')}
+                    rated={apt.doctorRating}
+                    onPress={() => openRating(apt, 'doctor')}
+                    t={t}
+                  />
+                  <RateButton
+                    label={t('Rate Clinic')}
+                    icon="business"
+                    rated={apt.clinicRating}
+                    onPress={() => openRating(apt, 'clinic')}
+                    t={t}
+                  />
+                </View>
+              )}
               {doctorActionable && (
                 <View style={styles.doctorAppointmentActionRow}>
                   {canCancelUserAppointment(apt) && (
@@ -2002,15 +2079,17 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
 
       {ratingApt && (
         <RatingModal
-          key={getAppointmentIdentity(ratingApt)}
+          key={`${ratingKind}-${getAppointmentIdentity(ratingApt)}`}
           visible
-          professionalType="doctor"
-          counselorName={ratingApt?.counselor?.fullName || ratingApt?.counselor?.name || ratingApt?.doctor?.fullName || ratingApt?.doctor?.name || t('your doctor')}
-          counselorPhoto={ratingApt?.counselor?.profilePhoto || ratingApt?.doctor?.profilePhoto}
+          professionalType={ratingKind}
+          counselorName={ratingKind === 'clinic'
+            ? getAptClinicName(ratingApt) || t('this clinic')
+            : ratingApt?.counselor?.fullName || ratingApt?.counselor?.name || ratingApt?.doctor?.fullName || ratingApt?.doctor?.name || t('your doctor')}
+          counselorPhoto={ratingKind === 'clinic' ? null : ratingApt?.counselor?.profilePhoto || ratingApt?.doctor?.profilePhoto}
           submitting={ratingBusy}
           success={ratingSuccess}
           error={ratingError}
-          onSubmit={submitDoctorRating}
+          onSubmit={submitRating}
           onClose={() => { if (!ratingBusy) setRatingApt(null); }}
         />
       )}
@@ -2074,9 +2153,18 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                       {counselorDisplayName(selectedApt)}
                     </Text>
                   </View>
-                  <Text style={sheetStyles.docSpec} numberOfLines={1}>
-                    {String(selectedApt?.counselor?.specialization || '').trim() || t('Mental Wellness Specialist')}
-                  </Text>
+                  {/* Every specialization as its own chip, wrapping as needed. */}
+                  {selectedSpecs.length ? (
+                    <View style={sheetStyles.docSpecChips}>
+                      {selectedSpecs.map((spec) => (
+                        <View key={spec} style={sheetStyles.docSpecChip}>
+                          <Text style={sheetStyles.docSpecChipText} numberOfLines={1}>{spec}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={sheetStyles.docSpec} numberOfLines={1}>{t('Mental Wellness Specialist')}</Text>
+                  )}
                   <View style={sheetStyles.docMetaRow}>
                     {!!formatExperience(selectedApt?.counselor?.experience) && (
                       <>
@@ -2086,22 +2174,15 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                         </Text>
                       </>
                     )}
-                    {Number(selectedApt?.counselor?.rating) > 0 ? (
-                      <>
-                        <Ionicons name="star" size={12} color="#F5A623" style={{ marginLeft: 10 }} />
-                        <Text style={sheetStyles.docMetaText}>
-                          {Number(selectedApt.counselor.rating).toFixed(1)}
-                        </Text>
-                      </>
-                    ) : (
+                    {providerRatingOf(selectedApt) > 0 && (
                       <View
                         style={[
-                          styles.newRatingBadge,
+                          styles.ratingPill,
                           !formatExperience(selectedApt?.counselor?.experience) && styles.newRatingBadgeFirst,
                         ]}
                       >
-                        <Ionicons name="sparkles" size={10} color={PATIENT.gradientTo} />
-                        <Text style={styles.newRatingText}>{t('counselor:newRating', 'New')}</Text>
+                        <Ionicons name="star" size={11} color="#F59E0B" />
+                        <Text style={styles.ratingPillText}>{providerRatingOf(selectedApt).toFixed(1)}</Text>
                       </View>
                     )}
                   </View>
@@ -5046,6 +5127,26 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: "500",
   },
+  aptSpecRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  aptSpecText: {
+    flexShrink: 1,
+  },
+  aptSpecMore: {
+    marginTop: 2,
+    borderRadius: 9,
+    backgroundColor: "#DCFCE7",
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  aptSpecMoreText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: PATIENT.primary,
+  },
   aptMetaRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -5057,8 +5158,8 @@ const styles = StyleSheet.create({
     color: PATIENT.textSecondary,
     fontWeight: "500",
   },
-  // Small "New" pill shown instead of a score for not-yet-rated consultants.
-  newRatingBadge: {
+  // Small amber "⭐ 4.2" pill — only for a doctor / consultant who has a rating.
+  ratingPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
@@ -5066,19 +5167,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 999,
-    backgroundColor: "#ECFDF3",
+    backgroundColor: "#FFFBEB",
     borderWidth: 1,
-    borderColor: "#BBF7D0",
+    borderColor: "#FDE68A",
   },
   // No experience before it: sit flush with the row start.
   newRatingBadgeFirst: {
     marginLeft: 0,
   },
-  newRatingText: {
-    fontSize: 10.5,
-    color: PATIENT.primary,
+  ratingPillText: {
+    fontSize: 11,
+    color: "#92400E",
     fontWeight: "800",
-    letterSpacing: 0.2,
   },
   aptStatusPill: {
     flexDirection: "row",
@@ -5365,6 +5465,13 @@ const styles = StyleSheet.create({
   },
   aptRateTextDone: {
     color: PATIENT.primary,
+  },
+  aptRateRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingBottom: 16,
+    marginTop: -6,
   },
   aptActionIconBtn: {
     width: 42,

@@ -12,6 +12,8 @@ import PATIENT from '../../../../../../theme/palette';
 import api, { API_BASE_URL } from '../../../../../../axiosConfig';
 import { toImageUri } from '../../../../../../utils/imageUri';
 import useLanguageRender from '../../../../../../hooks/useLanguageRender';
+import CountryPhoneInput from '../../../../../../components/common/CountryPhoneInput';
+import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber, splitInternationalPhoneNumber } from '../../../../../../utils/countryCodes';
 
 const API = `${API_BASE_URL.replace(/\/+$/, '').replace(/\/api$/, '')}/api`;
 const GENDERS = [
@@ -129,7 +131,7 @@ const SLOT_GROUPS = [
   { label: 'Evening', icon: 'moon-outline', test: (m) => m >= 1020 },
 ];
 
-const emptyForm = { patientName: '', contactNumber: '', problem: '', dateOfBirth: '', location: '', gender: '', appointmentTime: '', email: '' };
+const emptyForm = { patientName: '', contactNumber: '', phoneCountryCode: '+91', problem: '', dateOfBirth: '', location: '', gender: '', appointmentTime: '', email: '' };
 
 export default function WalkInBookingScreen({
   visible, doctorId, clinicId: scannedClinicId = null, clinicName: scannedClinicName = '', source = 'qr', onClose,
@@ -170,11 +172,12 @@ export default function WalkInBookingScreen({
     (async () => {
       let user = {};
       try { user = JSON.parse((await AsyncStorage.getItem('userData')) || '{}') || {}; } catch { user = {}; }
-      const phoneDigits = String(pick(user.phoneNumber, user.phone, user.phone_number, user.mobile, '') || '').replace(/\D/g, '').slice(-10);
+      const phone = splitInternationalPhoneNumber(pick(user.phoneNumber, user.phoneNum, user.phone, user.phone_number, user.mobile, ''), user.phoneCountryCode);
       setForm({
         ...emptyForm,
         patientName: String(pick(user.fullName, user.full_name, user.name, '') || ''),
-        contactNumber: phoneDigits,
+        contactNumber: phone.phoneNumber,
+        phoneCountryCode: phone.countryCode,
         dateOfBirth: toDateKeyOrEmpty(pick(user.dateOfBirth, user.date_of_birth, user.dob)),
         location: String(pick(typeof user.address === 'string' ? user.address : '', user.location, user.city, '') || ''),
         gender: normalizeGender(user.gender),
@@ -328,7 +331,7 @@ export default function WalkInBookingScreen({
   const validate = () => {
     const next = {};
     if (!form.patientName.trim()) next.patientName = 'Patient name is required';
-    if (!/^\d{10}$/.test(form.contactNumber)) next.contactNumber = 'Enter a valid 10-digit number';
+    if (!isValidLocalPhoneNumber(form.contactNumber, form.phoneCountryCode)) next.contactNumber = `Enter a valid ${getPhoneLengthLabel(form.phoneCountryCode)} digit phone number for ${form.phoneCountryCode}`;
     if (!form.problem.trim()) next.problem = 'Please describe the problem';
     if (!form.dateOfBirth) next.dateOfBirth = 'Date of birth is required';
     if (!form.location.trim()) next.location = 'Location or address is required';
@@ -359,7 +362,7 @@ export default function WalkInBookingScreen({
     }
     const payload = {
       patient_name: form.patientName.trim(),
-      phone_number: form.contactNumber.trim(),
+      phone_number: buildInternationalPhoneNumber(form.phoneCountryCode, form.contactNumber),
       symptoms: form.problem.trim(),
       doctor_id: doctorId,
       ...(patientAccountId ? { patient_id: String(patientAccountId) } : {}),
@@ -584,7 +587,7 @@ export default function WalkInBookingScreen({
                 <TextInput style={s.input} value={form.patientName} onChangeText={(v) => update('patientName', v)} placeholder="Full name" placeholderTextColor="#94A3B8" />
               </Field>
               <Field label="Contact Number *" error={errors.contactNumber}>
-                <TextInput style={s.input} value={form.contactNumber} onChangeText={(v) => update('contactNumber', v.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit mobile number" placeholderTextColor="#94A3B8" keyboardType="phone-pad" maxLength={10} />
+                <CountryPhoneInput value={form.contactNumber} countryCode={form.phoneCountryCode} onChangePhoneNumber={(v) => update('contactNumber', v)} onChangeCountryCode={(v) => update('phoneCountryCode', v)} accentColor="#0D9488" />
               </Field>
               <Field label="Medical Problem *" error={errors.problem}>
                 <TextInput style={[s.input, s.multiline]} value={form.problem} onChangeText={(v) => update('problem', v)} placeholder="Describe your problem" placeholderTextColor="#94A3B8" multiline textAlignVertical="top" />

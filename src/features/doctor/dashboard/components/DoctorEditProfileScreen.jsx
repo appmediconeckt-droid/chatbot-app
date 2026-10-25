@@ -1,6 +1,7 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Image, Pressable, ScrollView, View } from 'react-native';
+import { FlatList, Image, Modal, Pressable, ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
 import LinearGradient from 'react-native-linear-gradient';
@@ -11,7 +12,17 @@ import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { API_BASE_URL, TUNNEL_HEADERS } from '../../../../axiosConfig';
 import { launchImageLibrary } from 'react-native-image-picker';
 import LocationPicker from './LocationPicker';
+import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
+import { getPhoneLengthLabel, isValidLocalPhoneNumber, normalizeLocalPhoneNumber, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
+import {
+  COUNTRY_OPTIONS,
+  DEFAULT_COUNTRY,
+  currencyDigits,
+  currencySymbol,
+  findCountry,
+  isValidFee,
+} from '../../../../utils/consultationCurrency';
 
 // Edge-to-edge Android doesn't shrink the window for the keyboard, so the
 // form reserves the keyboard's height at the bottom and scrolls the focused
@@ -35,12 +46,11 @@ const toConsultationMode = (value) => {
   return list.find((m) => m === 'online' || m === 'offline') || '';
 };
 
-// The patient booking sheet reads these fields from /api/auth/counsellors:
-// the consultation fee, plus the extra charged for a video / voice call.
+// The patient booking sheet reads this fee (and its currency) from
+// /api/auth/counsellors. The server takes the currency from the profile
+// country, so the doctor picks a country and the currency follows.
 const FEE_FIELDS = [
   { key: 'consultationFee', title: 'Consultation Fee', subtitle: 'Charged for every appointment' },
-  { key: 'videoConsultationFee', title: 'Video Call (extra)', subtitle: 'Added on top for video consultation' },
-  { key: 'voiceConsultationFee', title: 'Voice Call (extra)', subtitle: 'Added on top for voice consultation' },
 ];
 
 const toFeeText = (...values) => {
@@ -48,14 +58,20 @@ const toFeeText = (...values) => {
   return fee != null ? String(Number(fee)) : '';
 };
 
+// The profile's country as one of the picker's names ("India" when unset —
+// the server's default too).
+const initialCountry = (profile) =>
+  findCountry(profile?.address?.country)?.name || DEFAULT_COUNTRY;
+
 function toInitial(profile) {
+  const phone = splitInternationalPhoneNumber(profile?.phoneNumber || profile?.phoneNum || profile?.phone || '', profile?.phoneCountryCode);
   return {
     consultationFee: toFeeText(profile?.consultationFee, profile?.consultation_fee, profile?.fee),
-    videoConsultationFee: toFeeText(profile?.videoConsultationFee, profile?.video_consultation_fee),
-    voiceConsultationFee: toFeeText(profile?.voiceConsultationFee, profile?.voice_consultation_fee),
+    country: initialCountry(profile),
     fullName: profile?.fullName || '',
     email: profile?.email || '',
-    phoneNumber: profile?.phoneNumber || profile?.phoneNum || profile?.phone || '',
+    phoneNumber: phone.phoneNumber,
+    phoneCountryCode: phone.countryCode,
     age: profile?.age != null ? String(profile.age) : '',
     gender: String(profile?.gender || '').trim().toLowerCase(),
     qualification: profile?.qualification || '',
@@ -83,6 +99,16 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
   );
   const [saving, setSaving] = useState(false);
   const [photo, setPhoto] = useState(null);
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
+  const feeCountry = findCountry(form.country) || findCountry(DEFAULT_COUNTRY);
+  const feeCurrency = feeCountry.currency;
+  const feeDigits = currencyDigits(feeCurrency);
+  // Digits, plus as many decimals as the currency allows (none for JPY).
+  const cleanFee = (value) => {
+    const [whole = '', ...rest] = String(value).replace(/[^\d.]/g, '').split('.');
+    const decimals = rest.join('').slice(0, feeDigits);
+    return feeDigits > 0 && String(value).includes('.') ? `${whole.slice(0, 7)}.${decimals}` : whole.slice(0, 7);
+  };
 
   const pickPhoto = async () => {
     const result = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1, quality: 0.8 });
@@ -94,8 +120,8 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
     if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) {
       return showToast('Enter a valid email address');
     }
-    if (form.phoneNumber.trim() && !/^\d{7,15}$/.test(form.phoneNumber.replace(/\D/g, ''))) {
-      return showToast('Enter a valid phone number');
+    if (!isValidLocalPhoneNumber(form.phoneNumber, form.phoneCountryCode)) {
+      return showToast(`Enter a valid ${getPhoneLengthLabel(form.phoneCountryCode)} digit phone number for ${form.phoneCountryCode}`);
     }
     if (form.age.trim() && Number.isNaN(Number(form.age))) {
       return showToast('Age must be a number');
@@ -103,8 +129,8 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
     if (form.experience && Number.isNaN(Number(form.experience))) {
       return showToast('Experience must be a number');
     }
-    if (form.consultationFee !== '' && !(Number(form.consultationFee) > 0)) {
-      return showToast('Consultation fee must be more than ₹0');
+    if (form.consultationFee !== '' && !isValidFee(form.consultationFee, feeCurrency)) {
+      return showToast(`Enter a valid consultation fee in ${feeCurrency}`);
     }
     try {
       setSaving(true);
@@ -120,10 +146,11 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
       const formData = new FormData();
       formData.append('fullName', form.fullName.trim());
       if (form.email.trim()) formData.append('email', form.email.trim().toLowerCase());
-      const phoneDigits = form.phoneNumber.replace(/\D/g, '');
+      const phoneDigits = normalizeLocalPhoneNumber(form.phoneNumber, form.phoneCountryCode);
       if (phoneDigits) {
         formData.append('phoneNumber', phoneDigits);
         formData.append('phoneNum', phoneDigits);
+        formData.append('phoneCountryCode', form.phoneCountryCode);
       }
       if (form.age.trim()) formData.append('age', String(Number(form.age)));
       if (form.gender) formData.append('gender', form.gender.toLowerCase());
@@ -141,6 +168,12 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
       FEE_FIELDS.forEach(({ key }) => {
         if (form[key] !== '') formData.append(key, String(Number(form[key])));
       });
+      // The country sets the fee currency on the server. `address` replaces
+      // the whole saved address, so the rest of it is sent back unchanged.
+      if (form.country !== initialCountry(profile) || (form.consultationFee !== '' && !profile?.address?.country)) {
+        formData.append('address', JSON.stringify({ ...(profile?.address || {}), country: form.country }));
+      }
+      if (form.consultationFee !== '') formData.append('consultationCurrency', feeCurrency);
       if (photo?.uri) {
         formData.append('profilePhoto', {
           uri: photo.uri,
@@ -161,7 +194,9 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
       // check the saved user really carries the fees that were sent.
       const savedUser = data?.user || data?.data || {};
       const feesDropped = FEE_FIELDS.some(({ key }) =>
-        form[key] !== '' && Number(savedUser[key]) !== Number(form[key]));
+        form[key] !== '' && Number(savedUser[key]) !== Number(form[key]))
+        || (form.consultationFee !== '' && savedUser.consultationCurrency !== undefined
+          && savedUser.consultationCurrency !== feeCurrency);
       if (feesDropped) {
         showToast('Profile saved, but the server did not save your fees. Fee support is needed on the backend.');
         onSaved ? onSaved() : onBack?.();
@@ -221,7 +256,10 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
         <Section icon="user" label="Overview">
           <Field label="Full Name" value={form.fullName} onChangeText={set('fullName')} />
           <Field label="Email" value={form.email} onChangeText={set('email')} keyboardType="email-address" autoCapitalize="none" />
-          <Field label="Phone Number" value={form.phoneNumber} onChangeText={(value) => set('phoneNumber')(value.replace(/\D/g, '').slice(0, 15))} keyboardType="phone-pad" />
+          <View style={s.field}>
+            <Text style={s.fieldLabel}>Phone Number</Text>
+            <CountryPhoneInput value={form.phoneNumber} countryCode={form.phoneCountryCode} onChangePhoneNumber={set('phoneNumber')} onChangeCountryCode={set('phoneCountryCode')} onFocus={scrollFocusedInputIntoView} accentColor="#0D9488" />
+          </View>
           <View style={s.field}>
             <Text style={s.fieldLabel}>Gender</Text>
             <View style={s.genderRow}>
@@ -271,17 +309,51 @@ export default function DoctorEditProfileScreen({ profile, onBack, onSaved }) {
         </Section>
 
         <Section icon="briefcase" label="Consultation Fees">
+          <Pressable
+            onPress={() => setCountryPickerOpen(true)}
+            style={({ pressed }) => [s.currencyRow, pressed && s.currencyRowPressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Choose fee country and currency"
+          >
+            <View style={s.feeInfo}>
+              <Text style={s.feeTitle}>Country & Currency</Text>
+              <Text style={s.feeSubtitle}>Patients pay your fee in this currency</Text>
+            </View>
+            <View style={s.currencyValue}>
+              <Text translate={false} style={s.currencyValueText} numberOfLines={1}>
+                {feeCountry.name} · {currencySymbol(feeCurrency)} {feeCurrency}
+              </Text>
+              <AppIcon name="chevron-down" size={15} color="#475467" strokeWidth={2.4} />
+            </View>
+          </Pressable>
           {FEE_FIELDS.map((item, index) => (
             <FeeRow
               key={item.key}
               title={item.title}
               subtitle={item.subtitle}
               value={form[item.key]}
-              onChangeText={(value) => set(item.key)(value.replace(/\D/g, '').slice(0, 6))}
+              currency={currencySymbol(feeCurrency)}
+              decimal={feeDigits > 0}
+              onChangeText={(value) => set(item.key)(cleanFee(value))}
               last={index === FEE_FIELDS.length - 1}
             />
           ))}
         </Section>
+        <CountryPickerModal
+          visible={countryPickerOpen}
+          selected={feeCountry.name}
+          onSelect={(name) => {
+            setCountryPickerOpen(false);
+            setForm((prev) => {
+              // A fee with more decimals than the new currency allows is cut down.
+              const digits = currencyDigits(findCountry(name)?.currency);
+              const [whole, dec = ''] = String(prev.consultationFee).split('.');
+              const fee = prev.consultationFee === '' ? '' : digits > 0 && dec ? `${whole}.${dec.slice(0, digits)}` : whole;
+              return { ...prev, country: name, consultationFee: fee };
+            });
+          }}
+          onClose={() => setCountryPickerOpen(false)}
+        />
 
         <Section icon="file" label="Professional Summary">
           <TextInput
@@ -338,7 +410,7 @@ function Field({ label, value, onChangeText, half, keyboardType, autoCapitalize 
   );
 }
 
-function FeeRow({ title, subtitle, value, onChangeText, last }) {
+function FeeRow({ title, subtitle, value, onChangeText, currency = '₹', decimal, last }) {
   const onFocus = useContext(KeyboardFocusContext);
   return (
     <View style={[s.feeRow, last && s.feeRowLast]}>
@@ -347,18 +419,91 @@ function FeeRow({ title, subtitle, value, onChangeText, last }) {
         <Text style={s.feeSubtitle}>{subtitle}</Text>
       </View>
       <View style={s.feeInputWrap}>
-        <Text style={s.feeCurrency}>₹</Text>
+        <Text translate={false} style={s.feeCurrency}>{currency}</Text>
         <TextInput
           value={value}
           onChangeText={onChangeText}
           style={s.feeInput}
           placeholder="0"
           placeholderTextColor="#94A3B8"
-          keyboardType="number-pad"
+          keyboardType={decimal ? 'decimal-pad' : 'number-pad'}
           onFocus={onFocus}
         />
       </View>
     </View>
+  );
+}
+
+// Searchable list of countries, each with the currency it sets for the fee.
+function CountryPickerModal({ visible, selected, onSelect, onClose }) {
+  const insets = useSafeAreaInsets();
+  const [query, setQuery] = useState('');
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return COUNTRY_OPTIONS;
+    return COUNTRY_OPTIONS.filter((c) =>
+      c.name.toLowerCase().includes(q) || c.currency.toLowerCase().includes(q) || c.code.toLowerCase() === q);
+  }, [query]);
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={onClose}
+      onShow={() => setQuery('')}
+    >
+      <View style={s.pickerBackdrop}>
+        <Pressable style={s.pickerBackdropTap} onPress={onClose} />
+        <View style={[s.pickerSheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <View style={s.pickerHandle} />
+          <View style={s.pickerHeader}>
+            <Text style={s.pickerTitle}>Fee Country & Currency</Text>
+            <Pressable onPress={onClose} hitSlop={10}>
+              <AppIcon name="x" size={20} color="#475467" strokeWidth={2.2} />
+            </Pressable>
+          </View>
+          <View style={s.pickerSearch}>
+            <AppIcon name="search" size={16} color="#7B8493" strokeWidth={1.9} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search country or currency"
+              placeholderTextColor="#94A3B8"
+              style={s.pickerSearchInput}
+              autoCorrect={false}
+            />
+          </View>
+          <FlatList
+            data={rows}
+            keyExtractor={(item) => item.code}
+            keyboardShouldPersistTaps="handled"
+            initialNumToRender={20}
+            style={s.pickerList}
+            ListEmptyComponent={<Text style={s.pickerEmpty}>No country found</Text>}
+            renderItem={({ item }) => {
+              const active = item.name === selected;
+              return (
+                <Pressable
+                  onPress={() => onSelect(item.name)}
+                  style={({ pressed }) => [s.pickerRow, active && s.pickerRowActive, pressed && s.pickerRowPressed]}
+                >
+                  <Text translate={false} style={[s.pickerRowName, active && s.pickerRowNameActive]} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  <Text translate={false} style={s.pickerRowCurrency}>
+                    {currencySymbol(item.currency)} {item.currency}
+                  </Text>
+                  {active && <AppIcon name="check" size={16} color="#0D9488" strokeWidth={2.6} />}
+                </Pressable>
+              );
+            }}
+          />
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -479,5 +624,25 @@ const s = createDoctorStyles({
   availableLabel: { fontSize: 12, fontWeight: '600', color: '#667085' },
   feeInputWrap: { flexDirection: 'row', alignItems: 'center', height: 40, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 9, paddingHorizontal: 10, gap: 4, width: 100 },
   feeCurrency: { fontSize: 13.5, color: '#667085' },
+  currencyRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 12, marginBottom: 12, borderBottomWidth: 1, borderBottomColor: '#EEF1F5' },
+  currencyRowPressed: { opacity: 0.7 },
+  currencyValue: { flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: '55%', borderWidth: 1, borderColor: '#B7ECE7', backgroundColor: '#F0FDFA', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
+  currencyValueText: { flexShrink: 1, fontSize: 12.5, fontWeight: '700', color: '#0F766E' },
+  pickerBackdrop: { flex: 1, backgroundColor: 'rgba(16,33,63,0.35)', justifyContent: 'flex-end' },
+  pickerBackdropTap: { flex: 1 },
+  pickerSheet: { height: '78%', backgroundColor: '#FFFFFF', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 16, paddingTop: 8 },
+  pickerHandle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: '#D0D5DD', marginBottom: 10 },
+  pickerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  pickerTitle: { fontSize: 16.5, fontWeight: '800', color: '#17243A' },
+  pickerSearch: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 12, paddingHorizontal: 12, marginBottom: 8 },
+  pickerSearchInput: { flex: 1, fontSize: 14, color: '#17243A', paddingVertical: 0 },
+  pickerList: { flex: 1 },
+  pickerEmpty: { textAlign: 'center', color: '#667085', fontSize: 13, paddingVertical: 24 },
+  pickerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 13, paddingHorizontal: 10, borderRadius: 10 },
+  pickerRowActive: { backgroundColor: '#F0FDFA' },
+  pickerRowPressed: { backgroundColor: '#F2F4F7' },
+  pickerRowName: { flex: 1, fontSize: 14.5, color: '#17243A' },
+  pickerRowNameActive: { fontWeight: '800', color: '#0F766E' },
+  pickerRowCurrency: { fontSize: 13, fontWeight: '700', color: '#667085' },
   feeInput: { flex: 1, fontSize: 13.5, color: '#17243A' },
 });

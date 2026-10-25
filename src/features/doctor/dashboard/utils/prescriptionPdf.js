@@ -10,7 +10,9 @@ const sanitizePdfText = value => toSafeString(value)
 // to the phone's Downloads folder when Android allows it, and the file opens
 // straight away in the phone's PDF viewer (save / share from there) — before,
 // it only sat in the private app folder where the doctor couldn't reach it.
-export async function saveAndOpenPdf(appPath, fileName) {
+// `replace`: only for names unique to one document — an existing file with the
+// same name is an older copy of it and is overwritten instead of kept beside it.
+export async function saveAndOpenPdf(appPath, fileName, { replace = false } = {}) {
   if (!appPath || typeof appPath !== 'string') {
     throw new Error('Prescription PDF could not be created.');
   }
@@ -18,6 +20,10 @@ export async function saveAndOpenPdf(appPath, fileName) {
   if (Platform.OS === 'android') {
     try {
       let target = `${RNFS.DownloadDirectoryPath}/${fileName}.pdf`;
+      if (replace && await RNFS.exists(target)) {
+        // May fail for a copy saved by an earlier install; then keep it and number this one.
+        await RNFS.unlink(target).catch(() => {});
+      }
       for (let copy = 1; (await RNFS.exists(target)) && copy < 100; copy += 1) {
         target = `${RNFS.DownloadDirectoryPath}/${fileName} (${copy}).pdf`;
       }

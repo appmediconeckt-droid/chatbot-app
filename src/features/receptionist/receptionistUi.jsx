@@ -1,7 +1,7 @@
 // Shared look of the receptionist portal — the web portal's rec-* styles
 // (ReceptionistPortal.css) as React Native components.
-import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Image, Keyboard, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Image, Keyboard, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../components/TranslatedText';
@@ -13,6 +13,8 @@ import { QUEUE_TABS, appointmentStatuses, canCancelAppointment, canRecordVitals,
 import { getDoctorMedicines, getDoctorTests, unpackConsultationNotes } from '../../utils/consultationDetails';
 import { saveStaffAppointmentVitals } from './receptionistApi';
 import { useReceptionistVitals } from './ReceptionistVitalsContext';
+import { formatPhoneNumber } from '../../utils/countryCodes';
+import VitalsForm, { VITAL_FIELDS, canonicalVitals, hasVital } from '../../components/VitalsForm';
 
 export const REC = {
   primary: '#12756D',
@@ -122,144 +124,69 @@ export function EmergencyReason({ row }) {
   );
 }
 
-const VITAL_FIELDS = [
-  ['blood_pressure', 'Blood pressure', 'e.g. 120/80'],
-  ['pulse', 'Pulse (beats/min)', ''],
-  ['temperature', 'Temperature (°C)', ''],
-  ['spo2', 'SpO₂ (%)', ''],
-  ['respiratory_rate', 'Breathing rate', ''],
-  ['weight', 'Weight (kg)', ''],
-  ['height', 'Height (cm)', ''],
-  ['pain_score', 'Pain score (0–10)', ''],
-];
-
-const parseVitals = (value) => {
-  if (typeof value === 'string') {
-    try { return JSON.parse(value) || {}; } catch { return {}; }
-  }
-  return value && typeof value === 'object' ? value : {};
-};
-
-const canonicalVitals = (value) => {
-  const v = parseVitals(value);
-  return {
-    ...v,
-    blood_pressure: v.blood_pressure ?? v.bp ?? v.bloodPressure ?? '',
-    pulse: v.pulse ?? v.heartRate ?? v.heart_rate ?? '',
-  };
-};
-
-const vitalsDraft = (value) => {
-  const v = canonicalVitals(value);
-  return Object.fromEntries([...VITAL_FIELDS.map(([key]) => [key, v[key] ?? '']), ['notes', v.notes || '']]);
-};
-
-function PatientVitalsEditor({ patient, onInputFocus, initialEditing, onSaved, onBusyChange }) {
-  // The parent keys this editor by appointment, so polling the same patient
-  // updates the details without clearing a draft or a newly saved reading.
-  const [saved, setSaved] = useState(null);
-  const [draft, setDraft] = useState(() => initialEditing && canRecordVitals(patient) ? vitalsDraft(patient.vitals) : null);
-  const [busy, setBusy] = useState(false);
-  const saving = useRef(false);
-  const inputRefs = useRef({});
-  const [error, setError] = useState('');
-  const { recordVitals } = useReceptionistVitals();
-
-  const values = canonicalVitals(saved || patient?.vitals);
-  const editable = Boolean(patient?.id && canRecordVitals(patient));
-  const hasVitals = VITAL_FIELDS.some(([key]) => values[key] !== '' && values[key] !== undefined && values[key] !== null);
-
-  const save = async () => {
-    if (saving.current || !patient?.id || !draft) return;
-    if (!VITAL_FIELDS.some(([key]) => String(draft[key] ?? '').trim())) {
-      setError('Enter at least one measured vital.');
-      return;
-    }
-    saving.current = true;
-    setBusy(true);
-    onBusyChange?.(true);
-    setError('');
-    try {
-      const { data } = await saveStaffAppointmentVitals(patient, draft);
-      recordVitals(patient, data.vitals);
-      setSaved(data.vitals);
-      setDraft(null);
-      Keyboard.dismiss();
-      onSaved?.();
-    } catch (err) {
-      setError(err?.response?.data?.message || err?.response?.data?.error || err.message || 'Vitals could not be saved. Please try again.');
-    } finally {
-      saving.current = false;
-      setBusy(false);
-      onBusyChange?.(false);
-    }
-  };
-
+// Read-only: only the readings that were actually recorded, as tiles.
+function PatientVitalsView({ patient }) {
+  const values = canonicalVitals(patient?.vitals);
+  const recorded = VITAL_FIELDS.filter(([key]) => hasVital(values[key]));
   return (
-    <View style={s.vitalsEditor}>
+    <View style={s.vitalsCard}>
       <View style={s.vitalsHeader}>
+        <View style={s.vitalsIcon}><Ionicons name="pulse" size={16} color={REC.primary} /></View>
         <View style={s.flex}>
           <Text style={s.vitalsTitle}>Patient vitals</Text>
-          <Text style={s.vitalsSub}>{hasVitals ? 'Recorded measurements' : 'No measurements recorded yet'}</Text>
+          <Text style={s.vitalsSub}>{recorded.length ? `${recorded.length} ${recorded.length === 1 ? 'reading' : 'readings'} recorded` : 'No measurements recorded yet'}</Text>
         </View>
-        {editable && !draft && <RecButton compact primary label={hasVitals ? 'Edit vitals' : 'Add vitals'} icon={hasVitals ? 'create-outline' : 'add-circle-outline'} onPress={() => { setError(''); setDraft(vitalsDraft(saved || patient?.vitals)); }} />}
       </View>
-      {draft ? (
-        <View style={s.vitalsForm}>
-          {VITAL_FIELDS.map(([key, label, placeholder]) => (
-            <View key={key} style={s.vitalInputWrap}>
-              <Text style={s.vitalInputLabel}>{label}</Text>
-              <TextInput
-                ref={node => { inputRefs.current[key] = node; }}
-                value={String(draft[key] ?? '')}
-                onChangeText={(value) => setDraft((current) => ({ ...current, [key]: value }))}
-                placeholder={placeholder}
-                placeholderTextColor="#94A3B8"
-                keyboardType={key === 'blood_pressure' ? 'default' : 'decimal-pad'}
-                returnKeyType="next"
-                submitBehavior="submit"
-                onSubmitEditing={() => {
-                  const nextKey = VITAL_FIELDS[VITAL_FIELDS.findIndex(([field]) => field === key) + 1]?.[0] || 'notes';
-                  inputRefs.current[nextKey]?.focus();
-                }}
-                onFocus={onInputFocus}
-                accessibilityLabel={label}
-                editable={!busy}
-                style={s.vitalInput}
-              />
+      {recorded.length > 0 ? (
+        <View style={s.vitalsGrid}>
+          {recorded.map(([key, label, , unit, accent]) => (
+            <View key={key} style={s.vitalTile}>
+              <View style={[s.vitalTileAccent, { backgroundColor: accent }]} />
+              <Text style={s.vitalTileLabel}>{label}</Text>
+              <Text translate={false} style={s.vitalTileValue}>
+                {String(values[key]).trim()}
+                <Text translate={false} style={s.vitalTileUnit}>{/^[/°%]/.test(unit) ? unit : ` ${unit}`}</Text>
+              </Text>
             </View>
           ))}
-          <Text style={s.vitalInputLabel}>Measurement notes</Text>
-          <TextInput
-            ref={node => { inputRefs.current.notes = node; }}
-            value={draft.notes}
-            onChangeText={(value) => setDraft((current) => ({ ...current, notes: value }))}
-            placeholder="Optional notes"
-            placeholderTextColor="#94A3B8"
-            multiline
-            onFocus={onInputFocus}
-            accessibilityLabel="Measurement notes"
-            editable={!busy}
-            style={[s.vitalInput, s.vitalNotesInput]}
-          />
-          <View style={s.vitalsFormActions}>
-            <RecButton compact primary label={busy ? 'Saving...' : 'Save vitals'} disabled={busy} onPress={save} />
-          </View>
         </View>
       ) : (
-        <View style={s.vitalsGrid}>
-          {VITAL_FIELDS.map(([key, label]) => (
-            <View key={key} style={s.vitalValueBox}>
-              <Text style={s.vitalValueLabel}>{label}</Text>
-              <Text translate={false} style={s.vitalValue}>{values[key] === '' || values[key] == null ? 'Not recorded' : String(values[key])}</Text>
-            </View>
-          ))}
-          {values.notes && <Text translate={false} style={s.vitalsNotes}>Notes: {values.notes}</Text>}
+        <Text style={s.vitalsEmpty}>Vitals measured at the front desk before the checkup will appear here.</Text>
+      )}
+      {hasVital(values.notes) && (
+        <View style={s.vitalsNotesBox}>
+          <Text style={s.vitalsNotesLabel}>Notes</Text>
+          <Text translate={false} style={s.vitalsNotes}>{values.notes}</Text>
         </View>
       )}
-      {!editable && patient?.id && <Text style={s.vitalsReadOnly}>Vitals are read-only after the visit is started or completed.</Text>}
-      {!!error && <Text translate={false} style={s.vitalsError}>{error}</Text>}
     </View>
+  );
+}
+
+// The Add / Edit vitals form — on its own, with nothing else in the sheet.
+// The parent keys it by appointment, so polling never clears what is typed.
+function PatientVitalsForm({ patient, onInputFocus, onSaved, onBusyChange }) {
+  const { recordVitals } = useReceptionistVitals();
+  if (!patient?.id || !canRecordVitals(patient)) {
+    return (
+      <View style={s.vitalsLocked}>
+        <Ionicons name="lock-closed-outline" size={18} color={REC.muted} />
+        <Text style={s.vitalsLockedText}>Vitals are read-only after the visit is started or completed.</Text>
+      </View>
+    );
+  }
+  return (
+    <VitalsForm
+      initialVitals={patient.vitals}
+      color={REC.primary}
+      onInputFocus={onInputFocus}
+      onBusyChange={onBusyChange}
+      onSubmit={async (draft) => {
+        const { data } = await saveStaffAppointmentVitals(patient, draft);
+        recordVitals(patient, data.vitals);
+        onSaved?.();
+      }}
+    />
   );
 }
 
@@ -366,7 +293,7 @@ export function StatTile({ title, value, icon, tone = 'blue', columns, fluid = f
 // The doctor's queue tabs: Pending / In Progress / Next / Completed / Cancelled.
 export function QueueTabs({ active, counts, onChange }) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabs}>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabsScroll} contentContainerStyle={s.tabs}>
       {QUEUE_TABS.map((tab) => {
         const on = tab.key === active;
         return (
@@ -478,52 +405,197 @@ export function AppointmentRow({ row: appointment, clinics, onView, onCancel, ca
   const { withSavedVitals } = useReceptionistVitals();
   const row = withSavedVitals(appointment);
   const busy = cancelBusy && cancelBusy === `${row.source}:${row.id}`;
+  const statuses = appointmentStatuses(row);
+  // The left edge takes the colour of the visit's state.
+  const accent = row.emergency ? '#DC2626' : (BADGES[String(statuses[0] || '').toLowerCase()]?.fg || REC.primary);
+  const phone = formatPhoneNumber(row.phoneNumber || row.phone, row.phoneCountryCode || row.patient?.phoneCountryCode);
+  const walkIn = row.source === 'walkin';
   return (
     <View style={[s.aptRow, row.emergency && s.aptRowEmergency]}>
+      <View style={[s.aptAccent, { backgroundColor: accent }]} />
       <View style={s.aptTop}>
         <View style={[s.tokenTile, row.emergency && s.tokenTileEmergency]}>
-          <Text translate={false} style={s.tokenTileNumber} numberOfLines={1} adjustsFontSizeToFit>
-            {row.token != null && row.token !== '' ? `#${row.token}` : '--'}
-          </Text>
           <Text style={s.tokenTileLabel}>{row.emergency ? 'SOS' : 'TOKEN'}</Text>
+          <Text translate={false} style={s.tokenTileNumber} numberOfLines={1} adjustsFontSizeToFit>
+            {row.token != null && row.token !== '' ? row.token : '--'}
+          </Text>
         </View>
         <View style={s.aptIdentity}>
-          <Text translate={false} style={s.aptName}>{row.patientName}</Text>
-          <Text translate={false} style={s.aptSub} numberOfLines={1}>{row.phoneNumber || 'Phone not recorded'}</Text>
+          <Text translate={false} style={s.aptName} numberOfLines={1}>{row.patientName}</Text>
+          <View style={s.aptPhoneRow}>
+            <Ionicons name="call-outline" size={12} color={REC.muted} />
+            <Text translate={false} style={s.aptSub} numberOfLines={1}>{phone || 'Phone not recorded'}</Text>
+          </View>
         </View>
-        <View style={s.timePill}>
-          <Ionicons name={row.emergency ? 'alert-circle' : 'time-outline'} size={12} color={row.emergency ? '#C24848' : REC.primary} />
+        <View style={[s.timePill, row.emergency && s.timePillEmergency]}>
+          <Ionicons name={row.emergency ? 'alert-circle' : 'time-outline'} size={13} color={row.emergency ? '#C24848' : REC.primary} />
           <Text translate={false} style={[s.timePillText, row.emergency && s.timePillTextEmergency]}>{row.time ? clockLabel(row.time) : '--'}</Text>
         </View>
       </View>
+
       <View style={s.aptMeta}>
         <View style={s.metaItem}>
-          <Ionicons name="calendar-outline" size={13} color={REC.muted} />
-          <Text translate={false} style={s.metaText}>{dateLabel(row.date)}{row.time ? ` · ${clockLabel(row.time)}` : ''}</Text>
+          <Ionicons name="calendar-outline" size={13} color={REC.primary} />
+          <Text translate={false} style={s.metaText}>{dateLabel(row.date)}</Text>
         </View>
-        <View style={s.metaItem}>
-          <Ionicons name="business-outline" size={13} color={REC.muted} />
+        <View style={s.metaDivider} />
+        <View style={[s.metaItem, s.metaItemGrow]}>
+          <Ionicons name="business-outline" size={13} color={REC.primary} />
           <Text translate={false} style={s.metaText} numberOfLines={1}>{clinicName(clinics, row.clinicId)}</Text>
         </View>
-        <View style={s.metaItem}>
-          <Ionicons name={row.source === 'walkin' ? 'walk-outline' : 'globe-outline'} size={13} color={REC.muted} />
-          <Text style={s.metaText}>{row.source === 'walkin' ? 'Walk-in patient' : 'Online booking'}</Text>
-        </View>
       </View>
+
       <EmergencyReason row={row} />
+
       <View style={s.aptBadges}>
         {row.emergency && <Badge emergency />}
-        {appointmentStatuses(row).map((status) => <Badge key={status} value={status} />)}
-        <View style={s.flex} />
+        {statuses.map((status) => <Badge key={status} value={status} />)}
+        <View style={[s.sourceTag, walkIn && s.sourceTagWalkIn]}>
+          <Ionicons name={walkIn ? 'walk-outline' : 'globe-outline'} size={11} color={walkIn ? '#B54708' : '#3975C7'} />
+          <Text style={[s.sourceTagText, walkIn && s.sourceTagTextWalkIn]}>{walkIn ? 'Walk-in' : 'Online'}</Text>
+        </View>
+      </View>
+
+      <View style={s.aptActions}>
         {canRecordVitals(row) && (
-          <RecButton compact primary label={row.vitals ? 'Edit vitals' : 'Add vitals'} icon={row.vitals ? 'create-outline' : 'add-circle-outline'} onPress={() => onView(row, { editVitals: true })} />
+          <RecButton compact primary label={row.vitals ? 'Edit vitals' : 'Add vitals'} icon={row.vitals ? 'create-outline' : 'add-circle-outline'} onPress={() => onView(row, { editVitals: true })} style={s.flex} />
         )}
         {onCancel && canCancelAppointment(row) && (
-          <RecButton compact danger label={busy ? 'Cancelling...' : 'Cancel'} disabled={Boolean(cancelBusy)} onPress={() => onCancel(row)} />
+          <RecButton compact danger label={busy ? 'Cancelling...' : 'Cancel'} disabled={Boolean(cancelBusy)} onPress={() => onCancel(row)} style={s.flex} />
         )}
-        <RecButton compact label="View" icon="arrow-forward" onPress={() => onView(row)} />
+        <RecButton compact label="View details" icon="eye-outline" onPress={() => onView(row)} style={s.flex} />
       </View>
     </View>
+  );
+}
+
+// A value worth showing — not blank and not one of the "nothing here" fillers.
+const EMPTY_VALUES = /^(n\/?a|—|-+|not recorded|not provided|not scheduled|not specified|unassigned|none|null|undefined)$/i;
+const present = (value) => value != null && String(value).trim() !== '' && !EMPTY_VALUES.test(String(value).trim());
+
+function InfoSection({ icon, title, children }) {
+  return (
+    <View style={s.infoSection}>
+      <View style={s.infoSectionHead}>
+        <View style={s.infoSectionIcon}><Ionicons name={icon} size={15} color={REC.primary} /></View>
+        <Text style={s.infoSectionTitle}>{title}</Text>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+// Label / value pairs; rows without a value are left out.
+function InfoRows({ rows }) {
+  const shown = rows.filter(([, value]) => present(value));
+  return shown.map(([label, value], index) => (
+    <View key={label} style={[s.infoRow, index === shown.length - 1 && s.infoRowLast]}>
+      <Text style={s.infoLabel}>{label}</Text>
+      <Text translate={false} style={s.infoValue}>{String(value)}</Text>
+    </View>
+  ));
+}
+
+function InfoBlock({ label, value, tone }) {
+  if (!present(value)) return null;
+  return (
+    <View style={[s.infoBlock, tone && s[`infoBlock_${tone}`]]}>
+      <Text style={[s.infoBlockLabel, tone && s[`infoBlockLabel_${tone}`]]}>{label}</Text>
+      <Text translate={false} style={s.infoBlockValue}>{String(value)}</Text>
+    </View>
+  );
+}
+
+// "View details": the appointment in sections, showing only what was recorded.
+function PatientDetailsView({ patient, clinics, doctorName, consultation, medicines, tests }) {
+  const phone = formatPhoneNumber(patient.phoneNumber || patient.phone, patient.phoneCountryCode || patient.patient?.phoneCountryCode);
+  const clinic = clinicName(clinics, patient.clinicId);
+  const startedAt = patient.timing?.startedAt ? displayTime(patient.timing.startedAt) : '';
+  const endedAt = patient.timing?.endedAt ? displayTime(patient.timing.endedAt) : '';
+  const symptoms = consultation.symptoms || consultation.issue;
+  const diagnosis = consultation.diagnosis || consultation.problem;
+  const advice = consultation.advice || consultation.instructions;
+  const notes = consultation.additionalNotes || consultation.additional_notes || consultation.notes;
+  const followUp = consultation.followUpDate || consultation.follow_up_date;
+  const hasPatient = [phone, patient.age, patient.gender].some(present);
+  const hasCheckup = present(startedAt) || present(endedAt);
+  const hasConsultation = [symptoms, diagnosis, advice, notes, followUp].some(present) || medicines.length > 0 || tests.length > 0;
+
+  return (
+    <>
+      {hasPatient && (
+        <InfoSection icon="person-outline" title="Patient">
+          <InfoRows rows={[
+            ['Phone', phone],
+            ['Age', present(patient.age) ? `${patient.age} yrs` : ''],
+            ['Gender', patient.gender ? String(patient.gender).replace(/^\w/, (c) => c.toUpperCase()) : ''],
+          ]} />
+        </InfoSection>
+      )}
+
+      <InfoSection icon="calendar-outline" title="Appointment">
+        <InfoRows rows={[
+          ['Doctor', doctorName],
+          ['Clinic / Hospital', clinic],
+          ['Date', present(patient.date) ? dateLabel(patient.date) : ''],
+          ['Time', patient.time ? clockLabel(patient.time) : ''],
+          ['Booked via', patient.source === 'walkin' ? 'Walk-in' : 'Online booking'],
+          ['Status', patient.status ? statusLabel(patient.status) : ''],
+        ]} />
+      </InfoSection>
+
+      {hasCheckup && (
+        <InfoSection icon="time-outline" title="Checkup">
+          <InfoRows rows={[['Started', startedAt], ['Completed', endedAt]]} />
+        </InfoSection>
+      )}
+
+      {hasConsultation && (
+        <InfoSection icon="medkit-outline" title="Consultation">
+          <InfoBlock label="Symptoms" value={symptoms} tone="amber" />
+          <InfoBlock label="Diagnosis" value={diagnosis} tone="indigo" />
+          {medicines.length > 0 && (
+            <View style={s.infoGroup}>
+              <Text style={s.infoGroupLabel}>Medicines</Text>
+              {medicines.map((medicine, index) => {
+                const details = [medicine.dosage, medicine.timings.join(', '), medicine.duration].filter(present);
+                return (
+                  <View key={`${medicine.name}-${index}`} style={s.medItem}>
+                    <View style={s.medItemIndex}><Text translate={false} style={s.medItemIndexText}>{index + 1}</Text></View>
+                    <View style={s.flex}>
+                      <Text translate={false} style={s.medItemName}>{medicine.name || 'Medicine'}</Text>
+                      {details.length > 0 && <Text translate={false} style={s.medItemMeta}>{details.join(' · ')}</Text>}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+          {tests.length > 0 && (
+            <View style={s.infoGroup}>
+              <Text style={s.infoGroupLabel}>Recommended tests</Text>
+              <View style={s.testChips}>
+                {tests.map((test, index) => (
+                  <View key={`${test}-${index}`} style={s.testChip}>
+                    <Ionicons name="flask-outline" size={12} color="#3975C7" />
+                    <Text translate={false} style={s.testChipText}>{test}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+          <InfoBlock label="Advice" value={advice} />
+          <InfoBlock label="Additional notes" value={notes} />
+          {present(followUp) && (
+            <View style={s.followUpRow}>
+              <Ionicons name="calendar" size={15} color="#B45309" />
+              <Text style={s.followUpLabel}>Follow-up</Text>
+              <Text translate={false} style={s.followUpValue}>{dateLabel(followUp)}</Text>
+            </View>
+          )}
+        </InfoSection>
+      )}
+    </>
   );
 }
 
@@ -535,6 +607,7 @@ export function PatientDetailsSheet({ patient: appointment, clinics, doctorName,
   const medicines = getDoctorMedicines(consultation);
   const tests = getDoctorTests(consultation);
   const [saving, setSaving] = useState(false);
+  const hasVitalsRecorded = VITAL_FIELDS.some(([key]) => hasVital(canonicalVitals(patient?.vitals)[key]));
   const insets = useSafeAreaInsets();
   const {
     scrollRef,
@@ -561,7 +634,7 @@ export function PatientDetailsSheet({ patient: appointment, clinics, doctorName,
               <View style={s.sheetHandle} />
               <View style={s.cardHeading}>
                 <View style={s.flex}>
-                  <Eyebrow>PATIENT APPOINTMENT</Eyebrow>
+                  <Eyebrow>{editVitals ? (hasVitalsRecorded ? 'EDIT VITALS' : 'ADD VITALS') : 'PATIENT APPOINTMENT'}</Eyebrow>
                   <Text translate={false} style={s.dialogName}>{patient.patientName || 'Patient'}</Text>
                 </View>
                 <Pressable onPress={onClose} disabled={saving} style={s.iconButton} hitSlop={8} accessibilityLabel="Close patient details">
@@ -585,30 +658,18 @@ export function PatientDetailsSheet({ patient: appointment, clinics, doctorName,
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator
               >
+                {editVitals ? (
+                  // Add / Edit vitals: just the form.
+                  <PatientVitalsForm key={patientKey(patient)} patient={patient} onInputFocus={scrollFocusedInputIntoView} onSaved={onClose} onBusyChange={setSaving} />
+                ) : (
+                <>
                 <EmergencyReason row={patient} />
-                <DetailFields fields={[
-                  ['Doctor name', doctorName || 'Doctor name not recorded'],
-                  ['Phone', patient.phoneNumber || 'Not recorded'],
-                  ['Age', patient.age],
-                  ['Gender', patient.gender],
-                  ['Clinic / Hospital', clinicName(clinics, patient.clinicId)],
-                  ['Appointment date', dateLabel(patient.date)],
-                  ['Appointment time', patient.time ? clockLabel(patient.time) : 'Not scheduled'],
-                  ['Booking source', patient.source === 'walkin' ? 'Walk-in' : 'Online'],
-                  ['Booking status', statusLabel(patient.status)],
-                  ['Checkup started', displayTime(patient.timing?.startedAt)],
-                  ['Checkup completed', displayTime(patient.timing?.endedAt)],
-                  ['Symptoms', consultation.symptoms || consultation.issue || 'Not recorded', true],
-                  ['Diagnosis', consultation.diagnosis || consultation.problem || 'Not recorded', true],
-                  ['Medicines', medicines.length ? medicines.map((medicine) => [medicine.name, medicine.dosage, medicine.timings.join(', '), medicine.duration].filter(Boolean).join(' · ')).join('\n') : 'Not recorded', true],
-                  ['Recommended tests', tests.length ? tests.join(', ') : 'Not recorded', true],
-                  ['Advice', consultation.advice || consultation.instructions || 'Not recorded', true],
-                  ['Additional notes', consultation.additionalNotes || consultation.additional_notes || consultation.notes || 'Not recorded', true],
-                  ['Follow-up date', consultation.followUpDate || consultation.follow_up_date ? dateLabel(consultation.followUpDate || consultation.follow_up_date) : 'Not scheduled'],
-                ]} />
-                <PatientVitalsEditor key={`${patientKey(patient)}:${editVitals}`} patient={patient} initialEditing={editVitals} onInputFocus={scrollFocusedInputIntoView} onSaved={onClose} onBusyChange={setSaving} />
+                <PatientDetailsView patient={patient} clinics={clinics} doctorName={doctorName} consultation={consultation} medicines={medicines} tests={tests} />
+                <PatientVitalsView patient={patient} />
+                </>
+                )}
               </ScrollView>
-              {!!onCancel && canCancelAppointment(patient) && (
+              {!editVitals && !!onCancel && canCancelAppointment(patient) && (
                 <View style={s.dialogActions}>
                   <RecButton danger label={cancelBusy ? 'Cancelling...' : 'Cancel Appointment'} disabled={saving || Boolean(cancelBusy)} onPress={() => onCancel(patient)} style={s.flex} />
                 </View>
@@ -669,15 +730,16 @@ const s = StyleSheet.create({
   statIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   statTitle: { fontSize: 12, lineHeight: 16, fontWeight: '600', color: '#475569', marginTop: 8 },
   statValue: { fontSize: 24, fontWeight: '800', flexShrink: 1, textAlign: 'right' },
-  tabs: { gap: 8, paddingBottom: 12 },
-  tab: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 40, paddingLeft: 14, paddingRight: 6, borderRadius: 20, borderWidth: 1, borderColor: '#D8E1E8', backgroundColor: '#FFFFFF' },
-  tabOn: { backgroundColor: '#FFFFFF', borderColor: REC.primary },
-  tabText: { fontSize: 13.5, fontWeight: '700', color: '#465668' },
-  tabTextOn: { color: REC.primary },
-  tabCount: { minWidth: 26, height: 26, borderRadius: 13, paddingHorizontal: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
-  tabCountOn: { backgroundColor: '#FFFFFF' },
-  tabCountText: { fontSize: 12, fontWeight: '800', color: '#465668' },
-  tabCountTextOn: { color: REC.primary },
+  tabsScroll: { flexGrow: 0, marginTop: 2, marginBottom: 16 },
+  tabs: { gap: 8, paddingVertical: 2, paddingRight: 4 },
+  tab: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 38, paddingLeft: 14, paddingRight: 5, borderRadius: 19, borderWidth: 1, borderColor: '#E3E9EE', backgroundColor: '#F4F7F9' },
+  tabOn: { backgroundColor: REC.primary, borderColor: REC.primary, shadowColor: REC.primary, shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  tabText: { fontSize: 13, fontWeight: '700', color: '#475467' },
+  tabTextOn: { color: '#FFFFFF' },
+  tabCount: { minWidth: 26, height: 26, borderRadius: 13, paddingHorizontal: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E3E9EE' },
+  tabCountOn: { backgroundColor: 'rgba(255,255,255,0.22)', borderColor: 'transparent' },
+  tabCountText: { fontSize: 12, fontWeight: '800', color: '#344054' },
+  tabCountTextOn: { color: '#FFFFFF' },
   button: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: '#D8E1E8', backgroundColor: '#FFFFFF', borderRadius: 9, paddingHorizontal: 14, height: 42 },
   buttonCompact: { height: 32, paddingHorizontal: 10, borderRadius: 8 },
   buttonFull: { alignSelf: 'stretch', marginTop: 12 },
@@ -706,29 +768,42 @@ const s = StyleSheet.create({
   sheetOption: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#EDF0F4' },
   sheetOptionText: { flex: 1, fontSize: 15, color: REC.ink },
   sheetOptionActive: { fontWeight: '700', color: REC.primary },
-  aptRow: { borderWidth: 1, borderColor: REC.line, borderRadius: 14, padding: 13, marginBottom: 10, backgroundColor: '#FFFFFF' },
-  aptRowEmergency: { borderColor: '#F4C9C9', borderLeftWidth: 4, borderLeftColor: '#DC2626' },
+  aptRow: {
+    borderWidth: 1, borderColor: REC.line, borderRadius: 16, padding: 14, paddingLeft: 17, marginBottom: 12, backgroundColor: '#FFFFFF', overflow: 'hidden',
+    shadowColor: '#0F3D38', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2,
+  },
+  aptRowEmergency: { borderColor: '#F4C9C9', backgroundColor: '#FFFBFB' },
+  aptAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
   emergencyReason: { marginTop: 10, marginBottom: 10, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: '#DC2626' },
   emergencyReasonLabel: { fontSize: 11, fontWeight: '700', color: '#B42318', marginBottom: 3 },
   emergencyReasonText: { fontSize: 13, lineHeight: 19, color: REC.ink },
-  tokenTile: { width: 52, height: 52, borderRadius: 13, backgroundColor: REC.primary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  tokenTile: { width: 54, height: 54, borderRadius: 14, backgroundColor: REC.primary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   tokenTileEmergency: { backgroundColor: '#DC2626' },
-  tokenTileNumber: { fontSize: 17, fontWeight: '800', color: '#FFFFFF' },
-  tokenTileLabel: { fontSize: 8, fontWeight: '800', letterSpacing: 1, color: 'rgba(255,255,255,0.85)', marginTop: 1 },
-  timePill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 6, minHeight: 28, borderRadius: 14, backgroundColor: '#FFFFFF' },
-  timePillText: { fontSize: 12, fontWeight: '800', color: REC.primary },
+  tokenTileNumber: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginTop: 1 },
+  tokenTileLabel: { fontSize: 8, fontWeight: '800', letterSpacing: 1.2, color: 'rgba(255,255,255,0.8)' },
+  timePill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, minHeight: 30, borderRadius: 15, backgroundColor: REC.soft },
+  timePillEmergency: { backgroundColor: '#FFF0F0' },
+  timePillText: { fontSize: 12.5, fontWeight: '800', color: REC.primary },
   timePillTextEmergency: { color: '#C24848' },
-  aptTop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
-  aptIdentity: { flex: 1, minWidth: 100 },
+  aptTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  aptIdentity: { flex: 1, minWidth: 0 },
   patientAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#E9F5EF', alignItems: 'center', justifyContent: 'center' },
   patientAvatarText: { fontSize: 15, fontWeight: '800', color: REC.primary },
-  aptName: { fontSize: 15, fontWeight: '700', color: REC.ink },
-  aptSub: { fontSize: 12, color: REC.muted, marginTop: 1 },
+  aptName: { fontSize: 16, fontWeight: '800', color: REC.ink },
+  aptPhoneRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
+  aptSub: { flexShrink: 1, fontSize: 12.5, color: REC.muted },
   token: { fontSize: 14, fontWeight: '700', color: '#55748B' },
-  aptMeta: { marginTop: 10, gap: 5 },
+  aptMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, paddingVertical: 9, paddingHorizontal: 11, borderRadius: 11, backgroundColor: '#F6F9FA' },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  metaText: { flexShrink: 1, fontSize: 12.5, color: '#5B6B7B' },
-  aptBadges: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 10 },
+  metaItemGrow: { flex: 1, minWidth: 0 },
+  metaDivider: { width: 1, height: 14, backgroundColor: '#DCE3E8' },
+  metaText: { flexShrink: 1, fontSize: 12.5, fontWeight: '600', color: '#475467' },
+  aptBadges: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 12 },
+  sourceTag: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5, backgroundColor: '#E8F1FF' },
+  sourceTagWalkIn: { backgroundColor: '#FFF4E5' },
+  sourceTagText: { fontSize: 10.5, fontWeight: '700', color: '#3975C7' },
+  sourceTagTextWalkIn: { color: '#B54708' },
+  aptActions: { flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEF2F5' },
   dialogFrame: { height: '100%', maxHeight: '100%', justifyContent: 'flex-end' },
   dialogOverlay: { justifyContent: 'flex-start' },
   dialogSheet: { height: '88%', maxHeight: '100%' },
@@ -737,23 +812,52 @@ const s = StyleSheet.create({
   iconButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#F2F5F7', alignItems: 'center', justifyContent: 'center' },
   dialogScroll: { flex: 1, minHeight: 0, marginTop: 14 },
   dialogScrollContent: { paddingBottom: 24 },
-  vitals: { marginTop: 16, padding: 12, borderRadius: 9, backgroundColor: '#F6F8FB' },
-  vitalsEditor: { marginTop: 16, padding: 12, borderRadius: 12, backgroundColor: '#F6F8FB', borderWidth: 1, borderColor: '#E5EBF0' },
-  vitalsHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  vitalsTitle: { fontSize: 13, fontWeight: '700', color: REC.ink },
-  vitalsSub: { fontSize: 11.5, color: REC.muted, marginTop: 2 },
-  vitalsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  vitalValueBox: { width: '48%', padding: 8, borderRadius: 8, backgroundColor: '#FFFFFF' },
-  vitalValueLabel: { fontSize: 10.5, color: REC.muted, marginBottom: 3 },
-  vitalValue: { fontSize: 12.5, fontWeight: '700', color: REC.ink },
-  vitalsNotes: { width: '100%', fontSize: 11.5, lineHeight: 17, color: '#5B6B7B', marginTop: 2 },
-  vitalsForm: { gap: 8 },
-  vitalInputWrap: { width: '100%' },
-  vitalInputLabel: { fontSize: 11.5, fontWeight: '600', color: REC.muted, marginBottom: 4 },
-  vitalInput: { minHeight: 40, borderWidth: 1, borderColor: '#D8E1E8', borderRadius: 8, backgroundColor: '#FFFFFF', paddingHorizontal: 10, paddingVertical: 8, color: REC.ink, fontSize: 13 },
-  vitalNotesInput: { minHeight: 68, textAlignVertical: 'top' },
-  vitalsFormActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 4 },
-  vitalsReadOnly: { fontSize: 11.5, lineHeight: 17, color: REC.muted, marginTop: 9 },
-  vitalsError: { fontSize: 12, color: '#B42318', marginTop: 8 },
+  // View details sections
+  infoSection: { marginTop: 12, padding: 14, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line },
+  infoSectionHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 },
+  infoSectionIcon: { width: 30, height: 30, borderRadius: 9, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center' },
+  infoSectionTitle: { fontSize: 15, fontWeight: '800', color: REC.ink },
+  infoRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EEF2F5' },
+  infoRowLast: { borderBottomWidth: 0, paddingBottom: 2 },
+  infoLabel: { fontSize: 13, color: REC.muted },
+  infoValue: { flexShrink: 1, fontSize: 13.5, fontWeight: '700', color: REC.ink, textAlign: 'right' },
+  infoBlock: { marginTop: 8, padding: 11, borderRadius: 12, backgroundColor: '#F8FAFC', borderLeftWidth: 3, borderLeftColor: '#CBD5E1' },
+  infoBlock_amber: { backgroundColor: '#FFF8EC', borderLeftColor: '#F59E0B' },
+  infoBlock_indigo: { backgroundColor: '#EEF2FF', borderLeftColor: '#6366F1' },
+  infoBlockLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase', color: REC.muted },
+  infoBlockLabel_amber: { color: '#B45309' },
+  infoBlockLabel_indigo: { color: '#4338CA' },
+  infoBlockValue: { fontSize: 13.5, lineHeight: 20, fontWeight: '600', color: REC.ink, marginTop: 3 },
+  infoGroup: { marginTop: 12 },
+  infoGroupLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase', color: REC.muted, marginBottom: 6 },
+  medItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: '#D7EEE8', backgroundColor: '#FBFEFD', marginBottom: 6 },
+  medItemIndex: { width: 22, height: 22, borderRadius: 11, backgroundColor: REC.primary, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  medItemIndexText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF' },
+  medItemName: { fontSize: 14, fontWeight: '800', color: REC.ink },
+  medItemMeta: { fontSize: 12.5, color: '#475467', marginTop: 2 },
+  testChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  testChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: '#E8F1FF' },
+  testChipText: { fontSize: 12.5, fontWeight: '700', color: '#2F5FA3' },
+  followUpRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, padding: 11, borderRadius: 12, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' },
+  followUpLabel: { flex: 1, fontSize: 13, fontWeight: '700', color: '#92400E' },
+  followUpValue: { fontSize: 14, fontWeight: '800', color: '#B45309' },
+  // Vitals — view
+  vitalsCard: { marginTop: 12, padding: 14, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: REC.line },
+  vitalsHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  vitalsIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center' },
+  vitalsTitle: { fontSize: 15, fontWeight: '800', color: REC.ink },
+  vitalsSub: { fontSize: 12, color: REC.muted, marginTop: 1 },
+  vitalsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
+  vitalTile: { width: '48.5%', paddingVertical: 11, paddingLeft: 14, paddingRight: 10, borderRadius: 13, backgroundColor: '#F8FAFC', overflow: 'hidden' },
+  vitalTileAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
+  vitalTileLabel: { fontSize: 11.5, fontWeight: '600', color: REC.muted },
+  vitalTileValue: { fontSize: 18, fontWeight: '800', color: REC.ink, marginTop: 3 },
+  vitalTileUnit: { fontSize: 12, fontWeight: '600', color: REC.muted },
+  vitalsEmpty: { fontSize: 13, lineHeight: 19, color: REC.muted, paddingVertical: 6 },
+  vitalsNotesBox: { marginTop: 12, padding: 11, borderRadius: 12, backgroundColor: '#F8FAFC' },
+  vitalsNotesLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase', color: REC.muted },
+  vitalsNotes: { fontSize: 13, lineHeight: 19, color: '#344054', marginTop: 3 },
+  vitalsLocked: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, backgroundColor: '#F6F8FB', borderWidth: 1, borderColor: '#E5EBF0' },
+  vitalsLockedText: { flex: 1, fontSize: 13, lineHeight: 19, color: REC.muted },
   dialogActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
 });

@@ -14,8 +14,12 @@ import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
-import { loadDoctorClinics } from '../api/doctorClinics';
+import { clinicPhotoUrl, loadDoctorClinics } from '../api/doctorClinics';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
+import { useDoctorBack } from '../useDoctorBack';
+import EditClinicScreen from './EditClinicScreen';
+import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
+import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber } from '../../../../utils/countryCodes';
 
 // Express error pages come back as HTML strings, not JSON — read either.
 const getApiErrorText = (err, fallback) => {
@@ -48,11 +52,15 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
   const [loadingClinics, setLoadingClinics] = useState(true);
   const [clinicName, setClinicName] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneCountryCode, setPhoneCountryCode] = useState('+91');
   const [address, setAddress] = useState('');
   const [photos, setPhotos] = useState([]);
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
   const [clinicsOpen, setClinicsOpen] = useState(false);
+  // The clinic whose edit button was tapped (opens Edit Clinic).
+  const [editingClinic, setEditingClinic] = useState(null);
+  const [failedThumbs, setFailedThumbs] = useState({});
 
   useEffect(() => {
     getStoredDoctorUser().then((user) => {
@@ -85,6 +93,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
   const reset = () => {
     setClinicName('');
     setPhone('');
+    setPhoneCountryCode('+91');
     setAddress('');
     setPhotos([]);
   };
@@ -100,11 +109,16 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
       setMessage(`Missing: ${missing.join(', ')}`);
       return;
     }
+    if (!isValidLocalPhoneNumber(phone, phoneCountryCode)) {
+      setStatus('failed');
+      setMessage(`Enter a valid ${getPhoneLengthLabel(phoneCountryCode)} digit phone number for ${phoneCountryCode}`);
+      return;
+    }
     const buildFormData = (photoList) => {
       const formData = new FormData();
       formData.append('doctor_id', doctorId);
       formData.append('clinic_name', clinicName.trim());
-      formData.append('phone_number', phone.trim());
+      formData.append('phone_number', buildInternationalPhoneNumber(phoneCountryCode, phone));
       formData.append('location', address.trim());
       photoList.forEach((photo, index) => {
         const type = photo.type || 'image/jpeg';
@@ -166,6 +180,25 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
     }
   };
 
+  useDoctorBack(() => {
+    if (!editingClinic) return false;
+    setEditingClinic(null);
+    return true;
+  });
+
+  if (editingClinic) {
+    return (
+      <EditClinicScreen
+        clinic={editingClinic}
+        onBack={() => setEditingClinic(null)}
+        onSaved={() => {
+          setEditingClinic(null);
+          refreshClinics();
+        }}
+      />
+    );
+  }
+
   return (
     <View style={s.screen}>
       <View style={s.header}>
@@ -209,18 +242,46 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
                 <Text style={s.hint}>No clinics added yet.</Text>
               ) : (
                 // Deleting a clinic is done from Clinic Profile (the trash icon on
-                // the clinic photo) only — this list just shows what's saved.
-                clinics.map((clinic, index) => (
-                  <View key={clinic.id} style={[s.clinicItem, index === clinics.length - 1 && s.clinicRowLast]}>
-                    <View style={s.clinicRow}>
-                    <View style={s.logoThumb}><AppIcon name="briefcase" size={18} color="#0D9488" strokeWidth={1.8} /></View>
-                    <View style={s.flex}>
-                      <Text translate={false} style={s.clinicName}>{clinic.name}</Text>
-                      <Text translate={false} style={s.hint}>{clinic.location}{clinic.phone ? ` • ${clinic.phone}` : ''}</Text>
+                // the clinic photo) only; here each clinic can be edited.
+                clinics.map((clinic, index) => {
+                  const photoUrl = clinicPhotoUrl(typeof clinic.photo === 'string' ? clinic.photo : '');
+                  const showPhoto = !!photoUrl && !failedThumbs[clinic.id];
+                  return (
+                    <View key={clinic.id} style={[s.clinicItem, index === clinics.length - 1 && s.clinicRowLast]}>
+                      <View style={s.clinicRow}>
+                        {showPhoto ? (
+                          <Image
+                            source={{ uri: photoUrl }}
+                            style={s.logoThumb}
+                            onError={() => setFailedThumbs((prev) => ({ ...prev, [clinic.id]: true }))}
+                          />
+                        ) : (
+                          <View style={s.logoThumb}><AppIcon name="briefcase" size={18} color="#0D9488" strokeWidth={1.8} /></View>
+                        )}
+                        <View style={s.flex}>
+                          <Text translate={false} style={s.clinicName}>{clinic.name}</Text>
+                          <Text translate={false} style={s.hint}>{clinic.location}{clinic.phone ? ` • ${clinic.phone}` : ''}</Text>
+                        </View>
+                        <Pressable
+                          onPress={() => setEditingClinic({
+                            id: clinic.deleteId || clinic.id,
+                            name: clinic.name,
+                            phone: clinic.phone,
+                            location: clinic.location,
+                            photoUrl: showPhoto ? photoUrl : '',
+                          })}
+                          style={({ pressed }) => [s.editBtn, pressed && s.editBtnPressed]}
+                          hitSlop={6}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Edit ${clinic.name}`}
+                        >
+                          <AppIcon name="pencil" size={14} color="#0D9488" strokeWidth={2.2} />
+                          <Text style={s.editBtnText}>Edit</Text>
+                        </Pressable>
+                      </View>
                     </View>
-                    </View>
-                  </View>
-                ))
+                  );
+                })
               )}
             </View>
           )}
@@ -228,7 +289,10 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
 
         <Section icon="plus" label="Add Clinic">
           <Field label="Clinic Name" value={clinicName} onChangeText={setClinicName} placeholder="Enter clinic name" />
-          <Field label="Phone Number" value={phone} onChangeText={setPhone} placeholder="Enter phone number" keyboardType="phone-pad" icon="phone" />
+          <View style={s.field}>
+            <Text style={s.fieldLabel}>Phone Number</Text>
+            <CountryPhoneInput value={phone} countryCode={phoneCountryCode} onChangePhoneNumber={setPhone} onChangeCountryCode={setPhoneCountryCode} onFocus={kbFocus} accentColor="#0D9488" />
+          </View>
           <Field label="Address" value={address} onChangeText={setAddress} placeholder="Enter clinic address" icon="pin" multiline />
 
           <Text style={s.fieldLabel}>Clinic Photos</Text>
@@ -324,6 +388,9 @@ const s = createDoctorStyles({
   clinicName: { fontSize: 15, fontWeight: '800', color: '#17243A' },
   hint: { fontSize: 12.5, color: '#667085' },
   logoThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#F0FDFA', alignItems: 'center', justifyContent: 'center' },
+  editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 32, paddingHorizontal: 11, borderRadius: 16, borderWidth: 1, borderColor: '#B7ECE7', backgroundColor: '#F0FDFA' },
+  editBtnPressed: { backgroundColor: '#CCFBF1' },
+  editBtnText: { fontSize: 12.5, fontWeight: '800', color: '#0D9488' },
   field: { marginBottom: 14 },
   fieldLabel: { fontSize: 12.5, fontWeight: '700', color: '#344054', marginBottom: 6 },
   fieldInputWrap: { flexDirection: 'row', alignItems: 'center', minHeight: 44, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, paddingHorizontal: 12, gap: 8 },

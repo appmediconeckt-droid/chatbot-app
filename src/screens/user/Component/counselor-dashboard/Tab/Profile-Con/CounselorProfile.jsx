@@ -31,6 +31,7 @@ import { useNavigation } from '@react-navigation/native';
 import safeVibrate from '../../../../../../utils/safeVibrate';
 import { API_BASE_URL } from '../../../../../../axiosConfig';
 import { getCounselorRating } from '../../../../../../services/ratingService';
+import useLiveCounselorRating from '../../../../../../hooks/useLiveCounselorRating';
 import { isPsychiatristSpecialization } from '../../../../../../components/common/PsychiatristDirectory';
 import CountryPhoneInput from '../../../../../../components/common/CountryPhoneInput';
 import { useToast } from '../../../../../../components/common/ToastProvider';
@@ -39,6 +40,7 @@ import toImageUri from '../../../../../../utils/imageUri';
 import {
   getPhoneLengthLabel,
   isValidLocalPhoneNumber,
+  formatPhoneNumber,
   normalizeLocalPhoneNumber,
   splitInternationalPhoneNumber,
 } from '../../../../../../utils/countryCodes';
@@ -303,6 +305,13 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
     }
   });
 
+  // A new rating from a user shows up here without reopening the profile.
+  useLiveCounselorRating(counselor._id, ({ rating, totalRatings }) => {
+    setCounselor((prev) => (prev.rating === rating && prev.totalRatings === totalRatings
+      ? prev
+      : { ...prev, rating, totalRatings }));
+  });
+
   const [isEditing, setIsEditing] = useState(startEditing);
   const [editedData, setEditedData] = useState(counselor);
   const [clientsCount, setClientsCount] = useState(0);
@@ -546,7 +555,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         try {
           if (resolvedId) ratingInfo = await getCounselorRating(resolvedId);
         } catch (e) {
-          // non-critical - keep zeros (shown as "New")
+          // non-critical - keep zeros (rating stays hidden)
         }
 
         const profilePhotoUrl = resolveAssetUrl(
@@ -569,7 +578,7 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
         );
 
         const phone = splitInternationalPhoneNumber(
-          userData.phoneNumber || userData.phone || '',
+          userData.phoneNumber || userData.phoneNum || userData.phone || '',
           userData.phoneCountryCode || '+91',
         );
         const dateOfBirth = userData.dateOfBirth
@@ -1528,13 +1537,18 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
 
           {/* Stats strip */}
           <View style={styles.heroStats}>
-            <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatNum}>
-                {counselor.totalRatings > 0 ? Number(counselor.rating).toFixed(1) : t('counselor:newRating', 'New')}
-              </Text>
-              <Text style={styles.heroStatLabel}>{t('profile:rating')}</Text>
-            </View>
-            <View style={styles.heroStatDivider} />
+            {/* Rating shows once a user has actually rated (no "New" placeholder). */}
+            {counselor.totalRatings > 0 && Number(counselor.rating) > 0 && (
+              <>
+                <View style={styles.heroStatItem}>
+                  <Text style={styles.heroStatNum}>{Number(counselor.rating).toFixed(1)} ★</Text>
+                  <Text style={styles.heroStatLabel}>
+                    {t('profile:rating')} ({counselor.totalRatings})
+                  </Text>
+                </View>
+                <View style={styles.heroStatDivider} />
+              </>
+            )}
             <View style={styles.heroStatItem}>
               <Text style={styles.heroStatNum}>{sessionsCount ?? '–'}</Text>
               <Text style={styles.heroStatLabel}>{t('profile:sessions')}</Text>
@@ -1777,8 +1791,8 @@ const CounselorProfile = ({ startEditing = false, onProfileSaved }) => {
                     showIcon={false}
                   />
                 ) : (
-                  <Text style={styles.detailValue}>
-                    {counselor.phoneNumber || t('profile:notSpecified')}
+                  <Text translate={false} style={styles.detailValue}>
+                    {formatPhoneNumber(counselor.phoneNumber, counselor.phoneCountryCode) || t('profile:notSpecified')}
                   </Text>
                 )}
               </View>

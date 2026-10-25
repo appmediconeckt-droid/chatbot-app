@@ -293,30 +293,25 @@ export const normalizePhoneDigits = (value, maxLength = 15) =>
 export const normalizeLocalPhoneNumber = (value, countryCode = DEFAULT_COUNTRY_CODE) => {
   const digits = String(value || '').replace(/\D/g, '');
   const countryDigits = codeDigits(normalizeCountryCode(countryCode));
-  const defaultCountryDigits = codeDigits(DEFAULT_COUNTRY_CODE);
   const maxLength = getPhoneMaxLengthForCountryCode(countryCode);
-  let localDigits = digits;
-
-  if (localDigits.length > maxLength) {
-    const prefixes = [countryDigits, defaultCountryDigits].filter(Boolean);
-    const matchingPrefix = prefixes.find(
-      (prefix) =>
-        localDigits.startsWith(prefix) &&
-        localDigits.length - prefix.length <= maxLength,
-    );
-    if (matchingPrefix) {
-      localDigits = localDigits.slice(matchingPrefix.length);
-    }
+  const internationalDigits = String(value || '').trim().startsWith('00') ? digits.slice(2) : digits;
+  if (internationalDigits.startsWith(countryDigits)
+    && (internationalDigits.length > maxLength || /^\s*(\+|00)/.test(String(value || '')))
+    && getPhoneLengthsForCountryCode(countryCode).includes(internationalDigits.length - countryDigits.length)) {
+    return internationalDigits.slice(countryDigits.length);
   }
-
-  return localDigits.slice(0, maxLength);
+  // Preserve excess digits: validation must reject them instead of silently
+  // saving a different number. Never strip another country's calling code.
+  return digits;
 };
 
 export const getPhoneLengthsForCountryCode = (countryCode = DEFAULT_COUNTRY_CODE) => {
   const normalized = normalizeCountryCode(countryCode);
   const country = COUNTRY_CODES.find((item) => item.code === normalized);
   const fallbackLength = Math.max(4, 15 - codeDigits(normalized).length);
-  return LOCAL_PHONE_NUMBER_LENGTHS_BY_ISO2[country?.iso2] || [fallbackLength];
+  const lengths = LOCAL_PHONE_NUMBER_LENGTHS_BY_ISO2[country?.iso2] || [fallbackLength];
+  // These picker entries include the NANP area code (+1-242, etc.).
+  return normalized.startsWith('+1-') ? lengths.map((length) => length - 3) : lengths;
 };
 
 export const getPhoneMaxLengthForCountryCode = (countryCode = DEFAULT_COUNTRY_CODE) =>
@@ -326,8 +321,14 @@ export const getPhoneLengthLabel = (countryCode = DEFAULT_COUNTRY_CODE) =>
   getPhoneLengthsForCountryCode(countryCode).join(' or ');
 
 export const isValidLocalPhoneNumber = (value, countryCode = DEFAULT_COUNTRY_CODE) => {
-  const digits = String(value || '').replace(/\D/g, '');
-  return getPhoneLengthsForCountryCode(countryCode).includes(digits.length);
+  const raw = String(value || '').trim();
+  const digits = raw.replace(/\D/g, '');
+  const code = normalizeCountryCode(countryCode);
+  return COUNTRY_CODES.some((country) => country.code === code)
+    && /^[\d\s().-]+$/.test(raw)
+    && !/^(\d)\1+$/.test(digits)
+    && codeDigits(code).length + digits.length <= 15
+    && getPhoneLengthsForCountryCode(code).includes(digits.length);
 };
 
 export const normalizeCountryCode = (value) => {
@@ -343,8 +344,10 @@ export const splitInternationalPhoneNumber = (value, fallbackCode = DEFAULT_COUN
   const fallback = normalizeCountryCode(fallbackCode);
   if (!raw) return { countryCode: fallback, phoneNumber: '' };
 
-  const digits = normalizePhoneDigits(raw);
-  if (!raw.startsWith('+')) {
+  const international = /^(\+|00)/.test(raw);
+  const allDigits = raw.replace(/\D/g, '');
+  const digits = raw.startsWith('00') ? allDigits.slice(2) : allDigits;
+  if (!international) {
     return {
       countryCode: fallback,
       phoneNumber: normalizeLocalPhoneNumber(digits, fallback),
@@ -357,14 +360,14 @@ export const splitInternationalPhoneNumber = (value, fallbackCode = DEFAULT_COUN
 
   return {
     countryCode,
-    phoneNumber: normalizeLocalPhoneNumber(nationalNumber, countryCode),
+    phoneNumber: nationalNumber,
   };
 };
 
 export const buildInternationalPhoneNumber = (countryCode, phoneNumber) => {
   const normalizedCode = normalizeCountryCode(countryCode);
   const phoneDigits = normalizeLocalPhoneNumber(phoneNumber, normalizedCode);
-  return `${normalizedCode.replace(/[^\d+]/g, '')}${phoneDigits}`;
+  return phoneDigits ? `+${codeDigits(normalizedCode)}${phoneDigits}` : '';
 };
 
 export const isValidInternationalPhoneNumber = (countryCode, phoneNumber) => {
@@ -374,4 +377,13 @@ export const isValidInternationalPhoneNumber = (countryCode, phoneNumber) => {
 export const findCountryByCode = (countryCode) => {
   const normalized = normalizeCountryCode(countryCode);
   return COUNTRY_CODES.find((country) => country.code === normalized) || COUNTRY_CODES.find((country) => country.code === DEFAULT_COUNTRY_CODE);
+};
+
+// One display format for profiles, settings, contact cards and call links.
+// Legacy local numbers use the saved code, or the app's existing +91 default.
+export const formatPhoneNumber = (value, countryCode = DEFAULT_COUNTRY_CODE) => {
+  const raw = String(value || '').trim();
+  if (!raw || !/\d/.test(raw)) return raw;
+  const phone = splitInternationalPhoneNumber(raw, countryCode);
+  return `${phone.countryCode} ${phone.phoneNumber}`;
 };

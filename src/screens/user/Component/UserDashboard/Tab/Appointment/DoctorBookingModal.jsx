@@ -17,9 +17,11 @@ import { PATIENT, PATIENT_GRADIENT } from '../../../../../../theme/palette';
 import api from '../../../../../../axiosConfig';
 import { bookedSlotKeys } from '../../../../../../utils/doctorSlots';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { feeCurrencyOf, formatFee } from '../../../../../../utils/consultationCurrency';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const BOOK_FAILED = "Couldn't Book Appointment";
 
 const MODES = [
   { id: 'in-clinic', name: 'In-Clinic Visit', desc: 'Visit the clinic in person for consultation', icon: 'business-outline', fee: 0 },
@@ -27,10 +29,12 @@ const MODES = [
   { id: 'voice', name: 'Voice Consultation', desc: 'Talk with your doctor over a voice call', icon: 'call-outline', fee: 5 },
 ];
 
+// `server` is the doctor's Payment Settings name for the method
+// (acceptedPaymentMethods: 'online' | 'upi' | 'cash').
 const PAYMENT_METHODS = [
-  { id: 'Card', label: 'Credit/Debit Card', icon: 'card-outline' },
-  { id: 'UPI', label: 'UPI Payment', icon: 'phone-portrait-outline' },
-  { id: 'Cash', label: 'Cash at Clinic', icon: 'cash-outline' },
+  { id: 'Card', server: 'online', label: 'Credit/Debit Card', icon: 'card-outline' },
+  { id: 'UPI', server: 'upi', label: 'UPI Payment', icon: 'phone-portrait-outline' },
+  { id: 'Cash', server: 'cash', label: 'Cash at Clinic', icon: 'cash-outline' },
 ];
 
 const pickFirst = (...values) => values.find((v) => v !== undefined && v !== null && v !== '');
@@ -162,6 +166,12 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
     // True when the doctor set their own fee in Profile; it then wins over
     // any clinic fee, since the doctor decides what they charge.
     hasOwnFee: Number(pickFirst(incoming.consultationFee, incoming.fee, incoming.consultation_fee)) > 0,
+    // Every amount on this sheet is in the currency the doctor chose.
+    currency: feeCurrencyOf(incoming) || 'INR',
+    // Methods the doctor accepts; null when they never set any (all offered).
+    acceptedMethods: Array.isArray(incoming.acceptedPaymentMethods) && incoming.acceptedPaymentMethods.length
+      ? incoming.acceptedPaymentMethods.map((m) => String(m).trim().toLowerCase())
+      : null,
     videoFee: savedFee(incoming.videoConsultationFee, incoming.video_consultation_fee),
     voiceFee: savedFee(incoming.voiceConsultationFee, incoming.voice_consultation_fee),
     photo: typeof incoming.avatar === 'string' && /^(https?:|file:|data:)/.test(incoming.avatar) ? incoming.avatar : null,
@@ -182,7 +192,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [booking, setBooking] = useState(false);
-  const [bookError, setBookError] = useState('');
+  const [bookAlert, setBookAlert] = useState(null); // { title, message } popup shown when Confirm & Book is blocked
   const [token, setToken] = useState(null);
   const [patientInfo, setPatientInfo] = useState(null);
 
@@ -197,7 +207,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
     setModeOpen(false);
     setLocation(incoming.location || '');
     setPaymentMethod('Cash');
-    setBookError('');
+    setBookAlert(null);
     setToken(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, doctorId]);
@@ -375,12 +385,15 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clockTick, selectedDate?.iso, selectedModeId, bookedSlots, serverBooked]);
 
-  // Cash is paid at the clinic, so it's only offered for an in-clinic visit.
-  const paymentMethods = isRemoteMode ? PAYMENT_METHODS.filter((pm) => pm.id !== 'Cash') : PAYMENT_METHODS;
+  // Only the methods the doctor accepts. Cash is paid at the clinic, so it's
+  // only offered for an in-clinic visit.
+  const paymentMethods = PAYMENT_METHODS.filter((pm) =>
+    (!isRemoteMode || pm.id !== 'Cash') && (!doctor.acceptedMethods || doctor.acceptedMethods.includes(pm.server)));
+  const acceptedKey = (doctor.acceptedMethods || []).join(',');
   useEffect(() => {
-    if (!paymentMethods.some((pm) => pm.id === paymentMethod)) setPaymentMethod(paymentMethods[0].id);
+    if (paymentMethods.length && !paymentMethods.some((pm) => pm.id === paymentMethod)) setPaymentMethod(paymentMethods[0].id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedModeId]);
+  }, [selectedModeId, acceptedKey]);
   const slotGroups = [
     { label: 'Morning', icon: 'sunny-outline', slots: dateSlots.filter((x) => x.minutes < 720) },
     { label: 'Afternoon', icon: 'partly-sunny-outline', slots: dateSlots.filter((x) => x.minutes >= 720 && x.minutes < 1020) },
@@ -404,12 +417,16 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   const hasClinics = apiClinics.length > 0;
   const selectedClinic = clinics.find((c) => c.id === selectedClinicId) || clinics[0];
   // Video / voice extras come from the doctor's profile when they set them.
+  // The built-in extras (₹10 / ₹5) are rupee amounts, so they only apply to
+  // doctors who charge in INR.
   const modes = MODES.map((m) => {
     const own = m.id === 'video' ? doctor.videoFee : m.id === 'voice' ? doctor.voiceFee : null;
-    return own != null ? { ...m, fee: own } : m;
+    if (own != null) return { ...m, fee: own };
+    return doctor.currency === 'INR' ? m : { ...m, fee: 0 };
   });
   const selectedMode = modes.find((m) => m.id === selectedModeId) || modes[0];
   const totalFee = (Number(selectedClinic?.fee) || 0) + (Number(selectedMode?.fee) || 0);
+  const money = (amount) => formatFee(Number(amount) || 0, doctor.currency);
 
   // Regular bookings happen at the chosen clinic, so the location is the
   // clinic address (read-only).
@@ -426,18 +443,22 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   const confirmBooking = async () => {
     if (booking) return;
     if (!hasClinics) {
-      setBookError('This doctor has no clinic available, so the appointment cannot be booked.');
+      setBookAlert({ title: BOOK_FAILED, message: 'This doctor has no clinic available, so the appointment cannot be booked.' });
+      return;
+    }
+    if (!paymentMethods.length) {
+      setBookAlert({ title: BOOK_FAILED, message: 'This doctor accepts only cash at the clinic. Choose an In-Clinic Visit to book.' });
       return;
     }
     // The slot may have passed while the user was on the payment step.
     if (!slotsForDate(selectedDate).some((x) => x.time === selectedTime)) {
       setSelectedTime(null);
       setStep('select');
-      setBookError('That time slot has already passed. Please choose an upcoming slot.');
+      setBookAlert({ title: BOOK_FAILED, message: 'That time slot has already passed. Please choose an upcoming slot.' });
       return;
     }
     setBooking(true);
-    setBookError('');
+    setBookAlert(null);
     const formattedTime = to24Hour(selectedTime);
     const patientId = pickFirst(await AsyncStorage.getItem('userId'), pt._id, pt.id);
     const payload = {
@@ -474,10 +495,10 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
         setBookedSlots((prev) => new Set(prev).add(`${selectedDate.iso}|${h * 60 + m}`));
         setSelectedTime(null);
         setStep('select');
-        setBookError('You already have an appointment with this doctor at that time. Please choose another slot.');
+        setBookAlert({ title: 'Appointment Already Booked', message: 'You already have an appointment with this doctor at that time. Please choose another slot.' });
         return;
       }
-      setBookError(message || 'Failed to book appointment. Please try again.');
+      setBookAlert({ title: BOOK_FAILED, message: message || 'Failed to book appointment. Please try again.' });
     } finally {
       setBooking(false);
     }
@@ -529,7 +550,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
           <Row icon={selectedMode.icon} label="Consultation Mode" value={selectedMode.name} />
           <Row icon="calendar-outline" label="Date" value={dateStr} />
           <Row icon="time-outline" label="Time" value={selectedTime} last />
-          <View style={s.totalRow}><Text style={s.totalLabel}>Total Fee</Text><Text style={s.totalValue}>₹{totalFee}</Text></View>
+          <View style={s.totalRow}><Text style={s.totalLabel}>Total Fee</Text><Text style={s.totalValue}>{money(totalFee)}</Text></View>
         </View>
         <Text style={s.closingNote}>You can follow your token live in the Token tab. Closing shortly…</Text>
         <GradientButton label="Done" icon="checkmark" onPress={onClose} />
@@ -564,6 +585,9 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
               </Pressable>
             );
           })}
+          {!paymentMethods.length && (
+            <Text style={s.errorText}>This doctor accepts only cash at the clinic. Go back and choose an In-Clinic Visit.</Text>
+          )}
         </View>
 
         <View style={s.slotBanner}>
@@ -577,21 +601,20 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
 
         <View style={s.card}>
           <Text style={s.cardTitle}><Ionicons name="receipt-outline" size={15} color={PATIENT.primary} /> Fee Breakdown</Text>
-          <View style={s.feeRow}><Text style={s.feeLabel}>Consultation Fee</Text><Text style={s.feeValue}>₹{selectedClinic.fee}</Text></View>
+          <View style={s.feeRow}><Text style={s.feeLabel}>Consultation Fee</Text><Text style={s.feeValue}>{money(selectedClinic.fee)}</Text></View>
           {selectedMode.fee > 0 && (
-            <View style={s.feeRow}><Text style={s.feeLabel}>{selectedMode.name}</Text><Text style={s.feeValue}>+₹{selectedMode.fee}</Text></View>
+            <View style={s.feeRow}><Text style={s.feeLabel}>{selectedMode.name}</Text><Text style={s.feeValue}>+{money(selectedMode.fee)}</Text></View>
           )}
-          <View style={s.totalRow}><Text style={s.totalLabel}>Total</Text><Text style={s.totalValue}>₹{totalFee}</Text></View>
+          <View style={s.totalRow}><Text style={s.totalLabel}>Total</Text><Text style={s.totalValue}>{money(totalFee)}</Text></View>
         </View>
 
         <View style={s.infoBox}>
           <Ionicons name="information-circle-outline" size={16} color="#166534" />
           <Text style={s.infoText}>Your appointment will be reserved immediately upon confirmation. All details will be stored in your dashboard.</Text>
         </View>
-        {!!bookError && <Text style={s.errorText}>{bookError}</Text>}
       </ScrollView>
       <View style={s.footer}>
-        <GradientButton label={booking ? 'Booking…' : `Confirm & Book · ₹${totalFee}`} icon="lock-closed" onPress={confirmBooking} disabled={booking} loading={booking} />
+        <GradientButton label={booking ? 'Booking…' : `Confirm & Book · ${money(totalFee)}`} icon="lock-closed" onPress={confirmBooking} disabled={booking} loading={booking} />
       </View>
     </View>
   );
@@ -628,7 +651,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
           <Detail label="Location" value={selectedClinic.address || 'Not specified'} />
           <Detail label="Available Days" value={selectedClinic.days} />
           <Detail label="Timings" value={selectedClinic.timings} />
-          <Detail label="Consultation Fee" value={`₹${selectedClinic.fee}`} />
+          <Detail label="Consultation Fee" value={money(selectedClinic.fee)} />
         </View>
 
         {/* Clinic selector */}
@@ -656,7 +679,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
                 <View style={s.tags}>
                   <Tag text={c.days} tone="blue" />
                   <Tag text={c.timings} tone="gray" />
-                  <Tag text={`₹${c.fee}`} tone="green" />
+                  <Tag text={money(c.fee)} tone="green" />
                 </View>
               </View>
               {selectedClinicId === c.id && <Ionicons name="checkmark-circle" size={20} color={PATIENT.primary} />}
@@ -679,7 +702,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
               <View style={s.flex}>
                 <Text style={s.optionName}>{m.name}</Text>
                 <Text style={s.optionSub}>{m.desc}</Text>
-                <Text style={s.optionFee}>Additional Fee: ₹{m.fee}</Text>
+                <Text style={s.optionFee}>Additional Fee: {money(m.fee)}</Text>
               </View>
               {selectedModeId === m.id && <Ionicons name="checkmark-circle" size={20} color={PATIENT.primary} />}
             </Pressable>
@@ -757,7 +780,6 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
             <Text style={s.warnText}>This doctor has no clinic available yet, so booking isn't possible.</Text>
           </View>
         )}
-        {!!bookError && <Text style={s.errorText}>{bookError}</Text>}
       </ScrollView>
 
       <View style={s.footer}>
@@ -767,7 +789,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
               ? `${dateStr} • ${selectedTime}`
               : 'Select a date and time'}
           </Text>
-          <Text style={s.footerFee}>₹{totalFee}.00</Text>
+          <Text style={s.footerFee}>{money(totalFee)}</Text>
         </View>
         <GradientButton
           label="Confirm Selection"
@@ -784,7 +806,11 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       visible={visible}
       animationType="slide"
       statusBarTranslucent
-      onRequestClose={() => (step === 'payment' ? setStep('select') : onClose?.())}
+      onRequestClose={() => {
+        if (bookAlert) setBookAlert(null);
+        else if (step === 'payment') setStep('select');
+        else onClose?.();
+      }}
     >
       {/* A Modal is its own native window: give it its own safe-area context so
           the header clears the status bar / notch and the footer clears the
@@ -793,6 +819,19 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
         <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
           {step === 'success' ? renderSuccess() : step === 'payment' ? renderPayment() : renderSelect()}
         </SafeAreaView>
+        {/* Overlay, not a nested Modal: stacked Modals are unreliable on Android. */}
+        {!!bookAlert && (
+          <View style={s.alertBackdrop}>
+            <View style={s.alertCard}>
+              <View style={s.alertIcon}><Ionicons name="alert-circle" size={30} color="#DC2626" /></View>
+              <Text style={s.alertTitle}>{bookAlert.title}</Text>
+              <Text style={s.alertMessage}>{bookAlert.message}</Text>
+              <View style={s.alertBtn}>
+                <GradientButton label="OK" icon="checkmark" onPress={() => setBookAlert(null)} />
+              </View>
+            </View>
+          </View>
+        )}
       </SafeAreaProvider>
     </Modal>
   );
@@ -938,6 +977,12 @@ const s = StyleSheet.create({
   warnBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FEF3C7', borderRadius: 12, padding: 11, marginBottom: 12 },
   warnText: { flex: 1, fontSize: 12.5, color: '#92400E', fontWeight: '600' },
   errorText: { fontSize: 13, color: '#DC2626', fontWeight: '700', marginBottom: 10 },
+  alertBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(15,23,42,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  alertCard: { width: '100%', maxWidth: 360, backgroundColor: '#FFF', borderRadius: 18, padding: 20, alignItems: 'center' },
+  alertIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FEE2E2', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  alertTitle: { fontSize: 17, fontWeight: '800', color: '#0F172A', textAlign: 'center' },
+  alertMessage: { fontSize: 13.5, color: '#475569', textAlign: 'center', lineHeight: 20, marginTop: 6 },
+  alertBtn: { alignSelf: 'stretch', marginTop: 18 },
   footer: { backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#E2E8F0', padding: 12, gap: 8 },
   footerSummary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   footerSummaryText: { flex: 1, fontSize: 12.5, color: '#475569', fontWeight: '600' },

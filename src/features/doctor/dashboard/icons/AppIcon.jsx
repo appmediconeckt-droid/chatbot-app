@@ -320,6 +320,22 @@ export default function AppIcon({ name, size = 20, color = '#171B22', strokeWidt
           {...common}
         />
       )}
+      {name === 'star' && (
+        <Path
+          d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8Z"
+          {...common}
+        />
+      )}
+      {/* A plain pencil (no underline) for edit buttons. */}
+      {name === 'pencil' && (
+        <>
+          <Path
+            d="M21.17 6.81a2.82 2.82 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5Z"
+            {...common}
+          />
+          <Path d="m15 5 4 4" {...common} />
+        </>
+      )}
       {name === 'flask' && (
         <>
           <Path d="M9 2h6M10 2v6l-5.2 9.1A2 2 0 0 0 6.5 20h11a2 2 0 0 0 1.7-2.9L14 8V2" {...common} />

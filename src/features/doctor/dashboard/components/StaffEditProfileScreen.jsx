@@ -25,12 +25,13 @@ const timeToDate = (value) => {
 const dateToTime = (date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 import { pickStaffPhoto } from './pickStaffPhoto';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
+import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
+import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
 
 const DEPARTMENTS = ['Nursing', 'Clinical', 'Emergency', 'Pathology', 'Finance', 'Operations', 'Admin', 'General Medicine'];
 const ROLE_TYPES = ['Nurse', 'Medical Assistant', 'Lab Technician', 'Billing', 'Receptionist', 'Housekeeping', 'Supervisor'];
 const EMPLOYMENT_STATUSES = ['Full-Time', 'Part-Time', 'Contract'];
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-const isValidPhone = (value) => value.replace(/\D/g, '').length >= 10;
 
 export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
   // Signup-style keyboard handling: the form scrolls above the keyboard and the
@@ -63,7 +64,8 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
   const [form, setForm] = useState({
     fullName: member.name ?? '',
     email: member.email ?? '',
-    phone: member.phone ?? '',
+    phone: splitInternationalPhoneNumber(member.phone, member.phoneCountryCode).phoneNumber,
+    phoneCountryCode: splitInternationalPhoneNumber(member.phone, member.phoneCountryCode).countryCode,
     department: member.department ?? '',
     role: member.role ?? '',
     employmentStatus: member.employmentStatus ?? '',
@@ -93,9 +95,9 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
 
   const emailValid = isValidEmail(form.email);
   // Phone is optional here — staff added from the web may have none on file.
-  const phoneValid = !form.phone.trim() || isValidPhone(form.phone);
+  const phoneValid = !form.phone.trim() || isValidLocalPhoneNumber(form.phone, form.phoneCountryCode);
   const emailError = form.email.trim().length > 0 && !emailValid ? 'Enter a valid email address.' : '';
-  const phoneError = form.phone.trim().length > 0 && !phoneValid ? 'Enter a valid phone number (at least 10 digits).' : '';
+  const phoneError = form.phone.trim().length > 0 && !phoneValid ? `Enter a valid ${getPhoneLengthLabel(form.phoneCountryCode)} digit phone number for ${form.phoneCountryCode}.` : '';
 
   // Validation errors are in Personal Information, at the top.
   const scrollToTop = () => scrollRef.current?.scrollTo({ y: 0, animated: true });
@@ -129,7 +131,7 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
         fullName,
         clinicId: member.clinicId,
         email: form.email.trim(),
-        phone: form.phone.trim(),
+        phone: buildInternationalPhoneNumber(form.phoneCountryCode, form.phone),
         department: form.department,
         role: roleLabelToKey(form.role),
         shift: form.shift,
@@ -196,7 +198,11 @@ export default function StaffEditProfileScreen({ member, onCancel, onSave }) {
           <Text style={s.sectionTitle}>Personal Information</Text>
           <IconField label="Full Name" icon="user" value={form.fullName} onChangeText={(value) => setField('fullName', value)} placeholder="Full name" />
           <IconField label="Email Address" icon="message" value={form.email} onChangeText={(value) => setField('email', value)} placeholder="Email address" keyboardType="email-address" autoCapitalize="none" error={emailError} />
-          <IconField label="Phone Number" icon="phone" value={form.phone} onChangeText={(value) => setField('phone', value)} placeholder="Phone number" keyboardType="phone-pad" error={phoneError} />
+          <View style={s.field}>
+            <Text style={s.fieldLabel}>Phone Number</Text>
+            <CountryPhoneInput value={form.phone} countryCode={form.phoneCountryCode} onChangePhoneNumber={(value) => setField('phone', value)} onChangeCountryCode={(value) => setField('phoneCountryCode', value)} onFocus={kbFocus} accentColor="#0D9488" />
+            {!!phoneError && <Text style={s.fieldErrorText}>{phoneError}</Text>}
+          </View>
         </View>
 
         <View>

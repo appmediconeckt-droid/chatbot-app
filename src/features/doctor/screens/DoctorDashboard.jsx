@@ -23,6 +23,7 @@ import AppointmentCard from '../dashboard/components/AppointmentCard';
 import ActiveConsultationCard from '../dashboard/components/ActiveConsultationCard';
 import EditCompletedAppointmentScreen from '../dashboard/components/EditCompletedAppointmentScreen';
 import CompleteAppointmentScreen from '../dashboard/components/CompleteAppointmentScreen';
+import DoctorVitalsSheet from '../dashboard/components/DoctorVitalsSheet';
 import DoctorSidebar from '../dashboard/components/DoctorSidebar';
 import { DoctorBackContext, useDoctorBackRegistry } from '../dashboard/useDoctorBack';
 import { loadUserLanguage } from '../../../i18n';
@@ -38,6 +39,7 @@ import DoctorProfileCardQrScreen from '../dashboard/components/DoctorProfileCard
 import DoctorProfileScreen from '../dashboard/components/DoctorProfileScreen';
 import FollowUpsScreen from '../dashboard/components/FollowUpsScreen';
 import ClinicPageScreen from '../dashboard/components/ClinicPageScreen';
+import DoctorReviewsScreen from '../dashboard/components/DoctorReviewsScreen';
 import StaffManagementScreen from '../dashboard/components/StaffManagementScreen';
 import NotificationsScreen from '../dashboard/components/NotificationsScreen';
 import DoctorSettingsScreen from '../dashboard/components/DoctorSettingsScreen';
@@ -99,6 +101,7 @@ const sidebarRoutes = {
   appointments: 'appointments',
   walkIn: 'walkIn',
   followUps: 'followUps',
+  reviews: 'reviews',
   clinic: 'clinic',
   settings: 'settings',
   qrCode: 'profileQr',
@@ -109,6 +112,7 @@ const screenSidebarItems = {
   appointments: 'appointments',
   walkIn: 'walkIn',
   followUps: 'followUps',
+  reviews: 'reviews',
   settings: 'settings',
   profileQr: 'qrCode',
 };
@@ -577,6 +581,7 @@ export default function DoctorDashboard({ navigation }) {
   // { appt, startTime, accumulatedPauseMs, pauseStartMs, breakId, breakStartMs,
   //   breakEndMs, breakDurationMs, status: 'started' | 'paused' | 'break' }
   const [activeSession, setActiveSession] = useState(null);
+  const [vitalsOpen, setVitalsOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
   // Today's cancelled / no-show appointments. The server decides these now
   // (web: "queue membership is determined by server status, never session
@@ -1448,6 +1453,14 @@ export default function DoctorDashboard({ navigation }) {
       );
     }
 
+    if (activeScreen === 'reviews') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <DoctorReviewsScreen onBack={goBack} />
+        </SafeAreaView>
+      );
+    }
+
     if (activeScreen === 'followUps') {
       return (
         <SafeAreaView style={styles.safeArea}>
@@ -1558,8 +1571,29 @@ export default function DoctorDashboard({ navigation }) {
               onPause={handlePause}
               onChecked={handleChecked}
               onComplete={handleCompleteNow}
+              onVitals={() => setVitalsOpen(true)}
             />
           )}
+          <DoctorVitalsSheet
+            appointment={activeSession?.appt}
+            visible={vitalsOpen}
+            onClose={() => setVitalsOpen(false)}
+            onSaved={(saved) => {
+              setVitalsOpen(false);
+              // Show the new readings straight away (card, Complete form); the
+              // silent refetch then brings the server's copy.
+              setActiveSession((current) => (current?.appt ? {
+                ...current,
+                appt: {
+                  ...current.appt,
+                  vitals: { ...(current.appt.vitals || {}), ...saved },
+                  bp: saved.blood_pressure || current.appt.bp,
+                  temperature: saved.temperature ?? current.appt.temperature,
+                },
+              } : current));
+              fetchAppointments({ silent: true });
+            }}
+          />
 
           <View style={styles.queueHeader}>
             <View style={styles.overviewCopy}>

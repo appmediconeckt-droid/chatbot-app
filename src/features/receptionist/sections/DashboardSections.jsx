@@ -7,13 +7,14 @@ import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../components/TranslatedText';
 import { ResponsiveGrid, useResponsiveLayout } from '../../../components/common/ResponsiveLayout';
 import {
-  AppointmentRow, Avatar, Badge, Card, CardHeading, EmergencyReason, Empty, Eyebrow, LiveLabel,
+  AppointmentRow, Avatar, Badge, Card, CardHeading, EmergencyReason, Empty, Eyebrow,
   LoadingCard, Notice, NoticeText, QueueTabs, REC, StatGrid, StatTile,
 } from '../receptionistUi';
 import {
   clinicName, dedupeRows, displayTime, groupQueue, patientKey, profilePhotoOf, staffIdentity, staffShiftTiming,
 } from '../receptionistUtils';
 import EditProfileSheet from '../components/EditProfileSheet';
+import { formatPhoneNumber } from '../../../utils/countryCodes';
 
 // Every booking the dashboard feed knows about, each once.
 const allRows = (data) => dedupeRows([...(data?.currentPatients || []), ...(data?.waiting || []), ...(data?.appointments || [])]);
@@ -33,10 +34,23 @@ function QueueCard({ data, clinics, onView, title = "Today's Queue", subtitle, r
   const counts = Object.fromEntries(Object.entries(groups).map(([name, rows]) => [name, rows.length]));
   const [tab, setTab] = useState('pending');
   const rows = groups[tab] || [];
+  const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
   const [emptyTitle, emptyText] = EMPTY_TEXT[tab];
   return (
     <Card>
-      <CardHeading title={title} subtitle={subtitle} right={right} />
+      <View style={s.queueHead}>
+        <View style={s.queueHeadIcon}><Ionicons name="people" size={18} color={REC.primary} /></View>
+        <View style={s.flex}>
+          <Text style={s.queueTitle}>{title}</Text>
+          {!!subtitle && <Text style={s.queueSub}>{subtitle}</Text>}
+        </View>
+        {right || (
+          <View style={s.queueTotal}>
+            <Text translate={false} style={s.queueTotalValue}>{total}</Text>
+            <Text style={s.queueTotalLabel}>{total === 1 ? 'patient' : 'patients'}</Text>
+          </View>
+        )}
+      </View>
       <QueueTabs active={tab} counts={counts} onChange={setTab} />
       {rows.length
         ? <ResponsiveGrid minItemWidth={350} maxColumns={2}>{rows.map((row) => <AppointmentRow key={patientKey(row)} row={row} clinics={clinics} onView={onView} />)}</ResponsiveGrid>
@@ -88,7 +102,7 @@ function CurrentCheckups({ data, clinics, onView }) {
   ))}</ResponsiveGrid>;
 }
 
-export function OverviewSection({ data, clinics, error, onView, onNavigate }) {
+export function OverviewSection({ data, clinics, error, onView }) {
   const groups = useMemo(() => groupQueue(allRows(data)), [data]);
   const { gutter } = useResponsiveLayout();
   if (!data) return <LoadingCard error={error} />;
@@ -111,7 +125,7 @@ export function OverviewSection({ data, clinics, error, onView, onNavigate }) {
 
       {dedupeRows(data.currentPatients || []).length > 0 && (
         <Card>
-          <CardHeading title="Currently with the doctor" right={<LiveLabel text="Today / Live" />} />
+          <CardHeading title="Currently with the doctor" />
           <CurrentCheckups data={data} clinics={clinics} onView={onView} />
         </Card>
       )}
@@ -120,12 +134,7 @@ export function OverviewSection({ data, clinics, error, onView, onNavigate }) {
         data={data}
         clinics={clinics}
         onView={onView}
-        right={(
-          <Pressable onPress={() => onNavigate('appointments')} style={s.textButton} hitSlop={6}>
-            <Text style={s.textButtonText}>All</Text>
-            <Ionicons name="arrow-forward" size={14} color={REC.primary} />
-          </Pressable>
-        )}
+        subtitle="Emergencies first, then by token"
       />
     </View>
   );
@@ -148,7 +157,7 @@ export function LiveQueueSection({ data, clinics, clinic, error, onView, onNavig
 
       {dedupeRows(data.currentPatients || []).length > 0 && (
         <Card>
-          <CardHeading title="With the doctor" right={<LiveLabel text="Live" />} />
+          <CardHeading title="With the doctor" />
           <CurrentCheckups data={data} clinics={clinics} onView={onView} />
         </Card>
       )}
@@ -232,10 +241,10 @@ export function DoctorSection({ data, clinics, error }) {
             <View style={s.contactIcon}><Ionicons name="call-outline" size={17} color={REC.primary} /></View>
             <View style={s.flex}>
               <Text style={s.contactLabel}>Phone</Text>
-              <Text translate={false} style={s.contactValue} numberOfLines={1}>{doctor.phoneNumber || doctor.phone || 'Not provided'}</Text>
+              <Text translate={false} style={s.contactValue} numberOfLines={1}>{formatPhoneNumber(doctor.phoneNumber || doctor.phone, doctor.phoneCountryCode) || 'Not provided'}</Text>
             </View>
             {!!(doctor.phoneNumber || doctor.phone) && (
-              <Pressable onPress={() => callNumber(doctor.phoneNumber || doctor.phone)} style={s.callButton} hitSlop={6} accessibilityLabel="Call doctor">
+              <Pressable onPress={() => callNumber(formatPhoneNumber(doctor.phoneNumber || doctor.phone, doctor.phoneCountryCode))} style={s.callButton} hitSlop={6} accessibilityLabel="Call doctor">
                 <Ionicons name="call" size={15} color="#FFFFFF" />
               </Pressable>
             )}
@@ -286,9 +295,9 @@ export function DoctorSection({ data, clinics, error }) {
           </View>
           <View style={[s.clinicLine, s.drClinicPhone]}>
             <Ionicons name="call-outline" size={16} color={REC.muted} style={s.clinicLineIcon} />
-            <Text translate={false} style={s.clinicText}>{row.phone_number || 'Phone not provided'}</Text>
+            <Text translate={false} style={s.clinicText}>{formatPhoneNumber(row.phone_number, row.phoneCountryCode) || 'Phone not provided'}</Text>
             {!!row.phone_number && (
-              <Pressable onPress={() => callNumber(row.phone_number)} style={s.drCallPill} hitSlop={6} accessibilityLabel="Call clinic">
+              <Pressable onPress={() => callNumber(formatPhoneNumber(row.phone_number, row.phoneCountryCode))} style={s.drCallPill} hitSlop={6} accessibilityLabel="Call clinic">
                 <Ionicons name="call" size={12} color={REC.primary} />
                 <Text style={s.drCallText}>Call</Text>
               </Pressable>
@@ -365,7 +374,7 @@ export function ProfileSection({ profile, onProfileUpdated }) {
             <View style={s.contactIcon}><Ionicons name="call-outline" size={17} color={REC.primary} /></View>
             <View style={s.flex}>
               <Text style={s.contactLabel}>Phone</Text>
-              <Text translate={false} style={s.contactValue} selectable>{profile.phoneNumber || profile.phone || 'Not provided'}</Text>
+              <Text translate={false} style={s.contactValue} selectable>{formatPhoneNumber(profile.phoneNumber || profile.phone, profile.phoneCountryCode) || 'Not provided'}</Text>
             </View>
           </View>
         </View>
@@ -417,6 +426,13 @@ const s = StyleSheet.create({
   welcomeButtonPressed: { backgroundColor: '#E7F4EE' },
   welcomeButtonText: { fontSize: 13.5, fontWeight: '800', color: REC.primary },
   overview: { minWidth: 0 },
+  queueHead: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
+  queueHeadIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: REC.soft, alignItems: 'center', justifyContent: 'center' },
+  queueTitle: { fontSize: 17, fontWeight: '800', color: REC.ink },
+  queueSub: { fontSize: 12.5, color: REC.muted, marginTop: 2 },
+  queueTotal: { alignItems: 'center', minWidth: 58, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, backgroundColor: '#F4F7F9', borderWidth: 1, borderColor: REC.line },
+  queueTotalValue: { fontSize: 18, fontWeight: '800', color: REC.primary, lineHeight: 22 },
+  queueTotalLabel: { fontSize: 10, fontWeight: '700', color: REC.muted, textTransform: 'uppercase', letterSpacing: 0.4 },
   overviewHeading: { marginTop: 2, marginBottom: 14 },
   overviewTitle: { fontSize: 21, fontWeight: '800', color: REC.ink, marginTop: 4, marginBottom: 2 },
   current: { borderWidth: 1, borderColor: '#CCE8DD', backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14 },

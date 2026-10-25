@@ -109,7 +109,7 @@ export default function StaffProfileScreen({ member, onBack, onEdit, onUpdated }
           </View>
 
           <Pressable style={s.editButton} onPress={onEdit}>
-            <AppIcon name="edit" size={15} color={colors.blue} strokeWidth={2.1} />
+            <AppIcon name="pencil" size={15} color={colors.blue} strokeWidth={2.1} />
             <Text style={s.editButtonText}>Edit Profile</Text>
           </Pressable>
         </View>

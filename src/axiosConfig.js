@@ -19,7 +19,9 @@ const API_ENDPOINTS = {
   LOCAL_3000: 'http://localhost:3000',
 };
 
-// Dev builds (Metro) use the same backend as the web; release builds stay on Railway.
+// Dev builds use the web's backend (DevTunnels 5006): it has features Railway
+// doesn't yet — doctor ratings averaged into rating/ratingCount, doctor
+// payment methods. Release builds stay on Railway.
 export const API_BASE_URL = __DEV__
   ? API_ENDPOINTS.RAILWAY
   : API_ENDPOINTS.RAILWAY;
@@ -59,7 +61,7 @@ const axiosInstance = axios.create({
     'Content-Type': 'application/json',
     ...TUNNEL_HEADERS,
   },
-  withCredentials: true, 
+  withCredentials: true,
 });
 
 // sdjsdjsdjsdd
@@ -108,7 +110,7 @@ const processQueue = (error, token = null) => {
 
 const NO_REFRESH_PATHS = [
   ...PUBLIC_AUTH_PATHS,
- 
+
 ];
 
 axiosInstance.interceptors.response.use(
@@ -119,7 +121,7 @@ axiosInstance.interceptors.response.use(
     const originalRequest = error.config;
     const url = originalRequest?.url || '';
     const isAuthRoute = NO_REFRESH_PATHS.some((p) => url.includes(p));
-    
+
 
     // Handle 401 errors (unauthorized)
     if (
@@ -127,10 +129,10 @@ axiosInstance.interceptors.response.use(
       !originalRequest._retry &&
       !isAuthRoute
     ) {
-     
+
       const refreshToken = await AsyncStorage.getItem('refreshToken');
       if (!refreshToken) {
-       
+
         const hadSession = await AsyncStorage.getItem('accessToken');
         if (hadSession) await forceSignOut();
         return Promise.reject(error);
@@ -182,7 +184,7 @@ axiosInstance.interceptors.response.use(
 
         // Retry original request with new token
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-        
+
         return axiosInstance(originalRequest);
       } catch (refreshError) {
         console.log('❌ Refresh failed:', refreshError);
@@ -190,7 +192,7 @@ axiosInstance.interceptors.response.use(
         // Process queue with error
         processQueue(refreshError, null);
 
-       
+
         await forceSignOut();
 
         return Promise.reject(refreshError);
@@ -202,7 +204,7 @@ axiosInstance.interceptors.response.use(
     // Handle network errors
     if (error.message === 'Network Error') {
       console.log('Network error occurred');
-      
+
     }
 
     return Promise.reject(error);

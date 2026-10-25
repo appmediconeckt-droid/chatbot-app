@@ -24,7 +24,7 @@ export const fetchMe = async () => {
 // The receptionist edits their own name / phone / photo with the same request
 // every other role uses: PATCH /api/auth/update/:id as multipart (fetch, like
 // DoctorEditProfileScreen — the photo goes up as a file part).
-export const updateMyProfile = async (profile, { fullName, phoneNumber, photo }) => {
+export const updateMyProfile = async (profile, { fullName, phoneNumber, phoneCountryCode, photo }) => {
   const userId = profile?._id || profile?.id || (await AsyncStorage.getItem('userId'));
   const accessToken = (await AsyncStorage.getItem('accessToken')) || (await AsyncStorage.getItem('token'));
   if (!userId || !accessToken) throw new Error('Your session is incomplete. Please sign in again.');
@@ -34,6 +34,7 @@ export const updateMyProfile = async (profile, { fullName, phoneNumber, photo })
   if (digits) {
     form.append('phoneNumber', digits);
     form.append('phoneNum', digits);
+    form.append('phoneCountryCode', phoneCountryCode || profile?.phoneCountryCode || '+91');
   }
   if (photo?.uri) {
     form.append('profilePhoto', { uri: photo.uri, type: photo.type || 'image/jpeg', name: photo.fileName || `profile-${Date.now()}.jpg` });

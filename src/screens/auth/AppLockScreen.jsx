@@ -17,6 +17,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import Text from '../../components/TranslatedText';
+import { formatPhoneNumber } from '../../utils/countryCodes';
 
 // India's national mental-health helpline (Tele-MANAS). Change to your own
 // support line or a local crisis number as needed.
@@ -630,7 +631,7 @@ const AppLockScreen = ({
                   <TouchableOpacity
                     style={s.emgRow}
                     activeOpacity={0.8}
-                    onPress={() => { setShowEmergency(false); dial(emergency.phone || emergency.phoneNumber); }}
+                    onPress={() => { setShowEmergency(false); dial(formatPhoneNumber(emergency.phone || emergency.phoneNumber, emergency.phoneCountryCode)); }}
                   >
                     <View style={[s.emgRowIcon, { backgroundColor: C.secondaryTint }]}>
                       <Ionicons name="call" size={19} color={C.primary} />
@@ -638,7 +639,7 @@ const AppLockScreen = ({
                     <View style={s.emgRowText}>
                       <Text style={s.emgRowTitle}>Call {emergency.name || 'emergency contact'}</Text>
                       <Text style={s.emgRowSub} numberOfLines={1}>
-                        {(emergency.relation ? `${emergency.relation} · ` : '') + (emergency.phone || emergency.phoneNumber)}
+                        {(emergency.relation ? `${emergency.relation} · ` : '') + formatPhoneNumber(emergency.phone || emergency.phoneNumber, emergency.phoneCountryCode)}
                       </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />

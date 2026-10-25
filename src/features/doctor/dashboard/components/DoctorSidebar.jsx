@@ -17,6 +17,7 @@ import {
   getDoctorIdFromUser,
   getStoredDoctorUser,
   loadDoctorDisplayProfile,
+  refreshDoctorUserOnce,
 } from '../api/doctorAppointments';
 
 const activeNav = {
@@ -33,6 +34,7 @@ const GROUPS = [
     items: [
       { id: 'appointments', label: 'Appointments', icon: 'calendar', ...activeNav },
       { id: 'followUps', label: 'Follow Ups', icon: 'refresh', ...activeNav },
+      { id: 'reviews', label: 'Reviews', icon: 'star', ...activeNav },
     ],
   },
   {
@@ -85,14 +87,27 @@ export default function DoctorSidebar({
     setSelectedItem(activeItem ?? null);
   }, [activeItem, visible]);
 
+  // Re-read on every open so a name or specialization edited in the profile
+  // shows up, and once more after the server copy has been refreshed.
   useEffect(() => {
-    loadDoctorDisplayProfile().then(({ name, specialization: spec }) => {
+    if (!visible) return undefined;
+    let mounted = true;
+    const load = () => loadDoctorDisplayProfile().then(({ name, specialization: spec }) => {
+      if (!mounted) return;
       setDoctorName(name);
-      if (spec) setSpecialization(spec);
+      setSpecialization(spec || '');
     });
-  }, []);
+    load();
+    refreshDoctorUserOnce().then(load).catch(() => {});
+    return () => { mounted = false; };
+  }, [visible]);
 
   const displayName = formatDoctorDisplayName(doctorName);
+  // The card has room for one line: the first specialization, then "+N" for
+  // the rest (all of them joined ran off the card).
+  const specList = specialization.split(',').map((item) => item.trim()).filter(Boolean);
+  const primarySpec = specList[0] || 'General Physician';
+  const extraSpecs = specList.length - 1;
 
   // Opening animation: the panel slides in from the left while zooming up from
   // slightly small, and the backdrop fades in — quicker and livelier than the
@@ -139,8 +154,15 @@ export default function DoctorSidebar({
               <View style={styles.onlineDot} />
             </View>
             <View style={styles.profileInfo}>
-              <Text translate={false} style={styles.name}>{displayName}</Text>
-              <Text translate={false} style={styles.specialty}>{specialization || 'General Physician'}</Text>
+              <Text translate={false} style={styles.name} numberOfLines={1}>{displayName}</Text>
+              <View style={styles.specRow}>
+                <Text translate={false} style={styles.specialty} numberOfLines={1}>{primarySpec}</Text>
+                {extraSpecs > 0 && (
+                  <View style={styles.specMore}>
+                    <Text translate={false} style={styles.specMoreText}>+{extraSpecs}</Text>
+                  </View>
+                )}
+              </View>
             </View>
             <Text style={styles.profileChevron}>›</Text>
           </Pressable>
@@ -215,13 +237,16 @@ const styles = createDoctorStyles({
   backdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(16,33,63,0.28)' },
   backdropTap: { flex: 1 },
   panel: { width: '88%', maxWidth: 360, height: '100%', backgroundColor: '#FFFFFF', paddingTop: 34, borderTopRightRadius: 26, borderBottomRightRadius: 18, shadowColor: '#10213F', shadowOpacity: 0.16, shadowRadius: 18, shadowOffset: { width: 5, height: 0 }, elevation: 12 },
-  profileCard: { height: 76, marginHorizontal: 16, borderWidth: 1, borderColor: '#BFF8F6', backgroundColor: colors.paleBlue, borderRadius: 16, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', shadowColor: '#10213F', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  profileCard: { minHeight: 76, paddingVertical: 12, marginHorizontal: 16, borderWidth: 1, borderColor: '#BFF8F6', backgroundColor: colors.paleBlue, borderRadius: 16, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', shadowColor: '#10213F', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   profileCardPressed: { backgroundColor: '#E6FFFB' },
   avatarWrap: { position: 'relative', marginRight: 12 },
   onlineDot: { position: 'absolute', right: 0, bottom: 1, width: 11, height: 11, borderRadius: 6, backgroundColor: '#20A05A', borderWidth: 2, borderColor: '#FFF' },
   profileInfo: { flex: 1 },
   name: { ...typography.subtitle, fontSize: 16.5, lineHeight: 21, color: '#10213F' },
-  specialty: { ...typography.body, fontSize: 14.5, lineHeight: 19, color: '#7D879B', marginTop: 1 },
+  specRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  specialty: { ...typography.body, flexShrink: 1, fontSize: 13.5, lineHeight: 18, color: '#667085' },
+  specMore: { borderRadius: 9, backgroundColor: '#CCFBF1', paddingHorizontal: 6, paddingVertical: 1 },
+  specMoreText: { fontSize: 11, fontWeight: '800', color: '#0F766E' },
   profileChevron: { ...typography.text, fontSize: 24, lineHeight: 26, color: '#98A2B3' },
   menuScroll: { flex: 1, marginTop: 6 },
   menu: { paddingHorizontal: 16, paddingBottom: 12 },

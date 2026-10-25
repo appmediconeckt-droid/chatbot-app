@@ -21,6 +21,7 @@ import { appointmentToDocument } from '../../../utils/consultationPrescriptionDo
 import ConsultationPrescriptionDocument from '../../../screens/user/Component/UserDashboard/Tab/Prescription/ConsultationPrescriptionDocument';
 import { downloadConsultationPrescriptionPdf } from '../../doctor/dashboard/utils/consultationPrescriptionPdf';
 import ListPagination, { LIST_PAGE_SIZE } from '../components/ListPagination';
+import { formatPhoneNumber } from '../../../utils/countryCodes';
 
 const EMPTY = { from: '', to: '', clinic_id: '', source: 'all', search: '' };
 const SOURCES = [['all', 'All records'], ['online', 'Online visits'], ['walkin', 'Walk-in visits'], ['prescription', 'Prescriptions']];
@@ -354,8 +355,11 @@ export default function PatientsSection({ refreshKey }) {
         navigationBarTranslucent
         onRequestClose={() => (selected && openPatient ? setSelected(null) : closeSheet())}
       >
-        <Pressable style={s.overlay} onPress={closeSheet}>
-          <Pressable style={[s.sheet, { paddingBottom: 18 + insets.bottom }]} onPress={() => {}}>
+        {/* The backdrop is a sibling, not a parent, of the sheet: a Pressable
+            around the sheet took the touches its ScrollViews need to scroll. */}
+        <View style={s.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeSheet} accessibilityLabel="Close" />
+          <View style={[s.sheet, { paddingBottom: 18 + insets.bottom }]}>
             <View style={s.handle} />
             {selected && rx ? (
               <>
@@ -407,13 +411,25 @@ export default function PatientsSection({ refreshKey }) {
                     </View>
                   )}
 
-                  {!selected.hasPrescription && (
-                    <Notice icon="alert-circle-outline" iconColor="#C27C0E" style={s.rxNoRx}>
-                      <NoticeText>No prescription has been recorded for this visit.</NoticeText>
-                    </Notice>
+                  {selected.hasPrescription ? (
+                    <>
+                      <View style={s.rxDocHead}>
+                        <View style={s.rxDocIcon}><Ionicons name="document-text-outline" size={16} color={REC.primary} /></View>
+                        <View style={s.flex}>
+                          <Text style={s.rxDocTitle}>Prescription</Text>
+                          <Text style={s.rxDocSub}>Medicines, tests and follow-up for this visit</Text>
+                        </View>
+                      </View>
+                      <ConsultationPrescriptionDocument data={rx} />
+                    </>
+                  ) : (
+                    // An empty prescription page says nothing useful — show why instead.
+                    <View style={s.rxEmpty}>
+                      <View style={s.rxEmptyIcon}><Ionicons name="document-text-outline" size={26} color="#B54708" /></View>
+                      <Text style={s.rxEmptyTitle}>No prescription for this visit</Text>
+                      <Text style={s.rxEmptyText}>The doctor did not record medicines, tests or advice for this checkup, so there is nothing to download.</Text>
+                    </View>
                   )}
-
-                  <ConsultationPrescriptionDocument data={rx} />
                 </ScrollView>
                 <AlertBox text={downloadError} />
                 <View style={s.sheetActions}>
@@ -433,7 +449,7 @@ export default function PatientsSection({ refreshKey }) {
                   <View style={s.flex}>
                     <Text style={s.sheetEyebrow}>PATIENT VISITS</Text>
                     <Text translate={false} style={s.sheetName}>{openPatient.patient.name || 'Patient'}</Text>
-                    <Text translate={false} style={s.muted}>{openPatient.patient.phoneNumber || 'Phone not recorded'}</Text>
+                    <Text translate={false} style={s.muted}>{formatPhoneNumber(openPatient.patient.phoneNumber || openPatient.patient.phone, openPatient.patient.phoneCountryCode) || 'Phone not recorded'}</Text>
                   </View>
                   <Pressable onPress={closeSheet} style={s.close} hitSlop={8}>
                     <Ionicons name="close" size={20} color={REC.ink} />
@@ -479,8 +495,8 @@ export default function PatientsSection({ refreshKey }) {
                 </ScrollView>
               </>
             )}
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
     </>
   );
@@ -545,7 +561,7 @@ function PatientCard({ group, doctor, onPress }) {
         <View style={s.flex}>
           <Text translate={false} style={s.patientName} numberOfLines={1}>{patient.name || 'Patient'}</Text>
           <Text translate={false} style={s.phoneText} numberOfLines={1}>
-            {patient.phoneNumber || 'No phone'} · {visits.length} {visits.length === 1 ? 'visit' : 'visits'}
+            {formatPhoneNumber(patient.phoneNumber || patient.phone, patient.phoneCountryCode) || 'No phone'} · {visits.length} {visits.length === 1 ? 'visit' : 'visits'}
           </Text>
         </View>
         <View style={s.patientRight}>
@@ -736,7 +752,7 @@ const s = StyleSheet.create({
   fieldTitle: { fontSize: 11.5, fontWeight: '700', color: REC.muted, marginBottom: 3 },
   fieldValue: { fontSize: 13.5, color: REC.ink, lineHeight: 19 },
   rxSheetName: { fontSize: 20, fontWeight: '800', color: REC.ink },
-  rxContent: { paddingBottom: 8 },
+  rxContent: { paddingBottom: 20 },
   rxVisit: { padding: 13, borderRadius: 16, backgroundColor: '#F3FAF8', borderWidth: 1, borderColor: '#D7EEE8', gap: 10 },
   rxVisitTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   rxSourceTag: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
@@ -752,7 +768,14 @@ const s = StyleSheet.create({
   rxSymptomsHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   rxSymptomsLabel: { fontSize: 11.5, fontWeight: '800', color: '#B54708', letterSpacing: 0.3 },
   rxSymptomsText: { fontSize: 13.5, lineHeight: 19, color: '#5A3A12' },
-  rxNoRx: { marginTop: 12, backgroundColor: '#FFF8EC', borderColor: '#F6DDAE' },
+  rxDocHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 22, marginBottom: 12 },
+  rxDocIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#E8F6F2', alignItems: 'center', justifyContent: 'center' },
+  rxDocTitle: { fontSize: 16, fontWeight: '800', color: REC.ink },
+  rxDocSub: { fontSize: 12, color: REC.muted, marginTop: 1 },
+  rxEmpty: { marginTop: 18, alignItems: 'center', paddingVertical: 26, paddingHorizontal: 20, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: '#F6DDAE', backgroundColor: '#FFFBF3' },
+  rxEmptyIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FFF1D6', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  rxEmptyTitle: { fontSize: 15.5, fontWeight: '800', color: '#7A2E0E', textAlign: 'center' },
+  rxEmptyText: { fontSize: 13, lineHeight: 19, color: '#93370D', textAlign: 'center', marginTop: 6 },
   paper: {
     marginTop: 12, padding: 15, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DCECE5',
     shadowColor: '#0F3D38', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2,
@@ -780,7 +803,6 @@ const s = StyleSheet.create({
   medicineChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 5 },
   medicineChip: { fontSize: 11.5, fontWeight: '600', color: '#475467', backgroundColor: '#F2F4F7', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, overflow: 'hidden' },
   testChip: { fontSize: 12, fontWeight: '700', color: '#6941C6', backgroundColor: '#F3EFFD', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999, overflow: 'hidden' },
-  rxEmpty: { fontSize: 13, color: '#94A3B8', fontStyle: 'italic', paddingVertical: 4 },
   paperFooter: { flexDirection: 'row', alignItems: 'flex-end', gap: 12, marginTop: 18, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEF3F2' },
   footerLabel: { fontSize: 10.5, fontWeight: '700', color: REC.muted, textTransform: 'uppercase', letterSpacing: 0.4 },
   footerValue: { fontSize: 13.5, fontWeight: '700', color: REC.ink, marginTop: 2 },

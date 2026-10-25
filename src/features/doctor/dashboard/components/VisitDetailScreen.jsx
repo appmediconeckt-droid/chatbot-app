@@ -39,8 +39,13 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
   const appointment = useMemo(() => formatAppointment(record.__raw || { ...record, patient }), [record, patient]);
   const { data: prescription, error, retry } = useDoctorPrescriptionDocument(appointment);
 
+  // Until the consultation is completed there are no medicines and no signature
+  // yet, so a download would only produce an empty prescription.
+  const status = String(record.status || '').toLowerCase();
+  const canDownload = !status || status === 'completed' || status === 'complete';
+
   const download = async () => {
-    if (!prescription || downloading) return;
+    if (!prescription || downloading || !canDownload) return;
     setDownloading(true);
     try {
       await downloadConsultationPrescriptionPdf(prescription);
@@ -49,12 +54,20 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
     }
   };
 
-  const medicines = Array.isArray(record.medicines) ? record.medicines : [];
   const hasDiagnosis = isSet(record.diagnosis);
-  const hasFollowUp = isSet(record.followUp) && record.followUp !== 'Not required';
-  const hasConsultation = hasDiagnosis || medicines.length > 0 || isSet(record.advice)
-    || (record.tests || []).length > 0 || isSet(record.additionalNotes) || hasFollowUp;
   const statusTone = STATUS_TONES[record.status] || { fg: '#475467', bg: '#F2F4F7' };
+  // Only the readings staff actually recorded; the card is hidden when none were.
+  const vitals = [
+    { label: 'Blood Pressure', value: record.bp, unit: 'mmHg', tone: 'rose' },
+    { label: 'Pulse Rate', value: record.pulse, unit: 'bpm', tone: 'teal' },
+    { label: 'Temperature', value: record.temperature, unit: `°${record.temperatureUnit || 'C'}`, tone: 'amber' },
+    { label: 'SpO₂', value: record.spo2, unit: '%', tone: 'blue' },
+    { label: 'Breathing Rate', value: record.respiratoryRate, unit: '/min', tone: 'indigo' },
+    { label: 'Weight', value: record.weight, unit: 'kg', tone: 'violet' },
+    { label: 'Height', value: record.height, unit: 'cm', tone: 'slate' },
+    { label: 'Pain Score', value: record.painScore, unit: '/10', tone: 'rose' },
+  ].filter((v) => isSet(v.value));
+  const hasVitals = vitals.length > 0 || isSet(record.notes);
 
   return (
     <View style={s.screen}>
@@ -109,63 +122,83 @@ export default function VisitDetailScreen({ patient, record, onBack }) {
           )}
         </Card>
 
-        <Card title="Vital Signs" icon="pulse">
-          <View style={s.vitals}>
-            <Vital label="Blood Pressure" value={isSet(record.bp) ? `${record.bp} mmHg` : '—'} icon="❤" tone="rose" />
-            <Vital label="Pulse Rate" value={isSet(record.pulse) ? `${record.pulse} bpm` : '—'} icon="〰" tone="teal" />
-            <Vital label="Temperature" value={isSet(record.temperature) ? `${record.temperature}°${record.temperatureUnit || 'C'}` : '—'} icon="🌡" tone="amber" />
-            <Vital label="SpO₂" value={isSet(record.spo2) ? `${record.spo2}%` : '—'} icon="◉" tone="blue" />
-            <Vital label="Breathing rate" value={isSet(record.respiratoryRate) ? `${record.respiratoryRate}/min` : '—'} icon="↕" tone="indigo" />
-            <Vital label="Weight" value={isSet(record.weight) ? `${record.weight} kg` : '—'} icon="⚖" tone="violet" />
-            <Vital label="Height" value={isSet(record.height) ? `${record.height} cm` : '—'} icon="↕" tone="slate" />
-            <Vital label="Pain score" value={isSet(record.painScore) ? `${record.painScore}/10` : '—'} icon="●" tone="rose" />
-          </View>
-          {isSet(record.notes) && <Text translate={false} style={s.vitalsNotes}>Notes: {record.notes}</Text>}
-          {isSet(record.recordedAt) && <Text translate={false} style={s.vitalsRecorded}>Recorded {new Date(record.recordedAt).toLocaleString('en-IN')}</Text>}
-        </Card>
-
-        <Card title="Complaint & Diagnosis" icon="note">
-          <Text style={s.label}>Presenting Problem</Text>
-          <Text translate={false} style={s.problem}>{record.problem}</Text>
-          {isSet(record.patientNotes) && (
-            <>
-              <Text style={[s.label, s.labelSpaced]}>Patient's Notes</Text>
-              <Text translate={false} style={s.body}>{record.patientNotes}</Text>
-            </>
-          )}
-          <Text style={[s.label, s.labelSpaced]}>Diagnosis</Text>
-          {hasDiagnosis
-            ? <Text translate={false} style={s.diagnosis}>{record.diagnosis}</Text>
-            : <Text style={s.muted}>Not recorded yet</Text>}
-        </Card>
-
-        {!hasConsultation && (
-          <View style={s.pending}>
-            <AppIcon name="info" size={16} color="#0369A1" />
-            <Text style={s.pendingText}>
-              The prescription, tests and follow-up appear here once the consultation for this visit is completed.
-            </Text>
-          </View>
+        {hasVitals && (
+          <Card title="Vital Signs" icon="pulse" count={vitals.length}>
+            {vitals.length > 0 && (
+              <View style={s.vitals}>
+                {vitals.map((v) => <Vital key={v.label} {...v} />)}
+              </View>
+            )}
+            {isSet(record.notes) && (
+              <View style={s.vitalsNotesBox}>
+                <Text style={s.vitalsNotesLabel}>Notes</Text>
+                <Text translate={false} style={s.vitalsNotes}>{record.notes}</Text>
+              </View>
+            )}
+            {isSet(record.recordedAt) && (
+              <View style={s.vitalsRecordedRow}>
+                <AppIcon name="clock" size={12} color="#98A2B3" />
+                <Text translate={false} style={s.vitalsRecorded}>Recorded {new Date(record.recordedAt).toLocaleString('en-IN')}</Text>
+              </View>
+            )}
+          </Card>
         )}
 
+        {(isSet(record.problem) || isSet(record.patientNotes) || hasDiagnosis) && (
+          <Card title={hasDiagnosis ? 'Complaint & Diagnosis' : 'Complaint'} icon="note">
+            {isSet(record.problem) && (
+              <View style={[s.infoBlock, s.problemBlock]}>
+                <Text style={[s.label, s.problemLabel]}>Presenting Problem</Text>
+                <Text translate={false} style={s.problem}>{record.problem}</Text>
+              </View>
+            )}
+            {isSet(record.patientNotes) && (
+              <View style={[s.infoBlock, s.notesBlock]}>
+                <Text style={s.label}>Patient's Notes</Text>
+                <Text translate={false} style={s.body}>{record.patientNotes}</Text>
+              </View>
+            )}
+            {hasDiagnosis && (
+              <View style={[s.infoBlock, s.diagnosisBlock]}>
+                <Text style={[s.label, s.diagnosisLabel]}>Diagnosis</Text>
+                <Text translate={false} style={s.diagnosis}>{record.diagnosis}</Text>
+              </View>
+            )}
+          </Card>
+        )}
+
+        <View style={s.rxHead}>
+          <View style={s.cardIcon}><AppIcon name="file" size={14} color="#0D9488" /></View>
+          <View style={s.flex}>
+            <Text style={s.cardTitle}>Prescription</Text>
+            <Text style={s.rxSub}>Medicines, tests and follow-up for this visit</Text>
+          </View>
+        </View>
         {error ? (
-          <View style={s.pending}>
-            <View style={s.flex}>
-              <Text accessibilityRole="alert" style={s.body}>{error}</Text>
-              <Pressable accessibilityRole="button" onPress={retry}><Text style={s.retry}>Retry prescription</Text></Pressable>
-            </View>
+          <View style={s.rxState}>
+            <AppIcon name="warning" size={20} color="#B42318" />
+            <Text accessibilityRole="alert" style={s.rxStateText}>{error}</Text>
+            <Pressable accessibilityRole="button" onPress={retry} style={s.retryBtn} hitSlop={6}>
+              <AppIcon name="refresh" size={14} color="#0D9488" />
+              <Text style={s.retry}>Retry</Text>
+            </Pressable>
           </View>
         ) : prescription ? (
           <ConsultationPrescriptionDocument data={prescription} />
         ) : (
-          <View style={s.pending}><ActivityIndicator color="#0D9488" /><Text style={s.body}>Loading prescription...</Text></View>
+          <View style={s.rxState}>
+            <ActivityIndicator color="#0D9488" />
+            <Text style={s.rxStateText}>Loading prescription...</Text>
+          </View>
         )}
       </ScrollView>
       <View style={s.footer}>
-        <Pressable onPress={download} disabled={downloading || !prescription} style={[s.downloadWrap, !prescription && s.disabled]}>
+        <Pressable onPress={download} disabled={downloading || !prescription || !canDownload} style={[s.downloadWrap, (!prescription || !canDownload) && s.disabled]}>
           <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.download}>
-            {downloading ? <ActivityIndicator color="#FFF" /> : <AppIcon name="download" size={16} color="#FFF" />}
-            <Text style={s.downloadText}>{downloading ? 'Downloading...' : 'Download Prescription'}</Text>
+            {downloading ? <ActivityIndicator color="#FFF" /> : <AppIcon name={canDownload ? 'download' : 'clock'} size={16} color="#FFF" />}
+            <Text style={s.downloadText}>
+              {downloading ? 'Downloading...' : canDownload ? 'Download Prescription' : 'Available after consultation'}
+            </Text>
           </LinearGradient>
         </Pressable>
       </View>
@@ -195,18 +228,26 @@ function Row({ label, value, highlight, last }) {
   );
 }
 
-function Vital({ label, value, icon, tone }) {
+function Vital({ label, value, unit, tone }) {
   return (
     <View style={[s.vital, s[`vital_${tone}`]]}>
-      <Text style={s.vitalIcon}>{icon}</Text>
-      <Text translate={false} style={s.vitalValue}>{value}</Text>
+      <View style={[s.vitalAccent, s[`accent_${tone}`]]} />
       <Text style={s.vitalLabel}>{label}</Text>
+      <Text translate={false} style={s.vitalValue}>
+        {String(value).trim()}
+        <Text translate={false} style={s.vitalUnit}>{unit.startsWith('/') || unit.startsWith('°') || unit === '%' ? unit : ` ${unit}`}</Text>
+      </Text>
     </View>
   );
 }
 
 const s = createDoctorStyles({
-  retry: { color: '#0D9488', fontWeight: '700', marginTop: 12 },
+  retry: { color: '#0D9488', fontWeight: '800', fontSize: 13.5 },
+  retryBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: '#E6FBF8', marginTop: 4 },
+  rxHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 24, marginBottom: 10, paddingHorizontal: 2 },
+  rxSub: { fontSize: 12, color: '#667085', marginTop: 1 },
+  rxState: { alignItems: 'center', gap: 8, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E3EEEC', borderRadius: 16, paddingVertical: 28, paddingHorizontal: 16 },
+  rxStateText: { fontSize: 13.5, lineHeight: 19, color: '#475467', textAlign: 'center' },
   disabled: { opacity: 0.5 },
   screen: { flex: 1, backgroundColor: '#FFFFFF' },
   flex: { flex: 1 },
@@ -214,8 +255,8 @@ const s = createDoctorStyles({
   backButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#F0FDFA', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   title: { fontSize: 18, fontWeight: '800', color: '#0D9488' },
   content: { padding: 14, paddingBottom: 20 },
-  banner: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFF', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#E3EEEC' },
-  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#CCFBF1', alignItems: 'center', justifyContent: 'center' },
+  banner: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#F0FDFA', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#CCFBF1' },
+  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFF', borderWidth: 2, borderColor: '#99F6E4', alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 20, fontWeight: '800', color: '#0F766E' },
   name: { fontSize: 17, fontWeight: '800', color: '#17243A' },
   meta: { fontSize: 12.5, color: '#667085', marginTop: 3 },
@@ -238,8 +279,16 @@ const s = createDoctorStyles({
   rowValue: { flexShrink: 1, fontSize: 13.5, fontWeight: '700', color: '#17243A', textAlign: 'right' },
   rowHighlight: { color: '#0F766E' },
   statusPill: { fontSize: 12, fontWeight: '800', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999, overflow: 'hidden' },
-  vitals: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  vital: { width: '31%', minWidth: 92, borderRadius: 14, padding: 10, alignItems: 'center' },
+  vitals: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
+  vital: { width: '48.5%', borderRadius: 14, paddingVertical: 11, paddingLeft: 14, paddingRight: 10, overflow: 'hidden' },
+  vitalAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
+  accent_rose: { backgroundColor: '#F43F5E' },
+  accent_teal: { backgroundColor: '#14B8A6' },
+  accent_amber: { backgroundColor: '#F59E0B' },
+  accent_blue: { backgroundColor: '#3B82F6' },
+  accent_indigo: { backgroundColor: '#6366F1' },
+  accent_violet: { backgroundColor: '#8B5CF6' },
+  accent_slate: { backgroundColor: '#64748B' },
   vital_rose: { backgroundColor: '#FFF1F2' },
   vital_teal: { backgroundColor: '#F0FDFA' },
   vital_amber: { backgroundColor: '#FFFBEB' },
@@ -247,19 +296,24 @@ const s = createDoctorStyles({
   vital_indigo: { backgroundColor: '#EEF2FF' },
   vital_violet: { backgroundColor: '#F5F3FF' },
   vital_slate: { backgroundColor: '#F8FAFC' },
-  vitalIcon: { fontSize: 18 },
-  vitalValue: { fontSize: 14, fontWeight: '800', color: '#17243A', marginTop: 4, textAlign: 'center' },
-  vitalLabel: { fontSize: 11, color: '#667085', marginTop: 2, textAlign: 'center' },
-  vitalsNotes: { fontSize: 13, lineHeight: 19, color: '#344054', marginTop: 10 },
-  vitalsRecorded: { fontSize: 11.5, color: '#98A2B3', marginTop: 6 },
-  label: { fontSize: 12, fontWeight: '800', letterSpacing: 0.3, color: '#667085', textTransform: 'uppercase' },
-  labelSpaced: { marginTop: 12 },
-  problem: { fontSize: 14, fontWeight: '700', color: '#0F766E', marginTop: 4 },
-  diagnosis: { fontSize: 14, fontWeight: '700', color: '#17243A', marginTop: 4, lineHeight: 20 },
-  body: { fontSize: 14, lineHeight: 20, color: '#344054', marginTop: 2 },
-  muted: { fontSize: 13.5, color: '#98A2B3', fontStyle: 'italic', marginTop: 2 },
-  pending: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#F0F9FF', borderWidth: 1, borderColor: '#BAE6FD', borderRadius: 14, padding: 12, marginTop: 12 },
-  pendingText: { flex: 1, fontSize: 13, lineHeight: 18, color: '#075985' },
+  vitalLabel: { fontSize: 11.5, fontWeight: '600', color: '#667085' },
+  vitalValue: { fontSize: 18, fontWeight: '800', color: '#17243A', marginTop: 3 },
+  vitalUnit: { fontSize: 12, fontWeight: '600', color: '#667085' },
+  vitalsNotesBox: { backgroundColor: '#F8FAFC', borderRadius: 12, padding: 11, marginTop: 10 },
+  vitalsNotesLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.3, color: '#667085', textTransform: 'uppercase' },
+  vitalsNotes: { fontSize: 13, lineHeight: 19, color: '#344054', marginTop: 3 },
+  vitalsRecordedRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 10 },
+  vitalsRecorded: { fontSize: 11.5, color: '#98A2B3' },
+  label: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4, color: '#667085', textTransform: 'uppercase' },
+  infoBlock: { borderRadius: 12, padding: 12, marginTop: 8, borderLeftWidth: 3 },
+  problemBlock: { marginTop: 0, backgroundColor: '#F0FDFA', borderLeftColor: '#14B8A6' },
+  problemLabel: { color: '#0F766E' },
+  problem: { fontSize: 15, fontWeight: '800', color: '#0F766E', marginTop: 4 },
+  notesBlock: { backgroundColor: '#F8FAFC', borderLeftColor: '#CBD5E1' },
+  diagnosisBlock: { backgroundColor: '#EEF2FF', borderLeftColor: '#6366F1' },
+  diagnosisLabel: { color: '#4338CA' },
+  diagnosis: { fontSize: 14.5, fontWeight: '700', color: '#1E1B4B', marginTop: 4, lineHeight: 21 },
+  body: { fontSize: 13.5, lineHeight: 20, color: '#344054', marginTop: 4 },
   med: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: '#F8FFFE', borderWidth: 1, borderColor: '#CCFBF1', borderRadius: 12, padding: 11 },
   medSpaced: { marginTop: 8 },
   medIndex: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#0D9488', alignItems: 'center', justifyContent: 'center' },

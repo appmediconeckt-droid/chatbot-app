@@ -41,6 +41,8 @@ import { getKeyboardLift, isButtonNavigation } from '../../../../utils/keyboardL
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
 import {
   getPhoneLengthLabel,
+  buildInternationalPhoneNumber,
+  formatPhoneNumber,
   isValidLocalPhoneNumber,
   normalizeLocalPhoneNumber,
   splitInternationalPhoneNumber,
@@ -260,7 +262,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
             dateOfBirth,
             bloodGroup: normalizeBloodGroup(userData.bloodGroup),
             email: userData.email || "",
-            phone: userData.phoneNumber || "",
+            phone: userData.phoneNumber || userData.phoneNum || userData.phone || "",
             phoneCountryCode: userData.phoneCountryCode || "+91",
             profilePhoto: profilePhotoUrl,
             address: userData.address || {
@@ -1065,7 +1067,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
 
       <Text style={styles.name}>{patientData.personalInfo.name}</Text>
       <Text style={styles.heroSubtext} numberOfLines={1}>
-        {patientData.personalInfo.email || patientData.personalInfo.phone || "Profile overview"}
+        {patientData.personalInfo.email || formatPhoneNumber(patientData.personalInfo.phone, patientData.personalInfo.phoneCountryCode) || "Profile overview"}
       </Text>
       <View style={styles.idBadge}>
         <Text style={styles.patientId}>ID: {patientData.personalInfo.id.slice(-8).toUpperCase()}</Text>
@@ -1150,7 +1152,7 @@ const PatientProfile = ({ onProfileUpdate }) => {
         </View>
         <View style={styles.infoItem}>
           <Text style={styles.infoLabel}>{t('auth:phone')}</Text>
-          <Text style={styles.infoValue}>{patientData.personalInfo.phone}</Text>
+          <Text translate={false} style={styles.infoValue}>{formatPhoneNumber(patientData.personalInfo.phone, patientData.personalInfo.phoneCountryCode)}</Text>
         </View>
       </View>
     </View>
@@ -1214,15 +1216,18 @@ const PatientProfile = ({ onProfileUpdate }) => {
             </Text>
           )}
           {!!patientData.personalInfo.emergencyContact?.phone && (
-            <Text style={styles.emergencyPhone}>
-              {patientData.personalInfo.emergencyContact.phone}
+            <Text translate={false} style={styles.emergencyPhone}>
+              {formatPhoneNumber(patientData.personalInfo.emergencyContact.phone, patientData.personalInfo.emergencyContact.phoneCountryCode)}
             </Text>
           )}
         </View>
         {!!patientData.personalInfo.emergencyContact?.phone && (
           <TouchableOpacity
             style={styles.emergencyCallBtn}
-            onPress={() => Linking.openURL(`tel:${patientData.personalInfo.emergencyContact.phone}`)}
+            onPress={() => {
+              const phone = splitInternationalPhoneNumber(patientData.personalInfo.emergencyContact.phone, patientData.personalInfo.emergencyContact.phoneCountryCode);
+              Linking.openURL(`tel:${buildInternationalPhoneNumber(phone.countryCode, phone.phoneNumber)}`);
+            }}
             activeOpacity={0.85}
           >
             <Ionicons name="call" size={19} color="#00652C" />

@@ -15,6 +15,7 @@ import {
 import { isPatientAccountDeleted } from '../../../../utils/deletedAccount';
 import { parseEmergencySymptoms, stripEmergencyTag } from '../../../../utils/emergencyTag';
 import { getAppointmentVitals } from '../../../../utils/appointmentVitals';
+import { formatPhoneNumber } from '../../../../utils/countryCodes';
 
 const unwrapApiArray = (payload) => {
   if (Array.isArray(payload)) return payload;
@@ -91,7 +92,7 @@ const patientDetails = (a) => {
       p.age, a.patient_age, a.age, 'N/A',
     ),
     gender: pickFirst(p.gender, p.patient_gender, a.patient_gender, a.gender, 'N/A'),
-    phone: pickFirst(p.phoneNumber, p.phone, p.phone_number, p.mobile, p.patient_phone, a.patient_phone, a.phone_number, a.phoneNumber, a.phone, 'N/A'),
+    phone: formatPhoneNumber(pickFirst(p.phoneNumber, p.phone, p.phone_number, p.mobile, p.patient_phone, a.patient_phone, a.phone_number, a.phoneNumber, a.phone, 'N/A'), p.phoneCountryCode || a.phoneCountryCode),
     bloodGroup: pickFirst(p.bloodGroup, p.blood_group, p.patient_blood_group, a.patient_blood_group, a.bloodGroup, a.blood_group, 'N/A'),
   };
 };

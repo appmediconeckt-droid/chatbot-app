@@ -30,6 +30,7 @@ import { getAuthToken, getCounsellorId } from "../../../../auth/authUtils";
 import socketService from "../../../../../services/socketService";
 import { createIncomingCallPollGate } from "../../../../../utils/incomingCallPollGate";
 import { getCounselorRating } from "../../../../../services/ratingService";
+import useLiveCounselorRating from "../../../../../hooks/useLiveCounselorRating";
 import { isPatientAccountDeleted } from "../../../../../utils/deletedAccount";
 import { launchImageLibrary } from 'react-native-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -908,6 +909,12 @@ export default function CounselorDashboard() {
   const [isPolling, setIsPolling] = useState(true);
   const [counselorData, setCounselorData] = useState(null);
   const [counsellorId, setCounsellorId] = useState(null);
+  // A new user rating appears in the header without a reload.
+  useLiveCounselorRating(counsellorId, ({ rating, totalRatings }) => {
+    setCounselorData((prev) => (!prev || (prev.rating === rating && prev.totalRatings === totalRatings)
+      ? prev
+      : { ...prev, rating, totalRatings }));
+  });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [earningsLoading, setEarningsLoading] = useState(true);
@@ -2059,7 +2066,7 @@ export default function CounselorDashboard() {
       try {
         ratingInfo = await getCounselorRating(storedCounsellorId);
       } catch (e) {
-        // non-critical - keep zeros (shown as "New")
+        // non-critical - keep zeros (rating stays hidden)
       }
 
       setCounselorData({
@@ -2793,14 +2800,15 @@ export default function CounselorDashboard() {
 
                 {/* Rating + Experience row */}
                 <View style={styles.profileMetaRow}>
-                  <View style={styles.ratingBadge}>
-                    <Icon name="star" size={11} color="#FBBF24" />
-                    <Text style={styles.ratingText}>
-                      {counselorData?.totalRatings > 0
-                        ? Number(counselorData.rating).toFixed(1)
-                        : t('counselor:newRating', 'New')}
-                    </Text>
-                  </View>
+                  {/* Only once a user has rated — no "New" placeholder. */}
+                  {counselorData?.totalRatings > 0 && Number(counselorData?.rating) > 0 && (
+                    <View style={styles.ratingBadge}>
+                      <Icon name="star" size={11} color="#FBBF24" />
+                      <Text style={styles.ratingText}>
+                        {Number(counselorData.rating).toFixed(1)} ({counselorData.totalRatings})
+                      </Text>
+                    </View>
+                  )}
                   {counselorData?.experience ? (
                     <View style={styles.expBadge}>
                       <Icon name="briefcase" size={10} color="#6366F1" />
@@ -2984,14 +2992,14 @@ export default function CounselorDashboard() {
                     {counselorData?.specialization || "Mental Health"}
                   </Text>
                   <View style={styles.profileMetaRow}>
-                    <View style={styles.ratingBadge}>
-                      <Icon name="star" size={11} color="#FBBF24" />
-                      <Text style={styles.ratingText}>
-                        {counselorData?.totalRatings > 0
-                        ? Number(counselorData.rating).toFixed(1)
-                        : t('counselor:newRating', 'New')}
-                      </Text>
-                    </View>
+                    {counselorData?.totalRatings > 0 && Number(counselorData?.rating) > 0 && (
+                      <View style={styles.ratingBadge}>
+                        <Icon name="star" size={11} color="#FBBF24" />
+                        <Text style={styles.ratingText}>
+                          {Number(counselorData.rating).toFixed(1)} ({counselorData.totalRatings})
+                        </Text>
+                      </View>
+                    )}
                     {counselorData?.experience ? (
                       <View style={styles.expBadge}>
                         <Icon name="briefcase" size={10} color="#6366F1" />

@@ -13,6 +13,7 @@ import AppIcon from '../icons/AppIcon';
 import { colors, typography, createDoctorStyles, doctorGradient, gradientDirection } from '../theme';
 import { getConsultationModeInfo, getTokenLabel } from '../api/doctorAppointments';
 import { MODE_STYLES } from './AppointmentCard';
+import { VITAL_FIELDS, canonicalVitals, hasVital } from '../../../../components/VitalsForm';
 
 const getInitials = (name = '') =>
   name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || 'NA';
@@ -40,7 +41,7 @@ export const computeElapsedMs = (session, now = Date.now()) => {
   return Math.max(0, end - session.startTime - session.accumulatedPauseMs);
 };
 
-export default function ActiveConsultationCard({ session, onPause, onChecked, onComplete, busy }) {
+export default function ActiveConsultationCard({ session, onPause, onChecked, onComplete, onVitals, busy }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -53,6 +54,8 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
   const disabled = onBreak || busy;
   const mode = getConsultationModeInfo(patient);
   const modeStyle = MODE_STYLES[mode.key];
+  const vitals = canonicalVitals(patient.vitals);
+  const recordedVitals = VITAL_FIELDS.filter(([key]) => hasVital(vitals[key]));
 
   return (
     <View style={s.card}>
@@ -99,6 +102,24 @@ export default function ActiveConsultationCard({ session, onPause, onChecked, on
           <Text style={s.timeValue}>{formatDuration(computeElapsedMs(session, now))}</Text>
         </View>
       </View>
+
+      {!!onVitals && (
+        <View style={s.vitalsStrip}>
+          <View style={s.vitalsIcon}><AppIcon name="pulse" size={14} strokeWidth={2.2} color="#0D9488" /></View>
+          <View style={s.vitalsInfo}>
+            <Text style={s.vitalsTitle}>Vitals</Text>
+            <Text translate={false} style={s.vitalsSummary} numberOfLines={1}>
+              {recordedVitals.length
+                ? recordedVitals.map(([key, label, , unit]) => `${label} ${String(vitals[key]).trim()}${/^[/°%]/.test(unit) ? unit : ` ${unit}`}`).join('  ·  ')
+                : 'Not recorded — optional'}
+            </Text>
+          </View>
+          <Pressable style={[s.vitalsButton, busy && s.disabled]} onPress={onVitals} disabled={busy} hitSlop={4}>
+            <AppIcon name={recordedVitals.length ? 'edit' : 'plus'} size={12} strokeWidth={2.4} color="#0D9488" />
+            <Text style={s.vitalsButtonText}>{recordedVitals.length ? 'Edit' : 'Add'}</Text>
+          </Pressable>
+        </View>
+      )}
 
       <View style={s.actions}>
         <Pressable style={[s.outlineButton, disabled && s.disabled]} onPress={onPause} disabled={disabled}>
@@ -152,6 +173,13 @@ const s = createDoctorStyles({
   timeBox: { flex: 1, borderWidth: 1, borderColor: colors.line, backgroundColor: '#FAFBFD', borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
   timeLabel: { ...typography.label, fontSize: 9.5, letterSpacing: 0.3, color: colors.muted },
   timeValue: { ...typography.title, fontSize: 13.5, color: colors.ink, marginTop: 1 },
+  vitalsStrip: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 9, paddingVertical: 8, paddingLeft: 9, paddingRight: 8, borderRadius: 9, backgroundColor: '#F0FDFA', borderWidth: 1, borderColor: '#CCFBF1' },
+  vitalsIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  vitalsInfo: { flex: 1, minWidth: 0 },
+  vitalsTitle: { ...typography.label, fontSize: 10, letterSpacing: 0.4, color: '#0F766E', textTransform: 'uppercase' },
+  vitalsSummary: { ...typography.body, fontSize: 12.5, color: colors.ink, marginTop: 1 },
+  vitalsButton: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 30, paddingHorizontal: 11, borderRadius: 8, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#99F6E4' },
+  vitalsButtonText: { ...typography.button, fontSize: 12, color: '#0D9488' },
   actions: { flexDirection: 'row', gap: 8, marginTop: 10 },
   outlineButton: { flex: 1, height: 36, borderRadius: 8, borderWidth: 1, borderColor: '#C9D1DD', backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
   outlineText: { ...typography.button, fontSize: 13, color: colors.navy },

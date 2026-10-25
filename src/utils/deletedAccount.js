@@ -1,3 +1,4 @@
+
 // Appointments left behind by deleted accounts.
 // ---------------------------------------------------------------------------
 // When a user/consultant/doctor account is deleted, the backend keeps the

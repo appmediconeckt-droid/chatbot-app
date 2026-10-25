@@ -41,7 +41,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import socketService from '../../../../../../services/socketService';
 import useLiveRefresh from '../../../../../../hooks/useLiveRefresh';
+import { feeCurrencyOf } from '../../../../../../utils/consultationCurrency';
 import {
+  availabilitySubscriptionErrorMessage,
   getAvailabilitySubscription,
   isAvailabilitySubscriptionUnsupported,
   setAvailabilitySubscription,
@@ -162,7 +164,8 @@ const CounselorRequestChat = ({
   const [selectedCounselorForRequest, setSelectedCounselorForRequest] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState('all');
+  // 'consultant' | 'doctor' — the two-way switch at the top of the list.
+  const [activeFilter, setActiveFilter] = useState('consultant');
   // The user's own coordinates, so "nearby" can mean an actual distance.
   const [userCoords, setUserCoords] = useState(null);
   const isFocused = useIsFocused();
@@ -220,10 +223,8 @@ const CounselorRequestChat = ({
 
   useEffect(() => {
     const nextSearch = String(initialSearchQuery || '').trim();
-    if (nextSearch) {
-      setSearchQuery(nextSearch);
-      setActiveFilter('all');
-    }
+    // The switch follows the search to whichever side has the match (below).
+    if (nextSearch) setSearchQuery(nextSearch);
   }, [initialSearchQuery]);
 
   useEffect(() => {
@@ -409,6 +410,10 @@ const CounselorRequestChat = ({
         location: c.location,
         languages: c.languages,
         consultationFee: c.consultationFee ?? c.fee ?? c.consultation_fee,
+        // The currency the doctor charges in (set from their profile country).
+        consultationCurrency: feeCurrencyOf(c),
+        // 'online' | 'upi' | 'cash', from the doctor's Payment Settings.
+        acceptedPaymentMethods: c.acceptedPaymentMethods,
         videoConsultationFee: c.videoConsultationFee ?? c.video_consultation_fee,
         voiceConsultationFee: c.voiceConsultationFee ?? c.voice_consultation_fee,
         qualification: c.qualification,
@@ -498,20 +503,34 @@ const CounselorRequestChat = ({
     if (availabilityRequestsRef.current.has(key)) return;
     availabilityRequestsRef.current.add(key);
     availabilityVersionsRef.current[key] = (availabilityVersionsRef.current[key] || 0) + 1;
-    setAvailabilityUpdating((previous) => ({ ...previous, [key]: true }));
+    const known = availabilitySubscriptions[key];
+    let previousState = known;
 
     try {
-      // Resolve unknown/stale local state before choosing POST versus DELETE.
+      // Only ask the server first when this card's state isn't known yet.
       // The shared API client supplies and refreshes the logged-in user's token.
-      const current = await getAvailabilitySubscription(counselorId);
-      setAvailabilitySubscriptions((previous) => ({ ...previous, [key]: current }));
-      const requested = !current;
+      if (typeof known !== 'boolean') {
+        setAvailabilityUpdating((previous) => ({ ...previous, [key]: true }));
+        previousState = await getAvailabilitySubscription(counselorId);
+      }
+      const requested = !previousState;
+      // Flip the bell straight away; the server confirms in the background and
+      // a failure puts it back.
+      setAvailabilitySubscriptions((previous) => ({ ...previous, [key]: requested }));
+      setAvailabilityUpdating((previous) => {
+        const next = { ...previous };
+        delete next[key];
+        return next;
+      });
       const saved = await setAvailabilitySubscription(counselorId, requested);
       setAvailabilitySubscriptions((previous) => ({ ...previous, [key]: saved }));
       if (saved !== requested) {
         throw new Error('The server did not save the requested notification status');
       }
     } catch (error) {
+      if (typeof previousState === 'boolean') {
+        setAvailabilitySubscriptions((previous) => ({ ...previous, [key]: previousState }));
+      }
       if (isAvailabilitySubscriptionUnsupported(error)) {
         setAvailabilityBellSupported(false);
         Alert.alert(
@@ -520,10 +539,13 @@ const CounselorRequestChat = ({
         );
         return;
       }
-      console.warn('Availability notification update failed:', error?.response?.status, error?.message);
+      console.warn('Availability notification update failed:', error?.response?.status, error?.message,
+        JSON.stringify(error?.response?.data || {}).slice(0, 200));
+      // Say why when the server told us (e.g. "Counselor not found").
+      const reason = availabilitySubscriptionErrorMessage(error);
       Alert.alert(
-        t('common:error'),
-        t('appointment:availabilityNotificationFailed', 'Could not update the availability notification. Please try again.')
+        t('appointment:availabilityNotificationTitle', 'Online notifications'),
+        reason || t('appointment:availabilityNotificationFailed', 'Could not update the availability notification. Please try again.')
       );
     } finally {
       availabilityRequestsRef.current.delete(key);
@@ -1105,53 +1127,33 @@ const CounselorRequestChat = ({
     return searchableText.includes(q);
   });
 
-  // Only status chips are shown here; specialties and other labels remain searchable.
-  // Nearby only appears once we know where the user is — an always-visible chip
-  // that can only ever return nothing is worse than no chip.
-  const hasNearbyAvailable = Boolean(userCoords) && counselorsWithDistance.some((c) => c.isNearby);
-  // Its chip is hidden when unavailable, so a stale 'nearby' selection would
-  // strand the user on an empty list with nothing to toggle off.
-  useEffect(() => {
-    if (activeFilter === 'nearby' && !hasNearbyAvailable) setActiveFilter('all');
-  }, [activeFilter, hasNearbyAvailable]);
-  const filterChips = (() => {
-    return [
-      { id: 'all', label: t('common:all', 'All') },
-      // No Nearby chip on the Consultants tab (removed on request).
-      { id: 'online', label: t('common:online', 'Online') },
-      { id: 'offline', label: t('common:offline', 'Offline') },
-      { id: 'doctor', label: t('appointment:doctors', 'Doctors') },
-      { id: 'consultant', label: t('appointment:consultants', 'Consultants') },
-    ];
-  })();
-
-  // "See All" only reset the chip, so it did nothing at all when the chip was
-  // already "all" - and it left an active search term in place.
-  const clearFilters = () => {
-    setActiveFilter('all');
-    setSearchQuery('');
+  // Consultants on the left, Doctors on the right — nothing else to filter by
+  // (status, specialty and the rest are still searchable).
+  const isDoctor = (c) => c.role === 'doctor';
+  const segmentMatches = {
+    consultant: filteredCounselors.filter((c) => !isDoctor(c)),
+    doctor: filteredCounselors.filter(isDoctor),
   };
+  const segments = [
+    { id: 'consultant', label: t('appointment:consultants', 'Consultants'), icon: 'chatbubbles-outline', count: segmentMatches.consultant.length },
+    { id: 'doctor', label: t('appointment:doctors', 'Doctors'), icon: 'medkit-outline', count: segmentMatches.doctor.length },
+  ];
+  const otherSegment = activeFilter === 'doctor' ? 'consultant' : 'doctor';
 
-  // True when a chip or the search box is narrowing the list, i.e. when there is
-  // actually something for "See All" to clear.
-  const isFiltered = activeFilter !== 'all' || searchQuery.trim().length > 0;
+  // A search with no hit on this side but some on the other switches over, so
+  // a name typed (or passed in) is never hidden behind the wrong side.
+  useEffect(() => {
+    if (!searchQuery.trim()) return;
+    if (!segmentMatches[activeFilter]?.length && segmentMatches[otherSegment].length) setActiveFilter(otherSegment);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, segmentMatches.consultant.length, segmentMatches.doctor.length]);
 
-  const chipFiltered = filteredCounselors.filter((c) => {
-    if (activeFilter === 'all') return true;
-    if (activeFilter === 'nearby') return c.isNearby;
-    if (activeFilter === 'online') return !!c.available;
-    if (activeFilter === 'offline') return !c.available;
-    if (activeFilter === 'doctor') return c.role === 'doctor';
-    if (activeFilter === 'consultant') return c.role !== 'doctor';
-    return true;
-  });
+  // The empty-list button: clear the search on this side.
+  const clearFilters = () => setSearchQuery('');
+
+  const chipFiltered = segmentMatches[activeFilter] || segmentMatches.consultant;
 
   const sortedCounselors = [...chipFiltered].sort((a, b) => {
-    // Under Nearby, closest first — that's the whole point of the filter.
-    if (activeFilter === 'nearby') {
-      const byDistance = (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity);
-      if (byDistance) return byDistance;
-    }
     if (a.available !== b.available) return a.available ? -1 : 1;
     return (Number(b.rating) || 0) - (Number(a.rating) || 0);
   });
@@ -1172,7 +1174,10 @@ const CounselorRequestChat = ({
         <TextInput
           value={searchQuery}
           onChangeText={setSearchQuery}
-          placeholder={t('messages:searchCounselors', 'Search counselors...')}
+          // Follows the switch, and says what can be searched.
+          placeholder={activeFilter === 'doctor'
+            ? t('appointment:searchDoctorsPlaceholder', 'Search doctors')
+            : t('appointment:searchConsultantsPlaceholder', 'Search consultants')}
           placeholderTextColor={PATIENT.textMuted}
           style={styles.searchInput}
         />
@@ -1183,36 +1188,37 @@ const CounselorRequestChat = ({
         )}
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.chipRow}
-      >
-        {filterChips.map((chip) => {
-          const isActive = activeFilter === chip.id;
-          // Same tree and metrics in both states - only the gradient stops and
-          // text colour change, so selecting a chip can't resize the row.
+      {/* Two-way switch: Consultants (left) | Doctors (right). */}
+      <View style={styles.segmentWrap} accessibilityRole="tablist">
+        {segments.map((seg) => {
+          const isActive = activeFilter === seg.id;
           return (
             <TouchableOpacity
-              key={chip.id}
-              style={styles.chipWrap}
-              onPress={() => setActiveFilter(chip.id)}
-              activeOpacity={0.8}
+              key={seg.id}
+              style={styles.segmentItem}
+              onPress={() => setActiveFilter(seg.id)}
+              activeOpacity={0.85}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
             >
               <LinearGradient
                 colors={isActive ? WALLET_GRADIENT : TRANSPARENT_GRADIENT}
                 start={GRADIENT_START}
                 end={GRADIENT_END}
-                style={[styles.chip, isActive && styles.chipActive]}
+                style={[styles.segment, isActive && styles.segmentActive]}
               >
-                <Text style={[styles.chipText, isActive && styles.chipTextActive]} numberOfLines={1}>
-                  {chip.label}
+                <Ionicons name={seg.icon} size={16} color={isActive ? '#FFFFFF' : PATIENT.textSecondary} />
+                <Text style={[styles.segmentText, isActive && styles.segmentTextActive]} numberOfLines={1}>
+                  {seg.label}
                 </Text>
+                <View style={[styles.segmentCount, isActive && styles.segmentCountActive]}>
+                  <Text style={[styles.segmentCountText, isActive && styles.segmentCountTextActive]}>{seg.count}</Text>
+                </View>
               </LinearGradient>
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+      </View>
 
       {notifications.length > 0 ? (
         <View style={styles.notificationsPanel}>
@@ -1238,16 +1244,10 @@ const CounselorRequestChat = ({
       {restCounselors.length > 0 ? (
         <View style={styles.sectionRow}>
           <Text style={styles.sectionTitleInline}>
-            {t('appointment:availableCounselors', 'Available Counselors')}
+            {activeFilter === 'doctor'
+              ? t('appointment:availableDoctors', 'Available Doctors')
+              : t('appointment:availableConsultants', 'Available Consultants')}
           </Text>
-          {/* The list is never capped - every match is already rendered - so with
-              no filter or search active "See All" had nothing to reveal and
-              looked broken. Show it only when it genuinely widens the list. */}
-          {isFiltered ? (
-            <TouchableOpacity activeOpacity={0.7} onPress={clearFilters}>
-              <Text style={styles.seeAll}>{t('appointment:seeAll', 'See All')}</Text>
-            </TouchableOpacity>
-          ) : null}
         </View>
       ) : null}
     </>
@@ -1295,15 +1295,23 @@ const CounselorRequestChat = ({
             </View>
           ) : (
             <View style={styles.emptyContainer}>
-              <Ionicons name="funnel-outline" size={26} color={PATIENT.textMuted} />
+              <Ionicons name={activeFilter === 'doctor' ? 'medkit-outline' : 'chatbubbles-outline'} size={26} color={PATIENT.textMuted} />
               <Text style={styles.emptyText}>
                 {searchQuery.trim()
-                  ? 'No consultants match your search.'
-                  : 'No consultants match this filter.'}
+                  ? `No ${activeFilter === 'doctor' ? 'doctors' : 'consultants'} match your search.`
+                  : `No ${activeFilter === 'doctor' ? 'doctors' : 'consultants'} available right now.`}
               </Text>
-              <TouchableOpacity onPress={clearFilters} activeOpacity={0.8} style={styles.emptyResetBtn}>
-                <Text style={styles.emptyResetText}>Show all consultants</Text>
-              </TouchableOpacity>
+              {searchQuery.trim() ? (
+                <TouchableOpacity onPress={clearFilters} activeOpacity={0.8} style={styles.emptyResetBtn}>
+                  <Text style={styles.emptyResetText}>Clear search</Text>
+                </TouchableOpacity>
+              ) : segmentMatches[otherSegment].length > 0 ? (
+                <TouchableOpacity onPress={() => setActiveFilter(otherSegment)} activeOpacity={0.8} style={styles.emptyResetBtn}>
+                  <Text style={styles.emptyResetText}>
+                    {otherSegment === 'doctor' ? 'View doctors' : 'View consultants'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           )
         }
@@ -1403,10 +1411,14 @@ const CounselorRequestChat = ({
                     <View style={styles.reqMetaRow}>
                       <Ionicons name="briefcase-outline" size={12} color={PATIENT.textSecondary} />
                       <Text style={styles.reqMetaText}>{selectedCounselorForRequest.experience}</Text>
-                      <Ionicons name="star" size={12} color="#F5A623" style={{ marginLeft: 10 }} />
-                      <Text style={styles.reqMetaText}>
-                        {(Number(selectedCounselorForRequest.rating) || 0).toFixed(1)}
-                      </Text>
+                      {Number(selectedCounselorForRequest.rating) > 0 && (
+                        <>
+                          <Ionicons name="star" size={12} color="#F5A623" style={{ marginLeft: 10 }} />
+                          <Text style={styles.reqMetaText}>
+                            {Number(selectedCounselorForRequest.rating).toFixed(1)}
+                          </Text>
+                        </>
+                      )}
                     </View>
                   </View>
 
@@ -1779,6 +1791,69 @@ const styles = {
     backgroundColor: '#f3f4f6',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // ─── Consultants | Doctors switch ─────────────────────────────────────────
+  segmentWrap: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginTop: 14,
+    marginBottom: 4,
+    padding: 4,
+    gap: 4,
+    borderRadius: 16,
+    backgroundColor: PATIENT.surface,
+    borderWidth: 1,
+    borderColor: PATIENT.chipBorder,
+  },
+  segmentItem: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  segment: {
+    height: 44,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingHorizontal: 10,
+  },
+  segmentActive: {
+    shadowColor: '#006B2C',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  segmentText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: PATIENT.textSecondary,
+    includeFontPadding: false,
+  },
+  segmentTextActive: {
+    color: '#FFFFFF',
+  },
+  segmentCount: {
+    minWidth: 22,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2F6',
+  },
+  segmentCountActive: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  segmentCountText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: PATIENT.textSecondary,
+  },
+  segmentCountTextActive: {
+    color: '#FFFFFF',
   },
 
   // ─── Figma chips / sections / cards ───────────────────────────────────────

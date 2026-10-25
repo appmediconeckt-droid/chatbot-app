@@ -12,6 +12,7 @@ import axiosInstance, { API_BASE_URL } from '../../../../axiosConfig';
 import { getDoctorIdFromUser, getStoredDoctorUser } from '../api/doctorAppointments';
 import { loadDoctorClinics } from '../api/doctorClinics';
 import { clearStaffDocuments } from './staffDocuments';
+import { formatPhoneNumber } from '../../../../utils/countryCodes';
 
 // Web shift values and their hours (24h, end may wrap past midnight).
 export const SHIFTS = [
@@ -190,7 +191,7 @@ export function normalizeStaff(doc = {}) {
     firstName: first || firstName || '',
     lastName: last || rest.join(' '),
     email: doc.email || doc.email_address || '',
-    phone: doc.contact_number || doc.phone || doc.phone_number || doc.mobile || '',
+    phone: formatPhoneNumber(doc.contact_number || doc.phoneNumber || doc.phone || doc.phone_number || doc.mobile, doc.phoneCountryCode),
     department: toTitleCase(doc.department || doc.department_name || 'General'),
     role: roleKeyToLabel(roleKey),
     roleKey,

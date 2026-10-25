@@ -22,6 +22,8 @@ import { getDatePickerValue, toDateOnlyString } from '../../../../utils/dateOfBi
 import { DEFAULT_SHIFT_TIMES, createStaff, fetchClinics, formatClock12, generateStaffPassword } from './staffApi';
 import { pickStaffPhoto } from './pickStaffPhoto';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
+import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
+import { buildInternationalPhoneNumber, formatPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber } from '../../../../utils/countryCodes';
 
 // Role `key`s are the backend role ids the web sends (docStaffRoleCards).
 const ROLES = [
@@ -61,7 +63,6 @@ const ROLE_ID_PREFIX = {
   supervisor: 'SUP',
 };
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-const isValidPhone = (value) => value.replace(/\D/g, '').length >= 10;
 
 const formatMDY = (isoDate) => {
   if (!isoDate) return '';
@@ -87,6 +88,7 @@ const blankForm = {
   lastName: '',
   email: '',
   phone: '',
+  phoneCountryCode: '+91',
   dateOfBirth: '',
   gender: '',
   department: '',
@@ -161,9 +163,9 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
   const selectedRoleInfo = ROLES.find((item) => item.key === selectedRole);
 
   const emailValid = isValidEmail(form.email);
-  const phoneValid = isValidPhone(form.phone);
+  const phoneValid = isValidLocalPhoneNumber(form.phone, form.phoneCountryCode);
   const emailError = form.email.trim().length > 0 && !emailValid ? 'Enter a valid email address.' : '';
-  const phoneError = form.phone.trim().length > 0 && !phoneValid ? 'Enter a valid phone number (at least 10 digits).' : '';
+  const phoneError = form.phone.trim().length > 0 && !phoneValid ? `Enter a valid ${getPhoneLengthLabel(form.phoneCountryCode)} digit phone number for ${form.phoneCountryCode}.` : '';
 
   const canContinueStep1 = Boolean(selectedRole);
   const canContinueStep2 = Boolean(form.clinicId && form.firstName.trim() && form.lastName.trim() && emailValid && phoneValid
@@ -219,6 +221,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
   };
 
   const handleCreateAccount = async () => {
+    if (!phoneValid) return showToast(phoneError || 'Enter a phone number.');
     try {
       setCreating(true);
       const created = await createStaff({
@@ -226,7 +229,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         email: form.email.trim(),
-        phone: form.phone.trim(),
+        phone: buildInternationalPhoneNumber(form.phoneCountryCode, form.phone),
         dateOfBirth: form.dateOfBirth,
         gender: form.gender,
         role: selectedRole,
@@ -455,7 +458,11 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
           <FormField label="First Name" value={form.firstName} onChangeText={(value) => setField('firstName', value)} placeholder="e.g. Jane" />
           <FormField label="Last Name" value={form.lastName} onChangeText={(value) => setField('lastName', value)} placeholder="e.g. Doe" />
           <FormField label="Email Address" value={form.email} onChangeText={(value) => setField('email', value)} placeholder="jane.doe@example.com" keyboardType="email-address" autoCapitalize="none" error={emailError} />
-          <FormField label="Phone Number" value={form.phone} onChangeText={(value) => setField('phone', value)} placeholder="+91 0000000000" keyboardType="phone-pad" error={phoneError} />
+          <View style={s.field}>
+            <Text style={s.fieldLabel}>Phone Number</Text>
+            <CountryPhoneInput value={form.phone} countryCode={form.phoneCountryCode} onChangePhoneNumber={(value) => setField('phone', value)} onChangeCountryCode={(value) => setField('phoneCountryCode', value)} onFocus={kbFocus} accentColor="#0D9488" />
+            {!!phoneError && <Text style={s.fieldErrorText}>{phoneError}</Text>}
+          </View>
 
           <SectionHeader title="Professional Details" />
           <FormDate label="Date of Birth" value={form.dateOfBirth} onPress={() => openDatePicker('dateOfBirth')} />
@@ -483,7 +490,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
                 <Text style={s.reviewCardTitle}>Personal Information</Text>
               </View>
               <Pressable onPress={() => setStep(2)} style={s.editLinkRow} hitSlop={6}>
-                <AppIcon name="edit" size={13} color={colors.blue} strokeWidth={2.2} />
+                <AppIcon name="pencil" size={13} color={colors.blue} strokeWidth={2.2} />
                 <Text style={s.editLinkText}>Edit</Text>
               </Pressable>
             </View>
@@ -505,7 +512,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
             <View style={s.reviewGrid}>
               <ReviewItem label="Full Name" value={`${form.firstName} ${form.lastName}`.trim()} />
               <ReviewItem label="Email Address" value={form.email} />
-              <ReviewItem label="Phone Number" value={form.phone} />
+              <ReviewItem label="Phone Number" value={formatPhoneNumber(form.phone, form.phoneCountryCode)} />
             </View>
           </View>
 
@@ -516,7 +523,7 @@ export default function CreateStaffScreen({ onCancel, onCreated }) {
                 <Text style={s.reviewCardTitle}>Professional Details</Text>
               </View>
               <Pressable onPress={() => setStep(2)} style={s.editLinkRow} hitSlop={6}>
-                <AppIcon name="edit" size={13} color={colors.blue} strokeWidth={2.2} />
+                <AppIcon name="pencil" size={13} color={colors.blue} strokeWidth={2.2} />
                 <Text style={s.editLinkText}>Edit</Text>
               </Pressable>
             </View>

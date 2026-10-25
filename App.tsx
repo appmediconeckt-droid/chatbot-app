@@ -103,8 +103,9 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 // Lock as soon as the user leaves the app and opens it again.
 const LOCK_TIMEOUT_MS = 0;
-// How long the logo splash stays up at least, so it never just flashes by.
-const MIN_LOGO_SPLASH_MS = 1000;
+// How long the logo splash stays up at least, so it never just flashes by —
+// kept short so the app opens quickly.
+const MIN_LOGO_SPLASH_MS = 400;
 
 // ─── Popups must reach the bottom of the screen ──────────────────────────────
 // An Android Modal window stops above the navigation bar by default. This app
