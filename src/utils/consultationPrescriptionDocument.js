@@ -14,6 +14,20 @@ export const documentDate = value => {
   return `${String(date.getDate()).padStart(2, '0')} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
 };
 
+// The booking screen writes "Consultation: In-Clinic Visit at <clinic>.
+// Location: <address>" into the appointment notes, and some records carry that
+// text in their reason / problem too. It is booking detail, not a complaint or
+// a diagnosis, so it is stripped; nothing left means nothing to show.
+const clinicalText = value => {
+  if (typeof value !== 'string') return '';
+  const text = value
+    .replace(/\bLocation:[\s\S]*$/i, '')
+    .replace(/\bConsultation:\s*[^.\n]*?(?:\s+at\s+[^.\n]*)?(?:\.|$)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text && text !== '—' ? text : '';
+};
+
 const listText = value => Array.isArray(value) ? value.filter(Boolean).join(', ') : typeof value === 'string' || typeof value === 'number' ? String(value) : '';
 
 export const approvedSignature = record => {
@@ -63,8 +77,9 @@ export const appointmentToDocument = (appointment = {}, doctorName) => {
     doctor: candidates.find(value => typeof value === 'string' && value.trim() && !/^(dr\.?\s*)?doctor$/i.test(value.trim()))?.trim() || 'Doctor name not recorded',
     date: documentDate(record.issuedAt || record.appointmentDate || record.appointment_date || record.date || record.endTime),
     gender: patient.gender || (record.gender !== 'Not specified' && record.gender) || record.patient_gender || '—',
-    issue: record.issue || record.problem || '—',
-    diagnosis: record.diagnosis || record.problem || '—',
+    issue: clinicalText(record.issue) || clinicalText(record.problem) || '—',
+    // Only the doctor's own diagnosis — never the complaint standing in for it.
+    diagnosis: clinicalText(record.diagnosis) || '—',
     medicines: record.medicines,
     medicine: record.medicine || '',
     advice: record.advice || record.instructions || '',
@@ -93,9 +108,17 @@ export const doctorRxToDocument = (rx = {}) => {
     doctorPhone: formatPhoneNumber(data.doctorPhone || rx.clinic?.phone, rx.clinic?.phoneCountryCode),
     phone: formatPhoneNumber(data.phone, rx.patient?.phoneCountryCode || rx.phoneCountryCode),
     opd: data.opd || listText(rx.tokenNumber),
-    issue: data.issue === '—' ? rx.complaint || data.issue : data.issue,
+    issue: data.issue === '—' ? clinicalText(rx.complaint) || data.issue : clinicalText(data.issue) || '—',
     tests: data.tests.length ? data.tests : (rx.testDetails || rx.tests || []).map(test => typeof test === 'string' ? { testName: test } : test),
   };
+};
+
+// The prescription number, short enough to read out: the backend has no Rx
+// number of its own, so the record id ("appointment:6adc…ec8a4") becomes
+// "HM-0EC8A4" — its last six characters.
+export const shortRxNumber = value => {
+  const id = String(value ?? '').replace(/^appointment:/i, '').replace(/[^a-z0-9]/gi, '');
+  return id ? `HM-${id.slice(-6).toUpperCase()}` : '';
 };
 
 export const followUpText = data =>
@@ -131,13 +154,23 @@ export const buildConsultationDocumentHtml = (data = {}) => {
   };
   const ref = (label, value) => present(value) ? `<div class="ref"><span>${esc(label)}</span><b>${esc(value)}</b></div>` : '';
   const info = (label, value) => present(value) ? `<div class="info"><span>${esc(label)}</span><b>${esc(value)}</b></div>` : '';
-  const block = (title, value) => present(value) ? `<section class="block"><h3>${esc(title)}</h3><p>${esc(value)}</p></section>` : '';
   const cell = value => present(value) ? esc(value) : '<i>—</i>';
 
   const doctorLines = [data.qualification, data.specialization, data.registration && `Reg. No.: ${data.registration}`].filter(present);
-  const clinicLine = [data.clinic, data.address].filter(present).map(esc).join(' &nbsp;·&nbsp; ');
-  const contactLine = [data.doctorPhone, data.doctorEmail].filter(present).map(esc).join(' &nbsp;·&nbsp; ');
-  const rxNumber = present(data.prescriptionId) ? String(data.prescriptionId).replace(/^appointment:/i, '') : '';
+  // Clinic strip: location, phone and email as separate items, each with an icon.
+  const icon = path => `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="#0f766e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
+  const ICONS = {
+    pin: icon('<path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>'),
+    phone: icon('<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>'),
+    mail: icon('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>'),
+  };
+  const location = [data.clinic, data.address].filter(present).map(esc);
+  const clinicItems = [
+    location.length ? `<div class="ci ci-loc">${ICONS.pin}<p><b>${location[0]}</b>${location.length > 1 ? `, ${location.slice(1).join(', ')}` : ''}</p></div>` : '',
+    present(data.doctorPhone) ? `<div class="ci">${ICONS.phone}<p>${esc(data.doctorPhone)}</p></div>` : '',
+    present(data.doctorEmail) ? `<div class="ci">${ICONS.mail}<p>${esc(data.doctorEmail)}</p></div>` : '',
+  ].filter(Boolean).join('');
+  const rxNumber = present(data.prescriptionId) ? shortRxNumber(data.prescriptionId) : '';
   const ageGender = [present(data.age) && `${data.age} yrs`, present(data.gender) && data.gender].filter(Boolean).join(' / ');
   const weight = present(data.weight) ? `${data.weight}${/kg/i.test(data.weight) ? '' : ' kg'}` : '';
   const followUp = followUpText(data);
@@ -166,7 +199,12 @@ span { display: block; font-size: 8.5px; font-weight: 700; letter-spacing: .6px;
 .refs { display: flex; gap: 6px; flex-shrink: 0; }
 .ref { min-width: 74px; padding: 5px 9px; border: 1px solid #e2e8f0; border-radius: 6px; }
 .ref b { display: block; font-size: 12px; color: #193d42; margin-top: 1px; }
-.clinic { margin-top: 8px; padding: 6px 10px; border-radius: 6px; background: #f0fdfa; font-size: 10.5px; color: #334155; }
+.clinic { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 18px; margin-top: 8px; padding: 7px 12px; border-radius: 6px; background: #f0fdfa; font-size: 10.5px; color: #334155; }
+.ci { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.ci svg { flex-shrink: 0; }
+.ci p { white-space: nowrap; }
+.ci-loc { flex: 1 1 auto; }
+.ci-loc p { white-space: normal; }
 .clinic b { color: #0f766e; }
 .rxno { margin-top: 4px; font-size: 9px; color: #94a3b8; }
 /* Patient */
@@ -197,6 +235,15 @@ td small { display: block; font-size: 9.5px; color: #64748b; }
 .empty { padding: 8px 10px; border: 1px dashed #cbd5e1; border-radius: 6px; color: #64748b; text-align: center; }
 .block { margin-top: 10px; }
 .block p { font-size: 11px; color: #334155; }
+/* Advice and notes: boxes like the clinical ones, side by side. */
+.notesRow { display: flex; gap: 10px; margin-top: 14px; break-inside: avoid; }
+.notesRow .box { padding: 10px 12px; border-left-width: 4px; }
+.box.advice { background: #fffbeb; border-left-color: #f59e0b; }
+.box.advice span { color: #b45309; }
+.box.note { background: #f1f5f9; border-left-color: #64748b; }
+.box.note span { color: #475569; }
+.notesRow span { font-size: 9.5px; letter-spacing: .7px; }
+.box p { margin-top: 4px; font-size: 12.5px; line-height: 1.55; color: #1f2d3a; }
 .tests p { font-size: 11px; color: #334155; margin-bottom: 2px; }
 /* Closing */
 .foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin-top: auto; padding-top: 12px; border-top: 1px solid #e2e8f0; break-inside: avoid; }
@@ -220,19 +267,18 @@ td small { display: block; font-size: 9.5px; color: #64748b; }
 <img class="watermark" src="${prescriptionWatermark}" alt=""/>
 <header class="head">
 <img class="logo" src="${prescriptionBrand}" alt="Humaeli"/>
-<div class="doctor"><span>Prescribing doctor</span><h2>${esc(data.doctor)}</h2>${doctorLines.map(line => `<p>${esc(line)}</p>`).join('')}</div>
-<div class="refs">${ref('Date', data.date)}${ref('Token', present(data.opd) ? `#${data.opd}` : '')}</div>
+<div class="doctor"><h2>${esc(data.doctor)}</h2>${doctorLines.map(line => `<p>${esc(line)}</p>`).join('')}</div>
+<div class="refs">${ref('Date', data.date)}${ref('Token', present(data.opd) ? `#${data.opd}` : '')}${ref('Rx No.', rxNumber)}</div>
 </header>
-${clinicLine || contactLine ? `<div class="clinic">${clinicLine ? `<b>${clinicLine}</b>` : ''}${clinicLine && contactLine ? ' &nbsp;|&nbsp; ' : ''}${contactLine}</div>` : ''}
-${rxNumber ? `<div class="rxno">Rx No. ${esc(rxNumber)}</div>` : ''}
+${clinicItems ? `<div class="clinic">${clinicItems}</div>` : ''}
 <section class="patient"><div class="info main"><span>Patient</span><b>${esc(present(data.patient) ? data.patient : 'Patient')}</b></div>${info('Age / Gender', ageGender)}${info('Contact', data.phone)}${info('Weight', weight)}${info('Allergies', data.allergies)}${info('Patient ID', data.patientId)}</section>
 <div class="rx"><h1><em>℞</em>Prescription</h1><hr/></div>
 ${present(data.issue) || present(data.diagnosis) ? `<div class="clinical">${present(data.issue) ? `<div class="box"><span>Consultation for</span><b>${esc(data.issue)}</b></div>` : ''}${present(data.diagnosis) ? `<div class="box dx"><span>Diagnosis</span><b>${esc(data.diagnosis)}</b></div>` : ''}</div>` : ''}
 <h3>Prescribed medicines</h3>${medicines}
 ${(data.tests || []).length ? `<section class="block tests"><h3>Recommended tests</h3>${data.tests.map(test => `<p><b>${esc(test.testName || test.name)}</b>${esc(testLine(test))}</p>`).join('')}</section>` : ''}
-${block('Advice & instructions', data.advice)}${data.notes !== data.advice ? block('Additional notes', data.notes) : ''}
+${present(data.advice) || (present(data.notes) && data.notes !== data.advice) ? `<div class="notesRow">${present(data.advice) ? `<div class="box advice"><span>Advice &amp; instructions</span><p>${esc(data.advice)}</p></div>` : ''}${present(data.notes) && data.notes !== data.advice ? `<div class="box note"><span>Additional notes</span><p>${esc(data.notes)}</p></div>` : ''}</div>` : ''}
 <footer class="foot">
-<div class="follow${hasFollowUp ? ' on' : ''}"><span>Next follow-up</span><b>${esc(followUp)}</b></div>
+${hasFollowUp ? `<div class="follow on"><span>Next follow-up</span><b>${esc(followUp)}</b></div>` : '<div></div>'}
 <div class="sign"><div class="img">${data.signature ? `<img src="${esc(data.signature)}" alt="Doctor signature"/>` : ''}</div><hr/><b>${esc(data.doctor)}</b>${present(data.qualification) ? `<p>${esc(data.qualification)}</p>` : ''}${present(data.registration) ? `<p>Reg. No.: ${esc(data.registration)}</p>` : ''}<span>Issued by</span></div>
 </footer>
 <div class="brand">This prescription is provided by <b><img src="${prescriptionFooter}" alt="Humaeli"/>HUMAELI</b> Talk. Connect. Feel Supported.</div>

@@ -31,12 +31,23 @@ const keyboardTopOnScreen = (event) => {
   return Dimensions.get('screen').height - getKeyboardCoverage(event);
 };
 
+// After the first guess, the spacer re-measures where the composer actually
+// ended up and corrects itself. That covers phones and tablets whose window
+// *does* shrink for the keyboard (older Android, some vendor ROMs, split
+// screen / freeform windows): there the composer has already moved up, the
+// first guess would add the keyboard a second time and leave it floating
+// above the keyboard, and the correction takes that back out.
+const SETTLE_CHECKS_MS = [120, 360];
+const TOLERANCE_DP = 2;
+
 export default function KeyboardSpacer({ insetsBottom = 0 }) {
   const [height, setHeight] = useState(0);
   const viewRef = useRef(null);
   const heightRef = useRef(0);
   // Screen y of this spacer while the keyboard is closed (= composer bottom).
   const restTopRef = useRef(null);
+  const keyboardTopRef = useRef(null);
+  const timersRef = useRef([]);
 
   const measureRest = useCallback(() => {
     if (heightRef.current > 0) return;
@@ -51,17 +62,40 @@ export default function KeyboardSpacer({ insetsBottom = 0 }) {
       heightRef.current = next;
       setHeight(next);
     };
+    const clearTimers = () => {
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+    };
+    // Bring the spacer's top (= the composer's bottom) to the keyboard's top.
+    const settle = () => {
+      const keyboardTop = keyboardTopRef.current;
+      if (keyboardTop == null) return;
+      viewRef.current?.measure?.((x, y, w, h, pageX, pageY) => {
+        if (keyboardTopRef.current == null || !Number.isFinite(pageY) || pageY <= 0) return;
+        const next = Math.max(0, Math.round(heightRef.current + (pageY - keyboardTop)));
+        if (Math.abs(next - heightRef.current) > TOLERANCE_DP) apply(next);
+      });
+    };
     const show = Keyboard.addListener('keyboardDidShow', (event) => {
+      clearTimers();
+      const keyboardTop = keyboardTopOnScreen(event);
+      keyboardTopRef.current = keyboardTop;
       const restTop = restTopRef.current;
       if (restTop != null) {
-        apply(Math.max(0, Math.round(restTop - keyboardTopOnScreen(event))));
+        apply(Math.max(0, Math.round(restTop - keyboardTop)));
       } else {
         // Not measured yet (keyboard opened during the very first layout).
         apply(getKeyboardLift(getKeyboardEventHeight(event, insetsBottom), insetsBottom));
       }
+      timersRef.current = SETTLE_CHECKS_MS.map((ms) => setTimeout(settle, ms));
     });
-    const hide = Keyboard.addListener('keyboardDidHide', () => apply(0));
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
+      clearTimers();
+      keyboardTopRef.current = null;
+      apply(0);
+    });
     return () => {
+      clearTimers();
       show.remove();
       hide.remove();
     };

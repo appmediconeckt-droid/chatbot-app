@@ -67,23 +67,26 @@ class MainActivity : ReactActivity() {
   // composer stayed under the keyboard, or a blank strip stayed after it
   // closed, for a second or more.
   //
-  // So the keyboard is reported here as soon as its slide starts: the show
-  // with the final size (the animation's upper bound), and the hide too, which
-  // React Native alone would only see once the slide-down has ended. A layout
-  // pass is still requested at start and end so React Native's own state
-  // follows. If a close turns back into an open (field tapped mid-slide) the
-  // show is re-sent, because React Native never saw the keyboard as closed.
+  // So the keyboard is reported here as soon as its slide starts, with where it
+  // will end: Android has already applied the end-state insets by onStart, so
+  // they say whether the keyboard ends open (and how tall) or closed. That is
+  // right for an open, a close, and a keyboard that changes height while open
+  // (emoji panel, voice typing, suggestion strip, another keyboard) — which the
+  // old "was it open before?" check reported as a close, dropping the composer
+  // behind the keyboard until the slide ended. onEnd reports the final state
+  // again, in case the slide was interrupted (field tapped mid-close). A layout
+  // pass is requested at both points so React Native's own state follows.
   private fun reportKeyboardWhenSettled() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
     val content = findViewById<View>(android.R.id.content) ?: return
     content.setWindowInsetsAnimationCallback(
       object : WindowInsetsAnimation.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
-        private var closing = false
-
-        override fun onPrepare(animation: WindowInsetsAnimation) {
-          if (animation.typeMask and WindowInsets.Type.ime() != 0) {
-            closing = content.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
-          }
+        private fun emitEndState() {
+          val insets = content.rootWindowInsets ?: return
+          emitKeyboardEvent(
+            if (insets.isVisible(WindowInsets.Type.ime())) insets.getInsets(WindowInsets.Type.ime()).bottom else null,
+          )
+          window.decorView.requestLayout()
         }
 
         override fun onProgress(
@@ -91,28 +94,16 @@ class MainActivity : ReactActivity() {
           runningAnimations: MutableList<WindowInsetsAnimation>,
         ): WindowInsets = insets
 
-        // The slide is just starting; its upper bound is the full keyboard
-        // inset, so the composer can be told its final place right away.
         override fun onStart(
           animation: WindowInsetsAnimation,
           bounds: WindowInsetsAnimation.Bounds,
         ): WindowInsetsAnimation.Bounds {
-          if (animation.typeMask and WindowInsets.Type.ime() != 0) {
-            emitKeyboardEvent(if (closing) null else bounds.upperBound.bottom)
-            window.decorView.requestLayout()
-          }
+          if (animation.typeMask and WindowInsets.Type.ime() != 0) emitEndState()
           return bounds
         }
 
         override fun onEnd(animation: WindowInsetsAnimation) {
-          if (animation.typeMask and WindowInsets.Type.ime() != 0) {
-            val insets = content.rootWindowInsets
-            if (closing && insets?.isVisible(WindowInsets.Type.ime()) == true) {
-              emitKeyboardEvent(insets.getInsets(WindowInsets.Type.ime()).bottom)
-            }
-            closing = false
-            window.decorView.requestLayout()
-          }
+          if (animation.typeMask and WindowInsets.Type.ime() != 0) emitEndState()
         }
       }
     )

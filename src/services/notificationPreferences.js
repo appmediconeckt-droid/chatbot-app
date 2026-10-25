@@ -57,7 +57,9 @@ export const isWithinQuietHours = (quietHours, date = new Date()) => {
 export const getNotificationCategory = (data = {}, { isChat = false } = {}) => {
   if (isChat) return 'messages';
   const type = String(data?.type || data?.notificationType || data?.event || '').toUpperCase();
-  if (/APPOINT|BOOK|FOLLOW|QUEUE|TOKEN|WALK/.test(type)) return 'appointments';
+  // Consultation, prescription, visit, checkup and vitals updates are part of
+  // an appointment too — not "Account & Updates", which a doctor may mute.
+  if (/APPOINT|BOOK|FOLLOW|QUEUE|TOKEN|WALK|CONSULT|PRESCRI|VISIT|CHECKUP|VITAL/.test(type)) return 'appointments';
   if (/MESSAGE|CHAT/.test(type)) return 'messages';
   if (/PAYMENT|WALLET|PAYOUT|REFUND/.test(type)) return 'payments';
   return 'system';

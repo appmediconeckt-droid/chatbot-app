@@ -29,8 +29,16 @@ const unavailable = () => {
   return error;
 };
 
-const documentName = rx =>
-  `Prescription ${rx.doctorName || ''} ${formatDate(rx.date)}`.replace(/\s+/g, ' ').trim();
+// One name per visit — patient, date and token — like the doctor's download.
+// The doctor-and-date name was shared by every visit that day, so Downloads
+// filled with "(1)", "(2)"… copies and an older one got opened.
+const documentName = rx => {
+  const doc = doctorRxToDocument(rx);
+  const patient = doc.patient && doc.patient !== 'Patient' ? doc.patient : '';
+  const date = doc.date && doc.date !== '—' ? doc.date : formatDate(rx.date);
+  return ['Prescription', patient || rx.doctorName || '', date, doc.opd ? `Token ${doc.opd}` : '']
+    .join(' ').replace(/\s+/g, ' ').trim();
+};
 
 // Builds the prescription as an A4 PDF and opens the share sheet with it
 // (WhatsApp, Gmail, Drive, Files…). Rejects with code 'PRINT_UNAVAILABLE'
@@ -66,6 +74,10 @@ export const downloadPrescriptionPdf = async rx => {
   const baseName = name.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'Prescription';
   const folder = Platform.OS === 'android' ? RNFS.DownloadDirectoryPath : RNFS.DocumentDirectoryPath;
   let path = `${folder}/${baseName}.pdf`;
+  // The name is unique to this visit, so an existing file is an older copy of
+  // it: replace it (an undeletable one, e.g. from an earlier install, is kept
+  // and this copy is numbered instead).
+  if (await RNFS.exists(path)) await RNFS.unlink(path).catch(() => {});
   for (let copy = 1; (await RNFS.exists(path)) && copy < 100; copy += 1) {
     path = `${folder}/${baseName} (${copy}).pdf`;
   }

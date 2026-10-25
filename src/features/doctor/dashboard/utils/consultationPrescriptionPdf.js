@@ -10,7 +10,7 @@
 import { Alert, NativeModules } from 'react-native';
 import RNFS from 'react-native-fs';
 import { buildSimplePdf, saveAndOpenPdf } from './prescriptionPdf';
-import { medicineTiming, medicineDuration, buildConsultationDocumentHtml } from '../../../../utils/consultationPrescriptionDocument';
+import { medicineTiming, medicineDuration, buildConsultationDocumentHtml, followUpText, shortRxNumber } from '../../../../utils/consultationPrescriptionDocument';
 export { medicineTiming, medicineDuration } from '../../../../utils/consultationPrescriptionDocument';
 
 const str = value => value === null || value === undefined ? '' : String(value);
@@ -45,38 +45,40 @@ export async function downloadConsultationPrescriptionPdf(data = {}) {
         return;
       }
     }
-    // The fallback retains every section and paginates long prescriptions.
+    // Plain-text fallback (only when the native PDF module is unavailable): the
+    // same sections and rules as the designed PDF — short Rx number, nothing
+    // printed for details that were not recorded.
+    const has = value => { const text = str(value).trim(); return Boolean(text) && text !== '—' && !/^(none|not)\s*recorded$/i.test(text); };
+    const section = (title, body) => (has(body) ? ['', title.toUpperCase(), str(body)] : []);
+    const followUp = followUpText(data);
     const lines = [
-      'Prescription',
-      `Prescribing doctor: ${str(data.doctor)}`,
-      ...[data.qualification, data.specialization, data.registration && `Reg. No.: ${data.registration}`, data.clinic, data.address, data.doctorPhone, data.doctorEmail].filter(Boolean),
-      `Date: ${str(data.date)}`,
-      // Details that were not recorded are left out.
+      `PRESCRIPTION  -  ${str(data.doctor)}`,
+      ...[data.qualification, data.specialization, data.registration && `Reg. No.: ${data.registration}`].filter(has),
+      ...[data.clinic, data.address].filter(has).length ? [[data.clinic, data.address].filter(has).join(', ')] : [],
+      ...[data.doctorPhone, data.doctorEmail].filter(has).length ? [[data.doctorPhone, data.doctorEmail].filter(has).join('   |   ')] : [],
+      '',
+      [`Date: ${str(data.date)}`, has(data.opd) && `Token: #${data.opd}`, has(data.prescriptionId) && `Rx No.: ${shortRxNumber(data.prescriptionId)}`].filter(Boolean).join('   |   '),
+      '',
+      `PATIENT: ${str(data.patient)}`,
       ...[
-        ['Prescription No.', data.prescriptionId],
-        ['OPD / Token No.', data.opd],
-        ['Patient ID', data.patientId],
-        ['Age', data.age],
-        ['Contact No.', data.phone],
+        ['Age / Gender', [has(data.age) && `${data.age} yrs`, has(data.gender) && data.gender].filter(Boolean).join(' / ')],
+        ['Contact', data.phone],
         ['Weight', data.weight],
         ['Allergies', data.allergies],
-      ]
-        .filter(([, value]) => { const text = str(value).trim(); return text && text !== '—' && !/^(none|not)\s*recorded$/i.test(text); })
-        .map(([label, value]) => `${label}: ${str(value)}`),
-      `Patient: ${str(data.patient)}`,
-      `Gender: ${str(data.gender)} | Consultation for: ${str(data.issue)}`,
-      '', 'Diagnosis', str(data.diagnosis), '', 'Prescribed medicines',
+        ['Patient ID', data.patientId],
+      ].filter(([, value]) => has(value)).map(([label, value]) => `${label}: ${str(value)}`),
+      ...section('Consultation for', data.issue),
+      ...section('Diagnosis', data.diagnosis),
+      '', 'PRESCRIBED MEDICINES',
       ...((data.medicines || []).length
-        ? data.medicines.map((m) => [m.name || m.medicine, m.strength, m.dosage, medicineTiming(m), medicineDuration(m), m.instructions].filter(Boolean).join(' - '))
-        : [str(data.medicine) || 'No medicines prescribed.']),
-      ...(data.advice ? ['', 'Advice & instructions', str(data.advice)] : []),
-      ...(data.notes && data.notes !== data.advice ? ['', 'Additional notes', str(data.notes)] : []),
-      ...(data.tests || []).flatMap(test => [
-        '', `Recommended test: ${test.testName || test.name || 'Test'}`,
-        [test.completeBy && `Complete by: ${test.completeBy}`, test.reason, test.instructions].filter(Boolean).join('\n') || 'As advised',
-      ]),
-      '', 'Follow-up', str(data.followUp || (data.followUpRequired ? 'Required' : 'No follow-up scheduled')),
-      '', 'Issued by', str(data.doctor),
+        ? data.medicines.map((m, index) => `${index + 1}. ${[m.name || m.medicine, m.strength, m.dosage, medicineTiming(m), medicineDuration(m), m.instructions].filter(has).join('  -  ')}`)
+        : [has(data.medicine) ? str(data.medicine) : 'No medicines prescribed.']),
+      ...((data.tests || []).length ? ['', 'RECOMMENDED TESTS', ...data.tests.map(test => `- ${test.testName || test.name || 'Test'}${[test.completeBy && ` (by ${test.completeBy})`, test.reason && ` - ${test.reason}`, test.instructions && ` - ${test.instructions}`].filter(Boolean).join('')}`)] : []),
+      ...section('Advice & instructions', data.advice),
+      ...(data.notes !== data.advice ? section('Additional notes', data.notes) : []),
+      ...(followUp !== 'No follow-up scheduled' ? ['', `NEXT FOLLOW-UP: ${followUp}`] : []),
+      '', '', `Issued by: ${str(data.doctor)}`,
+      ...(has(data.qualification) ? [str(data.qualification)] : []),
     ];
     const path = `${RNFS.DocumentDirectoryPath}/${fileName}.pdf`;
     await RNFS.writeFile(path, buildSimplePdf(lines), 'utf8');

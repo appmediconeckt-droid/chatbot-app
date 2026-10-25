@@ -18,7 +18,7 @@ import {
 // were removed: the doctor dashboard has no patient chat and no payment
 // notifications yet (see USER_CONTROLLED_CATEGORIES in notificationPreferences).
 const CATEGORY_ROWS = [
-  { key: 'appointments', icon: 'calendar', title: 'Appointments', subtitle: 'New bookings, cancellations, follow-ups and queue updates.' },
+  { key: 'appointments', icon: 'calendar', title: 'Appointments', subtitle: 'Bookings, cancellations, queue, consultations, prescriptions and follow-ups.' },
   { key: 'system', icon: 'info', title: 'Account & Updates', subtitle: 'Account, security and app announcements.' },
 ];
 
@@ -73,7 +73,14 @@ export default function DoctorNotificationPreferencesScreen({ onBack }) {
     const field = pickerFor;
     if (Platform.OS === 'android') setPickerFor(null);
     if (event?.type === 'dismissed' || !date || !field) return;
-    setQuiet({ [field]: toHHMM(date) });
+    const value = toHHMM(date);
+    // The same start and end would make the window zero minutes long, so quiet
+    // hours would silently never apply.
+    if (value === prefs.quietHours[field === 'from' ? 'to' : 'from']) {
+      showToast('From and To can\'t be the same time');
+      return;
+    }
+    setQuiet({ [field]: value });
   };
 
   if (loading) {
@@ -127,8 +134,10 @@ export default function DoctorNotificationPreferencesScreen({ onBack }) {
           ))}
         </Section>
 
-        <View style={[s.section, muted && s.dimmed]} pointerEvents={muted ? 'none' : 'auto'}>
-          <View style={s.sectionHeaderRow}>
+        {/* Dim the contents, not the card: on Android, opacity on a view with an
+            elevated (shadowed) child draws the shadow as a grey frame. */}
+        <View style={s.section} pointerEvents={muted ? 'none' : 'auto'}>
+          <View style={[s.sectionHeaderRow, muted && s.dimmed]}>
             <AppIcon name="moon" size={15} color="#667085" strokeWidth={1.9} />
             <Text style={s.sectionLabel}>Quiet Hours</Text>
             <View style={s.flex} />
@@ -139,6 +148,7 @@ export default function DoctorNotificationPreferencesScreen({ onBack }) {
             />
           </View>
           <View style={s.card}>
+            <View style={muted && s.dimmed}>
             <Text style={s.quietDesc}>Silence all notifications except calls between these times, every day.</Text>
             <View style={[s.quietRow, !prefs.quietHours.enabled && s.dimmed]} pointerEvents={prefs.quietHours.enabled ? 'auto' : 'none'}>
               {['from', 'to'].map((field) => (
@@ -151,12 +161,19 @@ export default function DoctorNotificationPreferencesScreen({ onBack }) {
                 </View>
               ))}
             </View>
+            {prefs.quietHours.enabled && prefs.quietHours.from === prefs.quietHours.to && (
+              <View style={s.quietWarn}>
+                <AppIcon name="warning" size={14} color="#B45309" strokeWidth={2} />
+                <Text style={s.quietWarnText}>From and To are the same, so quiet hours won't apply. Pick a different end time.</Text>
+              </View>
+            )}
             {pickerFor && Platform.OS === 'ios' && (
               <View style={s.iosPicker}>
                 <DateTimePicker value={toDate(prefs.quietHours[pickerFor])} mode="time" display="spinner" onChange={onPickTime} />
                 <Pressable onPress={() => setPickerFor(null)} style={s.doneBtn}><Text style={s.doneText}>Done</Text></Pressable>
               </View>
             )}
+            </View>
           </View>
         </View>
 
@@ -241,6 +258,8 @@ const s = createDoctorStyles({
   timeBox: { height: 44, borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
   timeBoxActive: { borderColor: '#0D9488', borderWidth: 1.5 },
   timeText: { fontSize: 14.5, fontWeight: '700', color: '#17243A' },
+  quietWarn: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginHorizontal: 14, marginBottom: 14, padding: 10, borderRadius: 10, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' },
+  quietWarnText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: '#92400E' },
   iosPicker: { borderTopWidth: 1, borderTopColor: '#EEF1F5', paddingBottom: 10 },
   doneBtn: { alignSelf: 'flex-end', marginRight: 14, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 9, backgroundColor: '#0D9488' },
   doneText: { fontSize: 14, fontWeight: '700', color: '#FFF' },

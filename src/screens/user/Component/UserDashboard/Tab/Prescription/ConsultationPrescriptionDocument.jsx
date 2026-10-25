@@ -3,6 +3,7 @@ import { Image, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Text from '../../../../../../components/TranslatedText';
 import {
   followUpText,
+  shortRxNumber,
   medicineDuration,
   medicineTiming,
   testLine,
@@ -63,7 +64,7 @@ export default function ConsultationPrescriptionDocument({ data }) {
       </View>
       {hasValue(data.prescriptionId) && (
         <Text translate={false} style={s.rxNumber} numberOfLines={1} ellipsizeMode="middle">
-          Rx No. {String(data.prescriptionId).replace(/^appointment:/i, '')}
+          Rx No. {shortRxNumber(data.prescriptionId)}
         </Text>
       )}
 
@@ -123,25 +124,21 @@ export default function ConsultationPrescriptionDocument({ data }) {
         </>
       )}
 
-      {hasValue(data.advice) && (
-        <>
-          <SectionTitle title="Advice & instructions" />
-          <Text translate={false} style={s.paragraph}>{data.advice}</Text>
-        </>
-      )}
-      {hasValue(data.notes) && data.notes !== data.advice && (
-        <>
-          <SectionTitle title="Additional notes" />
-          <Text translate={false} style={s.paragraph}>{data.notes}</Text>
-        </>
+      {(hasValue(data.advice) || (hasValue(data.notes) && data.notes !== data.advice)) && (
+        <View style={[s.notesRow, wide && s.clinicalWide]}>
+          {hasValue(data.advice) && <ClinicalBox label="Advice & instructions" value={data.advice} tone="amber" body />}
+          {hasValue(data.notes) && data.notes !== data.advice && <ClinicalBox label="Additional notes" value={data.notes} tone="slate" body />}
+        </View>
       )}
 
-      {/* Follow-up + sign-off */}
+      {/* Follow-up (only when the doctor set one) + sign-off */}
       <View style={[s.closing, wide && s.closingWide]}>
-        <View style={[s.followUp, hasFollowUp ? s.followUpOn : s.followUpOff]}>
-          <Text style={[s.eyebrow, hasFollowUp && s.followUpLabelOn]}>Next follow-up</Text>
-          <Text translate={false} style={[s.followUpValue, hasFollowUp && s.followUpValueOn]}>{followUp}</Text>
-        </View>
+        {hasFollowUp ? (
+          <View style={[s.followUp, s.followUpOn]}>
+            <Text style={[s.eyebrow, s.followUpLabelOn]}>Next follow-up</Text>
+            <Text translate={false} style={[s.followUpValue, s.followUpValueOn]}>{followUp}</Text>
+          </View>
+        ) : wide ? <View /> : null}
         <View style={s.signoff}>
           <View style={s.signatureSpace}>
             {!!data.signature && <Image source={{ uri: data.signature }} style={s.signature} accessibilityLabel="Doctor signature" />}
@@ -184,11 +181,13 @@ function PatientField({ label, value, full }) {
   );
 }
 
-function ClinicalBox({ label, value, tone }) {
+// `tone`: indigo (diagnosis), amber (advice), slate (notes); teal by default.
+// `body`: regular-weight paragraph text instead of a bold one-liner.
+function ClinicalBox({ label, value, tone, body }) {
   return (
-    <View style={[s.clinicalBox, tone === 'indigo' && s.clinicalBoxIndigo]}>
-      <Text style={[s.fieldLabel, tone === 'indigo' && s.clinicalLabelIndigo]}>{label}</Text>
-      <Text translate={false} style={s.clinicalValue}>{value}</Text>
+    <View style={[s.clinicalBox, tone && s[`clinicalBox_${tone}`]]}>
+      <Text style={[s.fieldLabel, tone && s[`clinicalLabel_${tone}`]]}>{label}</Text>
+      <Text translate={false} style={[s.clinicalValue, body && s.clinicalBody]}>{value}</Text>
     </View>
   );
 }
@@ -274,9 +273,14 @@ const s = StyleSheet.create({
   clinical: { gap: 8, marginBottom: 6 },
   clinicalWide: { flexDirection: 'row' },
   clinicalBox: { flex: 1, borderRadius: 10, padding: 11, backgroundColor: '#F0FDFA', borderLeftWidth: 3, borderLeftColor: '#14B8A6' },
-  clinicalBoxIndigo: { backgroundColor: '#EEF2FF', borderLeftColor: '#6366F1' },
-  clinicalLabelIndigo: { color: '#4338CA' },
+  clinicalBox_indigo: { backgroundColor: '#EEF2FF', borderLeftColor: '#6366F1' },
+  clinicalLabel_indigo: { color: '#4338CA' },
+  clinicalBox_amber: { backgroundColor: '#FFFBEB', borderLeftColor: '#F59E0B' },
+  clinicalLabel_amber: { color: '#B45309' },
+  clinicalBox_slate: { backgroundColor: '#F8FAFC', borderLeftColor: '#94A3B8' },
   clinicalValue: { fontSize: 14, lineHeight: 20, fontWeight: '700', color: INK, marginTop: 3 },
+  clinicalBody: { fontSize: 13.5, lineHeight: 20, fontWeight: '400', color: '#334155' },
+  notesRow: { gap: 8, marginTop: 14 },
 
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, marginBottom: 8 },
   sectionTitle: { fontSize: 14.5, fontWeight: '800', color: INK },
@@ -303,7 +307,6 @@ const s = StyleSheet.create({
   testDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#14B8A6', marginTop: 7 },
   testText: { flex: 1, fontSize: 13.5, lineHeight: 20, color: '#334155' },
   testName: { fontWeight: '800', color: INK },
-  paragraph: { fontSize: 13.5, lineHeight: 21, color: '#334155' },
 
   closing: { marginTop: 22, paddingTop: 16, borderTopWidth: 1, borderTopColor: LINE, gap: 16 },
   closingWide: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
