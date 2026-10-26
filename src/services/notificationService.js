@@ -157,11 +157,22 @@ const shouldDisplayForegroundNotification = data => {
     'SYSTEM',
     'AVAILABLE',
     'CONSULTANT_AVAILABLE',
-    'GREETING',
     'APPOINTMENT',
     'PAYMENT',
     'WALLET',
   ].includes(type);
+};
+
+// The server's daily "Good morning / afternoon / evening" pushes are turned
+// off in the app. Matched by type, or by title when the push carries no type.
+const isGreetingNotification = remoteMessage => {
+  const data = remoteMessage?.data || {};
+  const type = String(data?.type || data?.notificationType || data?.event || '')
+    .trim()
+    .toUpperCase();
+  if (type.includes('GREETING')) return true;
+  const title = String(remoteMessage?.notification?.title || data?.title || '').trim();
+  return /^good\s+(morning|afternoon|evening)\b/i.test(title);
 };
 
 const getCallNotificationId = data => (
@@ -376,6 +387,7 @@ export const displaySystemNotification = async remoteMessage => {
   const AndroidVisibility = notificationApi?.AndroidVisibility || {};
   const AndroidLaunchActivityFlag = notificationApi?.AndroidLaunchActivityFlag || {};
   if (!notifee?.displayNotification) return;
+  if (isGreetingNotification(remoteMessage)) return;
 
   let title =
     remoteMessage?.notification?.title ||

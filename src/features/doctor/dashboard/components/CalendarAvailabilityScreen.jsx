@@ -32,6 +32,8 @@ import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
 import { createClinic, unwrapApiArray } from '../api/doctorClinics';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
 import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber } from '../../../../utils/countryCodes';
+import { cleanClinicFee, isValidClinicFee } from './ClinicFeeField';
+import { currencyDigits, currencySymbol, feeCurrencyOf } from '../../../../utils/consultationCurrency';
 
 // ---------------------------------------------------------------------------
 // helpers (same as web)
@@ -298,7 +300,9 @@ export default function CalendarAvailabilityScreen() {
   const [selectedClinic, setSelectedClinic] = useState(null);
   const [showClinicDropdown, setShowClinicDropdown] = useState(false);
   const [showNewClinicForm, setShowNewClinicForm] = useState(false);
-  const [newClinic, setNewClinic] = useState({ name: '', phone: '', phoneCountryCode: '+91', location: '' });
+  const [newClinic, setNewClinic] = useState({ name: '', phone: '', phoneCountryCode: '+91', location: '', fee: '' });
+  // Clinic fees are in the doctor's profile currency.
+  const [feeCurrency, setFeeCurrency] = useState('INR');
   // Optional clinic photo for "Add a new clinic" ({ uri, type, fileName }).
   const [newClinicPhoto, setNewClinicPhoto] = useState(null);
   const [savingClinic, setSavingClinic] = useState(false);
@@ -324,6 +328,7 @@ export default function CalendarAvailabilityScreen() {
       const id = pickFirst(user?.doctor_id, user?.doctorId, user?.id, user?._id, user?.user_id, user?.userId, '');
       if (id) setDoctorId(String(id));
       else setApiError('Doctor id not found. Please login again.');
+      setFeeCurrency(feeCurrencyOf(user) || 'INR');
     });
   }, []);
 
@@ -941,17 +946,22 @@ export default function CalendarAvailabilityScreen() {
     if (newClinic.phone && !isValidLocalPhoneNumber(newClinic.phone, newClinic.phoneCountryCode)) {
       return showToast(`Enter a valid ${getPhoneLengthLabel(newClinic.phoneCountryCode)} digit phone number for ${newClinic.phoneCountryCode}`);
     }
+    if (newClinic.fee === '') return showToast('Consultation fee is required');
+    if (!isValidClinicFee(newClinic.fee, feeCurrency)) return showToast(`Enter a valid consultation fee in ${feeCurrency}`);
     try {
       setSavingClinic(true);
       const entry = await createClinic(doctorId, {
         name: newClinic.name.trim(),
         phone: buildInternationalPhoneNumber(newClinic.phoneCountryCode, newClinic.phone),
         location: newClinic.location.trim(),
+        fee: newClinic.fee,
         photo: newClinicPhoto,
       });
-      setNewClinic({ name: '', phone: '', phoneCountryCode: '+91', location: '' });
+      const feeDropped = !!entry && entry.fee !== Number(newClinic.fee);
+      setNewClinic({ name: '', phone: '', phoneCountryCode: '+91', location: '', fee: '' });
       setNewClinicPhoto(null);
       if (entry?.photoSkipped) showToast('Clinic saved, but the server did not accept the photo');
+      if (feeDropped) showToast('Clinic saved, but the server did not save the clinic fee. Fee support is needed on the backend.');
       if (entry) {
         const clinic = { ...entry, color: CLINIC_COLORS[clinics.length % CLINIC_COLORS.length] };
         setClinics((current) => [...current, clinic]);
@@ -1482,6 +1492,14 @@ export default function CalendarAvailabilityScreen() {
                 <TextInput style={s.input} placeholder="Clinic name" placeholderTextColor="#94A3B8" value={newClinic.name} onChangeText={(v) => setNewClinic((p) => ({ ...p, name: v }))} />
                 <CountryPhoneInput mobile={false} placeholder="Phone (optional)" value={newClinic.phone} countryCode={newClinic.phoneCountryCode} onChangePhoneNumber={(phone) => setNewClinic((p) => ({ ...p, phone }))} onChangeCountryCode={(phoneCountryCode) => setNewClinic((p) => ({ ...p, phoneCountryCode }))} accentColor="#0D9488" />
                 <TextInput style={s.input} placeholder="Address / location" placeholderTextColor="#94A3B8" value={newClinic.location} onChangeText={(v) => setNewClinic((p) => ({ ...p, location: v }))} />
+                <TextInput
+                  style={s.input}
+                  placeholder={`Consultation fee (${currencySymbol(feeCurrency)})`}
+                  placeholderTextColor="#94A3B8"
+                  keyboardType={currencyDigits(feeCurrency) > 0 ? 'decimal-pad' : 'number-pad'}
+                  value={newClinic.fee}
+                  onChangeText={(v) => setNewClinic((p) => ({ ...p, fee: cleanClinicFee(v, feeCurrency) }))}
+                />
                 {newClinicPhoto ? (
                   <View style={s.clinicPhotoRow}>
                     <Image source={{ uri: newClinicPhoto.uri }} style={s.clinicPhotoPreview} />

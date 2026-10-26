@@ -1,6 +1,6 @@
 // Clinic settings — port of the web Setting/ClinicSetting/ClinicUpload.jsx:
 // POST /api/clinics (multipart: doctor_id, clinic_name, phone_number, location,
-// clinic_photo[]) plus the doctor's existing clinics from
+// fee?, clinic_photo[]) plus the doctor's existing clinics from
 // GET /api/clinics?doctor_id&role=doctor.
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
@@ -14,12 +14,15 @@ import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import axiosInstance from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
-import { clinicPhotoUrl, loadDoctorClinics } from '../api/doctorClinics';
+import { appendClinicFee, clinicFeeOf, clinicPhotoUrl, loadDoctorClinics } from '../api/doctorClinics';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
+import useKeyboardLift from '../../../../hooks/useKeyboardLift';
 import { useDoctorBack } from '../useDoctorBack';
 import EditClinicScreen from './EditClinicScreen';
+import ClinicFeeField, { cleanClinicFee, isValidClinicFee } from './ClinicFeeField';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
 import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber } from '../../../../utils/countryCodes';
+import { feeCurrencyOf, formatFee } from '../../../../utils/consultationCurrency';
 
 // Express error pages come back as HTML strings, not JSON — read either.
 const getApiErrorText = (err, fallback) => {
@@ -37,23 +40,29 @@ const isUnexpectedFileFieldError = (err) =>
   /Unexpected (file )?field|LIMIT_UNEXPECTED_FILE/i.test(getApiErrorText(err, ''));
 
 export default function DoctorClinicSettingsScreen({ onBack }) {
-  // Signup-style keyboard handling: the form scrolls above the keyboard and the
-  // focused field is scrolled into view (the window does not resize, edge-to-edge).
+  // The window does not resize for the keyboard (edge-to-edge), so while it is
+  // open the screen is shortened to end at its top edge: the Save Clinic
+  // footer stays visible above the keyboard and the form scrolls in the space
+  // left, with the focused field scrolled into view.
   const {
     scrollRef: kbScrollRef,
-    frameInset: kbInset,
+    keyboardOpen,
+    keyboardTop,
     scrollFocusedInputIntoView: kbFocus,
     handleKeyboardAwareScroll: kbOnScroll,
     handleKeyboardAwareScrollLayout: kbOnLayout,
-  } = useKeyboardAwareScroll({ frameIsScroll: true });
+  } = useKeyboardAwareScroll({ layoutAvoidsKeyboard: true });
+  const [screenRef, keyboardLift] = useKeyboardLift(keyboardOpen, keyboardTop);
   const { showToast } = useToast();
   const [doctorId, setDoctorId] = useState('');
+  const [doctorUser, setDoctorUser] = useState(null);
   const [clinics, setClinics] = useState([]);
   const [loadingClinics, setLoadingClinics] = useState(true);
   const [clinicName, setClinicName] = useState('');
   const [phone, setPhone] = useState('');
   const [phoneCountryCode, setPhoneCountryCode] = useState('+91');
   const [address, setAddress] = useState('');
+  const [fee, setFee] = useState('');
   const [photos, setPhotos] = useState([]);
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
@@ -66,9 +75,12 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
     getStoredDoctorUser().then((user) => {
       const id = pickFirst(user?.id, user?.user_id, user?.doctor_id, user?._id, user?.userId, user?.doctorId, '');
       setDoctorId(id ? String(id) : '');
+      setDoctorUser(user);
       if (!id) setLoadingClinics(false);
     });
   }, []);
+  // Every clinic charges in the doctor's profile currency.
+  const currency = feeCurrencyOf(doctorUser) || 'INR';
 
   const refreshClinics = useCallback(async () => {
     if (!doctorId) return;
@@ -95,6 +107,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
     setPhone('');
     setPhoneCountryCode('+91');
     setAddress('');
+    setFee('');
     setPhotos([]);
   };
 
@@ -103,6 +116,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
     if (!clinicName.trim()) missing.push('Clinic Name');
     if (!phone.trim()) missing.push('Phone');
     if (!address.trim()) missing.push('Address');
+    if (fee === '') missing.push('Consultation Fee');
     if (!doctorId) missing.push('Doctor ID (not logged in)');
     if (missing.length) {
       setStatus('failed');
@@ -114,12 +128,18 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
       setMessage(`Enter a valid ${getPhoneLengthLabel(phoneCountryCode)} digit phone number for ${phoneCountryCode}`);
       return;
     }
+    if (!isValidClinicFee(fee, currency)) {
+      setStatus('failed');
+      setMessage(`Enter a valid consultation fee in ${currency}`);
+      return;
+    }
     const buildFormData = (photoList) => {
       const formData = new FormData();
       formData.append('doctor_id', doctorId);
       formData.append('clinic_name', clinicName.trim());
       formData.append('phone_number', buildInternationalPhoneNumber(phoneCountryCode, phone));
       formData.append('location', address.trim());
+      appendClinicFee(formData, fee);
       photoList.forEach((photo, index) => {
         const type = photo.type || 'image/jpeg';
         const ext = (type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
@@ -150,9 +170,11 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
       setStatus('loading');
       setMessage(photos.length ? 'Uploading clinic and photos...' : 'Creating clinic...');
       let uploadedCount = 0;
+      let created = null;
       for (let i = 0; i < attempts.length; i += 1) {
         try {
-          await post(buildFormData(attempts[i]));
+          const response = await post(buildFormData(attempts[i]));
+          created = response.data?.clinic || response.data?.data?.clinic || response.data?.data || null;
           uploadedCount = attempts[i].length;
           break;
         } catch (err) {
@@ -165,12 +187,18 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
           if (!canRetryWithFewer) throw err;
         }
       }
+      // The server drops fields it doesn't store and still answers 200, so
+      // check the new clinic really carries the fee that was sent.
+      const feeDropped = !!created && typeof created === 'object' && clinicFeeOf(created) !== Number(fee);
       setStatus('succeeded');
-      setMessage(uploadedCount === photos.length
-        ? 'Clinic created successfully.'
-        : uploadedCount > 0
-          ? `Clinic created with ${uploadedCount} photo — the server accepts only one clinic photo.`
-          : 'Clinic created, but photos were not uploaded — the server did not accept the photo.');
+      setMessage([
+        uploadedCount === photos.length
+          ? 'Clinic created successfully.'
+          : uploadedCount > 0
+            ? `Clinic created with ${uploadedCount} photo — the server accepts only one clinic photo.`
+            : 'Clinic created, but photos were not uploaded — the server did not accept the photo.',
+        feeDropped ? 'The server did not save the clinic fee. Fee support is needed on the backend.' : '',
+      ].filter(Boolean).join(' '));
       showToast('Clinic created');
       reset();
       refreshClinics();
@@ -200,7 +228,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
   }
 
   return (
-    <View style={s.screen}>
+    <View ref={screenRef} collapsable={false} style={[s.screen, keyboardLift > 0 && { paddingBottom: keyboardLift }]}>
       <View style={s.header}>
         <Pressable onPress={onBack} style={s.backButton} hitSlop={8}>
           <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
@@ -210,7 +238,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
           <Text style={s.subtitle}>Add clinic contact information, location and photos</Text>
         </View>
       </View>
-      <ScrollView  showsVerticalScrollIndicator={false} ref={kbScrollRef} contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
+      <ScrollView  showsVerticalScrollIndicator={false} ref={kbScrollRef} contentContainerStyle={s.content} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
         {/* Saved clinics as a dropdown: collapsed it's one line with the
             count, so the Add Clinic form below is what the screen leads with. */}
         <View style={s.section}>
@@ -261,6 +289,14 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
                         <View style={s.flex}>
                           <Text translate={false} style={s.clinicName}>{clinic.name}</Text>
                           <Text translate={false} style={s.hint}>{clinic.location}{clinic.phone ? ` • ${clinic.phone}` : ''}</Text>
+                          <View style={s.clinicFeeRow}>
+                            <Text style={s.hint}>Fee:</Text>
+                            {clinic.fee != null ? (
+                              <Text translate={false} style={s.clinicFee}>{formatFee(clinic.fee, currency)}</Text>
+                            ) : (
+                              <Text style={s.clinicFeeMissing}>Not set — tap Edit</Text>
+                            )}
+                          </View>
                         </View>
                         <Pressable
                           onPress={() => setEditingClinic({
@@ -269,6 +305,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
                             phone: clinic.phone,
                             location: clinic.location,
                             photoUrl: showPhoto ? photoUrl : '',
+                            fee: clinic.fee,
                           })}
                           style={({ pressed }) => [s.editBtn, pressed && s.editBtnPressed]}
                           hitSlop={6}
@@ -294,6 +331,15 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
             <CountryPhoneInput mobile={false} value={phone} countryCode={phoneCountryCode} onChangePhoneNumber={setPhone} onChangeCountryCode={setPhoneCountryCode} onFocus={kbFocus} accentColor="#0D9488" />
           </View>
           <Field label="Address" value={address} onChangeText={setAddress} placeholder="Enter clinic address" icon="pin" multiline />
+
+          <View style={[s.field, s.feeBox]}>
+            <ClinicFeeField
+              value={fee}
+              onChangeText={(value) => setFee(cleanClinicFee(value, currency))}
+              currency={currency}
+              onFocus={kbFocus}
+            />
+          </View>
 
           <Text style={s.fieldLabel}>Clinic Photos</Text>
           <Pressable onPress={pickPhotos} style={s.uploadBox}>
@@ -387,6 +433,10 @@ const s = createDoctorStyles({
   clinicRowLast: { borderBottomWidth: 0 },
   clinicName: { fontSize: 15, fontWeight: '800', color: '#17243A' },
   hint: { fontSize: 12.5, color: '#667085' },
+  clinicFeeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  clinicFee: { fontSize: 12.5, fontWeight: '800', color: '#0F766E' },
+  clinicFeeMissing: { fontSize: 12.5, fontWeight: '700', color: '#B45309' },
+  feeBox: { borderWidth: 1, borderColor: '#D5DAE3', borderRadius: 10, padding: 12 },
   logoThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#F0FDFA', alignItems: 'center', justifyContent: 'center' },
   editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 32, paddingHorizontal: 11, borderRadius: 16, borderWidth: 1, borderColor: '#B7ECE7', backgroundColor: '#F0FDFA' },
   editBtnPressed: { backgroundColor: '#CCFBF1' },

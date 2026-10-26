@@ -12,7 +12,7 @@ import AppIcon from '../icons/AppIcon';
 import { colors, createDoctorStyles, typography } from '../theme';
 import axiosInstance, { API_BASE_URL } from '../../../../axiosConfig';
 import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
-import { deleteDoctorClinic, unwrapApiArray } from '../api/doctorClinics';
+import { clinicFeeOf, deleteDoctorClinic, unwrapApiArray } from '../api/doctorClinics';
 import { useDoctorBack } from '../useDoctorBack';
 import DoctorClinicSettingsScreen from './DoctorClinicSettingsScreen';
 import DeleteClinicModal from './DeleteClinicModal';
@@ -403,6 +403,7 @@ export default function ClinicPageScreen({ onBack }) {
     phone: clinic.phone,
     location: clinic.address,
     photoUrl: clinic.image !== DEFAULT_CLINIC_IMAGE ? clinic.image : '',
+    fee: clinicFeeOf(clinic.raw),
   });
 
   return (

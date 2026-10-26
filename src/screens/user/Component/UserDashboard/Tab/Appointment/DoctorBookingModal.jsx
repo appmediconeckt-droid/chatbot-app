@@ -162,10 +162,9 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
     rating: Number(incoming.rating) > 0 ? Number(incoming.rating).toFixed(1) : null,
     languages: Array.isArray(incoming.languages) ? incoming.languages.join(', ') : (incoming.languages || ''),
     nextAvailable: incoming.nextAvailable || 'Today',
+    // The fee saved in the doctor's profile before fees moved to clinics; only
+    // a clinic that has no fee of its own yet still charges it.
     consultationFee: firstPositiveFee(incoming.consultationFee, incoming.fee, incoming.consultation_fee),
-    // True when the doctor set their own fee in Profile; it then wins over
-    // any clinic fee, since the doctor decides what they charge.
-    hasOwnFee: Number(pickFirst(incoming.consultationFee, incoming.fee, incoming.consultation_fee)) > 0,
     // Every amount on this sheet is in the currency the doctor chose.
     currency: feeCurrencyOf(incoming) || 'INR',
     // Methods the doctor accepts; null when they never set any (all offered).
@@ -409,9 +408,9 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       ...(availabilityLoading
         ? { days: 'Loading availability...', timings: 'Loading availability...' }
         : getClinicSchedule(ranges, pickFirst(c._id, c.id), unavailableDates, selectedDate?.iso)),
-      fee: doctor.hasOwnFee
-        ? doctor.consultationFee
-        : firstPositiveFee(c.fee, c.consultation_fee, c.consultationFee),
+      // A fee the doctor set for this clinic (Edit Clinic, 0 = free there)
+      // wins over the profile fee, so one clinic can charge less or more.
+      fee: savedFee(c.fee, c.consultation_fee, c.consultationFee) ?? doctor.consultationFee,
     }))
     : [{ id: null, name: 'No clinic available', address: incoming.location || '', days: '—', timings: '—', fee: doctor.consultationFee }];
   const hasClinics = apiClinics.length > 0;

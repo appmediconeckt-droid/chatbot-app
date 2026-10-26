@@ -1,7 +1,8 @@
-// Edit a saved clinic: photo, name, phone and address (PATCH /api/clinics/:id).
-// Opened from the edit button on Clinic Profile and on each clinic in Clinic
-// Settings → Your Clinics. Same look and keyboard handling as the Add Clinic form.
-import React, { useState } from 'react';
+// Edit a saved clinic: photo, name, phone, address and its own consultation
+// fee (PATCH /api/clinics/:id). Opened from the edit button on Clinic Profile
+// and on each clinic in Clinic Settings → Your Clinics. Same look and keyboard
+// handling as the Add Clinic form.
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
 import Text from '../../../../components/TranslatedText';
 import TextInput from '../../../../components/TranslatedTextInput';
@@ -13,9 +14,13 @@ import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { updateClinic } from '../api/doctorClinics';
+import { getStoredDoctorUser } from '../api/doctorAppointments';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
+import useKeyboardLift from '../../../../hooks/useKeyboardLift';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
 import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
+import ClinicFeeField, { cleanClinicFee, isValidClinicFee, profileFeeOf } from './ClinicFeeField';
+import { feeCurrencyOf } from '../../../../utils/consultationCurrency';
 
 const errorText = (err, fallback) => {
   const data = err?.response?.data;
@@ -26,15 +31,22 @@ const errorText = (err, fallback) => {
   return data?.message || data?.error || err?.message || fallback;
 };
 
-// clinic: { id, name, phone, location, photoUrl }
+// clinic: { id, name, phone, location, photoUrl, fee } — fee is the clinic's
+// own fee, or null when none was saved yet.
 export default function EditClinicScreen({ clinic, onBack, onSaved }) {
+  // The window does not resize for the keyboard (edge-to-edge), so while it is
+  // open the screen is shortened to end at its top edge: the Save Changes
+  // footer stays visible above the keyboard and the form scrolls in the space
+  // left, with the focused field scrolled into view.
   const {
     scrollRef: kbScrollRef,
-    frameInset: kbInset,
+    keyboardOpen,
+    keyboardTop,
     scrollFocusedInputIntoView: kbFocus,
     handleKeyboardAwareScroll: kbOnScroll,
     handleKeyboardAwareScrollLayout: kbOnLayout,
-  } = useKeyboardAwareScroll({ frameIsScroll: true });
+  } = useKeyboardAwareScroll({ layoutAvoidsKeyboard: true });
+  const [screenRef, keyboardLift] = useKeyboardLift(keyboardOpen, keyboardTop);
   const { showToast } = useToast();
   const initialLocation = clinic?.location && clinic.location !== 'Address not available' ? clinic.location : '';
   const [name, setName] = useState(clinic?.name && clinic.name !== 'Unnamed Clinic' ? clinic.name : '');
@@ -42,10 +54,24 @@ export default function EditClinicScreen({ clinic, onBack, onSaved }) {
   const [phone, setPhone] = useState(initialPhone.phoneNumber);
   const [phoneCountryCode, setPhoneCountryCode] = useState(initialPhone.countryCode);
   const [location, setLocation] = useState(initialLocation);
+  const [fee, setFee] = useState(clinic?.fee != null ? String(clinic.fee) : '');
+  const [doctorUser, setDoctorUser] = useState(null);
   const [photo, setPhoto] = useState(null);
   const [photoFailed, setPhotoFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // Fees are in the doctor's profile currency. A clinic without its own fee
+  // still charges the old profile fee, so the form starts from that amount.
+  useEffect(() => {
+    getStoredDoctorUser().then((user) => {
+      setDoctorUser(user);
+      const oldProfileFee = profileFeeOf(user);
+      if (clinic?.fee == null && oldProfileFee != null) setFee((prev) => prev || String(oldProfileFee));
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const currency = feeCurrencyOf(doctorUser) || 'INR';
 
   const previewUri = photo?.uri || (!photoFailed && clinic?.photoUrl) || '';
 
@@ -71,12 +97,17 @@ export default function EditClinicScreen({ clinic, onBack, onSaved }) {
     if (!name.trim()) missing.push('Clinic Name');
     if (!phone.trim()) missing.push('Phone');
     if (!location.trim()) missing.push('Address');
+    if (fee === '') missing.push('Consultation Fee');
     if (missing.length) {
       setError(`Missing: ${missing.join(', ')}`);
       return;
     }
     if (!isValidLocalPhoneNumber(phone, phoneCountryCode)) {
       setError(`Enter a valid ${getPhoneLengthLabel(phoneCountryCode)} digit phone number for ${phoneCountryCode}`);
+      return;
+    }
+    if (!isValidClinicFee(fee, currency)) {
+      setError(`Enter a valid consultation fee in ${currency}`);
       return;
     }
     try {
@@ -86,9 +117,16 @@ export default function EditClinicScreen({ clinic, onBack, onSaved }) {
         name: name.trim(),
         phone: buildInternationalPhoneNumber(phoneCountryCode, phone),
         location: location.trim(),
+        fee,
         photo,
       });
-      showToast('Clinic updated');
+      // The server drops fields it doesn't store and still answers 200, so
+      // check the saved clinic really carries the fee that was sent.
+      const feeDropped = !!updated && updated.fee !== Number(fee);
+      if (feeDropped) console.warn('[clinic-fee] fee not in saved clinic:', Object.keys(updated.raw || {}).join(','));
+      showToast(feeDropped
+        ? 'Clinic updated, but the server did not save the clinic fee. Fee support is needed on the backend.'
+        : 'Clinic updated');
       onSaved?.(updated);
     } catch (err) {
       setError(errorText(err, 'Clinic could not be updated. Please try again.'));
@@ -98,7 +136,7 @@ export default function EditClinicScreen({ clinic, onBack, onSaved }) {
   };
 
   return (
-    <View style={s.screen}>
+    <View ref={screenRef} collapsable={false} style={[s.screen, keyboardLift > 0 && { paddingBottom: keyboardLift }]}>
       <View style={s.header}>
         <Pressable onPress={onBack} style={s.backButton} hitSlop={8} disabled={saving}>
           <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
@@ -111,7 +149,7 @@ export default function EditClinicScreen({ clinic, onBack, onSaved }) {
       <ScrollView
         showsVerticalScrollIndicator={false}
         ref={kbScrollRef}
-        contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]}
+        contentContainerStyle={s.content}
         onScroll={kbOnScroll}
         onLayout={kbOnLayout}
         onFocusCapture={kbFocus}
@@ -145,6 +183,15 @@ export default function EditClinicScreen({ clinic, onBack, onSaved }) {
             <CountryPhoneInput mobile={false} value={phone} countryCode={phoneCountryCode} onChangePhoneNumber={setPhone} onChangeCountryCode={setPhoneCountryCode} onFocus={kbFocus} accentColor="#0D9488" />
           </View>
           <LocationPicker value={location} onChange={setLocation} label="Clinic Address" />
+        </Section>
+
+        <Section icon="briefcase" label="Consultation Fee">
+          <ClinicFeeField
+            value={fee}
+            onChangeText={(value) => setFee(cleanClinicFee(value, currency))}
+            currency={currency}
+            onFocus={kbFocus}
+          />
           {!!error && <Text translate={false} style={s.error}>{error}</Text>}
         </Section>
       </ScrollView>

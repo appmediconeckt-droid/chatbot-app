@@ -17,7 +17,6 @@ import {
   DEFAULT_COUNTRY,
   feeCurrencyOf,
   findCountry,
-  formatFee as formatCurrencyFee,
 } from '../../../../utils/consultationCurrency';
 
 // Consultation mode may come back as a list, or as the JSON / comma text a
@@ -211,14 +210,11 @@ export default function DoctorProfileScreen({ onBack }) {
           </View>
         </Section>
 
-        <Section icon="briefcase" label="Consultation Fees">
+        {/* Fees are set per clinic (Clinic Settings); the profile keeps the currency. */}
+        <Section icon="briefcase" label="Fee Currency">
           <InfoRow
             label="Country & Currency"
             value={`${findCountry(profile?.address?.country)?.name || DEFAULT_COUNTRY} · ${feeCurrencyOf(profile) || 'INR'}`}
-          />
-          <InfoRow
-            label="Consultation Fee"
-            value={formatFee(profile?.consultationFee ?? profile?.consultation_fee ?? profile?.fee, feeCurrencyOf(profile))}
             last
           />
         </Section>
@@ -259,11 +255,6 @@ function Section({ icon, label, children }) {
       <View style={s.card}>{children}</View>
     </View>
   );
-}
-
-// "Not set" until the doctor saves a fee in Edit Profile.
-function formatFee(value, currency) {
-  return formatCurrencyFee(value, currency || 'INR') || 'Not set';
 }
 
 function InfoRow({ label, value, last }) {

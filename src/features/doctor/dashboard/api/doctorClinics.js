@@ -1,8 +1,8 @@
 // Port of the web clinic calls (Calendar.jsx, ClinicAllView/ClinicPage.jsx,
 // Setting/ClinicSetting/ClinicUpload.jsx):
 //   GET  /api/clinics?doctor_id=<id>&role=doctor
-//   POST /api/clinics  multipart { doctor_id, clinic_name, phone_number, location, clinic_photo? }
-//   PATCH  /api/clinics/:id  multipart { clinic_name?, phone_number?, location?, clinic_photo? }
+//   POST /api/clinics  multipart { doctor_id, clinic_name, phone_number, location, fee?, clinic_photo? }
+//   PATCH  /api/clinics/:id  multipart { clinic_name?, phone_number?, location?, fee?, clinic_photo? }
 //   DELETE /api/clinics/:id
 import axiosInstance, { API_BASE_URL } from '../../../../axiosConfig';
 import { pickFirst } from './doctorAppointments';
@@ -18,6 +18,20 @@ export const unwrapApiArray = (payload) => {
   return candidates.find(Array.isArray) || [];
 };
 
+// The fee the doctor set for this one clinic (0 = free there), or null when
+// the clinic uses the common fee from their profile.
+export const clinicFeeOf = (clinic) => {
+  const saved = pickFirst(clinic?.fee, clinic?.consultation_fee, clinic?.consultationFee);
+  const fee = Number(saved);
+  return saved !== undefined && Number.isFinite(fee) && fee >= 0 ? fee : null;
+};
+
+// The clinic's `fee` field, same as the web's Clinic Settings / Edit Clinic.
+// '' clears it so the clinic charges the profile fee again.
+export const appendClinicFee = (formData, fee) => {
+  formData.append('fee', fee === '' ? '' : String(Number(fee)));
+};
+
 export const normalizeClinic = (clinic, index = 0) => ({
   id: String(pickFirst(clinic._id, clinic.clinic_id, clinic.clinicId, clinic.id, clinic.hospital_id, index)),
   deleteId: pickFirst(clinic._id, clinic.clinic_id, clinic.clinicId, clinic.id, clinic.hospital_id, clinic.hospitalId, ''),
@@ -26,6 +40,7 @@ export const normalizeClinic = (clinic, index = 0) => ({
   phone: formatPhoneNumber(pickFirst(clinic.phone_number, clinic.phone, clinic.contact_number, ''), clinic.phoneCountryCode),
   photo: pickFirst(clinic.clinic_photo?.url, clinic.clinic_photo, clinic.photo?.url, clinic.photo, clinic.image, clinic.logo, ''),
   doctorId: pickFirst(clinic.doctor_id, clinic.doctorId, clinic.doctor?.id, clinic.doctor?._id, ''),
+  fee: clinicFeeOf(clinic),
   raw: clinic,
 });
 
@@ -54,14 +69,16 @@ const photoPart = (photo) => {
   };
 };
 
-// Saves the edited name / phone / address and, when one was picked, the new
-// photo (the server keeps one clinic photo). Resolves to the updated clinic.
-export const updateClinic = async (clinicId, { name, phone, location, photo }) => {
+// Saves the edited name / phone / address / fee and, when one was picked, the
+// new photo (the server keeps one clinic photo). `fee` '' clears the clinic's
+// own fee so it charges the profile fee again. Resolves to the updated clinic.
+export const updateClinic = async (clinicId, { name, phone, location, fee, photo }) => {
   if (!clinicId) throw new Error('Clinic ID is required');
   const formData = new FormData();
   formData.append('clinic_name', name);
   formData.append('phone_number', phone || '');
   formData.append('location', location);
+  if (fee !== undefined) appendClinicFee(formData, fee);
   if (photo?.uri) formData.append('clinic_photo', photoPart(photo));
   const response = await axiosInstance.patch(`/api/clinics/${encodeURIComponent(String(clinicId))}`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -86,13 +103,14 @@ const errorText = (err) => {
 // photo: { uri, type, fileName } from an image picker (optional).
 // Resolves to the new clinic (or null) with `photoSkipped: true` when the
 // server refused the photo and the clinic was saved without it.
-export const createClinic = async (doctorId, { name, phone, location, photo }) => {
+export const createClinic = async (doctorId, { name, phone, location, fee, photo }) => {
   const buildFormData = (withPhoto) => {
     const formData = new FormData();
     formData.append('doctor_id', String(doctorId));
     formData.append('clinic_name', name);
     formData.append('phone_number', phone || '');
     formData.append('location', location);
+    if (fee !== undefined && fee !== '') appendClinicFee(formData, fee);
     if (withPhoto && photo?.uri) formData.append('clinic_photo', photoPart(photo));
     return formData;
   };
