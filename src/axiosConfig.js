@@ -7,7 +7,7 @@ import { isTokenExpired } from './utils/tokenExpiry';
 
 const API_ENDPOINTS = {
   // RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
-  // RAILWAY: 'https://humaeli-backend-update-production.up.railway.app',
+  RAILWAY: 'https://humaeli-backend-update-production.up.railway.app',
   // DevTunnels: 'https://s5jl7g4z-5002.inc1.devtunnels.ms',
   // The web dashboard's backend (doctor rating, walk-in statuses, …).
   DEVTUNNEL_5006: 'https://s5jl7g4z-5006.inc1.devtunnels.ms',
@@ -23,8 +23,8 @@ const API_ENDPOINTS = {
 // doesn't yet — doctor ratings averaged into rating/ratingCount, doctor
 // payment methods. Release builds stay on Railway.
 export const API_BASE_URL = __DEV__
-  ? API_ENDPOINTS.DEVTUNNEL_5006
-  : API_ENDPOINTS.DEVTUNNEL_5006;
+  ? API_ENDPOINTS.RAILWAY
+  : API_ENDPOINTS.RAILWAY;
 export const AI_REALTIME_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
 export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
   ? { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' }
@@ -96,111 +96,39 @@ axiosInstance.interceptors.request.use(
   }
 );
 
-// Response interceptor to handle token refresh
-let isRefreshing = false;
-let failedQueue = [];
+const AUTH_RESPONSE_PATHS = [
+  ...PUBLIC_AUTH_PATHS,
+];
 
-const processQueue = (error, token = null) => {
-  failedQueue.forEach((prom) => {
-    if (error) prom.reject(error);
-    else prom.resolve(token);
-  });
-  failedQueue = [];
+const isBackendRequest = (config = {}) => {
+  const url = String(config?.url || '');
+  const baseURL = String(config?.baseURL || '');
+  const normalizedApiBase = API_BASE_URL.replace(/\/+$/, '');
+
+  return (
+    url.startsWith('/api/') ||
+    url.startsWith(`${normalizedApiBase}/api/`) ||
+    baseURL.replace(/\/+$/, '') === normalizedApiBase
+  );
 };
 
-const NO_REFRESH_PATHS = [
-  ...PUBLIC_AUTH_PATHS,
+const handleUnauthorizedResponse = async (error) => {
+  const url = String(error?.config?.url || '');
+  const isAuthRoute = AUTH_RESPONSE_PATHS.some((path) => url.includes(path));
 
-];
+  if (error?.response?.status === 401 && isBackendRequest(error?.config) && !isAuthRoute) {
+    await forceSignOut();
+  }
+
+  return Promise.reject(error);
+};
 
 axiosInstance.interceptors.response.use(
   (response) => {
     return response;
   },
   async (error) => {
-    const originalRequest = error.config;
-    const url = originalRequest?.url || '';
-    const isAuthRoute = NO_REFRESH_PATHS.some((p) => url.includes(p));
-
-
-    // Handle 401 errors (unauthorized)
-    if (
-      error.response?.status === 401 &&
-      !originalRequest._retry &&
-      !isAuthRoute
-    ) {
-
-      const refreshToken = await AsyncStorage.getItem('refreshToken');
-      if (!refreshToken) {
-
-        const hadSession = await AsyncStorage.getItem('accessToken');
-        if (hadSession) await forceSignOut();
-        return Promise.reject(error);
-      }
-
-      console.log('🔥 401 Interceptor triggered');
-
-      if (isRefreshing) {
-        // If already refreshing, queue the request
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        })
-          .then((token) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`;
-            return axiosInstance(originalRequest);
-          })
-          .catch((err) => Promise.reject(err));
-      }
-
-      originalRequest._retry = true;
-      isRefreshing = true;
-
-      try {
-        console.log('🔄 Calling refresh-token API');
-
-        const response = await axios.post(
-          `${API_BASE_URL}/api/auth/refresh-token`,
-          { refreshToken },
-          {
-            withCredentials: true,
-            headers: TUNNEL_HEADERS,
-          }
-        );
-
-        const { accessToken, refreshToken: newRefreshToken } = response.data;
-
-        if (!accessToken) throw new Error('No access token received');
-
-        // Save new tokens
-        await AsyncStorage.setItem('accessToken', accessToken);
-        if (newRefreshToken) {
-          await AsyncStorage.setItem('refreshToken', newRefreshToken);
-        }
-
-        console.log('✅ Token refreshed successfully');
-
-        // Process queued requests
-        processQueue(null, accessToken);
-
-        // Retry original request with new token
-        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-
-        return axiosInstance(originalRequest);
-      } catch (refreshError) {
-        console.log('❌ Refresh failed:', refreshError);
-
-        // Process queue with error
-        processQueue(refreshError, null);
-
-
-        await forceSignOut();
-
-        return Promise.reject(refreshError);
-      } finally {
-        isRefreshing = false;
-      }
-    }
-
+    if (error.response?.status === 401) return handleUnauthorizedResponse(error);
     // Handle network errors
     if (error.message === 'Network Error') {
       console.log('Network error occurred');
@@ -209,6 +137,14 @@ axiosInstance.interceptors.response.use(
 
     return Promise.reject(error);
   }
+);
+
+// A few older screens still use Axios' default export directly. Cover those
+// backend requests too, otherwise an invalidated old-device session only shows
+// "Request failed with status code 401" instead of returning to Login.
+axios.interceptors.response.use(
+  (response) => response,
+  handleUnauthorizedResponse,
 );
 
 export default axiosInstance;

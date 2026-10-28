@@ -20,6 +20,21 @@ const AUTH_FAILURE_CODES = new Set([
   'AUTH_USER_INACTIVE',
 ]);
 
+const getAuthFailureCode = (error) => error?.data?.code || error?.message || 'UNKNOWN';
+const isAuthFailure = (error) => {
+  const code = getAuthFailureCode(error);
+  const status = error?.data?.status || error?.status;
+  const message = String(error?.message || '').toLowerCase();
+  return AUTH_FAILURE_CODES.has(code) || status === 401 || message.includes('unauthorized');
+};
+const signOutForSocketAuthFailure = (error) => {
+  const reason = getAuthFailureCode(error) === 'AUTH_TOKEN_EXPIRED' ? 'expired' : 'otherDevice';
+  const { forceSignOut } = require('../utils/authSession');
+  forceSignOut({ reason }).catch((signOutError) => {
+    console.warn('[SocketService] Forced sign-out failed:', signOutError?.message || signOutError);
+  });
+};
+
 class SocketService {
   constructor() {
     this._socket = null;
@@ -172,15 +187,16 @@ class SocketService {
 
         const onError = (err) => {
           this._reconnectAttempts += 1;
-          const code = err?.data?.code || err?.message || 'UNKNOWN';
+          const code = getAuthFailureCode(err);
           console.warn(
             `[SocketService] connect_error (attempt ${this._reconnectAttempts}) code=${code}:`,
             err?.message || err,
           );
-          if (AUTH_FAILURE_CODES.has(code)) {
+          if (isAuthFailure(err)) {
             cleanup();
             this._connectionPromise = null;
             socket.disconnect();
+            signOutForSocketAuthFailure(err);
             const fatal = new Error(`[SocketService] Auth failed: ${code}`);
             fatal.code = code;
             reject(fatal);
@@ -211,10 +227,11 @@ class SocketService {
       if (token) socket.auth = { token };
     });
     socket.on('connect_error', (err) => {
-      const code = err?.data?.code || err?.message || 'UNKNOWN';
-      if (AUTH_FAILURE_CODES.has(code)) {
+      const code = getAuthFailureCode(err);
+      if (isAuthFailure(err)) {
         console.warn(`[SocketService] Auth connect_error after session start: ${code}`);
         socket.disconnect();
+        signOutForSocketAuthFailure(err);
       }
     });
     socket.on('reconnect', () => {

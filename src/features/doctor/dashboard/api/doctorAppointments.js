@@ -94,6 +94,45 @@ export const getAppointmentSource = (appointment) => {
   return rawType.includes('walk') || hasWalkInIdentity ? 'walkin' : 'online';
 };
 
+const PREPAID_METHODS = new Set(['credit_card', 'debit_card', 'card', 'upi', 'wallet']);
+const PAID_STATUSES = new Set([
+  'paid', 'captured', 'authorized', 'authorised', 'verified',
+  'success', 'successful', 'succeeded', 'completed',
+]);
+
+export const isAppointmentVisibleToDoctor = (appointment) => {
+  if (getAppointmentSource(appointment) === 'walkin') return true;
+
+  const appointmentStatus = String(pickFirst(
+    appointment?.appointment_status, appointment?.appointmentStatus,
+    appointment?.queue_status, appointment?.queueStatus, appointment?.status, '',
+  )).trim().toLowerCase();
+  if (['completed', 'complete', 'cancelled', 'canceled', 'no-show', 'no_show'].includes(appointmentStatus)) return true;
+
+  const method = String(pickFirst(
+    appointment?.payment_method, appointment?.paymentMethod,
+    appointment?.payment?.method, appointment?.payment?.payment_method,
+    '',
+  )).trim().toLowerCase();
+  const fee = Number(pickFirst(
+    appointment?.fee, appointment?.amount, appointment?.consultation_fee,
+    appointment?.consultationFee, appointment?.payment?.amount, 0,
+  ));
+  if (!PREPAID_METHODS.has(method) || !(fee > 0)) return true;
+
+  const paymentStatus = String(pickFirst(
+    appointment?.payment_status, appointment?.paymentStatus,
+    appointment?.payment?.status, appointment?.payment?.payment_status,
+    appointment?.transaction?.status, '',
+  )).trim().toLowerCase();
+  const paymentId = pickFirst(
+    appointment?.razorpay_payment_id, appointment?.razorpayPaymentId,
+    appointment?.payment_id, appointment?.paymentId,
+    appointment?.payment?.razorpay_payment_id, appointment?.payment?.razorpayPaymentId,
+  );
+  return PAID_STATUSES.has(paymentStatus) || Boolean(paymentId);
+};
+
 // Online and walk-in tables can share numeric IDs — dedupe per source only.
 const mergeAppointmentLists = (...lists) => {
   const records = new Map();
@@ -128,7 +167,7 @@ export const loadDoctorAppointmentFeed = async (doctorId) => {
     normalizeApiList(completed.data),
     normalizeApiList(cancelled.data),
     normalizeApiList(walkins.data).map((item) => withWalkinQueueState({ ...item, __appointmentSource: 'walkin' })),
-  ).filter((a) => !isPatientAccountDeleted(a));
+  ).filter((a) => !isPatientAccountDeleted(a) && isAppointmentVisibleToDoctor(a));
 };
 
 // The doctor's patient rating. The server keeps each one on its appointment

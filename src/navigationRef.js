@@ -10,6 +10,7 @@ export const navigationRef = createNavigationContainerRef();
 // Several requests usually fail at once when a session dies, and every one of
 // them tries to bounce the user out. Only the first should actually navigate.
 let resetting = false;
+let pendingLoginReset = false;
 
 // The shared Login screen (every role signs in there), with Landing under it so
 // Back from Login lands on Landing instead of leaving a blank stack. Used after
@@ -28,11 +29,21 @@ export const resetToLoginScreen = (navigation) => {
 // Session ended elsewhere (401 / signed in on another device). Several failing
 // requests call this at once; only the first navigates.
 export const resetToLogin = () => {
-  if (!navigationRef.isReady() || resetting) return false;
+  if (resetting) return false;
+  if (!navigationRef.isReady()) {
+    pendingLoginReset = true;
+    return true;
+  }
   resetting = true;
+  pendingLoginReset = false;
   navigationRef.dispatch(CommonActions.reset(LOGIN_STACK));
   setTimeout(() => {
     resetting = false;
   }, 1500);
   return true;
+};
+
+export const flushPendingLoginReset = () => {
+  if (!pendingLoginReset || resetting || !navigationRef.isReady()) return false;
+  return resetToLogin();
 };

@@ -19,7 +19,7 @@ import {
   initialWindowMetrics,
 } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
-import { navigationRef } from './src/navigationRef';
+import { flushPendingLoginReset, navigationRef } from './src/navigationRef';
 import { ResponsiveAppFrame } from './src/components/common/ResponsiveLayout';
 import { isTokenExpired, startTokenExpiryWatcher } from './src/utils/tokenExpiry';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -353,6 +353,7 @@ useEffect(() => {
         <NavigationContainer
           ref={navigationRef}
           onReady={() => {
+            flushPendingLoginReset();
             routeNameRef.current = navigationRef.current?.getCurrentRoute()?.name;
             void checkInitialNotification(navigationRef);
             startTokenExpiryWatcher();
