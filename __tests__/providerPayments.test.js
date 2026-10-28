@@ -9,6 +9,7 @@ import {
   razorpayOffersUpi,
   isOnlinePayment,
   isWalletPayment,
+  paymentMethodsForBooking,
   payForAppointment,
   paymentCheckoutDisplay,
   useProviderPaymentOptions,
@@ -36,6 +37,19 @@ describe('appointment payments (web providerPayments port)', () => {
     expect(isOnlinePayment('insurance')).toBe(false);
     expect(paymentCheckoutDisplay('debit_card').display.blocks.chosen.instruments).toEqual([{ method: 'card', types: ['debit'] }]);
     expect(paymentCheckoutDisplay('upi').display.blocks.chosen.instruments).toEqual([{ method: 'upi', flows: ['intent', 'collect', 'qr'] }]);
+  });
+
+  it('uses the same payment methods for clinic and video consultations', () => {
+    const methods = [
+      { id: 'credit_card' },
+      { id: 'upi' },
+      { id: 'wallet' },
+      { id: 'cash' },
+    ];
+
+    expect(paymentMethodsForBooking(methods, 'INR').map((method) => method.id)).toEqual([
+      'credit_card', 'upi', 'wallet', 'cash',
+    ]);
   });
 
   it('loads the methods the doctor accepts', async () => {

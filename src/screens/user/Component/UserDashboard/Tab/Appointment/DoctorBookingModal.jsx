@@ -22,7 +22,7 @@ import api from '../../../../../../axiosConfig';
 import { bookedSlotKeys, bookingWindowDays } from '../../../../../../utils/doctorSlots';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { feeCurrencyOf, formatFee } from '../../../../../../utils/consultationCurrency';
-import { isOnlinePayment, isWalletPayment, methodRefused, payForAppointment, TEST_UPI_FAILURE, TEST_UPI_SUCCESS, useProviderPaymentOptions, useWalletBalance } from '../../../../../../utils/providerPayments';
+import { isOnlinePayment, isWalletPayment, methodRefused, paymentMethodsForBooking, payForAppointment, TEST_UPI_FAILURE, TEST_UPI_SUCCESS, useProviderPaymentOptions, useWalletBalance } from '../../../../../../utils/providerPayments';
 import TextInput from '../../../../../../components/TranslatedTextInput';
 
 const UPI_ID_PATTERN = /^[\w.-]{2,256}@[a-zA-Z][a-zA-Z0-9.-]{1,63}$/;
@@ -339,7 +339,6 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   };
 
  
-  const isRemoteMode = selectedModeId !== 'in-clinic';
   const buildSlots = (iso, weekday) => {
     const cutoff = iso === todayIndia() ? nowMinutesIndia() : -1;
     const slots = new Map();
@@ -394,11 +393,9 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clockTick, selectedDate?.iso, selectedModeId, bookedSlots, serverBooked]);
 
-  // Only the methods the doctor accepts (web: /api/payments/providers/:id/methods).
-  // Cash is paid at the clinic, so it's only offered for an in-clinic visit.
-  // The wallet holds rupees, so it only pays a fee in INR.
-  const paymentMethods = paymentOptions.methods.filter((pm) => (!isRemoteMode || pm.id !== 'cash')
-    && (!isWalletPayment(pm.id) || doctor.currency === 'INR'));
+  // Both consultation modes show the same doctor-configured methods. The only
+  // restriction is currency compatibility for the INR app wallet.
+  const paymentMethods = paymentMethodsForBooking(paymentOptions.methods, doctor.currency);
   const methodsKey = paymentMethods.map((pm) => pm.id).join(',');
   const onlinePayment = isOnlinePayment(paymentMethod);
   useEffect(() => {
@@ -556,14 +553,12 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       return;
     }
     if (!paymentMethods.some((pm) => pm.id === paymentMethod)) {
-      const onlyCash = paymentOptions.methods.length > 0 && paymentOptions.methods.every((pm) => pm.id === 'cash');
       setBookAlert({
         title: BOOK_FAILED,
         message: paymentOptions.error
-          || (onlyCash ? 'This doctor accepts only cash at the clinic. Choose an In-Clinic Visit to book.'
-            : paymentOptions.loading ? 'Payment options are still loading. Please wait a moment.'
-              : paymentOptions.unavailable.length ? `Online payment isn't available for this doctor right now: ${paymentOptions.unavailable[0].reason}`
-                : 'This doctor has no payment method available yet.'),
+          || (paymentOptions.loading ? 'Payment options are still loading. Please wait a moment.'
+            : paymentOptions.unavailable.length ? `Online payment isn't available for this doctor right now: ${paymentOptions.unavailable[0].reason}`
+              : 'This doctor has no payment method available yet.'),
       });
       return;
     }
@@ -783,11 +778,9 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
           )}
           {!paymentOptions.loading && !paymentOptions.error && !paymentMethods.length && (
             <Text style={s.errorText}>
-              {paymentOptions.methods.length
-                ? 'This doctor accepts only cash at the clinic. Go back and choose an In-Clinic Visit.'
-                : paymentOptions.unavailable.length
-                  ? "Online payment isn't available for this doctor right now, so this appointment can't be booked. Reason:"
-                  : 'This doctor has no payment method available yet.'}
+              {paymentOptions.unavailable.length
+                ? "Online payment isn't available for this doctor right now, so this appointment can't be booked. Reason:"
+                : 'This doctor has no payment method available yet.'}
             </Text>
           )}
           {/* Methods the doctor turned on but hasn't finished setting up. */}

@@ -32,6 +32,12 @@ export const isWalletPayment = (method) => method === 'wallet';
 // Paid before the booking counts: in Razorpay checkout or from the wallet.
 export const isOnlinePayment = (method) => GATEWAY_METHODS.includes(method) || isWalletPayment(method);
 
+// In-clinic and video consultations use the same doctor-configured methods.
+// Only currency compatibility applies: the app wallet stores INR.
+export const paymentMethodsForBooking = (methods = [], currency = 'INR') => methods.filter(
+  (method) => !isWalletPayment(method?.id) || currency === 'INR',
+);
+
 export const NOT_COMPLETED = 'Payment was not completed.';
 
 // Shows only the chosen instrument in checkout (web paymentCheckoutDisplay).

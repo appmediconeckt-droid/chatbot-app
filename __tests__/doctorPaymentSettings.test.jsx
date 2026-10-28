@@ -44,7 +44,7 @@ describe('doctor payment settings (web /api/payments/preferences)', () => {
     api.put.mockResolvedValue({ data: { success: true } });
   });
 
-  it('shows one account section and four ways to pay, with no UPI app / ID form', async () => {
+  it('shows one account section and three selectable ways to pay', async () => {
     api.get.mockImplementation((url) => Promise.resolve({ data: url.includes('/providers/')
       ? { methods: ['cash'], unavailableMethods: { credit_card: 'The provider needs to complete card payment setup.' } }
       : { methods: ['credit_card', 'debit_card', 'upi', 'cash'], bankAccount: {}, upiId: '' } }));
@@ -55,9 +55,8 @@ describe('doctor payment settings (web /api/payments/preferences)', () => {
     // Only the account form's five inputs; no UPI app picker or UPI ID field.
     expect(tree.root.findAllByType('TextInput')).toHaveLength(5);
     expect(texts.join(' ')).not.toMatch(/Choose your UPI app|Your UPI ID|Receive UPI payments in/);
-    // Card, UPI, Wallet (always on, locked) and Cash.
-    expect(tree.root.findAllByType('Switch')).toHaveLength(4);
-    expect(tree.root.findAllByType('Switch')[2].props).toMatchObject({ value: true, disabled: true });
+    expect(tree.root.findAllByType('Switch')).toHaveLength(3);
+    expect(texts).not.toContain('Wallet');
     // Live status from the server under each saved-on way to pay.
     expect(texts).toEqual(expect.arrayContaining(['The provider needs to complete card payment setup.', 'Live — patients can pay this way']));
     expect(api.get).toHaveBeenCalledWith('/api/payments/providers/doc-1/methods');
@@ -67,19 +66,15 @@ describe('doctor payment settings (web /api/payments/preferences)', () => {
     api.get.mockResolvedValue({ data: { methods: ['credit_card', 'debit_card', 'cash'], bankAccount: BANK, upiId: '', upiApp: '' } });
     const tree = await render();
     expect(api.get).toHaveBeenCalledWith('/api/payments/preferences', expect.anything());
-    expect(tree.root.findAllByType('Switch').map((s) => s.props.value)).toEqual([true, false, true, true]);
-    // Saved before Wallet existed: one Save turns wallet payments on.
-    const walletHint = (n) => n.type === 'Text' && /start taking wallet payments/.test(textOf(n));
-    expect(tree.root.findAll(walletHint)).toHaveLength(1);
+    expect(tree.root.findAllByType('Switch').map((s) => s.props.value)).toEqual([true, false, true]);
 
     await act(async () => { pressableWithText(tree.root, 'Save Payment Settings').props.onPress(); });
     expect(api.put).toHaveBeenCalledWith('/api/payments/preferences', {
-      methods: ['credit_card', 'debit_card', 'wallet', 'cash'],
+      methods: ['credit_card', 'debit_card', 'cash'],
       bankAccount: BANK,
       upiId: '',
       upiApp: '',
     });
-    expect(tree.root.findAll(walletHint)).toHaveLength(0);
     expect(api.patch).not.toHaveBeenCalled();
     // Only the switches stay on the device; bank details live on the server.
     expect(JSON.parse(AsyncStorage.setItem.mock.calls[0][1])).toEqual({ onlinePayment: true, upiBank: false, cash: true });
@@ -93,7 +88,7 @@ describe('doctor payment settings (web /api/payments/preferences)', () => {
 
     await act(async () => { pressableWithText(tree.root, 'Save Payment Settings').props.onPress(); });
     expect(api.put).toHaveBeenCalledWith('/api/payments/preferences', {
-      methods: ['credit_card', 'debit_card', 'upi', 'wallet'],
+      methods: ['credit_card', 'debit_card', 'upi'],
       bankAccount: BANK,
       upiId: 'dr@okaxis',
       upiApp: 'google_pay',
@@ -101,12 +96,16 @@ describe('doctor payment settings (web /api/payments/preferences)', () => {
     expect(tree.root.findAll((n) => n.type === 'Text' && /saved only on this phone/.test(textOf(n)))).toHaveLength(0);
   });
 
-  it('needs the account before card or UPI can be saved', async () => {
+  it('saves a selected method without requiring receiving account details', async () => {
     api.get.mockResolvedValue({ data: { methods: ['upi'], bankAccount: {}, upiId: '' } });
     const tree = await render();
     await act(async () => { pressableWithText(tree.root, 'Save Payment Settings').props.onPress(); });
-    expect(api.put).not.toHaveBeenCalled();
-    expect(tree.root.findAll((n) => n.type === 'Text' && /Add the account card and UPI payments should go to/.test(textOf(n)))).toHaveLength(1);
+    expect(api.put).toHaveBeenCalledWith('/api/payments/preferences', {
+      methods: ['upi'],
+      bankAccount: { accountHolder: '', bankName: '', accountNumber: '', ifscCode: '' },
+      upiId: '',
+      upiApp: '',
+    });
   });
 
   it('shows the web message and blocks saving when the server has no preferences API', async () => {

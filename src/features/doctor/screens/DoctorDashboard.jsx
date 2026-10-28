@@ -73,7 +73,6 @@ import {
   startBreak,
 } from '../dashboard/api/doctorAppointments';
 import { endDirectCall, endedCallMessage, getDirectCallStatus, startDirectCall } from '../dashboard/api/doctorCalls';
-import { ensureWalletAccepted } from '../dashboard/api/doctorPaymentPreferences';
 import VideoCallModal from '../../../screens/user/Component/UserDashboard/Tab/CallModal/VideoCallModal';
 import axiosInstance from '../../../axiosConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -604,12 +603,6 @@ export default function DoctorDashboard({ navigation }) {
     const unsubscribe = navigation?.addListener?.('focus', () => loadUserLanguage(doctorId, 'doctor'));
     return () => unsubscribe?.();
   }, [doctorId, navigation]);
-
-  // Patients can always pay this doctor from their wallet: make sure the
-  // server's saved payment methods include it (older saves don't).
-  useEffect(() => {
-    if (doctorId) ensureWalletAccepted();
-  }, [doctorId]);
 
   useEffect(() => {
     getStoredDoctorUser().then((user) => {

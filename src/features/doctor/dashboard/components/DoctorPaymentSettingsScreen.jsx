@@ -1,14 +1,13 @@
 // Payment settings — same API as the web Setting/PaymentSetting/PaymentSettings.jsx:
 //   GET /api/payments/preferences → { methods, bankAccount, upiId, upiApp }
-//   PUT /api/payments/preferences   { methods: ['credit_card' | 'debit_card' | 'upi' | 'wallet' | 'cash'],
+//   PUT /api/payments/preferences   { methods: ['credit_card' | 'debit_card' | 'upi' | 'cash'],
 //                                     bankAccount: { accountHolder, bankName, accountNumber, ifscCode },
 //                                     upiId, upiApp }
 //   GET /api/payments/providers/:doctorId/methods → which ways patients can pay right now
 // One receiving account on top (card and UPI payments settle to it), then the
 // ways patients can pay. Patients' booking sheet offers exactly the ways
 // that are on and set up; each row shows that live status from the server.
-// Wallet is always on: every doctor accepts the patient's app wallet, and it
-// is saved in `methods` so the server takes wallet payments for this doctor.
+// Wallet is always available to patients and is not a selectable preference.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Switch, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -29,7 +28,6 @@ import useKeyboardLift from '../../../../hooks/useKeyboardLift';
 const DEFAULT_SETTINGS = {
   onlinePayment: true,
   upiBank: false,
-  wallet: true,
   cash: true,
   accountHolder: '',
   bankName: '',
@@ -51,15 +49,10 @@ const METHODS = [
     description: 'Patients pay with their own UPI ID or UPI app while booking.',
   },
   {
-    key: 'wallet', values: ['wallet'], title: 'Wallet', icon: 'wallet-outline', fg: '#7C3AED', bg: '#F3E8FF', alwaysOn: true,
-    description: 'Patients pay from their app wallet balance while booking. Always on — your share is added to Earnings.',
-  },
-  {
     key: 'cash', values: ['cash'], title: 'Cash at Clinic', icon: 'cash-outline', fg: '#B45309', bg: '#FEF3C7',
     description: 'Patients pay at the clinic reception. Offered for in-clinic visits only.',
   },
 ];
-const ONLINE_KEYS = ['onlinePayment', 'upiBank'];
 
 const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const BANK_FIELDS = ['accountHolder', 'bankName', 'accountNumber', 'ifscCode'];
@@ -69,11 +62,12 @@ const pick = (source, keys) => Object.fromEntries(keys.map((key) => [key, source
 const toServerMethods = (settings) => METHODS.filter((m) => settings[m.key]).flatMap((m) => m.values);
 const fromServerMethods = (list) => {
   const names = list.map((v) => String(v).trim().toLowerCase());
-  return Object.fromEntries(METHODS.map((m) => [m.key, m.alwaysOn || m.values.some((v) => names.includes(v))]));
+  return {
+    onlinePayment: names.some((name) => ['online', 'card', 'credit_card', 'debit_card'].includes(name)),
+    upiBank: names.includes('upi'),
+    cash: names.includes('cash'),
+  };
 };
-// Preferences saved before Wallet existed lack it: the server doesn't take
-// wallet payments for this doctor until the next Save sends it.
-const walletMissing = (data) => !(Array.isArray(data?.methods) && data.methods.some((v) => String(v).trim().toLowerCase() === 'wallet'));
 const toServerPreferences = (settings) => ({
   methods: toServerMethods(settings),
   bankAccount: pick(settings, BANK_FIELDS),
@@ -138,8 +132,6 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
   const [loadAttempt, setLoadAttempt] = useState(0);
   // A bank account found only on this device, not yet on the server.
   const [unsentDetails, setUnsentDetails] = useState(false);
-  // Wallet is not in the server's saved methods yet (needs one Save).
-  const [walletUnsaved, setWalletUnsaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -179,7 +171,6 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
         setSettings(next);
         setConfirmAccount(next.accountNumber || '');
         setUnsentDetails(fromDevice);
-        setWalletUnsaved(walletMissing(data));
         // An account that came from this device opens as a form, to be saved.
         setEditingBank(fromDevice || !bankComplete(next));
         loadStatus(providerId);
@@ -198,12 +189,12 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
     setError('');
   };
 
-  const onlineOn = ONLINE_KEYS.some((key) => settings[key]);
   const validate = () => {
     if (!METHODS.some((m) => settings[m.key])) return 'Keep at least one way to pay turned on.';
-    if (onlineOn) {
+    const bankStarted = BANK_FIELDS.some((key) => settings[key].trim());
+    if (bankStarted) {
       if (!settings.accountHolder.trim() || !settings.bankName.trim() || !settings.accountNumber.trim() || !settings.ifscCode.trim()) {
-        return 'Add the account card and UPI payments should go to: account holder, bank, account number and IFSC.';
+        return 'Complete all receiving account fields, or leave them all blank.';
       }
       if (!/^\d{8,20}$/.test(settings.accountNumber)) return 'Enter a valid 8 to 20 digit account number.';
       if (editingBank && confirmAccount !== settings.accountNumber) return 'The account numbers do not match.';
@@ -228,7 +219,6 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
       } catch { /* the server is authoritative */ }
       savedRef.current = settings;
       setUnsentDetails(false);
-      setWalletUnsaved(false);
       setEditingBank(!bankComplete(settings));
       setSaved(true);
       showToast('Payment settings saved');
@@ -253,7 +243,6 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
 
   // The live status line under a way to pay, once its switch is saved on.
   const statusFor = (method) => {
-    if (method.alwaysOn && walletUnsaved) return { live: false, text: 'Tap Save Payment Settings to start taking wallet payments.' };
     if (!status || !savedRef.current[method.key] || !settings[method.key]) return null;
     if (method.values.some((v) => status.live.has(v))) return { live: true, text: 'Live — patients can pay this way' };
     const reason = method.values.map((v) => status.reasons[v]).find(Boolean);
@@ -349,7 +338,7 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
               )}
             </View>
 
-            <SectionLabel icon="wallet-outline" text="How patients can pay" right={`${activeCount} of ${METHODS.length} on`} />
+            <SectionLabel icon="card-outline" text="How patients can pay" right={`${activeCount} of ${METHODS.length} on`} />
             {METHODS.map((method) => {
               const enabled = settings[method.key];
               const line = statusFor(method);
@@ -365,7 +354,7 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
                     </View>
                     <Switch
                       value={enabled}
-                      disabled={saving || method.alwaysOn}
+                      disabled={saving}
                       onValueChange={(v) => updateSetting(method.key, v)}
                       trackColor={{ false: '#D5DAE3', true: '#99E6DC' }}
                       thumbColor={enabled ? '#0D9488' : '#FFFFFF'}
