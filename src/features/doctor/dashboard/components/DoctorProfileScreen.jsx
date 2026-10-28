@@ -13,11 +13,6 @@ import { formatPhoneNumber } from '../../../../utils/countryCodes';
 import DoctorPrescriptionSignature from './DoctorPrescriptionSignature';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getDoctorInitials, getDoctorPhotoUrl, loadDoctorRatingSummary, saveDoctorUser } from '../api/doctorAppointments';
-import {
-  DEFAULT_COUNTRY,
-  feeCurrencyOf,
-  findCountry,
-} from '../../../../utils/consultationCurrency';
 
 // Consultation mode may come back as a list, or as the JSON / comma text a
 // multipart profile update saved it as.
@@ -210,14 +205,6 @@ export default function DoctorProfileScreen({ onBack }) {
           </View>
         </Section>
 
-        {/* Fees are set per clinic (Clinic Settings); the profile keeps the currency. */}
-        <Section icon="briefcase" label="Fee Currency">
-          <InfoRow
-            label="Country & Currency"
-            value={`${findCountry(profile?.address?.country)?.name || DEFAULT_COUNTRY} · ${feeCurrencyOf(profile) || 'INR'}`}
-            last
-          />
-        </Section>
 
         {consultationMode.length > 0 && (
           <Section icon="clock" label="Availability">

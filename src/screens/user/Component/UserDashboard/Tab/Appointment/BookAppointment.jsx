@@ -140,6 +140,7 @@ const CounselorRequestChat = ({
   initialSearchQuery = '',
   initialOpenRequestName = '',
   onInitialOpenHandled,
+  onOpenWallet,
 }) => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -1486,6 +1487,7 @@ const CounselorRequestChat = ({
         visible={Boolean(doctorForBooking)}
         doctorData={doctorForBooking}
         onClose={() => setDoctorForBooking(null)}
+        onAddMoney={onOpenWallet}
       />
 
       <Modal

@@ -15,6 +15,14 @@ export const nowMinutesIndia = () => {
   return d.getUTCHours() * 60 + d.getUTCMinutes();
 };
 
+// Days from `todayIso` (India) through the last day of next month — how far
+// ahead a patient can book.
+export const bookingWindowDays = (todayIso = todayIndia()) => {
+  const [y, m, d] = todayIso.split('-').map(Number);
+  const lastOfNextMonth = Date.UTC(y, m + 1, 0); // month m is next month (0-based)
+  return Math.round((lastOfNextMonth - Date.UTC(y, m - 1, d)) / 86400000) + 1;
+};
+
 // The next `count` days from today (India), with their weekday.
 export const upcomingDays = (count = 7) => Array.from({ length: count }, (_, i) => {
   const d = new Date(`${todayIndia()}T12:00:00Z`);

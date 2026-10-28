@@ -103,7 +103,8 @@ const mapAppointment = (raw) => {
     status: STATUS_LABEL[appt.status] || 'Pending',
     reason: appt.issue,
     type: getVisitType(appt, raw),
-    mode: mode.includes('video') ? 'Video' : mode.includes('voice') || mode.includes('phone') ? 'Voice' : 'In-clinic',
+    // Voice / phone bookings are video consultations now (getRemoteConsultationMode).
+    mode: mode.includes('video') || mode.includes('voice') || mode.includes('phone') ? 'Video' : 'In-clinic',
     consultMinutes: getConsultMinutes(appt, raw),
   };
 };

@@ -11,6 +11,8 @@ jest.mock('react-native', () => ({
 }));
 jest.mock('../src/components/TranslatedText', () => 'Text');
 jest.mock('../src/components/TranslatedTextInput', () => 'TextInput');
+jest.mock('../src/features/doctor/dashboard/icons/AppIcon', () => 'Icon');
+jest.mock('../src/features/doctor/dashboard/components/FeeCountryPicker', () => 'FeeCountryPicker');
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn() }));
 jest.mock('../src/axiosConfig', () => ({
   __esModule: true,
@@ -83,5 +85,25 @@ describe('clinic consultation fee', () => {
     expect(input.props.keyboardType).toBe('decimal-pad');
     act(() => { input.props.onChangeText('450'); });
     expect(onChangeText).toHaveBeenCalledWith('450');
+  });
+
+  it('picks the fee currency with the fee and flags a saved currency that differs', () => {
+    const onCountryChange = jest.fn();
+    let tree;
+    act(() => {
+      tree = create(<ClinicFeeField value="500" onChangeText={jest.fn()} currency="INR" country="India" savedCurrency="EUR" onCountryChange={onCountryChange} />);
+    });
+    const texts = tree.root.findAllByType('Text').map((t) => [].concat(t.props.children).join(''));
+    expect(texts).toContain('Fee Currency');
+    expect(texts).toContain('India · ₹ INR');
+    expect(texts).toContain('Your fees are saved in EUR. Saving switches them to INR.');
+    act(() => { tree.root.findByType('FeeCountryPicker').props.onSelect('Germany'); });
+    expect(onCountryChange).toHaveBeenCalledWith('Germany');
+
+    act(() => {
+      tree.update(<ClinicFeeField value="500" onChangeText={jest.fn()} currency="EUR" country="Germany" savedCurrency="EUR" onCountryChange={onCountryChange} />);
+    });
+    const after = tree.root.findAllByType('Text').map((t) => [].concat(t.props.children).join(''));
+    expect(after).toContain('Online card / UPI payments work in INR only. In EUR, patients can only pay cash.');
   });
 });

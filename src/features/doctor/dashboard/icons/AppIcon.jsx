@@ -383,6 +383,13 @@ export default function AppIcon({ name, size = 20, color = '#171B22', strokeWidt
           <Line x1="8" y1="16" x2="12" y2="16" {...common} />
         </>
       )}
+      {name === 'wallet' && (
+        <>
+          <Path d="M17 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v3" {...common} />
+          <Path d="M3 5v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3" {...common} />
+          <Path d="M21 12h-4a2 2 0 0 0 0 4h4v-4Z" {...common} />
+        </>
+      )}
     </Svg>
   );
 }

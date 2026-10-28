@@ -1996,10 +1996,9 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                   </Text>
                 </TouchableOpacity>
 
-                {/* Quick Video / Voice only on a doctor's video/voice
-                    consultation. Consultant cards show just View Details (their
-                    video, voice and chat are inside the details sheet), and a
-                    doctor's in-clinic visit is in person. */}
+                {/* No quick Video / Voice on the card: a doctor rings the
+                    patient for a video/voice consultation, and a consultant's
+                    video, voice and chat are inside the details sheet. */}
                 {doctorAppointment && aptStatus === 'completed' && !getAptClinicId(apt) && (
                   <RateButton
                     label={t('Rate Doctor')}
@@ -2007,25 +2006,6 @@ const MyAppointmentsPanel = ({ onBookPress, onVideoCall, onVoiceCall, onChat }) 
                     onPress={() => openRating(apt, 'doctor')}
                     t={t}
                   />
-                )}
-                {doctorAppointment && !isDoctorClinicVisit(apt) && aptStatus !== 'completed' && (
-                  <>
-                    <TouchableOpacity
-                      style={styles.aptActionIconBtn}
-                      onPress={() => onVideoCall && onVideoCall(apt)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="videocam-outline" size={19} color={PATIENT.primary} />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.aptActionIconBtn}
-                      onPress={() => onVoiceCall && onVoiceCall(apt)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="call-outline" size={19} color={PATIENT.primary} />
-                    </TouchableOpacity>
-                  </>
                 )}
               </View>
               {/* A clinic visit rates the doctor and the clinic side by side. */}
@@ -2847,8 +2827,9 @@ export default function UserDashboard() {
 
           handledCallIdsRef.current.add(callId);
 
+          // Doctors send 'voice' (web), counselors 'audio'.
           const resolvedCallType =
-            String(waitingCall.callType || 'video').toLowerCase() === 'audio'
+            ['audio', 'voice'].includes(String(waitingCall.callType || 'video').toLowerCase())
               ? 'voice'
               : 'video';
 
@@ -3344,11 +3325,15 @@ export default function UserDashboard() {
         console.error("Backend logout error:", apiError);
       }
 
+      // Close this account's socket, as the doctor and staff logouts do: the
+      // next account must not inherit it (its calls would be refused).
+      try { socketService.disconnect(); } catch { /* ignore */ }
       await AsyncStorage.clear();
       setShowLogoutConfirm(false);
       resetToLoginScreen(navigation);
     } catch (error) {
       console.error("Logout error:", error);
+      try { socketService.disconnect(); } catch { /* ignore */ }
       await AsyncStorage.clear();
       setShowLogoutConfirm(false);
       resetToLoginScreen(navigation);
@@ -3645,6 +3630,10 @@ export default function UserDashboard() {
             initialSearchQuery={targetCounselor}
             initialOpenRequestName={openCounselorRequestTarget}
             onInitialOpenHandled={() => setOpenCounselorRequestTarget("")}
+            onOpenWallet={() => {
+              setWalletInitialTab('add-money');
+              switchDashboardTab('Wallet');
+            }}
           />
         );
       case "Appointment":
@@ -5472,16 +5461,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingBottom: 16,
     marginTop: -6,
-  },
-  aptActionIconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: "#F0FAF4",
-    borderWidth: 1,
-    borderColor: "#BFE9CF",
-    justifyContent: "center",
-    alignItems: "center",
   },
   appointmentDetailsModal: {
     backgroundColor: "#ffffff",

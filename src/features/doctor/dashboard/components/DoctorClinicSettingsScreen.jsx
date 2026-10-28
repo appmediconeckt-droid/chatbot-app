@@ -22,7 +22,8 @@ import EditClinicScreen from './EditClinicScreen';
 import ClinicFeeField, { cleanClinicFee, isValidClinicFee } from './ClinicFeeField';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
 import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber } from '../../../../utils/countryCodes';
-import { feeCurrencyOf, formatFee } from '../../../../utils/consultationCurrency';
+import { DEFAULT_COUNTRY, findCountry, formatFee } from '../../../../utils/consultationCurrency';
+import { feeCurrencyNeedsSave, loadDoctorFeeCurrency, saveDoctorFeeCurrency } from '../api/doctorFeeCurrency';
 
 // Express error pages come back as HTML strings, not JSON — read either.
 const getApiErrorText = (err, fallback) => {
@@ -55,7 +56,9 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
   const [screenRef, keyboardLift] = useKeyboardLift(keyboardOpen, keyboardTop);
   const { showToast } = useToast();
   const [doctorId, setDoctorId] = useState('');
-  const [doctorUser, setDoctorUser] = useState(null);
+  // The doctor's fee currency as loaded, and the country picked here.
+  const [feeState, setFeeState] = useState(null);
+  const [feeCountry, setFeeCountry] = useState(DEFAULT_COUNTRY);
   const [clinics, setClinics] = useState([]);
   const [loadingClinics, setLoadingClinics] = useState(true);
   const [clinicName, setClinicName] = useState('');
@@ -75,12 +78,17 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
     getStoredDoctorUser().then((user) => {
       const id = pickFirst(user?.id, user?.user_id, user?.doctor_id, user?._id, user?.userId, user?.doctorId, '');
       setDoctorId(id ? String(id) : '');
-      setDoctorUser(user);
       if (!id) setLoadingClinics(false);
     });
+    loadDoctorFeeCurrency().then((loaded) => {
+      setFeeState(loaded);
+      setFeeCountry(loaded.country);
+    });
   }, []);
-  // Every clinic charges in the doctor's profile currency.
-  const currency = feeCurrencyOf(doctorUser) || 'INR';
+  // Every clinic charges in the doctor's one currency: the saved one for the
+  // list, the one picked in the form for a new clinic.
+  const currency = findCountry(feeCountry)?.currency || 'INR';
+  const listCurrency = feeState?.savedCurrency || currency;
 
   const refreshClinics = useCallback(async () => {
     if (!doctorId) return;
@@ -168,6 +176,12 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
 
     try {
       setStatus('loading');
+      // A new (or mismatched) currency is saved on the doctor first.
+      if (feeCurrencyNeedsSave(feeState, feeCountry)) {
+        setMessage('Saving fee currency...');
+        const savedCurrency = await saveDoctorFeeCurrency(feeState.user, feeCountry);
+        setFeeState((prev) => ({ ...prev, country: feeCountry, currency, savedCurrency }));
+      }
       setMessage(photos.length ? 'Uploading clinic and photos...' : 'Creating clinic...');
       let uploadedCount = 0;
       let created = null;
@@ -292,7 +306,7 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
                           <View style={s.clinicFeeRow}>
                             <Text style={s.hint}>Fee:</Text>
                             {clinic.fee != null ? (
-                              <Text translate={false} style={s.clinicFee}>{formatFee(clinic.fee, currency)}</Text>
+                              <Text translate={false} style={s.clinicFee}>{formatFee(clinic.fee, listCurrency)}</Text>
                             ) : (
                               <Text style={s.clinicFeeMissing}>Not set — tap Edit</Text>
                             )}
@@ -338,6 +352,9 @@ export default function DoctorClinicSettingsScreen({ onBack }) {
               onChangeText={(value) => setFee(cleanClinicFee(value, currency))}
               currency={currency}
               onFocus={kbFocus}
+              country={feeCountry}
+              onCountryChange={setFeeCountry}
+              savedCurrency={feeState?.savedCurrency}
             />
           </View>
 

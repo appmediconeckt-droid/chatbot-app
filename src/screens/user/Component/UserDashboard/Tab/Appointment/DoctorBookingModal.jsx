@@ -5,9 +5,13 @@
 //   GET  /api/clinics?doctor_id                    doctor's clinics
 //   GET  /api/availability/available?doctor_id     slots (fallback /api/availability/ranges)
 //   POST /api/appointments                         book a regular doctor appointment
+//   /api/payments/...                              card / UPI / wallet payment (utils/providerPayments)
+//   GET  /api/wallet/data                          wallet balance, for paying from the wallet
 // Steps: 1 select (clinic, mode, type, location, date, time) → 2 review &
-// payment → 3 success with the token number.
-import React, { useEffect, useMemo, useState } from 'react';
+// payment → 3 success with the token number. A card / UPI booking reaches the
+// success step only after Razorpay checkout is paid and verified; a wallet
+// booking once the server has debited the wallet.
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -15,26 +19,23 @@ import LinearGradient from 'react-native-linear-gradient';
 import Text from '../../../../../../components/TranslatedText';
 import { PATIENT, PATIENT_GRADIENT } from '../../../../../../theme/palette';
 import api from '../../../../../../axiosConfig';
-import { bookedSlotKeys } from '../../../../../../utils/doctorSlots';
+import { bookedSlotKeys, bookingWindowDays } from '../../../../../../utils/doctorSlots';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { feeCurrencyOf, formatFee } from '../../../../../../utils/consultationCurrency';
+import { isOnlinePayment, isWalletPayment, methodRefused, payForAppointment, TEST_UPI_FAILURE, TEST_UPI_SUCCESS, useProviderPaymentOptions, useWalletBalance } from '../../../../../../utils/providerPayments';
+import TextInput from '../../../../../../components/TranslatedTextInput';
+
+const UPI_ID_PATTERN = /^[\w.-]{2,256}@[a-zA-Z][a-zA-Z0-9.-]{1,63}$/;
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const BOOK_FAILED = "Couldn't Book Appointment";
+const PAY_FAILED = 'Payment Not Completed';
 
+// A doctor is booked in the clinic or by video only (no voice consultation).
 const MODES = [
   { id: 'in-clinic', name: 'In-Clinic Visit', desc: 'Visit the clinic in person for consultation', icon: 'business-outline', fee: 0 },
-  { id: 'video', name: 'Video Consultation', desc: 'Connect with doctor via video call', icon: 'videocam-outline', fee: 10 },
-  { id: 'voice', name: 'Voice Consultation', desc: 'Talk with your doctor over a voice call', icon: 'call-outline', fee: 5 },
-];
-
-// `server` is the doctor's Payment Settings name for the method
-// (acceptedPaymentMethods: 'online' | 'upi' | 'cash').
-const PAYMENT_METHODS = [
-  { id: 'Card', server: 'online', label: 'Credit/Debit Card', icon: 'card-outline' },
-  { id: 'UPI', server: 'upi', label: 'UPI Payment', icon: 'phone-portrait-outline' },
-  { id: 'Cash', server: 'cash', label: 'Cash at Clinic', icon: 'cash-outline' },
+  { id: 'video', name: 'Video Consultation', desc: 'Connect with doctor via video call', icon: 'videocam-outline', fee: 0 },
 ];
 
 const pickFirst = (...values) => values.find((v) => v !== undefined && v !== null && v !== '');
@@ -151,7 +152,9 @@ const unwrapList = (data) => {
   return data?.clinics || data?.data || [];
 };
 
-export default function DoctorBookingModal({ visible, doctorData, onClose, onBooked }) {
+// onAddMoney: opens the patient's Wallet (Add Money) when the balance is too
+// low to pay from the wallet; the button is hidden without it.
+export default function DoctorBookingModal({ visible, doctorData, onClose, onBooked, onAddMoney }) {
   const incoming = doctorData || {};
   const doctorId = pickFirst(incoming.id, incoming._id);
   const doctor = {
@@ -167,12 +170,6 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
     consultationFee: firstPositiveFee(incoming.consultationFee, incoming.fee, incoming.consultation_fee),
     // Every amount on this sheet is in the currency the doctor chose.
     currency: feeCurrencyOf(incoming) || 'INR',
-    // Methods the doctor accepts; null when they never set any (all offered).
-    acceptedMethods: Array.isArray(incoming.acceptedPaymentMethods) && incoming.acceptedPaymentMethods.length
-      ? incoming.acceptedPaymentMethods.map((m) => String(m).trim().toLowerCase())
-      : null,
-    videoFee: savedFee(incoming.videoConsultationFee, incoming.video_consultation_fee),
-    voiceFee: savedFee(incoming.voiceConsultationFee, incoming.voice_consultation_fee),
     photo: typeof incoming.avatar === 'string' && /^(https?:|file:|data:)/.test(incoming.avatar) ? incoming.avatar : null,
   };
 
@@ -189,9 +186,21 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   const [ranges, setRanges] = useState([]);
   const [unavailableDates, setUnavailableDates] = useState([]);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('Cash');
+  const [paymentMethod, setPaymentMethod] = useState('');
+  // The booked appointment still waiting for its card / UPI payment.
+  const [requestId, setRequestId] = useState(null);
+  // Bookings whose checkout took money (confirmation failed): never released.
+  const chargedRef = useRef(new Set());
+  // Test UPI box ({ value, error }) and whether the booking was "paid" by it.
+  const [testUpi, setTestUpi] = useState(null);
+  const testUpiResolveRef = useRef(null);
+  const [testUpiPaid, setTestUpiPaid] = useState(false);
+  const paymentOptions = useProviderPaymentOptions(doctorId, visible);
+  const wallet = useWalletBalance(visible);
   const [booking, setBooking] = useState(false);
-  const [bookAlert, setBookAlert] = useState(null); // { title, message } popup shown when Confirm & Book is blocked
+  // { title, message, addMoney? } popup shown when Confirm & Book is blocked;
+  // `addMoney` adds an Add Money button (wallet balance too low).
+  const [bookAlert, setBookAlert] = useState(null);
   const [token, setToken] = useState(null);
   const [patientInfo, setPatientInfo] = useState(null);
 
@@ -205,7 +214,8 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
     setClinicOpen(false);
     setModeOpen(false);
     setLocation(incoming.location || '');
-    setPaymentMethod('Cash');
+    setPaymentMethod('');
+    setRequestId(null);
     setBookAlert(null);
     setToken(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -328,11 +338,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
     });
   };
 
-  // Only current/future slots. An in-clinic visit joins the token queue, so on
-  // today the running slot is still bookable (until it ends). A video/voice
-  // consultation starts at the slot time itself and the server rejects a past
-  // start ("Appointment date and time must be in the future"), so only slots
-  // that haven't started yet are offered for those.
+ 
   const isRemoteMode = selectedModeId !== 'in-clinic';
   const buildSlots = (iso, weekday) => {
     const cutoff = iso === todayIndia() ? nowMinutesIndia() : -1;
@@ -346,7 +352,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       const duration = Math.max(1, Number(range.slot_duration || 15));
       if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
       for (let cursor = start; cursor + duration <= end; cursor += duration) {
-        const bookable = isRemoteMode ? cursor > cutoff : cursor + duration > cutoff;
+        const bookable = cursor > cutoff;
         if (bookable && !bookedSlots.has(`${iso}|${cursor}`) && !serverBooked.has(`${iso}|${cursor}`)) slots.set(cursor, { time: formatMinutes(cursor), minutes: cursor });
       }
     });
@@ -354,7 +360,9 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   };
   const slotsForDate = (date) => (date ? buildSlots(date.iso, date.weekday) : []);
 
-  const calendarDates = useMemo(() => Array.from({ length: 7 }, (_, i) => {
+  // Today through the last day of next month (India time), so the patient
+  // can book into next month too.
+  const calendarDates = useMemo(() => Array.from({ length: bookingWindowDays() }, (_, i) => {
     const d = new Date(`${todayIndia()}T12:00:00`);
     d.setDate(d.getDate() + i);
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -362,6 +370,8 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       date: d.getDate(),
       day: WEEKDAYS[d.getDay()],
       label: `${MONTHS[d.getMonth()]} ${d.getDate()}`,
+      month: MONTHS[d.getMonth()],
+      monthLong: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
       iso,
       weekday: d.getDay(),
       status: buildSlots(iso, d.getDay()).length ? 'available' : 'unavailable',
@@ -384,15 +394,19 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clockTick, selectedDate?.iso, selectedModeId, bookedSlots, serverBooked]);
 
-  // Only the methods the doctor accepts. Cash is paid at the clinic, so it's
-  // only offered for an in-clinic visit.
-  const paymentMethods = PAYMENT_METHODS.filter((pm) =>
-    (!isRemoteMode || pm.id !== 'Cash') && (!doctor.acceptedMethods || doctor.acceptedMethods.includes(pm.server)));
-  const acceptedKey = (doctor.acceptedMethods || []).join(',');
+  // Only the methods the doctor accepts (web: /api/payments/providers/:id/methods).
+  // Cash is paid at the clinic, so it's only offered for an in-clinic visit.
+  // The wallet holds rupees, so it only pays a fee in INR.
+  const paymentMethods = paymentOptions.methods.filter((pm) => (!isRemoteMode || pm.id !== 'cash')
+    && (!isWalletPayment(pm.id) || doctor.currency === 'INR'));
+  const methodsKey = paymentMethods.map((pm) => pm.id).join(',');
+  const onlinePayment = isOnlinePayment(paymentMethod);
   useEffect(() => {
-    if (paymentMethods.length && !paymentMethods.some((pm) => pm.id === paymentMethod)) setPaymentMethod(paymentMethods[0].id);
+    // A booked appointment waiting for payment keeps the method it was booked with.
+    if (requestId) return;
+    if (!paymentMethods.some((pm) => pm.id === paymentMethod)) setPaymentMethod(paymentMethods[0]?.id || '');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedModeId, acceptedKey]);
+  }, [methodsKey, requestId]);
   const slotGroups = [
     { label: 'Morning', icon: 'sunny-outline', slots: dateSlots.filter((x) => x.minutes < 720) },
     { label: 'Afternoon', icon: 'partly-sunny-outline', slots: dateSlots.filter((x) => x.minutes >= 720 && x.minutes < 1020) },
@@ -415,16 +429,9 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
     : [{ id: null, name: 'No clinic available', address: incoming.location || '', days: '—', timings: '—', fee: doctor.consultationFee }];
   const hasClinics = apiClinics.length > 0;
   const selectedClinic = clinics.find((c) => c.id === selectedClinicId) || clinics[0];
-  // Video / voice extras come from the doctor's profile when they set them.
-  // The built-in extras (₹10 / ₹5) are rupee amounts, so they only apply to
-  // doctors who charge in INR.
-  const modes = MODES.map((m) => {
-    const own = m.id === 'video' ? doctor.videoFee : m.id === 'voice' ? doctor.voiceFee : null;
-    if (own != null) return { ...m, fee: own };
-    return doctor.currency === 'INR' ? m : { ...m, fee: 0 };
-  });
+  const modes = MODES;
   const selectedMode = modes.find((m) => m.id === selectedModeId) || modes[0];
-  const totalFee = (Number(selectedClinic?.fee) || 0) + (Number(selectedMode?.fee) || 0);
+  const totalFee = Number(selectedClinic?.fee) || 0;
   const money = (amount) => formatFee(Number(amount) || 0, doctor.currency);
 
   // Regular bookings happen at the chosen clinic, so the location is the
@@ -439,14 +446,134 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
   const dateStr = selectedDate ? `${selectedDate.day}, ${selectedDate.label}` : '';
   const canContinue = !!selectedDate && !!selectedTime && hasClinics && !!location.trim();
 
+  // Card / UPI: Razorpay checkout, where the patient enters their details.
+  // Wallet: the server debits the wallet, no checkout.
+  const pay = async (appointmentId) => {
+    const result = await payForAppointment(appointmentId, paymentMethod, {
+      name: pickFirst(pt.full_name, pt.fullName, pt.name),
+      email: pt.email,
+      contact: pickFirst(pt.phoneNumber, pt.phone, pt.phoneNum),
+    }, { askTestUpi: __DEV__ ? askTestUpi : undefined });
+    setTestUpiPaid(!!result?.simulated);
+    if (walletPayment) {
+      if (result?.walletBalance != null) wallet.setBalance(result.walletBalance);
+      else wallet.reload();
+    }
+    return result;
+  };
+
+  // Paying from the wallet needs the whole fee in it. Unknown balance (it
+  // couldn't load): the server decides.
+  const walletPayment = isWalletPayment(paymentMethod);
+  const walletShortBy = wallet.balance != null ? Math.max(0, totalFee - wallet.balance) : 0;
+  const walletTooLow = (pm) => isWalletPayment(pm) && walletShortBy > 0;
+  const openAddMoney = () => {
+    setBookAlert(null);
+    onClose?.();
+    onAddMoney?.();
+  };
+
+  // Debug builds only: the Test UPI box, used when the Razorpay TEST account
+  // has UPI turned off (see payForAppointment). Resolves to the UPI ID, or null.
+  const askTestUpi = () => new Promise((resolve) => {
+    testUpiResolveRef.current = resolve;
+    setTestUpi({ value: '', error: '' });
+  });
+  const closeTestUpi = (upiId) => {
+    const resolve = testUpiResolveRef.current;
+    testUpiResolveRef.current = null;
+    setTestUpi(null);
+    resolve?.(upiId);
+  };
+  const submitTestUpi = () => {
+    const value = String(testUpi?.value || '').trim();
+    if (!UPI_ID_PATTERN.test(value)) {
+      setTestUpi((prev) => ({ ...prev, error: 'Enter a UPI ID like success@razorpay' }));
+      return;
+    }
+    closeTestUpi(value);
+  };
+
+  // Payment for the reserved booking didn't go through. When no money moved
+  // (checkout closed or failed), the booking is cancelled
+  // (PATCH /api/appointments/:id/cancel, as My Appointments does) so nothing
+  // stays booked unpaid and the slot is free again. If the payment may have
+  // gone through (confirmation pending), the booking is kept for a retry.
+  const handlePaymentFailure = async (appointmentId, err) => {
+    const id = String(appointmentId);
+    // Once a checkout for this booking took money, it is never released here,
+    // even if a later retry fails before checkout (e.g. the server refuses a
+    // new order) — the patient or support settles it with the money in view.
+    if (err?.charged) chargedRef.current.add(id);
+    let released = false;
+    if (err?.notPaid && !chargedRef.current.has(id)) {
+      try {
+        await api.patch(`/api/appointments/${encodeURIComponent(String(appointmentId))}/cancel`, { source: 'online' });
+        released = true;
+      } catch { /* keep it reserved; the patient can retry payment */ }
+    }
+    if (released) {
+      setRequestId(null);
+      setBookAlert({
+        title: PAY_FAILED,
+        message: err?.cancelled
+          ? 'You cancelled the payment, so no appointment was booked. You can try again.'
+          : `${err?.message || 'Payment could not be completed.'} No appointment was booked — you can try again.`,
+      });
+      return;
+    }
+    setRequestId(String(appointmentId));
+    setBookAlert({ title: PAY_FAILED, message: `${err?.message || 'Payment could not be completed.'} Your appointment is reserved and unpaid. You can retry payment.` });
+  };
+
   const confirmBooking = async () => {
     if (booking) return;
+    // Booked, payment confirmation still pending: only retry the payment.
+    if (requestId && onlinePayment) {
+      if (walletTooLow(paymentMethod)) {
+        setBookAlert({
+          title: 'Insufficient Wallet Balance',
+          message: `Your wallet has ${money(wallet.balance)}. Add ${money(walletShortBy)} more, or choose another payment method to complete this booking.`,
+          addMoney: true,
+        });
+        return;
+      }
+      setBooking(true);
+      setBookAlert(null);
+      try {
+        await pay(requestId);
+        setStep('success');
+        onBooked?.();
+      } catch (err) {
+        await handlePaymentFailure(requestId, err);
+      } finally {
+        setBooking(false);
+      }
+      return;
+    }
     if (!hasClinics) {
       setBookAlert({ title: BOOK_FAILED, message: 'This doctor has no clinic available, so the appointment cannot be booked.' });
       return;
     }
-    if (!paymentMethods.length) {
-      setBookAlert({ title: BOOK_FAILED, message: 'This doctor accepts only cash at the clinic. Choose an In-Clinic Visit to book.' });
+    if (!paymentMethods.some((pm) => pm.id === paymentMethod)) {
+      const onlyCash = paymentOptions.methods.length > 0 && paymentOptions.methods.every((pm) => pm.id === 'cash');
+      setBookAlert({
+        title: BOOK_FAILED,
+        message: paymentOptions.error
+          || (onlyCash ? 'This doctor accepts only cash at the clinic. Choose an In-Clinic Visit to book.'
+            : paymentOptions.loading ? 'Payment options are still loading. Please wait a moment.'
+              : paymentOptions.unavailable.length ? `Online payment isn't available for this doctor right now: ${paymentOptions.unavailable[0].reason}`
+                : 'This doctor has no payment method available yet.'),
+      });
+      return;
+    }
+    // Checked before booking, so a too-low wallet never reserves a slot.
+    if (walletTooLow(paymentMethod)) {
+      setBookAlert({
+        title: 'Insufficient Wallet Balance',
+        message: `Your wallet has ${money(wallet.balance)}. Add ${money(walletShortBy)} more to pay ${money(totalFee)} from your wallet, or choose another payment method.`,
+        addMoney: true,
+      });
       return;
     }
     // The slot may have passed while the user was on the payment step.
@@ -479,28 +606,59 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
         booking_source: 'online',
         priority: 'normal',
       };
+    let res;
     try {
-      const res = await api.post('/api/appointments', payload);
-      const data = res.data?.data || res.data || {};
-      setToken(pickFirst(data.token, data.token_number, data.queue_token, data.appointment?.token_number) ?? null);
+      res = await api.post('/api/appointments', payload);
+    } catch (err) {
+      setBooking(false);
+      handleBookError(err, formattedTime);
+      return;
+    }
+    const data = res.data?.data || res.data || {};
+    setToken(pickFirst(data.token, data.token_number, data.queue_token, data.appointment?.token_number) ?? null);
+    if (!onlinePayment) {
+      setBooking(false);
+      setStep('success');
+      onBooked?.();
+      return;
+    }
+    // Card / UPI: the appointment is reserved; it's booked once paid.
+    const appointmentId = pickFirst(data._id, data.id, data.appointment?._id, data.appointment?.id);
+    if (!appointmentId) {
+      setBooking(false);
+      setBookAlert({ title: PAY_FAILED, message: 'Your appointment is reserved, but payment could not start. Please check My Appointments.' });
+      return;
+    }
+    try {
+      await pay(appointmentId);
       setStep('success');
       onBooked?.();
     } catch (err) {
-      const message = err?.response?.data?.message || err?.message || '';
-      // A booking made elsewhere (web / another device) since the sheet opened:
-      // hide that slot now and let the patient pick another time.
-      if (/already has (a )?booking/i.test(message) && selectedDate?.iso && selectedTime) {
-        const [h, m] = formattedTime.split(':').map(Number);
-        setBookedSlots((prev) => new Set(prev).add(`${selectedDate.iso}|${h * 60 + m}`));
-        setSelectedTime(null);
-        setStep('select');
-        setBookAlert({ title: 'Appointment Already Booked', message: 'You already have an appointment with this doctor at that time. Please choose another slot.' });
-        return;
-      }
-      setBookAlert({ title: BOOK_FAILED, message: message || 'Failed to book appointment. Please try again.' });
+      await handlePaymentFailure(appointmentId, err);
     } finally {
       setBooking(false);
     }
+  };
+
+  const handleBookError = (err, formattedTime) => {
+    if (err?.response) console.warn('[booking] refused', err.response.status, JSON.stringify(err.response.data));
+    // Booked with the wallet but the doctor's saved methods don't include it.
+    if (walletPayment && methodRefused(err)) {
+      setBookAlert({ title: BOOK_FAILED, message: "This doctor can't take wallet payments yet. Please choose another payment method." });
+      return;
+    }
+    const message = err?.response?.data?.message || err?.message || '';
+    // A booking made elsewhere (web / another device) since the sheet opened:
+    // hide that slot now and let the patient pick another time.
+    if (/already has (a )?booking/i.test(message) && selectedDate?.iso && selectedTime) {
+      const [h, m] = formattedTime.split(':').map(Number);
+      setBookedSlots((prev) => new Set(prev).add(`${selectedDate.iso}|${h * 60 + m}`));
+      setSelectedTime(null);
+      setStep('select');
+      setBookAlert({ title: 'Appointment Already Booked', message: 'You already have an appointment with this doctor at that time. Please choose another slot.' });
+      return;
+    }
+    setBookAlert({ title: BOOK_FAILED, message: message || 'Failed to book appointment. Please try again.' });
   };
 
   // Web: success closes itself after 6 seconds.
@@ -548,8 +706,20 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
           <Row icon="location-outline" label="Location" value={location || selectedClinic.address} />
           <Row icon={selectedMode.icon} label="Consultation Mode" value={selectedMode.name} />
           <Row icon="calendar-outline" label="Date" value={dateStr} />
-          <Row icon="time-outline" label="Time" value={selectedTime} last />
-          <View style={s.totalRow}><Text style={s.totalLabel}>Total Fee</Text><Text style={s.totalValue}>{money(totalFee)}</Text></View>
+          <Row icon="time-outline" label="Time" value={selectedTime} />
+          <Row
+            icon="wallet-outline"
+            label="Payment"
+            value={`${paymentMethods.find((pm) => pm.id === paymentMethod)?.label || paymentMethod}${testUpiPaid ? ' · Test (not charged)' : onlinePayment ? ' · Paid' : ''}`}
+            last={!(walletPayment && wallet.balance != null)}
+          />
+          {walletPayment && wallet.balance != null && (
+            <Row icon="cash-outline" label="Wallet Balance Left" value={money(wallet.balance)} last />
+          )}
+          <View style={s.totalRow}><Text style={s.totalLabel}>{onlinePayment && !testUpiPaid ? 'Amount Paid' : 'Total Fee'}</Text><Text style={s.totalValue}>{money(totalFee)}</Text></View>
+          {testUpiPaid && (
+            <Text style={s.testUpiNote}>Test UPI: no money was charged and the server records this booking as unpaid.</Text>
+          )}
         </View>
         <Text style={s.closingNote}>You can follow your token live in the Token tab. Closing shortly…</Text>
         <GradientButton label="Done" icon="checkmark" onPress={onClose} />
@@ -559,7 +729,8 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
 
   const renderPayment = () => (
     <View style={s.screen}>
-      {header('Review & Payment', 'Please review your appointment details before confirming', () => setStep('select'))}
+      {/* Once booked and waiting for payment, the slot can't be changed here. */}
+      {header('Review & Payment', 'Please review your appointment details before confirming', requestId ? null : () => setStep('select'))}
       <ScrollView contentContainerStyle={s.content}>
         <View style={s.card}>
           <Text style={s.cardTitle}><Ionicons name="calendar-outline" size={15} color={PATIENT.primary} /> Appointment Summary</Text>
@@ -574,18 +745,68 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
 
         <View style={s.card}>
           <Text style={s.cardTitle}><Ionicons name="wallet-outline" size={15} color={PATIENT.primary} /> Choose Payment Method</Text>
+          {paymentOptions.loading && <ActivityIndicator color={PATIENT.primary} style={s.payLoading} />}
+          {!!paymentOptions.error && <Text style={s.errorText}>{paymentOptions.error}</Text>}
           {paymentMethods.map((pm) => {
             const active = paymentMethod === pm.id;
+            // Retrying a reserved booking: any online way can be tried (each
+            // attempt makes its own order), but not cash — the booking is
+            // already waiting for an online payment.
+            const locked = booking || (!!requestId && !isOnlinePayment(pm.id));
+            const isWallet = isWalletPayment(pm.id);
             return (
-              <Pressable key={pm.id} onPress={() => setPaymentMethod(pm.id)} style={[s.payMethod, active && s.payMethodActive]}>
+              <Pressable key={pm.id} onPress={() => setPaymentMethod(pm.id)} disabled={locked} style={[s.payMethod, active && s.payMethodActive, locked && !active && s.payMethodLocked]}>
                 <View style={[s.payIcon, active && s.payIconActive]}>{active && <GradientFill />}<Ionicons name={pm.icon} size={17} color={active ? '#FFF' : PATIENT.primary} /></View>
-                <Text style={[s.payLabel, active && s.payLabelActive]}>{pm.label}</Text>
+                <View style={s.flex}>
+                  <Text style={[s.payLabel, active && s.payLabelActive]}>{pm.label}</Text>
+                  {isWallet && (
+                    <Text style={[s.walletBalance, walletTooLow(pm.id) && s.walletBalanceLow]}>
+                      {wallet.loading && wallet.balance == null
+                        ? 'Checking balance…'
+                        : wallet.balance == null
+                          ? 'Balance unavailable'
+                          : walletTooLow(pm.id)
+                            ? `Balance ${money(wallet.balance)} · ${money(walletShortBy)} short`
+                            : `Balance ${money(wallet.balance)}`}
+                    </Text>
+                  )}
+                </View>
                 <Ionicons name={active ? 'radio-button-on' : 'radio-button-off'} size={20} color={active ? PATIENT.primary : '#CBD5E1'} />
               </Pressable>
             );
           })}
-          {!paymentMethods.length && (
-            <Text style={s.errorText}>This doctor accepts only cash at the clinic. Go back and choose an In-Clinic Visit.</Text>
+          {walletPayment && walletShortBy > 0 && !!onAddMoney && (
+            <Pressable onPress={openAddMoney} style={s.addMoneyLink} hitSlop={6}>
+              <Ionicons name="add-circle-outline" size={16} color={PATIENT.primary} />
+              <Text style={s.addMoneyText}>Add {money(walletShortBy)} to your wallet</Text>
+            </Pressable>
+          )}
+          {!paymentOptions.loading && !paymentOptions.error && !paymentMethods.length && (
+            <Text style={s.errorText}>
+              {paymentOptions.methods.length
+                ? 'This doctor accepts only cash at the clinic. Go back and choose an In-Clinic Visit.'
+                : paymentOptions.unavailable.length
+                  ? "Online payment isn't available for this doctor right now, so this appointment can't be booked. Reason:"
+                  : 'This doctor has no payment method available yet.'}
+            </Text>
+          )}
+          {/* Methods the doctor turned on but hasn't finished setting up. */}
+          {!paymentOptions.loading && paymentOptions.unavailable.map((pm) => (
+            <View key={pm.id} style={s.payUnavailable}>
+              <Ionicons name="time-outline" size={15} color="#94A3B8" />
+              <Text style={s.payUnavailableText}>
+                <Text style={s.payUnavailableLabel}>{pm.label}</Text> — {pm.reason}
+              </Text>
+            </View>
+          ))}
+          {onlinePayment && (
+            <Text style={s.payHint}>
+              {walletPayment
+                ? `${money(totalFee)} is deducted from your wallet when you continue. If the appointment is cancelled, the refund goes back to your wallet.`
+                : paymentMethod === 'upi'
+                  ? 'Choose your UPI app, such as Google Pay, PhonePe, Paytm or another supported app, in secure Razorpay checkout.'
+                  : 'Enter your card number, expiry and CVV in secure Razorpay checkout when you continue.'}
+            </Text>
           )}
         </View>
 
@@ -601,19 +822,30 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
         <View style={s.card}>
           <Text style={s.cardTitle}><Ionicons name="receipt-outline" size={15} color={PATIENT.primary} /> Fee Breakdown</Text>
           <View style={s.feeRow}><Text style={s.feeLabel}>Consultation Fee</Text><Text style={s.feeValue}>{money(selectedClinic.fee)}</Text></View>
-          {selectedMode.fee > 0 && (
-            <View style={s.feeRow}><Text style={s.feeLabel}>{selectedMode.name}</Text><Text style={s.feeValue}>+{money(selectedMode.fee)}</Text></View>
-          )}
           <View style={s.totalRow}><Text style={s.totalLabel}>Total</Text><Text style={s.totalValue}>{money(totalFee)}</Text></View>
         </View>
 
         <View style={s.infoBox}>
           <Ionicons name="information-circle-outline" size={16} color="#166534" />
-          <Text style={s.infoText}>Your appointment will be reserved immediately upon confirmation. All details will be stored in your dashboard.</Text>
+          <Text style={s.infoText}>
+            {requestId
+              ? 'Your appointment is reserved and unpaid. Complete the payment to book it.'
+              : onlinePayment
+                ? 'Your appointment is booked once the payment succeeds. All details will be stored in your dashboard.'
+                : 'Your appointment will be reserved immediately upon confirmation. All details will be stored in your dashboard.'}
+          </Text>
         </View>
       </ScrollView>
       <View style={s.footer}>
-        <GradientButton label={booking ? 'Booking…' : `Confirm & Book · ${money(totalFee)}`} icon="lock-closed" onPress={confirmBooking} disabled={booking} loading={booking} />
+        <GradientButton
+          label={booking
+            ? (walletPayment ? 'Paying from wallet…' : onlinePayment ? 'Processing payment…' : 'Booking…')
+            : `${requestId ? 'Retry Payment' : walletPayment ? 'Pay from Wallet' : onlinePayment ? 'Pay & Book' : 'Confirm & Book'} · ${money(totalFee)}`}
+          icon="lock-closed"
+          onPress={confirmBooking}
+          disabled={booking || paymentOptions.loading || !paymentMethod}
+          loading={booking}
+        />
       </View>
     </View>
   );
@@ -701,7 +933,6 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
               <View style={s.flex}>
                 <Text style={s.optionName}>{m.name}</Text>
                 <Text style={s.optionSub}>{m.desc}</Text>
-                <Text style={s.optionFee}>Additional Fee: {money(m.fee)}</Text>
               </View>
               {selectedModeId === m.id && <Ionicons name="checkmark-circle" size={20} color={PATIENT.primary} />}
             </Pressable>
@@ -721,12 +952,14 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
           <View style={s.card}>
             <View style={s.dateHead}>
               <Text style={s.cardTitle}>Choose Appointment Date</Text>
-              <Text style={s.monthLabel}>{new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</Text>
+              <Text style={s.monthLabel}>{(selectedDate || calendarDates[0])?.monthLong}</Text>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.dates}>
-              {calendarDates.map((d) => {
+              {calendarDates.map((d, i) => {
                 const selected = selectedDate?.iso === d.iso;
                 const unavailable = d.status === 'unavailable';
+                // The first day of each new month carries its name.
+                const newMonth = i > 0 && d.date === 1;
                 return (
                   <Pressable
                     key={d.iso}
@@ -735,7 +968,7 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
                     style={[s.dateCard, unavailable && s.dateCardOff, selected && s.dateCardSelected]}
                   >
                     {selected && <GradientFill />}
-                    <Text style={[s.dateDay, selected && s.dateTextSelected]}>{d.day}</Text>
+                    <Text style={[s.dateDay, selected && s.dateTextSelected]}>{newMonth ? d.month : d.day}</Text>
                     <Text style={[s.dateNum, selected && s.dateTextSelected, unavailable && s.dateNumOff]}>{d.date}</Text>
                     <View style={[s.dateDot, unavailable ? s.dateDotOff : s.dateDotOn, selected && s.dateDotSelected]} />
                   </Pressable>
@@ -806,8 +1039,9 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
       animationType="slide"
       statusBarTranslucent
       onRequestClose={() => {
-        if (bookAlert) setBookAlert(null);
-        else if (step === 'payment') setStep('select');
+        if (testUpi) closeTestUpi(null);
+        else if (bookAlert) setBookAlert(null);
+        else if (step === 'payment' && !requestId) setStep('select');
         else onClose?.();
       }}
     >
@@ -818,6 +1052,46 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
         <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
           {step === 'success' ? renderSuccess() : step === 'payment' ? renderPayment() : renderSelect()}
         </SafeAreaView>
+        {/* Debug builds, Razorpay TEST key with UPI off: a stand-in for UPI
+            checkout so UPI bookings can still be tested. Sits near the top so
+            the keyboard never covers it. */}
+        {!!testUpi && (
+          <View style={[s.alertBackdrop, s.testUpiBackdrop]}>
+            <View style={s.alertCard}>
+              <View style={[s.alertIcon, s.testUpiIcon]}><Ionicons name="phone-portrait-outline" size={28} color={PATIENT.primary} /></View>
+              <Text style={s.alertTitle}>Test UPI Payment</Text>
+              <Text style={s.alertMessage}>
+                Test mode — UPI is turned off in this Razorpay account, so this stands in for UPI checkout. No money is charged.
+              </Text>
+              <TextInput
+                value={testUpi.value}
+                onChangeText={(value) => setTestUpi({ value, error: '' })}
+                placeholder={TEST_UPI_SUCCESS}
+                placeholderTextColor="#94A3B8"
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                autoFocus
+                style={s.testUpiInput}
+                accessibilityLabel="UPI ID"
+              />
+              {!!testUpi.error && <Text style={s.errorText}>{testUpi.error}</Text>}
+              <View style={s.testUpiChips}>
+                {[TEST_UPI_SUCCESS, TEST_UPI_FAILURE].map((id) => (
+                  <Pressable key={id} onPress={() => setTestUpi({ value: id, error: '' })} style={s.testUpiChip} hitSlop={4}>
+                    <Text translate={false} style={s.testUpiChipText}>{id}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <View style={s.alertBtn}>
+                <GradientButton label={`Pay ${money(totalFee)}`} icon="lock-closed" onPress={submitTestUpi} />
+              </View>
+              <Pressable onPress={() => closeTestUpi(null)} hitSlop={8} style={s.testUpiCancel}>
+                <Text style={s.testUpiCancelText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
         {/* Overlay, not a nested Modal: stacked Modals are unreliable on Android. */}
         {!!bookAlert && (
           <View style={s.alertBackdrop}>
@@ -825,9 +1099,20 @@ export default function DoctorBookingModal({ visible, doctorData, onClose, onBoo
               <View style={s.alertIcon}><Ionicons name="alert-circle" size={30} color="#DC2626" /></View>
               <Text style={s.alertTitle}>{bookAlert.title}</Text>
               <Text style={s.alertMessage}>{bookAlert.message}</Text>
-              <View style={s.alertBtn}>
-                <GradientButton label="OK" icon="checkmark" onPress={() => setBookAlert(null)} />
-              </View>
+              {bookAlert.addMoney && !!onAddMoney ? (
+                <>
+                  <View style={s.alertBtn}>
+                    <GradientButton label="Add Money" icon="wallet-outline" onPress={openAddMoney} />
+                  </View>
+                  <Pressable onPress={() => setBookAlert(null)} hitSlop={8} style={s.testUpiCancel}>
+                    <Text style={s.testUpiCancelText}>Choose another method</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <View style={s.alertBtn}>
+                  <GradientButton label="OK" icon="checkmark" onPress={() => setBookAlert(null)} />
+                </View>
+              )}
             </View>
           </View>
         )}
@@ -998,8 +1283,27 @@ const s = StyleSheet.create({
   payMethodActive: { borderColor: PATIENT.primary, backgroundColor: '#F0FDF4' },
   payIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#ECFDF3', alignItems: 'center', justifyContent: 'center' },
   payIconActive: { overflow: 'hidden' },
-  payLabel: { flex: 1, fontSize: 14, fontWeight: '700', color: '#334155' },
+  payLabel: { fontSize: 14, fontWeight: '700', color: '#334155' },
   payLabelActive: { color: '#0F172A', fontWeight: '800' },
+  walletBalance: { fontSize: 12, color: '#64748B', fontWeight: '600', marginTop: 2 },
+  walletBalanceLow: { color: '#DC2626' },
+  addMoneyLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 10 },
+  addMoneyText: { fontSize: 13, fontWeight: '800', color: PATIENT.primary },
+  payLoading: { marginVertical: 12 },
+  testUpiBackdrop: { justifyContent: 'flex-start', paddingTop: 70 },
+  testUpiIcon: { backgroundColor: '#E8F5EE' },
+  testUpiInput: { alignSelf: 'stretch', height: 48, borderWidth: 1.5, borderColor: '#CBD5E1', borderRadius: 12, paddingHorizontal: 14, fontSize: 15, color: '#0F172A', marginTop: 14 },
+  testUpiChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignSelf: 'stretch', marginTop: 10 },
+  testUpiChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0' },
+  testUpiChipText: { fontSize: 12.5, fontWeight: '700', color: '#334155' },
+  testUpiCancel: { marginTop: 12, paddingVertical: 4 },
+  testUpiCancelText: { fontSize: 14, fontWeight: '700', color: '#64748B' },
+  testUpiNote: { fontSize: 12.5, lineHeight: 18, color: '#B45309', marginTop: 10 },
+  payMethodLocked: { opacity: 0.45 },
+  payUnavailable: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0' },
+  payUnavailableText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: '#64748B' },
+  payUnavailableLabel: { fontWeight: '800', color: '#334155' },
+  payHint: { fontSize: 12.5, color: '#475569', lineHeight: 18, marginTop: 10 },
   slotBanner: { flexDirection: 'row', gap: 10, backgroundColor: '#ECFDF3', borderRadius: 16, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#BBF7D0' },
   slotBannerLabel: { fontSize: 12, fontWeight: '700', color: '#166534' },
   slotBannerValue: { fontSize: 22, fontWeight: '900', color: PATIENT.primary, marginTop: 2 },

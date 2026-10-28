@@ -18,11 +18,11 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 const FAQS = [
   {
     q: 'When can I start a consultation?',
-    a: 'A patient can be started from their slot time, or earlier when they are first in line after the previous patient was seen or moved to Next. Walk-ins and emergencies can be started at once. Nobody can be started while another consultation is running or you are on a break. If a patient has not arrived, tap Next in the consent form: they move to the Next tab and the following patient comes up — you can start them from the Next tab later. Video and voice calls open 15 minutes before the slot and stay available until 90 minutes after it.',
+    a: 'A patient can be started from their slot time, or earlier when they are first in line after the previous patient was seen or moved to Next. Walk-ins and emergencies can be started at once. Nobody can be started while another consultation is running or you are on a break. If a patient has not arrived, tap Next in the consent form: they move to the Next tab and the following patient comes up — you can start them from the Next tab later. Video calls open 15 minutes before the slot and stay available until 90 minutes after it.',
   },
   {
     q: 'What does the coloured badge on a queue card mean?',
-    a: 'It shows how the patient is being seen: In-clinic Visit, Walk-in Visit, Video Consultation or Voice Consultation. The tabs above the queue show whether it is Pending, In Progress, Next (moved aside), Completed or Cancelled (cancelled or no-show, as marked by the system).',
+    a: 'It shows how the patient is being seen: In-clinic Visit, Walk-in Visit or Video Consultation. The tabs above the queue show whether it is Pending, In Progress, Next (moved aside), Completed or Cancelled (cancelled or no-show, as marked by the system).',
   },
   {
     q: 'How is Today\'s Appointment Queue ordered?',

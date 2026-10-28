@@ -25,7 +25,7 @@ const titleCase = (value) => String(value || '')
   .replace(/\b\w/g, (c) => c.toUpperCase())
   .trim();
 
-const MODE_LABELS = { 'in-clinic': 'In-Clinic', clinic: 'In-Clinic', video: 'Video Call', audio: 'Audio Call', chat: 'Chat' };
+const MODE_LABELS = { 'in-clinic': 'In-Clinic', clinic: 'In-Clinic', video: 'Video Call', audio: 'Video Call', voice: 'Video Call', phone: 'Video Call', chat: 'Chat' };
 const SOURCE_LABELS = { qr: 'QR Walk-in', walkin: 'Walk-in', 'walk-in': 'Walk-in', online: 'Online Booking' };
 const STATUS_TONES = {
   completed: { fg: '#047857', bg: '#D1FAE5' },

@@ -314,6 +314,18 @@ const getAppointmentDateValue = (a) => pickFirst(
   a?.visitDate, a?.check_in_at, a?.checkInAt, a?.created_at, a?.createdAt,
 );
 
+// The day the appointment belongs to: its booked date. The server moves an
+// unfinished queue entry's estimated_start_at forward every day, so a QR
+// walk-in left pending on 13 Oct came back as "today" (17:01) and showed as
+// Up Next. The estimate is only a fallback when nothing else dates it.
+const getAppointmentDayValue = (a) => pickFirst(
+  a?.original_appointment_at, a?.originalAppointmentAt,
+  a?.appointment_date, a?.appointmentDate, a?.date, a?.booking_date, a?.bookingDate,
+  a?.scheduled_date, a?.scheduledDate, a?.walkin_date, a?.walkinDate, a?.visit_date,
+  a?.visitDate, a?.check_in_at, a?.checkInAt, a?.created_at, a?.createdAt,
+  a?.estimated_start_at, a?.estimatedStartAt,
+);
+
 const getAppointmentTimeValue = (a) => pickFirst(
   a?.appointment_time, a?.appointmentTime, a?.time, a?.scheduled_time, a?.scheduledTime,
   a?.slot_time, a?.slotTime, a?.start_time, a?.slot_start_time, a?.slotStartTime,
@@ -416,14 +428,14 @@ export const isEmergencyAppointment = (a) => {
 // Booked for today by its own date — unlike isTodayAppointment, an open
 // emergency from another day doesn't count (used for the Cancelled list).
 export const isScheduledToday = (a) => {
-  const value = getAppointmentDateValue(a?.__raw || a);
+  const value = getAppointmentDayValue(a?.__raw || a);
   return Boolean(value) && formatLocalDateKey(value) === formatLocalDateKey();
 };
 
 export const isTodayAppointment = (a) => {
   // An open emergency belongs in today's queue whatever day it was sent.
   if (isEmergencyAppointment(a)) return true;
-  const value = getAppointmentDateValue(a);
+  const value = getAppointmentDayValue(a);
   if (!value) return true;
   const key = formatLocalDateKey(value);
   return !key || key === formatLocalDateKey();
@@ -432,6 +444,21 @@ export const isTodayAppointment = (a) => {
 // A completed consultation counts for today when its appointment date — or
 // the moment it was completed — is today. The completed feed returns every
 // day's history, so the dashboard filters it with this.
+// A queue delay in few digits: minutes up to 99, then hours, then days
+// ("90 min", "1 hour 40 min", "2 hours", "14 days").
+export const formatDelay = (minutes) => {
+  const total = Math.max(0, Math.round(Number(minutes) || 0));
+  if (total < 100) return `${total} min`;
+  if (total < 24 * 60) {
+    const hours = Math.floor(total / 60);
+    const rest = total % 60;
+    const hourText = `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+    return rest ? `${hourText} ${rest} min` : hourText;
+  }
+  const days = Math.floor(total / (24 * 60));
+  return `${days} ${days === 1 ? 'day' : 'days'}`;
+};
+
 export const isCompletedToday = (a) => {
   const today = formatLocalDateKey();
   const completedAt = pickFirst(a?.completed_at, a?.completedAt, a?.consultation_ended_at, a?.end_time);
@@ -687,20 +714,21 @@ export const getTokenLabel = (appt) => {
   return getAppointmentSource(appt) === 'walkin' ? 'Walk-in' : 'No token';
 };
 
+// Doctors consult in the clinic or by video only. Appointments booked as
+// voice / phone before that change are taken as video consultations, so the
+// doctor still reaches the patient — by video call.
 export const getRemoteConsultationMode = (appt) => {
   const mode = String(appt?.consultationMode || '').toLowerCase();
-  if (mode.includes('video')) return 'video';
-  if (mode.includes('voice') || mode.includes('phone')) return 'voice';
+  if (mode.includes('video') || mode.includes('voice') || mode.includes('phone')) return 'video';
   return '';
 };
 
 // How the consultation happens, for the mode badge on queue cards:
-//   video / voice → remote consultation; walk-in → patient came to the clinic
+//   video → remote consultation; walk-in → patient came to the clinic
 //   without booking; anything else → a booked in-clinic visit.
 export const getConsultationModeInfo = (appt) => {
   const remote = getRemoteConsultationMode(appt);
   if (remote === 'video') return { key: 'video', label: 'Video Consultation', icon: 'video' };
-  if (remote === 'voice') return { key: 'voice', label: 'Voice Consultation', icon: 'phone' };
   if (getAppointmentSource(appt) === 'walkin') return { key: 'walkin', label: 'Walk-in Visit', icon: 'walk' };
   return { key: 'visit', label: 'In-clinic Visit', icon: 'pin' };
 };

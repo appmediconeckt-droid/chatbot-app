@@ -34,6 +34,7 @@ const GROUPS = [
     items: [
       { id: 'appointments', label: 'Appointments', icon: 'calendar', ...activeNav },
       { id: 'followUps', label: 'Follow Ups', icon: 'refresh', ...activeNav },
+      { id: 'earnings', label: 'Earnings', icon: 'wallet', ...activeNav },
       { id: 'reviews', label: 'Reviews', icon: 'star', ...activeNav },
     ],
   },

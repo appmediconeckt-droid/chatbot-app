@@ -198,9 +198,19 @@ const ProfileVideoFallback = ({ participant, profilePhoto, compact = false }) =>
   );
 };
 
+// Rounded like the web self-view (radius 10, 1px light border, #0b1220
+// background). On Android the camera video is a native surface that a
+// borderRadius can't round, so the video sits inside a thin rim of the web's
+// background colour: a rim of at least 0.3 × the radius keeps the video's
+// square corners inside the rounded outline.
+const PIP_RADIUS = 10;
+const PIP_RIM = 3;
+
 const SelfParticipantView = ({ style, ...props }) => (
   <View style={[style, styles.pipCard]}>
-    <ParticipantView {...props} style={StyleSheet.absoluteFillObject} />
+    <View style={styles.pipInner}>
+      <ParticipantView {...props} style={[StyleSheet.absoluteFillObject, styles.pipVideo]} />
+    </View>
   </View>
 );
 
@@ -938,16 +948,28 @@ const styles = StyleSheet.create({
   pipFloat: {
     width: 118,
     height: 162,
-    borderRadius: 18,
+    borderRadius: PIP_RADIUS,
     overflow: 'hidden',
     marginHorizontal: 14,
   },
+  pipInner: {
+    flex: 1,
+    overflow: 'hidden',
+    backgroundColor: '#0b1220',
+  },
+  // Square, borderless video (the SDK's own rounding + transparent border
+  // would leave a gap around it).
+  pipVideo: {
+    borderRadius: 0,
+    borderWidth: 0,
+  },
   pipCard: {
     overflow: 'hidden',
-    borderRadius: 18,
+    borderRadius: PIP_RADIUS,
+    padding: PIP_RIM - 1,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
-    backgroundColor: '#15151A',
+    borderColor: 'rgba(240,246,252,0.28)',
+    backgroundColor: '#0b1220',
     elevation: 0,
     shadowOpacity: 0,
   },

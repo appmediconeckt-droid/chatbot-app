@@ -12,6 +12,7 @@ import { colors, shadow, typography, createDoctorStyles, doctorGradient, gradien
 import AppIcon from '../icons/AppIcon';
 import {
   formatClockTime,
+  formatDelay,
   getCallWindow,
   getConsultationModeInfo,
   getRemoteConsultationMode,
@@ -23,7 +24,6 @@ export const MODE_STYLES = {
   visit: { bg: '#E6FAF6', text: '#0F766E' },
   walkin: { bg: '#FEF3C7', text: '#A65F00' },
   video: { bg: '#E8F1FF', text: '#1D4ED8' },
-  voice: { bg: '#F3E8FF', text: '#7E22CE' },
 };
 
 const getInitials = (name = '') =>
@@ -59,7 +59,7 @@ export default function AppointmentCard({
   const callNotYet = callDisabled && callWindow.opensAt && Date.now() < callWindow.opensAt.getTime();
   const callLabel = callNotYet
     ? `Opens ${formatClockTime(callWindow.opensAt)}`
-    : remoteMode === 'video' ? 'Video Call' : 'Voice Call';
+    : 'Video Call';
 
   let action = null;
   const isSkipped = item.status === 'skipped';
@@ -156,7 +156,7 @@ export default function AppointmentCard({
           </View>
           {item.delayMinutes > 0 && (
             <Text translate={false} style={styles.delay} numberOfLines={1}>
-              Delayed {item.delayMinutes} min{item.delayReason ? ` - ${item.delayReason}` : ''}
+              Delayed {formatDelay(item.delayMinutes)}{item.delayReason ? ` - ${item.delayReason}` : ''}
             </Text>
           )}
           {isCompleted && item.followUpRequired && (
@@ -173,7 +173,7 @@ export default function AppointmentCard({
               disabled={callDisabled}
               style={[styles.button, styles.secondaryButton, callDisabled && styles.disabled]}
             >
-              <AppIcon name={remoteMode === 'video' ? 'video' : 'phone'} size={13} strokeWidth={2} color={colors.navy} />
+              <AppIcon name="video" size={13} strokeWidth={2} color={colors.navy} />
               <Text style={[styles.buttonText, styles.secondaryButtonText]}>{callLabel}</Text>
             </Pressable>
           )}

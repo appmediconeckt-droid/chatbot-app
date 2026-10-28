@@ -165,7 +165,9 @@ const TransactionsHistory = ({ navigation }) => {
     const isCredit = tx.type === 'credit';
     const counselor = tx.counselorId;
     const photo = photoOf(counselor);
-    const title = counselor?.fullName || tx.description || 'Transaction';
+    // A doctor appointment paid from the wallet (debit) or refunded to it (credit).
+    const appointment = Boolean(tx.appointmentId || tx.metadata?.appointmentId || tx.category === 'appointment');
+    const title = counselor?.fullName || (appointment && tx.metadata?.doctorName) || tx.description || 'Transaction';
     const st = statusStyle(tx.status);
 
     const d = new Date(tx.createdAt);
@@ -173,9 +175,11 @@ const TransactionsHistory = ({ navigation }) => {
     const timeLabel = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const sessionType = tx.metadata?.sessionType;
     const mins = tx.metadata?.billedMinutes;
-    const subtitle = isCredit
-      ? `${dateLabel} • ${timeLabel} • Top-up`
-      : `${dateLabel} • ${sessionType ? `${sessionType} ` : ''}${mins != null ? `${mins} min` : ''}`.trim();
+    const subtitle = appointment
+      ? `${dateLabel} • ${timeLabel} • ${isCredit ? 'Appointment refund' : 'Doctor appointment'}`
+      : isCredit
+        ? `${dateLabel} • ${timeLabel} • Top-up`
+        : `${dateLabel} • ${sessionType ? `${sessionType} ` : ''}${mins != null ? `${mins} min` : ''}`.trim();
 
     return (
       <View key={tx._id} style={s.transactionItem}>
@@ -185,7 +189,7 @@ const TransactionsHistory = ({ navigation }) => {
           ) : (
             <View style={[s.transactionIcon, { backgroundColor: isCredit ? '#E6F6EC' : '#EEF2FF' }]}>
               <MaterialCommunityIcons
-                name={isCredit ? 'bank-transfer-in' : sessionType === 'chat' ? 'message-text' : 'heart-pulse'}
+                name={appointment ? 'stethoscope' : isCredit ? 'bank-transfer-in' : sessionType === 'chat' ? 'message-text' : 'heart-pulse'}
                 size={22}
                 color={isCredit ? PATIENT.primary : '#4F46E5'}
               />

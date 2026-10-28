@@ -26,6 +26,8 @@ class SocketService {
     this._connectionPromise = null;
     this._reconnectAttempts = 0;
     this._appStateSub = null;
+    // The account the socket was opened for (its token's user).
+    this._accountId = null;
     // Registered up front, not only after a first successful connect: a resume
     // has to be able to recover a session whose very first connect failed
     // (no network at launch, token not written yet, server briefly down).
@@ -33,6 +35,13 @@ class SocketService {
   }
 
   async connect() {
+    // Another account signed in since this socket opened (e.g. a patient
+    // logged out without closing it, then a doctor logged in): the socket still
+    // carries the old token, so the server sees the wrong user on it and
+    // refuses its id for calls ("Your call connection changed. Reconnect and
+    // retry."). Open a fresh socket for the signed-in account.
+    const account = await this._getAccountId();
+    if (this._accountId && account && account !== this._accountId) this._dropSocket();
     if (this._socket?.connected) return this._socket;
     if (this._connectionPromise) return this._connectionPromise;
     this._connectionPromise = this._establish();
@@ -49,6 +58,10 @@ class SocketService {
 
   disconnect() {
     this._teardownAppState();
+    this._dropSocket();
+  }
+
+  _dropSocket() {
     if (this._socket) {
       this._socket.removeAllListeners();
       this._socket.disconnect();
@@ -56,6 +69,7 @@ class SocketService {
     }
     this._connectionPromise = null;
     this._reconnectAttempts = 0;
+    this._accountId = null;
   }
 
   async emit(event, data) {
@@ -68,6 +82,16 @@ class SocketService {
       (await AsyncStorage.getItem('accessToken')) ||
       (await AsyncStorage.getItem('token'))
     );
+  }
+
+  async _getAccountId() {
+    try {
+      const user = JSON.parse((await AsyncStorage.getItem('userData')) || 'null');
+      const id = user?._id || user?.id || user?.user?._id || user?.user?.id;
+      if (id) return String(id);
+    } catch { /* fall back to the plain id key */ }
+    const stored = await AsyncStorage.getItem('userId');
+    return stored ? String(stored) : null;
   }
 
   async on(event, handler) {
@@ -85,6 +109,7 @@ class SocketService {
   async _establish() {
     try {
       const token = await this._getToken();
+      const account = await this._getAccountId();
 
       if (!token) {
         this._connectionPromise = null;
@@ -139,6 +164,7 @@ class SocketService {
           this._reconnectAttempts = 0;
           this._connectionPromise = null;
           this._socket = socket;
+          this._accountId = account;
           this._setupPersistentListeners(socket);
           this._setupAppState();
           resolve(socket);

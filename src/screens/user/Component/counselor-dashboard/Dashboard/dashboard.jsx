@@ -2002,11 +2002,14 @@ export default function CounselorDashboard() {
           }
         );
       }
+      // The next account must not inherit this socket (its calls would be refused).
+      try { socketService.disconnect(); } catch { /* ignore */ }
       await AsyncStorage.clear();
       setShowLogoutConfirm(false);
       resetToLoginScreen(navigation);
     } catch (error) {
       console.error("Logout Error:", error);
+      try { socketService.disconnect(); } catch { /* ignore */ }
       await AsyncStorage.clear();
       setShowLogoutConfirm(false);
       resetToLoginScreen(navigation);

@@ -1,12 +1,15 @@
-// Payment settings — port of the web Setting/PaymentSetting/PaymentSettings.jsx.
-// Which methods the doctor accepts is saved on the server:
-//   GET   /api/auth/me                  → user.acceptedPaymentMethods
-//   PATCH /api/auth/update/:id          { acceptedPaymentMethods: ['online' | 'upi' | 'cash'] }
-// (the same values the web's Appointment List uses; patients see 'online' as
-// "Credit/Debit Card" and 'upi' as "UPI Payment"). The bank account card
-// payments settle to and the UPI ID have no server field, so they stay on this
-// device under `doctorPaymentSettings:<doctorId>`, as on the web.
-import React, { useEffect, useRef, useState } from 'react';
+// Payment settings — same API as the web Setting/PaymentSetting/PaymentSettings.jsx:
+//   GET /api/payments/preferences → { methods, bankAccount, upiId, upiApp }
+//   PUT /api/payments/preferences   { methods: ['credit_card' | 'debit_card' | 'upi' | 'wallet' | 'cash'],
+//                                     bankAccount: { accountHolder, bankName, accountNumber, ifscCode },
+//                                     upiId, upiApp }
+//   GET /api/payments/providers/:doctorId/methods → which ways patients can pay right now
+// One receiving account on top (card and UPI payments settle to it), then the
+// ways patients can pay. Patients' booking sheet offers exactly the ways
+// that are on and set up; each row shows that live status from the server.
+// Wallet is always on: every doctor accepts the patient's app wallet, and it
+// is saved in `methods` so the server takes wallet payments for this doctor.
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Switch, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Text from '../../../../components/TranslatedText';
@@ -17,70 +20,90 @@ import AppIcon from '../icons/AppIcon';
 import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
-import { getStoredDoctorUser, pickFirst, saveDoctorUser } from '../api/doctorAppointments';
+import { getStoredDoctorUser, pickFirst } from '../api/doctorAppointments';
 import axiosInstance from '../../../../axiosConfig';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
+import useKeyboardLift from '../../../../hooks/useKeyboardLift';
 
-// Keys are kept from the earlier screen so saved settings still load.
+// Keys are kept from the earlier screen so settings saved on a device still load.
 const DEFAULT_SETTINGS = {
   onlinePayment: true,
   upiBank: false,
+  wallet: true,
   cash: true,
-  upiId: '',
-  upiApp: '',
   accountHolder: '',
   bankName: '',
   accountNumber: '',
   ifscCode: '',
+  // Not edited here; sent back unchanged so nothing the server has is lost.
+  upiId: '',
+  upiApp: '',
 };
 
-// `value` is the server's name for the method.
+// `values` are the server's names for the method.
 const METHODS = [
   {
-    key: 'onlinePayment', value: 'online', title: 'Credit / Debit Card', icon: 'card-outline', fg: '#4F46E5', bg: '#EEF2FF',
-    description: 'Patients pay by credit or debit card while booking.', brands: ['VISA', 'Mastercard', 'RuPay'],
+    key: 'onlinePayment', values: ['credit_card', 'debit_card'], title: 'Credit / Debit Card', icon: 'card-outline', fg: '#4F46E5', bg: '#EEF2FF',
+    description: 'Patients pay by card in secure checkout while booking.', brands: ['VISA', 'Mastercard', 'RuPay'],
   },
   {
-    key: 'upiBank', value: 'upi', title: 'UPI', icon: 'qr-code-outline', fg: '#0D9488', bg: '#E6FBF8',
-    description: 'Patients pay to your UPI ID from any UPI app.',
+    key: 'upiBank', values: ['upi'], title: 'UPI', icon: 'qr-code-outline', fg: '#0D9488', bg: '#E6FBF8',
+    description: 'Patients pay with their own UPI ID or UPI app while booking.',
   },
   {
-    key: 'cash', value: 'cash', title: 'Cash at Clinic', icon: 'cash-outline', fg: '#B45309', bg: '#FEF3C7',
+    key: 'wallet', values: ['wallet'], title: 'Wallet', icon: 'wallet-outline', fg: '#7C3AED', bg: '#F3E8FF', alwaysOn: true,
+    description: 'Patients pay from their app wallet balance while booking. Always on — your share is added to Earnings.',
+  },
+  {
+    key: 'cash', values: ['cash'], title: 'Cash at Clinic', icon: 'cash-outline', fg: '#B45309', bg: '#FEF3C7',
     description: 'Patients pay at the clinic reception. Offered for in-clinic visits only.',
   },
 ];
+const ONLINE_KEYS = ['onlinePayment', 'upiBank'];
 
-const UPI_PATTERN = /^[\w.-]{2,256}@[a-zA-Z][a-zA-Z0-9.-]{1,63}$/;
 const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
-
-// The doctor's UPI app, as checkout pages list them. `handles` are the
-// common UPI ID endings for that app; the first one is the example.
-const UPI_APPS = [
-  { key: 'phonepe', name: 'PhonePe', mark: 'Pe', fg: '#FFFFFF', bg: '#5F259F', handles: ['ybl', 'ibl', 'axl'] },
-  { key: 'gpay', name: 'Google Pay', mark: 'G', fg: '#1A73E8', bg: '#E8F0FE', handles: ['okaxis', 'okhdfcbank', 'okicici', 'oksbi'] },
-  { key: 'paytm', name: 'Paytm', mark: 'Paytm', fg: '#FFFFFF', bg: '#00BAF2', handles: ['paytm', 'ptyes', 'ptaxis'] },
-  { key: 'bhim', name: 'BHIM', mark: 'BHIM', fg: '#FFFFFF', bg: '#F47920', handles: ['upi'] },
-  { key: 'other', name: 'Other UPI app', icon: 'apps-outline', fg: '#475467', bg: '#F2F4F7', handles: [] },
-];
-const appForUpiId = (upiId) => {
-  const handle = String(upiId || '').split('@')[1]?.toLowerCase();
-  if (!handle) return '';
-  return UPI_APPS.find((app) => app.handles.includes(handle))?.key || 'other';
-};
-
-// Saved details show as a summary with Edit; only incomplete ones open as a form.
 const BANK_FIELDS = ['accountHolder', 'bankName', 'accountNumber', 'ifscCode'];
-const UPI_FIELDS = ['upiApp', 'upiId'];
 const bankComplete = (v) => Boolean(v.accountHolder.trim() && v.bankName.trim() && /^\d{8,20}$/.test(v.accountNumber) && IFSC_PATTERN.test(v.ifscCode));
-const upiComplete = (v) => Boolean(v.upiApp && UPI_PATTERN.test(v.upiId.trim()));
 const pick = (source, keys) => Object.fromEntries(keys.map((key) => [key, source[key]]));
 
-const toServerMethods = (settings) => METHODS.filter((m) => settings[m.key]).map((m) => m.value);
-const fromServerMethods = (list) => Object.fromEntries(
-  METHODS.map((m) => [m.key, list.map((v) => String(v).trim().toLowerCase()).includes(m.value)]),
-);
-const sameMethods = (a, b) => [...a].sort().join(',') === [...b].map((v) => String(v).toLowerCase()).sort().join(',');
+const toServerMethods = (settings) => METHODS.filter((m) => settings[m.key]).flatMap((m) => m.values);
+const fromServerMethods = (list) => {
+  const names = list.map((v) => String(v).trim().toLowerCase());
+  return Object.fromEntries(METHODS.map((m) => [m.key, m.alwaysOn || m.values.some((v) => names.includes(v))]));
+};
+// Preferences saved before Wallet existed lack it: the server doesn't take
+// wallet payments for this doctor until the next Save sends it.
+const walletMissing = (data) => !(Array.isArray(data?.methods) && data.methods.some((v) => String(v).trim().toLowerCase() === 'wallet'));
+const toServerPreferences = (settings) => ({
+  methods: toServerMethods(settings),
+  bankAccount: pick(settings, BANK_FIELDS),
+  upiId: settings.upiId.trim(),
+  upiApp: settings.upiApp,
+});
 
+// The server's saved preferences as this screen's settings. A bank account an
+// earlier app version kept only on this device (`device`) fills in when the
+// server has none yet, so one Save sends it to the server.
+const fromServerPreferences = (data, device) => {
+  const bankAccount = data?.bankAccount || {};
+  const serverHasBank = BANK_FIELDS.some((k) => String(bankAccount[k] || '').trim());
+  const bank = serverHasBank ? bankAccount : (device || {});
+  const next = {
+    ...DEFAULT_SETTINGS,
+    ...fromServerMethods(Array.isArray(data?.methods) ? data.methods : ['cash']),
+    ...Object.fromEntries(BANK_FIELDS.map((k) => [k, String(bank[k] || '')])),
+    upiId: String(data?.upiId || ''),
+    upiApp: String(data?.upiApp || ''),
+  };
+  const fromDevice = !serverHasBank && BANK_FIELDS.some((k) => String(device?.[k] || '').trim());
+  return { next, fromDevice };
+};
+
+const loadErrorText = (err) => (err?.response?.status === 404
+  ? 'Payment settings are not available on this server yet. Start or deploy the updated backend, then try again.'
+  : err?.response?.status === 401
+    ? 'Your session has expired. Please sign in again.'
+    : 'Payment settings could not be reached. Check your connection and try again.');
 
 const errorText = (err, fallback) => {
   const data = err?.response?.data;
@@ -88,65 +111,86 @@ const errorText = (err, fallback) => {
 };
 
 export default function DoctorPaymentSettingsScreen({ onBack }) {
-  // Signup-style keyboard handling: the form scrolls above the keyboard and the
-  // focused field is scrolled into view (the window does not resize, edge-to-edge).
+  // The window does not resize for the keyboard (edge-to-edge), so while it is
+  // open the screen ends at its top edge: Save stays visible above it and the
+  // form scrolls in the space left, with the focused field scrolled into view.
   const {
     scrollRef: kbScrollRef,
-    frameInset: kbInset,
+    keyboardOpen,
+    keyboardTop,
     scrollFocusedInputIntoView: kbFocus,
     handleKeyboardAwareScroll: kbOnScroll,
     handleKeyboardAwareScrollLayout: kbOnLayout,
-  } = useKeyboardAwareScroll({ frameIsScroll: true });
+  } = useKeyboardAwareScroll({ layoutAvoidsKeyboard: true });
+  const [screenRef, keyboardLift] = useKeyboardLift(keyboardOpen, keyboardTop);
   const { showToast } = useToast();
   const [storageKey, setStorageKey] = useState(null);
-  const [userId, setUserId] = useState('');
+  const [doctorId, setDoctorId] = useState('');
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   // Typed twice, like a checkout's "confirm account number"; never stored.
   const [confirmAccount, setConfirmAccount] = useState('');
   const [editingBank, setEditingBank] = useState(false);
-  const [editingUpi, setEditingUpi] = useState(false);
   // The last saved (or loaded) values, which Cancel goes back to.
   const savedRef = useRef(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
+  // The server could not be read: nothing can be saved until a retry works.
+  const [loadError, setLoadError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  // A bank account found only on this device, not yet on the server.
+  const [unsentDetails, setUnsentDetails] = useState(false);
+  // Wallet is not in the server's saved methods yet (needs one Save).
+  const [walletUnsaved, setWalletUnsaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  // What patients see now: { live: Set of server method names, reasons: { method: text } }.
+  const [status, setStatus] = useState(null);
+
+  const loadStatus = useCallback(async (id) => {
+    if (!id) return;
+    try {
+      const { data } = await axiosInstance.get(`/api/payments/providers/${encodeURIComponent(id)}/methods`);
+      setStatus({ live: new Set(data?.methods || []), reasons: data?.unavailableMethods || {} });
+    } catch {
+      setStatus(null);
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
     (async () => {
+      setLoading(true);
+      setLoadError('');
       const user = await getStoredDoctorUser();
-      const doctorId = pickFirst(user?.doctor_id, user?.doctorId, user?.id, user?._id, 'doctor');
-      const key = `doctorPaymentSettings:${doctorId}`;
-      let next = DEFAULT_SETTINGS;
+      const storageId = pickFirst(user?.doctor_id, user?.doctorId, user?.id, user?._id, 'doctor');
+      const providerId = String(pickFirst(user?._id, user?.id, user?.doctor_id, user?.doctorId, ''));
+      const key = `doctorPaymentSettings:${storageId}`;
+      let device = null;
       try {
-        const stored = JSON.parse((await AsyncStorage.getItem(key)) || 'null');
-        if (stored) next = { ...DEFAULT_SETTINGS, ...stored };
-      } catch {
-        if (active) setError('Saved payment settings could not be read.');
-      }
-      // The server's list wins for the three methods.
+        device = JSON.parse((await AsyncStorage.getItem(key)) || 'null');
+      } catch { /* the server is authoritative */ }
       try {
-        const { data } = await axiosInstance.get('/api/auth/me');
-        const me = data?.user || data?.data?.user || {};
-        if (active) setUserId(String(pickFirst(me._id, me.id, user?._id, user?.id, '')));
-        if (Array.isArray(me.acceptedPaymentMethods)) next = { ...next, ...fromServerMethods(me.acceptedPaymentMethods) };
-      } catch {
-        if (active) setUserId(String(pickFirst(user?._id, user?.id, '')));
+        const { data } = await axiosInstance.get('/api/payments/preferences', { timeout: 15000 });
+        if (!active) return;
+        const { next, fromDevice } = fromServerPreferences(data, device);
+        setStorageKey(key);
+        setDoctorId(providerId);
+        savedRef.current = next;
+        setSettings(next);
+        setConfirmAccount(next.accountNumber || '');
+        setUnsentDetails(fromDevice);
+        setWalletUnsaved(walletMissing(data));
+        // An account that came from this device opens as a form, to be saved.
+        setEditingBank(fromDevice || !bankComplete(next));
+        loadStatus(providerId);
+      } catch (err) {
+        if (active) setLoadError(loadErrorText(err));
+      } finally {
+        if (active) setLoading(false);
       }
-      if (!active) return;
-      setStorageKey(key);
-      // Settings saved before the app picker: work the app out from the UPI ID.
-      const loaded = next.upiApp ? next : { ...next, upiApp: appForUpiId(next.upiId) };
-      savedRef.current = loaded;
-      setSettings(loaded);
-      setConfirmAccount(loaded.accountNumber || '');
-      setEditingBank(!bankComplete(loaded));
-      setEditingUpi(!upiComplete(loaded));
-      setLoading(false);
     })();
     return () => { active = false; };
-  }, []);
+  }, [loadAttempt, loadStatus]);
 
   const updateSetting = (key, value) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
@@ -154,21 +198,16 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
     setError('');
   };
 
+  const onlineOn = ONLINE_KEYS.some((key) => settings[key]);
   const validate = () => {
-    if (!settings.onlinePayment && !settings.upiBank && !settings.cash) return 'Keep at least one payment method turned on.';
-    if (settings.onlinePayment) {
+    if (!METHODS.some((m) => settings[m.key])) return 'Keep at least one way to pay turned on.';
+    if (onlineOn) {
       if (!settings.accountHolder.trim() || !settings.bankName.trim() || !settings.accountNumber.trim() || !settings.ifscCode.trim()) {
-        return 'Add the bank account card payments should go to: account holder, bank, account number and IFSC.';
+        return 'Add the account card and UPI payments should go to: account holder, bank, account number and IFSC.';
       }
       if (!/^\d{8,20}$/.test(settings.accountNumber)) return 'Enter a valid 8 to 20 digit account number.';
       if (editingBank && confirmAccount !== settings.accountNumber) return 'The account numbers do not match.';
       if (!IFSC_PATTERN.test(settings.ifscCode)) return 'Enter a valid IFSC code, e.g. SBIN0001234.';
-    }
-    if (settings.upiBank) {
-      if (!settings.upiApp) return 'Choose the UPI app your UPI ID is linked to.';
-      const upi = settings.upiId.trim();
-      if (!upi) return 'Add your UPI ID to accept UPI payments.';
-      if (!UPI_PATTERN.test(upi)) return 'Enter a valid UPI ID, e.g. drname@okaxis.';
     }
     return '';
   };
@@ -179,32 +218,21 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
       setError(validationError);
       return;
     }
-    if (!userId) {
-      setError('Your session is incomplete. Please sign in again.');
-      return;
-    }
-    const methods = toServerMethods(settings);
     try {
       setSaving(true);
       setError('');
-      const { data } = await axiosInstance.patch(
-        `/api/auth/update/${encodeURIComponent(userId)}`,
-        { acceptedPaymentMethods: methods },
-      );
-      const serverUser = data?.user || data?.data?.user || data?.data || {};
-      // A server without this field answers 200 and drops it.
-      if (!Array.isArray(serverUser.acceptedPaymentMethods) || !sameMethods(methods, serverUser.acceptedPaymentMethods)) {
-        setError('The server did not save your payment methods. Please try again later.');
-        return;
-      }
-      await saveDoctorUser(serverUser);
-      await AsyncStorage.setItem(storageKey, JSON.stringify(settings));
+      await axiosInstance.put('/api/payments/preferences', toServerPreferences(settings));
+      // This device keeps only which ways are on; the account stays on the server.
+      try {
+        await AsyncStorage.setItem(storageKey, JSON.stringify(pick(settings, ['onlinePayment', 'upiBank', 'cash'])));
+      } catch { /* the server is authoritative */ }
       savedRef.current = settings;
-      // Back to the summaries for whatever is now complete.
+      setUnsentDetails(false);
+      setWalletUnsaved(false);
       setEditingBank(!bankComplete(settings));
-      setEditingUpi(!upiComplete(settings));
       setSaved(true);
       showToast('Payment settings saved');
+      loadStatus(doctorId);
     } catch (err) {
       setError(errorText(err, 'Payment settings could not be saved.'));
     } finally {
@@ -219,41 +247,21 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
     setEditingBank(false);
     setError('');
   };
-  const cancelUpiEdit = () => {
-    setSettings((prev) => ({ ...prev, ...pick(savedRef.current, UPI_FIELDS) }));
-    setEditingUpi(false);
-    setError('');
-  };
-  // A section's own Save: its details are kept on this device only, so this
-  // stores just those fields (not unsaved switches) and folds it to a summary.
-  const [savingSection, setSavingSection] = useState('');
-  const saveSection = async (kind) => {
-    const fields = kind === 'bank' ? BANK_FIELDS : UPI_FIELDS;
-    const next = { ...savedRef.current, ...pick(settings, fields) };
-    try {
-      setSavingSection(kind);
-      await AsyncStorage.setItem(storageKey, JSON.stringify(next));
-      savedRef.current = next;
-      if (kind === 'bank') setEditingBank(false);
-      else setEditingUpi(false);
-      setError('');
-      showToast(kind === 'bank' ? 'Bank details saved' : 'UPI ID saved');
-    } catch {
-      setError('Details could not be saved on this device. Please try again.');
-    } finally {
-      setSavingSection('');
-    }
-  };
-  const bankReady = bankComplete(settings) && confirmAccount === settings.accountNumber;
-  const upiReady = upiComplete(settings);
+  // Cancel only makes sense when there is a complete saved account to return to.
+  const canCancelBank = bankComplete(savedRef.current) && !unsentDetails;
+  const ready = !loading && !loadError;
 
-  // Cancel only makes sense when there is a complete saved version to return to.
-  const canCancelBank = bankComplete(savedRef.current);
-  const canCancelUpi = upiComplete(savedRef.current);
-  const upiAppInfo = UPI_APPS.find((a) => a.key === settings.upiApp);
+  // The live status line under a way to pay, once its switch is saved on.
+  const statusFor = (method) => {
+    if (method.alwaysOn && walletUnsaved) return { live: false, text: 'Tap Save Payment Settings to start taking wallet payments.' };
+    if (!status || !savedRef.current[method.key] || !settings[method.key]) return null;
+    if (method.values.some((v) => status.live.has(v))) return { live: true, text: 'Live — patients can pay this way' };
+    const reason = method.values.map((v) => status.reasons[v]).find(Boolean);
+    return reason ? { live: false, text: reason } : null;
+  };
 
   return (
-    <View style={s.screen}>
+    <View ref={screenRef} collapsable={false} style={[s.screen, keyboardLift > 0 && { paddingBottom: keyboardLift }]}>
       <View style={s.header}>
         <Pressable onPress={onBack} style={s.backButton} hitSlop={8}>
           <AppIcon name="chevron-left" size={22} color="#1F2937" strokeWidth={2.4} />
@@ -263,73 +271,55 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
           <Text style={s.subtitle}>How patients pay for appointments</Text>
         </View>
       </View>
-      <ScrollView ref={kbScrollRef} contentContainerStyle={[s.content, kbInset > 0 && { paddingBottom: kbInset + 24 }]} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
-        <View style={s.banner}>
-          <View style={s.bannerIcon}><Ionicons name="shield-checkmark" size={18} color="#0D9488" /></View>
-          <View style={s.flex}>
-            <Text style={s.bannerTitle}>{loading ? 'Payment methods' : `${activeCount} of ${METHODS.length} methods on`}</Text>
-            <Text style={s.bannerText}>Patients see only the methods you turn on when they book.</Text>
-          </View>
-        </View>
-
+      <ScrollView ref={kbScrollRef} contentContainerStyle={s.content} onScroll={kbOnScroll} onLayout={kbOnLayout} onFocusCapture={kbFocus} scrollEventThrottle={16} keyboardShouldPersistTaps="handled">
         {loading && (
           <View style={s.loadingRow}><ActivityIndicator color="#0D9488" /><Text style={s.desc}>Loading your payment settings…</Text></View>
         )}
 
-        {!loading && METHODS.map((method) => {
-          const enabled = settings[method.key];
-          return (
-            <View key={method.key} style={[s.method, enabled && s.methodOn]}>
-              <View style={s.methodRow}>
-                <View style={[s.methodIcon, { backgroundColor: method.bg }]}>
-                  <Ionicons name={method.icon} size={21} color={method.fg} />
-                </View>
-                <View style={s.flex}>
-                  <Text style={s.methodTitle}>{method.title}</Text>
-                  <Text style={s.desc}>{method.description}</Text>
-                </View>
-                <Switch
-                  value={enabled}
-                  disabled={saving}
-                  onValueChange={(v) => updateSetting(method.key, v)}
-                  trackColor={{ false: '#D5DAE3', true: '#99E6DC' }}
-                  thumbColor={enabled ? '#0D9488' : '#FFFFFF'}
-                />
-              </View>
-              {!!method.brands && (
-                <View style={s.brands}>
-                  {method.brands.map((brand) => <CardBrand key={brand} brand={brand} />)}
-                </View>
-              )}
+        {!loading && !!loadError && (
+          <View style={s.errorBox}>
+            <Ionicons name="alert-circle" size={16} color="#B42318" />
+            <Text style={s.errorText}>{loadError}</Text>
+            <Pressable onPress={() => setLoadAttempt((n) => n + 1)} hitSlop={8}>
+              <Text style={s.retryText}>Try again</Text>
+            </Pressable>
+          </View>
+        )}
 
-              {method.key === 'onlinePayment' && enabled && !editingBank && (
-                <View style={s.details}>
-                  <Text style={s.detailsTitle}>Receive card payments in</Text>
-                  <View style={s.summary}>
-                    <View style={[s.summaryIcon, s.summaryIconBank]}><Ionicons name="business" size={18} color="#4F46E5" /></View>
-                    <View style={s.flex}>
-                      <Text translate={false} style={s.summaryTitle} numberOfLines={1}>{settings.bankName}</Text>
-                      <Text translate={false} style={s.summaryLine}>A/c ••••{settings.accountNumber.slice(-4)}  ·  {settings.ifscCode}</Text>
-                      <Text translate={false} style={s.summaryLine} numberOfLines={1}>{settings.accountHolder}</Text>
-                    </View>
-                    <Pressable onPress={() => { setEditingBank(true); setSaved(false); }} style={s.editButton} hitSlop={6} accessibilityLabel="Edit bank account">
-                      <Ionicons name="create-outline" size={14} color="#0D9488" />
-                      <Text style={s.editText}>Edit</Text>
-                    </Pressable>
+        {ready && unsentDetails && (
+          <View style={s.unsentBox}>
+            <Ionicons name="cloud-upload-outline" size={16} color="#B54708" />
+            <Text style={s.unsentText}>
+              Your bank account was saved only on this phone. Tap Save Payment Settings so patients can pay you by card or UPI.
+            </Text>
+          </View>
+        )}
+
+        {ready && (
+          <>
+            <SectionLabel icon="business-outline" text="Receiving Account" />
+            <View style={s.card}>
+              {!editingBank ? (
+                <View style={s.summary}>
+                  <View style={s.summaryIcon}><Ionicons name="business" size={18} color="#4F46E5" /></View>
+                  <View style={s.flex}>
+                    <Text translate={false} style={s.summaryTitle} numberOfLines={1}>{settings.bankName}</Text>
+                    <Text translate={false} style={s.summaryLine}>A/c ••••{settings.accountNumber.slice(-4)}  ·  {settings.ifscCode}</Text>
+                    <Text translate={false} style={s.summaryLine} numberOfLines={1}>{settings.accountHolder}</Text>
                   </View>
+                  <Pressable onPress={() => { setEditingBank(true); setSaved(false); }} style={s.editButton} hitSlop={6} accessibilityLabel="Edit bank account">
+                    <Ionicons name="create-outline" size={14} color="#0D9488" />
+                    <Text style={s.editText}>Edit</Text>
+                  </Pressable>
                 </View>
-              )}
-
-              {method.key === 'onlinePayment' && enabled && editingBank && (
-                <View style={s.details}>
+              ) : (
+                <>
                   <View style={s.detailsHead}>
-                    <Ionicons name="business-outline" size={15} color="#4F46E5" />
-                    <Text style={[s.detailsTitle, s.flex]}>Receive card payments in</Text>
+                    <Text style={[s.detailsHint, s.flex]}>Card and UPI payments from patients settle to this account.</Text>
                     {canCancelBank && (
                       <Pressable onPress={cancelBankEdit} hitSlop={8}><Text style={s.cancelText}>Cancel</Text></Pressable>
                     )}
                   </View>
-                  <Text style={s.detailsHint}>Card payments are settled to this bank account.</Text>
                   <Field label="Account holder name" value={settings.accountHolder} onChangeText={(v) => updateSetting('accountHolder', v)} placeholder="As printed on your passbook" autoCapitalize="words" />
                   <Field label="Bank name" value={settings.bankName} onChangeText={(v) => updateSetting('bankName', v)} placeholder="e.g. State Bank of India" autoCapitalize="words" />
                   <Field
@@ -355,105 +345,53 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
                     autoCapitalize="characters"
                     status={settings.ifscCode.length === 11 ? (IFSC_PATTERN.test(settings.ifscCode) ? 'ok' : 'bad') : ''}
                   />
-                  {bankReady && (
-                    <SectionSave label="Save bank details" busy={savingSection === 'bank'} onPress={() => saveSection('bank')} />
-                  )}
-                </View>
-              )}
-
-              {method.key === 'upiBank' && enabled && !editingUpi && !!upiAppInfo && (
-                <View style={s.details}>
-                  <Text style={s.detailsTitle}>Receive UPI payments in</Text>
-                  <View style={s.summary}>
-                    <View style={[s.upiLogo, { backgroundColor: upiAppInfo.bg }]}>
-                      {upiAppInfo.icon
-                        ? <Ionicons name={upiAppInfo.icon} size={18} color={upiAppInfo.fg} />
-                        : <Text translate={false} style={[s.upiMark, { color: upiAppInfo.fg }, upiAppInfo.mark.length > 2 && s.upiMarkSmall]} numberOfLines={1}>{upiAppInfo.mark}</Text>}
-                    </View>
-                    <View style={s.flex}>
-                      <Text translate={false} style={s.summaryTitle}>{upiAppInfo.name}</Text>
-                      <Text translate={false} style={s.summaryLine} numberOfLines={1}>{settings.upiId}</Text>
-                    </View>
-                    <Pressable onPress={() => { setEditingUpi(true); setSaved(false); }} style={s.editButton} hitSlop={6} accessibilityLabel="Edit UPI ID">
-                      <Ionicons name="create-outline" size={14} color="#0D9488" />
-                      <Text style={s.editText}>Edit</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              )}
-
-              {method.key === 'upiBank' && enabled && (editingUpi || !upiAppInfo) && (
-                <View style={s.details}>
-                  <View style={s.detailsHead}>
-                    <Text style={[s.detailsTitle, s.flex]}>Choose your UPI app</Text>
-                    {canCancelUpi && (
-                      <Pressable onPress={cancelUpiEdit} hitSlop={8}><Text style={s.cancelText}>Cancel</Text></Pressable>
-                    )}
-                  </View>
-                  <Text style={s.detailsHint}>The app your UPI ID is linked to.</Text>
-                  <View style={s.upiList}>
-                    {UPI_APPS.map((app, index) => {
-                      const selected = settings.upiApp === app.key;
-                      return (
-                        <Pressable
-                          key={app.key}
-                          onPress={() => updateSetting('upiApp', app.key)}
-                          accessibilityRole="radio"
-                          accessibilityState={{ selected }}
-                          style={({ pressed }) => [s.upiRow, index > 0 && s.upiRowLine, selected && s.upiRowOn, pressed && s.upiRowPressed]}
-                        >
-                          <View style={[s.upiLogo, { backgroundColor: app.bg }]}>
-                            {app.icon
-                              ? <Ionicons name={app.icon} size={18} color={app.fg} />
-                              : <Text translate={false} style={[s.upiMark, { color: app.fg }, app.mark.length > 2 && s.upiMarkSmall]} numberOfLines={1}>{app.mark}</Text>}
-                          </View>
-                          <Text translate={false} style={[s.upiName, selected && s.upiNameOn]}>{app.name}</Text>
-                          <View style={[s.radio, selected && s.radioOn]}>{selected && <View style={s.radioDot} />}</View>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-
-                  {!!settings.upiApp && (() => {
-                    const app = UPI_APPS.find((a) => a.key === settings.upiApp);
-                    const user = settings.upiId.split('@')[0];
-                    return (
-                      <>
-                        <Field
-                          label={`${app.key === 'other' ? 'Your' : app.name} UPI ID`}
-                          value={settings.upiId}
-                          onChangeText={(v) => updateSetting('upiId', v.trim())}
-                          placeholder={app.handles[0] ? `e.g. 9876543210@${app.handles[0]}` : 'e.g. drname@bank'}
-                          autoCapitalize="none"
-                          keyboardType="email-address"
-                          status={settings.upiId.includes('@') ? (UPI_PATTERN.test(settings.upiId) ? 'ok' : 'bad') : ''}
-                        />
-                        {app.handles.length > 0 && (
-                          <View style={s.handles}>
-                            {app.handles.map((handle) => (
-                              <Pressable key={handle} onPress={() => updateSetting('upiId', `${user || ''}@${handle}`)} style={s.handle} hitSlop={4}>
-                                <Text translate={false} style={s.handleText}>@{handle}</Text>
-                              </Pressable>
-                            ))}
-                          </View>
-                        )}
-                      </>
-                    );
-                  })()}
-                  {upiReady && (
-                    <SectionSave label="Save UPI ID" busy={savingSection === 'upi'} onPress={() => saveSection('upi')} />
-                  )}
-                </View>
+                </>
               )}
             </View>
-          );
-        })}
 
-        {!loading && (
-          <View style={s.note}>
-            <Ionicons name="lock-closed-outline" size={13} color="#667085" />
-            <Text style={s.noteText}>Bank account and UPI details are saved on this device.</Text>
-          </View>
+            <SectionLabel icon="wallet-outline" text="How patients can pay" right={`${activeCount} of ${METHODS.length} on`} />
+            {METHODS.map((method) => {
+              const enabled = settings[method.key];
+              const line = statusFor(method);
+              return (
+                <View key={method.key} style={[s.method, enabled && s.methodOn]}>
+                  <View style={s.methodRow}>
+                    <View style={[s.methodIcon, { backgroundColor: method.bg }]}>
+                      <Ionicons name={method.icon} size={21} color={method.fg} />
+                    </View>
+                    <View style={s.flex}>
+                      <Text style={s.methodTitle}>{method.title}</Text>
+                      <Text style={s.desc}>{method.description}</Text>
+                    </View>
+                    <Switch
+                      value={enabled}
+                      disabled={saving || method.alwaysOn}
+                      onValueChange={(v) => updateSetting(method.key, v)}
+                      trackColor={{ false: '#D5DAE3', true: '#99E6DC' }}
+                      thumbColor={enabled ? '#0D9488' : '#FFFFFF'}
+                      accessibilityLabel={`Accept ${method.title}`}
+                    />
+                  </View>
+                  {!!method.brands && (
+                    <View style={s.brands}>
+                      {method.brands.map((brand) => <CardBrand key={brand} brand={brand} />)}
+                    </View>
+                  )}
+                  {!!line && (
+                    <View style={[s.statusRow, line.live ? s.statusLive : s.statusPending]}>
+                      <Ionicons name={line.live ? 'checkmark-circle' : 'time-outline'} size={14} color={line.live ? '#067647' : '#B54708'} />
+                      <Text style={[s.statusText, line.live ? s.statusTextLive : s.statusTextPending]}>{line.text}</Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+
+            <View style={s.note}>
+              <Ionicons name="lock-closed-outline" size={13} color="#667085" />
+              <Text style={s.noteText}>Your account details are saved securely on the server, where your payments settle.</Text>
+            </View>
+          </>
         )}
         {!!error && (
           <View style={s.errorBox}>
@@ -469,7 +407,7 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
         )}
       </ScrollView>
       <View style={s.footer}>
-        <Pressable onPress={handleSave} style={[(loading || saving) && s.saveDisabled]} disabled={loading || saving || !storageKey}>
+        <Pressable onPress={handleSave} style={[(!ready || saving) && s.saveDisabled]} disabled={!ready || saving || !storageKey}>
           <LinearGradient colors={CLINICIAN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.saveBtn}>
             {saving ? <ActivityIndicator color="#FFF" /> : <Text style={s.saveText}>Save Payment Settings</Text>}
           </LinearGradient>
@@ -479,13 +417,13 @@ export default function DoctorPaymentSettingsScreen({ onBack }) {
   );
 }
 
-// A section's own Save, shown once its details are complete.
-function SectionSave({ label, busy, onPress }) {
+function SectionLabel({ icon, text, right }) {
   return (
-    <Pressable onPress={onPress} disabled={busy} style={({ pressed }) => [s.sectionSave, pressed && s.sectionSavePressed, busy && s.saveDisabled]}>
-      {busy ? <ActivityIndicator color="#FFFFFF" /> : <Ionicons name="checkmark-circle-outline" size={17} color="#FFFFFF" />}
-      <Text style={s.sectionSaveText}>{busy ? 'Saving...' : label}</Text>
-    </Pressable>
+    <View style={s.sectionLabelRow}>
+      <Ionicons name={icon} size={15} color="#0D9488" />
+      <Text style={[s.sectionLabel, s.flex]}>{text}</Text>
+      {!!right && <Text style={s.sectionRight}>{right}</Text>}
+    </View>
   );
 }
 
@@ -542,12 +480,15 @@ const s = createDoctorStyles({
   title: { fontSize: 18, fontWeight: '800', color: '#0D9488' },
   subtitle: { fontSize: 12, color: '#667085', marginTop: 2 },
   content: { padding: 16, paddingBottom: 24 },
-
-  banner: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#F0FDFA', borderWidth: 1, borderColor: '#CCFBF1', borderRadius: 14, padding: 13, marginBottom: 14 },
-  bannerIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
-  bannerTitle: { fontSize: 14, fontWeight: '800', color: '#0F766E' },
-  bannerText: { fontSize: 12, lineHeight: 17, color: '#475467', marginTop: 1 },
   loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 20, justifyContent: 'center' },
+
+  sectionLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10, marginTop: 4, marginLeft: 2 },
+  sectionLabel: { fontSize: 14, fontWeight: '800', color: '#17243A' },
+  sectionRight: { fontSize: 12, fontWeight: '700', color: '#0F766E' },
+  card: {
+    backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E3E8EF', borderRadius: 16, padding: 14, marginBottom: 18,
+    shadowColor: '#0F172A', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1,
+  },
 
   method: {
     backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E3E8EF', borderRadius: 16, padding: 14, marginBottom: 12,
@@ -575,38 +516,22 @@ const s = createDoctorStyles({
   rupayArrow: { width: 0, height: 0, borderTopWidth: 5, borderBottomWidth: 5, borderLeftWidth: 6, borderTopColor: 'transparent', borderBottomColor: 'transparent' },
   rupayOrange: { borderLeftColor: '#F37021' },
   rupayGreen: { borderLeftColor: '#3EB049', marginLeft: -1 },
+  statusRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 12, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10 },
+  statusLive: { backgroundColor: '#ECFDF3' },
+  statusPending: { backgroundColor: '#FFFAEB' },
+  statusText: { flex: 1, fontSize: 12.5, lineHeight: 17, fontWeight: '600' },
+  statusTextLive: { color: '#067647' },
+  statusTextPending: { color: '#93370D' },
 
-  details: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#EEF2F6' },
   detailsHead: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  detailsTitle: { fontSize: 14, fontWeight: '800', color: '#17243A' },
-  detailsHint: { fontSize: 12, lineHeight: 17, color: '#667085', marginTop: 3 },
-  summary: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10, padding: 12, borderRadius: 13, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E4E7EC' },
-  summaryIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  summaryIconBank: { backgroundColor: '#EEF2FF' },
+  detailsHint: { fontSize: 12.5, lineHeight: 17, color: '#667085' },
+  summary: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  summaryIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EEF2FF' },
   summaryTitle: { fontSize: 14.5, fontWeight: '800', color: '#17243A' },
   summaryLine: { fontSize: 12.5, color: '#475467', marginTop: 2 },
   editButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 9, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#99F6E4' },
   editText: { fontSize: 12.5, fontWeight: '800', color: '#0D9488' },
   cancelText: { fontSize: 13, fontWeight: '700', color: '#667085' },
-  sectionSave: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, height: 44, marginTop: 14, borderRadius: 11, backgroundColor: '#0D9488' },
-  sectionSavePressed: { backgroundColor: '#0F766E' },
-  sectionSaveText: { fontSize: 14, fontWeight: '800', color: '#FFFFFF' },
-  upiList: { marginTop: 10, borderWidth: 1, borderColor: '#E4E7EC', borderRadius: 13, overflow: 'hidden' },
-  upiRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, paddingVertical: 11, backgroundColor: '#FFFFFF' },
-  upiRowLine: { borderTopWidth: 1, borderTopColor: '#F0F2F5' },
-  upiRowOn: { backgroundColor: '#F0FDFA' },
-  upiRowPressed: { backgroundColor: '#F8FAFC' },
-  upiLogo: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2 },
-  upiMark: { fontSize: 15, fontWeight: '900' },
-  upiMarkSmall: { fontSize: 9.5, fontWeight: '900' },
-  upiName: { flex: 1, fontSize: 14.5, fontWeight: '600', color: '#344054' },
-  upiNameOn: { fontWeight: '800', color: '#0F766E' },
-  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#D0D5DD', alignItems: 'center', justifyContent: 'center' },
-  radioOn: { borderColor: '#0D9488' },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#0D9488' },
-  handles: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  handle: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: '#F2F4F7', borderWidth: 1, borderColor: '#E4E7EC' },
-  handleText: { fontSize: 12, fontWeight: '700', color: '#475467' },
   field: { marginTop: 12 },
   fieldLabel: { fontSize: 12.5, fontWeight: '700', color: '#344054', marginBottom: 6 },
   inputBox: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 46, borderWidth: 1, borderColor: '#D0D5DD', borderRadius: 11, backgroundColor: '#FFFFFF', paddingHorizontal: 12 },
@@ -618,6 +543,9 @@ const s = createDoctorStyles({
   noteText: { flex: 1, fontSize: 11.5, color: '#667085' },
   errorBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 12, padding: 11, borderRadius: 11, backgroundColor: '#FEF3F2', borderWidth: 1, borderColor: '#FECDCA' },
   errorText: { flex: 1, fontSize: 13, lineHeight: 18, color: '#B42318' },
+  retryText: { fontSize: 13, fontWeight: '800', color: '#B42318' },
+  unsentBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 12, padding: 11, borderRadius: 11, backgroundColor: '#FFFAEB', borderWidth: 1, borderColor: '#FEDF89' },
+  unsentText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: '#93370D' },
   savedBox: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, padding: 11, borderRadius: 11, backgroundColor: '#ECFDF3', borderWidth: 1, borderColor: '#ABEFC6' },
   savedText: { flex: 1, fontSize: 13, color: '#067647', fontWeight: '600' },
 

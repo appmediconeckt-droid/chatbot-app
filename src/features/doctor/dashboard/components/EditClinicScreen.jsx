@@ -14,13 +14,13 @@ import { useToast } from '../../../../components/common/ToastProvider';
 import { createDoctorStyles } from '../theme';
 import { CLINICIAN_GRADIENT } from '../../../../theme/palette';
 import { updateClinic } from '../api/doctorClinics';
-import { getStoredDoctorUser } from '../api/doctorAppointments';
+import { feeCurrencyNeedsSave, loadDoctorFeeCurrency, saveDoctorFeeCurrency } from '../api/doctorFeeCurrency';
 import useKeyboardAwareScroll from '../../../../hooks/useKeyboardAwareScroll';
 import useKeyboardLift from '../../../../hooks/useKeyboardLift';
 import CountryPhoneInput from '../../../../components/common/CountryPhoneInput';
 import { buildInternationalPhoneNumber, getPhoneLengthLabel, isValidLocalPhoneNumber, splitInternationalPhoneNumber } from '../../../../utils/countryCodes';
 import ClinicFeeField, { cleanClinicFee, isValidClinicFee, profileFeeOf } from './ClinicFeeField';
-import { feeCurrencyOf } from '../../../../utils/consultationCurrency';
+import { DEFAULT_COUNTRY, findCountry } from '../../../../utils/consultationCurrency';
 
 const errorText = (err, fallback) => {
   const data = err?.response?.data;
@@ -55,23 +55,26 @@ export default function EditClinicScreen({ clinic, onBack, onSaved }) {
   const [phoneCountryCode, setPhoneCountryCode] = useState(initialPhone.countryCode);
   const [location, setLocation] = useState(initialLocation);
   const [fee, setFee] = useState(clinic?.fee != null ? String(clinic.fee) : '');
-  const [doctorUser, setDoctorUser] = useState(null);
+  // The doctor's fee currency as loaded, and the country picked here.
+  const [feeState, setFeeState] = useState(null);
+  const [feeCountry, setFeeCountry] = useState(DEFAULT_COUNTRY);
   const [photo, setPhoto] = useState(null);
   const [photoFailed, setPhotoFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // Fees are in the doctor's profile currency. A clinic without its own fee
-  // still charges the old profile fee, so the form starts from that amount.
+  // Fees are in the doctor's currency. A clinic without its own fee still
+  // charges the old profile fee, so the form starts from that amount.
   useEffect(() => {
-    getStoredDoctorUser().then((user) => {
-      setDoctorUser(user);
-      const oldProfileFee = profileFeeOf(user);
+    loadDoctorFeeCurrency().then((loaded) => {
+      setFeeState(loaded);
+      setFeeCountry(loaded.country);
+      const oldProfileFee = profileFeeOf(loaded.user);
       if (clinic?.fee == null && oldProfileFee != null) setFee((prev) => prev || String(oldProfileFee));
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const currency = feeCurrencyOf(doctorUser) || 'INR';
+  const currency = findCountry(feeCountry)?.currency || 'INR';
 
   const previewUri = photo?.uri || (!photoFailed && clinic?.photoUrl) || '';
 
@@ -113,6 +116,11 @@ export default function EditClinicScreen({ clinic, onBack, onSaved }) {
     try {
       setSaving(true);
       setError('');
+      // A new (or mismatched) currency is saved on the doctor first.
+      if (feeCurrencyNeedsSave(feeState, feeCountry)) {
+        const savedCurrency = await saveDoctorFeeCurrency(feeState.user, feeCountry);
+        setFeeState((prev) => ({ ...prev, country: feeCountry, currency, savedCurrency }));
+      }
       const updated = await updateClinic(clinic.id, {
         name: name.trim(),
         phone: buildInternationalPhoneNumber(phoneCountryCode, phone),
@@ -191,6 +199,9 @@ export default function EditClinicScreen({ clinic, onBack, onSaved }) {
             onChangeText={(value) => setFee(cleanClinicFee(value, currency))}
             currency={currency}
             onFocus={kbFocus}
+            country={feeCountry}
+            onCountryChange={setFeeCountry}
+            savedCurrency={feeState?.savedCurrency}
           />
           {!!error && <Text translate={false} style={s.error}>{error}</Text>}
         </Section>

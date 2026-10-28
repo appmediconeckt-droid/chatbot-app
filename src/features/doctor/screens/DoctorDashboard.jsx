@@ -40,6 +40,7 @@ import DoctorProfileScreen from '../dashboard/components/DoctorProfileScreen';
 import FollowUpsScreen from '../dashboard/components/FollowUpsScreen';
 import ClinicPageScreen from '../dashboard/components/ClinicPageScreen';
 import DoctorReviewsScreen from '../dashboard/components/DoctorReviewsScreen';
+import DoctorEarningsScreen from '../dashboard/components/DoctorEarningsScreen';
 import StaffManagementScreen from '../dashboard/components/StaffManagementScreen';
 import NotificationsScreen from '../dashboard/components/NotificationsScreen';
 import DoctorSettingsScreen from '../dashboard/components/DoctorSettingsScreen';
@@ -71,9 +72,9 @@ import {
   sortByToken,
   startBreak,
 } from '../dashboard/api/doctorAppointments';
-import { endDirectCall, startDirectCall } from '../dashboard/api/doctorCalls';
+import { endDirectCall, endedCallMessage, getDirectCallStatus, startDirectCall } from '../dashboard/api/doctorCalls';
+import { ensureWalletAccepted } from '../dashboard/api/doctorPaymentPreferences';
 import VideoCallModal from '../../../screens/user/Component/UserDashboard/Tab/CallModal/VideoCallModal';
-import VoiceCallModal from '../../../screens/user/Component/UserDashboard/Tab/CallModal/VoiceCallModal';
 import axiosInstance from '../../../axiosConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import socketService from '../../../services/socketService';
@@ -101,6 +102,7 @@ const sidebarRoutes = {
   appointments: 'appointments',
   walkIn: 'walkIn',
   followUps: 'followUps',
+  earnings: 'earnings',
   reviews: 'reviews',
   clinic: 'clinic',
   settings: 'settings',
@@ -112,6 +114,7 @@ const screenSidebarItems = {
   appointments: 'appointments',
   walkIn: 'walkIn',
   followUps: 'followUps',
+  earnings: 'earnings',
   reviews: 'reviews',
   settings: 'settings',
   profileQr: 'qrCode',
@@ -602,6 +605,12 @@ export default function DoctorDashboard({ navigation }) {
     return () => unsubscribe?.();
   }, [doctorId, navigation]);
 
+  // Patients can always pay this doctor from their wallet: make sure the
+  // server's saved payment methods include it (older saves don't).
+  useEffect(() => {
+    if (doctorId) ensureWalletAccepted();
+  }, [doctorId]);
+
   useEffect(() => {
     getStoredDoctorUser().then((user) => {
       setDoctorDisplayName(String(user?.fullName || user?.name || user?.user?.fullName || '').trim());
@@ -1026,12 +1035,48 @@ export default function DoctorDashboard({ navigation }) {
   };
 
   // Web: navigate('/patient-sms', { callTargetId, autoStartCallType }).
-  // Video / Voice Call: rings the patient straight from the dashboard — no chat
+  // Video Call: rings the patient straight from the dashboard — no chat
   // screen. Once the call is placed the consultation starts too, so it shows
   // under "Currently With" (Complete) when the call ends. If the
   // patient is offline the server only notifies them; nothing else changes.
-  const [activeCall, setActiveCall] = useState(null); // { mode, callData, callerId }
+  const [activeCall, setActiveCall] = useState(null); // { mode, callData, callerId, connected }
   const [callStarting, setCallStarting] = useState(false);
+  const activeCallRef = useRef(null);
+  activeCallRef.current = activeCall;
+
+  // While the patient's phone rings, follow the call's server status every
+  // 1.5s, as the web call screen does: declined / missed / cancelled closes
+  // the call screen with the reason; accepted counts as connected.
+  const ringingCallId = activeCall && !activeCall.connected ? activeCall.callData?.callId : null;
+  useEffect(() => {
+    if (!ringingCallId) return undefined;
+    let stopped = false;
+    const check = async () => {
+      const { phase, status } = await getDirectCallStatus(ringingCallId, activeCallRef.current?.callerId);
+      if (stopped) return;
+      if (phase === 'joinable') {
+        setActiveCall((call) => (call?.callData?.callId === ringingCallId ? { ...call, connected: true } : call));
+      } else if (phase === 'terminal') {
+        stopped = true;
+        ToastAndroid.show(endedCallMessage(status), ToastAndroid.LONG);
+        // Close through isOpen first: the call screen then leaves the Stream
+        // call and disconnects its client (unmounting it directly skipped
+        // that, and the next call started on a stale Stream session).
+        const isThisCall = (call) => call?.callData?.callId === ringingCallId;
+        setActiveCall((call) => (isThisCall(call) ? { ...call, closing: true } : call));
+        setTimeout(() => setActiveCall((call) => (isThisCall(call) && call.closing ? null : call)), 1500);
+      }
+    };
+    check();
+    const timer = setInterval(check, 1500);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [ringingCallId]);
+
+  // Hanging up: 'cancelled' while it still rings, 'ended' once connected (web endCall).
+  const hangUpCall = (callId) => {
+    const call = activeCallRef.current;
+    return endDirectCall(callId, call?.callerId, call?.connected ? 'ended' : 'cancelled');
+  };
 
   const handleCall = async (appt, mode) => {
     if (!appt?.patientId) return Alert.alert('Call', 'Patient account not found for this appointment.');
@@ -1050,6 +1095,7 @@ export default function DoctorDashboard({ navigation }) {
       setActiveCall({ mode, callData: result.callData, callerId: result.callerId });
       if (!activeSession?.appt) await beginConsultation(appt);
     } catch (err) {
+      console.warn('[doctor call] start failed', err?.response?.status, JSON.stringify(err?.response?.data || err?.message));
       showError(err, 'Could not start the call.');
     } finally {
       setCallStarting(false);
@@ -1461,6 +1507,14 @@ export default function DoctorDashboard({ navigation }) {
       );
     }
 
+    if (activeScreen === 'earnings') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <DoctorEarningsScreen onBack={goBack} />
+        </SafeAreaView>
+      );
+    }
+
     if (activeScreen === 'followUps') {
       return (
         <SafeAreaView style={styles.safeArea}>
@@ -1729,20 +1783,11 @@ export default function DoctorDashboard({ navigation }) {
       <UpdateReminderModal variant="doctor" />
       {activeCall?.mode === 'video' && (
         <VideoCallModal
-          isOpen
+          isOpen={!activeCall.closing}
           callData={activeCall.callData}
           currentUser={{ id: activeCall.callerId, role: 'counsellor' }}
           onClose={() => setActiveCall(null)}
-          onEndCall={(callId) => endDirectCall(callId, activeCall.callerId)}
-        />
-      )}
-      {activeCall?.mode === 'voice' && (
-        <VoiceCallModal
-          isOpen
-          callData={activeCall.callData}
-          currentUser={{ id: activeCall.callerId, role: 'counsellor' }}
-          onClose={() => setActiveCall(null)}
-          onEndCall={(callId) => endDirectCall(callId, activeCall.callerId)}
+          onEndCall={hangUpCall}
         />
       )}
     </DoctorBackContext.Provider>

@@ -7,7 +7,7 @@ import { isTokenExpired } from './utils/tokenExpiry';
 
 const API_ENDPOINTS = {
   // RAILWAY: 'https://chatbot-backend-production-82fb.up.railway.app',
-  RAILWAY: 'https://humaeli-backend-update-production.up.railway.app',
+  // RAILWAY: 'https://humaeli-backend-update-production.up.railway.app',
   // DevTunnels: 'https://s5jl7g4z-5002.inc1.devtunnels.ms',
   // The web dashboard's backend (doctor rating, walk-in statuses, …).
   DEVTUNNEL_5006: 'https://s5jl7g4z-5006.inc1.devtunnels.ms',
@@ -23,8 +23,8 @@ const API_ENDPOINTS = {
 // doesn't yet — doctor ratings averaged into rating/ratingCount, doctor
 // payment methods. Release builds stay on Railway.
 export const API_BASE_URL = __DEV__
-  ? API_ENDPOINTS.RAILWAY
-  : API_ENDPOINTS.RAILWAY;
+  ? API_ENDPOINTS.DEVTUNNEL_5006
+  : API_ENDPOINTS.DEVTUNNEL_5006;
 export const AI_REALTIME_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
 export const TUNNEL_HEADERS = API_BASE_URL.includes('devtunnels.ms')
   ? { 'X-Tunnel-Skip-AntiPhishing-Page': 'true' }
